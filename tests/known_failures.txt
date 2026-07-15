@@ -1,0 +1,9 @@
+# Known pre-existing test failures (behavior drift) — baseline for the CI gate
+# (scripts/ci_test_gate.py). NEW failures outside this list fail CI. Regenerate
+# with: python scripts/ci_test_gate.py --update
+#
+# Baseline is now EMPTY. The last entry, test_dedup_prevents_repeat, was not
+# actually flaky — it masked a real bug (the dedup sentinel was 0 vs
+# time.monotonic()'s arbitrary epoch, suppressing the first alert for ~5 min
+# after startup). Fixed in proactive_monitor._should_send (roadmap P0-1), so the
+# test passes deterministically and was removed from the baseline.

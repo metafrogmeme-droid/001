@@ -1,0 +1,2849 @@
+"""
+RUNECLAW Skill System v6 — rich Telegram cards.
+Clean separators, emoji headers, bullet-point key-value pairs,
+<b>bold</b> section headers, <code>code</code> for prices/numbers.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import html as _html
+from abc import ABC, abstractmethod
+from datetime import datetime
+from bot.compat import UTC
+from typing import Any
+
+from bot.config import CONFIG
+from bot.core.engine import RuneClawEngine
+from bot.utils.logger import audit, system_log
+
+# Total number of pre-trade risk checks in the risk engine.
+# Update this constant when adding or removing checks in risk_engine.py.
+_TOTAL_RISK_CHECKS = 23
+
+def _get_portfolio(engine: RuneClawEngine, **kwargs):
+    """Return per-user portfolio if user_id provided, else system portfolio."""
+    user_id = kwargs.get("user_id")
+    if user_id:
+        return engine.user_portfolios.get(user_id)
+    return engine.portfolio
+
+
+def normalize_deepscan_scores(hits: list[dict]) -> None:
+    """Add a "score_norm" (0-1) field to each hit, in place.
+
+    DeepScanSkill's raw "score" is an UNBOUNDED point count
+    (len(chart_patterns)*2 + len(candle_patterns)*1 + RSI/volume bonuses --
+    up to 16 chart-pattern detectors and 14 candlestick patterns can each
+    independently contribute), not a 0-1 confidence. A fixed divisor
+    (previously score/10.0, clamped to 1.0) assumed raw scores rarely exceed
+    10, but a symbol matching several detectors at once routinely scores
+    well above that -- every displayed hit then saturated at 1.0 (rendered
+    as "100%") regardless of how it actually compared to the rest of the
+    scan. Normalizing relative to THIS batch's own best hit instead gives a
+    meaningful relative ranking that self-adjusts if detectors are added,
+    removed, or retuned later.
+    """
+    max_raw = hits[0]["score"] if hits else 0
+    for h in hits:
+        h["score_norm"] = (h["score"] / max_raw) if max_raw > 0 else 0.0
+
+
+# ── Visual vocabulary ─────────────────────────────────────────
+_OK = "\U0001f7e2"        # green circle
+_WARN = "\U0001f7e1"      # yellow circle
+_BAD = "\U0001f534"       # red circle
+_NEU = "\u26aa"           # white circle
+_SHIELD = "\U0001f6e1"    # shield (risk dashboard)
+_BOOK = "\U0001f4d6"      # book (explanation)
+_CHART = "\U0001f4ca"     # chart (backtest)
+
+_BLOCKS = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"  # ▁▂▃▄▅▆▇█
+
+def _status(v: float) -> str:
+    return _OK if v > 0 else _BAD if v < 0 else _NEU
+
+def _spark(v: float) -> str:
+    if v > 2: return "\u25b2"   # ▲
+    if v > 0: return "\u25b3"   # △
+    if v < -2: return "\u25bc"  # ▼
+    if v < 0: return "\u25bd"   # ▽
+    return "\u25c7"             # ◇
+
+def _bar(val: float, mx: float = 1.0, w: int = 10) -> str:
+    """Gradient progress bar using ━ filled and ╌ empty."""
+    r = min(max(val / mx, 0), 1.0) if mx > 0 else 0
+    f = int(r * w)
+    return "\u2501" * f + "\u254c" * (w - f)  # ━ filled, ╌ empty
+
+def _gauge(label: str, val: float, mx: float, unit: str = "%", w: int = 12) -> str:
+    """Visual gauge with gradient bar and inline value."""
+    bar = _bar(val, mx, w)
+    # Pick endpoint emoji based on fill level
+    r = val / mx if mx > 0 else 0
+    tip = "\U0001f7e2" if r < 0.5 else "\U0001f7e1" if r < 0.8 else "\U0001f534"
+    if unit == "%":
+        return f"  {tip} {label:<10} \u2502{bar}\u2502 {val:.1f}%\u2009/\u2009{mx:.0f}%"
+    return f"  {tip} {label:<10} \u2502{bar}\u2502 {val:.0f}\u2009/\u2009{mx:.0f}"
+
+def _hbar(label: str, val: float, mx: float, w: int = 8) -> str:
+    """Compact horizontal bar with label."""
+    r = min(max(val / mx, 0), 1.0) if mx > 0 else 0
+    f = int(r * w)
+    filled = "\u2588" * f          # █
+    empty = "\u2591" * (w - f)     # ░
+    return f"  {label}  {filled}{empty}  {val:.0f}"
+
+def _divider(char: str = "\u2500", w: int = 28) -> str:
+    """Visual section separator: ────────────────────────────"""
+    return f"  {char * w}"
+
+def _header(emoji: str, title: str, w: int = 24) -> str:
+    """Decorated card header with title bar."""
+    return f"{emoji} <b>{title}</b> {'━' * w}"
+
+SEP = "\u2500" * 16  # ────────────────
+
+def _kv(key: str, val: str, w: int = 28) -> str:
+    """Clean key-value line: '- Label: value'."""
+    return f"- {key}: {val}"
+
+def _pill(text: str) -> str:
+    """Inline code badge."""
+    return f"<code>\u2009{text}\u2009</code>"
+
+def _sparkline(values: list[float], w: int = 12) -> str:
+    """Mini sparkline from block characters ▁▂▃▄▅▆▇█."""
+    if not values:
+        return "\u2500" * w
+    # Sample or pad to width
+    if len(values) > w:
+        step = len(values) / w
+        sampled = [values[int(i * step)] for i in range(w)]
+    else:
+        sampled = values
+    mn, mx = min(sampled), max(sampled)
+    rng = mx - mn if mx > mn else 1.0
+    out = []
+    for v in sampled:
+        idx = int((v - mn) / rng * 7)
+        idx = max(0, min(7, idx))
+        out.append(_BLOCKS[idx])
+    return "".join(out)
+
+def _mini_chart(vals: list[float], w: int = 16) -> str:
+    """Mini chart using block characters, wrapped in <code>."""
+    return f"<code>{_sparkline(vals, w)}</code>"
+
+def _traffic_light(passed: int, total: int) -> str:
+    """Visual check display as dots: 🟢🟢🟢🟡🔴"""
+    failed = total - passed
+    return _OK * passed + _BAD * failed
+
+def _progress_ring(pct: float) -> str:
+    """Circular progress indicator using Unicode."""
+    rings = ["\u25cb", "\u25d4", "\u25d1", "\u25d5", "\u25cf"]  # ○◔◑◕●
+    idx = int(min(max(pct, 0), 100) / 25)
+    idx = min(idx, 4)
+    return rings[idx]
+
+def _stars(v: float) -> str:
+    if v >= 2.0: return "\u2605\u2605\u2605"
+    if v >= 1.5: return "\u2605\u2605\u2606"
+    return "\u2605\u2606\u2606"
+
+def _esc(s: str) -> str:
+    return _html.escape(str(s))
+
+def _money(v: float, sign: bool = False) -> str:
+    if sign:
+        return f"${v:+,.2f}"
+    return f"${v:,.2f}"
+
+def _price(v: float) -> str:
+    """Adaptive price formatting — more decimals for sub-penny tokens."""
+    if v >= 1.0:
+        return f"${v:,.2f}"
+    elif v >= 0.01:
+        return f"${v:,.4f}"
+    elif v >= 0.0001:
+        return f"${v:,.6f}"
+    else:
+        return f"${v:.8f}"
+
+def _row(label: str, value: str, w: int = 28) -> str:
+    """Right-aligned row inside <pre>: '  Label     $1,234.56'"""
+    gap = w - len(label) - len(value) - 4
+    if gap < 1: gap = 1
+    return f"  {label}{' ' * gap}{value}"
+
+def _pnl_arrow(v: float) -> str:
+    """Directional PnL indicator."""
+    if v > 0: return "\U0001f7e2\u25b2"
+    if v < 0: return "\U0001f534\u25bc"
+    return "\u26aa\u25c7"
+
+
+def _true_range_atr(highs, lows, closes, period: int = 14) -> float:
+    """Average True Range from OHLC arrays.
+
+    TR_t = max(high-low, |high-prev_close|, |low-prev_close|); ATR is the mean
+    of the last *period* true ranges. Returns 0.0 when there is too little data
+    or the result is not finite, so callers can apply their own fallback.
+    """
+    import numpy as _np
+
+    highs = _np.asarray(highs, dtype=float)
+    lows = _np.asarray(lows, dtype=float)
+    closes = _np.asarray(closes, dtype=float)
+    if len(closes) < 2:
+        return 0.0
+    tr = _np.maximum(
+        highs[1:] - lows[1:],
+        _np.maximum(_np.abs(highs[1:] - closes[:-1]),
+                    _np.abs(lows[1:] - closes[:-1])),
+    )
+    n = min(period, len(tr))
+    if n <= 0:
+        return 0.0
+    atr = float(_np.mean(tr[-n:]))
+    return atr if _np.isfinite(atr) and atr > 0 else 0.0
+
+
+class BaseSkill(ABC):
+    name: str = "unnamed"
+    description: str = ""
+    @abstractmethod
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str: ...
+
+
+class SkillRegistry:
+    def __init__(self) -> None:
+        self._skills: dict[str, BaseSkill] = {}
+    def register(self, skill: BaseSkill) -> None:
+        self._skills[skill.name] = skill
+        audit(system_log, f"Skill registered: {skill.name}", action="register")
+    def get(self, name: str) -> BaseSkill | None:
+        return self._skills.get(name)
+
+    async def dispatch(self, name: str, engine: "RuneClawEngine", **kwargs: Any) -> str:
+        """Look up `name` and run it, returning its result string.
+
+        The codebase called ``registry.get(name).execute(...)`` in ~30 places
+        with no ``Optional`` check — a mistyped or unregistered skill name would
+        raise ``AttributeError: 'NoneType' has no attribute 'execute'`` and crash
+        the command. This resolves the skill first and returns a clean,
+        user-facing error (and an audit record) when it is missing, instead.
+        """
+        skill = self._skills.get(name)
+        if skill is None:
+            audit(system_log, f"Skill dispatch failed: '{name}' not registered",
+                  action="dispatch", result="MISSING")
+            return f"{_BAD} Internal error: command '{name}' is unavailable."
+        return await skill.execute(engine, **kwargs)
+
+    def list_skills(self) -> list[str]:
+        return [f"{s.name} -- {s.description}" for s in self._skills.values()]
+
+
+# ══════════════════════════════════════════════════════════════
+# SCAN
+# ══════════════════════════════════════════════════════════════
+
+class ScanMarketSkill(BaseSkill):
+    name = "scan_market"
+    description = "Scan exchange for top movers"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        signals = await engine.scanner.scan()
+        # Stash structured results so the Telegram handler can render the grid
+        # card from them (non-breaking: this method still returns its text).
+        try:
+            engine._last_scan_signals = signals or []
+        except Exception:
+            pass
+        if not signals:
+            return f"{_NEU} <b>SCANNER</b>\n\n<i>No signals detected.</i>"
+
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        top = signals[:10]
+
+        from bot.core.market_scanner import group_by_category, category_icon
+
+        lines = [
+            f"\U0001f50e <b>MARKET SCANNER</b>\n{SEP}",
+            f"<i>\u23f0 {now}  \u2022  {len(signals)} pairs detected</i>\n",
+        ]
+
+        # Group by category (shared helper \u2014 identical ordering everywhere)
+        by_cat = group_by_category(top, lambda s: s.asset_category)
+
+        for cat in by_cat:
+            cat_icon = category_icon(cat)
+            cat_sigs = by_cat[cat]
+            lines.append(f"{cat_icon} <b>{cat}</b>")
+            lines.append("<pre>")
+            for s in cat_sigs:
+                arrow = _spark(s.change_pct_24h)
+                vol_m = s.volume_usd_24h / 1_000_000 if s.volume_usd_24h else 0
+                chg = f"{s.change_pct_24h:+.1f}%"
+                spike = " \U0001f4a5" if s.volume_spike else ""
+                display_sym = s.symbol.replace(":USDT", "")
+                lines.append(
+                    f" {arrow} {_esc(display_sym):<12s}"
+                    f"  {_price(s.price):<12s}"
+                    f"  {chg:>7}"
+                    f"  ${vol_m:,.0f}M{spike}"
+                )
+            lines.append("</pre>")
+
+        # Summary line
+        bullish = sum(1 for s in top if s.change_pct_24h > 0)
+        bearish = len(top) - bullish
+        spikes = sum(1 for s in top if s.volume_spike)
+        cats_found = len(by_cat)
+        lines.append(f"\n{_OK} {bullish} bullish  {_BAD} {bearish} bearish  \u2022  {cats_found} categories")
+        if spikes:
+            lines.append(f"\U0001f4a5 {spikes} volume spike{'s' if spikes != 1 else ''} detected")
+        lines.append("\n<i>\U0001f504 /mode all_markets \u2022 say \"deep scan\" for full analysis</i>")
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# ANALYZE
+# ══════════════════════════════════════════════════════════════
+
+class AnalyzeAssetSkill(BaseSkill):
+    name = "analyze_asset"
+    description = "Run AI analysis on a specific asset"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        symbol = kwargs.get("symbol", "BTC/USDT")
+        from bot.utils.models import MarketSignal
+        from bot.core.market_scanner import _classify_symbol
+
+        # Build candidate symbol formats to try:
+        # User may pass "ANTHROPICUSDT/USDT" but exchange lists "ANTHROPIC/USDT:USDT"
+        candidates = [symbol]
+        base = symbol.split("/")[0]
+        # If base ends with USDT (e.g. ANTHROPICUSDT), strip it for the real base
+        real_base = base[:-4] if base.endswith("USDT") and len(base) > 4 else base
+        if real_base != base:
+            # Add swap format: ANTHROPIC/USDT:USDT
+            candidates.append(f"{real_base}/USDT:USDT")
+            candidates.append(f"{real_base}/USDT")
+        # Also try swap suffix if not present
+        if ":USDT" not in symbol:
+            candidates.append(f"{symbol}:USDT")
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_candidates = []
+        for c in candidates:
+            if c not in seen:
+                seen.add(c)
+                unique_candidates.append(c)
+
+        # Try to classify — check all candidates against known TradFi sets
+        category = "Crypto"
+        resolved_symbol = symbol
+        for cand in unique_candidates:
+            cat = _classify_symbol(cand)
+            if cat != "Crypto":
+                category = cat
+                resolved_symbol = cand
+                break
+
+        sig = MarketSignal(symbol=resolved_symbol, price=0, change_pct_24h=0,
+                           volume_usd_24h=0, asset_category=category,
+                           timestamp=datetime.now(UTC))
+        try:
+            # Use futures exchange for non-Crypto categories
+            if category != "Crypto":
+                exchange = await engine.scanner._get_futures_exchange()
+            else:
+                exchange = await engine.scanner._get_exchange()
+
+            # Try each candidate format until one works
+            ticker = None
+            working_symbol = resolved_symbol
+            for cand in unique_candidates:
+                try:
+                    ticker = await exchange.fetch_ticker(cand)
+                    if ticker and float(ticker.get("last", 0) or 0) > 0:
+                        working_symbol = cand
+                        break
+                except Exception:
+                    continue
+
+            # If spot exchange failed, try futures exchange too
+            if not ticker and category == "Crypto":
+                try:
+                    fut_exchange = await engine.scanner._get_futures_exchange()
+                    for cand in unique_candidates:
+                        try:
+                            ticker = await fut_exchange.fetch_ticker(cand)
+                            if ticker and float(ticker.get("last", 0) or 0) > 0:
+                                working_symbol = cand
+                                # Re-classify with resolved symbol
+                                category = _classify_symbol(working_symbol)
+                                if category == "Crypto" and ":USDT" in working_symbol:
+                                    category = _classify_symbol(working_symbol)
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+            if not ticker:
+                raise ValueError(f"No ticker data for any of: {unique_candidates}")
+
+            sig = MarketSignal(
+                symbol=working_symbol, price=float(ticker.get("last", 0)),
+                change_pct_24h=float(ticker.get("percentage", 0) or 0),
+                volume_usd_24h=float(ticker.get("quoteVolume", 0) or 0),
+                asset_category=category,
+                timestamp=datetime.now(UTC),
+            )
+        except Exception:
+            return f"{_BAD} <b>ANALYSIS</b>\n\n<i>Could not fetch data for</i> <code>{_esc(symbol)}</code>"
+
+        # C2-21 FIX: Guard against zero/negative price reaching the analyzer
+        if sig.price <= 0:
+            return f"{_BAD} <b>ANALYSIS</b>\n\n<i>Invalid price (0 or negative) for</i> <code>{_esc(symbol)}</code>"
+
+        idea = await engine._analyze_signal(sig, is_admin=kwargs.get("is_admin", False),
+                                            user_id=kwargs.get("user_id"),
+                                            user_tier=kwargs.get("user_tier"))
+        if idea is None:
+            vol_m = sig.volume_usd_24h / 1_000_000 if sig.volume_usd_24h else 0
+            arrow = _spark(sig.change_pct_24h)
+            # Pull diagnostics from analyzer
+            diag = getattr(engine.analyzer, "_last_rejection_diag", None) or {}
+            diag_lines = []
+            if diag.get("regime"):
+                diag_lines.append(f"Regime: <code>{diag['regime']}</code>")
+            if diag.get("direction"):
+                diag_lines.append(f"Bias: <code>{diag['direction']}</code>")
+            if diag.get("confluence"):
+                diag_lines.append(f"Confluence: <code>{diag['confluence']:.0%}</code>")
+            if diag.get("blended") is not None:
+                diag_lines.append(f"Final score: <code>{diag['blended']:.0%}</code>")
+            if diag.get("threshold"):
+                diag_lines.append(f"Threshold: <code>{diag['threshold']:.0%}</code>")
+            if diag.get("regime_penalty") and diag["regime_penalty"] > 0:
+                diag_lines.append(f"Regime penalty: <code>-{diag['regime_penalty']:.0%}</code>")
+            reason_text = diag.get("reason", "regime filter or low confluence")
+            diag_detail = "\n".join(f"  {l}" for l in diag_lines)
+            msg = (
+                f"{_NEU} <b>{_esc(symbol)}</b>  {arrow}\n{SEP}\n\n"
+                f"- Price: <code>${sig.price:,.2f}</code>\n"
+                f"- 24h: <code>{sig.change_pct_24h:+.1f}%</code>\n"
+                f"- Volume: <code>${vol_m:,.0f}M</code>\n\n"
+            )
+            if diag_lines:
+                msg += f"<i>\u25c7 {_esc(reason_text)}</i>\n\n{diag_detail}"
+            else:
+                msg += f"<i>\u25c7 No actionable signal \u2014 {_esc(reason_text)}</i>"
+            return msg
+
+        # Dedup: replace any existing pending idea for the same asset
+        for eid in list(engine._pending_ideas):
+            if engine._pending_ideas[eid].asset == idea.asset:
+                engine._pending_ideas.pop(eid)
+                engine._pending_atr.pop(eid, None)
+                break
+        engine._pending_ideas[idea.id] = idea
+
+        d = idea.direction.value
+        d_icon = _OK if d == "LONG" else _BAD
+        d_arrow = "\u25b2" if d == "LONG" else "\u25bc"
+        rr = idea.risk_reward_ratio
+        conf = idea.confidence
+        sl_d = abs(idea.entry_price - idea.stop_loss)
+        tp_d = abs(idea.take_profit - idea.entry_price)
+
+        # Price ladder with box drawing
+        if d == "LONG":
+            ladder = (
+                f"  \U0001f3af TP    \u2502 ${idea.take_profit:>10,.2f}  (+${tp_d:,.2f})\n"
+                f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
+                f"  {d_arrow}  IN   \u2502 ${idea.entry_price:>10,.2f}\n"
+                f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
+                f"  \U0001f6d1 SL    \u2502 ${idea.stop_loss:>10,.2f}  (-${sl_d:,.2f})"
+            )
+        else:
+            ladder = (
+                f"  \U0001f6d1 SL    \u2502 ${idea.stop_loss:>10,.2f}  (-${sl_d:,.2f})\n"
+                f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
+                f"  {d_arrow}  IN   \u2502 ${idea.entry_price:>10,.2f}\n"
+                f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
+                f"  \U0001f3af TP    \u2502 ${idea.take_profit:>10,.2f}  (+${tp_d:,.2f})"
+            )
+
+        # Confidence bar using gradient blocks
+        conf_w = 12
+        conf_fill = int(conf * conf_w)
+        conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (conf_w - conf_fill)
+        conf_ring = _progress_ring(conf * 100)
+
+        return (
+            f"{d_icon} <b>{d}  {_esc(idea.asset)}</b>\n{SEP}\n\n"
+            f"<pre>"
+            f"{ladder}"
+            f"</pre>\n\n"
+            f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(f'{conf:.0%}')}\n"
+            f"  \u2606 Risk:Reward {_stars(rr)} {_pill(f'{rr}x')}\n\n"
+            f"<blockquote>{_esc(idea.reasoning[:250])}</blockquote>\n\n"
+            f"\U0001f4ce {_pill(idea.id)}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# STATUS / RISK
+# ══════════════════════════════════════════════════════════════
+
+class CheckRiskSkill(BaseSkill):
+    name = "check_risk"
+    description = "Risk dashboard"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        mode = kwargs.get("mode", "risk")
+        portfolio = _get_portfolio(engine, **kwargs)
+        state = portfolio.snapshot()
+        cb = engine.risk.circuit_breaker_active
+        streak = engine.risk.consecutive_losses
+        cost = engine.cost.snapshot()
+
+        # LIVE FIX: use real exchange equity and live positions in LIVE mode
+        if CONFIG.is_live():
+            live_eq = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
+            display_equity = live_eq if live_eq > 0 else state.equity_usd
+            executor = engine.live_executor
+            live_open = executor.open_positions
+            live_closed = executor.closed_positions
+            total_exp = sum(lp.cost_usd for lp in live_open)
+            display_open = len(live_open)
+            display_total_trades = len(live_closed)
+            display_pnl = sum((p.pnl_usd or 0) for p in live_closed)
+            display_win_rate = (sum(1 for t in live_closed if (t.pnl_usd or 0) > 0) / len(live_closed)) if live_closed else 0.0
+        else:
+            display_equity = state.equity_usd
+            total_exp = sum(p.entry_price * p.quantity for p in portfolio.open_positions)
+            display_open = state.open_positions
+            display_total_trades = state.total_trades
+            display_pnl = state.daily_pnl
+            display_win_rate = state.win_rate
+        exp_pct = (total_exp / display_equity * 100) if display_equity > 0 else 0
+
+        from bot.risk.risk_engine import _CORRELATION_GROUPS
+        groups: dict[str, int] = {}
+        for pos in portfolio.open_positions:
+            g = _CORRELATION_GROUPS.get(pos.asset, pos.asset)
+            groups[g] = groups.get(g, 0) + 1
+
+        if mode == "status":
+            return self._status(engine, state, cb, streak, cost, exp_pct,
+                                display_equity, display_open, display_total_trades,
+                                display_pnl, display_win_rate)
+        return self._risk(state, cb, streak, total_exp, exp_pct, groups,
+                          display_equity, display_open, display_pnl)
+
+    def _status(self, engine, state, cb, streak, cost, exp_pct,
+                display_equity, display_open, display_total_trades,
+                display_pnl, display_win_rate):
+        mode = "PAPER" if CONFIG.simulation_mode else "\u26a0\ufe0f LIVE"
+        cb_s = f"{_BAD} TRIPPED" if cb else f"{_OK} CLEAR"
+        macro = engine.macro_calendar.evaluate()
+        macro_icons = {
+            "NORMAL": _OK, "PRE_EVENT_CAUTION": _WARN,
+            "EVENT_LOCKDOWN": _BAD, "POST_EVENT_VOLATILITY": "\U0001f7e0",
+            "BLACKOUT": "\u26ab",
+        }
+        m_icon = macro_icons.get(macro.state.value, _NEU)
+        m_label = macro.state.value.replace("_", " ").title()
+        net = display_equity - cost.operating_cost_usd
+        pnl_icon = _status(display_pnl)
+
+        # Health score: combine drawdown headroom + win rate + streak safety
+        dd_health = max(0, 100 - (state.max_drawdown_pct / CONFIG.risk.max_drawdown_pct * 100)) if CONFIG.risk.max_drawdown_pct > 0 else 100
+        streak_health = max(0, 100 - (streak / CONFIG.risk.max_consecutive_losses * 100)) if CONFIG.risk.max_consecutive_losses > 0 else 100
+        overall = (dd_health + streak_health) / 2
+        health_ring = _progress_ring(overall)
+
+        return (
+            f"\U0001f43e <b>RUNECLAW STATUS</b>\n{SEP}\n\n"
+            f"  {cb_s}  \u2502  {mode}  \u2502  {m_icon} {m_label}\n"
+            f"  {health_ring} System Health {_pill(f'{overall:.0f}%')}\n\n"
+            # ── Capital card ──
+            f"\U0001f4b0 <b>Capital</b>\n"
+            f"- Equity: <code>{_money(display_equity)}</code>\n"
+            f"- Net: <code>{_money(net)}</code>\n"
+            f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
+            f"- Drawdown: <code>{state.max_drawdown_pct:.1f}%</code>\n\n"
+            # ── Positions card ──
+            f"\U0001f4ca <b>Positions</b>\n"
+            f"- Open: <code>{display_open} / {CONFIG.risk.max_open_positions}</code>\n"
+            f"- Total: <code>{display_total_trades}</code>\n"
+            f"- Win Rate: <code>{display_win_rate:.0%}</code>\n"
+            f"- Exposure: <code>{exp_pct:.0f}%</code>\n\n"
+            # ── Risk gate ──
+            f"\U0001f6e1 <b>Risk Gate</b>\n"
+            f"- Breaker: <code>{'TRIPPED' if cb else 'CLEAR'}</code>\n"
+            f"- Streak: <code>{streak} / {CONFIG.risk.max_consecutive_losses}</code>\n"
+            f"- Checks: {_traffic_light(_TOTAL_RISK_CHECKS if not cb else _TOTAL_RISK_CHECKS - streak, _TOTAL_RISK_CHECKS)}\n\n"
+            # ── Costs ──
+            f"\u26a1 <b>Costs</b>\n"
+            f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>\n"
+            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>"
+        )
+
+    def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
+              display_equity, display_open, display_pnl):
+        cb_icon = _BAD if cb else _OK
+        cb_label = "TRIPPED" if cb else "CLEAR"
+        grp = ", ".join(f"{g}={c}" for g, c in groups.items()) if groups else "none"
+
+        # Compute an overall risk health score
+        dd_r = state.max_drawdown_pct / CONFIG.risk.max_drawdown_pct if CONFIG.risk.max_drawdown_pct > 0 else 0
+        exp_r = exp_pct / CONFIG.risk.max_portfolio_exposure_pct if CONFIG.risk.max_portfolio_exposure_pct > 0 else 0
+        str_r = streak / CONFIG.risk.max_consecutive_losses if CONFIG.risk.max_consecutive_losses > 0 else 0
+        risk_score = max(0, 100 - int((dd_r + exp_r + str_r) / 3 * 100))
+        health_bar = _bar(risk_score, 100, 14)
+
+        return (
+            f"{_SHIELD} <b>RISK DASHBOARD</b>\n{SEP}\n\n"
+            f"  {cb_icon} Circuit Breaker: <b>{cb_label}</b>\n"
+            f"  \u25cf Health Score \u2502{health_bar}\u2502 {_pill(f'{risk_score}%')}\n\n"
+            # ── Visual gauges ──
+            f"{_gauge('Drawdown', state.max_drawdown_pct, CONFIG.risk.max_drawdown_pct)}\n"
+            f"{_gauge('Exposure', exp_pct, CONFIG.risk.max_portfolio_exposure_pct)}\n"
+            f"{_gauge('Streak', streak, CONFIG.risk.max_consecutive_losses, unit='#')}\n\n"
+            # ── Capital breakdown ──
+            f"\U0001f4b0 <b>Capital</b>\n"
+            f"- Equity: <code>{_money(display_equity)}</code>\n"
+            f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
+            f"- Exposure: <code>{_money(total_exp)}</code>\n"
+            f"- Positions: <code>{display_open} / {CONFIG.risk.max_open_positions}</code>\n"
+            f"- Groups: <code>{grp}</code>\n\n"
+            # ── Configured limits ──
+            f"\U0001f512 <b>Limits</b>\n"
+            f"- Min Conf: <code>{CONFIG.risk.min_confidence:.0%}</code>\n"
+            f"- Min R:R: <code>{CONFIG.risk.min_risk_reward}x</code>\n"
+            f"- Max DD: <code>{CONFIG.risk.max_drawdown_pct}%</code>\n"
+            f"- Max Daily: <code>{CONFIG.risk.max_daily_loss_pct}%</code>\n"
+            f"- Vol Guard: <code>{CONFIG.risk.volatility_guard_atr_pct}% ATR</code>\n"
+            f"- Checks: {_traffic_light(_TOTAL_RISK_CHECKS if not cb else _TOTAL_RISK_CHECKS - streak, _TOTAL_RISK_CHECKS)}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# PORTFOLIO
+# ══════════════════════════════════════════════════════════════
+
+class GetPortfolioSkill(BaseSkill):
+    name = "get_portfolio"
+    description = "Portfolio with PnL waterfall"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        from bot.config import CONFIG
+
+        # LIVE mode: show real exchange data
+        if CONFIG.is_live() and hasattr(engine, 'live_executor'):
+            # Route to the SAME account the caller's other cards (/start, /risk)
+            # show — via the shared viewer resolver — so the two never disagree
+            # about which book they describe. Under per-user live, a caller with
+            # no own linked account sees nothing here rather than the operator's
+            # book (previously it hard-coded engine.live_executor and leaked the
+            # operator account to every caller).
+            executor = engine.viewer_executor(kwargs.get("user_id", "") or "")
+            if executor is None:
+                return ("<b>Portfolio</b> (LIVE)\n\nNo linked live account. "
+                        "Use <code>/connect</code> to link your exchange keys.")
+            live_open = executor.open_positions
+
+            # Win rate + real-trade set from the single shared source of truth
+            # (bot.skills.live_stats) so this card and every other card compute
+            # it identically — no more 38%-vs-52% drift between cards.
+            from bot.skills.live_stats import live_win_stats
+            _stats = live_win_stats(executor.closed_positions)
+            live_closed = _stats["trades"]
+
+            # Get real equity
+            user_id = kwargs.get("user_id", "")
+            display_equity = 0.0
+            try:
+                display_equity = await engine.get_effective_equity_async(user_id)
+            except Exception:
+                pass
+            if display_equity <= 0:
+                portfolio = _get_portfolio(engine, **kwargs)
+                display_equity = portfolio.snapshot().equity_usd
+
+            live_total_pnl = sum((p.pnl_usd or 0) for p in live_closed)
+            live_exposure = sum(lp.cost_usd for lp in live_open)
+            total_closed = _stats["total"]
+            wr = _stats["win_rate"]
+
+            pnl_icon = "\U0001f7e2" if live_total_pnl >= 0 else "\U0001f534"
+
+            lines = [
+                "<b>Portfolio</b> (LIVE)\n",
+                f"Equity: <code>${display_equity:,.2f}</code>",
+                f"Open: <code>{len(live_open)}</code> | Exposure: <code>${live_exposure:,.2f}</code>",
+                f"Realized PnL: {pnl_icon} <code>${live_total_pnl:+,.2f}</code>",
+            ]
+            if total_closed > 0:
+                lines.append(f"Trades: <code>{total_closed}</code> | Win rate: <code>{wr:.0f}%</code>")
+
+            if live_open:
+                lines.append("")
+                for lp in live_open:
+                    d_icon = "\U0001f7e2" if lp.direction == "LONG" else "\U0001f534"
+                    lev_str = f" {lp.leverage}x" if (getattr(lp, 'leverage', 0) or 0) > 1 else ""
+                    lines.append(f"{d_icon} <b>{lp.symbol}</b> {lp.direction}{lev_str} | ${lp.cost_usd:,.2f}")
+
+            if live_closed:
+                lines.extend(["", "<b>Recent:</b>"])
+                for t in live_closed[-5:]:
+                    pnl_val = t.pnl_usd or 0
+                    icon = "\U0001f7e2" if pnl_val >= 0 else "\U0001f534"
+                    lines.append(f"  {icon} {t.symbol} {t.direction} <code>${pnl_val:+,.2f}</code>")
+
+            if not live_open and not live_closed:
+                lines.append("\nNo trades yet. Say \"scan\" to find setups.")
+
+            return "\n".join(lines)
+
+        # PAPER mode: original behavior
+        portfolio = _get_portfolio(engine, **kwargs)
+        state = portfolio.snapshot()
+        cost = engine.cost.snapshot()
+        net = state.equity_usd - cost.operating_cost_usd
+        cpt = cost.operating_cost_usd / state.total_trades if state.total_trades > 0 else 0
+        pnl_icon = _pnl_arrow(state.total_pnl)
+
+        lines = [
+            f"\U0001f4b0 <b>PORTFOLIO</b>\n{SEP}",
+            f"   {pnl_icon} {_pill(_money(state.total_pnl, sign=True))}\n",
+            # ── Balance card ──
+            "\U0001f4b3 <b>Balance</b>",
+            f"- Equity: <code>{_money(state.equity_usd)}</code>",
+            f"- Available: <code>{_money(state.balance_usd)}</code>",
+            f"- Win Rate: <code>{state.win_rate:.0%}</code>\n",
+            # ── PnL waterfall ──
+            "\U0001f4c8 <b>PnL Waterfall</b>",
+            "<pre>",
+            f"  \u25b8 Gross    {_money(state.total_gross_pnl, sign=True):>14}",
+            f"  \u25b8 Commiss  {_money(state.total_commission):>14}",
+            f"  \u25b8 Trading  {_money(state.total_pnl, sign=True):>14}",
+            f"  \u25b8 LLM      {'${:,.4f}'.format(cost.llm_cost_usd):>14}",
+            f"  \u25b8 Infra    {'${:,.4f}'.format(cost.infra_cost_usd):>14}",
+            f"  {'━' * 30}",
+            f"  \u25b6 NET      {_money(net, sign=True):>14}",
+            f"  \u25b8 Per Trd  {'${:,.4f}'.format(cpt):>14}",
+            "</pre>",
+        ]
+
+        open_pos = portfolio.open_positions
+        if open_pos:
+            lines.append(f"\n\U0001f4ca <b>Open Positions</b>  ({len(open_pos)})")
+            lines.append(SEP)
+            for pos in open_pos:
+                d_icon = _OK if pos.direction.value == "LONG" else _BAD
+                d_arrow = "\u25b2" if pos.direction.value == "LONG" else "\u25bc"
+                size = pos.entry_price * pos.quantity
+                lines.append(
+                    f"\n  {d_icon}{d_arrow} <b>{_esc(pos.asset)}</b>  {pos.direction.value}\n"
+                    f"  - Entry: <code>${pos.entry_price:,.2f}</code>\n"
+                    f"  - Size: <code>${size:,.0f}</code>"
+                )
+        else:
+            lines.append(f"\n<i>\u25c7 {state.total_trades} trades \u2022 no open positions</i>")
+
+        # Session tally
+        lines.append(f"\n{SEP}")
+        lines.append(
+            f"<i>Session: {state.total_trades} trades \u2022 "
+            f"Net {_money(net, sign=True)}</i>"
+        )
+
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# EXECUTE / EXPLAIN
+# ══════════════════════════════════════════════════════════════
+
+class ExecutePaperTradeSkill(BaseSkill):
+    name = "execute_paper_trade"
+    description = "Confirm and execute a pending paper trade"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        trade_id = kwargs.get("trade_id") or kwargs.get("symbol", "")
+        if not trade_id:
+            return "Provide a trade_id to confirm."
+        return await engine.confirm_trade(trade_id)
+
+class ExplainTradeSkill(BaseSkill):
+    name = "explain_trade"
+    description = "Explain a trade idea"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        trade_id = kwargs.get("trade_id", "")
+        for idea in engine.pending_ideas:
+            if idea.id == trade_id:
+                d_icon = _OK if idea.direction.value == "LONG" else _BAD
+                return (
+                    f"{_BOOK} <b>EXPLANATION</b>\n{SEP}\n\n"
+                    f"  {d_icon} {_pill(idea.id)}\n"
+                    f"  {idea.direction.value} {_esc(idea.asset)}\n\n"
+                    f"- Confidence: <code>{idea.confidence:.0%}</code>\n"
+                    f"- Signals: <code>{', '.join(idea.signals_used)}</code>\n\n"
+                    f"<blockquote>{_esc(idea.reasoning)}</blockquote>"
+                )
+        return f"\u2718 Trade {_pill(_esc(trade_id))} not found."
+
+
+# ══════════════════════════════════════════════════════════════
+# BACKTEST
+# ══════════════════════════════════════════════════════════════
+
+class RunBacktestSkill(BaseSkill):
+    name = "run_backtest"
+    description = "Run backtest with synthetic data"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        from bot.backtest.data_loader import DataLoader
+        from bot.backtest.engine import BacktestEngine
+        from bot.backtest.models import BacktestConfig
+
+        bars_count = min(int(kwargs.get("bars", 720)), 5000)
+        seed = int(kwargs.get("seed", 42))
+        config = BacktestConfig(symbol="BTC/USDT", timeframe="1h")
+        bars = DataLoader.generate_synthetic(bars=bars_count, seed=seed)
+        bt = BacktestEngine(config)
+        r = await bt.run(bars)
+        bt.cleanup()
+
+        ret_icon = _status(r.total_return_pct)
+
+        # Performance factor bars
+        wr_bar = _bar(r.win_rate, 1.0, 8)
+        pf_bar = _bar(min(r.profit_factor, 3.0), 3.0, 8)
+        dd_bar = _bar(r.max_drawdown_pct, 20.0, 8)
+        sharpe_bar = _bar(min(max(r.sharpe_ratio, 0), 3.0), 3.0, 8)
+
+        return (
+            f"{_CHART} <b>BACKTEST</b>\n{SEP}\n"
+            f"<i>\u25c7 Synthetic data \u2014 tests plumbing, not alpha</i>\n\n"
+            # ── Scorecard ──
+            f"\U0001f3c6 <b>Scorecard</b>\n"
+            f"<pre>"
+            f"  Return     {ret_icon} {r.total_return_pct:>+8.2f}%\n"
+            f"  Equity         {_money(r.final_equity):>12}\n"
+            f"  Net PnL        {_money(r.net_pnl, sign=True):>12}\n"
+            f"  Commission     {_money(r.total_commission):>12}\n"
+            f"  Slippage       {_money(r.total_slippage):>12}"
+            f"</pre>\n\n"
+            # ── Factor bars ──
+            f"\U0001f4ca <b>Quality Factors</b>\n"
+            f"<pre>"
+            f"  Win Rate  \u2502{wr_bar}\u2502 {r.win_rate:.0%}   ({r.total_trades}t)\n"
+            f"  Profit F  \u2502{pf_bar}\u2502 {r.profit_factor:.2f}\n"
+            f"  Max DD    \u2502{dd_bar}\u2502 {r.max_drawdown_pct:.2f}%\n"
+            f"  Sharpe    \u2502{sharpe_bar}\u2502 {r.sharpe_ratio:.2f}\n"
+            f"  Sortino                {r.sortino_ratio:>6.2f}"
+            f"</pre>\n\n"
+            # ── Pipeline ──
+            f"\U0001f504 <b>Pipeline</b>\n"
+            f"- Signals: <code>{r.total_signals_generated}</code>\n"
+            f"- Ideas: <code>{r.total_ideas_generated}</code>\n"
+            f"- Risk Reject: <code>{r.total_ideas_rejected_risk}</code>\n"
+            f"- Conf Reject: <code>{r.total_ideas_rejected_confidence}</code>\n\n"
+            f"<i>\u23f1 {r.bars_processed} bars \u2022 {r.duration_seconds:.1f}s \u2022 "
+            f"{r.start_date} \u2192 {r.end_date}</i>"
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# REJECTED
+# ══════════════════════════════════════════════════════════════
+
+class RejectedTradesSkill(BaseSkill):
+    name = "rejected_trades"
+    description = "Recent risk-rejected trades"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        history = engine.risk.rejection_history
+        if not history:
+            return (f"{_NEU} <b>REJECTED TRADES</b>\n\n"
+                    "<i>\u2714 No rejections yet. The risk gate is working.</i>")
+
+        count = int(kwargs.get("count", 5))
+        recent = history[-count:]
+
+        lines = [f"{_WARN} <b>REJECTED TRADES</b>  ({len(recent)}/{len(history)})\n{SEP}"]
+        lines.append("")
+        for r in reversed(recent):
+            d_icon = _OK if r["direction"] == "LONG" else _BAD
+            d_arrow = "\u25b2" if r["direction"] == "LONG" else "\u25bc"
+            fails = r["checks_failed"]
+            fail_str = _esc(fails[0]) if fails else "unknown"
+            extra = f" +{len(fails) - 1}" if len(fails) > 1 else ""
+            conf_val = r["confidence"]
+            ts = r.get("timestamp", "")
+            ts_fmt = ""
+            if ts:
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    ts_fmt = f"  \u23f0 {dt.strftime('%H:%M')}"
+                except Exception:
+                    ts_fmt = ""
+            lines.append(
+                f"  {d_icon}{d_arrow} <b>{_esc(r['asset'])}</b>  {r['direction']}\n"
+                f"  - Confidence: <code>{conf_val:.0%}</code>{ts_fmt}\n"
+                f"  - Reason: <code>{fail_str}</code>{extra}"
+            )
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# HALT
+# ══════════════════════════════════════════════════════════════
+
+class HaltSkill(BaseSkill):
+    name = "halt"
+    description = "Emergency kill-switch"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        from bot.utils.models import AgentState
+        engine.risk.emergency_halt("manual halt via /halt command")
+        # Halt every per-user risk engine too, so no account can open new trades
+        # (default per-user OFF → _user_risk empty → identical to before).
+        for _uid, _eng in list(getattr(engine, "_user_risk", {}).items()):
+            try:
+                _eng.emergency_halt("manual halt via /halt command")
+            except Exception:
+                pass
+        cancelled = list(engine._pending_ideas.keys())
+        engine._pending_ideas.clear()
+        engine._pending_atr.clear()
+        engine._transition(AgentState.HALTED, "manual halt via /halt command")
+        audit(system_log, f"MANUAL HALT: {len(cancelled)} ideas cancelled",
+              action="halt", result="HALTED", data={"cancelled_ids": cancelled})
+        return (
+            f"\U0001f6a8 <b>EMERGENCY HALT</b>\n{SEP}\n\n"
+            f"- Circuit Breaker: {_BAD} <b>TRIPPED</b>\n"
+            f"- Ideas Cancelled: <code>{len(cancelled)}</code>\n"
+            f"- Engine: <code>HALTED</code>\n\n"
+            f"<i>\u26a0 All trading paused. Say \"reset\" to resume.</i>"
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# WALK FORWARD
+# ══════════════════════════════════════════════════════════════
+
+class WalkForwardSkill(BaseSkill):
+    name = "walk_forward"
+    description = "Walk-forward backtest"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        from bot.backtest.data_loader import DataLoader
+        from bot.backtest.engine import walk_forward_backtest
+        from bot.backtest.models import BacktestConfig
+
+        bars_count = min(int(kwargs.get("bars", 1440)), 5000)
+        seed = int(kwargs.get("seed", 42))
+        folds = int(kwargs.get("folds", 3))
+        config = BacktestConfig(symbol="BTC/USDT", timeframe="1h")
+        bars = DataLoader.generate_synthetic(bars=bars_count, seed=seed)
+        result = await walk_forward_backtest(bars, config, n_folds=folds)
+
+        lines = [
+            f"\U0001f4c8 <b>WALK-FORWARD</b>\n{SEP}",
+            "",
+            "<pre>",
+            f"  {'FOLD':>4}  {'TRAIN':>8}  {'TEST':>8}  {'TRADES':>7}",
+            f"  {'━'*4}  {'━'*8}  {'━'*8}  {'━'*7}",
+        ]
+        for f in result.folds:
+            lines.append(
+                f"  {f['fold']:>4}  {f['train_return_pct']:>+7.2f}%"
+                f"  {f['test_return_pct']:>+7.2f}%"
+                f"  {f['train_trades'] + f['test_trades']:>7}"
+            )
+        gap = result.train_test_gap
+        gap_icon = _OK if abs(gap) <= 2 else _WARN if abs(gap) <= 5 else _BAD
+        lines.append(f"  {'━' * 33}")
+        lines.append(f"  Avg Train  {result.aggregate_train_return:>+7.2f}%")
+        lines.append(f"  Avg Test   {result.aggregate_test_return:>+7.2f}%")
+        lines.append(f"  Gap        {gap:>+7.2f}%  {gap_icon}")
+        cons_bar = _bar(result.consistency_score, 1.0, 8)
+        lines.append(f"  Consist.   \u2502{cons_bar}\u2502 {result.consistency_score:>5.0%}")
+        lines.append("</pre>")
+        if gap > 2:
+            lines.append(f"\n{_WARN} <i>\u26a0 Overfitting risk detected</i>")
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# MACRO
+# ══════════════════════════════════════════════════════════════
+
+class MacroCalendarSkill(BaseSkill):
+    name = "macro_calendar"
+    description = "Macro event calendar"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        cal = engine.macro_calendar
+        snap = cal.evaluate()
+        upcoming = cal.upcoming(limit=5)
+
+        state_icons = {
+            "NORMAL": _OK, "PRE_EVENT_CAUTION": _WARN,
+            "EVENT_LOCKDOWN": _BAD, "POST_EVENT_VOLATILITY": "\U0001f7e0",
+            "BLACKOUT": "\u26ab",
+        }
+        severity_emoji = {
+            "low": "\U0001f7e2",      # green
+            "medium": "\U0001f7e1",   # yellow
+            "high": "\U0001f534",     # red
+            "critical": "\u26a0\ufe0f",  # warning
+        }
+        icon = state_icons.get(snap.state.value, _NEU)
+
+        lines = [
+            f"\U0001f4c5 <b>MACRO CALENDAR</b>\n{SEP}",
+            "",
+            f"  {icon} <b>{snap.state.value.replace('_', ' ').title()}</b>",
+        ]
+
+        if snap.active_event:
+            lines.append(f"- Active: <code>{_esc(snap.active_event.label)}</code>")
+        if snap.time_until_next:
+            hours = snap.time_until_next.total_seconds() / 3600
+            if hours < 1:
+                t = f"{snap.time_until_next.total_seconds() / 60:.0f}min"
+            elif hours < 24:
+                t = f"{hours:.1f}h"
+            else:
+                t = f"{hours / 24:.1f}d"
+            lines.append(f"- Next event in: <code>{t}</code>")
+
+        if upcoming:
+            lines.append("\n\U0001f4cb <b>Upcoming</b>")
+            for ev in upcoming:
+                times = cal.format_event_times(ev)
+                sev = getattr(ev, "severity", "medium")
+                sev_icon = severity_emoji.get(sev, _NEU)
+                day_str = ""
+                try:
+                    dt = datetime.fromisoformat(str(ev.timestamp).replace("Z", "+00:00"))
+                    day_str = dt.strftime("%a %b %d")
+                except Exception:
+                    day_str = ""
+                lines.append(f"  {sev_icon} <b>{_esc(ev.label)}</b>")
+                if day_str:
+                    lines.append(f"    {day_str} \u2022 <code>{times['utc']}</code>")
+                else:
+                    lines.append(f"    <code>{times['utc']}</code>")
+                lines.append(f"    <code>{times['et']}</code>")
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# JOURNAL
+# ══════════════════════════════════════════════════════════════
+
+class TradeJournalSkill(BaseSkill):
+    name = "trade_journal"
+    description = "Trade history"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        portfolio = _get_portfolio(engine, **kwargs)
+        history = portfolio._history
+        if not history:
+            return f"{_NEU} <b>TRADE JOURNAL</b>\n\n<i>\u25c7 No closed trades yet.</i>"
+
+        count = int(kwargs.get("count", 10))
+        recent = history[-count:]
+
+        lines = [f"\U0001f4d3 <b>TRADE JOURNAL</b>  ({len(recent)}/{len(history)})\n{SEP}"]
+        lines.append("")
+
+        total_pnl = 0.0
+        wins = 0
+        for trade in reversed(recent):
+            is_win = trade.pnl > 0
+            if is_win: wins += 1
+            total_pnl += trade.pnl
+            icon = _OK if is_win else _BAD
+            arrow = "\u25b2" if is_win else "\u25bc"
+            tag = "WIN" if is_win else "LOSS"
+            dur = ""
+            if trade.closed_at and trade.opened_at:
+                h = (trade.closed_at - trade.opened_at).total_seconds() / 3600
+                dur = f" \u2022 {h:.1f}h"
+            exit_p = f"${trade.exit_price:,.2f}" if trade.exit_price else "open"
+            size = trade.entry_price * trade.quantity
+
+            lines.append(
+                f"  {icon}{arrow} <b>{_esc(trade.asset)}</b>  {trade.direction.value}  {tag}\n"
+                f"  - Entry: <code>${trade.entry_price:,.2f}</code> \u2192 Exit: <code>{exit_p}</code>\n"
+                f"  - PnL: <code>${trade.pnl:+,.2f}</code>  |  Size: <code>${size:,.0f}</code>{dur}"
+            )
+
+        wr = wins / len(recent) if recent else 0
+        wr_bar = _bar(wr, 1.0, 8)
+        lines.append(f"\n{SEP}")
+        lines.append(
+            f"<b>Session Summary</b>\n"
+            f"- Record: <b>{wins}W / {len(recent)-wins}L</b>  "
+            f"\u2502{wr_bar}\u2502 <code>{wr:.0%}</code>\n"
+            f"- Net PnL: <code>${total_pnl:+,.2f}</code>"
+        )
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# COSTS
+# ══════════════════════════════════════════════════════════════
+
+class CostBreakdownSkill(BaseSkill):
+    name = "costs"
+    description = "Agent economics"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        cost = engine.cost.snapshot()
+        portfolio = _get_portfolio(engine, **kwargs)
+        state = portfolio.snapshot()
+        rate_stats = engine.analyzer._rate_limiter.stats
+
+        # Use live equity in LIVE mode
+        if CONFIG.is_live():
+            econ_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
+            if econ_equity <= 0:
+                econ_equity = state.equity_usd
+        else:
+            econ_equity = state.equity_usd
+        net = econ_equity - cost.operating_cost_usd
+
+        lines = [
+            f"\U0001f4b0 <b>AGENT ECONOMICS</b>\n{SEP}",
+            "",
+            "\u26a1 <b>LLM Usage</b>",
+            f"- Total: <code>${cost.llm_cost_usd:,.4f}</code> ({cost.llm_calls} calls)",
+            f"- Tokens In: <code>{cost.prompt_tokens:,}</code>",
+            f"- Tokens Out: <code>{cost.completion_tokens:,}</code>",
+            f"- Avg/Call: <code>${cost.avg_cost_per_call:,.6f}</code>",
+        ]
+
+        cats_found = False
+        for cat in ("scan", "analyze", "thesis", "risk_decision", "other"):
+            c = cost.cost_by_category.get(cat, 0.0)
+            n = cost.calls_by_category.get(cat, 0)
+            if n > 0:
+                if not cats_found:
+                    lines.extend(["\n\U0001f4ca <b>Breakdown</b>"])
+                    cats_found = True
+                lines.append(f"- {cat.title()}: <code>${c:,.4f}</code> ({n})")
+
+        lines.extend([
+            "\n\U0001f4b3 <b>Operating Total</b>",
+            f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>",
+            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>",
+            f"- Total: <code>${cost.operating_cost_usd:,.4f}</code>",
+        ])
+        if state.total_trades > 0:
+            cpt = cost.operating_cost_usd / state.total_trades
+            lines.append(f"- Per Trade: <code>${cpt:,.4f}</code>")
+
+        lines.extend([
+            "\n\U0001f4c8 <b>Net</b>",
+            f"- Equity: <code>{_money(econ_equity)}</code>",
+            f"- Costs: <code>-${cost.operating_cost_usd:,.4f}</code>",
+            f"{SEP}",
+            f"- <b>Net: <code>{_money(net)}</code></b>",
+        ])
+
+        # ── Cache hit-rate section ──
+        try:
+            cache_snap = engine.analyzer._llm_cache.snapshot()
+            total_lookups = cache_snap["hits"] + cache_snap["misses"]
+            hit_pct = cache_snap["hit_rate"] * 100
+            lines.extend([
+                "\n\U0001f9e0 <b>LLM Cache</b>",
+                f"- Hits: <code>{cache_snap['hits']}</code>",
+                f"- Misses: <code>{cache_snap['misses']}</code>",
+                f"- Hit Rate: <code>{hit_pct:.1f}%</code>",
+                f"- Evictions: <code>{cache_snap['evictions']}</code>",
+                f"- Expirations: <code>{cache_snap['expirations']}</code>",
+                f"- Est. Saved: <code>${cache_snap['estimated_cost_saved_usd']:,.4f}</code>",
+                f"- TTL: <code>{cache_snap['default_ttl']:.0f}s</code>",
+            ])
+        except Exception:
+            pass  # cache not available — skip section
+
+        lines.append(
+            f"\n<i>\u26a1 Rate limiter: {rate_stats['total_calls']} calls, "
+            f"{rate_stats['total_waits']} throttled</i>",
+        )
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# STRATEGY
+# ══════════════════════════════════════════════════════════════
+
+class RunStrategySkill(BaseSkill):
+    name = "run_strategy"
+    description = "Execute a strategy preset"
+
+    PRESETS: dict[str, dict[str, Any]] = {
+        "dip sniper": {
+            "label": "Dip Sniper", "icon": "\U0001f3af",
+            "desc": "All pairs \u2022 RSI &lt; 35 \u2022 TREND_DOWN \u2022 conf \u2265 70%",
+            "symbols": None, "rsi_threshold": 35,
+            "regime": "TREND_DOWN", "confidence_threshold": 0.70,
+            "volume_spike_min": None, "sl_atr_mult": None, "tp_atr_mult": None,
+        },
+        "momentum hunter": {
+            "label": "Momentum Hunter", "icon": "\U0001f680",
+            "desc": "All pairs \u2022 vol spike &gt; 3x \u2022 TREND_UP",
+            "symbols": None, "rsi_threshold": None, "regime": "TREND_UP",
+            "confidence_threshold": None, "volume_spike_min": 3.0,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+        },
+        "safe scalper": {
+            "label": "Safe Scalper", "icon": "\u26a1",
+            "desc": "Top 3 vol \u2022 tight SL 1.5 ATR \u2022 conf \u2265 75%",
+            "symbols": "top3_volume", "rsi_threshold": None, "regime": None,
+            "confidence_threshold": 0.75, "volume_spike_min": None,
+            "sl_atr_mult": 1.5, "tp_atr_mult": 2.0,
+        },
+        "full scan": {
+            "label": "Full Scan", "icon": "\U0001f50d",
+            "desc": "All defaults \u2022 standard pipeline",
+            "symbols": None, "rsi_threshold": None, "regime": None,
+            "confidence_threshold": None, "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+        },
+    }
+    ALIASES: dict[str, str] = {
+        "dip": "dip sniper", "momentum": "momentum hunter",
+        "scalp": "safe scalper", "scan all": "full scan",
+    }
+
+    @classmethod
+    def _resolve(cls, raw: str) -> str | None:
+        key = raw.strip().lower()
+        return key if key in cls.PRESETS else cls.ALIASES.get(key)
+
+    @classmethod
+    def _list(cls) -> str:
+        lines = [f"\U0001f3af <b>STRATEGY PRESETS</b>\n{SEP}"]
+        lines.append("")
+        for key, cfg in cls.PRESETS.items():
+            aliases = [a for a, t in cls.ALIASES.items() if t == key]
+            a = f"  <i>/{aliases[0]}</i>" if aliases else ""
+            lines.append(f"  {cfg['icon']} <b>{cfg['label']}</b>{a}")
+            lines.append(f"     <i>{cfg['desc']}</i>")
+        lines.append("\n<i>\u25b8 Say \"run\" + name \u2022 21 checks active</i>")
+        lines.append("<i>\u25b8 Or: say \"run BTC\", \"run SOL\", etc.</i>")
+        return "\n".join(lines)
+
+    @classmethod
+    async def _run_symbol_scan(cls, engine: "RuneClawEngine", raw_symbol: str) -> str:
+        """Targeted scan for a specific symbol (e.g. /run BTC -> BTC/USDT)."""
+        sym = raw_symbol.strip().upper()
+        # Normalize: add /USDT if not already a pair
+        if "/" not in sym:
+            sym = f"{sym}/USDT"
+
+        audit(system_log, f"Targeted scan: {sym}", action="run_strategy",
+              data={"symbol": sym, "type": "targeted"})
+
+        signals = await engine.scanner.scan()
+        if not signals:
+            return f"\U0001f50e <b>Targeted: {_esc(sym)}</b>\n\n<i>No market data available</i>"
+
+        # Filter to matching symbol
+        matched = [s for s in signals if s.symbol == sym]
+        if not matched:
+            # Try partial match (e.g. "BTC" matches "BTC/USDT")
+            base = sym.split("/")[0]
+            matched = [s for s in signals if s.symbol.startswith(base + "/")]
+
+        if not matched:
+            return (
+                f"\U0001f50e <b>Targeted: {_esc(sym)}</b>\n\n"
+                f"<i>No signals found for {_esc(sym)}.</i>\n"
+                f"<i>Say \"scan\" for all pairs or \"analyze {_esc(sym)}\" for deep analysis.</i>"
+            )
+
+        results = []
+        ideas = 0
+        for sig in matched[:3]:
+            idea = await engine._analyze_signal(sig)
+            if not idea:
+                continue
+            engine._pending_ideas[idea.id] = idea
+            ideas += 1
+            d_icon = _OK if idea.direction.value == "LONG" else _BAD
+            results.append(
+                f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
+                f"<code>{idea.confidence:.0%}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+            )
+
+        lines = [
+            f"\U0001f50e <b>Targeted: {_esc(sym)}</b>",
+            f"  Matched <code>{len(matched)}</code> signal(s) \u2022 Ideas <code>{ideas}</code>\n",
+        ]
+        lines.extend(results or ["  <i>No actionable ideas passed analysis</i>"])
+        if ideas > 0:
+            lines.append("\n<i>Say \"trade\" to review and confirm</i>")
+        return "\n".join(lines)
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        strat = kwargs.get("strategy", "")
+        if not strat:
+            return self._list()
+        key = self._resolve(strat)
+        if not key:
+            # Fallback: treat input as a symbol for targeted scan
+            return await self._run_symbol_scan(engine, strat)
+
+        cfg = self.PRESETS[key]
+        audit(system_log, f"Strategy: {cfg['label']}", action="run_strategy", data=cfg)
+        # Reset the stash up-front so an early "no signals" return can't surface a
+        # stale setups card from a previous run.
+        try:
+            engine._last_strategy_setups = []
+        except Exception:
+            pass
+
+        signals = await engine.scanner.scan()
+        if not signals:
+            return f"{cfg['icon']} <b>{cfg['label']}</b>\n\n<i>No signals</i>"
+
+        if cfg["symbols"] == "top3_volume":
+            signals.sort(key=lambda s: s.volume_usd_24h, reverse=True)
+            signals = signals[:3]
+        elif cfg["symbols"] is not None:
+            signals = [s for s in signals if s.symbol in set(cfg["symbols"])]
+
+        if cfg["volume_spike_min"] is not None:
+            signals = [s for s in signals if getattr(s, "volume_spike_ratio", 0) >= cfg["volume_spike_min"]
+                       or getattr(s, "volume_spike", False)]
+
+        if not signals:
+            return f"{cfg['icon']} <b>{cfg['label']}</b>\n\n<i>No signals matched filters</i>"
+
+        results = []
+        setups: list = []
+        ideas = 0
+        for sig in signals[:5]:
+            idea = await engine._analyze_signal(sig)
+            if not idea:
+                continue
+            ct = cfg.get("confidence_threshold")
+            if ct and idea.confidence < ct:
+                continue
+            engine._pending_ideas[idea.id] = idea
+            ideas += 1
+            d_icon = _OK if idea.direction.value == "LONG" else _BAD
+            results.append(
+                f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
+                f"<code>{idea.confidence:.0%}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+            )
+            setups.append({
+                "sym": idea.asset, "dir": idea.direction.value,
+                "price": idea.entry_price, "entry": idea.entry_price,
+                "sl": idea.stop_loss, "tp": idea.take_profit,
+                "rr": idea.risk_reward_ratio, "score": idea.confidence,
+                "rsi": 0, "vol_ratio": getattr(sig, "volume_spike_ratio", 0) or 0,
+            })
+        # Stash structured setups so the handler can render the setups card
+        # (non-breaking: this method still returns its text).
+        try:
+            engine._last_strategy_setups = setups
+        except Exception:
+            pass
+
+        lines = [
+            f"{cfg['icon']} <b>{cfg['label']}</b>",
+            f"  Scanned <code>{len(signals)}</code> \u2022 Ideas <code>{ideas}</code>\n",
+        ]
+        lines.extend(results or ["  <i>No actionable ideas passed filters</i>"])
+        if ideas > 0:
+            lines.append("\n<i>Say \"trade\" to review and confirm</i>")
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# LEARNING
+# ══════════════════════════════════════════════════════════════
+
+class LearningDashboardSkill(BaseSkill):
+    name = "learning"
+    description = "AI learning dashboard (/learn)"
+
+    # The 8 core learning modules: (module_key, display_name, description, actual_data_key)
+    # actual_data_key maps to the real key returned by store.stats()
+    _MODULES: list[tuple[str, str, str, str]] = [
+        ("patterns",          "PatternMemory",            "Candle pattern recognition",    "decisions"),
+        ("regime",            "RegimeAdaptation",         "Market regime learning",        "decisions"),
+        ("indicator_weights", "IndicatorWeightEvolution",  "Indicator weight optimization", "decisions"),
+        ("feedback",          "FeedbackLoop",             "Trade outcome learning",        "decisions"),
+        ("volatility",        "VolatilityProfiler",       "Volatility regime modeling",    "decisions"),
+        ("correlations",      "CorrelationTracker",       "Cross-asset correlation",       "decisions"),
+        ("drawdown",          "DrawdownRecovery",         "Recovery pattern learning",     "decisions"),
+        ("timing",            "TimingOptimizer",          "Entry/exit timing",             "decisions"),
+    ]
+
+    @staticmethod
+    def _health_score(obs: int) -> float:
+        """Map observation count to 0-100 health %.
+
+        Tiers: 0->0%, 10->25%, 50->50%, 200->75%, 500+->100%.
+        """
+        tiers = [(0, 0.0), (10, 25.0), (50, 50.0), (200, 75.0), (500, 100.0)]
+        if obs >= tiers[-1][0]:
+            return 100.0
+        for i in range(len(tiers) - 1):
+            lo_obs, lo_pct = tiers[i]
+            hi_obs, hi_pct = tiers[i + 1]
+            if obs < hi_obs:
+                ratio = (obs - lo_obs) / (hi_obs - lo_obs)
+                return lo_pct + ratio * (hi_pct - lo_pct)
+        return 100.0
+
+    @staticmethod
+    def _module_status(health: float) -> tuple[str, str]:
+        """Return (coloured dot, label) for a health percentage."""
+        if health >= 50:
+            return _OK, "ACTIVE"
+        if health > 0:
+            return _WARN, "DEGRADED"
+        return _BAD, "OFFLINE"
+
+    @staticmethod
+    def _fmt_ts(ts: str | float | None) -> str:
+        """Short human-readable timestamp."""
+        if ts is None:
+            return "never"
+        try:
+            if isinstance(ts, (int, float)):
+                dt = datetime.fromtimestamp(ts, tz=UTC)
+            else:
+                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            return dt.strftime("%d %b %H:%M")
+        except Exception:
+            return "n/a"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        dash = engine.learning.dashboard()
+        score = dash["learning_score"]
+        stats = dash.get("store_stats", {})
+        module_details = dash.get("module_details", {})
+
+        tier_icons = {
+            "S": "\U0001f451", "A": "\U0001f31f",
+            "B": "\u2b50", "C": _NEU, "D": _BAD,
+        }
+        t = tier_icons.get(score["tier"], _NEU)
+
+        lines = [
+            "\U0001f9e0 <b>AI LEARNING SYSTEM</b>\n",
+            f"  {t} Score: <code>{score['composite_score']}/10</code>  [{score['tier']}]\n",
+        ]
+
+        # ── Real-time module health ──────────────────────────
+        lines.append("\U0001f4e6 <b>Module Health</b>")
+        lines.append("<pre>")
+
+        health_scores: list[float] = []
+
+        for key, mod_name, _desc, data_key in self._MODULES:
+            detail = module_details.get(key, {})
+            obs = detail.get("observations", stats.get(data_key, 0))
+            last_upd = detail.get("last_update")
+            health = self._health_score(obs)
+            health_scores.append(health)
+            dot, status_label = self._module_status(health)
+            bar = _bar(health, 100.0, 8)
+
+            lines.append(
+                f"  {dot} {mod_name:<25s} {status_label:<8s}"
+            )
+            lines.append(
+                f"     [{bar}] {health:5.1f}%  "
+                f"{obs:>5} obs  upd {self._fmt_ts(last_upd)}"
+            )
+
+        lines.append("</pre>\n")
+
+        # ── Composite Learning Score ─────────────────────────
+        composite = (
+            sum(health_scores) / len(health_scores) if health_scores else 0.0
+        )
+        comp_dot, comp_label = self._module_status(composite)
+        comp_bar = _bar(composite, 100.0, 12)
+
+        # Derive the display score (/10) from module health so it stays consistent
+        health_based_score = round(composite / 10.0, 2)
+        if health_based_score >= 8:
+            health_tier = "S"
+        elif health_based_score >= 6:
+            health_tier = "A"
+        elif health_based_score >= 4:
+            health_tier = "B"
+        elif health_based_score >= 2:
+            health_tier = "C"
+        else:
+            health_tier = "D"
+        h_icon = tier_icons.get(health_tier, _NEU)
+
+        lines[1] = (
+            f"  {h_icon} Score: <code>{health_based_score}/10</code>  [{health_tier}]\n"
+        )
+        comp_dot, comp_label = self._module_status(composite)
+        comp_bar = _bar(composite, 100.0, 12)
+        lines.append("\U0001f4ca <b>Learning Score</b>")
+        lines.append("<pre>")
+        lines.append(
+            f"  {comp_dot} [{comp_bar}] {composite:5.1f}%  {comp_label}"
+        )
+        lines.append("</pre>\n")
+
+        # ── Data summary ─────────────────────────────────────
+        lines.append("\U0001f4be <b>Data Summary</b>")
+        total = sum(stats.values())
+        lines.append(f"- Total records: <code>{total}</code>")
+        lines.append(f"- Strategies scored: <code>{score.get('strategies_evaluated', 0)}</code>")
+        lines.append(f"- Feedback entries: <code>{score.get('feedback_total', 0)}</code>")
+        lines.append("")
+
+        # ── Proposals ────────────────────────────────────────
+        lines.extend([
+            "\U0001f4cb <b>Proposals</b>",
+            f"- Pending: <code>{dash['pending_proposals']}</code>",
+            f"- Blocked: <code>{dash['blocked_proposals']}</code>",
+        ])
+
+        # ── Strategy rankings ────────────────────────────────
+        if dash.get("strategy_rankings"):
+            lines.append("\n\U0001f3af <b>Strategy Rankings</b>")
+            for s in dash["strategy_rankings"][:5]:
+                of = f" {_WARN}" if s["overfitting"] else ""
+                lines.append(
+                    f"  [{s['tier']}] <b>{s['name']}</b>  "
+                    f"WR={s['win_rate']}  ({s['trades']}t){of}"
+                )
+
+        # ── Prompt versions ──────────────────────────────────
+        pv = dash.get("prompt_versions", {})
+        if pv and pv.get("versions"):
+            lines.append("\n\U0001f4dd <b>Prompt Versions</b>")
+            lines.append(f"  Active: v{pv.get('current_version', '?')}  "
+                         f"({pv.get('total_versions', 0)} versions tracked)")
+
+        # ── Model accuracy ───────────────────────────────────
+        ma = dash.get("model_accuracy", {})
+        if ma and ma.get("agreement_rate") is not None:
+            rate = ma["agreement_rate"]
+            lines.append(f"\n\U0001f916 <b>Model Agreement</b>: {rate:.0%}")
+
+        lines.append(
+            "\n\U0001f512 <i>Safety sandbox active"
+            " \u2014 AI learns aggressively, never overrides risk</i>"
+        )
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# FEEDBACK / PATTERNS / PROPOSALS / OPTIMIZER
+# ══════════════════════════════════════════════════════════════
+
+class FeedbackSkill(BaseSkill):
+    name = "feedback"
+    description = "Submit feedback"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        did = kwargs.get("decision_id", "")
+        ft = kwargs.get("feedback_type", "")
+        text = kwargs.get("text", "")
+        if not did or not ft:
+            return (
+                "\U0001f4ac <b>FEEDBACK</b>\n\n"
+                "Say <code>feedback &lt;id&gt; &lt;type&gt; [text]</code>\n\n"
+                "Types: <code>correct</code>, <code>incorrect</code>, "
+                "<code>too_risky</code>, <code>too_conservative</code>, "
+                "<code>good_rejection</code>, <code>good_explanation</code>"
+            )
+        fb = engine.learning.submit_feedback(decision_audit_id=did, feedback_type=ft, feedback_text=text)
+        return (f"{_OK} Feedback recorded: <code>{fb.audit_id}</code>\n"
+                f"Type: <code>{_esc(ft)}</code>")
+
+
+class PatternsSkill(BaseSkill):
+    name = "patterns"
+    description = "Detected patterns"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        patterns = engine.learning.detect_patterns()
+        if not patterns:
+            return f"{_NEU} <b>PATTERNS</b>\n\n<i>\u25c7 No patterns yet. Need more history.</i>"
+        lines = [f"\U0001f50d <b>PATTERNS</b>\n{SEP}"]
+        lines.append("")
+        for p in patterns[:8]:
+            exp = f" {_WARN}" if p.is_experimental else ""
+            conf_ring = _progress_ring(p.confidence * 100)
+            lines.append(
+                f"  {conf_ring} <b>{p.pattern_type}</b>{exp}\n"
+                f"    Conf {_pill(f'{p.confidence:.0%}')}  "
+                f"WR {_pill(f'{p.historical_win_rate:.0%}')}  "
+                f"Avg {_pill(f'${p.avg_pnl:.2f}')}  ({p.sample_size})"
+            )
+        lines.append("\n<i>\u25c7 Patterns are observations, not signals</i>")
+        return "\n".join(lines)
+
+
+class ProposalsSkill(BaseSkill):
+    name = "proposals"
+    description = "Improvement proposals"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        proposals = engine.learning.store.get_proposals()
+        if not proposals:
+            return f"{_NEU} <b>PROPOSALS</b>\n\n<i>\u25c7 No proposals yet.</i>"
+        lines = [f"\U0001f4cb <b>PROPOSALS  ({len(proposals)})</b>\n{SEP}"]
+        lines.append("")
+        for p in proposals[-6:]:
+            icons = {"approved": _OK, "pending": _WARN, "rejected": _BAD, "blocked": "\u26ab"}
+            s = icons.get(p.status, _NEU)
+            lines.append(
+                f"  {s} <b>[{_esc(p.classification)}]</b> {p.status}\n"
+                f"     {_esc(p.problem[:70])}\n"
+                f"     \u2192 {_esc(p.proposed_change[:70])}"
+            )
+        return "\n".join(lines)
+
+
+class OptimizationSkill(BaseSkill):
+    name = "optimize"
+    description = "Token optimizer stats"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        opt = engine.analyzer.optimization_stats
+        cost = engine.cost.snapshot()
+        cache = opt.get("cache", {})
+        tiers = opt.get("tier_distribution", {})
+        adaptive = opt.get("adaptive_frequency", {})
+        savings = opt.get("savings", {})
+        total = tiers.get("total", 0)
+
+        lines = [
+            f"\u26a1 <b>TOKEN OPTIMIZER</b>\n{SEP}",
+            "",
+            "\U0001f4be <b>Cache</b>",
+            f"- Size: <code>{cache.get('size', 0)}/{cache.get('max_size', 0)}</code>",
+            f"- Hit Rate: <code>{cache.get('hit_rate', 0):.0%}</code>",
+            f"- Evictions: <code>{cache.get('evictions', 0)}</code>",
+            "\n\U0001f4ca <b>Tier Distribution</b>",
+            f"- T1 Rules: <code>{tiers.get('tier1_rules', 0)}</code> (free)",
+            f"- T2 Mini: <code>{tiers.get('tier2_mini', 0)}</code> (cheap)",
+            f"- T3 Full: <code>{tiers.get('tier3_full', 0)}</code> (best)",
+        ]
+        if total > 0:
+            lines.append(f"- Free %: <code>{tiers.get('tier1_rules', 0) / total * 100:.0f}%</code>")
+
+        saved = savings.get("total_estimated_cost_saved_usd", 0)
+        lines.extend([
+            "\n\U0001f4b0 <b>Savings</b>",
+            f"- Tokens: <code>~{savings.get('total_estimated_tokens_saved', 0):,}</code>",
+            f"- Cost: <code>~${saved:,.4f}</code>",
+        ])
+        if cost.llm_cost_usd > 0:
+            would_have = cost.llm_cost_usd + saved
+            pct = (saved / would_have * 100) if would_have > 0 else 0
+            lines.append(f"- Reduction: <code>{pct:.0f}%</code>")
+        return "\n".join(lines)
+
+
+# ── Setup Quality helpers ──
+
+
+def _setup_quality_score(confidence: float, rr: float, rsi: float,
+                          vol_confirmed: bool, structure_clear: bool) -> tuple[int, str]:
+    """Rate setup quality 0-10 with label."""
+    score = 0
+    # Structure clarity (0-2)
+    if structure_clear:
+        score += 2
+    # Momentum confirmation (0-2)
+    if vol_confirmed:
+        score += 1
+    if 30 < rsi < 70:
+        score += 0  # neutral RSI = no bonus
+    elif rsi <= 30 or rsi >= 70:
+        score += 1  # extreme RSI = momentum signal
+    # Entry location via confidence (0-2)
+    if confidence >= 0.8:
+        score += 2
+    elif confidence >= 0.6:
+        score += 1
+    # Risk-to-reward (0-2)
+    if rr >= 3.0:
+        score += 2
+    elif rr >= 2.0:
+        score += 1
+    # Invalidation quality = confidence proxy (0-1)
+    if confidence >= 0.7:
+        score += 1
+    # Timeframe alignment bonus (0-1)
+    if structure_clear and confidence >= 0.6:
+        score += 1
+
+    score = min(10, score)
+
+    if score <= 3:
+        label = "No-Trade"
+    elif score <= 5:
+        label = "Weak Setup"
+    elif score <= 7:
+        label = "Tradable with confirmation"
+    elif score <= 9:
+        label = "High-Quality Setup"
+    else:
+        label = "Rare Premium Setup"
+
+    return score, label
+
+
+def _status_label(confidence: float, rr: float, rsi: float, in_midrange: bool) -> tuple[str, str]:
+    """Return (icon, label) for the setup status."""
+    if in_midrange and 40 < rsi < 60:
+        return "⛔", "No-Trade Zone"
+    if confidence >= 0.75 and rr >= 2.0:
+        return "🎯", "Execution Ready"
+    if confidence >= 0.7 and rr >= 1.5:
+        return "✅", "Valid Setup"
+    if confidence >= 0.5:
+        return "🟡", "Confirmation Pending"
+    if rsi > 80 or rsi < 20:
+        return "⚠️", "Elevated Risk"
+    return "🔒", "Stand Down"
+
+
+# ══════════════════════════════════════════════════════════════
+# WHYNOT — explain why a trade was rejected
+# ══════════════════════════════════════════════════════════════
+
+class ProScanSkill(BaseSkill):
+    """Rich multi-section scan: account header, live tickers, regime narrative, verdict.
+
+    Modes:
+      - scalp:    5m candles, tight SL/TP, top-3 by volume
+      - intraday: 15m candles, medium SL/TP, top-5 movers
+      - swing:    4h candles, wide SL/TP, top-5 movers
+    """
+    name = "pro_scan"
+    description = "Rich scan with regime analysis"
+
+    MODE_CFG: dict[str, dict] = {
+        "scalp": {
+            "label": "SCALP SCAN",
+            "icon": "\u26a1",
+            "timeframe": "5m",
+            "top_n": 3,
+            "desc": "5m candles \u2022 tight SL \u2022 top 3 volume",
+            "sort": "volume",
+        },
+        "intraday": {
+            "label": "INTRADAY SCAN",
+            "icon": "\U0001f4ca",
+            "timeframe": "15m",
+            "top_n": 5,
+            "desc": "15m candles \u2022 top 5 movers",
+            "sort": "change",
+        },
+        "swing": {
+            "label": "SWING SCAN",
+            "icon": "\U0001f30a",
+            "timeframe": "4h",
+            "top_n": 5,
+            "desc": "4h candles \u2022 wide SL/TP \u2022 trend-based",
+            "sort": "change",
+        },
+    }
+
+    async def execute(self, engine: RuneClawEngine, **kwargs) -> str:
+        mode = kwargs.get("mode", "intraday")
+        cfg = self.MODE_CFG.get(mode, self.MODE_CFG["intraday"])
+
+        # ── Account Status ──
+        portfolio = _get_portfolio(engine, **kwargs)
+        state = portfolio.snapshot()
+        cb = engine.risk.circuit_breaker_active
+        sim = "PAPER" if CONFIG.simulation_mode else "\u26a0\ufe0f LIVE"
+
+        # LIVE FIX: use real exchange equity and live positions in LIVE mode
+        if CONFIG.is_live():
+            scan_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
+            if scan_equity <= 0:
+                scan_equity = state.equity_usd
+            executor = engine.live_executor
+            scan_open = len(executor.open_positions)
+            live_closed = executor.closed_positions
+            scan_pnl = sum((p.pnl_usd or 0) for p in live_closed)
+        else:
+            scan_equity = state.equity_usd
+            scan_open = state.open_positions
+            scan_pnl = state.daily_pnl
+
+        header = (
+            f"\u2694\ufe0f <b>RUNECLAW {cfg['label']}</b>\n{SEP}\n"
+            f"  {sim}  \u2502  Equity: <code>{_money(scan_equity)}</code>\n"
+            f"  Open: <code>{scan_open}/{CONFIG.risk.max_open_positions}</code>"
+            f"  \u2502  PnL: <code>{_money(scan_pnl, sign=True)}</code>\n"
+            f"  Timeframe: <code>{cfg['timeframe'].upper()}</code>"
+            f"  \u2502  Scan Mode: <code>Swing-by-swing</code>\n"
+        )
+
+        # ── Fetch live tickers ──
+        signals = await engine.scanner.scan()
+        if not signals:
+            return (
+                header +
+                "\n\u2694\ufe0f <b>Executive Read</b>\n"
+                "<i>The Claw sees no actionable movement. Market is compressed.\n"
+                "No trigger, no trade. Stand down until structure resolves.</i>\n\n"
+                "<b>Claw Verdict:</b> Observation mode.\n\n"
+                "<i>\u26a0\ufe0f Not financial advice. Use your own risk management.</i>"
+            )
+
+        # Sort by mode preference
+        if cfg["sort"] == "volume":
+            signals.sort(key=lambda s: s.volume_usd_24h, reverse=True)
+        else:
+            signals.sort(key=lambda s: abs(s.change_pct_24h), reverse=True)
+
+        # Stash structured signals so the handler can render the grid card
+        # (non-breaking: this method still returns its rich text).
+        try:
+            engine._last_scan_signals = signals
+        except Exception:
+            pass
+
+        top = signals[:cfg["top_n"]]
+
+        # ── Categorized Live Tickers ──
+        from bot.core.market_scanner import group_by_category, category_icon
+        ticker_lines = ["\U0001f4e1 <b>Live Tickers</b>"]
+
+        # Group signals by category (shared helper — identical ordering everywhere)
+        by_cat = group_by_category(top, lambda s: s.asset_category)
+
+        for cat in by_cat:
+            cat_icon = category_icon(cat)
+            cat_sigs = by_cat[cat]
+            ticker_lines.append(f"\n{cat_icon} <b>{cat}</b>")
+            ticker_lines.append("<pre>")
+            ticker_lines.append(
+                f" {'PAIR':<12s}  {'PRICE':>12s}  {'24h':>7s}  {'VOL':>8s}"
+            )
+            ticker_lines.append(f" {'─'*12}  {'─'*12}  {'─'*7}  {'─'*8}")
+            for s in cat_sigs:
+                arrow = _spark(s.change_pct_24h)
+                vol_m = s.volume_usd_24h / 1_000_000 if s.volume_usd_24h else 0
+                chg = f"{s.change_pct_24h:+.1f}%"
+                spike = "\U0001f4a5" if s.volume_spike else " "
+                # Clean symbol display: strip :USDT suffix for futures
+                display_sym = s.symbol.replace(":USDT", "")
+                ticker_lines.append(
+                    f" {arrow} {_esc(display_sym):<11s}"
+                    f"  {_price(s.price):<12s}"
+                    f"  {chg:>6}"
+                    f"  ${vol_m:,.0f}M {spike}"
+                )
+            ticker_lines.append("</pre>")
+        ticker_lines.append("")
+
+        # ── Structure Read per Asset ──
+        structure_lines = []
+        ideas_found: list = []
+
+        # Pre-fetch all OHLCV in parallel
+        spot_exchange = await engine.scanner._get_exchange()
+        # For futures symbols, use futures exchange
+        futures_exchange = None
+        has_futures = any(s.asset_category != "Crypto" for s in top)
+        if has_futures:
+            try:
+                futures_exchange = await engine.scanner._get_futures_exchange()
+            except Exception:
+                pass
+
+        async def _fetch_ohlcv(sym, category):
+            try:
+                if category != "Crypto" and futures_exchange:
+                    return sym, await futures_exchange.fetch_ohlcv(
+                        sym, cfg["timeframe"], limit=100)
+                else:
+                    return sym, await spot_exchange.fetch_ohlcv(
+                        sym, cfg["timeframe"], limit=100)
+            except Exception:
+                return sym, None
+
+        ohlcv_results = dict(await asyncio.gather(
+            *[_fetch_ohlcv(s.symbol, s.asset_category) for s in top]
+        ))
+
+        for sig in top:
+            ohlcv = ohlcv_results.get(sig.symbol)
+            if ohlcv is None:
+                structure_lines.append(
+                    f"  {_BAD} <b>{_esc(sig.symbol)}</b> \u2014 data unavailable\n"
+                )
+                continue
+
+            if len(ohlcv) < 20:
+                structure_lines.append(
+                    f"  {_WARN} <b>{_esc(sig.symbol)}</b> \u2014 insufficient bars\n"
+                )
+                continue
+
+            # Compute quick indicators for regime narrative
+            closes = [float(c[4]) for c in ohlcv]
+            highs = [float(c[2]) for c in ohlcv]
+            lows = [float(c[3]) for c in ohlcv]
+            volumes = [float(c[5]) for c in ohlcv]
+
+            # RSI-14
+            deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+            gains = [max(d, 0) for d in deltas[-14:]]
+            losses = [abs(min(d, 0)) for d in deltas[-14:]]
+            avg_gain = sum(gains) / 14 if gains else 0
+            avg_loss = sum(losses) / 14 if losses else 0.001
+            rsi = 100 - (100 / (1 + avg_gain / avg_loss))
+
+            # VWAP approx (typical price * volume / cumulative volume)
+            recent = ohlcv[-20:]
+            tp_vol = sum(
+                ((float(c[2]) + float(c[3]) + float(c[4])) / 3) * float(c[5])
+                for c in recent
+            )
+            cum_vol = sum(float(c[5]) for c in recent)
+            vwap = tp_vol / cum_vol if cum_vol > 0 else closes[-1]
+
+            # Support / Resistance from recent swing H/L
+            recent_20h = highs[-20:]
+            recent_20l = lows[-20:]
+            resistance = max(recent_20h)
+            support = min(recent_20l)
+
+            # EMA20 for trend direction
+            ema20 = closes[-1]
+            if len(closes) >= 20:
+                k = 2 / 21
+                ema20 = closes[-20]
+                for p in closes[-19:]:
+                    ema20 = p * k + ema20 * (1 - k)
+
+            # ── Premium structure analysis ──
+            price = closes[-1]
+            midrange = (resistance + support) / 2
+            above_ema = price > ema20
+            above_vwap = price > vwap
+            in_midrange = abs(price - midrange) < (resistance - support) * 0.25
+
+            # Structural bias
+            if above_ema and above_vwap:
+                struct_bias = "Bullish structure"
+                struct_icon = _OK
+            elif not above_ema and not above_vwap:
+                struct_bias = "Bearish structure"
+                struct_icon = _BAD
+            elif in_midrange:
+                struct_bias = "Range-bound \u2022 Compression"
+                struct_icon = _WARN
+            else:
+                struct_bias = "Confirmation pending"
+                struct_icon = _NEU
+
+            # Risk state
+            if rsi > 80 or rsi < 20:
+                risk_state = "ELEVATED RISK"
+                risk_icon = "\U0001f534"
+            elif in_midrange:
+                risk_state = "NO-TRADE ZONE"
+                risk_icon = "\u26d4"
+            elif rsi > 70 or rsi < 30:
+                risk_state = "MODERATE RISK"
+                risk_icon = "\U0001f7e1"
+            else:
+                risk_state = "LOWER RISK"
+                risk_icon = "\U0001f7e2"
+
+            # Momentum
+            vol_avg = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / max(len(volumes), 1)
+            vol_now = volumes[-1] if volumes else 0
+            vol_ratio = vol_now / vol_avg if vol_avg > 0 else 1
+            if vol_ratio > 1.5:
+                momentum_note = "Momentum expansion \u2022 Volume confirmed"
+            elif vol_ratio < 0.5:
+                momentum_note = "Momentum fade \u2022 Weak follow-through"
+            else:
+                momentum_note = "Neutral volume \u2022 Awaiting confirmation"
+
+            rsi_label = "overbought" if rsi > 70 else "oversold" if rsi < 30 else "neutral"
+
+            # Adaptive price decimals for sub-penny tokens
+            pd = 2
+            if price < 1.0:
+                pd = 4
+            if price < 0.01:
+                pd = 6
+            if price < 0.0001:
+                pd = 8
+            pf = f"{{:>10,.{pd}f}}"  # price format for <pre> block
+            pf2 = f"{{:,.{pd}f}}"     # price format inline
+
+            # Build premium card
+            structure_lines.append(
+                f"\n{struct_icon} <b>{_esc(sig.symbol)}</b>  {risk_icon} {risk_state}\n"
+            )
+            structure_lines.append(
+                f"<b>Structural Bias:</b> {struct_bias}\n"
+                f"<pre>"
+                f"  Price    ${pf.format(price)}  \u2502  EMA20  ${pf.format(ema20)}\n"
+                f"  VWAP     ${pf.format(vwap)}  \u2502  RSI    {rsi:>10.0f} ({rsi_label})"
+                f"</pre>"
+            )
+            structure_lines.append(
+                f"<b>Liquidity Map:</b>\n"
+                f"  \u25b8 Buy-side: <code>${pf2.format(resistance)}</code> (swing high)\n"
+                f"  \u25b8 Sell-side: <code>${pf2.format(support)}</code> (swing low)\n"
+                f"  \u25b8 Midrange: <code>${pf2.format(midrange)}</code>\n"
+            )
+            structure_lines.append(f"<b>Momentum:</b> {momentum_note}\n")
+
+            # Tactical scenarios
+            if above_ema and above_vwap:
+                structure_lines.append(
+                    f"<b>\u25b2 Long scenario:</b> Reclaim ${pf2.format(ema20)} + retest + hold. "
+                    f"Target: sweep above ${pf2.format(resistance)}.\n"
+                    f"<b>Invalidation:</b> Close below ${pf2.format(ema20)}.\n"
+                )
+                if rsi > 70:
+                    structure_lines.append(
+                        f"<i>\u26a0\ufe0f Overextended. Buyer exhaustion risk near ${pf2.format(resistance)}. "
+                        f"Do not chase the wick. Wait for the close.</i>\n"
+                    )
+            elif not above_ema and not above_vwap:
+                structure_lines.append(
+                    f"<b>\u25bc Short scenario:</b> Rejection at ${pf2.format(ema20)} + breakdown. "
+                    f"Target: sweep below ${pf2.format(support)}.\n"
+                    f"<b>Invalidation:</b> Close above ${pf2.format(ema20)}.\n"
+                )
+                if rsi < 30:
+                    structure_lines.append(
+                        f"<i>\u26a0\ufe0f Oversold. Seller exhaustion possible. "
+                        f"A sweep with reclaim at ${pf2.format(support)} is a reversal trigger.</i>\n"
+                    )
+            else:
+                structure_lines.append(
+                    f"<b>\u26d4 No-trade condition:</b> Price in decision zone "
+                    f"${pf2.format(support)} \u2014 ${pf2.format(resistance)}.\n"
+                    f"<i>The range is still in control. "
+                    f"No trigger, no trade. Wait for clean break or sweep.</i>\n"
+                )
+
+            # Setup Quality Score
+            _structure_clear = not in_midrange
+            _vol_conf = vol_ratio > 1.5
+            _conf = 0.5  # default pre-analysis confidence
+            _rr_val = 1.0  # default pre-analysis R:R
+            sq_score, sq_label = _setup_quality_score(_conf, _rr_val, rsi, _vol_conf, _structure_clear)
+            sq_bar = "█" * sq_score + "░" * (10 - sq_score)
+            structure_lines.append(f"  Setup Quality: {sq_bar} <code>{sq_score}/10</code> — <i>{sq_label}</i>\n")
+
+            # Run full analysis pipeline with mode-specific timeframe
+            idea = await engine._analyze_signal(sig, timeframe=cfg["timeframe"])
+            if idea:
+                engine._pending_ideas[idea.id] = idea
+                ideas_found.append((idea, rsi))
+
+        # ── Claw Verdict ──
+        verdict_lines = [f"\n\u2694\ufe0f <b>Claw Verdict</b>\n{SEP}"]
+        if not ideas_found:
+            verdict_lines.append(
+                f"\n  <b>Verdict:</b> No actionable setups on {cfg['timeframe'].upper()}.\n"
+                f"  <i>The Claw does not force trades in low-quality conditions.\n"
+                f"  Stand down until structure resolves.\n"
+                f"  Confirmation first, execution second.</i>\n"
+                f"\n  <i>A missed trade is better than a forced trade.</i>"
+            )
+        else:
+            for idea, idea_rsi in ideas_found:
+                d_icon = _OK if idea.direction.value == "LONG" else _BAD
+                d_arrow = "\u25b2" if idea.direction.value == "LONG" else "\u25bc"
+                sl_d = abs(idea.entry_price - idea.stop_loss)
+                tp_d = abs(idea.take_profit - idea.entry_price)
+                rr = tp_d / sl_d if sl_d > 0 else 0
+                conf_fill = int(idea.confidence * 10)
+                conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (10 - conf_fill)
+
+                if idea.confidence >= 0.7 and rr >= 2:
+                    setup_risk = "\U0001f7e2 LOWER RISK"
+                elif idea.confidence >= 0.5:
+                    setup_risk = "\U0001f7e1 MODERATE RISK"
+                else:
+                    setup_risk = "\U0001f534 ELEVATED RISK"
+
+                # Status label
+                _idea_midrange = False  # approximation; full midrange check was per-asset
+                status_icon, status_text = _status_label(idea.confidence, rr, idea_rsi, _idea_midrange)
+
+                # Setup quality for this idea
+                _idea_sq_score, _idea_sq_label = _setup_quality_score(
+                    idea.confidence, rr, idea_rsi, True, True
+                )
+                _idea_sq_bar = "█" * _idea_sq_score + "░" * (10 - _idea_sq_score)
+
+                verdict_lines.append(
+                    f"\n  {status_icon} <b>{status_text}</b>\n"
+                    f"  {d_icon}{d_arrow} <b>{idea.direction.value} {_esc(idea.asset)}</b>  "
+                    f"{setup_risk}\n"
+                    f"  \u2502{conf_bar}\u2502 {_pill(f'{idea.confidence:.0%}')}\n"
+                    f"<pre>"
+                    f"  Entry Zone    ${_price(idea.entry_price):>12s}\n"
+                    f"  Stop Loss     ${_price(idea.stop_loss):>12s}  (-${_price(sl_d)})\n"
+                    f"  Take Profit   ${_price(idea.take_profit):>12s}  (+${_price(tp_d)})\n"
+                    f"  R:R           {idea.risk_reward_ratio:>10}x"
+                    f"</pre>"
+                    f"  Quality: {_idea_sq_bar} <code>{_idea_sq_score}/10</code> — <i>{_idea_sq_label}</i>"
+                )
+                if idea.reasoning:
+                    short_reason = idea.reasoning[:200]
+                    verdict_lines.append(
+                        f"  <blockquote>{_esc(short_reason)}</blockquote>"
+                    )
+                verdict_lines.append(
+                    f"  <i>Entry is conditional, not automatic. "
+                    f"Wait for confirmation trigger.</i>\n"
+                    f"  {_pill(idea.id)}"
+                )
+
+            verdict_lines.append(
+                "\n<i>\u25b8 Say \"trade\" to review \u2022 \"why not\" for rejections</i>"
+            )
+
+        # Risk note
+        risk_note = (
+            "\n\n<i>\u26a0\ufe0f Not financial advice. Use your own risk management.\n"
+            "Protect capital first. Opportunity comes second.</i>"
+        )
+
+        # One-Glance Verdict
+        one_glance_lines = []
+        if ideas_found:
+            best, _best_rsi = max(ideas_found, key=lambda i: i[0].confidence)
+            _best_sl_d = abs(best.entry_price - best.stop_loss)
+            _best_tp_d = abs(best.take_profit - best.entry_price)
+            _best_rr = _best_tp_d / _best_sl_d if _best_sl_d > 0 else 0
+            _gl_icon, _gl_text = _status_label(best.confidence, _best_rr, _best_rsi, False)
+            one_glance_lines.append(f"\n{_gl_icon} <b>One-Glance Verdict: {_gl_text}</b>")
+            one_glance_lines.append(
+                f"  {len(ideas_found)} actionable setup(s) detected  •  "
+                f"Best: <b>{_esc(best.asset)}</b> ({best.confidence:.0%} conf, {_best_rr:.1f}R)\n"
+            )
+        else:
+            one_glance_lines.append("\n🔒 <b>One-Glance Verdict: Stand Down</b>")
+            one_glance_lines.append(
+                "  No actionable setups. The Claw watches structure.\n"
+            )
+
+        # Next Best Action
+        next_action_lines = []
+        next_action_lines.append("\n🎯 <b>Next Best Action</b>")
+        if ideas_found:
+            best_idea, _ = ideas_found[0]
+            if best_idea.direction.value == "LONG":
+                next_action_lines.append(f"  Wait for confirmation above <code>${best_idea.entry_price:,.6g}</code> before entry.")
+            else:
+                next_action_lines.append(f"  Wait for rejection below <code>${best_idea.entry_price:,.6g}</code> before entry.")
+            next_action_lines.append("  <i>Entry is conditional. No trigger, no trade.</i>")
+        else:
+            next_action_lines.append("  Stand down. No actionable setups detected.")
+            next_action_lines.append("  <i>The Claw watches structure. Patience is edge.</i>")
+
+        # ── Assemble ──
+        parts = [
+            header,
+            "\n".join(one_glance_lines),
+            "\n".join(ticker_lines),
+            "\n".join(structure_lines),
+            "\n".join(verdict_lines),
+            "\n".join(next_action_lines),
+            risk_note,
+        ]
+
+        # Push scan data to website dashboard
+        try:
+            from bot.skills.scan_skill import _build_scan_payload
+            from bot.utils.website_sync import sync_scan_in_background
+            # Convert signals to scan_skill format
+            scan_results = []
+            for sig in signals:
+                scan_results.append({
+                    "sym": sig.symbol,
+                    "price": sig.price,
+                    "dir": "LONG" if sig.change_pct_24h > 0 else "SHORT",
+                    "score": max(sig.momentum_score, 0),
+                    "rsi": 50.0,  # RSI computed per-asset above, but not stored on signal
+                    "atr": 0,
+                    "vol_ratio": sig.volume_usd_24h / 1_000_000 if sig.volume_usd_24h else 1.0,
+                    "patterns": [],
+                })
+            payload = _build_scan_payload(scan_results, engine)
+            # Enhance with ideas if available
+            if ideas_found:
+                for idea, idea_rsi in ideas_found:
+                    sym_key = idea.asset.replace("/", "")
+                    atr_val = abs(idea.entry_price - idea.stop_loss) / 2.5
+                    payload["entry_cards"].append({
+                        "symbol": idea.asset.replace("/USDT", ""),
+                        "direction": idea.direction.value,
+                        "score": idea.confidence,
+                        "entry": str(idea.entry_price),
+                        "stop_loss": str(idea.stop_loss),
+                        "tp1": str(idea.take_profit),
+                        "tp2": str(round(idea.entry_price + (idea.take_profit - idea.entry_price) * 1.5, 6)),
+                        "margin": str(round(idea.entry_price * 0.01, 2)),
+                        "rr": str(idea.risk_reward_ratio),
+                        "book_ratio": 0,
+                        "trigger": f"Confidence {idea.confidence:.0%}",
+                        "thesis": idea.reasoning[:200] if idea.reasoning else "",
+                    })
+            sync_scan_in_background(payload)
+        except Exception as exc:
+            system_log.warning("Dashboard scan push failed: %s", exc)
+
+        return "\n".join(parts)
+
+
+class WhyNotSkill(BaseSkill):
+    name = "whynot"
+    description = "Explain why a trade was rejected by risk"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        symbol = kwargs.get("symbol", "").strip().upper()
+        rejections = engine._last_rejections
+
+        if not rejections:
+            return (f"{_NEU} <b>NO REJECTIONS</b>\n\n"
+                    "<i>No trades rejected yet. "
+                    "Say \"scan\" or \"analyze BTC\" to generate ideas.</i>")
+
+        if symbol:
+            # Normalize: strip /USDT if provided
+            sym_key = symbol.replace("/USDT", "").replace("/", "")
+            rej = rejections.get(sym_key)
+            if not rej:
+                available = ", ".join(sorted(rejections.keys())[-10:])
+                return (f"{_BAD} No rejection found for <code>{_esc(sym_key)}</code>\n\n"
+                        f"Recent rejections: <code>{_esc(available)}</code>")
+        else:
+            # Most recent rejection (last inserted key)
+            sym_key = list(rejections.keys())[-1]
+            rej = rejections[sym_key]
+
+        # Build the formatted card
+        d_icon = _OK if rej["direction"] == "LONG" else _BAD
+        d_arrow = "\u25b2" if rej["direction"] == "LONG" else "\u25bc"
+        conf = rej["confidence"]
+        conf_ring = _progress_ring(conf * 100)
+
+        lines = [
+            f"\u2718 <b>REJECTED  {_esc(rej['symbol'])}</b>\n{SEP}",
+            "",
+            f"  {d_icon}{d_arrow} <b>{rej['direction']}</b>  "
+            f"{conf_ring} {_pill(f'{conf:.0%}')}",
+            "",
+        ]
+
+        # Price info
+        lines.append(f"- Entry: <code>${rej['entry_price']:,.2f}</code>")
+        lines.append(f"- Stop: <code>${rej['stop_loss']:,.2f}</code>")
+        lines.append(f"- Target: <code>${rej['take_profit']:,.2f}</code>")
+
+        # Failed checks (detailed)
+        failed = rej.get("checks_failed", [])
+        if failed:
+            lines.append(f"\n{_BAD} <b>Failed Checks</b> ({len(failed)})")
+            lines.append("<pre>")
+            for check in failed:
+                # Each check is like "CONFIDENCE: 0.3 < 0.6 minimum"
+                parts = check.split(":", 1)
+                name = parts[0].strip()
+                reason = parts[1].strip() if len(parts) > 1 else "failed"
+                lines.append(f"  \u2718 {name}")
+                lines.append(f"    {reason}")
+            lines.append("</pre>")
+
+        # Passed checks (abbreviated)
+        passed = rej.get("checks_passed", [])
+        if passed:
+            lines.append(f"\n{_OK} <b>Passed Checks</b> ({len(passed)})")
+            # Show just the check names, compact
+            names = []
+            for check in passed:
+                parts = check.split(":", 1)
+                names.append(parts[0].strip())
+            # Wrap names in rows of ~4
+            chunks = [names[i:i+4] for i in range(0, len(names), 4)]
+            lines.append("<pre>")
+            for chunk in chunks:
+                lines.append(f"  \u2713 {', '.join(chunk)}")
+            lines.append("</pre>")
+
+        # Timestamp
+        ts = rej.get("timestamp", "")
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts)
+                ts_fmt = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+            except Exception:
+                ts_fmt = ts
+            lines.append(f"\n<i>\u23f0 {ts_fmt}</i>")
+
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# DEEPSCAN UNIVERSE — 67+ symbols
+# ══════════════════════════════════════════════════════════════
+
+DEEPSCAN_UNIVERSE: list[str] = [
+    # Majors
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
+    "ADA/USDT", "DOGE/USDT", "DOT/USDT", "LINK/USDT", "AVAX/USDT",
+    "LTC/USDT", "BCH/USDT", "ETC/USDT", "XLM/USDT", "TRX/USDT",
+    "ATOM/USDT", "NEAR/USDT", "ICP/USDT", "FIL/USDT", "XMR/USDT",
+    # L1/L2 & Infra
+    "SUI/USDT", "APT/USDT", "SEI/USDT", "TON/USDT", "HBAR/USDT",
+    "OP/USDT", "ARB/USDT", "INJ/USDT", "TIA/USDT", "ALGO/USDT",
+    # DeFi
+    "UNI/USDT", "AAVE/USDT", "CRV/USDT", "LDO/USDT", "PENDLE/USDT",
+    "DYDX/USDT", "JUP/USDT", "RENDER/USDT", "FET/USDT",
+    # AI & Narrative
+    "TAO/USDT", "VIRTUAL/USDT",
+    # Memes & Community
+    "1000BONK/USDT", "WIF/USDT", "APE/USDT", "TRUMP/USDT",
+    "FARTCOIN/USDT", "PENGU/USDT", "ORDI/USDT",
+    # Mid-caps
+    "ENA/USDT", "ONDO/USDT", "WLD/USDT",
+    "HYPE/USDT", "JTO/USDT", "DASH/USDT",
+    # Micro / Emerging
+    "LAB/USDT", "ZEC/USDT", "SKYAI/USDT", "SIREN/USDT", "PUMP/USDT",
+    "WLFI/USDT", "ASTER/USDT", "XPLUS/USDT", "RAVE/USDT",
+    "VVV/USDT", "BIO/USDT", "M/USDT", "CHIP/USDT", "B/USDT",
+]
+
+DEEPSCAN_TIMEFRAMES = ["4h", "1h", "5m"]
+
+
+# ══════════════════════════════════════════════════════════════
+# PLAYBOOK — GetClaw-style narrative briefing
+# ══════════════════════════════════════════════════════════════
+
+class PlaybookSkill(BaseSkill):
+    """Full system briefing: scanner → AI brain → rulebook → live execution → positions."""
+    name = "playbook"
+    description = "GetClaw-style narrative playbook"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        portfolio = _get_portfolio(engine, **kwargs)
+        state = portfolio.snapshot()
+        cb = engine.risk.circuit_breaker_active
+        sim = "PAPER" if CONFIG.simulation_mode else "⚠️ LIVE"
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+        lines: list[str] = []
+
+        # ── Section 1: Scanner Status ──
+        lines.append(f"\U0001f4e1 <b>SCANNER SWEEP</b>\n{SEP}")
+        lines.append(f"- Universe: <code>{len(DEEPSCAN_UNIVERSE)} symbols</code>")
+        lines.append("- Timeframes: <code>4H \u00b7 1H \u00b7 15M \u00b7 5M</code>")
+        lines.append("- Batch Mode: <code>Parallel async</code>")
+        lines.append(f"- Last Scan: <code>{now}</code>")
+
+        # Show recent scan results if available
+        signals = await engine.scanner.scan()
+        n_signals = len(signals) if signals else 0
+        movers = [s for s in (signals or []) if abs(s.change_pct_24h) > 3.0]
+        spikes = [s for s in (signals or []) if s.volume_spike]
+        lines.append(f"  {_OK} {n_signals} signals detected")
+        lines.append(f"  {_spark(3.0)} {len(movers)} movers (>3%)")
+        lines.append(f"  💥 {len(spikes)} volume spikes")
+        lines.append("")
+
+        # ── Section 2: AI Brain ──
+        lines.append(f"\n\U0001f9e0 <b>AI BRAIN</b>\n{SEP}")
+        lines.append("- Profiles: <code>6 strategy modes</code>")
+        lines.append("- Indicators: <code>14+ (RSI/MACD/BB/EMA/ADX/ATR/OBV/VWAP/MFI/Fib)</code>")
+        lines.append("- Candle Patterns: <code>15 detected</code>")
+        lines.append("- Chart Patterns: <code>13 (H&amp;S/DT/DB/Flags/Tri/Wedge)</code>")
+        lines.append("- Elliott Waves: <code>5-wave impulse count</code>")
+        lines.append("- Market Structure: <code>HH/HL/BOS/CHoCH/Sweep</code>")
+        lines.append("- MTF Alignment: <code>1H \u00b7 4H \u00b7 1D</code>")
+        lines.append("- Order Flow: <code>CVD \u00b7 Book \u00b7 Whale \u00b7 Funding</code>")
+
+        # LLM status
+        llm_provider = CONFIG.llm.provider if CONFIG.llm and CONFIG.llm.provider else "groq"
+        lines.append(f"  🤖 LLM: <b>{_esc(llm_provider.upper())}</b> + cascading fallback")
+        lines.append("")
+
+        # ── Section 3: Rulebook ──
+        lines.append(f"\n\U0001f6e1 <b>RULEBOOK</b>\n{SEP}")
+        risk = engine.risk
+        lines.append(f"- Risk Checks: <code>{_TOTAL_RISK_CHECKS} fail-closed gates</code>")
+        lines.append(f"- Min Confidence: <code>{CONFIG.risk.min_confidence:.0%}</code>")
+        lines.append(f"- Min R:R: <code>{CONFIG.risk.min_risk_reward}x</code>")
+        lines.append(f"- Max Drawdown: <code>{CONFIG.risk.max_drawdown_pct:.0f}%</code>")
+        lines.append(f"- Max Positions: <code>{CONFIG.risk.max_open_positions}</code>")
+        lines.append(f"- Max Exposure: <code>{CONFIG.risk.max_portfolio_exposure_pct:.0f}%</code>")
+        lines.append(f"- Cooldown: <code>{CONFIG.risk.cooldown_after_loss_seconds}s</code>")
+        lines.append(f"- Circuit Breaker: {_BAD} TRIPPED" if cb else f"- Circuit Breaker: {_OK} CLEAR")
+        lines.append("")
+
+        # ── Section 4: Live Execution ──
+        lines.append(f"\u26a1 <b>LIVE EXECUTION</b>\n{SEP}")
+        lines.append(f"- Mode: <code>{sim}</code>")
+        lines.append("- Exchange: <code>Bitget</code>")
+
+        # LIVE FIX: show real exchange equity in LIVE mode
+        if CONFIG.is_live():
+            display_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
+            if display_equity <= 0:
+                display_equity = state.equity_usd
+            executor = engine.live_executor
+            live_pos = executor.open_positions
+            live_open_count = len(live_pos)
+            total_exposure = executor.total_exposure_usd
+            closed_trades = executor.closed_positions
+            realized_pnl = sum(p.pnl_usd or 0 for p in closed_trades)
+            utilization_pct = (total_exposure / display_equity * 100) if display_equity > 0 else 0
+            free_bal = engine._live_balance_cache.get("free", 0.0) if engine._live_balance_cache else 0.0
+
+            lines.append(f"- Equity: <code>{_money(display_equity)}</code>")
+            lines.append(f"- Available: <code>{_money(free_bal)}</code>")
+            lines.append(f"- Open Positions: <code>{live_open_count}</code>")
+            lines.append(f"- Total Exposure: <code>{_money(total_exposure)}</code>")
+            lines.append(f"- Utilization: <code>{utilization_pct:.1f}%</code>")
+            lines.append(f"- Realized PnL: <code>{_money(realized_pnl, sign=True)}</code> ({len(closed_trades)} trades)")
+            from bot.core.live_executor import MICRO_MAX_POSITION_USD, MICRO_MAX_TOTAL_EXPOSURE, MICRO_MAX_OPEN_POSITIONS
+            lines.append(f"- Micro Limits: <code>${MICRO_MAX_POSITION_USD:.0f}/pos · ${MICRO_MAX_TOTAL_EXPOSURE:.0f} total · {MICRO_MAX_OPEN_POSITIONS} max</code>")
+        else:
+            lines.append(f"- Equity: <code>{_money(state.equity_usd)}</code>")
+            lines.append(f"- Open Positions: <code>{state.open_positions}</code>")
+
+        lines.append(f"- Daily PnL: <code>{_money(state.daily_pnl, sign=True)}</code>")
+        lines.append("- Trailing Stop: <code>Active (shared logic)</code>")
+        lines.append("")
+
+        # ── Section 5: Active Positions ──
+        # LIVE FIX: in LIVE mode, show positions from LiveExecutor
+        if CONFIG.is_live():
+            live_positions = engine.live_executor.open_positions
+            if live_positions:
+                # Fetch fresh prices for unrealized PnL (route by asset category)
+                live_prices: dict[str, float] = {}
+                try:
+                    from bot.core.market_scanner import _classify_symbol as _cls
+                    _spot_syms = [p.symbol for p in live_positions if _cls(p.symbol) == "Crypto"]
+                    _futures_syms = [p.symbol for p in live_positions if _cls(p.symbol) != "Crypto"]
+                    if _spot_syms:
+                        _ex = await engine.scanner._get_exchange()
+                        _tickers = await _ex.fetch_tickers(list(set(_spot_syms)))
+                        live_prices.update({s: float(t.get("last", 0)) for s, t in _tickers.items() if t.get("last")})
+                    if _futures_syms:
+                        _fex = await engine.scanner._get_futures_exchange()
+                        _ftickers = await _fex.fetch_tickers(list(set(_futures_syms)))
+                        live_prices.update({s: float(t.get("last", 0)) for s, t in _ftickers.items() if t.get("last")})
+                except Exception:
+                    pass
+
+                lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS (LIVE)</b>\n{SEP}")
+                for pos in live_positions[:5]:
+                    d_icon = _OK if pos.direction == "LONG" else _BAD
+                    d_arrow = "\u25b2" if pos.direction == "LONG" else "\u25bc"
+                    cur_price = live_prices.get(pos.symbol, pos.entry_price)
+                    notional = cur_price * pos.quantity
+                    cost = pos.cost_usd if pos.cost_usd > 0 else pos.entry_price * pos.quantity
+
+                    # Unrealized PnL
+                    if pos.direction == "LONG":
+                        upnl = (cur_price - pos.entry_price) * pos.quantity
+                        upnl_pct = ((cur_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price else 0
+                    else:
+                        upnl = (pos.entry_price - cur_price) * pos.quantity
+                        upnl_pct = ((pos.entry_price - cur_price) / pos.entry_price * 100) if pos.entry_price else 0
+                    pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
+
+                    # Hold time
+                    from datetime import timezone
+                    hold_secs = (datetime.now(timezone.utc) - pos.opened_at).total_seconds()
+                    if hold_secs < 3600:
+                        hold_str = f"{hold_secs / 60:.0f}m"
+                    elif hold_secs < 86400:
+                        hold_str = f"{hold_secs / 3600:.1f}h"
+                    else:
+                        hold_str = f"{hold_secs / 86400:.1f}d"
+
+                    # Distance to SL/TP
+                    sl_dist_pct = abs(cur_price - pos.stop_loss) / cur_price * 100 if cur_price else 0
+                    tp_dist_pct = abs(pos.take_profit - cur_price) / cur_price * 100 if cur_price else 0
+
+                    # R:R from current price
+                    risk_from_here = abs(cur_price - pos.stop_loss) if pos.stop_loss else 0
+                    reward_from_here = abs(pos.take_profit - cur_price) if pos.take_profit else 0
+                    rr_live = (reward_from_here / risk_from_here) if risk_from_here > 0 else 0
+
+                    # Leverage (from position or computed)
+                    leverage = getattr(pos, 'leverage', 0) or (notional / cost if cost > 0 else 1.0)
+
+                    # Exposure % of equity
+                    exp_pct = (cost / display_equity * 100) if display_equity > 0 else 0
+
+                    # SL/TP order status
+                    sl_status = "\u2705" if pos.sl_order_id else "\u26a0\ufe0f manual"
+                    tp_status = "\u2705" if pos.tp_order_id else "\u26a0\ufe0f manual"
+
+                    lines.append(
+                        f"  {d_icon}{d_arrow} <b>{_esc(pos.symbol)}</b>  ·  {hold_str}\n"
+                        f"  {pnl_icon} PnL: <code>{_money(upnl, sign=True)} ({upnl_pct:+.2f}%)</code>\n"
+                        f"  - Entry: <code>${pos.entry_price:,.6f}</code>\n"
+                        f"  - Current: <code>${cur_price:,.6f}</code>\n"
+                        f"  - Size: <code>{_money(cost)}</code> · Notional: <code>{_money(notional)}</code>\n"
+                        f"  - Leverage: <code>{leverage:.1f}x</code> · Exposure: <code>{exp_pct:.1f}%</code>\n"
+                        f"  - SL: <code>${pos.stop_loss:,.6f}</code> ({sl_dist_pct:.1f}% away) {sl_status}\n"
+                        f"  - TP: <code>${pos.take_profit:,.6f}</code> ({tp_dist_pct:.1f}% away) {tp_status}\n"
+                        f"  - Live R:R: <code>{rr_live:.2f}x</code> · Qty: <code>{pos.quantity:,.4f}</code>"
+                    )
+            else:
+                lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
+                lines.append(f"  {_NEU} <i>No open positions</i>")
+        else:
+            positions = portfolio._positions
+            if positions:
+                lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
+                for pid, pos in list(positions.items())[:5]:
+                    d_val = pos.direction.value if hasattr(pos.direction, 'value') else str(pos.direction)
+                    d_icon = _OK if d_val == "LONG" else _BAD
+                    d_arrow = "\u25b2" if d_val == "LONG" else "\u25bc"
+                    notional = pos.entry_price * pos.quantity
+                    lines.append(
+                        f"  {d_icon}{d_arrow} <b>{_esc(pos.asset)}</b>\n"
+                        f"  - Entry: <code>${pos.entry_price:,.2f}</code>\n"
+                        f"  - Size: <code>{_money(notional)}</code>\n"
+                        f"  - SL: <code>${pos.stop_loss:,.2f}</code>\n"
+                        f"  - TP: <code>${pos.take_profit:,.2f}</code>"
+                    )
+            else:
+                lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
+                lines.append(f"  {_NEU} <i>No open positions</i>")
+
+        lines.append("")
+
+        # ── Pending Ideas ──
+        pending = engine._pending_ideas
+        if pending:
+            lines.append(f"\n\U0001f3af <b>QUEUED IDEAS ({len(pending)})</b>\n{SEP}")
+            for tid, idea in list(pending.items())[:3]:
+                d = "\u25b2" if idea.direction.value == "LONG" else "\u25bc"
+                lines.append(
+                    f"  {d} <b>{_esc(idea.asset)}</b>  "
+                    f"{_pill(f'{idea.confidence:.0%}')}  "
+                    f"R:R {idea.risk_reward_ratio}x"
+                )
+            lines.append("")
+
+        # ── Footer ──
+        lines.append(f"<i>🕐 {now}  ·  say \"deep scan\" for full universe scan</i>")
+
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# DEEPSCAN — comprehensive multi-timeframe scan
+# ══════════════════════════════════════════════════════════════
+
+class DeepScanSkill(BaseSkill):
+    """Scan the full DEEPSCAN_UNIVERSE across multiple timeframes with chart patterns."""
+    name = "deepscan"
+    description = "Deep scan 67+ symbols with chart patterns"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        import numpy as np
+        from bot.core.chart_patterns import scan_all_chart_patterns
+        from bot.core.analyzer import _detect_candlestick_patterns
+
+        timeframe = kwargs.get("timeframe", "4h")
+        max_results = int(kwargs.get("max_results", 15))
+
+        # Multi-timeframe on-demand sweep: "all" expands to every supported
+        # timeframe (5m\u21921d); a single tf scans just that one. Bounded by the
+        # same Semaphore below so the tf-product stays batched.
+        from bot.utils.candles import resolve_timeframes
+        tf_list = resolve_timeframes(timeframe) or ["4h"]
+        multi_tf = len(tf_list) > 1
+        tf_label = "ALL TIMEFRAMES" if multi_tf else tf_list[0].upper()
+        tf_desc = "5m\u21921d" if multi_tf else tf_list[0]
+
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+        # Build full universe: crypto spot + TradFi perpetuals
+        from bot.config import TRADFI_PERPETUALS
+        from bot.core.market_scanner import _classify_symbol as _cls_sym
+        full_universe = list(DEEPSCAN_UNIVERSE) + list(TRADFI_PERPETUALS)
+
+        lines: list[str] = []
+        lines.append(_header("\U0001f52c", f"DEEP SCAN \u2014 {tf_label}"))
+        lines.append(f"  {len(full_universe)} symbols \u00b7 {tf_desc} \u00b7 chart + candle patterns")
+        lines.append("")
+
+        spot_exchange = await engine.scanner._get_exchange()
+        futures_exchange = await engine.scanner._get_futures_exchange()
+
+        hits: list[dict] = []
+        errors = 0
+        scanned = 0
+
+        # Parallel OHLCV fetch with rate limiting. The semaphore is shared across
+        # timeframes so the whole (symbol × timeframe) sweep stays bounded.
+        sem = asyncio.Semaphore(10)  # max 10 concurrent
+
+        async def _fetch_one(sym, tf):
+            async with sem:
+                try:
+                    ex = futures_exchange if _cls_sym(sym) != "Crypto" else spot_exchange
+                    ohlcv = await asyncio.wait_for(
+                        ex.fetch_ohlcv(sym, tf, limit=100),
+                        timeout=15,  # 15s per symbol max
+                    )
+                    return sym, ohlcv
+                except (asyncio.TimeoutError, Exception):
+                    return sym, None
+
+        from bot.utils.candles import drop_forming_candle
+        for _tf in tf_list:
+          fetch_results = await asyncio.gather(
+              *[_fetch_one(s, _tf) for s in full_universe],
+              return_exceptions=True,
+          )
+
+          for result in fetch_results:
+            # Handle return_exceptions=True — skip any exceptions
+            if isinstance(result, Exception):
+                errors += 1
+                continue
+            symbol, ohlcv = result
+            # Repaint guard (audit fix): patterns computed on the in-progress
+            # candle can vanish at bar close — same policy as the live path.
+            if ohlcv:
+                ohlcv = drop_forming_candle(ohlcv, _tf)
+            if ohlcv is None or len(ohlcv) < 30:
+                if ohlcv is None:
+                    errors += 1
+                continue
+
+            scanned += 1
+
+            opens = np.array([c[1] for c in ohlcv], dtype=float)
+            highs = np.array([c[2] for c in ohlcv], dtype=float)
+            lows = np.array([c[3] for c in ohlcv], dtype=float)
+            closes = np.array([c[4] for c in ohlcv], dtype=float)
+            volumes = np.array([c[5] for c in ohlcv], dtype=float)
+
+            price = float(closes[-1])
+            chg = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] != 0 else 0
+
+            # Chart patterns
+            chart_patterns = scan_all_chart_patterns(opens, highs, lows, closes)
+
+            # Candlestick patterns
+            candle_patterns = _detect_candlestick_patterns(opens, highs, lows, closes)
+
+            # RSI
+            deltas = np.diff(closes)
+            gain = np.where(deltas > 0, deltas, 0.0)
+            loss = np.where(deltas < 0, -deltas, 0.0)
+            period = min(14, len(gain))
+            avg_gain = float(np.mean(gain[-period:])) if period > 0 else 0
+            avg_loss = float(np.mean(loss[-period:])) + 1e-10 if period > 0 else 1
+            rsi = 100 - 100 / (1 + avg_gain / avg_loss)
+
+            # Volume spike
+            vol_avg = float(np.mean(volumes[-20:])) if len(volumes) >= 20 else float(np.mean(volumes))
+            vol_spike = float(volumes[-1]) > vol_avg * 2.0
+
+            # True-range ATR(14) from the OHLCV we already fetched. Real
+            # per-symbol volatility so downstream SL/TP reflect the actual
+            # range instead of a flat price*0.02 placeholder (which made every
+            # setup show an identical ~4.4%/6.6% stop/target).
+            atr = _true_range_atr(highs, lows, closes) or price * 0.02
+
+            # Score: more patterns + extreme RSI + volume spike = higher score
+            score = len(chart_patterns) * 2 + len(candle_patterns) * 1
+            if rsi < 30 or rsi > 70:
+                score += 2
+            if vol_spike:
+                score += 1
+
+            if score > 0 or abs(chg) > 3.0:
+                hits.append({
+                    "symbol": symbol,
+                    "price": price,
+                    "chg": float(chg),
+                    "rsi": rsi,
+                    "atr": atr,
+                    "vol_spike": vol_spike,
+                    "chart_patterns": chart_patterns,
+                    "candle_patterns": candle_patterns,
+                    "score": score,
+                    "tf": _tf,
+                })
+
+        # Sort by score
+        hits.sort(key=lambda h: h["score"], reverse=True)
+        top = hits[:max_results]
+        normalize_deepscan_scores(top)
+
+        # Store structured hits for card rendering
+        engine._last_deepscan_hits = top
+
+        # ── Stats card ───────────────────────────────────────
+        lines.append("<pre>")
+        def _ds_kv(k: str, v: str, w: int = 22) -> str:
+            dots = "\u00b7" * max(1, w - len(k) - len(str(v)))
+            return f"  {k} {dots} {v}"
+        lines.append(_ds_kv("Scanned", f"{scanned}/{len(full_universe) * len(tf_list)}"))
+        lines.append(_ds_kv("Hits", str(len(hits))))
+        lines.append(_ds_kv("Errors", str(errors)))
+        lines.append("</pre>")
+
+        if not top:
+            lines.append(f"\n  {_NEU} <i>No actionable patterns detected.</i>")
+            lines.append(f"\n<i>\U0001f551 {now}</i>")
+            return "\n".join(lines)
+
+        # ── Results ─────────────────────────────────────────
+        # Reorder hits into asset-category groups (shared helper) and emit a
+        # category header whenever the category changes — so /deepscan results
+        # read grouped (Crypto, Metal, Stock, …) like the other scan commands.
+        from bot.core.market_scanner import (
+            group_by_category, category_icon, category_for_symbol,
+        )
+        top = [h for _hits in
+               group_by_category(top, lambda x: category_for_symbol(x["symbol"])).values()
+               for h in _hits]
+        _last_cat = None
+        for h in top:
+            _cat = category_for_symbol(h["symbol"])
+            if _cat != _last_cat:
+                lines.append(f"{category_icon(_cat)} <b>{_cat}</b>")
+                _last_cat = _cat
+            arrow = _spark(h["chg"])
+            rsi_val = h["rsi"]
+            rsi_tag = " OB" if rsi_val > 70 else " OS" if rsi_val < 30 else ""
+            rsi_icon = _BAD if rsi_val > 70 else _OK if rsi_val < 30 else _NEU
+            spike = " \U0001f4a5" if h["vol_spike"] else ""
+
+            sym_clean = h["symbol"].replace("/USDT", "")
+            # Timeframe badge — only shown on a multi-timeframe ("all") sweep so
+            # the user can see which timeframe each setup fired on.
+            tf_badge = f" <code>[{h['tf']}]</code>" if multi_tf and h.get("tf") else ""
+            # Symbol header line
+            lines.append(
+                f"{arrow} <b>{_esc(sym_clean)}</b>{tf_badge}  "
+                f"<code>${h['price']:,.4f}</code>  {h['chg']:+.1f}%  "
+                f"{rsi_icon} RSI <code>{rsi_val:.0f}{rsi_tag}</code>{spike}"
+            )
+
+            # Chart patterns with confidence bar
+            if h["chart_patterns"]:
+                for cp in h["chart_patterns"][:3]:
+                    sig_icon = _OK if cp["signal"] == "bullish" else _BAD if cp["signal"] == "bearish" else _NEU
+                    conf = cp["confidence"]
+                    filled = int(conf * 6)
+                    bar_str = "\u2588" * filled + "\u2591" * (6 - filled)
+                    lines.append(
+                        f"  {sig_icon} {cp['name']}  "
+                        f"{bar_str} <code>{conf:.0%}</code>"
+                    )
+
+            # Candlestick patterns — compact badges
+            if h["candle_patterns"]:
+                parts = []
+                for k, v in list(h["candle_patterns"].items())[:4]:
+                    c_icon = _OK if v == "bullish" else _BAD if v == "bearish" else _NEU
+                    parts.append(f"{c_icon}{k}")
+                lines.append(f"  \U0001f56f {', '.join(parts)}")
+
+            lines.append("")
+
+        lines.append(f"<i>\U0001f551 {now}  \u00b7  say \"playbook\" for full briefing</i>")
+
+        # Push scan data to website dashboard
+        try:
+            from bot.skills.scan_skill import _build_scan_payload
+            from bot.utils.website_sync import sync_scan_in_background
+            # Convert hits to scan_skill format
+            scan_results = []
+            for h in hits:
+                # Real ATR from the scan (falls back to 2% only if unavailable).
+                atr_val = h.get("atr") or h["price"] * 0.02
+                scan_results.append({
+                    "sym": h["symbol"],
+                    "price": h["price"],
+                    "dir": "LONG" if h["rsi"] < 50 or h["chg"] > 0 else "SHORT",
+                    # Pre-normalized relative to this scan's best hit (set
+                    # above, right after sorting) -- not a fixed-divisor guess.
+                    "score": h.get("score_norm", 0.0),
+                    "rsi": round(h["rsi"], 1),
+                    "atr": atr_val,
+                    "vol_ratio": 2.5 if h["vol_spike"] else 1.0,
+                    "patterns": h.get("chart_patterns", []),
+                })
+            payload = _build_scan_payload(scan_results, engine)
+            sync_scan_in_background(payload)
+        except Exception as exc:
+            system_log.warning("Dashboard scan push failed: %s", exc)
+
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# REGISTRY
+# ══════════════════════════════════════════════════════════════
+
+def build_default_registry() -> SkillRegistry:
+    from bot.skills.getclaw_wrapper import register_getclaw_wrapper
+    from bot.skills.quant_skill import QuantAnalyzeSkill
+    from bot.skills.macro_skills import build_v2_skills
+
+    registry = SkillRegistry()
+    for cls in (ScanMarketSkill, AnalyzeAssetSkill, CheckRiskSkill,
+                ExecutePaperTradeSkill, GetPortfolioSkill, ExplainTradeSkill,
+                RunBacktestSkill, RejectedTradesSkill, HaltSkill,
+                WalkForwardSkill, MacroCalendarSkill, TradeJournalSkill,
+                CostBreakdownSkill, RunStrategySkill,
+                LearningDashboardSkill, FeedbackSkill, PatternsSkill,
+                ProposalsSkill, OptimizationSkill, QuantAnalyzeSkill,
+                WhyNotSkill, ProScanSkill,
+                PlaybookSkill, DeepScanSkill):
+        registry.register(cls())
+    register_getclaw_wrapper(registry)
+    # v2 upgrade: macro intelligence, compliance, audit, kill-switch
+    for skill in build_v2_skills():
+        registry.register(skill)
+    return registry

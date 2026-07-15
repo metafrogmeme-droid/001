@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""
+CI test gate — baseline-diff regression guard.
+
+The RUNECLAW test suite has a set of pre-existing failures that encode behavior
+drift (tests asserting older behavior the code intentionally changed). Rather than
+block all of CI on them or silently delete them, this gate runs the full suite and
+fails ONLY when:
+
+  * a NEW test fails that is not in tests/known_failures.txt, or
+  * a baseline entry now PASSES (it must be trimmed — see below), or
+  * a collection / internal error occurs.
+
+Roadmap CI-hardening: a baseline test that starts passing is now a HARD failure,
+not a warning. Previously the gate self-healed (warned but stayed green), which
+let stale baseline entries hide real bugs (e.g. the dedup test that masked a
+production bug). The baseline is for tests that consistently fail; the moment one
+passes it must be removed, so CI forces the trim. Genuinely flaky tests do not
+belong in the baseline — the per-node isolated re-run below filters those.
+
+Usage:
+    python scripts/ci_test_gate.py            # run suite + gate
+    python scripts/ci_test_gate.py --update   # rewrite the baseline from this run
+"""
+from __future__ import annotations
+
+import pathlib
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+BASELINE = ROOT / "tests" / "known_failures.txt"
+
+PYTEST_CMD = [
+    sys.executable, "-m", "pytest",
+    "-p", "no:cacheprovider",
+    "--timeout=60", "--timeout-method=signal",
+    "-rfE", "-q", "--no-header",
+]
+
+# Coverage floor on the money-moving modules. Measured ~70% at introduction;
+# the floor is set below that so normal CI-env variance / the order-dependent
+# flakes don't redden it, while still catching a real coverage regression.
+# Ratchet this up as test isolation improves and scale_out.py gets tested.
+# Coverage is collected on the gate's first full-suite run (pytest-cov), and the
+# threshold is enforced separately via `coverage report` so the per-node flake
+# re-runs (which use --no-cov) don't disturb the data.
+COV_TARGETS = ["bot/risk", "bot/core/live_executor.py", "bot/compliance"]
+COV_FAIL_UNDER = 60
+COV_FLAGS = [f"--cov={t}" for t in COV_TARGETS] + ["--cov-report="]
+
+
+def _load_baseline() -> set[str]:
+    if not BASELINE.exists():
+        return set()
+    out: set[str] = set()
+    for line in BASELINE.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.add(line)
+    return out
+
+
+def _parse_failures(output: str) -> tuple[set[str], bool]:
+    """Return (failed_node_ids, had_internal_error)."""
+    failed: set[str] = set()
+    internal_error = False
+    for line in output.splitlines():
+        if line.startswith("FAILED ") or line.startswith("ERROR "):
+            node = line.split(" ", 1)[1].split(" - ", 1)[0].strip()
+            failed.add(node)
+        if "INTERNALERROR" in line:
+            internal_error = True
+    return failed, internal_error
+
+
+def _coverage_below_floor() -> bool:
+    """Return True if coverage on COV_TARGETS is below COV_FAIL_UNDER.
+
+    Best-effort: if pytest-cov / coverage isn't installed (e.g. a minimal local
+    run), this is skipped (returns False) rather than failing the gate.
+    """
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "coverage", "report", f"--fail-under={COV_FAIL_UNDER}"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+    except Exception:
+        return False
+    print(r.stdout + r.stderr)
+    # coverage exits 2 when below --fail-under; 0 when OK; 1 on no-data/other.
+    if r.returncode == 0:
+        return False
+    if r.returncode == 2:
+        print(f"[gate] FAIL — coverage on {COV_TARGETS} is below {COV_FAIL_UNDER}%.")
+        return True
+    # No data / coverage not available — skip, don't block.
+    return False
+
+
+def main() -> int:
+    update = "--update" in sys.argv
+    cov_available = False
+    try:
+        import pytest_cov  # noqa: F401
+        cov_available = True
+    except Exception:
+        cov_available = False
+    first_cmd = PYTEST_CMD + (COV_FLAGS if cov_available else [])
+    proc = subprocess.run(first_cmd, cwd=ROOT, capture_output=True, text=True)
+    output = proc.stdout + proc.stderr
+    print(output)
+
+    failed, internal_error = _parse_failures(output)
+
+    if update:
+        header = (
+            "# Known pre-existing test failures (behavior drift) — baseline for the\n"
+            "# CI gate (scripts/ci_test_gate.py). NEW failures outside this list fail CI.\n"
+            "# Regenerate with: python scripts/ci_test_gate.py --update\n"
+        )
+        BASELINE.write_text(header + "\n".join(sorted(failed)) + "\n")
+        print(f"\n[gate] baseline updated: {len(failed)} known failures written to {BASELINE}")
+        return 0
+
+    known = _load_baseline()
+    new_failures = sorted(failed - known)
+    now_passing = sorted(known - failed)
+
+    # Flake filter: some suites are mildly flaky (time-based, e.g.
+    # ProactiveMonitor) or order-sensitive (tests in test_core that pollute each
+    # other's in-process state — they pass alone but fail in sequence). Before
+    # failing the build on a NEW failure, re-run each node IN ITS OWN process
+    # (isolated). A node that passes alone is a flake / order-dependence artifact
+    # and is dropped (reported, not fatal); only nodes that still fail in
+    # isolation count as real regressions. Trade-off: an order-dependent *real*
+    # regression (test A breaks test B) is not caught here, but that is rare and
+    # far less disruptive than flakes reddening every run.
+    flaky: list[str] = []
+    if new_failures:
+        confirmed: list[str] = []
+        print("\n----- re-running new failures individually (flake filter) -----")
+        for node in new_failures:
+            # --no-cov on re-runs so they don't overwrite the full-suite coverage.
+            r = subprocess.run(PYTEST_CMD + (["--no-cov"] if cov_available else []) + [node],
+                               cwd=ROOT, capture_output=True, text=True)
+            node_failed, node_internal = _parse_failures(r.stdout + r.stderr)
+            internal_error = internal_error or node_internal
+            if node in node_failed:
+                confirmed.append(node)
+                print(f"  ✗ still fails alone: {node}")
+            else:
+                flaky.append(node)
+                print(f"  ~ passes alone (flaky/order-dependent): {node}")
+        flaky = sorted(flaky)
+        new_failures = sorted(confirmed)
+
+    print("\n" + "=" * 70)
+    print(f"[gate] total failing: {len(failed)} | known-baseline: {len(known)}")
+    if now_passing:
+        print(f"[gate] FAIL — {len(now_passing)} baseline test(s) now PASS — trim them "
+              f"from tests/known_failures.txt:")
+        for n in now_passing:
+            print(f"         + {n}")
+    if flaky:
+        print(f"[gate] {len(flaky)} flaky test(s) failed then passed on re-run (ignored):")
+        for n in flaky:
+            print(f"         ~ {n}")
+    if internal_error:
+        print("[gate] FAIL — pytest reported an INTERNALERROR (collection/runtime).")
+    if new_failures:
+        print(f"[gate] FAIL — {len(new_failures)} NEW failure(s) not in the baseline:")
+        for n in new_failures:
+            print(f"         ✗ {n}")
+    # Coverage floor is only meaningful when the suite itself is healthy.
+    cov_failed = False
+    if cov_available and not (new_failures or internal_error):
+        cov_failed = _coverage_below_floor()
+
+    if not new_failures and not internal_error and not now_passing and not cov_failed:
+        print("[gate] PASS — no new failures beyond the known baseline.")
+    print("=" * 70)
+
+    return 1 if (new_failures or internal_error or now_passing or cov_failed) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

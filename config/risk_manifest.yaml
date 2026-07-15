@@ -1,0 +1,1017 @@
+# RUNECLAW Risk Manifest v1.0
+# Single source of truth for all risk parameters.
+# The risk engine loads from this file; docs render from it.
+# "The documentation cannot drift from the code because they read the same file."
+#
+# Source files:
+#   bot/risk/risk_engine.py  — check logic, correlation groups, regime multipliers
+#   bot/config.py            — RiskLimits dataclass, env var bindings, defaults
+
+version: "1.0"
+updated: "2026-06-01"
+
+# =============================================================================
+# PRE-TRADE CHECKS (21 total)
+# =============================================================================
+# Design contract: ALL checks must pass. ANY failure = REJECTED. No overrides.
+# Fail behavior:
+#   "closed" = if the check cannot be evaluated, the trade is REJECTED.
+#   "open"   = if the check cannot be evaluated, the trade is allowed through.
+#   "skip"   = check is gracefully skipped when data is unavailable (returns pass).
+
+checks:
+  - id: 1
+    name: CIRCUIT_BREAKER
+    description: >
+      Blocks all trades when circuit breaker is open.
+      Tripped by daily loss limit breach, max drawdown breach,
+      or consecutive loss streak reaching max_consecutive_losses.
+      Persisted to disk; survives restarts.
+    fail_behavior: closed
+    threshold: null
+    env_var: null
+    trips_circuit_breaker: false
+    notes: "Manual reset required via /reset command."
+
+  - id: 2
+    name: POSITION_SIZE
+    description: >
+      Enforces notional position cap as percentage of equity.
+      Uses fixed-fractional sizing by stop distance; this check
+      clamps the result if it exceeds max_symbol_exposure_pct.
+    fail_behavior: closed
+    threshold:
+      max_notional_pct: 20.0  # same as max_symbol_exposure_pct
+    env_var: MAX_SYMBOL_EXPOSURE_PCT
+    trips_circuit_breaker: false
+    notes: >
+      Oversized positions are clamped (not rejected) — the check
+      passes but logs the clamping. Rejection only on zero/negative equity.
+
+  - id: 3
+    name: DAILY_LOSS
+    description: >
+      Blocks trades when realized + unrealized daily PnL loss
+      exceeds max_daily_loss_pct of equity.
+    fail_behavior: closed
+    threshold:
+      max_daily_loss_pct: 5.0
+    env_var: MAX_DAILY_LOSS_PCT
+    trips_circuit_breaker: true
+    notes: "Trips circuit breaker on breach."
+
+  - id: 4
+    name: DRAWDOWN
+    description: >
+      Blocks trades when max drawdown percentage from equity
+      high-water mark exceeds max_drawdown_pct.
+    fail_behavior: closed
+    threshold:
+      max_drawdown_pct: 10.0
+    env_var: MAX_DRAWDOWN_PCT
+    trips_circuit_breaker: true
+    notes: "Trips circuit breaker on breach."
+
+  - id: 5
+    name: OPEN_POSITIONS
+    description: >
+      Limits the number of concurrently open positions.
+    fail_behavior: closed
+    threshold:
+      max_open_positions: 5
+    env_var: MAX_OPEN_POSITIONS
+    trips_circuit_breaker: false
+
+  - id: 6
+    name: RISK_REWARD
+    description: >
+      Requires minimum risk-reward ratio on the trade idea.
+      Uses 0.01 tolerance for float rounding at boundary.
+    fail_behavior: closed
+    threshold:
+      min_risk_reward: 1.2
+    env_var: MIN_RISK_REWARD
+    trips_circuit_breaker: false
+
+  - id: 7
+    name: CONFIDENCE
+    description: >
+      Requires minimum confidence score from the analyzer.
+      0.60 is the sweet spot — filters weak setups while keeping
+      enough trades to be meaningful.
+    fail_behavior: closed
+    threshold:
+      min_confidence: 0.60
+    env_var: MIN_CONFIDENCE
+    trips_circuit_breaker: false
+
+  - id: 8
+    name: CORRELATION
+    description: >
+      Prevents concentrated bets in the same correlation group.
+      Assets are mapped to groups (BTC, ETH, ALT_L1, MEME, etc.).
+      Unmapped assets are treated as their own group.
+    fail_behavior: closed
+    threshold:
+      max_correlation_per_group: 2
+    env_var: MAX_CORRELATION_PER_GROUP
+    trips_circuit_breaker: false
+    notes: "See correlation_groups section below for full mapping."
+
+  - id: 9
+    name: LOSS_STREAK
+    description: >
+      Soft reject at (max_consecutive_losses - 2) consecutive losses. Hard
+      stop (circuit breaker) at max_consecutive_losses (default 5). The
+      streak decays one step per WIN, so without a recovery path the soft
+      gate would latch permanently (blocked trading -> no wins -> blocked
+      forever). Half-open recovery: after loss_streak_probe_hours since the
+      last loss, ONE probe trade is allowed at a time (only while flat); a
+      losing probe re-arms the gate, a winning probe decays the streak.
+    fail_behavior: closed
+    threshold:
+      soft_reject_at: 3          # max_consecutive_losses - 2
+      circuit_breaker_at: 5      # max_consecutive_losses
+      probe_after_hours: 24      # LOSS_STREAK_PROBE_HOURS (0 = legacy latch)
+    env_var: MAX_CONSECUTIVE_LOSSES
+    trips_circuit_breaker: false
+    notes: "Soft reject derives from the hard limit. Probe cool-off via LOSS_STREAK_PROBE_HOURS."
+
+  - id: 10
+    name: ENTRY_PRICE
+    description: >
+      Validates that entry price is positive and non-zero.
+    fail_behavior: closed
+    threshold: null
+    env_var: null
+    trips_circuit_breaker: false
+
+  - id: 11
+    name: STOP_LOSS
+    description: >
+      Requires a valid stop-loss on every trade idea.
+      Stop-loss must be > 0 and cannot equal entry price.
+      Can be disabled via REQUIRE_STOP_LOSS=false.
+    fail_behavior: closed
+    threshold: null
+    env_var: REQUIRE_STOP_LOSS
+    trips_circuit_breaker: false
+    notes: "Default: required (true)."
+
+  - id: 12
+    name: STALE_DATA
+    description: >
+      Rejects trade ideas older than stale_data_max_age_seconds.
+      Measured as seconds between idea timestamp and current time.
+    fail_behavior: closed
+    threshold:
+      stale_data_max_age_seconds: 300
+    env_var: STALE_DATA_MAX_AGE_SEC
+    trips_circuit_breaker: false
+
+  - id: 13
+    name: COOLDOWN
+    description: >
+      Enforces a cooldown period after the last losing trade.
+      No new trades until cooldown_after_loss_seconds have elapsed.
+    fail_behavior: closed
+    threshold:
+      cooldown_after_loss_seconds: 300
+    env_var: COOLDOWN_AFTER_LOSS_SEC
+    trips_circuit_breaker: false
+
+  - id: 14
+    name: PORTFOLIO_EXPOSURE
+    description: >
+      Limits total portfolio exposure (all open positions + new position)
+      as a percentage of equity, measured mark-to-market.
+    fail_behavior: closed
+    threshold:
+      max_portfolio_exposure_pct: 80.0
+    env_var: MAX_PORTFOLIO_EXPOSURE_PCT
+    trips_circuit_breaker: false
+
+  - id: 15
+    name: SYMBOL_EXPOSURE
+    description: >
+      Limits per-symbol exposure (existing + new position value)
+      as a percentage of equity, measured mark-to-market.
+    fail_behavior: closed
+    threshold:
+      max_symbol_exposure_pct: 20.0
+    env_var: MAX_SYMBOL_EXPOSURE_PCT
+    trips_circuit_breaker: false
+
+  - id: 16
+    name: VOLATILITY
+    description: >
+      Rejects trades when ATR exceeds a percentage of entry price.
+      Fail-closed: ATR data must be present and > 0.
+      Meme coins get a tighter threshold (capped at 4.0%).
+    fail_behavior: closed
+    threshold:
+      volatility_guard_atr_pct: 6.0
+      meme_coin_cap_pct: 4.0       # hardcoded in engine
+    env_var: VOLATILITY_GUARD_ATR_PCT
+    trips_circuit_breaker: false
+    notes: >
+      BTC hourly ATR is typically 1-4%. 6% allows elevated-vol periods
+      while blocking extreme conditions.
+
+  - id: 17
+    name: LIQUIDITY
+    description: >
+      Liquidity guard via OrderFlowAnalyzer in engine.py.
+      Depth threshold scales with position size: max(position_size * 10, min_book_depth_usd).
+      Large-cap pairs (BTC/ETH/SOL) always enforce a $50K floor.
+      This is the ONLY fail-open check: no data = pass.
+    fail_behavior: open
+    threshold:
+      min_book_depth_usd: 5000.0
+      large_cap_floor_usd: 50000.0
+    env_var: MIN_BOOK_DEPTH_USD
+    trips_circuit_breaker: false
+    notes: "Runs in engine.py, not in risk_engine.py. Threshold scales with position size."
+
+  - id: 18
+    name: MACRO_EVENT
+    description: >
+      Checks macro event risk state. Supports two providers:
+      v2 enhanced macro provider (size throttling with BLOCK/REDUCE/CLEAR states)
+      and v1 MacroCalendar (EVENT_LOCKDOWN/BLACKOUT states).
+      If no provider is configured, check is skipped (passes).
+    fail_behavior: closed
+    threshold: null
+    env_var: null
+    trips_circuit_breaker: false
+    notes: >
+      v2 provider: BLOCK_NEW_ENTRIES = reject, REDUCE = pass with size multiplier.
+      v1 calendar: EVENT_LOCKDOWN = reject, BLACKOUT = reject (fail-closed).
+
+  - id: 19
+    name: MTF_ALIGNMENT
+    description: >
+      Multi-timeframe trend alignment. Requires 2-of-3 (or majority)
+      timeframes to agree on direction. Reads MTF data from
+      idea.signals_used with convention "MTF:<tf>=<direction>".
+    fail_behavior: skip
+    threshold:
+      min_aligned: 2               # 2 of 3 timeframes
+      majority_rule: "n//2 + 1"    # for > 3 timeframes
+    env_var: null
+    trips_circuit_breaker: false
+    notes: "Gracefully skipped when fewer than 2 MTF signals are present."
+
+  - id: 20
+    name: CONCENTRATION_PCA
+    description: >
+      Portfolio concentration check using PCA on correlation matrix
+      of historical returns. Rejects when PC1 explains > 70% of variance.
+    fail_behavior: skip
+    threshold:
+      pc1_max_explained_variance: 0.70
+      min_assets_required: 2
+      min_return_periods: 3
+      min_trade_history: 5
+    env_var: null
+    trips_circuit_breaker: false
+    notes: "Gracefully skipped when insufficient positions or trade history."
+
+  - id: 21
+    name: PORTFOLIO_VAR
+    description: >
+      Parametric Value at Risk check. Computes portfolio VaR from historical
+      per-trade returns using z-score 1.645 (95% confidence). Rejects when
+      proposed position would push portfolio VaR above max_portfolio_var_pct.
+    fail_behavior: skip
+    threshold:
+      confidence_level: 0.95
+      z_score: 1.645
+      max_var_pct: 15.0
+      min_trades_required: 5
+    env_var: MAX_PORTFOLIO_VAR_PCT
+    trips_circuit_breaker: false
+    notes: "Gracefully skipped when fewer than 5 closed trades (insufficient history)."
+
+# =============================================================================
+# CONFIGURABLE DEFAULTS (RiskLimits dataclass)
+# =============================================================================
+# All values from bot/config.py RiskLimits with their env vars and defaults.
+
+defaults:
+  max_position_pct:
+    value: 13.0
+    env_var: MAX_POSITION_PCT
+    description: "Max percentage of equity risked per position (fixed-fractional sizing)"
+
+  per_strategy_notional_cap_enabled:
+    value: true
+    env_var: PER_STRATEGY_NOTIONAL_CAP_ENABLED
+    description: "Use the per-strategy notional cap (StrategyTypeConfig) instead of the global max_position_pct for the size cap + POSITION_SIZE check"
+
+  per_strategy_confidence_floor_enabled:
+    value: false
+    env_var: PER_STRATEGY_CONFIDENCE_FLOOR_ENABLED
+    description: >
+      Use the per-strategy-type confidence floor (StrategyTypeConfig.get_min_confidence:
+      scalp 0.65 / intraday 0.55 / swing 0.50 / position 0.45) instead of the
+      global min_confidence for the CONFIDENCE check. Frozen-benchmark A/B'd
+      (docs/FROZEN_BENCHMARK.md).
+
+  max_daily_loss_pct:
+    value: 5.0
+    env_var: MAX_DAILY_LOSS_PCT
+    description: "Max daily loss as % of equity before circuit breaker trips"
+
+  daily_loss_breaker_min_usd:
+    value: 0.0
+    env_var: DAILY_LOSS_BREAKER_MIN_USD
+    description: "Absolute-USD floor on the daily-loss breaker (0 = pure %); the breaker trips only when the day's loss exceeds BOTH the % cap and this dollar amount (stops micro-account noise from halting the day)"
+
+  daily_loss_breaker_autoreset_enabled:
+    value: true
+    env_var: DAILY_LOSS_BREAKER_AUTORESET
+    description: "Auto-reset a daily-loss circuit-breaker trip at UTC day rollover (drawdown/streak/manual stay manual)"
+
+  streak_breaker_autoreset_hours:
+    value: 0.0
+    env_var: STREAK_BREAKER_AUTORESET_HOURS
+    description: >
+      Hours after the last loss to auto-clear a CONSECUTIVE-LOSS breaker trip
+      (resets the streak to 0, like /resume) so an unattended live bot resumes
+      instead of latching PAUSED. Only the streak cause; daily-loss/drawdown/
+      manual keep their own paths. 0 = OFF (manual-reset only). Automates
+      resuming — the drawdown breaker remains the account-drain backstop.
+
+  max_drawdown_pct:
+    value: 10.0
+    env_var: MAX_DRAWDOWN_PCT
+    description: "Max drawdown from equity HWM before circuit breaker trips"
+
+  max_open_positions:
+    value: 5
+    env_var: MAX_OPEN_POSITIONS
+    description: "Maximum number of concurrent open positions"
+
+  max_correlation:
+    value: 0.85
+    env_var: MAX_CORRELATION
+    description: "Reserved for future pairwise correlation matrix check (not currently enforced)"
+
+  min_risk_reward:
+    value: 1.2
+    env_var: MIN_RISK_REWARD
+    description: "Minimum risk-reward ratio required for trade approval"
+
+  min_confidence:
+    value: 0.60
+    env_var: MIN_CONFIDENCE
+    description: "Minimum analyzer confidence score (raised 0.55->0.60: frozen-benchmark A/B, docs/FROZEN_BENCHMARK.md)"
+
+  signal_display_min_confidence:
+    value: 0.70
+    env_var: SIGNAL_DISPLAY_MIN_CONFIDENCE
+    description: "Minimum confidence for a signal to appear in the 'Latest Signal' display"
+
+  max_consecutive_losses:
+    value: 5
+    env_var: MAX_CONSECUTIVE_LOSSES
+    description: "Consecutive losses before circuit breaker trips (soft reject at 3)"
+
+  loss_streak_probe_hours:
+    value: 24.0
+    env_var: LOSS_STREAK_PROBE_HOURS
+    description: >
+      Cool-off since the last loss after which the soft loss-streak gate
+      allows one probe trade at a time (only while flat). Prevents the soft
+      gate from becoming a permanent silent latch — the streak only decays on
+      wins, which can't happen while trading is blocked. 0 = legacy latch.
+
+  strangle_alert_hours:
+    value: 12.0
+    env_var: STRANGLE_ALERT_HOURS
+    description: >
+      Silent-strangle watchdog window: proactively WARN the operator when at
+      least strangle_min_ideas were evaluated over this many hours with ZERO
+      approvals, naming the top rejecting gate. Catches silently latched or
+      misconfigured gates (bot scans but never trades). 0 = off.
+
+  strangle_min_ideas:
+    value: 10
+    env_var: STRANGLE_MIN_IDEAS
+    description: >
+      Minimum ideas evaluated in the watchdog window before a zero-approval
+      state counts as a strangle (avoids false alarms in quiet markets).
+
+  cooldown_after_loss_seconds:
+    value: 120
+    env_var: COOLDOWN_AFTER_LOSS_SEC
+    description: "Seconds to wait after a losing trade before allowing new entries"
+
+  symbol_loss_streak_enabled:
+    value: true
+    env_var: SYMBOL_LOSS_STREAK_ENABLED
+    description: "Track consecutive losses per symbol (not just account-wide) and arm a long cooldown on that symbol once the streak threshold is hit"
+
+  symbol_loss_streak_threshold:
+    value: 3
+    env_var: SYMBOL_LOSS_STREAK_THRESHOLD
+    description: "Consecutive losses on the SAME symbol before its loss-streak cooldown arms"
+
+  symbol_loss_streak_cooldown_seconds:
+    value: 43200.0
+    env_var: SYMBOL_LOSS_STREAK_COOLDOWN_SEC
+    description: "Seconds a symbol is blocked from new entries after its loss-streak cooldown arms (default 12h)"
+
+  max_portfolio_exposure_pct:
+    value: 80.0
+    env_var: MAX_PORTFOLIO_EXPOSURE_PCT
+    description: "Max total portfolio exposure as % of equity (mark-to-market)"
+
+  max_symbol_exposure_pct:
+    value: 20.0
+    env_var: MAX_SYMBOL_EXPOSURE_PCT
+    description: "Max per-symbol exposure as % of equity (also used as notional cap)"
+
+  max_correlation_per_group:
+    value: 2
+    env_var: MAX_CORRELATION_PER_GROUP
+    description: "Max positions allowed in the same correlation group"
+
+  max_unmapped_correlated:
+    value: 3
+    env_var: MAX_UNMAPPED_CORRELATED
+    description: "Max concurrent positions in the shared unmapped-alt bucket (symbols not in the correlation map). Set high to disable."
+
+  correlation_forward_intents_enabled:
+    value: false
+    env_var: CORRELATION_FORWARD_INTENTS_ENABLED
+    description: "Round 7 Phase 1: count approved-but-not-yet-filled intents in the per-group correlation cap so a correlated same-bar cluster can't all bypass it. Default OFF pending A/B validation."
+
+  correlation_intent_ttl_sec:
+    value: 7200.0
+    env_var: CORRELATION_INTENT_TTL_SEC
+    description: "Safety TTL (seconds) for a pending correlation intent; backstops a leaked intent so the ledger can't latch the cap. Explicit clear on fill/cancel is primary."
+
+  correlation_perp_group_mapping_enabled:
+    value: false
+    env_var: CORRELATION_PERP_GROUP_MAPPING_ENABLED
+    description: "Round 7: strip the ccxt ':SETTLE' suffix so perp symbols map to their real correlation group (ALT_L1/MEME/DEFI) instead of pooling into one unmapped bucket. Default OFF — correct per-group caps loosen aggregate exposure and raised drawdown on the dense A/B; enable only with a global correlated cap."
+
+  max_correlated_same_dir_positions:
+    value: 0
+    env_var: MAX_CORRELATED_SAME_DIR_POSITIONS
+    description: "Round 7 revised Phase 2: cap on concurrent SAME-DIRECTION positions across all correlated groups (open + pending intents). Restores an aggregate exposure bound when per-group mapping is enabled. 0 = disabled (default); only active with correlation_perp_group_mapping_enabled."
+
+  fee_aware_entry_gate_enabled:
+    value: false
+    env_var: FEE_AWARE_ENTRY_GATE_ENABLED
+    description: "Reject an entry unless reward-to-TP >= fee_aware_min_multiple x round-trip cost (fees + slippage). Complements min-RR (a ratio) by enforcing an ABSOLUTE fee-clearing edge. Default OFF pending A/B; skips manual trades."
+
+  fee_aware_min_multiple:
+    value: 2.0
+    env_var: FEE_AWARE_MIN_MULTIPLE
+    description: "Safety multiple for the fee-aware entry gate: TP reward must be at least this x the round-trip cost."
+
+  fee_aware_slippage_pct:
+    value: 0.05
+    env_var: FEE_AWARE_SLIPPAGE_PCT
+    description: "Per-side slippage estimate (%) used in the fee-aware gate's round-trip cost (2x entry + exit)."
+
+  reentry_cooldown_enabled:
+    value: false
+    env_var: REENTRY_COOLDOWN_ENABLED
+    description: "Throttle a fresh entry on a symbol within reentry_cooldown_seconds of the last REAL fill on that symbol (curbs fee churn; complements the loss-only cooldown). Default OFF; skips manual trades."
+
+  reentry_cooldown_seconds:
+    value: 0.0
+    env_var: REENTRY_COOLDOWN_SECONDS
+    description: "Seconds to block same-symbol re-entry after the last fill on that symbol. 0 or flag OFF = no-op."
+
+  mtf_alignment_gate_enabled:
+    value: true
+    env_var: MTF_ALIGNMENT_GATE_ENABLED
+    description: "Reject counter-trend entries using the analyzer's higher-timeframe trend (EMA20/50 across 1h/4h/1d, daily-weighted, carried on idea.htf_trend): LONG blocked when HTF bearish, SHORT when HTF bullish. Neutral/unknown = skip. Default ON (operator-activated after a positive A/B: PF 1.87->2.23 on corr_dense_1h; set 0 to disable)."
+
+  volatility_guard_atr_pct:
+    value: 7.0
+    env_var: VOLATILITY_GUARD_ATR_PCT
+    description: "Max ATR as % of price; trades above this are rejected (meme coins capped at 4%)"
+
+  stale_data_max_age_seconds:
+    value: 300
+    env_var: STALE_DATA_MAX_AGE_SEC
+    description: "Max age of trade idea in seconds before it is considered stale"
+
+  require_stop_loss:
+    value: true
+    env_var: REQUIRE_STOP_LOSS
+    description: "Whether a valid stop-loss is required on every trade"
+
+  max_portfolio_var_pct:
+    value: 15.0
+    env_var: MAX_PORTFOLIO_VAR_PCT
+    description: "Max portfolio Value at Risk as % of equity (parametric, 95% confidence)"
+
+  var_covariance_enabled:
+    value: false
+    env_var: VAR_COVARIANCE_ENABLED
+    description: "Opt-in (default off): compute portfolio VaR from a real covariance matrix across held assets instead of the per-trade-return proxy; falls back to the proxy when price history is insufficient"
+
+  var_covariance_min_points:
+    value: 20
+    env_var: VAR_COVARIANCE_MIN_POINTS
+    description: "Minimum aligned price-return observations per asset required before the covariance VaR path is used (otherwise it falls back to the per-trade proxy)"
+
+  commission_pct:
+    value: 0.06
+    env_var: COMMISSION_PCT
+    description: "Exchange commission per side (taker fee), used in PnL calculations"
+
+  taker_fee_pct:
+    value: 0.06
+    env_var: TAKER_FEE_PCT
+    description: "Taker fee per side (used for accurate PnL when order type is known)"
+
+  maker_fee_pct:
+    value: 0.02
+    env_var: MAKER_FEE_PCT
+    description: "Maker fee per side (used for accurate PnL when order type is known)"
+
+  max_margin_risk_pct:
+    value: 30.0
+    env_var: MAX_MARGIN_RISK_PCT
+    description: "Leverage-aware cap: SL distance x leverage must not exceed this % of margin"
+
+  equity_curve_ma_period:
+    value: 20
+    env_var: EQUITY_CURVE_MA_PERIOD
+    description: "Lookback for the equity-curve moving average (circuit breaker)"
+
+  equity_curve_pause_stddev:
+    value: 2.0
+    env_var: EQUITY_CURVE_PAUSE_STDDEV
+    description: "Std-dev band below the equity MA that halves position sizes"
+
+  equity_curve_breaker_enabled:
+    value: false
+    env_var: EQUITY_CURVE_BREAKER_ENABLED
+    description: "Feed record_equity_snapshot() from evaluate() to drive the equity-curve breaker (opt-in; adds a pause/de-risk condition)"
+
+  vol_target_sizing_enabled:
+    value: true
+    env_var: VOL_TARGET_SIZING_ENABLED
+    description: "Float the binding notional cap inversely with ATR% so per-trade dollar risk is vol-targeted, not flat-margin (tighten-only; A/B-validated, default ON, disable with VOL_TARGET_SIZING_ENABLED=0)"
+
+  vol_target_atr_pct:
+    value: 3.0
+    env_var: VOL_TARGET_ATR_PCT
+    description: "Target ATR% the volatility-target cap normalizes per-trade risk toward"
+
+  vol_target_floor:
+    value: 0.33
+    env_var: VOL_TARGET_FLOOR
+    description: "Floor on the vol-target multiplier — how far the notional cap may shrink"
+
+  drawdown_recovery_conf_min:
+    value: 0.85
+    env_var: DRAWDOWN_RECOVERY_CONF_MIN
+    description: "Minimum confidence required while in drawdown-recovery mode"
+
+  drawdown_recovery_size_mult:
+    value: 0.5
+    env_var: DRAWDOWN_RECOVERY_SIZE_MULT
+    description: "Position-size multiplier applied while in drawdown-recovery mode"
+
+  drawdown_recovery_enabled:
+    value: false
+    env_var: DRAWDOWN_RECOVERY_ENABLED
+    description: "Drive check_drawdown_recovery() from evaluate() so recovery mode can activate (opt-in; adds a higher-confidence + reduced-size restriction)"
+
+  min_book_depth_usd:
+    value: 2000.0
+    env_var: MIN_BOOK_DEPTH_USD
+    description: >
+      Minimum order-book depth (per side) in USD for the liquidity guard.
+      Scaled dynamically: effective threshold = max(position_size * 10, this value).
+      Large-cap pairs (BTC/ETH/SOL) always enforce a $50K floor regardless.
+      Lowered from $50K default so small-cap and micro-test trades can pass.
+
+  kelly_sizing_enabled:
+    value: true
+    env_var: KELLY_SIZING_ENABLED
+    description: >
+      Half-Kelly sizing (default ON; runbook stage 2). evaluate() takes the
+      SMALLER of the fixed-fractional size and the half-Kelly size from realized
+      history — tighten-only, never grows size; the notional/margin caps stay
+      authoritative.
+
+  kelly_min_trades:
+    value: 20
+    env_var: KELLY_MIN_TRADES
+    description: >
+      Minimum closed trades before Kelly sizing has an edge estimate. Below this
+      it is a no-op (fixed-fractional size is left unchanged).
+
+  correlation_sizing_enabled:
+    value: true
+    env_var: CORRELATION_SIZING_ENABLED
+    description: >
+      Portfolio-aware correlation sizing (default ON; shrink-only). Shrinks a new
+      trade that stacks on already-open positions in the SAME correlation group
+      AND direction — only reduces (multiplier in [floor, 1.0]); the notional and
+      margin caps stay authoritative. Byte-identical to prior behaviour when OFF.
+
+  correlation_sizing_step:
+    value: 0.20
+    env_var: CORRELATION_SIZING_STEP
+    description: >
+      Size reduction per same-group, same-direction open position (0.20 = -20%
+      each). Applied before the notional cap; floored by correlation_sizing_floor.
+
+  correlation_sizing_floor:
+    value: 0.5
+    env_var: CORRELATION_SIZING_FLOOR
+    description: >
+      Floor on the correlation size multiplier — a new correlated trade is never
+      sized below this fraction of its full fixed-fractional size.
+
+  live_risk_hardening_enabled:
+    value: true
+    env_var: LIVE_RISK_HARDENING_ENABLED
+    description: >
+      Default ON (runbook stage 1). When ON and running live, applies a stricter
+      portfolio-risk posture for real money without touching paper/backtest:
+      forces correlation-aware sizing on, forces covariance VaR on (falling back
+      to the per-trade proxy when data is thin — never a downgrade to skip), and
+      caps drawdown at live_max_drawdown_pct. Never applies in paper mode.
+
+  live_max_drawdown_pct:
+    value: 7.0
+    env_var: LIVE_MAX_DRAWDOWN_PCT
+    description: >
+      Tighter max-drawdown limit applied only when live risk hardening is active
+      (live + LIVE_RISK_HARDENING_ENABLED). In paper mode the standard
+      max_drawdown_pct applies.
+
+  regime_sizing_enabled:
+    value: true
+    env_var: REGIME_SIZING_ENABLED
+    description: >
+      Default ON. Bridges the analyzer's per-symbol market regime into
+      the risk engine before each evaluate(), so the per-regime position-size
+      multiplier actually applies (CHOP 0.5× / RANGE 0.7× reduce; TREND 1.2× /
+      EXPANSION 1.3× increase). The notional/margin cap stays the final
+      authority. OFF → regime stays UNKNOWN → 1.0× (byte-identical).
+
+  trend_up_size_mult:
+    value: 0.7
+    env_var: TREND_UP_SIZE_MULT
+    description: >
+      TREND_UP position-size multiplier override (down from the static
+      table's 1.2× boost — frozen-benchmark A/B, docs/FROZEN_BENCHMARK.md).
+      Also tightens the notional cap itself when <1.0 (not just the pre-cap
+      value), since the fixed-fractional pre-cap size routinely exceeds the
+      cap and a sub-1.0 mult on the pre-cap value alone was previously a
+      no-op. Scoped to TREND_UP only; CHOP/RANGE keep their static-table
+      values unchanged.
+
+  live_performance_governor_enabled:
+    value: true
+    env_var: LIVE_PERFORMANCE_GOVERNOR_ENABLED
+    description: >
+      Default ON (runbook stage 2). A closed-loop backstop on top of the pre-trade
+      checks: scores REALIZED closed-trade outcomes over a rolling window and
+      de-risks when the strategy is actually losing — graduated size reduction
+      when the recent window underperforms (low win rate OR net-negative), and a
+      pause (size 0, trade rejected) only when it is BOTH losing often AND
+      net-negative. Tighten-only; no-op below live_perf_min_samples trades.
+
+  live_perf_window:
+    value: 20
+    env_var: LIVE_PERF_WINDOW
+    description: >
+      Rolling window of most-recent closed trades the live-performance governor
+      scores for win rate and net PnL.
+
+  live_perf_min_samples:
+    value: 5
+    env_var: LIVE_PERF_MIN_SAMPLES
+    description: >
+      Minimum closed trades before the governor acts. Below this the window is
+      too small to judge, so the governor is a no-op (full size). Lowered 10→5
+      after Round-6 OOS A/B (docs/FROZEN_BENCHMARK.md): engaging a fold sooner
+      improved combined v2 OOS −1.58%→−1.42% (PF 0.23→0.25) with a byte-
+      identical original in-sample window.
+
+  live_perf_reduce_winrate:
+    value: 0.40
+    env_var: LIVE_PERF_REDUCE_WINRATE
+    description: >
+      Win rate at/below which the recent window counts as underperforming and
+      the governor applies live_perf_reduce_mult (also triggers on net-negative
+      window PnL).
+
+  live_perf_pause_winrate:
+    value: 0.25
+    env_var: LIVE_PERF_PAUSE_WINRATE
+    description: >
+      Win rate at/below which — AND with a net-negative window — the governor
+      pauses trading (size 0, trade rejected) rather than merely reducing.
+
+  live_perf_reduce_mult:
+    value: 0.5
+    env_var: LIVE_PERF_REDUCE_MULT
+    description: >
+      Size multiplier applied while the governor is in the reduce zone.
+
+  funding_clock_gate_enabled:
+    value: true
+    env_var: FUNDING_CLOCK_GATE_ENABLED
+    description: >
+      Funding-clock gate: blocks an entry only when it would sit on the
+      PAYING side of an extreme funding rate inside the pre-settlement
+      window (Bitget USDT perps settle 00/08/16 UTC). Narrow by
+      construction, fail-open on missing funding data, and every block is
+      priced by the shadow book.
+
+  funding_clock_window_min:
+    value: 30
+    env_var: FUNDING_CLOCK_WINDOW_MIN
+    description: >
+      Minutes before a funding settlement during which the gate is armed.
+
+  funding_clock_extreme_rate:
+    value: 0.0005
+    env_var: FUNDING_CLOCK_EXTREME_RATE
+    description: >
+      Absolute 8h funding rate at/above which the rate counts as extreme
+      (0.0005 = 0.05% per interval).
+
+  equity_throttle_enabled:
+    value: false
+    env_var: EQUITY_THROTTLE_ENABLED
+    description: >
+      Continuous equity-curve throttle: scales position size off the rolling
+      profit factor of recent realized closes via a linear ramp, instead of
+      the governor's discrete steps. Tighten-only; never pauses (the floor
+      keeps trades flowing so the window refreshes and recovery is
+      observable). Default OFF pending the frozen-benchmark A/B.
+
+  equity_throttle_window:
+    value: 20
+    env_var: EQUITY_THROTTLE_WINDOW
+    description: >
+      Rolling window of most-recent closed trades whose profit factor drives
+      the throttle.
+
+  equity_throttle_min_samples:
+    value: 10
+    env_var: EQUITY_THROTTLE_MIN_SAMPLES
+    description: >
+      Minimum closed trades before the throttle acts (below this it fails
+      open to full size — never penalise a cold start).
+
+  equity_throttle_pf_full:
+    value: 1.2
+    env_var: EQUITY_THROTTLE_PF_FULL
+    description: >
+      Rolling PF at/above which the throttle allows full size.
+
+  equity_throttle_pf_floor:
+    value: 0.8
+    env_var: EQUITY_THROTTLE_PF_FLOOR
+    description: >
+      Rolling PF at/below which the throttle sits at its minimum multiplier;
+      between floor and full the multiplier ramps linearly.
+
+  equity_throttle_floor_mult:
+    value: 0.25
+    env_var: EQUITY_THROTTLE_FLOOR_MULT
+    description: >
+      Minimum size multiplier — deliberately above zero so a losing streak
+      reduces exposure without stopping the flow of closed trades needed to
+      demonstrate recovery.
+
+  macro_calendar_fail_closed_when_stale:
+    value: true
+    env_var: MACRO_CALENDAR_FAIL_CLOSED_WHEN_STALE
+    description: >
+      Default ON (safe). When the hardcoded macro event schedule is exhausted
+      (every event is in the past), the calendar fails closed (BLACKOUT → new
+      entries blocked) and the monitor alerts, instead of silently reporting
+      NORMAL with all FOMC/CPI event protection gone. No effect while future
+      events remain. Set False to knowingly accept the gap (alert still fires).
+
+# =============================================================================
+# CORRELATION GROUPS
+# =============================================================================
+# Assets in the same group are subject to max_correlation_per_group limit.
+# Assets NOT in this map are pooled into one shared "unmapped alt" bucket
+# subject to max_unmapped_correlated (so a basket of alts cannot each be its
+# own group and collectively dodge the cap).
+
+correlation_groups:
+  BTC:
+    description: "Bitcoin ecosystem"
+    symbols:
+      - BTC/USDT
+      - WBTC/USDT
+
+  ETH:
+    description: "Ethereum ecosystem"
+    symbols:
+      - ETH/USDT
+      - STETH/USDT
+      - WETH/USDT
+
+  ALT_L1:
+    description: "Alternative L1s — tend to move together in risk-off"
+    symbols:
+      - SOL/USDT
+      - AVAX/USDT
+      - NEAR/USDT
+      - SUI/USDT
+      - APT/USDT
+      - DOT/USDT
+      - ADA/USDT
+      - ATOM/USDT
+      - TON/USDT
+      - HBAR/USDT
+      - TRX/USDT
+      - FTM/USDT
+      - SEI/USDT
+      - INJ/USDT
+
+  MEME:
+    description: "Meme coins"
+    symbols:
+      - DOGE/USDT
+      - SHIB/USDT
+      - PEPE/USDT
+      - FLOKI/USDT
+      - WIF/USDT
+      - BONK/USDT
+      - BRETT/USDT
+      - MEME/USDT
+
+  SOLANA_ECO:
+    description: "Solana ecosystem (non-meme) — correlated via SOL beta"
+    symbols:
+      - JUP/USDT
+      - JTO/USDT
+      - PYTH/USDT
+      - RAY/USDT
+      - ORCA/USDT
+      - JITO/USDT
+      - TENSOR/USDT
+      - DRIFT/USDT
+      - HNT/USDT
+      - MOBILE/USDT
+      - W/USDT
+
+  DEFI:
+    description: "DeFi blue chips"
+    symbols:
+      - UNI/USDT
+      - AAVE/USDT
+      - LINK/USDT
+      - MKR/USDT
+      - SNX/USDT
+      - CRV/USDT
+      - LDO/USDT
+      - COMP/USDT
+
+  L2:
+    description: "Layer 2 scaling solutions"
+    symbols:
+      - ARB/USDT
+      - OP/USDT
+      - MATIC/USDT
+      - STRK/USDT
+      - ZK/USDT
+
+  AI:
+    description: "AI narrative tokens"
+    symbols:
+      - FET/USDT
+      - RENDER/USDT
+      - TAO/USDT
+      - RNDR/USDT
+      - AGIX/USDT
+
+  CEX:
+    description: "Exchange tokens"
+    symbols:
+      - BNB/USDT
+      - CRO/USDT
+      - OKB/USDT
+
+  STOCK_TECH:
+    description: "Tokenized big-tech equities (on-chain + wrapped)"
+    symbols:
+      - AAPLON/USDT
+      - MSFTON/USDT
+      - GOOGLON/USDT
+      - AMZNON/USDT
+      - METAON/USDT
+      - NVDAON/USDT
+      - AMDON/USDT
+      - TSLAON/USDT
+      - RAAPL/USDT
+      - RMSFT/USDT
+      - RGOOGL/USDT
+      - RAMZN/USDT
+      - RMETA/USDT
+      - RNVDA/USDT
+      - RAMD/USDT
+      - RTSLA/USDT
+      - RDELL/USDT
+
+  STOCK_SEMI:
+    description: "Tokenized semiconductor equities"
+    symbols:
+      - RARM/USDT
+      - RMRVL/USDT
+      - RINTC/USDT
+
+  STOCK_INDEX:
+    description: "Tokenized equity index ETFs"
+    symbols:
+      - QQQON/USDT
+      - SPYON/USDT
+      - RSPY/USDT
+      - RQQQ/USDT
+
+  STOCK_CRYPTO:
+    description: "Tokenized crypto-exposed equities"
+    symbols:
+      - RCOIN/USDT
+      - RHOOD/USDT
+
+# =============================================================================
+# REGIME-AWARE RISK MULTIPLIERS (Feature #3)
+# =============================================================================
+# Applied by get_regime_adjusted_params() to dynamically scale risk parameters.
+# Volatility overlay further adjusts position_size_mult and stop_width_mult.
+
+regime_multipliers:
+  CHOPPY:
+    position_size_mult: 0.5
+    cooldown_mult: 2.0
+    stop_width_mult: 1.0
+
+  STRONG_TREND_UP:
+    position_size_mult: 1.5
+    cooldown_mult: 0.5
+    stop_width_mult: 1.0
+
+  STRONG_TREND_DOWN:
+    position_size_mult: 1.5
+    cooldown_mult: 0.5
+    stop_width_mult: 1.0
+
+  HIGH_VOLATILITY:
+    position_size_mult: 0.3
+    cooldown_mult: 1.0
+    stop_width_mult: 1.5
+
+  RANGING:
+    position_size_mult: 0.7
+    cooldown_mult: 1.5
+    stop_width_mult: 1.0
+
+  _DEFAULT:
+    position_size_mult: 1.0
+    cooldown_mult: 1.0
+    stop_width_mult: 1.0
+
+volatility_overlays:
+  HIGH:
+    description: "Applied when volatility_state is HIGH (unless regime is already HIGH_VOLATILITY)"
+    position_size_mult_factor: 0.7
+    stop_width_mult_factor: 1.3
+
+  LOW:
+    description: "Applied when volatility_state is LOW"
+    stop_width_mult_factor: 0.8
+
+# =============================================================================
+# PERSISTENCE
+# =============================================================================
+# Safety state is persisted to disk so restarts cannot silently clear limits.
+
+state_persistence:
+  file: "data/risk_state.json"
+  env_var: RUNECLAW_STATE_DIR
+  default_dir: "data"
+  persisted_fields:
+    - circuit_open
+    - consecutive_losses
+    - last_loss_time
+    - circuit_breaker_trips
+    - saved_at
+  corruption_behavior: >
+    Missing file: fresh start. Empty file: fresh start.
+    Corrupt file (non-empty invalid JSON): circuit breaker TRIPPED (fail-closed).
+    I/O error: circuit breaker TRIPPED (fail-closed).

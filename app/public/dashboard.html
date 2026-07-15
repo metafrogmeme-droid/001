@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Dashboard</title>
+<meta name="description" content="RUNECLAW trading dashboard: portfolio, markets, signals, trading, and live engine telemetry.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="256x256" href="/app_icon_256.png">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=5">
+</head>
+<body>
+<a class="skip-link" href="#view-root">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+  <span id="connChip" class="chip chip--offline">● CONNECTING</span>
+  <div class="spacer"></div>
+  <div class="top-actions">
+    <span id="modeChip" class="chip chip--paper hidden">PAPER</span>
+    <a class="btn btn--ghost btn--sm" href="/" id="accountLink">Account</a>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" id="railNav" aria-label="Dashboard sections"></nav>
+
+  <main class="content" id="view-root">
+    <!-- Views are rendered by js/dashboard.js into this container. -->
+    <div id="viewContainer" class="stack">
+      <div class="panel"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+    </div>
+  </main>
+</div>
+
+<nav class="tabbar" id="tabbarNav" aria-label="Dashboard sections"></nav>
+
+<!-- Chat -->
+<button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat">
+  <svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>
+</button>
+<section id="chatDrawer" class="chat-drawer hidden" hidden role="dialog" aria-label="RUNECLAW chat">
+  <div class="chat-head">
+    <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
+    <button class="chat-close" id="chatClose" aria-label="Close chat">&times;</button>
+  </div>
+  <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio"></div>
+  <div id="chatBody" class="chat-body" aria-live="polite"></div>
+  <div id="chatChips" class="chat-chips" aria-label="Suggested prompts"></div>
+  <form class="chat-inputrow" id="chatForm">
+    <label class="visually-hidden" for="chatInput">Message the RUNECLAW assistant</label>
+    <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
+           placeholder='Ask anything — or "buy SOL 71 sl 70 tp 76"'>
+    <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message">
+      <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
+    </button>
+  </form>
+</section>
+
+<!-- Trade confirm modal -->
+<div id="tradeModal" class="modal hidden" hidden role="dialog" aria-modal="true" aria-label="Confirm trade">
+  <div class="modal-card">
+    <h2>Confirm trade</h2>
+    <div id="tradeModalBody"></div>
+    <div class="row mt-4">
+      <button class="btn btn--primary" id="tradeModalConfirm" style="flex:1">Confirm</button>
+      <button class="btn" id="tradeModalCancel" style="flex:1">Cancel order</button>
+    </div>
+    <p id="tradeModalMsg" class="muted small mt-2" aria-live="polite"></p>
+  </div>
+</div>
+
+<script src="/js/icons.js?v=3"></script>
+<script src="/js/app.js?v=3"></script>
+<script src="/js/chat.js?v=6" defer></script>
+<script src="/js/dashboard.js?v=5" defer></script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
+</body>
+</html>

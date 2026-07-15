@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — AI Trading, Paper to Live</title>
+<meta name="description" content="RUNECLAW: an AI trading engine you can watch, chat with, and trade alongside. Register in a minute and paper-trade instantly — no Telegram required.">
+<meta property="og:title" content="RUNECLAW — AI Trading, Paper to Live">
+<meta property="og:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
+<meta property="og:image" content="/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="256x256" href="/app_icon_256.png">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=5">
+<style>
+  /* Page-local composition only — all tokens/components come from styles.css */
+  .btn-block { width: 100%; }
+  .step { display: none; }
+  .step.active { display: flex; flex-direction: column; gap: var(--s3); }
+  .form-err { font-size: var(--fs-xs); color: var(--down); min-height: 18px; }
+  .sep { display: flex; align-items: center; gap: var(--s3); color: var(--text-3); font-size: var(--fs-xs); margin: var(--s3) 0; }
+  .sep::before, .sep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .token-display { font-family: var(--font-data); font-size: var(--fs-base); letter-spacing: .06em; background: var(--bg); border: 1px dashed var(--gold); border-radius: var(--radius-sm); padding: var(--s3); text-align: center; cursor: pointer; }
+  .token-display.copied { border-color: var(--up); color: var(--up); }
+  .acct-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); margin-bottom: var(--s4); }
+  .steps-list { margin: var(--s2) 0 0 18px; color: var(--text-2); font-size: var(--fs-sm); display: flex; flex-direction: column; gap: 6px; }
+  .nav-links { display: flex; align-items: center; gap: var(--s2); }
+  .nav-links a { color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; padding: 7px 11px; border-radius: var(--radius-sm); }
+  .nav-links a:hover { color: var(--text); background: var(--surface-2); }
+  @media (max-width: 639px) { .nav-links a:not(.btn) { display: none; } }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+
+<nav class="topbar" aria-label="Main">
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+  <div class="spacer"></div>
+  <div class="nav-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener">Docs</a>
+    <a class="btn btn--primary btn--sm" href="#auth-panel">Get started</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> Live · Bitget USDT-M futures</div>
+  <h1>An AI trading engine<br>you can <span>talk to.</span></h1>
+  <p>RUNECLAW scans 800+ symbols around the clock, explains every decision, and refuses anything its risk engine doesn't like. Create an account and paper-trade in your browser within a minute — chat with the engine, place risk-checked trades, and go live only when you choose to.</p>
+  <div class="hero-cta">
+    <a class="btn btn--primary" href="#auth-panel">Create free account</a>
+    <a class="btn" href="/dashboard">View the dashboard</a>
+  </div>
+</header>
+
+<section class="section" aria-labelledby="features-h">
+  <div class="section-head">
+    <h2 id="features-h">Everything the bot does, on the web</h2>
+    <p>The same engine that runs the autonomous scanner, scoped to your account.</p>
+  </div>
+  <div class="feature-grid">
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><h3>Chat with the engine</h3><p>Ask for a scan, your portfolio, or type "buy SOL 71 sl 70 tp 76" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3>Trade from the dashboard</h3><p>A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live needs your toggle and operator approval.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><h3>Signal stream</h3><p>Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3>Your portfolio, tracked</h3><p>Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3>Hard risk engine</h3><p>Circuit breakers, funding-clock gate, equity throttle, and margin caps you control. The engine's shadow book even audits what its own rejections cost.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3>Bitget-native, venue-aware</h3><p>Live trading runs on Bitget USDT-M perpetuals. The engine also ships a Hyperliquid adapter and a new-listing radar, with full venue telemetry on the dashboard's Engine view — more venues are on the roadmap.</p></div>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="how-h">
+  <div class="section-head">
+    <h2 id="how-h">One loop, running continuously</h2>
+    <p>Scan → analyze with LLM reasoning → risk gate → execute (paper or live). Not a static screener.</p>
+  </div>
+</section>
+
+<main class="auth-wrap" id="main-content">
+  <div class="card" id="auth-panel">
+    <div class="tab-row" role="tablist">
+      <button class="tab-btn active" id="tab-register" role="tab" aria-selected="true" onclick="switchTab('register')">Create account</button>
+      <button class="tab-btn" id="tab-login" role="tab" aria-selected="false" onclick="switchTab('login')">Log in</button>
+    </div>
+    <div id="step-register" class="step active">
+      <div class="field"><label for="reg-email">Email</label><input class="input" type="email" id="reg-email" placeholder="you@example.com" autocomplete="email"></div>
+      <div class="field"><label for="reg-pass">Password</label><input class="input" type="password" id="reg-pass" placeholder="Min 10 characters" autocomplete="new-password"></div>
+      <div class="field"><label for="reg-pass2">Confirm password</label><input class="input" type="password" id="reg-pass2" placeholder="Repeat password" autocomplete="new-password"></div>
+      <div class="form-err" id="reg-err" aria-live="polite"></div>
+      <button class="btn btn--primary btn-block" onclick="doRegister()">Create free account</button>
+      <p class="muted small">Paper trading works immediately — no Telegram, no exchange keys.</p>
+    </div>
+    <div id="step-login" class="step">
+      <div class="field"><label for="login-email">Email</label><input class="input" type="email" id="login-email" placeholder="you@example.com" autocomplete="email"></div>
+      <div class="field"><label for="login-pass">Password</label><input class="input" type="password" id="login-pass" placeholder="Your password" autocomplete="current-password"></div>
+      <div class="form-err" id="login-err" aria-live="polite"></div>
+      <button class="btn btn--primary btn-block" onclick="doLogin()">Log in</button>
+      <p class="muted small" style="text-align:center;margin-top:var(--s2)">
+        <a href="#" onclick="showForgot();return false">Forgot your password?</a>
+      </p>
+    </div>
+
+    <div id="step-forgot" class="step">
+      <p class="muted small">Enter your email and we'll send a link to reset your password.</p>
+      <div class="field"><label for="forgot-email">Email</label><input class="input" type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email"></div>
+      <div class="form-err" id="forgot-msg" aria-live="polite"></div>
+      <button class="btn btn--primary btn-block" onclick="doForgot()">Send reset link</button>
+      <p class="muted small" style="text-align:center;margin-top:var(--s2)">
+        <a href="#" onclick="switchTab('login');return false">← Back to log in</a>
+      </p>
+    </div>
+
+    <!-- Social sign-in / sign-up: same buttons create OR log in an account. -->
+    <div id="social-auth" class="hidden">
+      <div class="sep">or continue with</div>
+      <div class="form-err" id="social-err" style="text-align:center" aria-live="polite"></div>
+      <div id="google-btn" style="display:flex;justify-content:center;margin-bottom:10px"></div>
+      <div id="telegram-btn" style="display:flex;justify-content:center"></div>
+      <div id="oauth-btns" style="display:flex;flex-direction:column;gap:8px;margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="account">
+    <div class="row mb-4" style="justify-content:space-between">
+      <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em">Your account</h2>
+      <button class="btn btn--ghost btn--sm" onclick="doLogout()">Log out</button>
+    </div>
+    <div class="acct-grid">
+      <div class="stat"><div class="k">Account</div><div class="v" style="font-family:var(--font-ui);font-size:var(--fs-sm);word-break:break-all" id="d-email">–</div></div>
+      <div class="stat"><div class="k">Telegram</div><div class="v" style="font-size:var(--fs-sm)" id="d-tg-status">–</div></div>
+    </div>
+    <div class="section-note hidden" id="linked-ok" style="border-style:solid;border-color:var(--up);color:var(--up)">
+      <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
+      Telegram linked — exchange-key management and live controls unlocked (going live still needs operator approval).
+    </div>
+    <div id="link-box">
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)">Link Telegram <span class="muted small">(optional)</span></h3>
+      <p class="muted small">Unlocks exchange-key management and your live-trading controls (going live also needs operator approval). Paper trading and chat already work without it.</p>
+      <ol class="steps-list">
+        <li>Open <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a> on Telegram</li>
+        <li>Generate your personal link token below</li>
+        <li>Send the bot: <code>/link &lt;token&gt;</code></li>
+      </ol>
+      <div id="token-area" class="mt-3">
+        <button class="btn btn--sm" onclick="getToken()">Generate link token</button>
+      </div>
+    </div>
+    <!-- Link social accounts (shown only when redirect providers are configured) -->
+    <div id="link-social" class="hidden mt-4">
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)">Link social accounts</h3>
+      <p class="muted small">Connect another way to sign in. You'll stay the same account.</p>
+      <div id="link-social-btns" style="display:flex;flex-direction:column;gap:8px;margin-top:var(--s2)"></div>
+    </div>
+
+    <!-- Email verification status (shown only for real email accounts) -->
+    <div class="section-note hidden" id="verify-box" style="border-style:solid">
+      <span id="verify-text">Your email isn't verified yet.</span>
+      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" onclick="resendVerification()">Resend verification email</button>
+    </div>
+
+    <!-- Change / set password -->
+    <div id="pw-box" class="mt-4">
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" id="pw-title">Change password</h3>
+      <div class="field" id="pw-current-field"><label for="pw-current">Current password</label><input class="input" type="password" id="pw-current" autocomplete="current-password"></div>
+      <div class="field"><label for="pw-new">New password</label><input class="input" type="password" id="pw-new" placeholder="Min 10 characters" autocomplete="new-password"></div>
+      <div class="field"><label for="pw-new2">Confirm new password</label><input class="input" type="password" id="pw-new2" autocomplete="new-password"></div>
+      <div class="form-err" id="pw-msg" aria-live="polite"></div>
+      <button class="btn btn--sm" onclick="doChangePassword()">Update password</button>
+    </div>
+
+    <a href="/dashboard" class="btn btn--primary btn-block mt-4">Open trading dashboard →</a>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+    <div class="links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">Telegram bot</a>
+      <a href="https://t.me/+VRNgsmkR5pszZTdk" target="_blank" rel="noopener">Community</a>
+      <a href="https://github.com/Humanoid-Traders/RUNECLAW" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener">Docs</a>
+      <span id="footer-socials"></span>
+    </div>
+  </div>
+  <div class="risk">Trading futures involves substantial risk of loss and is not suitable for every investor. RUNECLAW is a trading tool, not financial advice. Use withdrawal-disabled API keys and never risk more than you can afford to lose.</div>
+</footer>
+
+<!-- Chat — anonymous visitors get the account-free public assistant -->
+<button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat">
+  <svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>
+</button>
+<section id="chatDrawer" class="chat-drawer hidden" hidden role="dialog" aria-label="RUNECLAW chat">
+  <div class="chat-head">
+    <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
+    <button class="chat-close" id="chatClose" aria-label="Close chat">&times;</button>
+  </div>
+  <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio"></div>
+  <div id="chatBody" class="chat-body" aria-live="polite"></div>
+  <div id="chatChips" class="chat-chips" aria-label="Suggested prompts"></div>
+  <form class="chat-inputrow" id="chatForm">
+    <label class="visually-hidden" for="chatInput">Message the RUNECLAW assistant</label>
+    <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
+           placeholder="Ask about crypto, markets, or how RUNECLAW works">
+    <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message">
+      <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
+    </button>
+  </form>
+</section>
+
+<script src="/js/icons.js?v=3"></script>
+<script src="/js/app.js?v=3"></script>
+<script src="/js/chat.js?v=6" defer></script>
+<script>
+const API='/api';
+let SESSION=null;
+function switchTab(t){
+  const isReg = t==='register';
+  document.getElementById('tab-register').classList.toggle('active',isReg);
+  document.getElementById('tab-register').setAttribute('aria-selected',isReg);
+  document.getElementById('tab-login').classList.toggle('active',!isReg);
+  document.getElementById('tab-login').setAttribute('aria-selected',!isReg);
+  document.getElementById('step-register').classList.toggle('active',isReg);
+  document.getElementById('step-login').classList.toggle('active',!isReg);
+  document.getElementById('step-forgot').classList.remove('active');
+}
+function showForgot(){
+  document.getElementById('step-login').classList.remove('active');
+  document.getElementById('step-register').classList.remove('active');
+  document.getElementById('step-forgot').classList.add('active');
+}
+async function doForgot(){
+  const email=document.getElementById('forgot-email').value.trim();
+  setErr('forgot-msg','');
+  if(!email){setErr('forgot-msg','Email required.');return;}
+  const res=await apiCall('/auth/forgot-password',{email});
+  // Always show the generic success message (no account enumeration).
+  setErr('forgot-msg',res.message||'If that email has an account, a reset link is on its way.');
+}
+function setErr(id,msg){document.getElementById(id).textContent=msg;}
+async function apiCall(path,body){
+  const r=await fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.json();
+}
+async function doRegister(){
+  const email=document.getElementById('reg-email').value.trim();
+  const pass=document.getElementById('reg-pass').value;
+  const pass2=document.getElementById('reg-pass2').value;
+  setErr('reg-err','');
+  if(!email||!pass){setErr('reg-err','Email and password required.');return;}
+  if(pass!==pass2){setErr('reg-err','Passwords do not match.');return;}
+  if(pass.length<10){setErr('reg-err','Password must be at least 10 characters.');return;}
+  const res=await apiCall('/auth/register',{email,password:pass});
+  if(res.error){setErr('reg-err',res.error);return;}
+  SESSION=res;showAccount(res);
+}
+async function doLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const pass=document.getElementById('login-pass').value;
+  setErr('login-err','');
+  if(!email||!pass){setErr('login-err','Email and password required.');return;}
+  const res=await apiCall('/auth/login',{email,password:pass});
+  if(res.error){setErr('login-err',res.error);return;}
+  SESSION=res;showAccount(res);
+}
+function doLogout(){
+  SESSION=null;localStorage.removeItem('rc_session');localStorage.removeItem('token');
+  document.getElementById('auth-panel').classList.remove('hidden');
+  document.getElementById('account').classList.add('hidden');
+}
+function showAccount(data){
+  document.getElementById('auth-panel').classList.add('hidden');
+  document.getElementById('account').classList.remove('hidden');
+  document.getElementById('d-email').textContent=data.email||'–';
+  const linked=!!data.telegram_linked;
+  document.getElementById('d-tg-status').innerHTML=linked
+    ?'<span class="chip chip--up">✓ Linked</span>'
+    :'<span class="chip">Not linked</span>';
+  document.getElementById('linked-ok').classList.toggle('hidden',!linked);
+  document.getElementById('link-box').classList.toggle('hidden',linked);
+  localStorage.setItem('rc_session',JSON.stringify({token:data.token||SESSION?.token,user_id:data.user_id}));
+  renderAccountMeta(data);
+  // Fetch authoritative flags (has_password, email_verified) from /me.
+  refreshAccountMeta();
+}
+// Authed POST/GET helper — attaches the session bearer token.
+async function apiAuth(path,body,method){
+  const opts={method:method||'POST',headers:{'Authorization':'Bearer '+(SESSION?.token||''),'Content-Type':'application/json'}};
+  if(body)opts.body=JSON.stringify(body);
+  const r=await fetch(API+path,opts);
+  return r.json();
+}
+async function refreshAccountMeta(){
+  if(!SESSION?.token)return;
+  try{const me=await apiAuth('/auth/me',null,'GET');if(!me.error)renderAccountMeta(me);}catch{/* offline */}
+}
+function renderAccountMeta(data){
+  renderLinkSocial();
+  const email=data.email||'';
+  // Placeholder emails for providers that give none (Telegram/X/Discord).
+  const placeholder=/\.runeclaw\.local$/.test(email);
+  // Email verification: only meaningful for real email addresses.
+  const vbox=document.getElementById('verify-box');
+  if(placeholder){vbox.classList.add('hidden');}
+  else if(data.email_verified){
+    vbox.classList.remove('hidden');
+    vbox.style.borderColor='var(--up)';vbox.style.color='var(--up)';
+    document.getElementById('verify-text').textContent='✓ Email verified.';
+    document.getElementById('verify-resend').classList.add('hidden');
+  }else if(data.email_verified===false){
+    vbox.classList.remove('hidden');
+    vbox.style.borderColor='';vbox.style.color='';
+    document.getElementById('verify-text').textContent="Your email isn't verified yet.";
+    document.getElementById('verify-resend').classList.remove('hidden');
+  }
+  // Password box: OAuth-only accounts SET a password (no current field).
+  if(data.has_password===false){
+    document.getElementById('pw-title').textContent='Set a password';
+    document.getElementById('pw-current-field').classList.add('hidden');
+  }else{
+    document.getElementById('pw-title').textContent='Change password';
+    document.getElementById('pw-current-field').classList.remove('hidden');
+  }
+}
+async function doChangePassword(){
+  setErr('pw-msg','');
+  const cur=document.getElementById('pw-current').value;
+  const nw=document.getElementById('pw-new').value;
+  const nw2=document.getElementById('pw-new2').value;
+  if(nw.length<10){setErr('pw-msg','New password must be at least 10 characters.');return;}
+  if(nw!==nw2){setErr('pw-msg','New passwords do not match.');return;}
+  const res=await apiAuth('/auth/change-password',{current_password:cur,new_password:nw});
+  if(res.error){setErr('pw-msg',res.error);return;}
+  setErr('pw-msg','✓ Password updated.');
+  document.getElementById('pw-current').value='';document.getElementById('pw-new').value='';document.getElementById('pw-new2').value='';
+  refreshAccountMeta();
+}
+async function resendVerification(){
+  const res=await apiAuth('/auth/send-verification',{});
+  const t=document.getElementById('verify-text');
+  if(res.error){t.textContent=res.error;return;}
+  if(res.already_verified){t.textContent='✓ Email verified.';document.getElementById('verify-resend').classList.add('hidden');return;}
+  t.textContent=res.sent?'Verification email sent — check your inbox.':'Email delivery is not configured yet; ask the operator to set up SMTP.';
+}
+async function getToken(){
+  if(!SESSION?.token)return;
+  const res=await fetch(API+'/auth/link-token',{method:'POST',headers:{'Authorization':'Bearer '+SESSION.token,'Content-Type':'application/json'}}).then(r=>r.json());
+  if(res.error){alert(res.error);return;}
+  document.getElementById('token-area').innerHTML=`
+    <p class="muted small" style="margin-bottom:4px">Your link token (valid 10 min) — click to copy:</p>
+    <div class="token-display" id="tok-box" onclick="copyToken()">${res.token}</div>
+    <p class="muted small" style="margin-top:6px">Send to the bot: <code>/link ${res.token}</code></p>
+    <button class="btn btn--ghost btn--sm mt-2" onclick="getToken()">Generate new token</button>`;
+}
+function copyToken(){
+  const tok=document.getElementById('tok-box');
+  navigator.clipboard.writeText(tok.textContent.trim());
+  tok.classList.add('copied');setTimeout(()=>tok.classList.remove('copied'),2000);
+}
+// --- Social sign-in (Google + Telegram); buttons both CREATE and LOG IN ---
+async function socialLogin(path,body){
+  setErr('social-err','');
+  const res=await apiCall(path,body);
+  if(res.error){setErr('social-err',res.error);return;}
+  SESSION=res;showAccount(res);
+}
+// Google Identity Services callback (global — GIS calls it by name).
+function handleGoogleCredential(resp){
+  if(resp&&resp.credential)socialLogin('/auth/google',{credential:resp.credential});
+}
+// Telegram Login Widget callback (global — the widget calls it by name).
+function onTelegramAuth(user){ if(user)socialLogin('/auth/telegram',user); }
+// Redirect-based providers (Discord, X). Login: go straight to the start URL.
+// Link (logged in): mint a one-time link key first so the callback attaches the
+// identity to THIS account instead of creating a new one.
+const OAUTH_META={discord:{label:'Continue with Discord',bg:'#5865F2'},x:{label:'Continue with X',bg:'#000'}};
+function oauthStartUrl(provider){return API+'/auth/oauth/'+provider+'/start';}
+async function oauthLink(provider){
+  if(!SESSION?.token)return;
+  try{
+    const r=await apiAuth('/auth/oauth-link-token',{});
+    if(r.link_key)location.href=oauthStartUrl(provider)+'?link='+encodeURIComponent(r.link_key);
+  }catch{/* offline */}
+}
+function renderOauthButtons(providers){
+  const box=document.getElementById('oauth-btns');if(!box)return;
+  box.innerHTML='';
+  (providers||[]).forEach(p=>{
+    const m=OAUTH_META[p];if(!m)return;
+    const a=document.createElement('a');
+    a.href=oauthStartUrl(p);a.className='btn btn-block';
+    a.style.background=m.bg;a.style.color='#fff';a.textContent=m.label;
+    box.appendChild(a);
+  });
+}
+// Account panel: "Link <provider>" buttons for redirect providers.
+function renderLinkSocial(){
+  const providers=window.__RC_OAUTH||[];
+  const wrap=document.getElementById('link-social');
+  const box=document.getElementById('link-social-btns');
+  if(!wrap||!box)return;
+  if(!providers.length){wrap.classList.add('hidden');return;}
+  wrap.classList.remove('hidden');box.innerHTML='';
+  providers.forEach(p=>{
+    const m=OAUTH_META[p];if(!m)return;
+    const b=document.createElement('button');
+    b.className='btn btn--sm btn-block';b.textContent='Link '+p.charAt(0).toUpperCase()+p.slice(1);
+    b.onclick=()=>oauthLink(p);
+    box.appendChild(b);
+  });
+}
+// Footer: append operator-configured social links (X, Discord) when present.
+function renderFooterSocials(links){
+  const box=document.getElementById('footer-socials');
+  if(!box||!links)return;
+  const add=(url,label)=>{if(!url)return;const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';a.textContent=label;box.appendChild(a);};
+  add(links.x,'X');
+  add(links.discord,'Discord');
+}
+// OAuth completion: the callback redirects back with the session in the URL
+// fragment (#oauth=<base64> or #oauth_error=...). Consume it before anything else.
+(function handleOauthFragment(){
+  const h=location.hash||'';
+  if(h.startsWith('#oauth_error=')){
+    const msg=decodeURIComponent(h.slice('#oauth_error='.length));
+    history.replaceState(null,'',location.pathname);
+    const el=document.getElementById('social-err');if(el)el.textContent='Social login failed: '+msg;
+    return;
+  }
+  if(h.startsWith('#oauth=')){
+    try{
+      const data=JSON.parse(atob(h.slice('#oauth='.length)));
+      history.replaceState(null,'',location.pathname);
+      if(data&&data.token){SESSION=data;showAccount(data);}
+    }catch{/* malformed fragment */}
+  }
+})();
+(async()=>{
+  let cfg={};
+  try{cfg=await fetch(API+'/auth/config').then(r=>r.json());}catch{return;}
+  const hasOauth=(cfg.oauth_providers||[]).length>0;
+  if(!cfg.google_client_id&&!cfg.telegram_bot&&!hasOauth)return; // nothing configured
+  document.getElementById('social-auth').classList.remove('hidden');
+  renderOauthButtons(cfg.oauth_providers);
+  window.__RC_OAUTH=cfg.oauth_providers||[]; // account panel reads this for Link buttons
+  renderFooterSocials(cfg.social_links);
+  // If the account panel is already open (returning session), fill Link buttons.
+  if(SESSION)renderLinkSocial();
+  if(cfg.google_client_id){
+    const s=document.createElement('script');
+    s.src='https://accounts.google.com/gsi/client';s.async=true;
+    s.onload=()=>{
+      try{
+        google.accounts.id.initialize({client_id:cfg.google_client_id,callback:handleGoogleCredential});
+        google.accounts.id.renderButton(document.getElementById('google-btn'),
+          {theme:'filled_black',size:'large',shape:'pill',text:'continue_with',width:320});
+      }catch(e){/* GIS blocked/offline: leave email login working */}
+    };
+    document.head.appendChild(s);
+  }
+  if(cfg.telegram_bot){
+    const s=document.createElement('script');
+    s.src='https://telegram.org/js/telegram-widget.js?22';s.async=true;
+    s.setAttribute('data-telegram-login',cfg.telegram_bot);
+    s.setAttribute('data-size','large');s.setAttribute('data-radius','20');
+    s.setAttribute('data-onauth','onTelegramAuth(user)');s.setAttribute('data-request-access','write');
+    document.getElementById('telegram-btn').appendChild(s);
+  }
+})();
+(async()=>{
+  const saved=localStorage.getItem('rc_session');
+  if(!saved)return;
+  let s;
+  try{s=JSON.parse(saved);}catch{localStorage.removeItem('rc_session');return;}
+  try{
+    const r=await fetch(API+'/auth/me',{headers:{'Authorization':'Bearer '+s.token}});
+    // Only clear the saved session on a genuine auth failure (401/403). A
+    // transient network error or a 5xx must NOT log the user out.
+    if(r.status===401||r.status===403){localStorage.removeItem('rc_session');return;}
+    if(!r.ok)return; // transient server issue: keep session, try again next load
+    const res=await r.json();
+    if(res.error){localStorage.removeItem('rc_session');return;}
+    SESSION={...res,token:s.token};showAccount(SESSION);
+  }catch{/* network error: keep the session, do not log out */}
+})();
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
+</script>
+</body>
+</html>

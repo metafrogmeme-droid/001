@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "runeclaw"
+version = "0.1.0"
+description = "AI Trading Command Core — modular crypto trading assistant with fail-closed risk engine"
+readme = "README.md"
+license = {text = "AGPL-3.0-or-later"}
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv==1.2.2",
+    "pydantic==2.13.3",
+    "ccxt==4.5.56",
+    "python-telegram-bot==22.7",
+    "openai==2.38.0",
+    "numpy==2.3.5",
+    "aiohttp==3.13.4",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "websockets==16.0",
+    "redis>=5.0.0",
+]
+
+[project.optional-dependencies]
+crypto = [
+    "cryptography>=43.0.1",
+]
+anthropic = [
+    "anthropic==0.104.1",
+]
+charts = [
+    "mplfinance>=0.12.10b0",
+    "matplotlib>=3.7",
+    "pandas>=2.0",
+]
+dev = [
+    "pytest==8.3.5",
+    "pytest-asyncio==0.24.0",
+    "pytest-cov==6.1.1",
+    "hypothesis==6.155.7",
+    "ruff==0.11.13",
+    "mypy==1.15.0",
+    "pip-audit==2.9.0",
+    "bandit[toml]==1.8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true

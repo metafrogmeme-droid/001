@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint + tests (baseline gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Lint — syntax errors + undefined names + redefinitions (ruff E9, F821, F811)
+        # Lint tests/ too, not just bot/: real errors (duplicate imports/classes
+        # that silently shadow earlier definitions, undefined names in dead code)
+        # were hiding in the test suite — a third of the codebase — because CI
+        # only ever linted bot/. F811 catches the shadowing class specifically.
+        run: ruff check --select E9,F821,F811 bot/ tests/
+
+      - name: Lint — unused imports + empty f-strings (ruff F401, F541, ratchet)
+        # Backlog cleared and now enforced so it can't regress. bot/ only —
+        # intentional probe imports are marked `# noqa: F401`. (Hot-path F841 is
+        # deliberately NOT auto-fixed: the roadmap flags some as dropped logic
+        # needing manual triage.)
+        run: ruff check --select F401,F541 bot/
+
+      - name: Types — mypy on the money modules (ratchet)
+        # Gated on the modules that are fully clean today. The list grows as more
+        # of bot/core is cleaned, so the type-safety floor only ever ratchets up,
+        # never regresses. (Checking live_executor.py also type-checks its imports
+        # limit_entry + market_scanner.) The rest of bot/core is not gated yet.
+        run: >
+          mypy bot/risk bot/compliance bot/utils/trailing.py
+          bot/core/bitget_v3_client.py bot/core/position_telemetry.py
+          bot/core/live_executor.py
+
+      - name: SAST — bandit (high severity, high confidence)
+        run: bandit -r bot/ --severity-level high --confidence-level high -q
+
+      - name: SCA — dependency vulnerability audit (pip-audit)
+        run: pip-audit -r requirements.lock
+
+      - name: Tests — baseline-diff regression gate (+ coverage floor)
+        run: python scripts/ci_test_gate.py

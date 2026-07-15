@@ -1,0 +1,94 @@
+# --------------------------------------------------------------------------
+# RUNECLAW .gitignore
+# Python + Node + project-specific exclusions
+# --------------------------------------------------------------------------
+
+# -- Python --
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# -- Node / Next.js --
+node_modules/
+.next/
+out/
+.nuxt/
+.cache/
+
+# -- Coverage / test artifacts (produced by the CI gate) --
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.pytest_cache/
+
+# -- Environment & secrets --
+.env
+.env.*
+!.env.example
+
+# -- Logs --
+logs/*.jsonl
+logs/*.jsonl.*
+*.log
+
+# Keep only structured trading records
+!logs/live_trading_log.csv
+!logs/closed_trades.json
+# audit_chain.jsonl is a runtime artifact rewritten on every run/test (and seeded
+# fresh from GENESIS when absent), so it is intentionally NOT tracked.
+
+# -- Training data & artifacts --
+ollama/
+v6_data/
+AUDIT_REPORT*.md
+# Full-universe deep backtest raw results (1.6 MB, regenerable, non-reproducible
+# per the wall-clock session finding). The committed summary lives in docs/.
+backtest_deep_full_results.json
+
+# -- IDE --
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# -- Docker --
+docker-compose.override.yml
+
+# -- Project-specific --
+*.db
+*.sqlite3
+# Ignore data/ contents via data/* (not data/) so the negation below can
+# re-include a subtree — git prunes a directory excluded as `data/` before it
+# ever considers a re-include.
+data/*
+# ...except the FROZEN benchmark snapshot: committing it makes every A/B read
+# byte-identical candles and survives ephemeral container rebuilds (see
+# bot/backtest/snapshot.py). Runtime state under data/ stays ignored.
+!data/benchmark/
+# Auto-generated auth secret (never commit; regenerated per-deployment if absent)
+**/.jwt_secret
+# .github/ is intentionally tracked now (CI workflows live here). Only the
+# private CI backup dir stays ignored.
+.github_ci_backup/
+.playwright-cli/

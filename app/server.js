@@ -1,0 +1,132 @@
+const crypto = require('crypto');
+const path = require('path');
+
+// JWT_SECRET resolution, most-stable-first:
+//   1. Explicit JWT_SECRET env (recommended; required for multi-replica).
+//   2. Derived deterministically from BOT_SYNC_SECRET (already a required
+//      >=32-char env). Same env -> same secret on EVERY restart/redeploy, even
+//      on hosts with ephemeral disks. This fixes the "site keeps logging me
+//      out" failure mode: the previous file-persisted secret (data/.jwt_secret)
+//      was wiped on every restart of an ephemeral host, minting a new secret
+//      and invalidating every session.
+//   3. Ephemeral random (dev only, when BOT_SYNC_SECRET is also missing —
+//      the fatal check below exits shortly after anyway).
+if (!process.env.JWT_SECRET) {
+  if (process.env.BOT_SYNC_SECRET && process.env.BOT_SYNC_SECRET.length >= 32) {
+    process.env.JWT_SECRET = crypto
+      .createHmac('sha256', process.env.BOT_SYNC_SECRET)
+      .update('runeclaw-jwt-signing-v1')
+      .digest('hex');
+    console.log('JWT_SECRET derived from BOT_SYNC_SECRET — sessions survive restarts. '
+      + 'Set an explicit JWT_SECRET for multi-replica deployments.');
+  } else if (process.env.EPHEMERAL === 'true' || process.env.NODE_ENV !== 'production') {
+    process.env.JWT_SECRET = crypto.randomBytes(48).toString('hex');
+    console.log('WARNING: JWT_SECRET auto-generated (ephemeral) — sessions reset on restart.');
+  }
+  // If production without a derivable secret, auth.js enforces the fatal exit.
+}
+// RC-AUD-015: never ship a hardcoded sync secret — it grants write access to the
+// /api/bot/sync endpoints (which overwrite trade/equity data). Require it to be
+// provided via env in all modes; the bot and web app must share the same value.
+// The previously committed default must be rotated — it is exposed in git history.
+if (!process.env.BOT_SYNC_SECRET || process.env.BOT_SYNC_SECRET.length < 32) {
+  console.error('FATAL: BOT_SYNC_SECRET must be set to a shared secret of >=32 chars (see .env.example).');
+  process.exit(1);
+}
+
+const { auditConfig } = require('./lib/config_audit');
+// Surface every silently-degrading config (SMTP, gateway/creds secrets,
+// APP_BASE_URL, OAuth) once at boot — and, in production, refuse to start on a
+// fatal (e.g. a set-but-malformed WEB_CREDS_KEY that would fail every exchange-
+// key submission). Runs after the JWT/BOT_SYNC hard checks above.
+auditConfig();
+
+const express = require('express');
+const { migrate } = require('./db');
+const { router: authRouter } = require('./auth');
+const tradesRouter = require('./routes/trades');
+const syncRouter = require('./routes/sync');
+const marketRouter = require('./routes/market');
+const insightRouter = require('./routes/insight');
+const signalsRouter = require('./routes/signals');
+const credentialsRouter = require('./routes/credentials');
+const controlsRouter = require('./routes/controls');
+const chatRouter = require('./routes/chat');
+const publicChatRouter = require('./routes/public_chat');
+const webtradeRouter = require('./routes/webtrade');
+const portfolioRouter = require('./routes/portfolio');
+const { router: streamRouter } = require('./routes/stream');
+
+const app = express();
+
+app.use(express.json({ limit: '1mb' })); // Cap payload size
+// Cache policy: HTML must never be cached (deploys ship new markup that
+// references version-tagged assets, e.g. /styles.css?v=2) — a cached HTML +
+// stale-CSS mix renders the dashboard completely unstyled. Assets get a
+// moderate cache; the ?v= query busts them on every deploy that changes them.
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    else if (/\.(css|js|woff2)$/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=86400');
+  },
+}));
+
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// API routes
+app.use('/api/auth', authRouter);
+app.use('/api/trades', tradesRouter);
+app.use('/api/bot/sync', syncRouter);
+app.use('/api/market', marketRouter);
+app.use('/api/insight', insightRouter);
+app.use('/api/signals', signalsRouter);
+app.use('/api/credentials', credentialsRouter);
+app.use('/api/controls', controlsRouter);
+app.use('/api/chat', chatRouter);
+app.use('/api/public/chat', publicChatRouter);
+app.use('/api/trade', webtradeRouter);
+app.use('/api/portfolio', portfolioRouter);
+
+// Single-host dev foot-gun: Express and the bot's gateway both default to
+// port 8080. Warn loudly if they would collide.
+if (!process.env.BOT_GATEWAY_URL && String(process.env.PORT || 8080) === '8080') {
+  console.warn('WARNING: BOT_GATEWAY_URL is unset and PORT is 8080 — the bot gateway '
+    + 'default (http://localhost:8080) points at THIS server. Set BOT_GATEWAY_URL '
+    + 'to the bot process (aiohttp dashboard) address.');
+}
+app.use('/api/stream', streamRouter);
+
+// SPA fallback - serve index.html for non-API routes (never cached: see above)
+app.get('/', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
+app.get('/dashboard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'dashboard.html')); });
+// Account-management landing pages reached from email links.
+app.get('/reset', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'reset.html')); });
+app.get('/verify', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'verify.html')); });
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+(async () => {
+  try {
+    await migrate();
+    console.log('Database migrated successfully');
+  } catch (err) {
+    console.error('Migration failed:', err.message);
+    process.exit(1);
+  }
+
+  const PORT = process.env.PORT || 8080;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`RUNECLAW app running on port ${PORT}`);
+  });
+})();
