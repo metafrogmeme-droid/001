@@ -64,21 +64,21 @@
 <body>
 <div class="ag-wrap" role="main">
   <nav class="topnav">
-    <a href="/">← RUNECLAW</a>
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
     <span class="spacer"></span>
-    <a href="/dashboard#agents">Open in app</a>
-    <a href="/leaderboard">Leaderboard</a>
-    <a href="/proof">Proof of PnL</a>
+    <a href="/dashboard#agents" data-i18n="ag.open_in_app">Open in app</a>
+    <a href="/leaderboard" data-i18n="vh.leaderboard.title">Leaderboard</a>
+    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
   </nav>
 
   <div class="ag-hero">
-    <h1>Strategy Agents</h1>
-    <p>Each agent is one of the engine's real strategies, backtested on frozen, content-hashed
+    <h1 data-i18n="ag.h1">Strategy Agents</h1>
+    <p data-i18n-html="ag.lede">Each agent is one of the engine's real strategies, backtested on frozen, content-hashed
     benchmark data — percent and ratio only, never a dollar figure. Open one to follow it,
     reproduce its numbers in the Lab, or ask it anything.</p>
   </div>
 
-  <div id="ag-root"><div class="empty">Loading the agent catalogue…</div></div>
+  <div id="ag-root"><div class="empty" data-i18n="ag.loading">Loading the agent catalogue…</div></div>
 </div>
 
 <script>
@@ -201,9 +201,9 @@
       var regOpts = regimes().map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
       root.innerHTML =
         '<div class="ag-controls">'
-        + '<input id="ag-q" type="search" placeholder="Search strategies…" aria-label="Search strategies" autocomplete="off">'
-        + '<select id="ag-reg" aria-label="Filter by regime"><option value="">All regimes</option>' + regOpts + '</select>'
-        + '<select id="ag-sort" aria-label="Sort strategies">'
+        + '<input id="ag-q" type="search" placeholder="Search strategies…" aria-label="Search strategies" data-i18n-attr="aria-label:a11y.search_strategies" autocomplete="off">'
+        + '<select id="ag-reg" aria-label="Filter by regime" data-i18n-attr="aria-label:a11y.filter_regime"><option value="">All regimes</option>' + regOpts + '</select>'
+        + '<select id="ag-sort" aria-label="Sort strategies" data-i18n-attr="aria-label:a11y.sort_strategies">'
         + '<option value="return">Top return</option><option value="win">Win rate</option>'
         + '<option value="pf">Profit factor</option><option value="name">Name (A–Z)</option></select>'
         + '<a class="ag-build" href="/dashboard#agents">＋ Build your own</a>'
@@ -212,6 +212,10 @@
         + '<p class="disc">Engine agents carry verified frozen backtests; <b>community</b> strategies are member-authored configs '
         + '(intent rules, no dollar figures, no performance claims). Nothing here is financial advice. Verified live ranks are on the '
         + '<a href="/leaderboard">leaderboard</a>; build your own in the <a href="/dashboard#agents">app</a>.</p>';
+      // apply() runs once at init and there is no MutationObserver, so markup
+      // built here — after the catalogue lands — is never reached by it. These
+      // controls carry data-i18n-attr; without this call the wiring is inert.
+      if (window.RCI18N && RCI18N.apply) RCI18N.apply(root);
       document.getElementById('ag-q').addEventListener('input', render);
       document.getElementById('ag-reg').addEventListener('change', render);
       document.getElementById('ag-sort').addEventListener('change', render);
@@ -222,5 +226,6 @@
     });
 })();
 </script>
+<script src="/js/i18n.js?v=40"></script>
 </body>
 </html>

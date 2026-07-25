@@ -429,6 +429,10 @@ const SWEPT_PAGES = {
   'flight.html': [],
   'sentinel.html': [],
   'roots.html': [],
+  // 'AI Viking' is the agent's name; RUNECLAW its brand.
+  'agent.html': ['RUNECLAW', 'AI Viking'],
+  'agents.html': [],
+  'letter.html': [],
 };
 
 function untranslatedInSource(src, allowList) {

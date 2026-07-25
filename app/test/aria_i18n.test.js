@@ -73,10 +73,13 @@ test('only wirings that actually reach the engine are shipped', () => {
   // leaving it plainly English. Both were verified in a real page before this
   // test was written; agents.html and arena's timeframe row are follow-ups
   // tied to the remaining page sweep.
+  // agents.html now loads the engine AND re-applies after its catalogue
+  // renders, so its wiring is reachable and was restored.
   const agents = fs.readFileSync(path.join(PUB, 'agents.html'), 'utf8');
-  assert.ok(!/i18n\.js/.test(agents), 'agents.html still has no engine (tracked)');
-  assert.ok(!/aria-label:/.test(agents),
-    'agents.html must not carry wiring its page cannot apply');
+  assert.match(agents, /i18n\.js/, 'agents.html loads the engine');
+  assert.match(agents, /RCI18N\.apply\(root\)/,
+    'agents.html re-applies after building its controls — without this the '
+      + 'data-i18n-attr on them never runs');
 
   for (const f of ['escape.html', 'stress.html']) {
     const src = fs.readFileSync(path.join(PUB, f), 'utf8');
