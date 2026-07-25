@@ -88,8 +88,8 @@ test('a slow feed falls back to the last known marks, not to nothing', async () 
   ticker = async () => ({ ETHUSDT: { price: 3000, change: 0, volume: 1 } });
   await getTickersWithin(2000);
   ticker = () => new Promise(() => {});
-  const marks = await getTickersWithin(150);
-  assert.deepStrictEqual(marks, { ETHUSDT: { price: 3000, change: 0, volume: 1 } },
+  const { map } = await getTickersWithin(150);
+  assert.deepStrictEqual(map, { ETHUSDT: { price: 3000, change: 0, volume: 1 } },
     'the last successful map is reused rather than discarded');
 });
 
@@ -106,7 +106,7 @@ test('a mark too old to defend is dropped, not shown as current', async () => {
     assert.equal(lastKnownTickers(), null,
       'a map older than the bound is withheld — a stale price is not a current price');
     ticker = () => new Promise(() => {});
-    assert.deepStrictEqual(await getTickersWithin(120), {},
+    assert.deepStrictEqual((await getTickersWithin(120)).map, {},
       'and the caller gets empty marks, so the UI blanks instead of inventing');
   } finally { Date.now = realNow; }
 });
@@ -114,7 +114,7 @@ test('a mark too old to defend is dropped, not shown as current', async () => {
 test('a failing feed degrades to empty marks, never throws', async () => {
   setTickerFetcher(null);          // clear the warmed cache
   setTickerFetcher(async () => { throw new Error('gateway down'); });
-  assert.deepStrictEqual(await getTickersWithin(500), {},
+  assert.deepStrictEqual((await getTickersWithin(500)).map, {},
     'a rejected fetch resolves to empty marks');
   setTickerFetcher((...a) => ticker(...a));
 });
@@ -123,12 +123,81 @@ test('order paths still refuse a stale price rather than degrade', () => {
   // A read may show a stale mark; a FILL may not be priced off one.
   const src = require('node:fs').readFileSync(require('node:path')
     .join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
-  const opens = src.split('\n')
-    .map((l, i) => ({ l, n: i + 1 }))
-    .filter(({ l }) => /getTickersWithin\(/.test(l));
-  assert.ok(opens.length >= 3, 'the read paths are bounded');
-  // The two order handlers keep the strict call and their 503 refusal.
   assert.equal((src.match(/try \{ marks = await getTickers\(\); \} catch \(e\) \{/g) || []).length, 2,
     'exactly the two order paths still use the strict fetch');
   assert.match(src, /Market data unavailable/, 'and refuse the fill when it is missing');
+});
+
+test('GET /account is a WRITE path and must not settle off a stale mark', async () => {
+  // This is the regression an adversarial review caught after the first fix
+  // shipped. /account is not read-only: settleLiquidations() closes positions
+  // and sweepFollows() OPENS them, sealing the entry price into a
+  // Provable-Calls receipt. Handing those a 120s-old map priced fills off it —
+  // and quadrupled the pre-fix 30s bound while claiming to protect it.
+  const { FILL_MAX_AGE_MS, TTL_MS } = require('../lib/tickers');
+  assert.equal(FILL_MAX_AGE_MS, TTL_MS,
+    'the fill bound tracks the cache TTL — display may degrade, money may not');
+
+  const src = require('node:fs').readFileSync(require('node:path')
+    .join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
+  // Behavioural, not a grep for a call site: the two writers must receive the
+  // age-gated map, never the display map.
+  assert.match(src, /settleLiquidations\(userId, positions, fillMarks\)/,
+    'settleLiquidations gets the age-gated marks');
+  assert.match(src, /sweepFollows\(userId, positions, fillMarks\)/,
+    'sweepFollows gets the age-gated marks');
+  assert.match(src, /const fillMarks = tick\.ageMs <= FILL_MAX_AGE_MS \? marks : \{\}/,
+    'and the gate is an explicit age comparison');
+});
+
+test('a stale price cannot liquidate a real position', async () => {
+  // The proof, not a grep: hold a mark that WOULD liquidate, age it past the
+  // fill bound, and confirm the position survives. Before the age gate this
+  // wrote an irreversible arena_trades row at a price nobody had quoted for
+  // two minutes.
+  const { getTickersWithin, FILL_MAX_AGE_MS } = require('../lib/tickers');
+  const token = await newUser();
+
+  ticker = async () => ({ BTCUSDT: { price: 100, change: 0, volume: 1 } });
+  const open = await req('POST', '/api/arena/open', { token,
+    body: { symbol: 'BTCUSDT', direction: 'long', margin: 500, leverage: 3 } });
+  assert.equal(open.status, 200, 'opened at 100');
+
+  // A price deep enough to liquidate a 3x long, now sitting in the cache.
+  ticker = async () => ({ BTCUSDT: { price: 40, change: 0, volume: 1 } });
+  await getTickersWithin(2000);
+  ticker = () => new Promise(() => {});          // upstream now hangs
+
+  const realNow = Date.now;
+  Date.now = () => realNow() + FILL_MAX_AGE_MS + 15000;   // older than a fill may be
+  let acct;
+  try {
+    acct = await req('GET', '/api/arena/account', { token });
+  } finally { Date.now = realNow; }
+
+  assert.equal(acct.status, 200, 'the account still answers');
+  assert.equal((acct.data.positions || []).length, 1,
+    'the position was NOT liquidated off a stale price');
+  assert.equal((acct.data.history || []).length, 0,
+    'and no closed-trade row was written');
+});
+
+test('getTickersWithin reports freshness, so a caller can tell', async () => {
+  const { getTickersWithin } = require('../lib/tickers');
+  ticker = async () => ({ BTCUSDT: { price: 5, change: 0, volume: 1 } });
+  const live = await getTickersWithin(2000);
+  assert.equal(live.ageMs, 0, 'a live fetch reports age 0');
+  assert.ok(live.map.BTCUSDT, 'and carries the map');
+
+  const realNow = Date.now;
+  Date.now = () => realNow() + 45000;          // past TTL, inside the 120s bound
+  try {
+    ticker = () => new Promise(() => {});
+    const stale = await getTickersWithin(120);
+    assert.ok(stale.ageMs >= 45000, `a stale hit reports its real age (${stale.ageMs}ms)`);
+    assert.ok(stale.map.BTCUSDT, 'the stale map is still offered for display');
+    const { FILL_MAX_AGE_MS } = require('../lib/tickers');
+    assert.ok(stale.ageMs > FILL_MAX_AGE_MS,
+      'and at this age a fill path would correctly refuse it');
+  } finally { Date.now = realNow; }
 });

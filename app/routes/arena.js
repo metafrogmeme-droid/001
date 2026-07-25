@@ -21,7 +21,7 @@ const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
-const { getTickers, getTickersWithin } = require('../lib/tickers');
+const { getTickers, getTickersWithin, FILL_MAX_AGE_MS } = require('../lib/tickers');
 const arena = require('../lib/arena');
 const { sealArenaTrade, newTradeKey } = require('../lib/callseal');
 
@@ -85,7 +85,7 @@ async function sweepFollows(userId, positions, marks) {
   // already advanced, so a non-compliant signal is skipped, never replayed.
   let seasonRow = null;
   try {
-    const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+    const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
     seasonRow = srows[0] || null;
   } catch (e) { /* no season read → no constraint */ }
   const followHandle = plan.opens.length ? await handleFor(userId) : null;
@@ -158,10 +158,19 @@ router.get('/account', authMiddleware, async (req, res) => {
     // fetch must not eat the whole budget. Falls back to the last known map,
     // then to {} — a position then renders with a null mark, which the UI
     // already shows honestly as '—' rather than inventing a price.
-    marks = await getTickersWithin(6000);
+    const tick = await getTickersWithin(6000);
+    marks = tick.map;                       // DISPLAY: a recent stale mark is fine
+    // ...but this handler also WRITES. settleLiquidations closes positions and
+    // sweepFollows opens them, sealing the entry price into a Provable-Calls
+    // receipt. Those are fills, and a fill may never be priced off a stale
+    // mark. Past FILL_MAX_AGE_MS they get nothing and both steps no-op —
+    // settleLiquidations skips a position without a mark, and planFollows
+    // skips a signal with reason 'no_mark'. The work simply happens on the
+    // next load, with a live price, instead of being written at a wrong one.
+    const fillMarks = tick.ageMs <= FILL_MAX_AGE_MS ? marks : {};
     let positions = await loadPositions(userId);
-    positions = await settleLiquidations(userId, positions, marks);
-    const swept = await sweepFollows(userId, positions, marks);
+    positions = await settleLiquidations(userId, positions, fillMarks);
+    const swept = await sweepFollows(userId, positions, fillMarks);
     positions = swept.positions;
     // Re-read the balance — the sweep may have opened signal positions.
     const fresh = await loadAccount(userId);
@@ -228,7 +237,7 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
     // Season rule variants: a LIVE season may constrain opens (e.g. "max 5×,
     // majors only"). Enforced server-side; the refusal names the season.
     try {
-      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
       const sr = require('../lib/arena_seasons').checkSeasonRules(srows[0], v.data);
       if (!sr.ok) return res.status(400).json({ error: sr.error });
     } catch (e) { /* season read failure never blocks an open */ }
@@ -318,7 +327,7 @@ router.get('/leaderboard', async (req, res) => {
       sealedOf = new Map(sealedCounts.map((t) => [t.user_id, Number(t.n) || 0]));
     } catch (e) { /* pre-receipt deployment — the board still ranks */ }
     let marks = {};
-    marks = await getTickersWithin(6000);   // rank on balances if marks are slow
+    marks = (await getTickersWithin(6000)).map;   // display only; rank on balances if slow
     const posOf = new Map();
     for (const p of allPos) {
       if (!posOf.has(p.user_id)) posOf.set(p.user_id, []);
@@ -430,7 +439,7 @@ router.get('/trader/:handle', async (req, res) => {
     const [trades] = await pool.execute(
       'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
     let marks = {};
-    marks = await getTickersWithin(6000);   // percent renders from balance if slow
+    marks = (await getTickersWithin(6000)).map;   // display only; percent from balance if slow
     res.json(traderLib.buildTraderCard({ handle, balance: acct[0].balance, positions, marks, trades }));
   } catch (err) {
     console.error('Arena trader error:', err.stack || err.message);
@@ -446,7 +455,7 @@ const seasons = require('../lib/arena_seasons');
 // a time window, never a reset — the all-time board keeps running.
 router.get('/season', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
     const season = rows[0];
     if (!season) return res.json({ season: null });
     const status = seasons.seasonStatus(season, new Date());

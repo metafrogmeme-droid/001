@@ -551,9 +551,9 @@ test('the developer page never translates an identifier', () => {
   // §4: these two endpoint descriptions ARE the honesty guarantee of the API.
   // A translation that drops the clause misdescribes what the endpoint returns.
   for (const c of codes) {
-    assert.ok(/dollar|dólar|dolar|金額|금액|долл|Dollar|مبالغ/i.test(i18n.STRINGS['dv.r2'][c]),
+    assert.ok(/dollar|dólar|dolar|डॉलर|金額|금액|долл|Dollar|مبالغ/i.test(i18n.STRINGS['dv.r2'][c]),
       `dv.r2:${c} dropped the "never dollar amounts" guarantee`);
-    assert.ok(/percent|porcent|百分比|pourcent|Prozent|procent|パーセント|퍼센트|процент|yüzde|النسب/i.test(i18n.STRINGS['dv.r4'][c]),
+    assert.ok(/percent|porcent|प्रतिशत|百分比|pourcent|Prozent|procent|パーセント|퍼센트|процент|yüzde|النسب/i.test(i18n.STRINGS['dv.r4'][c]),
       `dv.r4:${c} dropped the "percent-only" guarantee`);
   }
 });
@@ -568,11 +568,11 @@ test('the Stress Lab keeps its honesty clauses in every language', () => {
     const disc = i18n.STRINGS['sx.disc'][c];
     assert.ok(lede && disc, `sx.lede/sx.disc missing ${c}`);
     // "never your real balance" / "not your real account"
-    assert.ok(/real|reale|real|réel|echte|werkelijk|実|실제|реальн|gerçek|حقيقي|真實|真实/i.test(lede),
+    assert.ok(/real|reale|real|réel|echte|werkelijk|वास्तविक|実|실제|реальн|gerçek|حقيقي|真實|真实/i.test(lede),
       `sx.lede:${c} lost the "never your real balance" clause`);
     // "not investment advice" survives in both paragraphs
     for (const [k, v] of [['sx.lede', lede], ['sx.disc', disc]]) {
-      assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(v),
+      assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|निवेश सलाह|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(v),
         `${k}:${c} dropped "not investment advice"`);
     }
     // The <b>not</b> in sx.disc is the load-bearing word of the whole page.
@@ -617,7 +617,7 @@ test('the verification contract survives translation intact', () => {
   for (const c of codes) {
     const scope = i18n.STRINGS['pv.scope'][c];
     assert.match(scope, /<b>/, `pv.scope:${c} lost its emphasis`);
-    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(scope),
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|निवेश सलाह|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(scope),
       `pv.scope:${c} dropped "not investment advice"`);
   }
 });
@@ -638,12 +638,12 @@ test('the Escape Agent never claims to act, in any language', () => {
     const disc = i18n.STRINGS['es.disc'][c];
     assert.ok(lede && disc, `es.lede/es.disc missing ${c}`);
     // "never executes" / "does not execute"
-    assert.ok(/never|nunca|mai\b|絕不|jamais|niemals|nooit|一切行いません|않습니다|никогда|asla|إطلاقًا|أبدًا/i.test(lede),
+    assert.ok(/never|nunca|mai\b|कभी|絕不|jamais|niemals|nooit|一切行いません|않습니다|никогда|asla|إطلاقًا|أبدًا/i.test(lede),
       `es.lede:${c} lost the "never executes anything" clause`);
     // the planner does not move funds / place orders / sign
     assert.ok(/sign|firma|assina|signe|signiert|onderteken|署名|서명|подписывает|imzalamaz|يوقّع|簽署/i.test(disc),
       `es.disc:${c} lost the "signs nothing" clause`);
-    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(disc),
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|निवेश सलाह|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(disc),
       `es.disc:${c} dropped "not investment advice"`);
     // the risks it explicitly does NOT model must stay listed
     assert.ok(/slippage|kayma|انزلاق|滑價|スリッページ|슬리피지|проскальзыван/i.test(disc),
@@ -666,10 +666,10 @@ test('the public board never promises a dollar figure, in any language', () => {
     // spelling happened to be listed by hand.
     const plain = searchable(lede);
     // "never a dollar figure" — the promise itself
-    assert.ok(/dollar|dolar|金額|금액|долл|بالدولار/i.test(plain),
+    assert.ok(/dollar|dolar|डॉलर|金額|금액|долл|بالدولار/i.test(plain),
       `lb.lede:${c} dropped the "never a dollar figure" promise`);
     // anonymous handles, and the publish_hash that makes a row checkable
-    assert.ok(/anon|匿名|익명|анонимн|مستعار/i.test(plain), `lb.lede:${c} lost "anonymous handles"`);
+    assert.ok(/anon|गुमनाम|匿名|익명|анонимн|مستعار/i.test(plain), `lb.lede:${c} lost "anonymous handles"`);
     assert.ok(lede.includes('<code>publish_hash</code>'), `lb.lede:${c} lost the publish_hash literal`);
     assert.match(lede, /href="\/proof"/, `lb.lede:${c} lost the verify-the-fills link`);
     assert.ok((lede.match(/<b>/g) || []).length >= 3, `lb.lede:${c} lost emphasis`);
@@ -677,7 +677,7 @@ test('the public board never promises a dollar figure, in any language', () => {
   // Opt-in and revocable is a consent statement, not decoration.
   for (const c of codes) {
     const note = searchable(i18n.STRINGS['lb.note'][c]);
-    assert.ok(/opt|volunt|volont|任意|自願|자발|доброволь|gonull|vrijwillig|freiwillig|opcional|اختياري/i.test(note),
+    assert.ok(/opt|volunt|volont|स्वैच्छिक|任意|自願|자발|доброволь|gonull|vrijwillig|freiwillig|opcional|اختياري/i.test(note),
       `lb.note:${c} dropped the opt-in/revocable statement`);
   }
   // And the rendered page must actually carry no dollar sign in its markup.
@@ -697,9 +697,9 @@ test('the track record keeps its "nothing is hand-entered" claim everywhere', ()
   for (const c of codes) {
     const lede = searchable(i18n.STRINGS['tk.lede'][c]);
     assert.ok(lede, `tk.lede missing ${c}`);
-    assert.ok(/hand|mano|mao|main|手|손|вручную|elle|يدوي/i.test(lede),
+    assert.ok(/hand|mano|mao|main|हाथ|手|손|вручную|elle|يدوي/i.test(lede),
       `tk.lede:${c} dropped the "nothing is hand-entered" claim`);
-    assert.ok(/automat|otomat|自動|자동|автомат|تلقائ/i.test(lede),
+    assert.ok(/automat|otomat|अपने आप|自動|자동|автомат|تلقائ/i.test(lede),
       `tk.lede:${c} dropped "aggregated automatically"`);
   }
 });
@@ -718,13 +718,13 @@ test('the firewall never oversells itself, in any language', () => {
     const lede = plain(i18n.STRINGS['fw.lede'][c]);
     const disc = plain(i18n.STRINGS['fw.disc'][c]);
     assert.ok(lede && disc, `fw.lede/fw.disc missing ${c}`);
-    assert.ok(/brows|navegador|navigateur|ブラウザ|브라우저|браузер|taray|متصفح|瀏覽器/i.test(lede),
+    assert.ok(/brows|navegador|navigateur|ब्राउज़र|ブラウザ|브라우저|браузер|taray|متصفح|瀏覽器/i.test(lede),
       `fw.lede:${c} lost the "runs in your browser" promise`);
-    assert.ok(/loca|loka|ローカル|로컬|локальн|yerel|محلي|本機/i.test(disc),
+    assert.ok(/loca|loka|स्थानीय|ローカル|로컬|локальн|yerel|محلي|本機/i.test(disc),
       `fw.disc:${c} lost "the scan is local"`);
     assert.ok(/heuristi|euristic|heuristisch|ヒューリスティック|휴리스틱|эвристи|sezgisel|استدلال|啟發式/i.test(disc),
       `fw.disc:${c} dropped the word "heuristic"`);
-    assert.ok(/guarant|garant|garanz|保証|보장|гаранти|garanti|ضمان|保證/i.test(disc),
+    assert.ok(/guarant|garant|garanz|गारंटी|保証|보장|гаранти|garanti|ضمان|保證/i.test(disc),
       `fw.disc:${c} dropped "a clean result is not a guarantee"`);
     // Both paragraphs keep the emphasis the English leans on.
     assert.ok((i18n.STRINGS['fw.lede'][c].match(/<b>/g) || []).length >= 3, `fw.lede:${c} lost emphasis`);
@@ -741,20 +741,20 @@ test('the Intent Compiler states all five of its limits in every language', () =
     const disc = searchable(i18n.STRINGS['in.disc'][c]);
     assert.ok(disc, `in.disc missing ${c}`);
     // 1. binds nothing / signs nothing / moves no funds
-    assert.ok(/sign|firma|assina|signe|signiert|onderteken|署名|서명|подпис|imzala|وقع|簽署/i.test(disc),
+    assert.ok(/sign|firma|assina|signe|signiert|onderteken|हस्ताक्षर|署名|서명|подпис|imzala|وقع|簽署/i.test(disc),
       `in.disc:${c} lost "signs nothing"`);
     // 2. tighten-only — it can only NARROW the engine's caps
     assert.ok(/tighten|restri|estrech|收緊|狭め|締める|조이|ужесточ|daralt|مضي|verscharf|aanscherp|resserr/i.test(disc),
       `in.disc:${c} lost the tighten-only limit`);
     // 3. revocable at any time
-    assert.ok(/revoc|revog|widerruf|intrekbaar|取り消|취소|отзыв|geri al|إلغاء|撤銷/i.test(disc),
+    assert.ok(/revoc|revog|रद्द|वापस लिया|widerruf|intrekbaar|取り消|취소|отзыв|geri al|إلغاء|撤銷/i.test(disc),
       `in.disc:${c} lost "revocable at any time"`);
     // 4. §4 stated inside the product copy: a PUBLIC demo never shows a dollar
     //    figure; the real number is set privately in the app.
-    assert.ok(/dollar|dolar|金額|금액|долл|بالدولار/i.test(disc),
+    assert.ok(/dollar|dolar|डॉलर|金額|금액|долл|بالدولار/i.test(disc),
       `in.disc:${c} lost the "never shows a dollar figure" clause`);
     // 5. not investment advice
-    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|tavsiye|نصيحة/i.test(disc),
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|निवेश सलाह|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|tavsiye|نصيحة/i.test(disc),
       `in.disc:${c} dropped "not investment advice"`);
     assert.ok((i18n.STRINGS['in.disc'][c].match(/<b>/g) || []).length >= 2, `in.disc:${c} lost emphasis`);
   }
@@ -782,7 +782,7 @@ test('a failed Arena load says UNKNOWN, never "you have none"', () => {
     // Assert POSITIVELY that it says "unknown". A leading-"no" heuristic is
     // wrong here: Spanish opens "No se pudo cargar" — a negated VERB ("could
     // not load"), not a claim of emptiness.
-    assert.ok(/unknown|desconocid|desconhecid|inconnue|ignot|unbekannt|onbekend|不明|未知|알 수 없|неизвест|bilinmiyor|غير معروف/i.test(searchable(v)),
+    assert.ok(/unknown|desconocid|desconhecid|inconnue|ignot|unbekannt|onbekend|अज्ञात|不明|未知|알 수 없|неизвест|bilinmiyor|غير معروف/i.test(searchable(v)),
       `arena.d_unknown:${c} does not actually say "unknown"`);
     assert.notEqual(v, i18n.STRINGS['arena.e_pos'][c], `arena.d_unknown:${c} is just the empty state`);
   }

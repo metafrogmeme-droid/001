@@ -10,12 +10,19 @@
 const TICKERS_URL = process.env.ALERTS_TICKERS_URL
   || 'https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES';
 const TTL_MS = 30_000;
+// The oldest a mark may be and still be allowed to price a FILL or settle an
+// exit. Deliberately equal to TTL_MS: display may degrade, money may not.
+const FILL_MAX_AGE_MS = TTL_MS;
 
 let cache = { at: 0, map: null };
+// One upstream fetch at a time. Without this, N concurrent cold requests each
+// open their own 10s fetch — multiplying the very latency that made the Arena
+// account exceed its client budget in the first place.
+let inflightFetch = null;
 
 // Injectable fetch (tests / alternate transports). Null restores the default.
 let fetchImpl = null;
-function setTickerFetcher(fn) { fetchImpl = fn || null; cache = { at: 0, map: null }; }
+function setTickerFetcher(fn) { fetchImpl = fn || null; cache = { at: 0, map: null }; inflightFetch = null; }
 
 async function getTickers() {
   // The injectable fetcher deliberately skips the TTL — tests change prices
@@ -28,6 +35,12 @@ async function getTickers() {
   }
   const now = Date.now();
   if (cache.map && now - cache.at < TTL_MS) return cache.map;
+  if (inflightFetch) return inflightFetch;          // join the fetch already running
+  inflightFetch = doFetch(now).finally(() => { inflightFetch = null; });
+  return inflightFetch;
+}
+
+async function doFetch(now) {
   const res = await fetch(TICKERS_URL, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`tickers HTTP ${res.status}`);
   const data = await res.json();
@@ -57,9 +70,14 @@ async function getTickers() {
  *
  * So: wait `budgetMs`, no longer. On timeout fall back to the last map we
  * successfully fetched even if it is past its TTL — stale marks beat no
- * marks, and the caller renders a null mark honestly when neither exists.
- * The in-flight fetch is left running; it will populate the cache for the
- * next caller rather than being wasted.
+ * marks for DISPLAY, and the caller renders a null mark honestly when neither
+ * exists. The in-flight fetch is left running; it will populate the cache for
+ * the next caller rather than being wasted.
+ *
+ * Returns { map, ageMs }. ageMs is 0 for a live fetch, the cache age for a
+ * stale hit, and Infinity when there is nothing. Callers that WRITE — that
+ * settle an exit or seal a fill — must check it. FILL_MAX_AGE_MS is the
+ * bound they should use.
  */
 async function getTickersWithin(budgetMs) {
   const inflight = getTickers();
@@ -72,7 +90,12 @@ async function getTickersWithin(budgetMs) {
   });
   try {
     const won = await Promise.race([inflight.catch(() => null), deadline]);
-    return won || lastKnownTickers() || {};
+    if (won) return { map: won, ageMs: 0 };
+    const stale = lastKnownTickers();
+    // ageMs is the caller's ONLY way to tell a live mark from a stale one.
+    // Returning them indistinguishably is how a stale price ends up priced
+    // into a sealed fill.
+    return stale ? { map: stale, ageMs: Date.now() - cache.at } : { map: {}, ageMs: Infinity };
   } finally {
     clearTimeout(timer);
   }
@@ -93,4 +116,4 @@ function lastKnownTickers() {
   return (Date.now() - cache.at) <= STALE_OK_MS ? cache.map : null;
 }
 
-module.exports = { getTickers, getTickersWithin, lastKnownTickers, setTickerFetcher };
+module.exports = { getTickers, getTickersWithin, lastKnownTickers, setTickerFetcher, TTL_MS, FILL_MAX_AGE_MS };
