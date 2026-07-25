@@ -306,6 +306,10 @@ operator (`bot/proofofpnl/`, [`ONCHAIN_GOLIVE.md`](./ONCHAIN_GOLIVE.md), ethers-
   the scan-mode community already are), and add an **optional Wormhole bridge to Base later**
   so the token can settle against the existing **ERC-8257 + x402** rail when marketplace
   metering goes live in Phase 4.
+- **Bridge mode (decided):** **hub-and-spoke — lock on Solana**, wrapped supply on Base.
+  Burn-and-mint would require handing mint authority to an NTT-controlled PDA, which
+  contradicts the fixed-supply / authorities-revoked guarantee in §2 and §11. A draft
+  testnet implementation lives in `token/bridge/` (Solana devnet ↔ Base Sepolia).
 - **Convenient existing tie-in:** **Wormhole (`W`) and Drift are already in RUNECLAW's Solana
   scan universe** ([`gitbook/solana-ecosystem.md`](./gitbook/solana-ecosystem.md)) — the
   bridge and a Solana perp-DEX venue are already on the team's radar.

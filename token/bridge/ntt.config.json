@@ -1,0 +1,34 @@
+{
+  "_comment": "PROPOSED BASELINE for bridging $RCLAW Solana <-> Base via Wormhole NTT. TESTNET/DRAFT. Ratify before any mainnet use — see docs/TOKEN_ROADMAP.md §9, §10.",
+  "mode": "hub-and-spoke",
+  "_modeNote": "hub-and-spoke LOCKS tokens on the Solana hub and mints a wrapped representation on Base. Chosen because token/ REVOKES mint authority after mint — burn-and-mint would require handing mint authority to an NTT-controlled PDA, which contradicts the fixed-supply/authorities-revoked guarantee in the roadmap (§2, §11).",
+  "network": "Testnet",
+  "hub": {
+    "chain": "Solana",
+    "role": "locking",
+    "rpc": "https://api.devnet.solana.com",
+    "token": "<FILL: $RCLAW mint from token/.artifacts/token.devnet.json>",
+    "manager": "<FILL after `ntt add-chain Solana`>",
+    "decimals": 9
+  },
+  "spokes": [
+    {
+      "chain": "BaseSepolia",
+      "role": "burning",
+      "rpc": "https://sepolia.base.org",
+      "token": "<FILL after `ntt add-chain BaseSepolia` deploys the wrapped token>",
+      "manager": "<FILL after `ntt add-chain BaseSepolia`>",
+      "decimals": 18
+    }
+  ],
+  "transfer": {
+    "defaultAmount": "1",
+    "automatic": false,
+    "_automaticNote": "false = manual relaying: the script fetches the VAA and submits the redeem on the destination chain. true requires a relayer to be configured for the route."
+  },
+  "limits": {
+    "_comment": "NTT rate limits are set on-chain via the ntt CLI (outbound/inbound per 24h). Mirror the intended values here for review.",
+    "outboundPerDay": "1000000",
+    "inboundPerDay": "1000000"
+  }
+}

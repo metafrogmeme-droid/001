@@ -18,7 +18,9 @@
     "presale:withdraw": "node presale/genesis_presale.mjs withdraw",
     "presale:withdraw-unsold": "node presale/genesis_presale.mjs withdraw-unsold",
     "e2e:plan": "node e2e/devnet_dryrun.mjs --dry",
-    "e2e:dryrun": "node e2e/devnet_dryrun.mjs"
+    "e2e:dryrun": "node e2e/devnet_dryrun.mjs",
+    "bridge:plan": "node bridge/ntt_bridge.mjs plan",
+    "bridge:transfer": "node bridge/ntt_bridge.mjs transfer"
   },
   "engines": {
     "node": ">=18"
@@ -31,6 +33,9 @@
     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@solana/spl-token": "^0.4.9",
     "@solana/spl-token-metadata": "^0.1.6",
-    "@solana/web3.js": "^1.95.0"
+    "@solana/web3.js": "^1.95.0",
+    "@wormhole-foundation/sdk": "5.2.0",
+    "@wormhole-foundation/sdk-evm-ntt": "7.2.0",
+    "@wormhole-foundation/sdk-solana-ntt": "7.2.0"
   }
 }

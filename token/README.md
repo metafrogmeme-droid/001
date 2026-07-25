@@ -53,6 +53,14 @@ then `presale:create` on devnet. Full walkthrough and the operational steps not 
 (Raydium liquidity, Merkle whitelist, soft-cap/refund) are in
 [`presale/RUNBOOK.md`](presale/RUNBOOK.md).
 
+## Wormhole NTT bridge (Solana ↔ Base)
+
+`bridge/ntt_bridge.mjs` bridges `$RCLAW` between **Solana devnet** (hub) and **Base Sepolia**
+(spoke) via Wormhole **NTT**, in **hub-and-spoke / locking** mode — chosen because this token
+revokes mint authority, so burn-and-mint isn't available. `npm run bridge:plan` validates the
+config offline and prints the `ntt` CLI deploy steps. See [`bridge/README.md`](bridge/README.md)
+(including a verified upstream ESM packaging issue in `sdk-solana-ntt` and its workaround).
+
 ## Config
 
 `config/token.config.json` — token params (name, symbol, decimals, supply, metadata URI,
