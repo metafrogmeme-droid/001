@@ -222,3 +222,45 @@ test('Guardian is a product name, spelled the same way in every language', () =>
   assert.equal(i18n.STRINGS['nav.marketplace'].en, 'Marketplace');
   assert.equal(i18n.STRINGS['nav.agents'].en, 'Agents');
 });
+
+test('the Arena order ticket is translated — every field the user touches', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  const codes = i18n.LANGS.map((l) => l.code);
+  // The page heading translated while the form under it did not, so a
+  // non-English user read their own language right up to the fields where a
+  // misunderstanding costs money. Every one of these must carry a key.
+  const wired = ['arena.f_symbol', 'arena.f_direction', 'arena.b_long', 'arena.b_short',
+    'arena.f_margin', 'arena.f_leverage', 'arena.f_tp', 'arena.f_sl', 'arena.f_optional',
+    'arena.f_margin_sig', 'arena.th_side', 'arena.th_lev', 'arena.th_entry', 'arena.th_mark',
+    'arena.th_pnl', 'arena.th_tpsl', 'arena.th_liq', 'arena.th_exit', 'arena.th_how',
+    'arena.e_pos', 'arena.e_hist'];
+  for (const k of wired) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const c of codes) assert.ok(i18n.STRINGS[k][c], `${k} is missing ${c}`);
+    assert.ok(arena.includes(`data-i18n="${k}"`), `${k} is not wired into arena.html`);
+  }
+  // The two placeholders go through the attribute path, not textContent.
+  assert.match(arena, /data-i18n-attr="placeholder:arena\.ph_tp"/);
+  assert.match(arena, /data-i18n-attr="placeholder:arena\.ph_sl"/);
+  for (const c of codes) {
+    assert.ok(i18n.STRINGS['arena.ph_tp'][c], `arena.ph_tp is missing ${c}`);
+    assert.ok(i18n.STRINGS['arena.ph_sl'][c], `arena.ph_sl is missing ${c}`);
+  }
+});
+
+test('the follow button toggles through T() — a static attribute would be clobbered', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  // JS rewrites this label on every paint, so it cannot rely on data-i18n:
+  // the attribute is applied once at load and then overwritten.
+  assert.match(arena, /T\('arena\.b_unfollow', 'Stop following'\)/);
+  assert.match(arena, /T\('arena\.b_follow', 'Start following'\)/);
+  assert.ok(!/textContent = following \? 'Stop following'/.test(arena),
+    'the toggle is still writing a bare English literal');
+  for (const c of i18n.LANGS.map((l) => l.code)) {
+    assert.ok(i18n.STRINGS['arena.b_unfollow'][c], `arena.b_unfollow is missing ${c}`);
+  }
+});

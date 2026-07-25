@@ -223,25 +223,25 @@
   <section class="panel" id="ticketPanel" hidden>
     <h2 data-i18n="arena.p_ticket">Open a paper position</h2>
     <div class="ticket">
-      <div><label for="tSym">Symbol</label>
+      <div><label for="tSym" data-i18n="arena.f_symbol">Symbol</label>
         <input id="tSym" list="symList" value="BTCUSDT" maxlength="20" autocomplete="off" spellcheck="false">
         <datalist id="symList"></datalist>
         <!-- Tap-to-pick chips: <datalist> suggestions are unreliable on
              Android, which read as "only BTC exists". Chips work everywhere. -->
         <div id="symChips" class="sym-chips" aria-label="Top symbols by volume"></div></div>
-      <div><label>Direction</label>
+      <div><label data-i18n="arena.f_direction">Direction</label>
         <div class="dirbtns">
-          <button class="dirbtn on-long" id="dirLong" type="button">▲ Long</button>
-          <button class="dirbtn" id="dirShort" type="button">▼ Short</button>
+          <button class="dirbtn on-long" id="dirLong" type="button" data-i18n="arena.b_long">▲ Long</button>
+          <button class="dirbtn" id="dirShort" type="button" data-i18n="arena.b_short">▼ Short</button>
         </div></div>
-      <div><label for="tMargin">Margin (vUSDT)</label>
+      <div><label for="tMargin" data-i18n="arena.f_margin">Margin (vUSDT)</label>
         <input id="tMargin" type="number" min="10" step="10" value="500"></div>
-      <div><label for="tLev">Leverage<span class="lev-val" id="levVal">3×</span></label>
+      <div><label for="tLev"><span data-i18n="arena.f_leverage">Leverage</span><span class="lev-val" id="levVal">3×</span></label>
         <input id="tLev" type="range" min="1" max="20" step="1" value="3"></div>
-      <div><label for="tTp">Take-profit <span class="muted" style="text-transform:none">(optional)</span></label>
-        <input id="tTp" type="number" min="0" step="any" placeholder="auto-close in profit"></div>
-      <div><label for="tSl">Stop-loss <span class="muted" style="text-transform:none">(optional)</span></label>
-        <input id="tSl" type="number" min="0" step="any" placeholder="auto-close the loss"></div>
+      <div><label for="tTp"><span data-i18n="arena.f_tp">Take-profit</span> <span class="muted" style="text-transform:none" data-i18n="arena.f_optional">(optional)</span></label>
+        <input id="tTp" type="number" min="0" step="any" placeholder="auto-close in profit" data-i18n-attr="placeholder:arena.ph_tp"></div>
+      <div><label for="tSl"><span data-i18n="arena.f_sl">Stop-loss</span> <span class="muted" style="text-transform:none" data-i18n="arena.f_optional">(optional)</span></label>
+        <input id="tSl" type="number" min="0" step="any" placeholder="auto-close the loss" data-i18n-attr="placeholder:arena.ph_sl"></div>
       <div><button class="btn btn--primary" id="openBtn" type="button" data-i18n="arena.b_open">Open paper position</button></div>
     </div>
     <div class="tmsg" id="tMsg" role="status" aria-live="polite"></div>
@@ -258,11 +258,11 @@
     your paper account: each new signal opens a position at your chosen size, filled at the <b>live mark</b>. It starts
     from the next signal — never back-fills old calls — and can never touch real funds.</p>
     <div class="ticket">
-      <div><label for="fMargin">Margin per signal (vUSDT)</label>
+      <div><label for="fMargin" data-i18n="arena.f_margin_sig">Margin per signal (vUSDT)</label>
         <input id="fMargin" type="number" min="10" step="10" value="200"></div>
-      <div><label for="fLev">Leverage<span class="lev-val" id="fLevVal">2×</span></label>
+      <div><label for="fLev"><span data-i18n="arena.f_leverage">Leverage</span><span class="lev-val" id="fLevVal">2×</span></label>
         <input id="fLev" type="range" min="1" max="20" step="1" value="2"></div>
-      <div><button class="btn btn--primary" id="followBtn" type="button">Start following</button></div>
+      <div><button class="btn btn--primary" id="followBtn" type="button" data-i18n="arena.b_follow">Start following</button></div>
     </div>
     <div class="tmsg" id="fMsg" role="status" aria-live="polite"></div>
   </section>
@@ -270,17 +270,17 @@
   <section class="panel" id="posPanel" hidden>
     <h2 data-i18n="arena.p_positions">Open positions</h2>
     <div class="tbl-scroll"><table class="tbl"><thead><tr>
-      <th>Symbol</th><th>Side</th><th>Lev</th><th>Entry</th><th>Mark</th><th>PnL (vUSDT)</th><th>TP / SL</th><th>Liq. price</th><th></th>
+      <th data-i18n="arena.f_symbol">Symbol</th><th data-i18n="arena.th_side">Side</th><th data-i18n="arena.th_lev">Lev</th><th data-i18n="arena.th_entry">Entry</th><th data-i18n="arena.th_mark">Mark</th><th data-i18n="arena.th_pnl">PnL (vUSDT)</th><th data-i18n="arena.th_tpsl">TP / SL</th><th data-i18n="arena.th_liq">Liq. price</th><th></th>
     </tr></thead><tbody id="posBody"></tbody></table></div>
-    <div class="empty" id="posEmpty" hidden>No open positions — open your first paper trade above.</div>
+    <div class="empty" id="posEmpty" hidden data-i18n="arena.e_pos">No open positions — open your first paper trade above.</div>
   </section>
 
   <section class="panel" id="histPanel" hidden>
     <h2 data-i18n="arena.p_history">Closed trades</h2>
     <div class="tbl-scroll"><table class="tbl"><thead><tr>
-      <th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>PnL (vUSDT)</th><th>How</th>
+      <th data-i18n="arena.f_symbol">Symbol</th><th data-i18n="arena.th_side">Side</th><th data-i18n="arena.th_entry">Entry</th><th data-i18n="arena.th_exit">Exit</th><th data-i18n="arena.th_pnl">PnL (vUSDT)</th><th data-i18n="arena.th_how">How</th>
     </tr></thead><tbody id="histBody"></tbody></table></div>
-    <div class="empty" id="histEmpty" hidden>Nothing closed yet.</div>
+    <div class="empty" id="histEmpty" hidden data-i18n="arena.e_hist">Nothing closed yet.</div>
   </section>
 
   <!-- Leaderboard (public) -->
@@ -327,7 +327,7 @@ window.addEventListener('error', function (e) {
 });
 </script>
 <script src="/js/app.js?v=4"></script>
-<script src="/js/i18n.js?v=28"></script>
+<script src="/js/i18n.js?v=29"></script>
 <script src="/js/chartread.js?v=4"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -888,7 +888,11 @@ window.addEventListener('error', function (e) {
     var following = false;
     paintFollow = function (f) {
       following = !!(f && f.enabled);
-      $('followBtn').textContent = following ? 'Stop following' : 'Start following';
+      // JS owns this label (it toggles), so it goes through T() rather than a
+      // data-i18n attribute — a static attribute would be overwritten here.
+      $('followBtn').textContent = following
+        ? T('arena.b_unfollow', 'Stop following')
+        : T('arena.b_follow', 'Start following');
       if (f && f.enabled) { $('fMargin').value = f.margin; $('fLev').value = f.leverage; $('fLevVal').textContent = f.leverage + '×'; }
     };
     $('fLev').addEventListener('input', function () { $('fLevVal').textContent = $('fLev').value + '×'; });
