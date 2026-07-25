@@ -1,6 +1,6 @@
 """RUNECLAW Deep Scan Skill — Telegram /scan command module."""
 from __future__ import annotations
-import asyncio, logging, time
+import asyncio, logging, os, time
 from datetime import datetime
 from typing import Optional
 import numpy as np
@@ -410,17 +410,25 @@ def _build_scan_payload(results: list[dict], engine=None,
         if atr <= 0:
             atr = price * 0.02
 
+        # The ENTRY must be the same number Telegram publishes. The scan
+        # message advertises a pullback entry (price -/+ 0.3*ATR, rendered as
+        # "(+pullback)"), while this card used to store the raw spot price —
+        # so the sealed record described a call no user was ever shown, and
+        # its R:R was computed off a different entry. Same formula both sides
+        # now, by construction rather than by luck of mutation order.
         if r["dir"] == "LONG":
+            entry = round(price - atr * 0.3, 8)
             sl = round(price - atr * 2.5, 8)
             tp1 = round(price + atr * 3.0, 8)
             tp2 = round(price + atr * 5.0, 8)
         else:
+            entry = round(price + atr * 0.3, 8)
             sl = round(price + atr * 2.5, 8)
             tp1 = round(price - atr * 3.0, 8)
             tp2 = round(price - atr * 5.0, 8)
 
-        risk_dist = abs(price - sl)
-        reward_dist = abs(tp1 - price)
+        risk_dist = abs(entry - sl)
+        reward_dist = abs(tp1 - entry)
         rr = round(reward_dist / risk_dist, 2) if risk_dist > 0 else 0
 
         # Patterns as trigger description
@@ -435,7 +443,7 @@ def _build_scan_payload(results: list[dict], engine=None,
             "symbol": r["sym"].replace("/USDT", ""),
             "direction": r["dir"],
             "score": r["score"],
-            "entry": str(round(price, 8)),
+            "entry": str(entry),
             "stop_loss": str(sl),
             "tp1": str(tp1),
             "tp2": str(tp2),
@@ -613,6 +621,18 @@ def _build_features_block(engine=None) -> dict:
     return features
 
 
+def _facts_digest(card: dict) -> str:
+    """6 hex chars over a scan card's decision facts — entry/stop/target.
+
+    Deterministic and pure: re-pushing the SAME card yields the same digest
+    (so the stream row stays idempotent), while a genuinely different call in
+    the same minute gets its own key instead of overwriting its predecessor.
+    """
+    import hashlib
+    raw = "|".join(str(card.get(k, "")) for k in ("entry", "stop_loss", "tp1"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:6]
+
+
 def _scan_signal_rows(payload: dict) -> list[dict]:
     """Map a scan payload's entry_cards into signal-stream rows (pure)."""
     regime = ""
@@ -625,6 +645,13 @@ def _scan_signal_rows(payload: dict) -> list[dict]:
     # signal UPSERTs (carries an outcome later) instead of duplicating.
     ts_key = "".join(ch for ch in ts if ch.isalnum())
     rows = []
+    # The scan timestamp is minute-resolution, so (symbol, direction, minute)
+    # is NOT unique: two scans inside the same minute produce the same key and
+    # the website UPSERTs the second onto the first — silently dropping a call
+    # that Telegram already published, receipt and all. These rows are
+    # NEW-only (outcomes attach to the engine's own idea.id stream, never
+    # here), so the key can safely carry a short digest of the decision facts:
+    # the same call re-pushed keeps its key, a different call gets its own.
     for c in payload.get("entry_cards", []) or []:
         sym = c.get("symbol", "")
         direction = c.get("direction", "")
@@ -635,7 +662,7 @@ def _scan_signal_rows(payload: dict) -> list[dict]:
         except (TypeError, ValueError):
             score = 0.0
         rows.append({
-            "signal_key": f"{sym}-{direction}-{ts_key}",
+            "signal_key": f"{sym}-{direction}-{ts_key}-{_facts_digest(c)}",
             "symbol": sym,
             "direction": direction,
             "confidence": score,          # scan score is a 0..1 confidence proxy
@@ -951,6 +978,18 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     if skipped:
         body += f"\n\n<i>{len(skipped)} symbols below gate threshold</i>"
+
+    # Provable Calls, where screenshots are born: every setup above is sealed
+    # (sha256 over its decision facts) the moment it reaches the platform, so a
+    # forwarded screenshot of this message can be checked against the record
+    # instead of trusted. No per-call link here on purpose — this message is
+    # rendered BEFORE the stream push assigns keys, and a link that 404s would
+    # be worse than none.
+    if setup_lines:
+        _site = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+        body += (f"\n\n\U0001f512 <i>Every call above is sealed when it is made — "
+                 f"verify any of them at <a href=\"{_site}/dashboard#signals\">the signal "
+                 f"stream</a>, or read how at <a href=\"{_site}/provable\">/provable</a>.</i>")
 
     text = header + "\n" + body
 
