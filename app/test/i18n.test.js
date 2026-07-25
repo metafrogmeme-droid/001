@@ -731,3 +731,43 @@ test('the Intent Compiler states all five of its limits in every language', () =
     assert.ok((i18n.STRINGS['in.lede'][c].match(/<b>/g) || []).length >= 4, `in.lede:${c} lost emphasis`);
   }
 });
+
+test('a failed Arena load says UNKNOWN, never "you have none"', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  // Reproduced from an operator screenshot: when /api/arena/account 500s, the
+  // positions and history panels stayed visible as bare column headers. A user
+  // reads that as "my trades are gone". Filling them with the ordinary empty
+  // state would be worse — it would ASSERT they have none, which we do not
+  // know. The only honest word here is "unknown".
+  assert.match(arena, /T\('arena\.d_unknown'/, 'the failure path must use the unknown copy');
+  assert.match(arena, /\['posEmpty', 'histEmpty'\]\.forEach/, 'both tables must be told');
+  for (const c of i18n.LANGS.map((l) => l.code)) {
+    const v = i18n.STRINGS['arena.d_unknown'][c];
+    assert.ok(v, `arena.d_unknown is missing ${c}`);
+    // Assert POSITIVELY that it says "unknown". A leading-"no" heuristic is
+    // wrong here: Spanish opens "No se pudo cargar" — a negated VERB ("could
+    // not load"), not a claim of emptiness.
+    assert.ok(/unknown|desconocid|desconhecid|inconnue|unbekannt|onbekend|不明|未知|알 수 없|неизвест|bilinmiyor|غير معروف/i.test(searchable(v)),
+      `arena.d_unknown:${c} does not actually say "unknown"`);
+    assert.notEqual(v, i18n.STRINGS['arena.e_pos'][c], `arena.d_unknown:${c} is just the empty state`);
+  }
+  // A retry that succeeds has to put the real copy back, or a working account
+  // still reads "unknown" forever.
+  assert.match(arena, /\$\('posEmpty'\)\.textContent = T\('arena\.e_pos'/);
+  assert.match(arena, /\$\('histEmpty'\)\.textContent = T\('arena\.e_hist'/);
+});
+
+test('Arena route errors log a stack, not just a message', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
+  // The operator hit "Arena unavailable" in production. err.message alone
+  // yields lines like "Cannot read properties of undefined" with no location,
+  // so the log could not say which handler or which line failed.
+  assert.ok(!/console\.error\('Arena [^']+', err\.message\)/.test(route),
+    'an Arena handler still logs err.message without a stack');
+  const withStack = (route.match(/console\.error\('Arena [^']+', err\.stack \|\| err\.message\)/g) || []).length;
+  assert.ok(withStack >= 10, `expected every Arena handler to log a stack, found ${withStack}`);
+});

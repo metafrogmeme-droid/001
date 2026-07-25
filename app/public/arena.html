@@ -596,6 +596,8 @@ window.addEventListener('error', function (e) {
     }).join('');
     // Re-paint any open chart cells (the tbody was just rebuilt).
     d.positions.forEach(function (p) { if (chartOpen[p.id]) paintChart(p); });
+    $('posEmpty').textContent = T('arena.e_pos',
+      'No open positions \u2014 open your first paper trade above.');
     $('posEmpty').hidden = d.positions.length > 0;
     var hb = $('histBody');
     hb.innerHTML = (d.history || []).map(function (t) {
@@ -615,6 +617,7 @@ window.addEventListener('error', function (e) {
       return hrow;
     }).join('');
     (d.history || []).forEach(function (t) { if (histOpen[t.id]) paintHistChart(t); });
+    $('histEmpty').textContent = T('arena.e_hist', 'Nothing closed yet.');
     $('histEmpty').hidden = (d.history || []).length > 0;
     // Achievements — earned bright, locked dimmed with what's left to earn.
     var streakChip = (d.streak && d.streak.current > 0)
@@ -742,14 +745,33 @@ window.addEventListener('error', function (e) {
     }
     // HONEST failure state — a silently empty panel reads as "my trades
     // vanished". Say what happened and offer the way back.
+    // This message is built in JS, so it needs T() — for a long time it was the
+    // one string on the page that stayed English in every locale, which is a
+    // poor thing to discover mid-incident.
+    var reason = r && r.data && r.data.error
+      ? esc(r.data.error)
+      : T('arena.d_net_error', 'network error');
     var msg = r && r.status === 401
-      ? 'Your session expired — <a href="/dashboard">sign in again</a> to see your paper account.'
-      : 'Your paper account can\'t load right now ('
-        + (r && r.data && r.data.error ? esc(r.data.error) : 'network error')
-        + '). <button class="btn btn--sm" id="acctRetry" type="button">Retry</button>';
+      ? T('arena.d_session_expired',
+          'Your session expired \u2014 <a href="/dashboard">sign in again</a> to see your paper account.')
+      : T('arena.d_acct_failed', 'Your paper account can\u2019t load right now ({reason}).')
+          .replace('{reason}', reason)
+        + ' <button class="btn btn--sm" id="acctRetry" type="button">'
+        + esc(T('arena.d_retry', 'Retry')) + '</button>';
     $('stats').innerHTML = '<div class="empty">' + msg + '</div>';
     var rb = $('acctRetry');
     if (rb) rb.onclick = loadAccount;
+    // The two tables below are driven by this same payload. Left alone they
+    // render as bare column headers, which reads as "you have nothing"; and
+    // showing their normal empty state would SAY it. Neither is true — we
+    // could not reach the account, so the honest word is UNKNOWN.
+    var unknown = T('arena.d_unknown',
+      'Couldn\u2019t load your account \u2014 this list is unknown, not empty.');
+    ['posBody', 'histBody'].forEach(function (id) { var b = $(id); if (b) b.innerHTML = ''; });
+    ['posEmpty', 'histEmpty'].forEach(function (id) {
+      var e = $(id);
+      if (e) { e.textContent = unknown; e.hidden = false; }
+    });
   }
 
   // Rank-change chips: between board refreshes, a climb shows "▲n" and a

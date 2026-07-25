@@ -202,7 +202,7 @@ router.get('/account', authMiddleware, async (req, res) => {
       virtual: true,   // §4: this account holds no real funds
     });
   } catch (err) {
-    console.error('Arena account error:', err.message);
+    console.error('Arena account error:', err.stack || err.message);
     res.status(500).json({ error: 'Arena unavailable' });
   }
 });
@@ -246,7 +246,7 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
       [round2(acct.balance - v.data.margin), userId]);
     res.json({ ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } });
   } catch (err) {
-    console.error('Arena open error:', err.message);
+    console.error('Arena open error:', err.stack || err.message);
     res.status(500).json({ error: 'Arena unavailable' });
   }
 });
@@ -284,7 +284,7 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
       [round2(acct.balance + p.margin + pnl), userId]);
     res.json({ ok: true, closed: { symbol: p.symbol, pnl: round2(pnl), exit_price: exitPrice, liquidated } });
   } catch (err) {
-    console.error('Arena close error:', err.message);
+    console.error('Arena close error:', err.stack || err.message);
     res.status(500).json({ error: 'Arena unavailable' });
   }
 });
@@ -339,7 +339,7 @@ router.get('/leaderboard', async (req, res) => {
       .map((r, i) => ({ rank: i + 1, ...r }));
     res.json({ rows, ranked_total: rows.length, virtual: true });
   } catch (err) {
-    console.error('Arena leaderboard error:', err.message);
+    console.error('Arena leaderboard error:', err.stack || err.message);
     res.status(500).json({ error: 'Leaderboard unavailable' });
   }
 });
@@ -378,7 +378,7 @@ router.get('/tape', async (req, res) => {
     } catch (e) { /* pulse line degrades to 0, tape still serves */ }
     res.json({ rows, traders: accounts.length, trades_24h: trades24h, virtual: true });
   } catch (err) {
-    console.error('Arena tape error:', err.message);
+    console.error('Arena tape error:', err.stack || err.message);
     res.status(500).json({ error: 'Tape unavailable' });
   }
 });
@@ -405,7 +405,7 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
       [userId, v.data.enabled ? 1 : 0, v.data.margin, v.data.leverage, lastId, new Date()]);
     res.json({ ok: true, follow: v.data, virtual: true });
   } catch (err) {
-    console.error('Arena follow error:', err.message);
+    console.error('Arena follow error:', err.stack || err.message);
     res.status(500).json({ error: 'Follow update failed' });
   }
 });
@@ -429,7 +429,7 @@ router.get('/trader/:handle', async (req, res) => {
     try { marks = await getTickers(); } catch (e) { /* percent renders from balance */ }
     res.json(traderLib.buildTraderCard({ handle, balance: acct[0].balance, positions, marks, trades }));
   } catch (err) {
-    console.error('Arena trader error:', err.message);
+    console.error('Arena trader error:', err.stack || err.message);
     res.status(500).json({ error: 'Trader card unavailable' });
   }
 });
@@ -463,7 +463,7 @@ router.get('/season', async (req, res) => {
     }
     res.json(out);
   } catch (err) {
-    console.error('Arena season error:', err.message);
+    console.error('Arena season error:', err.stack || err.message);
     res.status(500).json({ error: 'Season unavailable' });
   }
 });
@@ -493,7 +493,7 @@ router.get('/seasons', async (req, res) => {
     }
     res.json({ seasons: out, virtual: true });
   } catch (err) {
-    console.error('Arena seasons history error:', err.message);
+    console.error('Arena seasons history error:', err.stack || err.message);
     res.status(500).json({ error: 'Hall unavailable' });
   }
 });
@@ -532,7 +532,7 @@ router.post('/season', authMiddleware, async (req, res) => {
     } catch (e) { /* feed insert is best-effort too */ }
     res.json({ ok: true, season: { name: v.data.name, starts_at: v.data.starts_at, ends_at: v.data.ends_at } });
   } catch (err) {
-    console.error('Arena season create error:', err.message);
+    console.error('Arena season create error:', err.stack || err.message);
     res.status(500).json({ error: 'Season create failed' });
   }
 });
