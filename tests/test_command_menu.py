@@ -118,3 +118,45 @@ def test_the_catcher_is_registered_after_every_real_command():
     # Suggestions draw only from what was actually registered.
     assert "self._known_commands.append(cmd)" in src
     assert "list(self._known_commands)" in src
+
+
+# ── Chinese menu + replies ────────────────────────────────────────────────
+# Telegram stores a menu per language, so a Chinese client can get a Chinese
+# "/" popup. Anything untranslated falls back to the English text per item —
+# never to a blank menu row, which is what a naive dict lookup would give.
+
+def test_menu_localisation_falls_back_per_item():
+    from bot.skills.command_menu import MENU_ZH, default_commands, localized
+    en = default_commands()
+    zh = localized(en, "zh")
+    assert len(zh) == len(en), "localisation must not drop entries"
+    assert dict(zh)["start"] != dict(en)["start"], "zh menu text should differ"
+    for name, desc in zh:
+        assert desc.strip(), f"/{name} rendered an empty menu row"
+    # An unknown language is left exactly as English.
+    assert localized(en, "fr") == en
+    # No zh entry names a command that is not in a menu.
+    menu_names = {n for n, _ in default_commands()} | {
+        n for n, _ in __import__("bot.skills.command_menu", fromlist=["x"]).admin_commands()}
+    assert not (set(MENU_ZH) - menu_names), f"stale zh menu keys: {sorted(set(MENU_ZH) - menu_names)}"
+
+
+def test_unknown_command_reply_is_bilingual():
+    from bot.skills.command_menu import unknown_command_reply
+    known = ["open_positions", "scan", "help"]
+    zh = unknown_command_reply("positions", known, lang="zh")
+    assert "沒有" in zh and "/open_positions" in zh, "zh reply must still suggest the real command"
+    assert "/help" in zh, "zh reply must still offer a way forward"
+    assert "僅限操作員" in zh, "the operator-only note must be translated too"
+    # English is unchanged and remains the default.
+    en = unknown_command_reply("positions", known)
+    assert "I don't have a" in en and "operator-only" in en
+
+
+def test_the_zh_menu_is_actually_registered_with_telegram():
+    from pathlib import Path
+    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    assert 'language_code="zh"' in src, "Telegram needs a per-language menu registration"
+    assert 'localized(default_commands(), "zh")' in src
+    # And the unknown-command reply uses the caller's language.
+    assert "lang=get_user_lang(self.users, self._get_tg_id(update))" in src

@@ -501,13 +501,22 @@ class TelegramHandler:
         a short essentials list; the operator's own chat gets the fuller admin
         list. Best-effort — a menu API hiccup must never block the bot starting.
         """
-        from bot.skills.command_menu import admin_commands, default_commands
+        from bot.skills.command_menu import admin_commands, default_commands, localized
         try:
             await app.bot.set_my_commands(
                 [BotCommand(n, d) for n, d in default_commands()],
                 scope=BotCommandScopeDefault())
         except Exception as exc:
             system_log.warning("Default command menu registration failed: %s", exc)
+        # Telegram keeps a menu PER LANGUAGE, so a Chinese client can get a
+        # Chinese "/" popup rather than the English default. Best-effort:
+        # failing here just leaves those users on the English menu.
+        try:
+            await app.bot.set_my_commands(
+                [BotCommand(n, d) for n, d in localized(default_commands(), "zh")],
+                scope=BotCommandScopeDefault(), language_code="zh")
+        except Exception as exc:
+            system_log.debug("zh command menu registration failed: %s", exc)
         admin_menu = [BotCommand(n, d) for n, d in admin_commands()]
         for cid in self._operator_chat_ids():
             try:
@@ -2235,7 +2244,8 @@ class TelegramHandler:
             from bot.skills.command_menu import unknown_command_reply
             await self._send(update, unknown_command_reply(
                 name, list(self._known_commands),
-                is_admin=self._is_admin(update)))
+                is_admin=self._is_admin(update),
+                lang=get_user_lang(self.users, self._get_tg_id(update))))
         except Exception:
             system_log.debug("unknown-command reply failed", exc_info=True)
 
