@@ -91,16 +91,46 @@ then linear over 2 months.
 4. **Ecosystem** — marketplace/copy-trading splits, vaults, MCP/x402 settlement.
 5. **Sustainability** — insurance fund, proof-of-reserves, CEX listings, DAO handoff.
 
+## Build status — and what is actually proven
+
+Draft, devnet-only reference implementations now exist for most of the mechanics above:
+the SPL Token-2022 mint tooling, a real **Metaplex Genesis** presale integration (whitelist,
+liquidity with a permanent LP lock, withdraw/refund), an end-to-end lifecycle harness, an
+Anchor **staking program**, a Wormhole **NTT bridge** script, and the wallet/tier-gate
+plumbing. None of it is a launch — the project remains in **Phase 0**.
+
+**An adversarial review of that code found 10 real defects, all fixed.** The most serious was
+**critical**: the staking program bound stakes to no mint, so an attacker could stake a
+worthless token and redeem the same amount from the real `$RCLAW` vault. It is fixed, and the
+fix is *executed* rather than asserted — the attack is performed in-process against the real
+program and rejected, with the honest vault balance asserted unchanged.
+
+What that still does **not** mean:
+
+| Proven | Not proven |
+|---|---|
+| Staking program executes; attack rejected; 8 tests pass | **No independent audit**; no SBF runtime; never on devnet/mainnet |
+| Presale params derive correctly offline | No presale transaction has ever been sent |
+| Bridge + TS specs typecheck | Never deployed or executed |
+
+The gaps are environmental — the authoring environment blocks Solana devnet and the Anchor/
+Solana CLIs — not optional. **Do not deploy the staking program anywhere holding value until
+it is audited.**
+
 ## Cross-chain note
 
 RUNECLAW's on-chain *identity* is on **Base** (ERC-8004/8257 + x402). `$RCLAW` stays
 **Solana-native**, with an **optional Wormhole bridge to Base later** to settle against the
-existing tool-registry rail. Wormhole (`W`) and Drift are already in RUNECLAW's Solana scan
-universe. A Solana wallet-adapter (Phantom/Backpack) alongside the current EVM/ethers stack
-is future engineering work, not built here.
+existing tool-registry rail — a **draft NTT bridge script** now exists for that (hub-and-spoke,
+locking on Solana, because the mint authority is revoked). Wormhole (`W`) and Drift are already
+in RUNECLAW's Solana scan universe. A lightweight Solana wallet connector
+(Phantom/Backpack, connect-and-sign) now ships alongside the EVM/ethers stack; a full
+wallet-adapter with Solflare/hardware support remains future work.
 
 ---
 
 See the [full roadmap](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md)
 for tokenomics detail, legal/compliance, the security checklist, KPIs, and the full list of
-open decisions to ratify before launch.
+open decisions to ratify before launch — and
+[§14 Verification status](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md#14-verification-status--what-is-actually-proven)
+for precisely what has been proven versus merely built.

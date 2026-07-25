@@ -45,6 +45,7 @@
 11. [Security & rug-resistance checklist](#11-security--rug-resistance-checklist)
 12. [KPIs, community & go-to-market](#12-kpis-community--go-to-market)
 13. [Open decisions / assumptions](#13-open-decisions--assumptions)
+14. [Verification status — what is actually proven](#14-verification-status--what-is-actually-proven)
 
 ---
 
@@ -250,15 +251,24 @@ experiment) — **never** the utility-token TGE.
 Each phase has explicit **exit criteria** and sits under a **global kill switch**, mirroring
 the *"staged rollout with caps"* principle in [`ROADMAP.md`](./ROADMAP.md#guardrails).
 
+> **Status honesty.** Draft tooling now exists for most of the *mechanics* below, but the
+> project is still in **Phase 0**, and every Phase 0 exit criterion is a legal or audit gate
+> that no amount of code satisfies. See [§14](#14-verification-status--what-is-actually-proven)
+> for exactly what has been proven versus merely built.
+
 ### Phase 0 — Foundations & Guardrails (pre-token)
 Clear the existing Guardrails gate before anything is minted.
 - Legal review per target jurisdiction; utility-not-security framing signed off.
 - Tokenomics (§4) and presale params (§5) finalized with MM input.
 - **Smart-contract / presale audit** commissioned.
 - Non-custodial architecture confirmed; plain risk disclosures drafted.
-- *Done (draft):* devnet mint + presale tooling built and dry-run offline
-  ([`token/`](../token/)) — this de-risks Phase 1 but does **not** satisfy any Phase 0 exit
-  criterion, all of which are legal/audit gates.
+- *Done (draft):* devnet mint + presale tooling, the e2e harness, the staking program, and
+  the NTT bridge script are all built and exercised as far as this environment allows
+  ([`token/`](../token/), [`programs/rclaw_staking/`](../programs/rclaw_staking/)), and an
+  adversarial review has already found and fixed 10 defects in them — including a **critical
+  vault-drain** (§14). This de-risks Phase 1 but satisfies **no** Phase 0 exit criterion,
+  all of which are legal/audit gates. If anything, the audit is evidence for why the gate
+  exists.
 - **Exit:** legal green-light + audit engaged + disclosures published.
 
 ### Phase 1 — Pre-launch
@@ -323,8 +333,17 @@ operator (`bot/proofofpnl/`, [`ONCHAIN_GOLIVE.md`](./ONCHAIN_GOLIVE.md), ethers-
 
 ### Draft reference implementations in this repo
 
-These are **draft, devnet, feature-flagged** starting points — not a launch:
+These are **draft, devnet, feature-flagged** starting points — not a launch. What each
+one has actually been *verified* to do is stated in
+[§14 Verification status](#14-verification-status--what-is-actually-proven), which is the
+section to read before trusting any of it.
+
 - `token/` — SPL Token-2022 mint + verify scripts and the token config (§2, §4).
+- `token/e2e/devnet_dryrun.mjs` — end-to-end lifecycle harness (keygen → create → liquidity
+  → deposit → claim) driven by a generated near-now timeline, so the timestamp-gated paths
+  can be exercised. `npm run e2e:plan` previews it fully offline; the live run needs devnet.
+- `token/bridge/` — Wormhole **NTT** config + transfer script for Solana ↔ Base (§9),
+  hub-and-spoke (lock-on-Solana) because the mint authority is revoked.
 - `token/presale/genesis_presale.mjs` — **real `@metaplex-foundation/genesis` SDK integration**
   (Umi): a fixed-price presale via `initializeV2` + `addPresaleBucketV2`, a **Merkle whitelist**
   (`prepareAllowlist` → `presale:whitelist`, proof auto-presented on deposit), **Raydium
@@ -339,16 +358,19 @@ These are **draft, devnet, feature-flagged** starting points — not a launch:
 - `programs/rclaw_staking/` — **Anchor (Rust) staking program** (devnet/draft): `stake` /
   `unstake` with a per-user, **per-mint** `StakeAccount` PDA (`["stake", owner, mint]`) and a
   **mint-scoped** vault authority (`["vault", mint]`). Token-2022 aware (`transfer_checked`).
-  Non-custodial (users can unstake at any time). The mint-confusion fix is **executed and
-  proven**, not merely reasoned about: `tests/attack.rs` runs the real program in-process
-  (`solana-program-test`) and the vault-drain attack is rejected with `ConstraintSeeds`
-  while the honest vault balance is asserted unchanged (4 tests pass). ⚠️ **Still unaudited,
-  and an earlier revision shipped that critical vault-drain bug** — in-process execution is
-  not an audit and does not cover the SBF runtime or devnet, so **do not deploy** anywhere
-  holding value until audited. See
-  [`programs/rclaw_staking/README.md`](../programs/rclaw_staking/README.md). The repo's first
-  Rust code — root `Cargo.toml` workspace + `Anchor.toml`.
-- `app/lib/solana_verify.js` + `app/public/js/solana_wallet.js` — the wallet connect-and-sign flow.
+  Non-custodial (users can unstake at any time). The canonical mint can be pinned at build
+  time with `RCLAW_PINNED_MINT=<address> anchor build` — deliberately **not** a hardcoded
+  literal, because the `$RCLAW` mint does not exist yet and a placeholder in a security
+  constant would either brick staking or fake the appearance of protection. Unset → any mint;
+  set → others rejected with `UnexpectedMint`; malformed → **fails closed** with
+  `InvalidPinnedMint`. ⚠️ **Still unaudited, and an earlier revision shipped a critical
+  vault-drain bug** — see §14 and
+  [`programs/rclaw_staking/README.md`](../programs/rclaw_staking/README.md). **Do not deploy**
+  anywhere holding value until audited. The repo's first Rust code — root `Cargo.toml`
+  workspace + `Anchor.toml`, with `tsconfig.json`/`package.json` supplying the `anchor test`
+  TS toolchain.
+- `app/lib/solana_verify.js` + `app/public/js/solana_wallet.js` — the wallet connect-and-sign
+  flow; `/linkwallet` (Telegram) links the Solana address the tier gate reads.
 
 ---
 
@@ -434,3 +456,67 @@ Everything below is a **proposed default that the team must ratify** — nothing
 
 Once ratified, mirror the final numbers back into [`ROADMAP.md`](./ROADMAP.md) and the
 condensed [GitBook page](./gitbook/token-roadmap.md) so the repo stays consistent.
+
+---
+
+## 14. Verification status — what is actually proven
+
+Read this before trusting anything in §8's "shipped" language. Working code and *verified*
+code are different claims, and conflating them is how the vault-drain bug below shipped
+green in the first place.
+
+### An adversarial review found real defects in this work
+
+After the draft implementations landed, they were reviewed adversarially: independent
+finders across the Anchor program, the Python tier gate, the presale scripts, the e2e and
+bridge tooling, the wallet-auth surface, and documentation accuracy — each finding then put
+to two independent skeptics instructed to **refute by default**. 35 candidates, **18
+confirmed**, deduplicated to **10 real defects**. All were fixed.
+
+The headline was **critical**: `StakeAccount` recorded no mint and `unstake` accepted an
+arbitrary one, while a single global `["vault"]` authority owned every per-mint vault. An
+attacker could mint a worthless token, stake it, and redeem the same amount from the **real
+`$RCLAW` vault** — draining it, locking honest stakers out, and granting free `elite` tier.
+Also found: two presale commands that could never run (missing required serializer fields), a
+Token-2022/legacy-SPL mismatch that made the real mint unstakeable, a **zero-length whitelist
+window** (`timeline.whitelistStart` was read nowhere), a tier gate that blocked every user
+because nothing ever linked a wallet, and a documented 60%-to-liquidity split that was only
+ever printed, never encoded on-chain.
+
+Two lessons are baked into the code now rather than just noted:
+
+- **`cargo check` + passing tests did not catch a soundness hole.** The fix is therefore
+  *executed*: `programs/rclaw_staking/tests/attack.rs` performs the exact attack in-process
+  and asserts it is rejected (`ConstraintSeeds`) with the honest vault balance unchanged.
+- **Some tests monkeypatched away the logic they claimed to test.** New regressions were
+  checked for vacuity — e.g. the allowlist serialization test fails with the exact
+  `TypeError` the audit predicted when the fix is removed.
+
+### Verification matrix
+
+| Component | Verified how | Not verified |
+|---|---|---|
+| `rclaw_staking` program | **Executed in-process** (`solana-program-test`): 4 unit + 4 integration tests, pinned and unpinned; attack rejected, balances asserted | **No audit**; no SBF/BPF runtime (compute budget, serialization limits); never on devnet/mainnet |
+| `PINNED_MINT` | Enforcement observed at runtime (`UnexpectedMint` 6005); malformed pin fails closed | No real mint exists to pin yet |
+| Tier gate (`tier_gate.py`) | 17 tests incl. mint-filter and byte-layout locks | Never read a real on-chain stake account |
+| Genesis presale scripts | All SDK exports resolve; `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `create`/`deposit`/`claim`/`liquidity`/`withdraw` **never sent a transaction** |
+| e2e harness | `e2e:plan` runs offline end-to-end | The live devnet run has never executed |
+| Wormhole bridge | Script resolves + typechecks | No NTT deployment, no transfer |
+| Anchor TS spec | `npm run typecheck` passes | **Never executed** — needs the Anchor/Solana CLIs |
+
+### Why the gaps exist
+
+They are environmental, not optional. The authoring environment's egress policy returns
+**403 CONNECT** for `api.devnet.solana.com` and `faucet.solana.com`, and blocks
+`release.anza.xyz`/GitHub — so the Solana and Anchor CLIs cannot be installed, `anchor build`
+and `anchor test` cannot run, and no devnet transaction is possible. In-process execution
+via `solana-program-test` was used because `index.crates.io` *is* reachable.
+
+### Before any deployment holding value
+
+1. **Independent smart-contract audit** — Phase 0, non-negotiable. One critical bug
+   found-and-fixed is not an audit.
+2. Run `cargo test -p rclaw_staking`, `anchor build && anchor test`, and
+   `npm run e2e:dryrun` from a network-capable machine.
+3. Set `RCLAW_PINNED_MINT` (program) and `RCLAW_MINT` (bot gate) to the real mint.
+4. Ratify every §13 parameter.
