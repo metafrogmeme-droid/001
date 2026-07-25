@@ -416,7 +416,7 @@
 
     <!-- Social sign-in / sign-up: same buttons create OR log in an account. -->
     <div id="social-auth" class="hidden">
-      <div class="sep">or continue with</div>
+      <div class="sep" data-i18n="auth.or_continue">or continue with</div>
       <div class="form-err" id="social-err" style="text-align:center" aria-live="polite"></div>
       <div id="google-btn" style="display:flex;justify-content:center;margin-bottom:10px"></div>
       <div id="telegram-btn" style="display:flex;justify-content:center"></div>
@@ -567,7 +567,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=15"></script>
+<script src="/js/i18n.js?v=16"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=3"></script>
 <script src="/js/chat.js?v=24" defer></script>
@@ -793,11 +793,11 @@ if(REF){
   try{localStorage.setItem('rc_ref',REF);}catch(e){}
   // Warm welcome for invited visitors (the #step-register markup is above this script).
   const _rs=document.getElementById('step-register');
-  if(_rs){const _n=document.createElement('p');_n.className='muted small';_n.id='inviteNote';_n.style.marginBottom='var(--s2)';_n.textContent='🎁 A friend invited you — create your account to get started.';_rs.insertBefore(_n,_rs.firstChild);}
+  if(_rs){const _n=document.createElement('p');_n.className='muted small';_n.id='inviteNote';_n.style.marginBottom='var(--s2)';_n.setAttribute('data-i18n','ref.friend_note');_n.textContent=T('ref.friend_note','🎁 A friend invited you — create your account to get started.');_rs.insertBefore(_n,_rs.firstChild);}
   // UX-3: the recognition also belongs in the HERO — the register card sits
   // several screens down, so invited visitors used to land on an unchanged page.
   const _hero=document.querySelector('.hero');
-  if(_hero){const _b=document.createElement('div');_b.id='inviteHero';_b.className='muted small';_b.style.marginBottom='var(--s3)';_b.textContent='🎁 A friend invited you — your signup credits them.';const _h1=_hero.querySelector('h1');if(_h1)_hero.insertBefore(_b,_h1);}
+  if(_hero){const _b=document.createElement('div');_b.id='inviteHero';_b.className='muted small';_b.style.marginBottom='var(--s3)';_b.setAttribute('data-i18n','ref.friend_hero');_b.textContent=T('ref.friend_hero','🎁 A friend invited you — your signup credits them.');const _h1=_hero.querySelector('h1');if(_h1)_hero.insertBefore(_b,_h1);}
   // Recognition upgrade: when the referrer chose a PUBLIC leaderboard handle,
   // name them by it (the only fact the invite endpoint ever reveals). An
   // invalid/expired code quietly keeps the generic note — never an error.
@@ -807,10 +807,13 @@ if(REF){
       const n=document.getElementById('inviteNote');
       if(!n||!d||!d.valid)return;
       if(d.handle){
-        n.innerHTML='🎁 Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>. Your signup credits them.';
+        // The handle banner replaces the generic note — drop the data-i18n
+        // marker so a later language switch can't clobber it back.
+        n.removeAttribute('data-i18n');
+        n.innerHTML='🎁 '+T('ref.invited_full','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>. Your signup credits them.');
         n.querySelector('b').textContent=d.handle;
         const hb=document.getElementById('inviteHero');
-        if(hb){hb.innerHTML='🎁 Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>.';hb.querySelector('b').textContent=d.handle;}
+        if(hb){hb.removeAttribute('data-i18n');hb.innerHTML='🎁 '+T('ref.invited_short','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>.');hb.querySelector('b').textContent=d.handle;}
       }
     })
     .catch(function(){/* generic note stands */});
@@ -839,6 +842,9 @@ async function doForgot(){
   setErr('forgot-msg',res.message||'If that email has an account, a reset link is on its way.');
 }
 function setErr(id,msg){document.getElementById(id).textContent=msg;}
+// JS-built strings go through the same dictionary as data-i18n markup; the
+// English literal stays inline as the never-blank fallback.
+function T(key,en){try{var v=window.RCI18N&&RCI18N.translate(key,RCI18N.getLang());return v||en;}catch(e){return en;}}
 async function apiCall(path,body){
   const r=await fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   return r.json();
@@ -1018,7 +1024,7 @@ function renderWalletBox(data){
 async function linkWalletToAccount(){
   setErr('wallet-msg','');
   const eth=await RCWalletPicker.pick();
-  if(!eth){setErr('wallet-msg','No wallet detected — install MetaMask, or use "Link with phone" below.');return;}
+  if(!eth){setErr('wallet-msg',T('auth.no_wallet_phone','No wallet detected — install MetaMask, or use "Link with phone" below.'));return;}
   try{
     const accounts=await eth.request({method:'eth_requestAccounts'});
     const address=(accounts&&accounts[0]||'').trim();
@@ -1119,14 +1125,14 @@ function renderWalletButton(){
   const box=document.getElementById('wallet-btns');if(!box)return;
   box.innerHTML='';
   const b=document.createElement('button');
-  b.className='btn btn-block';b.type='button';b.textContent='Continue with a wallet';
+  b.className='btn btn-block';b.type='button';b.textContent=T('auth.continue_wallet','Continue with a wallet');
   b.onclick=doWalletLogin;
   box.appendChild(b);
 }
 async function doWalletLogin(){
   setErr('social-err','');
   const eth=await RCWalletPicker.pick();
-  if(!eth){setErr('social-err','No wallet detected — install MetaMask or a browser wallet.');return;}
+  if(!eth){setErr('social-err',T('auth.no_wallet','No wallet detected — install MetaMask or a browser wallet.'));return;}
   try{
     const accounts=await eth.request({method:'eth_requestAccounts'});
     const address=(accounts&&accounts[0]||'').trim();

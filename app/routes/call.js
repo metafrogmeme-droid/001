@@ -12,8 +12,15 @@
 
 const express = require('express');
 const { pool } = require('../db');
+const { anchorFor } = require('../lib/seal_roots');
 
 const router = express.Router();
+
+// v3: the receipt's place in its day's Merkle root — null while the seal's
+// UTC day is still open (never an early commitment), fail-open on errors.
+async function anchorOf(seal, sealedAt) {
+  try { return await anchorFor(seal, sealedAt); } catch (e) { return null; }
+}
 
 const KEY_RE = /^[A-Za-z0-9:_.\-]{4,128}$/;
 
@@ -61,6 +68,7 @@ router.get('/:key', async (req, res) => {
         seal: t.seal,
         seal_payload: t.seal_payload,
         sealed_at: t.sealed_at,
+        anchor: await anchorOf(t.seal, t.sealed_at),
         current,
         outcome: found.closed
           ? { status: 'CLOSED', reason: t.reason,
@@ -83,6 +91,7 @@ router.get('/:key', async (req, res) => {
       seal: s.seal,
       seal_payload: s.seal_payload,
       sealed_at: s.sealed_at,
+      anchor: await anchorOf(s.seal, s.sealed_at),
       current: {
         signal_key: s.signal_key, symbol: s.symbol, direction: s.direction,
         entry_price: Number(s.entry_price) || 0,

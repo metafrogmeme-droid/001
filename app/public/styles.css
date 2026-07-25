@@ -71,7 +71,11 @@
 
 /* ---- Reset / base ------------------------------------------------------ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+/* overflow-x on the ROOT too: body{overflow-x:hidden} alone does not stop
+   mobile browsers from expanding the layout viewport when content overflows —
+   the page then renders as a zoomed-out wide canvas and position:fixed
+   elements drift into the middle of it (the empty-green-CTA bug). */
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; overflow-x: hidden; }
 body {
   background: var(--bg); color: var(--text);
   font-family: var(--font-ui); font-size: var(--fs-base); line-height: 1.55;
@@ -677,7 +681,9 @@ a.mc-chip:hover { border-color: var(--accent, var(--up)); }
 .site-footer { border-top: 1px solid var(--line); margin-top: var(--s8); padding: var(--s6) var(--s4) calc(var(--tabbar-h) + var(--s6)); }
 @media (min-width: 1024px) { .site-footer { padding-bottom: var(--s6); } }
 .site-footer .inner { max-width: var(--maxw); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; }
-.site-footer .links { display: flex; gap: var(--s4); font-size: var(--fs-sm); }
+/* flex-wrap is load-bearing: 19+ links in one unwrappable row once forced the
+   whole page ~1350px wide on phones, breaking the fixed mobile CTA. */
+.site-footer .links { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); font-size: var(--fs-sm); }
 .site-footer .risk { max-width: var(--maxw); margin: var(--s4) auto 0; color: var(--text-3); font-size: var(--fs-xs); }
 
 /* ---- Utilities -------------------------------------------------------------- */
@@ -913,6 +919,13 @@ body::after {
   background-repeat: no-repeat; background-position: right 9px center;
 }
 .rc-lang-select:hover { color: var(--text); border-color: var(--text-3); }
+/* Phone topbars are tight: brand + menu + language + CTA must all fit inside
+   ~412px or the row overflows the viewport (see the html overflow-x note). */
+@media (max-width: 639px) {
+  .rc-lang-select { max-width: 72px; padding: 6px 20px 6px 8px; text-overflow: ellipsis; }
+  .topbar .brand { font-size: 14px; letter-spacing: .05em; gap: 6px; }
+  .topbar .nav-links { gap: 6px; }
+}
 .rc-lang-select:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 :root[dir="rtl"] .rc-lang-select { padding: 6px 10px 6px 26px; background-position: left 9px center; }
 

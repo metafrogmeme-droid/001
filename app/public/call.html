@@ -6,7 +6,7 @@
 <title>Provable Call — RUNECLAW</title>
 <meta name="description" content="A cryptographically sealed trading call — re-derive the hash in your own browser. Don't trust the screenshot. Verify the call.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/styles.css?v=21">
+<link rel="stylesheet" href="/styles.css?v=22">
 <style>
   .call-wrap { max-width: 720px; margin: 0 auto; padding: var(--s5) var(--s4); }
   .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); }
@@ -30,7 +30,8 @@
   <div id="out"><div class="verdict"><div class="big">Verifying…</div>Computing SHA-256 in your browser.</div></div>
   <div class="explain">
     <b>What this proves:</b> the call’s decision facts (symbol, direction, entry, stop, target, confidence, time — for Arena paper trades: symbol, direction, entry, leverage, exits, open time) hash to the seal shown — if any had been edited after sealing, the hash your browser computes would not match, and any difference between the sealed payload and the live record is flagged in red. Outcomes attach to the same sealed record later; losers can’t be deleted without leaving a hole in the stream.<br>
-    <b>What it doesn’t prove yet:</b> that the platform’s clock is honest to third parties. The seal is broadcast at decision time (feed &amp; stream subscribers hold copies); independent timestamping — anchoring a daily root hash on-chain — is the planned v2 and will be stated here when live. Not investment advice.
+    <b>Daily seal roots (live):</b> at the end of each UTC day, every seal minted that day is folded into one Merkle root, published at <a href="/api/roots">/api/roots</a>. A receipt from a completed day shows its proof above — replayed in your browser. Anyone can mirror the roots feed (a repo, a tweet, a chain memo); whoever holds a day’s root holds an independent timestamp for every call in it.<br>
+    <b>What it doesn’t prove yet:</b> a day’s honesty to someone who mirrored nothing — until a third party holds the root, you’re trusting that the feed wasn’t rewritten wholesale. Mirroring solves that today; operator-published on-chain anchoring of the same roots is planned and will be stated here when live. Not investment advice.
   </div>
 </div>
 <script>
@@ -46,6 +47,31 @@
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (buf) {
       return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
     });
+  }
+
+  // v3 — replay the Merkle proof: seal → … → the published daily root.
+  // Same canonical construction as /api/roots documents; verified HERE, in
+  // your browser, never taken on the server's word.
+  function appendAnchor(d) {
+    if (!d.anchor || !d.anchor.proof || !d.anchor.root) return;
+    var chain = Promise.resolve(String(d.seal));
+    d.anchor.proof.forEach(function (st) {
+      chain = chain.then(function (h) {
+        return sha256hex(st.pos === 'L' ? (st.hash + h) : (h + st.hash));
+      });
+    });
+    chain.then(function (h) {
+      var ok = h === d.anchor.root;
+      var el = document.createElement('div');
+      el.className = 'verdict ' + (ok ? 'ok' : 'bad');
+      el.innerHTML = ok
+        ? '<div class="big">🌳 Anchored in the ' + esc(d.anchor.day) + ' daily seal root</div>'
+          + 'One of ' + (Number(d.anchor.seal_count) || 0) + ' seals folded into that day’s Merkle root — your browser just replayed the proof.'
+          + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
+          + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror the roots feed at <a href="/api/roots">/api/roots</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
+        : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
+      out.appendChild(el);
+    }).catch(function () { /* anchor stays un-rendered — the seal verdict above stands alone */ });
   }
 
   fetch('/api/call/' + encodeURIComponent(key), { headers: { Accept: 'application/json' } })
@@ -98,6 +124,7 @@
           html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
           html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
           out.innerHTML = html;
+          appendAnchor(d);
           return;
         }
         if (p) {
@@ -135,6 +162,7 @@
         html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
         html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
         out.innerHTML = html;
+        appendAnchor(d);
       });
     })
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });

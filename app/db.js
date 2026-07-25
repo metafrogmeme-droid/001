@@ -61,6 +61,7 @@ class MemoryDB {
     this._nextArenaSeasonId = 1;
     this.arenaFollows = {};   // user_id -> practice-follow prefs (paper only)
     this.watchlist = [];      // { user_id, symbol, created_at } (starred symbols)
+    this.sealRoots = [];      // { day, root, seal_count, computed_at } — immutable daily Merkle roots
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
@@ -107,6 +108,13 @@ class MemoryDB {
     if (cmd.includes('FROM SIGNALS') && cmd.includes('SIGNAL_KEY = ?')) {
       // Provable Calls verify: one sealed row by its stable key
       const rows = this.signals.filter(s => s.signal_key === params[0]);
+      return [rows.map(r => ({ ...r })), []];
+    }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('SEALED_AT >=')) {
+      // Daily seal roots: seals minted inside one UTC day window
+      const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+      const rows = this.signals.filter(s => s.sealed_at
+        && new Date(s.sealed_at).getTime() >= lo && new Date(s.sealed_at).getTime() < hi);
       return [rows.map(r => ({ ...r })), []];
     }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('RESOLVED_AT >=')) {
@@ -366,6 +374,13 @@ class MemoryDB {
         const rows = this.arenaPositions.filter(p => p.trade_key === params[0]);
         return [rows.map(r => ({ ...r })), []];
       }
+      if (cmd.includes('SEALED_AT >=')) {
+        // Daily seal roots: seals minted inside one UTC day window
+        const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+        const rows = this.arenaPositions.filter(p => p.sealed_at
+          && new Date(p.sealed_at).getTime() >= lo && new Date(p.sealed_at).getTime() < hi);
+        return [rows.map(r => ({ ...r })), []];
+      }
       if (cmd.includes('WHERE ID')) {
         // params: id, user_id
         const rows = this.arenaPositions.filter(p => p.id === params[0] && p.user_id === params[1]);
@@ -427,6 +442,13 @@ class MemoryDB {
         const rows = this.arenaTrades.filter(t => t.trade_key === params[0]);
         return [rows.map(r => ({ ...r })), []];
       }
+      if (cmd.includes('SEALED_AT >=')) {
+        // Daily seal roots: seals minted inside one UTC day window
+        const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+        const rows = this.arenaTrades.filter(t => t.sealed_at
+          && new Date(t.sealed_at).getTime() >= lo && new Date(t.sealed_at).getTime() < hi);
+        return [rows.map(r => ({ ...r })), []];
+      }
       if (cmd.includes('COUNT(*)') && cmd.includes('CLOSED_AT >=')) {
         // tape pulse: WHERE closed_at >= ? (single cutoff, count only)
         const lo = new Date(params[0]).getTime();
@@ -469,6 +491,23 @@ class MemoryDB {
       // history: WHERE user_id = ? ORDER BY id DESC LIMIT 30
       const rows = this.arenaTrades.filter(t => t.user_id === params[0])
         .sort((a, b) => b.id - a.id).slice(0, 30);
+      return [rows.map(r => ({ ...r })), []];
+    }
+
+    // -- SEAL ROOTS (Provable Calls v3 — one immutable Merkle root per UTC day) --
+    if (cmd.includes('INSERT INTO SEAL_ROOTS')) {
+      // params: day, root, seal_count, leaves, computed_at — first write wins (immutable)
+      if (!this.sealRoots.some(r => r.day === params[0])) {
+        this.sealRoots.push({ day: params[0], root: params[1],
+          seal_count: params[2], leaves: params[3], computed_at: params[4] });
+      }
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM SEAL_ROOTS')) {
+      if (cmd.includes('WHERE DAY')) {
+        return [this.sealRoots.filter(r => r.day === params[0]).map(r => ({ ...r })), []];
+      }
+      const rows = this.sealRoots.slice().sort((a, b) => (a.day < b.day ? 1 : -1));
       return [rows.map(r => ({ ...r })), []];
     }
 
@@ -1663,6 +1702,15 @@ async function migrate() {
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN seal_payload TEXT NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN sealed_at TIMESTAMP NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_trades ADD INDEX idx_arena_tr_key (trade_key)'); } catch (e) { /* present */ }
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS seal_roots (
+        day VARCHAR(10) PRIMARY KEY,
+        root VARCHAR(64) NOT NULL,
+        seal_count INT NOT NULL,
+        leaves MEDIUMTEXT NULL,
+        computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS arena_seasons (
         id INT AUTO_INCREMENT PRIMARY KEY,

@@ -198,6 +198,7 @@ app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
 app.use('/api/call', require('./routes/call'));
+app.use('/api/roots', require('./routes/roots'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
