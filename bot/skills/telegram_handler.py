@@ -2296,6 +2296,20 @@ class TelegramHandler:
 
         await self._send(update, msg)
 
+        # The grouped command reference (bot/skills/command_catalog.py).
+        # /help used to name 5 of 125 commands, so ~110 working features were
+        # discoverable only by word of mouth — the whole of "there are too
+        # many commands and it is not clear what they do". Operator-only
+        # groups are hidden from normal users on purpose: a command you are
+        # refused looks exactly like a command that is broken. Split on GROUP
+        # boundaries so a section is never torn across two messages.
+        try:
+            from bot.skills.command_catalog import render_help
+            for chunk in render_help(is_admin=self._is_admin(update)):
+                await self._send(update, chunk)
+        except Exception:
+            system_log.debug("grouped help render failed", exc_info=True)
+
     # ── Language command ──────────────────────────────────────
 
     @guard("lang")
