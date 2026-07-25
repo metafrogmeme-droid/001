@@ -705,7 +705,7 @@
         if (daily != null) cells.push(chip(null, 'Today', `<b class="num ${pnlClass(daily)}">${signed(daily)}</b>`));
         if (paused) cells.push(chip('#account/actl', '', `<span class="chip chip--warn">Paused</span>`));
         return `<div class="mc-bar">${cells.join('')}</div>`;
-      }, { empty: { text: '' } });
+      }, { timeoutMs: 14000, empty: { text: '' } });
 
       // The Agent Letter — weekly fund-style letter from recorded data.
       const letterHtml = (letter) => {
@@ -808,7 +808,7 @@
           <p class="muted small" style="margin-top:6px">Operator: set the agent's global stance — the bot verifies and applies it within ~30s.</p>`);
         }
         return lines.join('');
-      }, { empty: { text: T('dd.e_agent', 'Agent status unavailable right now.') } });
+      }, { timeoutMs: 14000, empty: { text: T('dd.e_agent', 'Agent status unavailable right now.') } });
       // Delegated so it survives panel re-renders. data-stance buttons exist
       // only for admins (global bot posture); data-riskpref is every user's
       // own saved preference.
@@ -852,7 +852,7 @@
           ${m.structure ? cell('Structure', esc(m.structure)) : ''}
         </div>
         <div style="position:relative;height:8px;border-radius:5px;margin-top:12px;background:linear-gradient(90deg,var(--down),#e0a63a 50%,var(--up))"><div style="position:absolute;top:-3px;left:calc(${pos}% - 2px);width:5px;height:14px;border-radius:3px;background:var(--text)"></div></div>`;
-    }, { empty: { icon: 'icon-shield', text: T('dd.e_macro', 'The macro backdrop appears once market data is available.') } });
+    }, { timeoutMs: 16000, empty: { icon: 'icon-shield', text: T('dd.e_macro', 'The macro backdrop appears once market data is available.') } });
 
     renderPanel(C('hpos'), async () => {
       if (!LOGGED_IN) return loginGate('Log in to see your open positions.');
@@ -864,7 +864,7 @@
       const d = r.ok ? r.data : null;
       if (!d || !(d.positions || []).length) return null;
       return slPositionsHtml(d, { limit: 5 });
-    }, { empty: { icon: 'icon-target', text: T('dd.e_positions', 'No open positions. The Trade view has a full order ticket.'), cta: { label: T('dd.cta_ticket', 'Open the trade ticket'), href: '#trade' } } });
+    }, { timeoutMs: 17000, empty: { icon: 'icon-target', text: T('dd.e_positions', 'No open positions. The Trade view has a full order ticket.'), cta: { label: T('dd.cta_ticket', 'Open the trade ticket'), href: '#trade' } } });
 
     renderPanel(C('next'), async () => {
       if (!LOGGED_IN) return `<p class="small muted mb-3">One account unlocks paper trading, chat, and portfolio tracking.</p><a class="btn btn--primary" href="/">Create free account</a>`;
@@ -1151,7 +1151,7 @@
             <td class="num r ${x.delta_bps >= 0 ? 'up' : 'down'}">${x.delta_bps != null ? (x.delta_bps >= 0 ? '+' : '') + fmt(x.delta_bps, 1) + ' bps' : '—'}</td></tr>`).join('')}</tbody>
         </table></div>
         <p class="muted small" style="margin-top:var(--s2)">${esc(d.execution_note)}</p>`;
-    }, { empty: { icon: 'icon-globe', text: T('dd.e_dex', 'No pairs quoted on both venues right now — the comparison needs a symbol listed on each side.') } });
+    }, { timeoutMs: 14000, empty: { icon: 'icon-globe', text: T('dd.e_dex', 'No pairs quoted on both venues right now — the comparison needs a symbol listed on each side.') } });
 
     // Live 3D sector radar — plot the RWA-radar tokens as blips (angle by
     // category, distance by 24h volume, colour by direction) and sweep them.
@@ -1233,7 +1233,7 @@
             <td class="num r">$${fmtK(t.volume_24h_usd)}</td></tr>`).join('')}</tbody>
         </table></div>`).join('');
       return head + cats;
-    }, { empty: { icon: 'icon-coin', text: 'The RWA radar lights up when live tickers are reachable.' } });
+    }, { timeoutMs: 14000, empty: { icon: 'icon-coin', text: 'The RWA radar lights up when live tickers are reachable.' } });
 
     // Airdrop & testnet radar — curated campaigns, guided checklists, and
     // (when logged in) honest wallet-readiness hints. Never automated.
@@ -1278,7 +1278,7 @@
           ${d.wallet_linked ? 'Readiness hints read from your linked wallet (read-only).' : 'Link a wallet (Sign-In with Ethereum) for readiness hints.'}</p>`
         + cards
         + `<p class="small muted" style="margin-top:var(--s2)"><i>${esc(d.anti_sybil)}</i></p>`;
-    }, { empty: { icon: 'icon-sparkle', text: 'The airdrop radar is loading its curated catalog.' } });
+    }, { timeoutMs: 22000, empty: { icon: 'icon-sparkle', text: 'The airdrop radar is loading its curated catalog.' } });
 
     // Meme & AI-token radar — live DEX pairs with the safety read up front.
     // Ranked by real volume (never by pump %); risk tier rides every row.
@@ -1308,7 +1308,7 @@
             <thead><tr><th>Token</th><th class="r">Price</th><th class="r">24h</th><th class="r">Volume</th><th class="r">Liquidity</th><th class="r">Risk</th></tr></thead>
             <tbody>${rows}</tbody></table></div>`
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.disclaimer)}</p>`;
-    }, { empty: { icon: 'icon-radar', text: T('dd.e_meme', 'No pairs clear the radar\u2019s liquidity and age floor right now.') } });
+    }, { timeoutMs: 17000, empty: { icon: 'icon-radar', text: T('dd.e_meme', 'No pairs clear the radar\u2019s liquidity and age floor right now.') } });
 
     // On-chain flow — 24h DEX taker balance for the majors. The same payload
     // the engine's gated on-chain voter consumes; honestly labeled.
@@ -1329,7 +1329,7 @@
           <thead><tr><th>Asset</th><th class="r">Flow bias</th><th class="r">Buy share</th><th class="r">Txns 24h</th><th class="r">DEX volume</th></tr></thead>
           <tbody>${rows}</tbody></table></div>`
         + (d.unavailable.length ? `<p class="small muted" style="margin-top:var(--s2)">No usable on-chain sample right now: ${d.unavailable.map(esc).join(', ')}.</p>` : '');
-    }, { empty: { icon: 'icon-globe', text: T('dd.e_flow', 'No base has enough paired liquidity for a flow read right now.') } });
+    }, { timeoutMs: 17000, empty: { icon: 'icon-globe', text: T('dd.e_flow', 'No base has enough paired liquidity for a flow read right now.') } });
 
     // Venue router — where is each pair cheapest to hold right now?
     // Pure funding-cost read; nothing here places or routes an order.
@@ -1351,7 +1351,7 @@
           <thead><tr><th>Pair</th><th class="r">Cheapest long</th><th class="r">Best paid short</th><th class="r">Spread APR</th><th class="r">DEX basis</th></tr></thead>
           <tbody>${rows}</tbody></table></div>
         <p class="small muted" style="margin-top:var(--s2)">${esc(d.manual_first)}</p>`;
-    }, { empty: { icon: 'icon-target', text: 'The venue router lights up after the next hourly cross-venue funding scan.' } });
+    }, { timeoutMs: 14000, empty: { icon: 'icon-target', text: 'The venue router lights up after the next hourly cross-venue funding scan.' } });
 
     // Cross-venue intelligence (one shared fetch; hourly bot-pushed data).
     // Awaited inside several loaders below; each gets the rejection and paints
@@ -1411,7 +1411,7 @@
         // the SVG renderer when the library failed to load.
         if (!window.LightweightCharts) return candleSvg(rows);
         return `<div id="tvChart" style="height:340px"></div>`;
-      }, { empty: { icon: 'icon-chart', text: 'No candle data for this pair right now.' }, errorText: T('dd.err_market', 'Market data unavailable — retry in a moment.') });
+      }, { timeoutMs: 14000, empty: { icon: 'icon-chart', text: 'No candle data for this pair right now.' }, errorText: T('dd.err_market', 'Market data unavailable — retry in a moment.') });
 
       // At-a-glance read under the chart — VWAP distance + structure/BOS/
       // CHoCH from the SAME candles, computed with the engine's formulas
@@ -1552,7 +1552,7 @@
           <div><div class="stat"><div class="k">Bids</div></div>${rows('bid', d.bids || [])}</div>
           <div><div class="stat"><div class="k">Asks</div></div>${rows('ask', d.asks || [])}</div>
         </div>`;
-      }, { empty: { text: 'Order book unavailable.' } });
+      }, { timeoutMs: 12000, empty: { text: 'Order book unavailable.' } });
     }
     async function drawFunding() {
       renderPanel(C('funding'), async () => {
@@ -1567,7 +1567,7 @@
         return `<div class="stat"><div class="k">${esc(symSel.value)} current funding</div>
           <div class="v big num ${pnlClass(pct)}" style="font-size:var(--fs-xl)">${signed(pct, 4)}%</div>
           <div class="d muted">${pct >= 0 ? 'Longs pay shorts' : 'Shorts pay longs'} · settles every 8h (00/08/16 UTC)</div></div>`;
-      }, { empty: { text: 'Funding data unavailable.' } });
+      }, { timeoutMs: 12000, empty: { text: 'Funding data unavailable.' } });
     }
 
     // AI decision picture — the SAME read the engine trades off: directional
@@ -2348,7 +2348,7 @@
               <span class="${cls}" style="margin-left:10px">${ch > 0 ? '+' : ''}${ch.toFixed(2)}%</span></b></div>`;
           }).join('');
         return rows + `<p class="small muted" style="margin-top:var(--s2)">Live Bitget USDT-M marks — the same feed the engine trades on.</p>`;
-      }, { empty: { icon: 'icon-radar', text: 'The market feed is unavailable right now.' } });
+      }, { timeoutMs: 14000, empty: { icon: 'icon-radar', text: 'The market feed is unavailable right now.' } });
       return;
     }
     container.insertAdjacentHTML('beforeend', `
@@ -2467,7 +2467,7 @@
             ${list}
             <p class="small muted" style="margin-top:var(--s1)">${esc(d.live_reason || '')}</p>
           </div>`;
-      }, { empty: { icon: 'icon-shield', text: 'Your authority envelope appears here once saved.' } });
+      }, { timeoutMs: 14000, empty: { icon: 'icon-shield', text: 'Your authority envelope appears here once saved.' } });
     }
     async function authPost(path, body) {
       const r = await fetchJSON(`/api/authority${path}`, { method: 'POST', body, timeoutMs: 15000 }).catch(() => ({ ok: false, data: null }));
@@ -2822,7 +2822,7 @@
           </div>
           <p class="small muted" style="margin-top:var(--s2)">${esc(r.data.mode || '')} · every figure re-derivable from sealed fills —
           this is the engine's record, and your account gets the same honest cockpit for yours.</p>`;
-      }, { empty: { icon: 'icon-chart', text: 'The public record is unavailable right now — see /track.' } });
+      }, { timeoutMs: 16000, empty: { icon: 'icon-chart', text: 'The public record is unavailable right now — see /track.' } });
       return;
     }
     container.insertAdjacentHTML('beforeend', `
@@ -3046,7 +3046,7 @@
       if (!d) return null;
       if (!(d.positions || []).length) return `<p class="small muted">No open positions right now. When the agent opens one, its stop-loss protection status shows here.</p>`;
       return slPositionsHtml(d);
-    }, { empty: { icon: 'icon-shield', text: 'No open positions — stop-loss protection status appears here when the agent opens one.' } });
+    }, { timeoutMs: 17000, empty: { icon: 'icon-shield', text: 'No open positions — stop-loss protection status appears here when the agent opens one.' } });
 
     // One-tap: twin the real book in the Stress Lab. The link carries only
     // percentages (each position's margin share of equity) + leverage — never a
@@ -3086,7 +3086,7 @@
       rows.push(`<div class="kv-row"><span>Longest streaks</span><b class="num">${d.longest_win_streak}W / ${d.longest_loss_streak}L</b></div>`);
       return rows.join('')
         + `<p class="small muted" style="margin-top:var(--s2)">Over ${d.trades} recorded closes${d.skipped ? ` (${d.skipped} skipped — unusable rows are never guessed at)` : ''}.</p>`;
-    }, { empty: { icon: 'icon-sparkle', text: 'Intelligence appears after your first few closed trades.' } });
+    }, { timeoutMs: 17000, empty: { icon: 'icon-sparkle', text: 'Intelligence appears after your first few closed trades.' } });
 
     // Your venues — the audit's top ask: connection STATUS and live EQUITY
     // per venue, merged into one glance (they used to live two views apart,
@@ -3128,7 +3128,7 @@
         </div>`;
       }).join('');
       return rows + `<p style="margin-top:var(--s2)"><a class="btn btn--ghost btn--sm" href="#account/akeys">Manage keys →</a></p>`;
-    }, { empty: { icon: 'icon-globe', text: 'Venue overview appears once the status endpoints are reachable.' } });
+    }, { timeoutMs: 42000, empty: { icon: 'icon-globe', text: 'Venue overview appears once the status endpoints are reachable.' } });
 
     // Net worth — everywhere: connected CEX + wallet (real) with paper
     // shown separately and NEVER counted into the real total.
@@ -3174,7 +3174,7 @@
         + composition
         + rows.join('')
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
-    }, { empty: { icon: 'icon-globe', text: T('dd.e_networth', 'Connect an exchange or link a wallet and your real net worth aggregates here \u2014 read-only, always.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
+    }, { timeoutMs: 37000, empty: { icon: 'icon-globe', text: T('dd.e_networth', 'Connect an exchange or link a wallet and your real net worth aggregates here \u2014 read-only, always.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // Paper Arena — the practice account beside the real one. Private surface
     // (§4: virtual dollars fine); percent + badge glory is what we celebrate.
@@ -3197,7 +3197,7 @@
         ${earned.length ? `<div class="kv-row"><span>Achievements</span>
           <b title="${esc(earned.map(b => b.name).join(' · '))}">${earned.map(b => b.icon).join(' ')}</b></div>` : ''}
         <p style="margin-top:var(--s2)"><a class="btn btn--sm" href="/arena">Open the Arena →</a></p>`;
-    }, { empty: { icon: 'icon-target', text: 'Your paper account is created the moment you open the Arena — no keys, no risk.' } });
+    }, { timeoutMs: 18000, empty: { icon: 'icon-target', text: 'Your paper account is created the moment you open the Arena — no keys, no risk.' } });
 
     // Funds by venue & wallet — the same real money as net worth, but itemised
     // per source: one row per connected exchange, one per on-chain chain.
@@ -3253,7 +3253,7 @@
             <span><b>Real total</b>${d.partial ? ' <span class="muted small">(partial — some sources unreadable)</span>' : ''}</span>
             <b class="num">${d.total_real_usd != null ? '$' + fmt(d.total_real_usd, 2) : '—'}</b></div>
           <p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
-    }, { empty: { icon: 'icon-wallet', text: T('dd.e_holdings', 'Nothing to itemise yet \u2014 connect an exchange or link a wallet and every source gets its own row.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
+    }, { timeoutMs: 42000, empty: { icon: 'icon-wallet', text: T('dd.e_holdings', 'Nothing to itemise yet \u2014 connect an exchange or link a wallet and every source gets its own row.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // Idle yield — best cross-source rate per idle wallet asset. Non-custodial
     // (Lido/Aave, live) preferred honestly; recommendation only, nothing moves.
@@ -3295,7 +3295,7 @@
             <b class="num">≈$${fmt(d.total_est_year_usd, 2)}/yr</b></div>
           <p class="small muted" style="margin-top:var(--s2)">${nc} non-custodial rate(s) live (Lido/Aave via DefiLlama).
             Recommendation only — RUNECLAW never moves your funds.</p>`;
-    }, { empty: { icon: 'icon-coin', text: T('dd.e_idle', 'Nothing is sitting idle \u2014 every asset the scanner can see is already earning or too small to move.') } });
+    }, { timeoutMs: 34000, empty: { icon: 'icon-coin', text: T('dd.e_idle', 'Nothing is sitting idle \u2014 every asset the scanner can see is already earning or too small to move.') } });
 
     // Cross-chain yield planner — is relocating idle capital to the best rate
     // worth the gas + bridge cost, and when does it break even? Estimates only.
@@ -3330,7 +3330,7 @@
       }).join('');
       return rows
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.caveat || '')}</p>`;
-    }, { empty: { icon: 'icon-globe', text: 'The move planner lights up once your wallet holds idle assets with a better rate available.' } });
+    }, { timeoutMs: 34000, empty: { icon: 'icon-globe', text: 'The move planner lights up once your wallet holds idle assets with a better rate available.' } });
 
     // Risk sentry — proactive watch over the standing book (envelope drift,
     // over-cap, concentration, crowding, daily spend). Detection-only.
@@ -3352,7 +3352,7 @@
           <span class="muted small">${d.count} flag(s)${d.envelope_bound ? '' : ' · no Authority Envelope bound'}</span></div>
         ${rows}
         <p class="small muted" style="margin-top:var(--s2)">Detection-only — RUNECLAW never closes or resizes your positions.</p>`;
-    }, { empty: { icon: 'icon-shield', text: 'The risk sentry appears once you have open positions.' } });
+    }, { timeoutMs: 20000, empty: { icon: 'icon-shield', text: 'The risk sentry appears once you have open positions.' } });
 
     // Exposure — perp positions netted against wallet spot, with the flags
     // a risk desk would raise (stacked longs, hedges, concentration).
@@ -3381,7 +3381,7 @@
           ${d.cash_usd ? `· Cash (stables) <b class="num">$${fmt(d.cash_usd, 0)}</b>` : ''}</p>
         ${warn}
         <p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
-    }, { empty: { icon: 'icon-shield', text: 'Exposure appears once you have open positions or non-stable wallet holdings.' } });
+    }, { timeoutMs: 22000, empty: { icon: 'icon-shield', text: 'Exposure appears once you have open positions or non-stable wallet holdings.' } });
 
     // On-chain wallet mirror (SIWE-linked; strictly read-only, multi-chain).
     renderPanel(C('wallet'), async () => {
@@ -3436,7 +3436,7 @@
         ${groups}
         <p style="margin-top:var(--s2)">Total (priced, all chains): <b class="num">$${Number(d.total_usd).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b></p>
         ${unreadable.length ? `<p class="muted small">${esc(unreadable.join(', '))} unreadable right now (RPC).</p>` : ''}`;
-    }, { empty: { icon: 'icon-wallet', text: T('dd.e_wallet', 'No wallet linked yet \u2014 link one to mirror its balances read-only. Linking signs a message; it never grants spending power.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
+    }, { timeoutMs: 27000, empty: { icon: 'icon-wallet', text: T('dd.e_wallet', 'No wallet linked yet \u2014 link one to mirror its balances read-only. Linking signs a message; it never grants spending power.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // DeFi positions: Aave health factors, Lido stETH, Uniswap LP counts —
     // read from protocol contracts, with the warnings a risk desk would raise.
@@ -3476,7 +3476,7 @@
         `<p class="small" style="color:var(--down);margin-top:var(--s1)">⚠️ ${esc(w)}</p>`).join('');
       return bits.join('') + warn
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
-    }, { empty: { icon: 'icon-shield', text: 'No Aave, Lido or Uniswap v3 positions found on the tracked chains.' } });
+    }, { timeoutMs: 27000, empty: { icon: 'icon-shield', text: 'No Aave, Lido or Uniswap v3 positions found on the tracked chains.' } });
 
     // What-if replay: mirror every closed agent trade at a fixed stake.
     async function runReplayPanel() {
@@ -3924,7 +3924,7 @@
               <td class="num r">$${Number(row.est_year_usd || 0).toFixed(2)}</td></tr>`).join('')}</tbody></table></div>
             ${confirmBlock}
             <p class="small muted mt-2">Total idle <b class="num">$${Number(y.total_idle_usd || 0).toFixed(2)}</b> · est. <b class="num">$${Number(y.total_est_year_usd || 0).toFixed(2)}/yr</b> at current flexible rates. ${actNote}</p>`;
-        }, { empty: { icon: 'icon-coin', text: 'Yield data arrives with the bot\'s hourly report (needs operator Earn credentials).' } });
+        }, { timeoutMs: 32000, empty: { icon: 'icon-coin', text: 'Yield data arrives with the bot\'s hourly report (needs operator Earn credentials).' } });
 
         const host = C('ayield');
         if (!host) return;
@@ -4016,7 +4016,7 @@
             ? '<p class="small muted mt-2">One tap — the wallet picker opens this page inside your wallet app, where one signature links it.</p>'
             : '<p class="small muted mt-2">No browser wallet here? Use <b>Link with phone</b> — scan the QR with your phone and sign in your wallet app.</p>') : ''}
           ${solBlock}`;
-      }, { empty: { text: 'Wallet status unavailable.' } });
+      }, { timeoutMs: 27000, empty: { text: 'Wallet status unavailable.' } });
     }
     // Phone linking: show the single-use QR and poll until the phone signs.
     // ON A PHONE with no injected wallet, a QR is absurd (scan the screen
@@ -5020,7 +5020,7 @@
             <button class="btn btn--primary btn--sm" type="submit">${d.connected ? '↻ Replace key' : '🔌 Connect'}</button>
             ${d.connected ? '<button class="btn btn--sm" id="newsKeyClear" type="button">Disconnect</button>' : ''}
           </form>`;
-      }, { empty: { text: 'News key connect is unavailable right now.' } });
+      }, { timeoutMs: 14000, empty: { text: 'News key connect is unavailable right now.' } });
       const form = document.getElementById('newsKeyForm');
       if (form) form.onsubmit = async (e) => {
         e.preventDefault();
@@ -5102,7 +5102,7 @@
               ${notes.length ? '<button class="btn btn--sm" id="shareClearAll" type="button">Clear all</button>' : ''}</div>
           </form>
           <div class="mt-2">${list}</div>`;
-      }, { empty: { text: 'Share-to-agent is unavailable right now.' } });
+      }, { timeoutMs: 14000, empty: { text: 'Share-to-agent is unavailable right now.' } });
       const form = document.getElementById('shareForm');
       if (form) form.onsubmit = async (e) => {
         e.preventDefault();
@@ -5472,7 +5472,7 @@
       return `<div class="grid-cards" style="display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${cards}</div>
         ${note ? `<p class="muted small mt-3">${esc(note)}</p>` : ''}
         <p class="muted small mt-1">Every agent is one of the engine's real strategies, backtested on frozen, content-hashed benchmark data — percent/ratio only, never a dollar figure. Hit <b>Reproduce in Lab</b> to re-run the identical backtest yourself, or watch verified live ranks on the <a href="#leaderboard">leaderboard</a>.</p>`;
-    }, { errorText: T('dd.err_agents', 'The agent catalogue is unavailable right now.') });
+    }, { timeoutMs: 18000, errorText: T('dd.err_agents', 'The agent catalogue is unavailable right now.') });
 
     // Live "would-take" picks for the agents this user follows. Paper-only: each
     // pick reuses the standard one-tap paper-trade prefill (data-ptrade) — the
@@ -5917,7 +5917,7 @@
           <span class="small muted" id="labMsg" aria-live="polite"></span>
         </div>
         <p class="muted small mt-2">Runs on frozen, content-hashed market data with the honest fee/fill model — the same engine used to validate the live strategy. It never touches the live account.</p>`;
-    }, { errorText: T('dd.err_lab', 'Strategy Lab unavailable.') });
+    }, { timeoutMs: 18000, errorText: T('dd.err_lab', 'Strategy Lab unavailable.') });
 
     // Populate symbol chips when the dataset changes (data-driven from meta).
     const fillSyms = () => {
@@ -6184,7 +6184,7 @@
         ${tile('Open', String(nOpen), nOpen === 1 ? 'position carried' : 'positions carried')}
         ${tile('Tripwires', String(armed), armed === 1 ? 'alert armed' : 'alerts armed')}
       </div>`;
-    }, { empty: { text: 'Status unavailable right now.' } });
+    }, { timeoutMs: 10000, empty: { text: 'Status unavailable right now.' } });
 
     // Tripwires list — same element id the Feed view uses, so the shared
     // loader (list + delete handling) works unchanged here.
@@ -6228,7 +6228,7 @@
       return `<p class="small" style="color:var(--text-2)">${bits.length ? bits.join(' · ') : 'No exchange connected, no wallet linked yet.'}</p>
         <p style="margin-top:var(--s2)">Real total <b class="num" style="font-size:var(--fs-lg)">${d.total_real_usd != null ? '$' + fmt(d.total_real_usd, 2) : '—'}</b></p>
         <p class="small muted mt-2">Paper equity is listed in Portfolio but never counted as real.</p>`;
-    }, { empty: { icon: 'icon-globe', text: T('dd.e_networth', 'Connect an exchange or link a wallet and your real net worth aggregates here \u2014 read-only, always.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
+    }, { timeoutMs: 37000, empty: { icon: 'icon-globe', text: T('dd.e_networth', 'Connect an exchange or link a wallet and your real net worth aggregates here \u2014 read-only, always.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // ── Exposure: net / gross + risk flags ──
     renderPanel(C('hubexp'), async () => {
@@ -6242,7 +6242,7 @@
           · Gross <b class="num">$${fmt(d.gross_total_usd, 0)}</b>
           · ${d.assets.length} asset${d.assets.length === 1 ? '' : 's'}</p>
         ${warn || '<p class="small muted mt-2">No risk flags — nothing stacked or concentrated.</p>'}`;
-    }, { empty: { icon: 'icon-shield', text: 'Exposure appears once you have open positions or non-stable wallet holdings.' } });
+    }, { timeoutMs: 22000, empty: { icon: 'icon-shield', text: 'Exposure appears once you have open positions or non-stable wallet holdings.' } });
 
     // ── Watchlist: view + quick add/remove (saved to your profile) ──
     async function drawHubWatchlist() {
@@ -6479,7 +6479,7 @@
           </form>
           <div id="hubLlmHint" class="mt-1">${provHint(selProv)}</div>
           ${enabledNote}${ultra}`;
-      }, { empty: { text: 'LLM connect unavailable.' } });
+      }, { timeoutMs: 14000, empty: { text: 'LLM connect unavailable.' } });
       // Update the cost hint live as the user picks a different provider.
       const provSel = document.getElementById('hubLlmProv');
       const hintEl = document.getElementById('hubLlmHint');
@@ -6614,7 +6614,7 @@
       if (!m) return null;
       macroReact(m.band);
       return macroBlock(m, r.data.generated_at);
-    }, { empty: { icon: 'icon-shield', text: 'Macro data is unavailable right now — check back in a moment.' } });
+    }, { timeoutMs: 18000, empty: { icon: 'icon-shield', text: 'Macro data is unavailable right now — check back in a moment.' } });
     every(30000, updateMacroCountdowns);   // keep the event countdown ticking
   }
 
@@ -6991,7 +6991,7 @@
             mustRead(r);
             if (!r.data) return null;
             return reviewQueueCard(r.data);
-          }, { empty: { icon: 'icon-shield', text: 'No proposed on-chain actions yet — they queue here for review before any signer could act.' } });
+          }, { timeoutMs: 16000, empty: { icon: 'icon-shield', text: 'No proposed on-chain actions yet — they queue here for review before any signer could act.' } });
         }
         // Admin-only testnet live signer console (WEB3-LIVE-EXEC slice 2). Drives
         // the bot's triple-gated, testnet-only signer from the web/phone: status,
@@ -7011,19 +7011,19 @@
       mustRead(r);
       if (!r.data) return null;
       return readinessCard(r.data);
-    }, { empty: { icon: 'icon-shield', text: 'The readiness score needs you signed in — it reads your own agent’s safety posture.' } });
+    }, { timeoutMs: 16000, empty: { icon: 'icon-shield', text: 'The readiness score needs you signed in — it reads your own agent’s safety posture.' } });
     renderPanel(C('incidents'), async () => {
       const r = await fetchJSON('/api/guardian/incidents?limit=40', { auth: false, timeoutMs: 14000 });
       mustRead(r);
       if (!r.data) return null;
       return incidentsCard(r.data);
-    }, { empty: { icon: 'icon-alert', text: 'No safety incidents recorded yet — the controls have had nothing to stop or recover.' } });
+    }, { timeoutMs: 16000, empty: { icon: 'icon-alert', text: 'No safety incidents recorded yet — the controls have had nothing to stop or recover.' } });
     renderPanel(C('flight'), async () => {
       const r = await fetchJSON('/api/guardian/flight?limit=50', { auth: false, timeoutMs: 16000 });
       mustRead(r);
       if (!r.data) return null;
       return guardianBlock(r.data);
-    }, { empty: { icon: 'icon-check', text: 'The decision ledger is unavailable right now — check back in a moment.' } });
+    }, { timeoutMs: 18000, empty: { icon: 'icon-check', text: 'The decision ledger is unavailable right now — check back in a moment.' } });
   }
 
   function mountPolicyAuthoring(panel) {

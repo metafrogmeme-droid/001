@@ -17,6 +17,13 @@ const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const { getGateway, isConfigured } = require('../lib/gateway');
+const { withDeadline } = require('../lib/deadline');
+// Each axis is already documented as nullable — 'nulls for unobserved axes'.
+// So a slow dependency should cost that ONE axis, not the whole score: the
+// browser aborts this request at its own budget and reports a failure for a
+// score the server was still assembling. Per-axis deadlines keep the answer
+// inside that budget and simply leave the late axis null.
+const AXIS_MS = 2000;
 const { pool } = require('../db');
 const { scoreReadiness } = require('../lib/guardian_readiness');
 
@@ -37,8 +44,8 @@ router.get('/', async (req, res) => {
   let envelope = null;
   try {
     if (isConfigured()) {
-      const r = await getGateway(
-        `/authority/status?telegram_id=${encodeURIComponent(ident.id)}`, 9000);
+      const r = await withDeadline(getGateway(
+        `/authority/status?telegram_id=${encodeURIComponent(ident.id)}`, AXIS_MS), AXIS_MS);
       if (r && r.status === 200 && r.data) {
         envelope = { mode: r.data.mode || 'off', bound: !!r.data.bound };
       }
@@ -79,7 +86,7 @@ router.get('/', async (req, res) => {
   let concentrationPct = null;
   try {
     const { buildExposure } = require('../lib/exposure');
-    const exp = await buildExposure(uid);
+    const exp = await withDeadline(buildExposure(uid), AXIS_MS);
     if (exp && Array.isArray(exp.assets) && exp.assets.length >= 2
         && exp.gross_total_usd > 0) {
       concentrationPct = exp.assets[0].gross_usd / exp.gross_total_usd;
@@ -91,7 +98,7 @@ router.get('/', async (req, res) => {
   try {
     const { buildHoldings } = require('../lib/holdings');
     const { computeCounterparty } = require('../lib/counterparty');
-    const holdings = await buildHoldings(ident, uid);
+    const holdings = await withDeadline(buildHoldings(ident, uid), AXIS_MS);
     const cp = computeCounterparty(holdings);
     if (cp && !cp.unrated && cp.concentration) counterpartyTier = cp.concentration;
   } catch (_) { /* null */ }
