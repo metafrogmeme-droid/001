@@ -48,31 +48,32 @@
 <body>
 <svg style="display:none" aria-hidden="true"><use href="#brand-mark"></use></svg>
 <nav class="topbar" aria-label="Main">
-  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW<span class="brand-sub">Track Record</span></a>
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW<span class="brand-sub" data-i18n="tk.brand_sub">Track Record</span></a>
   <div class="spacer"></div>
   <div class="nav-links" style="display:flex;gap:var(--s2)">
-    <a class="btn btn--sm" href="/proof">Proof of PnL</a>
-    <a class="btn btn--sm" href="/dashboard">Dashboard</a>
-    <a class="btn btn--primary btn--sm" href="/">Get started</a>
+    <a class="btn btn--sm" href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+    <a class="btn btn--sm" href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+    <a class="btn btn--primary btn--sm" href="/" data-i18n="nav.get_started">Get started</a>
+    <span data-i18n-switcher></span>
   </div>
 </nav>
 
 <main class="tr-wrap">
   <div class="tr-hero">
-    <h1>Engine Track Record</h1>
+    <h1 data-i18n="tk.h1">Engine Track Record</h1>
     <span class="badge" id="modeBadge">…</span>
     <span class="muted small" id="genAt"></span>
   </div>
   <p class="muted small" style="margin-bottom:var(--s4);max-width:70ch">
-    Every number on this page is aggregated automatically from the engine's synced
-    closed trades and equity snapshots — nothing is hand-entered. Venue:
+    <span data-i18n="tk.lede">Every number on this page is aggregated automatically from the engine's synced
+    closed trades and equity snapshots — nothing is hand-entered. Venue:</span>
     <span id="venue">Bitget USDT-M perpetuals</span>.
   </p>
 
   <div class="tiles" id="tiles"></div>
 
   <section class="panel">
-    <h2>Equity curve</h2>
+    <h2 data-i18n="dp.curve">Equity curve</h2>
     <svg id="curve" preserveAspectRatio="none" role="img" aria-label="Equity curve"></svg>
     <div class="empty" id="curveEmpty" hidden>Not enough equity snapshots yet.</div>
     <p class="muted small" id="curveNote" hidden style="margin-top:8px"></p>
@@ -80,14 +81,14 @@
 
   <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:var(--s4)">
     <section class="panel">
-      <h2>Monthly net PnL</h2>
-      <table><thead><tr><th>Month</th><th class="num">Net PnL</th></tr></thead><tbody id="monthly"></tbody></table>
-      <div class="empty" id="monthlyEmpty" hidden>No closed trades yet.</div>
+      <h2 data-i18n="tk.monthly_h">Monthly net PnL</h2>
+      <table><thead><tr><th data-i18n="tk.th_month">Month</th><th class="num" data-i18n="tk.th_net">Net PnL</th></tr></thead><tbody id="monthly"></tbody></table>
+      <div class="empty" id="monthlyEmpty" hidden data-i18n="tk.empty">No closed trades yet.</div>
     </section>
     <section class="panel">
-      <h2>Recent closed trades</h2>
-      <table><thead><tr><th>Symbol</th><th>Side</th><th class="num">PnL</th><th>Closed</th></tr></thead><tbody id="recent"></tbody></table>
-      <div class="empty" id="recentEmpty" hidden>No closed trades yet.</div>
+      <h2 data-i18n="tk.recent_h">Recent closed trades</h2>
+      <table><thead><tr><th data-i18n="arena.f_symbol">Symbol</th><th data-i18n="arena.th_side">Side</th><th class="num" data-i18n="tk.th_pnl">PnL</th><th data-i18n="tk.th_closed">Closed</th></tr></thead><tbody id="recent"></tbody></table>
+      <div class="empty" id="recentEmpty" hidden data-i18n="tk.empty">No closed trades yet.</div>
     </section>
   </div>
 
@@ -174,5 +175,6 @@
   } else { $('recentEmpty').hidden = false; }
 })();
 </script>
+<script src="/js/i18n.js?v=33"></script>
 </body>
 </html>

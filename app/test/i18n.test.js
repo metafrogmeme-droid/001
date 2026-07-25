@@ -398,6 +398,9 @@ const SWEPT_PAGES = {
   'provable.html': ['← RUNECLAW'],
   'escape.html': ['← RUNECLAW'],
   'leaderboard.html': ['← RUNECLAW', 'Sharpe'],
+  // 'Bitget USDT-M perpetuals' is the API's own venue string, written over
+  // this element on load — a data-i18n here would be clobbered every time.
+  'track.html': ['RUNECLAW', 'Bitget USDT-M perpetuals'],
 };
 
 function untranslatedInSource(src, allowList) {
@@ -639,4 +642,20 @@ test('the public board never promises a dollar figure, in any language', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'leaderboard.html'), 'utf8');
   const body = html.slice(0, html.indexOf('<script'));
   assert.ok(!/\$\s?\d/.test(body), 'a dollar figure appeared in the board markup');
+});
+
+test('the track record keeps its "nothing is hand-entered" claim everywhere', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // This page publishes the engine's own record. The only reason to believe
+  // any figure on it is the claim that every number is aggregated from synced
+  // closed trades and equity snapshots, with nothing typed in by a human.
+  // A translation that loses that clause leaves the numbers unsupported.
+  for (const c of codes) {
+    const lede = i18n.STRINGS['tk.lede'][c].normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+    assert.ok(lede, `tk.lede missing ${c}`);
+    assert.ok(/hand|mano|mao|main|手|손|вручную|elle|يدوي/i.test(lede),
+      `tk.lede:${c} dropped the "nothing is hand-entered" claim`);
+    assert.ok(/automat|otomat|自動|자동|автомат|تلقائ/i.test(lede),
+      `tk.lede:${c} dropped "aggregated automatically"`);
+  }
 });
