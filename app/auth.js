@@ -826,22 +826,59 @@ router.post('/wallet/unlink', authMiddleware, async (req, res) => {
   }
 });
 
-// Solana WATCH address — read-only mirror, honestly unauthenticated. SIWE is
-// EVM-only (personal_sign), so there is no signature proving ownership here;
-// the address only ever feeds public balance READS (lib/solana.js), never any
-// signing surface, so watching an arbitrary address is harmless by design.
-router.post('/wallet/solana', authMiddleware, async (req, res) => {
+// Solana link nonce — issue a message for the wallet to sign (connect-and-sign
+// upgrade of the watch-only flow). Reuses the chain-agnostic nonce store.
+router.post('/wallet/solana/nonce', authMiddleware, async (req, res) => {
   try {
     const { isSolanaAddress } = require('./lib/solana');
     const address = String((req.body || {}).address || '').trim();
     if (!isSolanaAddress(address)) {
       return res.status(400).json({ error: 'Not a valid Solana address (base58).' });
     }
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const message = 'RUNECLAW — link your Solana wallet.\n\n'
+      + 'This only proves you own this address. It will NOT trigger a transaction or cost fees.\n\n'
+      + `Address: ${address}\nNonce: ${nonce}\nIssued: ${new Date().toISOString()}`;
+    // Namespace the key so it can't collide with an EVM nonce for the same string.
+    await _linkStore.putNonce('sol:' + address, message, Date.now() + _NONCE_TTL_MS);
+    res.json({ message });
+  } catch (err) {
+    console.error('Solana nonce error:', err.message);
+    res.status(500).json({ error: 'Could not start Solana wallet link' });
+  }
+});
+
+// Solana link. Backward-compatible:
+//   - address only            → WATCH-only mirror (honestly unauthenticated),
+//                               feeds public balance READS (lib/solana.js).
+//   - address + signature     → CONNECT-AND-SIGN, ed25519-verified ownership.
+// Either way the address never touches a signing surface here — non-custodial.
+router.post('/wallet/solana', authMiddleware, async (req, res) => {
+  try {
+    const { isSolanaAddress } = require('./lib/solana');
+    const address = String((req.body || {}).address || '').trim();
+    const signature = String((req.body || {}).signature || '').trim();
+    if (!isSolanaAddress(address)) {
+      return res.status(400).json({ error: 'Not a valid Solana address (base58).' });
+    }
+    let verified = false;
+    if (signature) {
+      const rec = await _linkStore.getNonce('sol:' + address);
+      if (!rec || rec.expires < Date.now()) {
+        return res.status(400).json({ error: 'Link request expired — please try again.' });
+      }
+      const { verifySignedMessage } = require('./lib/solana_verify');
+      if (!verifySignedMessage(rec.message, signature, address)) {
+        return res.status(401).json({ error: 'Signature does not match the wallet.' });
+      }
+      await _linkStore.delNonce('sol:' + address); // single-use
+      verified = true;
+    }
     await pool.execute('UPDATE users SET sol_address = ? WHERE id = ?',
       [address, req.user.user_id]);
-    res.json({ ok: true, sol_address: address });
+    res.json({ ok: true, sol_address: address, verified });
   } catch (err) {
-    console.error('Solana watch link error:', err.message);
+    console.error('Solana link error:', err.message);
     res.status(500).json({ error: 'Solana address link failed' });
   }
 });

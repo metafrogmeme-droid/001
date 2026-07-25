@@ -8075,9 +8075,27 @@ class TelegramHandler:
             system_log.debug("strategy setups card render failed: %s", exc)
             return False
 
+    async def _token_gate_blocks(self, update: Update, mode: str) -> bool:
+        """True (and notify) if the $RCLAW token-tier gate blocks a premium scan.
+
+        No-op unless TOKEN_TIER_GATE_ENABLED + a mint are configured (draft
+        feature — see docs/TOKEN_ROADMAP.md). Fail-open on any internal error.
+        """
+        try:
+            from bot.token import tier_gate
+            if tier_gate.allows_user(self.users, self._get_tg_id(update), "premium_scan"):
+                return False
+            await self._send(update, tier_gate.upgrade_message(mode))
+            return True
+        except Exception as exc:
+            system_log.debug("token gate check skipped: %s", exc)
+            return False
+
     @guard("scan")
     async def _cmd_scalp(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Scalp scan: 5m candles, tight SL, top-3 by volume."""
+        if await self._token_gate_blocks(update, "scalp"):
+            return
         await self._send(update, "\u26a1 <i>Scalp scan — 5M candles, tight zones...</i>")
         try:
             result = await self.registry.dispatch("pro_scan",
@@ -8093,6 +8111,8 @@ class TelegramHandler:
     @guard("scan")
     async def _cmd_intraday(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Intraday scan: 15m candles, top-5 movers."""
+        if await self._token_gate_blocks(update, "intraday"):
+            return
         await self._send(update, "\U0001f4ca <i>Intraday scan — 15M structure...</i>")
         try:
             result = await self.registry.dispatch("pro_scan",
@@ -8108,6 +8128,8 @@ class TelegramHandler:
     @guard("scan")
     async def _cmd_swing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Swing scan: 4h candles, wide SL/TP, trend-based."""
+        if await self._token_gate_blocks(update, "swing"):
+            return
         await self._send(update, "<i>Checking the 4H chart...</i>")
         try:
             result = await self.registry.dispatch("pro_scan",

@@ -1,0 +1,62 @@
+{
+  "_comment": "PROPOSED BASELINE for the RECOMMENDED primary venue (Metaplex Genesis). Devnet/draft. Ratify every value before launch — see docs/TOKEN_ROADMAP.md §5-6, §13.",
+  "venue": "metaplex-genesis",
+  "cluster": "devnet",
+  "token": {
+    "symbol": "RCLAW",
+    "mint": "<FILL_FROM token/.artifacts/token.devnet.json>",
+    "decimals": 9
+  },
+  "sale": {
+    "type": "fixed-price-presale",
+    "quoteMint": "So11111111111111111111111111111111111111112",
+    "quoteSymbol": "SOL",
+    "presaleAllocation": "150000000",
+    "softCapSol": 1000,
+    "hardCapSol": 5000,
+    "minContributionSol": 0.25,
+    "maxContributionSol": 25,
+    "refundIfSoftCapMissed": true
+  },
+  "rounds": [
+    {
+      "name": "whitelist-og",
+      "durationHours": 48,
+      "priceSolPerToken": 0.00003,
+      "whitelistRequired": true,
+      "note": "Discounted vs public round."
+    },
+    {
+      "name": "public",
+      "durationHours": 72,
+      "priceSolPerToken": 0.0000333,
+      "whitelistRequired": false,
+      "note": "Ends at hardCap or duration, whichever first."
+    }
+  ],
+  "vesting": {
+    "tgeUnlockPercent": 33,
+    "linearMonthsAfterTge": 2,
+    "cliffMonths": 0
+  },
+  "timeline": {
+    "_comment": "RFC3339 UTC. Placeholders — set at launch.",
+    "whitelistStart": "2026-09-01T15:00:00Z",
+    "publicStart": "2026-09-03T15:00:00Z",
+    "depositEnd": "2026-09-06T15:00:00Z",
+    "tge": "2026-09-08T15:00:00Z",
+    "claimOpen": "2026-09-08T16:00:00Z"
+  },
+  "liquidity": {
+    "raisedSolToLiquidityPercent": 60,
+    "tokenAllocation": "100000000",
+    "dex": "raydium",
+    "lpAction": "burn-or-lock",
+    "lpLockMonths": 12
+  },
+  "antiAbuse": {
+    "perWalletCapEnforced": true,
+    "antiSnipeAtTge": true,
+    "kycTier": "counsel-driven"
+  }
+}

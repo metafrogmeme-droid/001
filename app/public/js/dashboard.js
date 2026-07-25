@@ -3901,10 +3901,12 @@
                 SOL and major SPL balances mirror read-only into Portfolio.</p>
               <button class="btn btn--sm" id="solUnwatch" type="button">Stop watching</button></div>`
           : `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
-              <p class="small muted">Also on Solana? Paste an address to watch it — read-only, no signature or permissions involved.</p>
+              <p class="small muted">Also on Solana? Connect Phantom/Backpack to verify ownership, or paste an address to watch read-only. Either way it never signs a transaction.</p>
+              <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s2)">
+                <button class="btn btn--sm btn--primary" id="solConnect" type="button">◎ Connect &amp; verify</button></div>
               <div class="row" style="gap:var(--s2);flex-wrap:wrap">
                 <input class="input" id="solAddr" placeholder="Solana address (base58)" autocomplete="off" style="max-width:340px">
-                <button class="btn btn--sm" id="solWatch" type="button">◎ Watch</button></div></div>`;
+                <button class="btn btn--sm" id="solWatch" type="button">Watch only</button></div></div>`;
         if (d.linked && d.address) {
           const short = `${d.address.slice(0, 6)}…${d.address.slice(-4)}`;
           // Canonical EVM address view (Etherscan) — the address is one identity
@@ -3972,6 +3974,23 @@
     }
     C('awallet').addEventListener('click', async (e) => {
       if (e.target.closest('#walletQr')) { showWalletQr(); return; }
+      if (e.target.closest('#solConnect')) {
+        if (!window.RCSolanaWallet || !RCSolanaWallet.available()) {
+          toast('No Solana wallet detected — install Phantom or Backpack.'); return;
+        }
+        try {
+          const c = await RCSolanaWallet.connect();
+          const n = await fetchJSON('/api/auth/wallet/solana/nonce', { method: 'POST', body: { address: c.address } });
+          if (!n?.ok || !n.data?.message) { toast(n?.data?.error || 'Could not start Solana linking.'); return; }
+          const s = await RCSolanaWallet.signMessage(n.data.message);
+          const v = await fetchJSON('/api/auth/wallet/solana', { method: 'POST', body: { address: c.address, signature: s.signature } });
+          toast(v?.ok ? (v.data?.verified ? 'Solana wallet connected & verified ✓' : 'Solana wallet linked.')
+            : (v?.data?.error || 'Solana link failed.'));
+        } catch (err) {
+          toast('Solana connection was cancelled.');
+        }
+        drawWalletLink(); return;
+      }
       if (e.target.closest('#solWatch')) {
         const addr = (document.getElementById('solAddr')?.value || '').trim();
         if (!addr) { toast('Paste a Solana address first.'); return; }

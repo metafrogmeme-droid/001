@@ -441,6 +441,33 @@ class UserStore:
         features = TIER_FEATURES.get(tier, set())
         return "*" in features or feature in features
 
+    def get_sol_wallet(self, telegram_id: int | str) -> str | None:
+        """Return the user's linked Solana wallet address, or None.
+
+        Used by the $RCLAW token-tier gate (bot/token/tier_gate.py) to read an
+        on-chain stake. Draft feature — see docs/TOKEN_ROADMAP.md.
+        """
+        user = self.get(telegram_id)
+        if not user:
+            return None
+        return user.get("sol_wallet") or None
+
+    def set_sol_wallet(self, telegram_id: int | str, address: str | None) -> bool:
+        """Link (or clear, with None) a user's Solana wallet address."""
+        key = str(telegram_id)
+        with self._lock:
+            if key not in self._users:
+                return False
+            if address:
+                self._users[key]["sol_wallet"] = str(address)
+            else:
+                self._users[key].pop("sol_wallet", None)
+            self._save()
+            audit(system_log,
+                  f"User Solana wallet {'linked' if address else 'cleared'}: {key}",
+                  action="sol_wallet_link", result="OK")
+            return True
+
     def tier_label(self, telegram_id: int | str) -> str:
         """Human-readable tier label with icon."""
         tier = self.get_tier(telegram_id)

@@ -1,0 +1,36 @@
+{
+  "_comment": "PROPOSED BASELINE for the FALLBACK venue (Smithii no-code launchpad). Devnet/draft. Mirrors the Metaplex Genesis params so the two are interchangeable. Ratify before launch — docs/TOKEN_ROADMAP.md §6, §13.",
+  "venue": "smithii-launchpad",
+  "cluster": "devnet",
+  "platformFee": {
+    "baseSol": 0.1,
+    "percentOfSales": "<CONFIRM_ON_SMITHII>"
+  },
+  "token": {
+    "symbol": "RCLAW",
+    "mint": "<FILL_FROM token/.artifacts/token.devnet.json>",
+    "decimals": 9
+  },
+  "sale": {
+    "presaleAllocation": "150000000",
+    "softCapSol": 1000,
+    "hardCapSol": 5000,
+    "minContributionSol": 0.25,
+    "maxContributionSol": 25,
+    "refundIfSoftCapMissed": true
+  },
+  "whitelist": {
+    "enabled": true,
+    "phaseHours": 48
+  },
+  "publicPhaseHours": 72,
+  "vesting": {
+    "tgeUnlockPercent": 33,
+    "linearMonthsAfterTge": 2
+  },
+  "liquidity": {
+    "autoListPercentOfRaise": 60,
+    "dex": "raydium",
+    "lpLockMonths": 12
+  }
+}

@@ -1,0 +1,5 @@
+# Never commit keys or generated artifacts from the draft tooling.
+.keys/
+.artifacts/
+.env
+node_modules/

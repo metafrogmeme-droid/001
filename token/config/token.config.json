@@ -1,0 +1,18 @@
+{
+  "_comment": "PROPOSED BASELINE — ratify before any launch (see docs/TOKEN_ROADMAP.md §13). Devnet/draft.",
+  "name": "RUNECLAW Token",
+  "symbol": "RCLAW",
+  "decimals": 9,
+  "totalSupply": "1000000000",
+  "metadataUri": "https://raw.githubusercontent.com/Humanoid-Traders/RUNECLAW/main/token/config/rclaw-metadata.json",
+  "additionalMetadata": [
+    ["project", "RUNECLAW"],
+    ["website", "https://github.com/Humanoid-Traders/RUNECLAW"],
+    ["roadmap", "https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md"]
+  ],
+  "authorities": {
+    "revokeMintAuthorityAfterMint": true,
+    "setFreezeAuthorityToNull": true
+  },
+  "cluster": "devnet"
+}

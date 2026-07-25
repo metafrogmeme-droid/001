@@ -272,11 +272,22 @@ operator (`bot/proofofpnl/`, [`ONCHAIN_GOLIVE.md`](./ONCHAIN_GOLIVE.md), ethers-
 - **Convenient existing tie-in:** **Wormhole (`W`) and Drift are already in RUNECLAW's Solana
   scan universe** ([`gitbook/solana-ecosystem.md`](./gitbook/solana-ecosystem.md)) — the
   bridge and a Solana perp-DEX venue are already on the team's radar.
-- **Frontend gap to flag (not built here):** the current wallet stack is **EVM/ethers**
-  (`app/public/wallet-link.html`, `app/lib/onchain_flow.js`). A Solana launch needs
-  **`@solana/web3.js` + a Solana wallet-adapter** (Phantom/Backpack/Solflare) added alongside
-  the existing EVM path. This is scoped as **future engineering work**, explicitly out of
-  scope for this roadmap document.
+- **Frontend (draft implementation landed):** a lightweight Solana connect-and-sign flow now
+  ships alongside the existing EVM/ethers path — `app/public/js/solana_wallet.js`
+  (Phantom/Backpack via the injected provider), an ed25519 login-proof verifier
+  `app/lib/solana_verify.js` (Node built-in `crypto`, no new dependency), and the
+  `POST /api/auth/wallet/solana{,/nonce}` routes. It is draft/devnet and non-custodial (signs a
+  login message only, never a transaction). A full `@solana/web3.js` wallet-adapter with
+  Solflare/hardware support remains future work.
+
+### Draft reference implementations in this repo
+
+These are **draft, devnet, feature-flagged** starting points — not a launch:
+- `token/` — SPL Token-2022 mint + verify scripts and the token config (§2, §4).
+- `token/presale/` — Metaplex Genesis + Smithii presale configs and a setup runbook (§5–§6).
+- `bot/token/tier_gate.py` — the staking-tier gate (§3), OFF by default via
+  `TOKEN_TIER_GATE_ENABLED`; gates `/scalp` `/intraday` `/swing`.
+- `app/lib/solana_verify.js` + `app/public/js/solana_wallet.js` — the wallet connect-and-sign flow.
 
 ---
 

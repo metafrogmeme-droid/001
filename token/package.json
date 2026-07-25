@@ -1,0 +1,21 @@
+{
+  "name": "rclaw-token",
+  "version": "0.1.0-draft",
+  "private": true,
+  "type": "module",
+  "description": "DRAFT / DEVNET-ONLY tooling to mint and verify the $RCLAW SPL Token-2022. Not for mainnet without the legal review + audit gates in docs/TOKEN_ROADMAP.md.",
+  "license": "BUSL-1.1",
+  "scripts": {
+    "create": "node scripts/create_token.mjs",
+    "verify": "node scripts/verify_token.mjs",
+    "keygen": "node scripts/keygen.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.9",
+    "@solana/spl-token-metadata": "^0.1.6",
+    "@solana/web3.js": "^1.95.0"
+  }
+}
