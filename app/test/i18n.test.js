@@ -132,3 +132,19 @@ test('markup never dies in translation: data-i18n vs data-i18n-html', () => {
     }
   }
 });
+
+test('dashboard dynamic strings: dictionary-backed with English fallback', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+  // The helper degrades to the inline English rather than to an empty panel.
+  assert.match(dash, /const T = \(key, en\) =>/);
+  assert.match(dash, /RCI18N\.translate\(key, RCI18N\.getLang\(\)\)\) \|\| en/);
+  // Every dd.* key used in dashboard.js exists in the dictionary...
+  const used = [...new Set([...dash.matchAll(/T\('(dd\.[\w.]+)'/g)].map((m) => m[1]))];
+  assert.ok(used.length >= 16, `expected the dynamic sweep, found ${used.length}`);
+  for (const k of used) assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+  // ...and no error/CTA/empty string is left as a bare literal on those paths.
+  assert.ok(!/errorText: '/.test(dash), 'an errorText is still hardcoded');
+  assert.ok(!/label: 'Link Telegram'/.test(dash), 'a CTA label is still hardcoded');
+});

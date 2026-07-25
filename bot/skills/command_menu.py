@@ -120,8 +120,10 @@ def unknown_command_reply(name: str, known: List[str], *, is_admin: bool = False
     if hits:
         lines.append("Did you mean " + " · ".join(f"/{h}" for h in hits) + "?")
     lines.append("")
-    lines.append("Tap <b>/</b> for the menu, or /help for everything. "
-                 "You can also just talk to me normally — no command needed.")
+    lines.append("Tap <b>/</b> for the menu, or /help for everything — "
+                 "/help trading, /help scan and /help portfolio jump straight "
+                 "to a section. You can also just talk to me normally — no "
+                 "command needed.")
     if not is_admin:
         lines.append("<i>Some commands are operator-only and won't appear for you.</i>")
     return "\n".join(lines)

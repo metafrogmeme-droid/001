@@ -28,8 +28,11 @@ test('the unified venues panel joins status + equity per venue', () => {
 });
 
 test('the onboarding ladder climbs in dependency order', () => {
-  const tg = js.indexOf("label: 'Link Telegram'");
-  const ex = js.indexOf("label: 'Connect an exchange'");
+  // Located by the copy itself, not by the surrounding syntax: these labels
+  // are i18n-wrapped now, and the invariant under test is the ORDER of the
+  // onboarding steps, not how the string is spelled in source.
+  const tg = js.indexOf("'Link Telegram'");
+  const ex = js.indexOf("'Connect an exchange'");
   assert.ok(tg > 0 && ex > 0 && tg < ex, 'Telegram step precedes exchange step');
   const exBlock = js.slice(ex - 220, ex);
   assert.match(exBlock, /locked: !linked/);

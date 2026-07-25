@@ -265,7 +265,7 @@
   let tradePrefill = null;
 
   function loginGate(text) {
-    return stateBlock({ icon: 'icon-user', text, cta: { label: 'Log in or create an account', href: '/' } });
+    return stateBlock({ icon: 'icon-user', text, cta: { label: T('dd.cta_login', 'Log in or create an account'), href: '/' } });
   }
   // VAPID application-server key: base64url → Uint8Array (push subscribe).
   function urlB64ToU8(s) {
@@ -620,7 +620,7 @@
         return stateBlock({ icon: 'icon-coin', text: 'Live account connected, but the exchange balance is unavailable right now — the engine will refresh it on the next sync.' });
       }
       if (!pf || pf.equity == null) {
-        return stateBlock({ icon: 'icon-coin', text: 'No portfolio yet — place your first paper trade and your equity shows up here.', cta: { label: 'Place a paper trade', href: '#trade' } });
+        return stateBlock({ icon: 'icon-coin', text: 'No portfolio yet — place your first paper trade and your equity shows up here.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } });
       }
       const daily = pf.daily_pnl, total = pf.total_pnl;
       // 'sync' source IS the live feed (operator account) — only label offline
@@ -646,7 +646,7 @@
           <div class="stat"><div class="k">Open</div><div class="v">${(pf.open_positions || []).length}</div></div>
         </div>
       </div>`;
-    }, { empty: { text: 'No portfolio data yet.' } });
+    }, { empty: { text: T('dd.e_portfolio', 'No portfolio data yet.') } });
 
     if (LOGGED_IN) {
       // Watchlist strip — starred symbols with live price/24h, each chip a
@@ -701,7 +701,7 @@
           const r = await fetchJSON(week ? `/api/letter/${encodeURIComponent(week)}` : '/api/letter/latest');
           if (!r.ok || !r.data?.letter) return null;
           return letterHtml(r.data.letter);
-        }, { empty: { icon: 'icon-sparkle', text: 'The first letter writes itself after the first full week of recorded activity.' } });
+        }, { empty: { icon: 'icon-sparkle', text: T('dd.e_letter', 'The first letter writes itself after the first full week of recorded activity.') } });
       }
       (async () => {
         const arc = await fetchJSON('/api/letter/archive').catch(() => null);
@@ -787,7 +787,7 @@
           <p class="muted small" style="margin-top:6px">Operator: set the agent's global stance — the bot verifies and applies it within ~30s.</p>`);
         }
         return lines.join('');
-      }, { empty: { text: 'Agent status unavailable right now.' } });
+      }, { empty: { text: T('dd.e_agent', 'Agent status unavailable right now.') } });
       // Delegated so it survives panel re-renders. data-stance buttons exist
       // only for admins (global bot posture); data-riskpref is every user's
       // own saved preference.
@@ -830,7 +830,7 @@
           ${m.structure ? cell('Structure', esc(m.structure)) : ''}
         </div>
         <div style="position:relative;height:8px;border-radius:5px;margin-top:12px;background:linear-gradient(90deg,var(--down),#e0a63a 50%,var(--up))"><div style="position:absolute;top:-3px;left:calc(${pos}% - 2px);width:5px;height:14px;border-radius:3px;background:var(--text)"></div></div>`;
-    }, { empty: { icon: 'icon-shield', text: 'The macro backdrop appears once market data is available.' } });
+    }, { empty: { icon: 'icon-shield', text: T('dd.e_macro', 'The macro backdrop appears once market data is available.') } });
 
     renderPanel(C('hpos'), async () => {
       if (!LOGGED_IN) return loginGate('Log in to see your open positions.');
@@ -841,7 +841,7 @@
       const d = r.ok ? r.data : null;
       if (!d || !(d.positions || []).length) return null;
       return slPositionsHtml(d, { limit: 5 });
-    }, { empty: { icon: 'icon-target', text: 'No open positions. The Trade view has a full order ticket.', cta: { label: 'Open the trade ticket', href: '#trade' } } });
+    }, { empty: { icon: 'icon-target', text: T('dd.e_positions', 'No open positions. The Trade view has a full order ticket.'), cta: { label: T('dd.cta_ticket', 'Open the trade ticket'), href: '#trade' } } });
 
     renderPanel(C('next'), async () => {
       if (!LOGGED_IN) return `<p class="small muted mb-3">One account unlocks paper trading, chat, and portfolio tracking.</p><a class="btn btn--primary" href="/">Create free account</a>`;
@@ -863,23 +863,23 @@
       const steps = [
         { done: verified, label: 'Verify your email',
           hint: 'Confirm your address to secure the account and enable recovery.',
-          cta: { label: 'Resend verification', href: '#account/aprof' } },
-        { done: traded, label: 'Place a paper trade',
+          cta: { label: T('dd.cta_verify', 'Resend verification'), href: '#account/aprof' } },
+        { done: traded, label: T('dd.cta_paper', 'Place a paper trade'),
           hint: 'Real 23-check risk gate, zero risk — watch the engine execute.',
-          cta: { label: 'Open the trade ticket', href: '#trade' } },
+          cta: { label: T('dd.cta_ticket', 'Open the trade ticket'), href: '#trade' } },
         // Telegram BEFORE exchange keys — connecting keys requires a linked
         // Telegram account, so the ladder must climb in that order (the old
         // order sent users into a 409 dead-end).
-        { done: linked, label: 'Link Telegram',
+        { done: linked, label: T('dd.cta_tg', 'Link Telegram'),
           hint: 'Get trade alerts, chat with the agent — and unlock exchange connections.',
-          cta: { label: 'Link Telegram', href: '#account/atg' } },
+          cta: { label: T('dd.cta_tg', 'Link Telegram'), href: '#account/atg' } },
         { done: connected, pending: credsPending, locked: !linked, label: 'Connect an exchange',
           hint: 'Link Bitget, Bybit, BingX or Hyperliquid keys to prepare live trading.',
           cta: { label: credsPending ? 'Finish connecting' : 'Connect exchange', href: '#account/akeys' } },
         { done: liveReady, locked: !connected, label: 'Go live',
           hint: liveReady ? 'Live trading is enabled for your account.'
             : 'Needs connected keys, your live toggle, and operator approval.',
-          cta: { label: 'Review live controls', href: '#account/actl' } },
+          cta: { label: T('dd.cta_live', 'Review live controls'), href: '#account/actl' } },
       ];
       // Completion moment: a step that flipped to Done since the last render
       // (on this device) gets a brief pop, so progress is felt, not silent.
@@ -937,7 +937,7 @@
           <span class="row" style="gap:8px;align-items:center"><span class="num muted">${fmtPrice(s.entry_price)} · ${fmtAgo(s.created_at)}</span>${btn}</span>
         </div>`;
       }).join('') + `<a class="btn btn--ghost btn--sm mt-2" href="#signals">All signals →</a>`;
-    }, { empty: { icon: 'icon-radar', text: 'No signals yet — they appear as the engine scans.', }, timeoutMs: 10000 });
+    }, { empty: { icon: 'icon-radar', text: T('dd.e_signals', 'No signals yet — they appear as the engine scans.'), }, timeoutMs: 10000 });
 
     every(60000, () => { getScan().then(updateConnChip); });
   }
@@ -1373,7 +1373,7 @@
         // the SVG renderer when the library failed to load.
         if (!window.LightweightCharts) return candleSvg(rows);
         return `<div id="tvChart" style="height:340px"></div>`;
-      }, { empty: { icon: 'icon-chart', text: 'No candle data for this pair right now.' }, errorText: 'Market data unavailable — retry in a moment.' });
+      }, { empty: { icon: 'icon-chart', text: 'No candle data for this pair right now.' }, errorText: T('dd.err_market', 'Market data unavailable — retry in a moment.') });
 
       // At-a-glance read under the chart — VWAP distance + structure/BOS/
       // CHoCH from the SAME candles, computed with the engine's formulas
@@ -1621,7 +1621,7 @@
         </div>`;
       }, {
         empty: { icon: 'icon-sparkle', text: 'Decision picture unavailable — the analysis bridge may be offline for this pair.' },
-        errorText: 'Analysis bridge unreachable — retry in a moment.',
+        errorText: T('dd.err_bridge', 'Analysis bridge unreachable — retry in a moment.'),
       });
     }
 
@@ -2048,6 +2048,14 @@
 
   // geo (optional): { e: entry, sl, tp, d: direction } — a caller with a
   // position or signal passes its own geometry so the modal chart draws it.
+  // Dynamic strings share the data-i18n dictionary. The inline English stays
+  // as the never-blank fallback, so a missing key degrades to English rather
+  // than to an empty panel.
+  const T = (key, en) => {
+    try { return (window.RCI18N && RCI18N.translate(key, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+
   // _symSeq: monotonically increasing open token — a slow fetch from a
   // PREVIOUS symbol must never paint into the current modal (the container
   // ids are recreated identically on every open, so ids alone can't guard).
@@ -2902,7 +2910,7 @@
         <div class="stat"><div class="k">Sharpe</div><div class="v">${fmt(s.sharpe)}</div></div>
         <div class="stat"><div class="k">Trades</div><div class="v">${s.total_trades} <span class="muted small">(${s.wins}W/${s.losses}L)</span></div></div>
       </div>`;
-    }, { empty: { icon: 'icon-coin', text: 'No trading data yet — your stats build from the first closed trade.', cta: { label: 'Place a paper trade', href: '#trade' } } });
+    }, { empty: { icon: 'icon-coin', text: 'No trading data yet — your stats build from the first closed trade.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } } });
 
     renderPanel(C('curve'), async () => {
       const r = await fetchJSON('/api/trades/equity-curve');
@@ -3513,7 +3521,7 @@
               <button class="btn btn--sm ask-ai" type="button" title="Ask the AI analyst to post-mortem this trade" aria-label="Post-mortem ${esc(String(t.symbol).split('/')[0])} trade with the AI analyst" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}" data-pnl="${esc(String(t.pnl))}">Ask AI</button>
             </div></td>
           </tr>`).join('')}</tbody></table></div>`;
-    }, { empty: { icon: 'icon-coin', text: 'No closed trades yet — your history and journal live here.', cta: { label: 'Place a paper trade', href: '#trade' } } });
+    }, { empty: { icon: 'icon-coin', text: 'No closed trades yet — your history and journal live here.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } } });
 
     // Journal notes: save on change (PATCH, debounced by blur).
     onView('change', async (e) => {
@@ -5351,7 +5359,7 @@
       return `<div class="grid-cards" style="display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${cards}</div>
         ${note ? `<p class="muted small mt-3">${esc(note)}</p>` : ''}
         <p class="muted small mt-1">Every agent is one of the engine's real strategies, backtested on frozen, content-hashed benchmark data — percent/ratio only, never a dollar figure. Hit <b>Reproduce in Lab</b> to re-run the identical backtest yourself, or watch verified live ranks on the <a href="#leaderboard">leaderboard</a>.</p>`;
-    }, { errorText: 'The agent catalogue is unavailable right now.' });
+    }, { errorText: T('dd.err_agents', 'The agent catalogue is unavailable right now.') });
 
     // Live "would-take" picks for the agents this user follows. Paper-only: each
     // pick reuses the standard one-tap paper-trade prefill (data-ptrade) — the
@@ -5795,7 +5803,7 @@
           <span class="small muted" id="labMsg" aria-live="polite"></span>
         </div>
         <p class="muted small mt-2">Runs on frozen, content-hashed market data with the honest fee/fill model — the same engine used to validate the live strategy. It never touches the live account.</p>`;
-    }, { errorText: 'Strategy Lab unavailable.' });
+    }, { errorText: T('dd.err_lab', 'Strategy Lab unavailable.') });
 
     // Populate symbol chips when the dataset changes (data-driven from meta).
     const fillSyms = () => {
@@ -6076,7 +6084,7 @@
       return `<p class="muted small" style="margin-bottom:var(--s1)">${esc(L.period.start)} → ${esc(L.period.end)}</p>
         <p style="font-weight:600">${esc(L.headline)}</p>
         <button class="btn btn--sm mt-2" data-ask="this week's letter" type="button">✉️ Read it in chat</button>`;
-    }, { empty: { icon: 'icon-sparkle', text: 'The first letter writes itself after the first full week of recorded activity.' } });
+    }, { empty: { icon: 'icon-sparkle', text: T('dd.e_letter', 'The first letter writes itself after the first full week of recorded activity.') } });
 
     // ── What-if replay: the standard $1k all-time mirror ──
     renderPanel(C('hubreplay'), async () => {
