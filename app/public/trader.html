@@ -16,7 +16,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=19">
+<link rel="stylesheet" href="/styles.css?v=22">
 <style>
   .tc-wrap { max-width: 720px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -36,6 +36,23 @@
   .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); }
   .cta-row { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s4); }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+  /* Entrance: the card assembles itself instead of snapping into place. */
+  .rise { opacity: 0; transform: translateY(10px); animation: rise .5s cubic-bezier(.2,.7,.3,1) forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  .tr-row { transition: background .18s ease, transform .18s ease; }
+  .tr-row:hover { background: var(--surface-2); transform: translateX(2px); }
+  .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin: var(--s3) 0; }
+  .tchip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-data);
+           font-size: var(--fs-xs); padding: 4px 10px; border-radius: 999px;
+           border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); }
+  .tchip.gold { border-color: var(--gold-bright); color: var(--gold-bright); }
+  .next-up { border: 1px dashed var(--line-2); border-radius: var(--radius); padding: var(--s4);
+             color: var(--text-3); font-size: var(--fs-sm); line-height: 1.7; }
+  .next-up b { color: var(--text-2); }
+  @media (prefers-reduced-motion: reduce) {
+    .rise { opacity: 1; transform: none; animation: none; }
+    .tr-row:hover { transform: none; }
+  }
 </style>
 </head>
 <body>
@@ -66,6 +83,65 @@
   var cls = function (n) { return n > 0 ? 'up-c' : n < 0 ? 'down-c' : ''; };
   var f2 = function (n) { return Number(n || 0).toFixed(2); };
 
+  // The headline return counts up from zero — the one number people come for.
+  function countUp() {
+    var el = document.getElementById('retNum');
+    if (!el) return;
+    var to = Number(el.getAttribute('data-to')) || 0;
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var t0 = null, dur = 700;
+    function frame(ts) {
+      if (t0 === null) t0 = ts;
+      var k = Math.min(1, (ts - t0) / dur);
+      var v = to * (1 - Math.pow(1 - k, 3));      // ease-out
+      el.textContent = (to > 0 ? '+' : '') + f2(v) + '%';
+      if (k < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // Standing chips: where this trader sits on the PUBLIC boards right now.
+  // Both feeds are public and §4-safe (rank + percent + counts only). Each
+  // chip appears ONLY when the handle is genuinely on that board — a missing
+  // rank is left out rather than shown as a placeholder.
+  function loadStandings(handle) {
+    var box = document.getElementById('standings');
+    if (!box) return;
+    var chips = [];
+    var paint = function () {
+      box.innerHTML = chips.map(function (c, i) {
+        return '<span class="tchip ' + (c.cls || '') + ' rise" style="animation-delay:'
+          + (0.10 + i * 0.05).toFixed(2) + 's" title="' + esc(c.title || '') + '">' + c.text + '</span>';
+      }).join('');
+    };
+    fetch('/api/arena/leaderboard', { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.rows) return;
+        var me = d.rows.filter(function (x) { return x.handle === handle; })[0];
+        if (!me) return;
+        chips.push({ text: '🏆 #' + me.rank + ' of ' + d.rows.length, cls: me.rank <= 3 ? 'gold' : '',
+                     title: 'Rank on the all-time Arena board' });
+        if (me.sealed > 0) {
+          chips.push({ text: '🔏 ' + me.sealed + '/' + me.closes + ' receipt-backed', cls: 'gold',
+                       title: 'Closes sealed at open time — verifiable by anyone' });
+        }
+        paint();
+      })
+      .catch(function () { /* chips are a bonus read — silence is honest */ });
+    fetch('/api/arena/season', { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.season || d.season.status !== 'live' || !d.rows) return;
+        var me = d.rows.filter(function (x) { return x.handle === handle; })[0];
+        if (!me) return;
+        chips.push({ text: '🏁 #' + me.rank + ' · ' + esc(d.season.name),
+                     title: 'Standing in the live season' });
+        paint();
+      })
+      .catch(function () { /* no season, no chip */ });
+  }
+
   document.getElementById('copyLink').addEventListener('click', function () {
     var b = this;
     var done = function () { b.textContent = '✅ Copied'; };
@@ -82,16 +158,15 @@
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d) { root.innerHTML = '<div class="empty">No trader by that handle — the board awaits. <a href="/arena">Enter the Arena →</a></div>'; return; }
-      var html = '<div class="hd"><h1>' + esc(d.handle) + '</h1>'
-        + '<span class="ret ' + cls(d.return_pct) + '">' + (d.return_pct > 0 ? '+' : '') + f2(d.return_pct) + '%</span></div>'
-        + '<div class="meta">'
+      var html = '<div class="hd rise"><h1>' + esc(d.handle) + '</h1>'
+        + '<span class="ret ' + cls(d.return_pct) + '" id="retNum" data-to="' + d.return_pct + '">'
+        + (d.return_pct > 0 ? '+' : '') + f2(d.return_pct) + '%</span></div>'
+        + '<div id="standings" class="chip-row"></div>'
+        + '<div class="meta rise" style="animation-delay:.06s">'
         + (d.streak_days > 0 ? '<span>🔥 ' + d.streak_days + '-day streak</span>' : '')
         + '<span>' + d.closed_trades + ' closed</span>'
         + '<span>' + d.open_positions + ' open</span>'
         + (d.win_rate_pct != null ? '<span>' + f2(d.win_rate_pct) + '% win rate</span>' : '')
-        + (d.receipts && d.receipts.sealed > 0
-          ? '<span title="Trades sealed at open with a verifiable SHA-256 receipt — click any 🔏 below to check the math in your own browser">🔏 '
-            + d.receipts.sealed + '/' + d.receipts.total + ' receipt-backed</span>' : '')
         + '</div>';
       if ((d.badges || []).length) {
         html += '<div class="badges">' + d.badges.map(function (b) {
@@ -119,6 +194,9 @@
           + bars + '</svg>'
           + '<div class="rz" style="margin-top:2px">last ' + seq.length + ' closes · % on margin · oldest → newest</div></div>';
       }
+      // What this record WILL show — an empty card should teach, not
+      // apologise. Every line below is a fact we already hold (open count)
+      // or an honest description of what appears on the first close.
       html += (d.recent || []).length
         ? d.recent.map(function (t) {
             return '<div class="tr-row"><span>' + esc(t.symbol)
@@ -128,9 +206,23 @@
               + '<span class="rz">' + esc(t.reason) + '</span>'
               + '<span class="rz">' + (t.closed_at ? new Date(t.closed_at).toLocaleDateString() : '') + '</span></div>';
           }).join('')
-        : '<div class="empty">No closed trades yet — the record starts with the first close.</div>';
+        : '<div class="next-up rise" style="animation-delay:.16s">'
+            + (d.open_positions > 0
+                ? '<b>' + d.open_positions + ' position' + (d.open_positions === 1 ? '' : 's')
+                  + ' running right now.</b> The record starts the moment one closes.'
+                : '<b>No trades yet.</b> The record starts with the first close.')
+            + '<br>Then this card fills in: every close as <b>percent on margin</b>, '
+            + 'a form sparkline, win rate, streak and achievements — and a '
+            + '<b>🔏 receipt</b> per trade, sealed at the moment it was opened, '
+            + 'so anyone can check the call was made before the outcome was known.'
+            + '</div>';
       root.innerHTML = html;
-      document.title = d.handle + ' — RUNECLAW Arena trader';
+      // Keep the server-rendered title's information (it carries the return);
+      // overwriting it with a blander string lost that on every page load.
+      var _sign = d.return_pct > 0 ? '+' : '';
+      document.title = d.handle + ' — ' + _sign + f2(d.return_pct) + '% on the RUNECLAW Arena';
+      countUp();
+      loadStandings(d.handle);
     })
     .catch(function () { root.innerHTML = '<div class="empty">The card is unavailable right now — try again shortly.</div>'; });
 })();
