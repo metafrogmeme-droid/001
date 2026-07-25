@@ -141,6 +141,20 @@ test('wiring: the verify page replays proofs and links the roots feed', () => {
   assert.match(page, /ANCHOR MISMATCH/);
   assert.match(page, /\/api\/roots/);
   assert.match(page, /Daily seal roots \(live\)/);
+  assert.match(page, /href="\/roots"/);
   const server_ = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(server_, /app\.use\('\/api\/roots'/);
+});
+
+test('wiring: the human-readable /roots mirror page', () => {
+  const server_ = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server_, /app\.get\('\/roots'/);
+  const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'roots.html'), 'utf8');
+  assert.match(page, /Daily Seal Roots/);
+  assert.match(page, /fetch\('\/api\/roots'/);
+  assert.match(page, /data-root=/, 'click-to-copy carries the hash');
+  assert.match(page, /Honest ledgers start empty/, 'the empty state never invents a root');
+  assert.match(page, /promoted unchanged/, 'the construction is documented for mirrors');
+  const idx = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(idx, /href="\/roots">Seal Roots</, 'the front door links the trust surface');
 });

@@ -252,6 +252,8 @@ app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); r
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
 app.get('/call/:key', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'call.html')); });
+// The daily Merkle roots, human-readable — the page people mirror from.
+app.get('/roots', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'roots.html')); });
 app.get('/leaderboard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'leaderboard.html')); });
 // /arena — SSR unfurl: when a season exists, shared links carry its live
 // status ("RUNECLAW Arena · Genesis is LIVE"). §4: name + status + window

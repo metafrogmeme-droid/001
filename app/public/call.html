@@ -30,7 +30,7 @@
   <div id="out"><div class="verdict"><div class="big">Verifying…</div>Computing SHA-256 in your browser.</div></div>
   <div class="explain">
     <b>What this proves:</b> the call’s decision facts (symbol, direction, entry, stop, target, confidence, time — for Arena paper trades: symbol, direction, entry, leverage, exits, open time) hash to the seal shown — if any had been edited after sealing, the hash your browser computes would not match, and any difference between the sealed payload and the live record is flagged in red. Outcomes attach to the same sealed record later; losers can’t be deleted without leaving a hole in the stream.<br>
-    <b>Daily seal roots (live):</b> at the end of each UTC day, every seal minted that day is folded into one Merkle root, published at <a href="/api/roots">/api/roots</a>. A receipt from a completed day shows its proof above — replayed in your browser. Anyone can mirror the roots feed (a repo, a tweet, a chain memo); whoever holds a day’s root holds an independent timestamp for every call in it.<br>
+    <b>Daily seal roots (live):</b> at the end of each UTC day, every seal minted that day is folded into one Merkle root, published on the <a href="/roots">daily roots page</a> (raw feed: <a href="/api/roots">/api/roots</a>). A receipt from a completed day shows its proof above — replayed in your browser. Anyone can mirror the roots feed (a repo, a tweet, a chain memo); whoever holds a day’s root holds an independent timestamp for every call in it.<br>
     <b>What it doesn’t prove yet:</b> a day’s honesty to someone who mirrored nothing — until a third party holds the root, you’re trusting that the feed wasn’t rewritten wholesale. Mirroring solves that today; operator-published on-chain anchoring of the same roots is planned and will be stated here when live. Not investment advice.
   </div>
 </div>
@@ -68,7 +68,7 @@
         ? '<div class="big">🌳 Anchored in the ' + esc(d.anchor.day) + ' daily seal root</div>'
           + 'One of ' + (Number(d.anchor.seal_count) || 0) + ' seals folded into that day’s Merkle root — your browser just replayed the proof.'
           + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
-          + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror the roots feed at <a href="/api/roots">/api/roots</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
+          + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror it from the <a href="/roots">daily roots page</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
         : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
       out.appendChild(el);
     }).catch(function () { /* anchor stays un-rendered — the seal verdict above stands alone */ });

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Daily Seal Roots — RUNECLAW</title>
+<meta name="description" content="One Merkle root per day commits to every sealed trading call and paper trade. Mirror a root anywhere and you hold an independent timestamp.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=22">
+<style>
+  .roots-wrap { max-width: 760px; margin: 0 auto; padding: var(--s5) var(--s4); }
+  .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); }
+  .root-row { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3) var(--s4); margin-top: var(--s3); }
+  .root-row .hd { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; font-family: var(--font-data); }
+  .root-row .day { font-size: var(--fs-md); color: var(--gold-bright); }
+  .root-row .n { color: var(--text-3); font-size: var(--fs-xs); }
+  .root-hash { word-break: break-all; font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 8px; cursor: pointer; }
+  .root-hash.copied { border-color: var(--up); color: var(--up); }
+  .explain { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.65; border-top: 1px solid var(--line); margin-top: var(--s5); padding-top: var(--s3); }
+  .mirror-btn { margin-top: var(--s4); }
+</style>
+</head>
+<body>
+<div class="roots-wrap" role="main">
+  <nav class="topnav"><a href="/">← RUNECLAW</a><span style="flex:1"></span><a href="/proof">Proof of PnL</a><a href="/api/roots">Raw JSON feed</a></nav>
+  <h1 style="font-family:var(--font-display);letter-spacing:.03em">🌳 Daily Seal Roots</h1>
+  <p class="muted" style="font-size:var(--fs-sm);margin:6px 0 0">
+    Every trading call and Arena paper trade is <a href="/dashboard#signals">sealed the moment it's made</a>.
+    At the end of each UTC day, all of that day's seals fold into <b>one Merkle root</b> — the single hash below.
+    Copy a root anywhere you like (a tweet, a repo, a chain memo) and you hold an independent timestamp:
+    nothing can be back-inserted into a day you mirrored without changing its root.
+  </p>
+  <div id="rows"><div class="root-row"><span class="muted">Loading the roots feed…</span></div></div>
+  <div class="explain">
+    <b>Construction</b> (mirrorable, verify it yourself): leaves are the day's seals (SHA-256 hex),
+    deduped and sorted ascending; each parent is sha256 of the two child hex strings concatenated (UTF-8);
+    an unpaired node is promoted unchanged; a single leaf is its own root. Every <a href="/dashboard#signals">receipt</a>
+    from a completed day replays its membership proof up to the day root <i>in your browser</i> on its verify page.<br>
+    <b>What mirroring proves:</b> once a third party holds a day's root, that day's set of calls is frozen —
+    the platform can't rewrite it without the mismatch showing. Roots for days with zero seals are omitted,
+    never invented, and today's root is never published early. Not investment advice.
+  </div>
+</div>
+<script>
+(function () {
+  var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+  var box = document.getElementById('rows');
+  fetch('/api/roots', { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      var roots = (d && d.roots) || [];
+      if (!roots.length) {
+        box.innerHTML = '<div class="root-row"><span class="muted">No completed day has sealed calls yet — the first root appears the day after the first seals are minted. Honest ledgers start empty.</span></div>';
+        return;
+      }
+      box.innerHTML = roots.map(function (r) {
+        return '<div class="root-row">'
+          + '<div class="hd"><span class="day">' + esc(r.day) + '</span>'
+          + '<span class="n">' + (Number(r.seal_count) || 0) + ' seals committed</span></div>'
+          + '<div class="root-hash" data-root="' + esc(r.root) + '" title="Click to copy" role="button" tabindex="0">' + esc(r.root) + '</div>'
+          + '</div>';
+      }).join('');
+    })
+    .catch(function () {
+      box.innerHTML = '<div class="root-row"><span class="muted">The roots feed is unavailable right now — try again shortly.</span></div>';
+    });
+  // Click (or Enter) to copy a root — the whole point is taking it elsewhere.
+  document.addEventListener('click', copyRoot);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Enter') copyRoot(e); });
+  function copyRoot(e) {
+    var el = e.target.closest && e.target.closest('[data-root]');
+    if (!el || !navigator.clipboard) return;
+    navigator.clipboard.writeText(el.getAttribute('data-root')).then(function () {
+      el.classList.add('copied');
+      setTimeout(function () { el.classList.remove('copied'); }, 1200);
+    }).catch(function () { /* selection still works manually */ });
+  }
+})();
+</script>
+</body>
+</html>
