@@ -393,6 +393,7 @@ const SWEPT_PAGES = {
   'arena.html': ['← RUNECLAW'],
   'index.html': ['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe'],
   'guardian.html': ['← RUNECLAW', 'RUNECLAW Guardian'],
+  'developers.html': ['← RUNECLAW'],
 };
 
 function untranslatedIn(file) {
@@ -447,5 +448,39 @@ test('every swept page actually loads the localizer', () => {
   for (const page of Object.keys(SWEPT_PAGES)) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'public', page), 'utf8');
     assert.match(src, /<script src="\/js\/i18n\.js\?v=\d+"><\/script>/, `${page} does not load i18n.js`);
+  }
+});
+
+test('the developer page never translates an identifier', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // Endpoint paths, HTTP verbs, hash names and ERC numbers are identifiers.
+  // A "translated" endpoint is a broken integration doc, so every locale must
+  // carry them byte-identically.
+  const literals = {
+    'dv.mcp_p': ['<code>POST /mcp</code>'],
+    'dv.mcp_note': ['JSON-RPC 2.0', '2025-03-26', '<code>readOnlyHint</code>'],
+    'dv.tools_sub': ['<code>tools/list</code>'],
+    'dv.ethos_p': ['<code>publish_hash = SHA-256(canonical)</code>', 'UTF-8'],
+    'dv.reg_p': ['ERC-8257', 'ERC-8004', 'Base'],
+  };
+  for (const [k, needles] of Object.entries(literals)) {
+    for (const c of codes) {
+      const v = i18n.STRINGS[k][c];
+      assert.ok(v, `${k} is missing ${c}`);
+      for (const n of needles) assert.ok(v.includes(n), `${k}:${c} lost the identifier "${n}"`);
+    }
+  }
+  // The two docs links must survive translation or the go-live notes are lost.
+  for (const c of codes) {
+    assert.match(i18n.STRINGS['dv.footer_p'][c], /docs\/ONCHAIN_GOLIVE\.md<\/a>/, `dv.footer_p:${c}`);
+    assert.match(i18n.STRINGS['dv.footer_p'][c], /docs\/INTEROP\.md<\/a>/, `dv.footer_p:${c}`);
+  }
+  // §4: these two endpoint descriptions ARE the honesty guarantee of the API.
+  // A translation that drops the clause misdescribes what the endpoint returns.
+  for (const c of codes) {
+    assert.ok(/dollar|dólar|dolar|金額|금액|долл|Dollar|مبالغ/i.test(i18n.STRINGS['dv.r2'][c]),
+      `dv.r2:${c} dropped the "never dollar amounts" guarantee`);
+    assert.ok(/percent|porcent|百分比|pourcent|Prozent|procent|パーセント|퍼센트|процент|yüzde|النسب/i.test(i18n.STRINGS['dv.r4'][c]),
+      `dv.r4:${c} dropped the "percent-only" guarantee`);
   }
 });
