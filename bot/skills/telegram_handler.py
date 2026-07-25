@@ -2307,11 +2307,15 @@ class TelegramHandler:
             from bot.skills.command_catalog import render_group, render_help
             _admin = self._is_admin(update)
             _arg = (ctx.args or [None])[0]
+            # The bot speaks en/zh — an English-only reference would hand a
+            # Chinese user a wall of 125 English lines. Untranslated entries
+            # fall back to English per item, so coverage gaps stay readable.
+            _hl = lang if lang in ("en", "zh") else "en"
             if _arg:
                 # "/help trading" — one section instead of the whole wall.
-                await self._send(update, render_group(_arg, is_admin=_admin))
+                await self._send(update, render_group(_arg, is_admin=_admin, lang=_hl))
             else:
-                for chunk in render_help(is_admin=_admin):
+                for chunk in render_help(is_admin=_admin, lang=_hl):
                     await self._send(update, chunk)
         except Exception:
             system_log.debug("grouped help render failed", exc_info=True)

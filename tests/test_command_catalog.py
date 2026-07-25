@@ -66,7 +66,7 @@ def test_help_fits_telegram_and_never_tears_a_group_in_half():
 
 def test_help_actually_sends_the_catalogue():
     assert "from bot.skills.command_catalog import render_group, render_help" in _SRC
-    assert "render_help(is_admin=_admin)" in _SRC
+    assert "render_help(is_admin=_admin, lang=_hl)" in _SRC
 
 
 # ── "/help <group>" and the refusal message ───────────────────────────────
@@ -107,4 +107,38 @@ def test_the_refusal_explains_itself_and_points_somewhere():
 
 
 def test_help_accepts_an_argument():
-    assert "render_group(_arg, is_admin=_admin)" in _SRC
+    assert "render_group(_arg, is_admin=_admin, lang=_hl)" in _SRC
+
+
+# ── Chinese coverage ──────────────────────────────────────────────────────
+# The bot speaks en/zh. Shipping an English-only reference for 125 commands
+# would have handed Chinese users a bigger wall than the one being fixed.
+
+def test_every_command_has_a_chinese_description():
+    from bot.skills.command_catalog import DESC_ZH, GROUPS, GROUP_TITLES_ZH, all_entries
+    cmds = set(all_entries())
+    assert not (cmds - set(DESC_ZH)), f"no zh description: {sorted(cmds - set(DESC_ZH))}"
+    assert not (set(DESC_ZH) - cmds), f"zh description for a dead command: {sorted(set(DESC_ZH) - cmds)}"
+    for title, _, _ in GROUPS:
+        assert title in GROUP_TITLES_ZH, f"group {title} has no zh title"
+    # A zh description must not be the English one copied over.
+    from bot.skills.command_catalog import all_entries as ae
+    for name, (_, _, en_desc) in ae().items():
+        assert DESC_ZH[name] != en_desc, f"/{name} zh is just the English string"
+
+
+def test_rendering_localises_and_falls_back_per_item():
+    from bot.skills.command_catalog import render_group, render_help
+    zh = render_help(lang="zh")[0]
+    assert "從這裡開始" in zh and "註冊並查看目前狀態" in zh
+    # English remains the default and is unaffected.
+    assert "Start here" in render_help()[0]
+    # Section deep-dives localise too, including the group title.
+    assert "📈 交易" in render_group("trading", lang="zh")
+    # An unknown language degrades to English rather than blanking.
+    assert "Start here" in render_help(lang="fr")[0]
+
+
+def test_help_passes_the_callers_language():
+    assert 'lang=_hl' in _SRC
+    assert '_hl = lang if lang in ("en", "zh") else "en"' in _SRC

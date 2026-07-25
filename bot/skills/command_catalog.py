@@ -192,7 +192,19 @@ def help_sections(is_admin: bool = False) -> List[Tuple[str, List[Tuple[str, str
             if is_admin or audience == "user"]
 
 
-def render_help(is_admin: bool = False, *, per_message: int = 3400) -> List[str]:
+def _localize(title: str, name: str, desc: str, lang: str) -> Tuple[str, str]:
+    """(title, description) in `lang`, falling back to English per-item.
+
+    Partial coverage is safe by construction: an untranslated command shows
+    its English description rather than a blank line.
+    """
+    if lang == "zh":
+        return GROUP_TITLES_ZH.get(title, title), DESC_ZH.get(name, desc)
+    return title, desc
+
+
+def render_help(is_admin: bool = False, *, per_message: int = 3400,
+                lang: str = "en") -> List[str]:
     """Render /help as one or more Telegram-sized HTML messages.
 
     Telegram hard-caps a message at 4096 characters and the full operator
@@ -202,8 +214,10 @@ def render_help(is_admin: bool = False, *, per_message: int = 3400) -> List[str]
     chunks: List[str] = []
     buf = ""
     for title, entries in help_sections(is_admin):
-        block = f"\n<b>{title}</b>\n" + "\n".join(
-            f"  /{name} — {desc}" for name, desc in entries) + "\n"
+        shown_title = _localize(title, "", "", lang)[0]
+        block = f"\n<b>{shown_title}</b>\n" + "\n".join(
+            f"  /{name} — {_localize(title, name, desc, lang)[1]}"
+            for name, desc in entries) + "\n"
         if buf and len(buf) + len(block) > per_message:
             chunks.append(buf.rstrip())
             buf = ""
@@ -240,7 +254,7 @@ GROUP_KEYS: Dict[str, str] = {
 }
 
 
-def render_group(keyword: str, is_admin: bool = False) -> str:
+def render_group(keyword: str, is_admin: bool = False, lang: str = "en") -> str:
     """One group's commands, or an honest miss listing what CAN be asked for.
 
     Never silently returns nothing: an unrecognised keyword — or an operator
@@ -251,10 +265,86 @@ def render_group(keyword: str, is_admin: bool = False) -> str:
     title = GROUP_KEYS.get(key)
     visible = dict(help_sections(is_admin))
     if title and title in visible:
-        body = "\n".join(f"  /{n} — {d}" for n, d in visible[title])
-        return f"<b>{title}</b>\n{body}"
+        body = "\n".join(f"  /{n} — {_localize(title, n, d, lang)[1]}"
+                         for n, d in visible[title])
+        return f"<b>{_localize(title, '', '', lang)[0]}</b>\n{body}"
     offer = ", ".join(sorted({
         k for k, v in GROUP_KEYS.items() if v in visible
     }))
     head = (f"No <b>{key}</b> section." if key else "Which section?")
     return f"{head}\nTry: {offer}\n\nOr /help for everything."
+
+
+# ── Traditional Chinese ───────────────────────────────────────────────────
+# The bot speaks en/zh, so an English-only /help would have handed Chinese
+# users a wall of 125 English lines — a regression dressed as a feature.
+# Group titles and descriptions are translated here; anything missing falls
+# back to English rather than rendering blank, so partial coverage is safe.
+GROUP_TITLES_ZH: Dict[str, str] = {
+    "🚀 Start here": "🚀 從這裡開始",
+    "📈 Trading": "📈 交易",
+    "🔎 Scan & analyse": "🔎 掃描與分析",
+    "🌍 Market context": "🌍 市場背景",
+    "💼 Portfolio & record": "💼 投資組合與紀錄",
+    "🔔 Alerts & notes": "🔔 提醒與筆記",
+    "🧪 Research & tuning": "🧪 研究與調校",
+    "🛡 Guardian (operator)": "🛡 Guardian（操作員）",
+    "🚦 Engine ops (operator)": "🚦 引擎營運（操作員）",
+    "👥 Users & access (operator)": "👥 使用者與權限（操作員）",
+    "🧠 LLM & yield (operator)": "🧠 LLM 與收益（操作員）",
+}
+
+DESC_ZH: Dict[str, str] = {
+    "start": "註冊並查看目前狀態", "help": "本指令總覽", "dashboard": "開啟網頁儀表板",
+    "connect": "連結你自己的交易所帳戶", "exchange": "你的帳戶連結狀態（永不顯示金鑰）",
+    "disconnect": "移除已連結的憑證", "lang": "切換語言", "version": "機器人版本與模式",
+    "health": "系統健康狀態", "status": "引擎目前狀態",
+    "trade": "下單 — /trade buy SOL 71.42 sl 70.05 tp 76.42", "paper": "用虛擬資金無風險練習",
+    "golive": "啟用實盤交易（需二次確認）", "open_positions": "你的持倉",
+    "livepositions": "交易所實盤持倉與掛單", "orders": "你的掛單",
+    "liveclose": "平掉一筆實盤持倉 — /liveclose <id>", "latest_signal": "待處理訊號與操作按鈕",
+    "autoconfirm": "查看或設定自動確認門檻", "emergency_stop": "緊急停止（會先確認）",
+    "pause": "暫停交易（啟動熔斷）", "resume": "恢復交易", "halt": "停止引擎",
+    "reset": "重設熔斷器", "buy": "舊指令 — 請用 /trade buy", "sell": "舊指令 — 請用 /trade sell",
+    "scan": "掃描市場尋找機會", "fullscan": "完整 67 檔掃描", "deepscan": "含形態的深度掃描",
+    "forcescan": "立即掃描，略過冷卻", "analyze": "深入分析單一幣種 — /analyze SOL",
+    "alpha": "每日 alpha 洞察卡", "research": "附出處的研究報告", "whynot": "為何某筆交易被拒",
+    "patterns": "引擎看到的圖表形態", "squeeze": "波動壓縮狀態", "sweep": "流動性掃蕩偵測",
+    "zones": "供需區", "momentum": "動能掃描", "dip": "回調掃描", "scalp": "5 分鐘短打掃描",
+    "intraday": "15 分鐘日內掃描", "swing": "4 小時波段掃描", "stockscan": "美股代幣化永續",
+    "mode": "切換範圍 — solana / all / stocks", "session": "目前交易時段與風險設定",
+    "macro": "宏觀背景與下一個重大事件", "news": "頭條雷達與持倉提醒",
+    "funding": "跨交易所即時資金費率", "fundingscan": "年化資金費率，多交易所",
+    "arb": "資金費率套利模擬追蹤", "rwa": "代幣化實體資產雷達", "crossasset": "跨資產相關性背景",
+    "portfolio": "權益、持倉與勝率", "performance": "你的損益與交易統計",
+    "networth": "跨平台淨資產快照", "exposure": "各資產淨曝險", "risk": "風險狀態與熔斷器",
+    "signals": "各交易對訊號統計", "rejected": "被風控攔下的訊號", "journal": "每週交易日誌",
+    "daily_report": "每日交易報告", "classpf": "依資產類別的績效", "holdtime": "持倉時間分析",
+    "equitycurve": "權益曲線熔斷狀態", "costs": "交易成本明細",
+    "watch": "為此對話開啟主動提醒", "share": "儲存一則代理可參考的筆記",
+    "mynotes": "你分享過的筆記", "agent": "用白話說明你的代理狀態",
+    "backtest": "執行回測", "walkforward": "前進式驗證", "montecarlo": "蒙地卡羅風險模擬",
+    "calibration": "學習疊加與校準", "learn": "引擎學到了什麼", "optimize": "參數最佳化",
+    "proposals": "待處理的調校提案", "strategy": "當前策略與市況路由",
+    "playbook": "完整系統戰術簡報", "run": "執行指定策略預設",
+    "guardian": "Guardian 主控台", "twin": "投資組合數位孿生 — 壓力測試",
+    "sentinel": "系統性風險哨兵", "escape": "緊急退場計畫（唯讀）",
+    "policy": "意圖編譯器 — 授權範圍", "anchor": "ERC-8004 身分錨定",
+    "vault": "機密保護狀態（僅名稱）", "backup": "關鍵狀態的可驗證備份",
+    "readiness": "學習迴路是否已驗證到可套用",
+    "gates": "各關卡通過/失敗遙測", "flags": "深度稽核選用旗標", "shadow": "反事實影子帳本",
+    "audit": "每夜自我稽核報告", "parity": "實盤 ↔ 回測一致性", "attribution": "哪些指標帶來獲利",
+    "slippage": "滑價統計", "accounts": "各帳戶風險快照", "closeall": "平掉所有持倉",
+    "drawdownlimit": "覆寫回撤上限", "leverage": "標準槓桿", "venue": "顯示或切換交易場所",
+    "livebalance": "交易所實際餘額",
+    "users": "列出已註冊使用者", "approve": "核准使用者", "revoke": "撤銷使用者",
+    "grant_live": "允許使用者實盤交易", "revoke_live": "限制使用者僅可模擬",
+    "set_tier": "變更使用者等級", "setcap": "限制使用者保證金", "weblive": "網頁實盤就緒狀態",
+    "broadcast": "發送訊息到所有行銷頻道", "channel": "管理頻道自動發文",
+    "llmstatus": "目前 LLM 供應商與金鑰指紋", "llmtiers": "多層路由設定",
+    "llmab": "LLM 影子 A/B 報告", "llmreset": "還原為 .env 的 LLM 設定",
+    "setllm": "執行時切換 LLM 供應商", "settier": "各層級 LLM 路由", "ultra": "ULTRA 管理路由",
+    "setexchange": "修復交易所憑證", "setgateway": "修復網頁閘道密鑰",
+    "yield": "閒置資產收益雷達（唯讀）", "idleyield": "跨來源最佳利率掃描",
+    "stake": "將閒置穩定幣投入活期 Earn", "unstake": "將 Earn 贖回為交易保證金",
+}
