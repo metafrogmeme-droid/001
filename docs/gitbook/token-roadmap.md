@@ -67,16 +67,18 @@ then linear over 2 months.
 
 ## Presale (proposed)
 
-- Soft cap **1,000 SOL** / hard cap **5,000 SOL** (refund if soft cap missed).
+- Soft cap **1,000 SOL** / hard cap **5,000 SOL**. The soft cap is enforced
+  **operationally** — a Metaplex Genesis fixed-price presale has no native soft-cap/refund
+  field, so the cancel-and-refund path is published before the sale rather than assumed.
 - Min **0.25 SOL** / max **25 SOL** per wallet (anti-whale).
 - Whitelist round (48h) → public round (72h or until cap).
-- **60% of raised SOL → DEX liquidity**; LP burned/locked ≥ 12 months.
+- **60% of raised SOL → DEX liquidity**; LP **permanently locked** (never-claim).
 
 ## Launch venue
 
 | Venue | Fit for a vesting utility token |
 |---|---|
-| **Metaplex Genesis** | **Best** — on-chain, trustless, audit-aligned → **recommended primary** |
+| **Metaplex Genesis** | **Best** — on-chain, trustless, audit-aligned → **chosen; integrated in draft (devnet)** |
 | **Smithii Launchpad** | Good — no-code, ~0.1 SOL + % → **fallback** |
 | **Pump.fun / LetsBonk** | Poor — no caps/whitelist/vesting → **not for the raise** |
 

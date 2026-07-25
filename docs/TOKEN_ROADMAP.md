@@ -13,6 +13,21 @@
 > **Ticker note.** This document standardizes on **`$RCLAW`**. It supersedes the earlier
 > `$CLAW` placeholder used in [`ROADMAP.md`](./ROADMAP.md); treat `$CLAW` as a legacy alias.
 
+> **Implementation status — devnet draft, nothing launched.** Parts of this plan now exist as
+> code in [`token/`](../token/), which changes what is *decided* versus *proposed*:
+>
+> - **Mint tooling** ([`token/README.md`](../token/README.md)) creates the Token-2022 mint,
+>   mints the fixed supply and revokes mint + freeze authority, then verifies all of it. It
+>   **refuses to run against mainnet**.
+> - **Presale integration** against `@metaplex-foundation/genesis`
+>   ([`token/presale/`](../token/presale/)) implements `plan | create | deposit | claim`,
+>   driven entirely by `metaplex-genesis.config.json`. Also devnet-only.
+> - Building it settled two things this document previously left open (§13) and **disproved
+>   one assumption** about soft caps (§5).
+>
+> No token exists. No sale has run. Legal review and the audit in §10–§11 still gate
+> everything, and every number below remains a baseline to ratify.
+
 ---
 
 ## Contents
@@ -158,8 +173,15 @@ round at this level. At an assumed SOL reference price, this implies a small, tr
 initial FDV — publish the exact SOL→USD assumption and resulting FDV alongside the sale so
 buyers see it up front.
 
-**If the soft cap is not met**, the sale is cancelled and contributions are **refundable** —
-a hard requirement of whichever venue is chosen (see §6).
+**If the soft cap is not met**, the sale is cancelled and contributions are **refundable**.
+
+> **Correction (from building it).** This was written as *"a hard requirement of whichever
+> venue is chosen"* — an assumption that did not survive contact with the SDK. A Metaplex
+> Genesis fixed-price presale is *"buy at a fixed price until the cap"*: `allocationQuoteTokenCap`
+> is the **hard** cap, and there is **no native soft-cap or refund field**. A soft cap must
+> therefore be enforced **operationally** (a published cancel-and-refund path) or via a
+> min-raise extension, and the chosen mechanism must be settled and disclosed *before* the
+> sale opens — not assumed. Tracked in §13.
 
 **Liquidity split of raised SOL:** **60% → DEX liquidity pool** (paired with the 100M
 liquidity allocation), remainder to audit, operations, and treasury. Exact split ratified in
@@ -181,7 +203,12 @@ liquidity allocation), remainder to audit, operations, and treasury. Exact split
 | Dump risk | Controlled via vesting | Controlled via vesting | **High** (no vesting/caps) |
 | Fit for a **vesting utility token** | Good | **Best** | Poor |
 
-**Recommendation: Metaplex Genesis as the primary presale venue.** Its on-chain, trustless
+**Decided: Metaplex Genesis, and now integrated in draft.** The recommendation below has
+been acted on — `token/presale/` drives a real Genesis presale (`initializeV2`,
+`addPresaleBucketV2`, `depositPresaleV2`, `claimPresaleV2`) from config, on devnet, refusing
+mainnet. Smithii remains the documented fallback but is no longer the expected path.
+
+**Why Metaplex Genesis is the primary presale venue.** Its on-chain, trustless
 fixed-price presale and TGE tooling is the **best aligned with RUNECLAW's Guardrails** —
 *"proof over promises,"* non-custodial, and verifiable on-chain — which is exactly the posture
 the rest of the platform already takes (non-custodial keys, on-chain-anchored track record).
@@ -206,8 +233,11 @@ experiment) — **never** the utility-token TGE.
   every Solana aggregator picks it up.
 - **Depth:** 100,000,000 `$RCLAW` (the 10% liquidity allocation) paired with 60% of raised SOL
   (§5). Worked FDV/price example carries over from §4–§5.
-- **LP safety:** LP tokens **burned or locked for at least 12 months** — no silent liquidity
-  pull. Lock proof published at TGE.
+- **LP safety:** LP **permanently locked** — the Genesis path adds the pool via
+  `addRaydiumCpmmBucketV2` with `createNeverClaimSchedule()`, so the LP position can never be
+  claimed at all. This supersedes the earlier *"burned or locked for at least 12 months"*
+  baseline: a permanent never-claim lock is strictly stronger than a 12-month one. Lock proof
+  published at TGE.
 - **Market making:** the 8% partnerships/MM bucket funds a market maker to keep spreads tight
   in the first weeks; terms deal-by-deal (§4).
 - **CEX path:** Bitget and other CEX listings are a **Phase 5** item (§8), gated on volume,
@@ -226,6 +256,9 @@ Clear the existing Guardrails gate before anything is minted.
 - Tokenomics (§4) and presale params (§5) finalized with MM input.
 - **Smart-contract / presale audit** commissioned.
 - Non-custodial architecture confirmed; plain risk disclosures drafted.
+- *Done (draft):* devnet mint + presale tooling built and dry-run offline
+  ([`token/`](../token/)) — this de-risks Phase 1 but does **not** satisfy any Phase 0 exit
+  criterion, all of which are legal/audit gates.
 - **Exit:** legal green-light + audit engaged + disclosures published.
 
 ### Phase 1 — Pre-launch
@@ -233,7 +266,11 @@ Clear the existing Guardrails gate before anything is minted.
 - Stand up **Squads multisig** treasury + time-lock.
 - Whitelist & community campaign; MM engagement; venue (Metaplex Genesis) setup.
 - Publish audit report and LP-lock plan.
-- **Exit:** audit passed, authorities revoked on-chain, whitelist filled, venue configured.
+- *Draft exists:* the mint and presale steps are scripted end-to-end on devnet, and the
+  whitelist is a Merkle allowlist (`presale:whitelist` → root applied at `presale:create`,
+  proofs presented automatically during the whitelist window).
+- **Exit:** audit passed, authorities revoked **on mainnet**, whitelist filled, venue
+  configured. Nothing on devnet counts toward this.
 
 ### Phase 2 — Presale & TGE
 - Whitelist Round 1 → Public Round 2 → finalize (refund if soft cap missed).
@@ -329,7 +366,7 @@ and the BUSL-1.1 license.
 
 - [ ] **Mint authority revoked** after full supply minted (supply can never grow).
 - [ ] **Freeze authority revoked** (no wallet freezes; credibly neutral).
-- [ ] **LP burned or locked ≥ 12 months**, with public proof.
+- [ ] **LP permanently locked** (never-claim) or burned, with public proof.
 - [ ] **Squads multisig** treasury + **time-lock** on privileged actions; no single signer.
 - [ ] **Independent audit** of the presale/vesting contracts (and any custom program) before
       the sale; report published.
@@ -365,11 +402,23 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Total supply & decimals** (1B / 9 assumed).
 - **Allocation percentages and all vesting schedules** (§4).
 - **Soft/hard caps, min/max contribution, round durations, presale price** (§5).
-- **Liquidity split of raised SOL** (60% assumed) and **LP lock vs burn**.
-- **Primary venue** (Metaplex Genesis recommended; Smithii fallback).
+- **Liquidity split of raised SOL** (60% assumed). ~~LP lock vs burn~~ — **settled:**
+  permanent never-claim lock (§7).
+- ~~**Primary venue**~~ — **settled:** Metaplex Genesis, integrated in draft (§6). Smithii
+  remains a documented fallback only.
 - **Jurisdiction exclusions and KYC threshold** (counsel-driven).
 - **SOL→USD reference** used for any published FDV/price.
 - **Wormhole bridge timing** and whether Base settlement is in scope for v1 (§9).
+
+**Opened by building the integration — these did not exist as questions before:**
+
+- **Soft-cap enforcement mechanism.** Genesis has no native soft-cap/refund (§5). Choose an
+  operational cancel-and-refund path or a min-raise extension, and disclose it before the sale.
+- **Presale funding mode** — `mint` (Genesis initializes and mints the supply itself) vs
+  `transfer` (pre-mint with `token/` tooling and transfer from the treasury ATA). The config
+  defaults to `mint` for a self-contained devnet demo; a real launch that pre-mints and
+  verifies authorities first probably wants `transfer`. The on-chain numeric values must be
+  confirmed against the Genesis program before mainnet.
 
 Once ratified, mirror the final numbers back into [`ROADMAP.md`](./ROADMAP.md) and the
 condensed [GitBook page](./gitbook/token-roadmap.md) so the repo stays consistent.
