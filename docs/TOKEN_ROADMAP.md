@@ -339,9 +339,13 @@ These are **draft, devnet, feature-flagged** starting points — not a launch:
 - `programs/rclaw_staking/` — **Anchor (Rust) staking program** (devnet/draft): `stake` /
   `unstake` with a per-user, **per-mint** `StakeAccount` PDA (`["stake", owner, mint]`) and a
   **mint-scoped** vault authority (`["vault", mint]`). Token-2022 aware (`transfer_checked`).
-  Non-custodial (users can unstake at any time). ⚠️ **Unaudited, and an earlier revision
-  shipped a critical vault-drain bug** (no mint binding) that an adversarial review caught —
-  fixed, but **do not deploy** anywhere holding value until audited. See
+  Non-custodial (users can unstake at any time). The mint-confusion fix is **executed and
+  proven**, not merely reasoned about: `tests/attack.rs` runs the real program in-process
+  (`solana-program-test`) and the vault-drain attack is rejected with `ConstraintSeeds`
+  while the honest vault balance is asserted unchanged (4 tests pass). ⚠️ **Still unaudited,
+  and an earlier revision shipped that critical vault-drain bug** — in-process execution is
+  not an audit and does not cover the SBF runtime or devnet, so **do not deploy** anywhere
+  holding value until audited. See
   [`programs/rclaw_staking/README.md`](../programs/rclaw_staking/README.md). The repo's first
   Rust code — root `Cargo.toml` workspace + `Anchor.toml`.
 - `app/lib/solana_verify.js` + `app/public/js/solana_wallet.js` — the wallet connect-and-sign flow.

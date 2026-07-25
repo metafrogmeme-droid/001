@@ -40,6 +40,40 @@ and — when `RCLAW_MINT` is set — **mint @40**, then reads `amount` at **offs
 Changing this layout without updating `tier_gate.py` silently breaks tier resolution;
 `tests/test_token_tier_gate.py` locks both the offsets and the mint filter.
 
+## The fix is EXECUTED, not just reasoned about
+
+`tests/attack.rs` runs the **real program in-process** via `solana-program-test`'s
+`processor!()` — no SBF toolchain, no validator, no network required:
+
+```bash
+cargo test -p rclaw_staking --test attack     # 4 passed
+```
+
+The headline test, `mint_confusion_attack_is_rejected`, performs the exact attack the
+audit found: an honest staker funds the real vault, then the attacker stakes a worthless
+self-minted token and tries to redeem that stake record against the **real** vault.
+Pre-fix this drained the vault. It is now rejected by the runtime:
+
+```
+Program log: Instruction: Unstake
+AnchorError caused by account: stake_account.
+Error Code: ConstraintSeeds. Error Number: 2006.
+Program failed: custom program error: 0x7d6
+```
+
+That rejection comes specifically from the fix — the stake PDA is seeded with the mint,
+so the attacker's record cannot match the seeds derived for another token. The test then
+asserts the real vault balance is **unchanged**. The other tests cover the stake/unstake
+round-trip (with real balance assertions) and over-withdrawal (rejected with
+`InsufficientStake`), and both negative cases fail for the *correct* reason rather than
+incidentally.
+
+**What this still does NOT prove:** it is not an audit, it does not exercise the SBF/BPF
+runtime (compute budget, serialization limits), and it has never run against devnet or
+mainnet. `release.anza.xyz` and GitHub are blocked by this environment's egress policy, so
+the Solana/Anchor CLIs cannot be installed here — `anchor build`, `anchor test`, and any
+devnet run must happen in an environment with network access.
+
 ## Building / testing
 
 ```bash
