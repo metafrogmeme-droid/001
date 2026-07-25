@@ -397,6 +397,7 @@ const SWEPT_PAGES = {
   'stress.html': ['← RUNECLAW'],
   'provable.html': ['← RUNECLAW'],
   'escape.html': ['← RUNECLAW'],
+  'leaderboard.html': ['← RUNECLAW', 'Sharpe'],
 };
 
 function untranslatedInSource(src, allowList) {
@@ -601,4 +602,41 @@ test('the Escape Agent never claims to act, in any language', () => {
     assert.ok((lede.match(/<b>/g) || []).length >= 3, `es.lede:${c} lost emphasis`);
     assert.match(disc, /<b>/, `es.disc:${c} lost emphasis`);
   }
+});
+
+test('the public board never promises a dollar figure, in any language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // §4 lives on this surface more directly than anywhere else: the board is
+  // public, and lb.lede is what tells a reader what it will and will not show.
+  for (const c of codes) {
+    const lede = i18n.STRINGS['lb.lede'][c];
+    assert.ok(lede, `lb.lede missing ${c}`);
+    // "never a dollar figure" — the promise itself
+    assert.ok(/dollar|dólar|dolar|Dollar|金額|금액|долл|مبلغ بالدولار/i.test(lede),
+      `lb.lede:${c} dropped the "never a dollar figure" promise`);
+    // anonymous handles, and the publish_hash that makes a row checkable
+    // Diacritics are stripped before matching: an ASCII stem can never match
+    // Spanish "anónimos" or Portuguese "anónimos", and listing every accented
+    // spelling by hand is how this assertion quietly rots.
+    // NFC again afterwards: NFD also decomposes Hangul into jamo, which would
+    // break the Korean match this line exists to make.
+    const plain = lede.normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+    assert.ok(/anon|匿名|익명|анонимн|مستعار/i.test(plain), `lb.lede:${c} lost "anonymous handles"`);
+    assert.ok(lede.includes('<code>publish_hash</code>'), `lb.lede:${c} lost the publish_hash literal`);
+    assert.match(lede, /href="\/proof"/, `lb.lede:${c} lost the verify-the-fills link`);
+    assert.ok((lede.match(/<b>/g) || []).length >= 3, `lb.lede:${c} lost emphasis`);
+  }
+  // Opt-in and revocable is a consent statement, not decoration.
+  for (const c of codes) {
+    // Same diacritic-insensitive treatment as above (Turkish gönüllü, etc).
+    const note = i18n.STRINGS['lb.note'][c].normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+    assert.ok(/opt|volunt|volont|任意|自願|자발|доброволь|gonull|vrijwillig|freiwillig|opcional|اختياري/i.test(note),
+      `lb.note:${c} dropped the opt-in/revocable statement`);
+  }
+  // And the rendered page must actually carry no dollar sign in its markup.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'leaderboard.html'), 'utf8');
+  const body = html.slice(0, html.indexOf('<script'));
+  assert.ok(!/\$\s?\d/.test(body), 'a dollar figure appeared in the board markup');
 });
