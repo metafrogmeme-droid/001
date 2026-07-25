@@ -86,9 +86,9 @@ def test_scan_message_points_at_verification_without_faking_a_link():
     assert "/provable" in src and "/dashboard#signals" in src
     # The footer only appears when there ARE setups — never on an empty scan.
     assert "if setup_lines:" in src
-    # Guard the honesty rule itself: no per-setup /call/ link is built in the
-    # message path (only the website, which knows the real keys, may do that).
-    assert "/call/" not in src, "the scan message must not mint verify links"
+    # Per-call links are allowed ONLY because they are derived from the payload
+    # that actually gets pushed (see the link tests below) — never guessed.
+    assert "_scan_verify_links(_scan_payload)" in src
 
 
 def _scan_result(price=60000.0, atr=500.0, direction="LONG"):
@@ -130,3 +130,45 @@ def test_the_stream_row_carries_that_same_entry_into_the_seal():
     assert rows, "a scoring setup should produce a stream row"
     assert rows[0]["entry_price"] == float(payload["entry_cards"][0]["entry"])
     assert rows[0]["entry_price"] != 60000.0
+
+
+def test_verify_links_come_from_the_rows_that_get_sealed():
+    """A verify link may only ever point at a key the record really carries.
+    Building it from the SAME payload rows is what makes that true — a guessed
+    key would 404, and a broken proof link is worse than no link."""
+    payload = scan_skill._build_scan_payload([_scan_result()], None)
+    rows = scan_skill._scan_signal_rows(payload)
+    links = scan_skill._scan_verify_links(payload)
+    assert rows and links, "a scoring setup should yield a row and a link"
+    for row in rows:
+        url = links[(row["symbol"], row["direction"])]
+        # The exact stored key appears in the URL, percent-encoded.
+        from urllib.parse import quote
+        assert url.endswith("/call/" + quote(row["signal_key"], safe="")), url
+    # A setup the payload never produced gets NO link (honest omission).
+    assert ("DOGE", "LONG") not in links
+
+
+def test_the_pushed_payload_is_the_one_the_links_were_built_from(monkeypatch):
+    """Rebuilding the payload inside the push would restamp the scan instant
+    and mint different keys — every link in the message would then 404."""
+    sent = {}
+
+    def fake_scan(p):
+        sent["scan"] = p
+
+    def fake_signals(rows):
+        sent["rows"] = rows
+
+    import bot.utils.website_sync as ws
+    monkeypatch.setattr(ws, "sync_scan_in_background", fake_scan, raising=False)
+    monkeypatch.setattr(ws, "sync_signals_in_background", fake_signals, raising=False)
+
+    payload = scan_skill._build_scan_payload([_scan_result()], None)
+    links = scan_skill._scan_verify_links(payload)
+    scan_skill._push_scan_to_dashboard([_scan_result()], None, payload=payload)
+
+    assert sent.get("scan") is payload, "the caller's payload must be pushed as-is"
+    for row in sent["rows"]:
+        assert (row["symbol"], row["direction"]) in links
+        assert row["signal_key"] in links[(row["symbol"], row["direction"])]

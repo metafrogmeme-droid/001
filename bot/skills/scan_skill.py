@@ -682,12 +682,40 @@ def _scan_signal_rows(payload: dict) -> list[dict]:
     return rows
 
 
-def _push_scan_to_dashboard(results: list[dict], engine=None) -> None:
-    """Build scan payload and push to website in background (scan + signal stream)."""
+def _scan_verify_links(payload: dict) -> dict:
+    """(symbol, direction) -> public verify URL, derived from the payload that
+    will actually be pushed.
+
+    The link is built from the SAME rows the website seals, so it can only
+    ever point at the key the record really carries. Guessing a key would
+    produce a 404, and a broken proof link is worse than no link at all —
+    which is why the message path refused to mint links until the payload
+    could be built first.
+    """
+    from urllib.parse import quote
+    site = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+    out: dict = {}
+    for row in _scan_signal_rows(payload):
+        key = str(row.get("signal_key") or "")
+        if not key:
+            continue
+        out[(row["symbol"], row["direction"])] = f"{site}/call/{quote(key, safe='')}"
+    return out
+
+
+def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | None = None) -> None:
+    """Push the scan payload to the website (scan + signal stream).
+
+    `payload` lets a caller that already built one (to render verify links in
+    the Telegram message) push the SAME object — rebuilding it here would
+    stamp a fresh timestamp and mint different keys, so every link in the
+    message would 404.
+    """
     try:
         from bot.utils.website_sync import (
             sync_scan_in_background, sync_signals_in_background)
-        payload = _build_scan_payload(results, engine)
+        if payload is None:
+            payload = _build_scan_payload(results, engine)
         sync_scan_in_background(payload)
         # Also append the scan's signals to the global signal-stream (every
         # generated signal, taken or not). Best-effort, non-blocking.
@@ -885,6 +913,16 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     from bot.config import CONFIG
     leverage = CONFIG.exchange.default_leverage
     top_setups = [r for r in results if r["score"] >= 0.4][:6]  # Max 6 setups
+    # Build the website payload NOW, before the message is rendered, so each
+    # setup can carry the REAL verify key the record will be sealed under.
+    # The same object is pushed below — rebuilding would restamp the scan
+    # instant and every link would point at a key that never existed.
+    try:
+        _scan_payload = _build_scan_payload(results, engine)
+        _verify = _scan_verify_links(_scan_payload)
+    except Exception as exc:            # links are a bonus; never break a scan
+        log.warning("verify-link build failed: %s", exc)
+        _scan_payload, _verify = None, {}
     skipped = [r for r in results if r["score"] < 0.4]
 
     # Compute entry/SL/TP for each setup
@@ -972,6 +1010,8 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
             f"  SL:    <code>${sl:,.6g}</code>  (-{sl_dist:.1f}%)\n"
             f"  R:R:   <code>{rr:.1f}:1</code>  |  RSI {r['rsi']}  |  Vol {r['vol_ratio']}x\n"
             f"  Score: {score_icon} {score_pct}/100"
+            + (f"\n  \U0001f512 <a href=\"{_verify[(sym, direction)]}\">verify this call</a>"
+               if (sym, direction) in _verify else "")
         )
 
     body = "\n\n".join(setup_lines) if setup_lines else "No setups above threshold."
@@ -1037,7 +1077,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     # Push scan data to website dashboard
     all_results = sorted((r for r in raw if r), key=lambda x: x["score"], reverse=True)
-    _push_scan_to_dashboard(all_results, engine)
+    _push_scan_to_dashboard(all_results, engine, payload=_scan_payload)
 
 
 async def _scan_filtered(update: Update, context: ContextTypes.DEFAULT_TYPE,

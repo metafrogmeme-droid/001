@@ -78,3 +78,50 @@ def default_commands() -> List[Tuple[str, str]]:
 def admin_commands() -> List[Tuple[str, str]]:
     """The operator menu: essentials first, then the admin controls."""
     return _dedupe_keep_order(DEFAULT_MENU + ADMIN_EXTRA_MENU)
+
+
+def suggest(name: str, known: List[str], limit: int = 3) -> List[str]:
+    """Closest known commands to a mistyped one — the "did you mean" list.
+
+    Ranks by prefix/substring kinship first (what people actually mistype:
+    /positions for /open_positions, /pnl for /performance) and then by edit
+    distance, so a near-miss beats an unrelated command that merely shares
+    letters. Returns [] when nothing is close enough — an honest "I don't
+    know that one" beats a confident wrong guess.
+    """
+    import difflib
+
+    n = (name or "").strip().lower().lstrip("/")
+    if not n:
+        return []
+    exact_kin = [k for k in known if k.startswith(n) or n in k]
+    close = difflib.get_close_matches(n, known, n=limit * 2, cutoff=0.6)
+    out: List[str] = []
+    for k in exact_kin + close:
+        if k not in out:
+            out.append(k)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def unknown_command_reply(name: str, known: List[str], *, is_admin: bool = False) -> str:
+    """The message for a slash command the bot does not have.
+
+    Telegram silently swallowed these: the free-text handler excludes
+    commands, so a typo produced NO response at all — the single biggest
+    source of "the commands don't work". This always answers, points at the
+    nearest real command, and ends somewhere useful.
+    """
+    safe = (name or "").strip().lstrip("/")[:32]
+    safe = "".join(ch for ch in safe if ch.isalnum() or ch in "_-")
+    lines = [f"🤔 I don't have a <b>/{safe}</b> command."] if safe else ["🤔 I don't know that command."]
+    hits = suggest(safe, known)
+    if hits:
+        lines.append("Did you mean " + " · ".join(f"/{h}" for h in hits) + "?")
+    lines.append("")
+    lines.append("Tap <b>/</b> for the menu, or /help for everything. "
+                 "You can also just talk to me normally — no command needed.")
+    if not is_admin:
+        lines.append("<i>Some commands are operator-only and won't appear for you.</i>")
+    return "\n".join(lines)

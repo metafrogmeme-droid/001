@@ -274,6 +274,10 @@ class TelegramHandler:
         self.engine = engine
         self.registry = registry or build_default_registry()
         self._limiter = RateLimiter(CONFIG.telegram.rate_limit_per_minute)
+        # Every command name actually registered — the ONLY source the
+        # "did you mean" suggester may draw from, so it can never point a
+        # user at a command that does not exist.
+        self._known_commands: list = []
         self._last_pane: dict[int, str] = {}
         self.signal_tracker = SignalTracker()
         self.users = UserStore()
@@ -459,11 +463,17 @@ class TelegramHandler:
             ("rwa", self._cmd_rwa),
         ]:
             app.add_handler(CommandHandler(cmd, handler))
+            self._known_commands.append(cmd)
         app.add_handler(CallbackQueryHandler(self._handle_callback))
         # AI-5: photo messages → operator vision chat. The agent reads a pasted
         # chart / positions / PnL screenshot and describes what it sees. Admin-
         # only (it spends the operator's Claude key); non-admins get a note.
         app.add_handler(MessageHandler(filters.PHOTO, self._handle_photo))
+        # Unknown /commands used to vanish: the free-text handler below
+        # excludes COMMAND, and nothing else caught them — so a typo produced
+        # NO reply at all, which reads as "the bot is broken". Registered
+        # after every real CommandHandler, so it only ever sees leftovers.
+        app.add_handler(MessageHandler(filters.COMMAND, self._handle_unknown_command))
         # Free-text message handler (must be last — catches non-command text)
         app.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND, self._handle_message))
@@ -2204,6 +2214,30 @@ class TelegramHandler:
 
         msg = f"<b>RUNECLAW</b>\n{SEP}\n\n{body}"
         await self._send(update, msg, reply_markup=_KB_WARROOM)
+
+    async def _handle_unknown_command(self, update: Update,
+                                      ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Answer slash commands the bot does not have.
+
+        Previously these were swallowed in silence — the free-text handler
+        excludes COMMAND and nothing caught the remainder — so every typo
+        (and every operator-only command a normal user tried) looked like a
+        dead bot. Now it always replies, suggests the nearest REAL command,
+        and points at the menu. Rate-limited like every other entry point.
+        """
+        try:
+            msg = update.effective_message
+            text = (msg.text or msg.caption or "") if msg else ""
+            name = text.split()[0].lstrip("/").split("@")[0] if text.strip() else ""
+            uid = update.effective_user.id if update.effective_user else 0
+            if not self._limiter.allow(uid):
+                return
+            from bot.skills.command_menu import unknown_command_reply
+            await self._send(update, unknown_command_reply(
+                name, list(self._known_commands),
+                is_admin=self._is_admin(update)))
+        except Exception:
+            system_log.debug("unknown-command reply failed", exc_info=True)
 
     async def _cmd_help(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """GetClaw help — organized command reference."""

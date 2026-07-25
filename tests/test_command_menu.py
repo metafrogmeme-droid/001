@@ -62,3 +62,59 @@ class TestMenuMatchesHandlers:
     def test_admin_menu_starts_with_the_essentials(self):
         # Operators get the essentials first, then their extra controls.
         assert admin_commands()[:len(default_commands())] == default_commands()
+
+
+# ── Unknown commands must never be silent ─────────────────────────────────
+# The operator's report: "too many / commands, some don't work or aren't
+# clear". The single biggest cause was structural — the free-text handler
+# excludes COMMAND and nothing caught the rest, so ANY unrecognised slash
+# command (a typo, or an operator-only command a normal user tried) produced
+# no reply whatsoever. A bot that answers nothing reads as broken.
+
+def test_suggestions_only_ever_name_real_commands():
+    from bot.skills.command_menu import suggest
+    known = ["open_positions", "performance", "portfolio", "scan", "analyze", "help"]
+    for typo in ("positions", "portfolo", "scann", "analze", "hlep"):
+        for hit in suggest(typo, known):
+            assert hit in known, f"{typo} suggested a non-existent /{hit}"
+    # The common real-world near-misses land on the right command.
+    assert "open_positions" in suggest("positions", known)
+    assert "portfolio" in suggest("portfolo", known)
+    # Nothing close enough → no guess at all. An honest miss beats a
+    # confident wrong answer.
+    assert suggest("qqqqzzz", known) == []
+    assert suggest("", known) == []
+
+
+def test_unknown_reply_always_helps_and_never_echoes_junk():
+    from bot.skills.command_menu import unknown_command_reply
+    known = ["open_positions", "scan", "help"]
+    msg = unknown_command_reply("positions", known)
+    assert "/open_positions" in msg, "must point at the real command"
+    assert "/help" in msg and "just talk to me" in msg, "must offer a way forward"
+    # Non-admins are told WHY some commands seem missing — the other half of
+    # the "doesn't work" feeling.
+    assert "operator-only" in unknown_command_reply("halt", known, is_admin=False)
+    assert "operator-only" not in unknown_command_reply("halt", known, is_admin=True)
+    # A hostile command name cannot inject markup into the HTML reply: the
+    # name is stripped to [A-Za-z0-9_-], so the only tags that survive are
+    # the ones this module writes itself.
+    import re
+    nasty = unknown_command_reply("<b>x</b><script>alert(1)</script>", known)
+    assert "<script" not in nasty and "</script" not in nasty
+    assert set(re.findall(r"</?(\w+)", nasty)) <= {"b", "i"}, "unexpected tag in reply"
+
+
+def test_the_catcher_is_registered_after_every_real_command():
+    """Ordering is the whole trick: python-telegram-bot dispatches to the
+    first matching handler, so the catch-all must come after the real ones
+    or it would swallow every command in the bot."""
+    from pathlib import Path
+    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    reg_at = src.index("app.add_handler(CommandHandler(cmd, handler))")
+    catch_at = src.index("filters.COMMAND, self._handle_unknown_command")
+    text_at = src.index("filters.TEXT & ~filters.COMMAND")
+    assert reg_at < catch_at < text_at, "catch-all must sit after commands, before text"
+    # Suggestions draw only from what was actually registered.
+    assert "self._known_commands.append(cmd)" in src
+    assert "list(self._known_commands)" in src
