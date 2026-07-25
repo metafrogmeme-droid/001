@@ -45,3 +45,39 @@ test('every offered language has a non-empty display name', () => {
     assert.ok(l.code && l.name, `lang ${JSON.stringify(l)} needs code+name`);
   }
 });
+
+test('arena dynamic strings: dictionary-backed with intact {x} placeholders', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  // Every weekly quest key has a dictionary entry, so the panel translates
+  // by key with the server's English name as fallback. Two consecutive weeks
+  // cover the full 6-quest rotation (3 per week, offset by the ISO week).
+  const streaks = require('../lib/arena_streaks');
+  const QUEST_POOL = [...new Set([
+    ...streaks.weeklyQuests([], new Date('2026-07-20T00:00:00Z')).map((q) => q.key),
+    ...streaks.weeklyQuests([], new Date('2026-07-27T00:00:00Z')).map((q) => q.key),
+  ])];
+  assert.equal(QUEST_POOL.length, 6, 'both rotation halves sampled');
+  for (const k of QUEST_POOL) {
+    assert.ok(i18n.STRINGS['arena.q_' + k], `arena.q_${k} missing from the dictionary`);
+  }
+  // Placeholder slots survive translation in every language (a dropped {n}
+  // would render a literal hole in the UI).
+  const codes = i18n.LANGS.map((l) => l.code);
+  for (const [key, entry] of Object.entries(i18n.STRINGS)) {
+    const slots = (entry.en.match(/\{\w+\}/g) || []).sort().join(',');
+    if (!slots) continue;
+    for (const c of codes) {
+      assert.equal((entry[c].match(/\{\w+\}/g) || []).sort().join(','), slots,
+        `${key}:${c} placeholder mismatch`);
+    }
+  }
+  // The arena wires dynamics through the shared dictionary.
+  const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  assert.match(arena, /function T\(key, en\)/);
+  assert.match(arena, /function fill\(tpl, map\)/);
+  assert.match(arena, /T\('arena\.d_tape_pulse'/);
+  assert.match(arena, /T\('arena\.q_' \+ q\.key, q\.name\)/);
+  assert.match(arena, /T\('arena\.d_chart_note'/);
+  assert.match(arena, /reasonLabel\(t\.reason\)/);
+});

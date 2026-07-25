@@ -79,8 +79,10 @@ test('arena: timeframe switcher on the position expander', () => {
   // and a mid-fetch switch drops the stale paint.
   assert.match(arena, /chartTf\[String\(tpos\.symbol \|\| ''\)\.toUpperCase\(\)\] = tfb\.getAttribute\('data-tf'\)/);
   assert.match(arena, /if \(tfOf\(sym\) !== gran\) return;/);
-  // The footnote states the granularity honestly instead of hardcoding 1h.
-  assert.match(arena, /\(gran \|\| '1h'\) \+ ' candles/);
+  // The footnote states the granularity honestly instead of hardcoding 1h —
+  // and speaks the user's language via the shared dictionary.
+  assert.match(arena, /T\('arena\.d_chart_note'/);
+  assert.match(arena, /\{ tf: gran \|\| '1h' \}/);
 });
 
 test('review fixes: failures never pin an empty read; stale good data survives', () => {

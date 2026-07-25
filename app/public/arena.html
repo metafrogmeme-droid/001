@@ -323,7 +323,7 @@ window.addEventListener('error', function (e) {
 });
 </script>
 <script src="/js/app.js?v=3"></script>
-<script src="/js/i18n.js?v=16"></script>
+<script src="/js/i18n.js?v=17"></script>
 <script src="/js/chartread.js?v=4"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -331,6 +331,15 @@ window.addEventListener('error', function (e) {
   var RC = window.RC || {};
   var esc = RC.esc || function (s) { return String(s == null ? '' : s); };
   var $ = function (id) { return document.getElementById(id); };
+  // Dynamic strings share the data-i18n dictionary: T() translates a key with
+  // the inline English as the never-blank fallback; fill() swaps {x} slots.
+  function T(key, en) {
+    try { var v = window.RCI18N && RCI18N.translate(key, RCI18N.getLang()); return v || en; }
+    catch (e) { return en; }
+  }
+  function fill(tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return map[k] != null ? map[k] : '{' + k + '}'; });
+  }
   var fmtP = function (n) { return n == null ? '—' : Number(n) >= 1000 ? Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 }) : String(Number(n).toPrecision(5)).replace(/\.?0+$/, ''); };
   var fmt2 = function (n) { return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   var direction = 'LONG';
@@ -460,9 +469,9 @@ window.addEventListener('error', function (e) {
         chips.push('<span class="read-chip ' + cls + '">🕯 ' + esc(k.replace(/_/g, ' ')) + '</span>');
       });
     }
-    if (!pat) chips.push('<span class="read-chip">engine pattern read unavailable right now</span>');
+    if (!pat) chips.push('<span class="read-chip">' + esc(T('arena.d_pat_unavail', 'engine pattern read unavailable right now')) + '</span>');
     return '<div class="read-chips">' + chips.join('') + '</div>'
-      + '<div class="muted" style="font-size:10px;margin-top:4px">' + (gran || '1h') + ' candles · VWAP band + structure computed with the engine\'s formulas · patterns read live from the engine (4h) · not advice</div>';
+      + '<div class="muted" style="font-size:10px;margin-top:4px">' + esc(fill(T('arena.d_chart_note', "{tf} candles · VWAP band + structure computed with the engine's formulas · patterns read live from the engine (4h) · not advice"), { tf: gran || '1h' })) + '</div>';
   }
   // Timeframe switcher row for a position expander — active chip highlighted.
   function tfRow(sym, pid) {
@@ -527,7 +536,7 @@ window.addEventListener('error', function (e) {
     var CR = window.RCChartRead;
     var parsed = CR ? CR.parseCandles(d0.candles) : [];
     if (!parsed.length) {
-      cell.innerHTML = tfRow(sym, p.id) + '<span class="muted">Market candles unavailable right now — try again shortly.</span>';
+      cell.innerHTML = tfRow(sym, p.id) + '<span class="muted">' + esc(T('arena.d_chart_unavail', 'Market candles unavailable right now — try again shortly.')) + '</span>';
       return;
     }
     // Top Elliott read (if the engine sees one) → wave labels on the chart.
@@ -577,7 +586,7 @@ window.addEventListener('error', function (e) {
         + '<td><button class="closebtn" data-close="' + p.id + '" type="button">Close</button></td></tr>';
       if (chartOpen[p.id]) {
         row += '<tr class="chart-row"><td colspan="9"><div class="chart-cell" id="chartCell' + p.id
-          + '"><span class="muted">Loading chart & engine read…</span></div></td></tr>';
+          + '"><span class="muted">' + esc(T('arena.d_chart_loading', 'Loading chart & engine read…')) + '</span></div></td></tr>';
       }
       return row;
     }).join('');
@@ -597,7 +606,7 @@ window.addEventListener('error', function (e) {
         + '<td class="muted">' + esc(t.reason) + '</td></tr>';
       if (histOpen[t.id]) {
         hrow += '<tr class="chart-row"><td colspan="6"><div class="chart-cell" id="histCell' + t.id
-          + '"><span class="muted">Loading how it played out…</span></div></td></tr>';
+          + '"><span class="muted">' + esc(T('arena.d_hist_loading', 'Loading how it played out…')) + '</span></div></td></tr>';
       }
       return hrow;
     }).join('');
@@ -605,10 +614,10 @@ window.addEventListener('error', function (e) {
     $('histEmpty').hidden = (d.history || []).length > 0;
     // Achievements — earned bright, locked dimmed with what's left to earn.
     var streakChip = (d.streak && d.streak.current > 0)
-      ? '<span class="badge-chip" title="Consecutive days with a closed trade (UTC). Best: '
-        + d.streak.best + '">🔥 ' + d.streak.current + '-day streak'
-        + (d.streak.best > d.streak.current ? ' <span style="opacity:.6">· best ' + d.streak.best + '</span>' : '')
-        + (d.streak.active_today ? '' : ' <span style="opacity:.6">· close today to keep it</span>') + '</span>'
+      ? '<span class="badge-chip" title="' + esc(fill(T('arena.d_streak_title', 'Consecutive days with a closed trade (UTC). Best: {n}'), { n: d.streak.best }))
+        + '">' + esc(fill(T('arena.d_streak', '🔥 {n}-day streak'), { n: d.streak.current }))
+        + (d.streak.best > d.streak.current ? ' <span style="opacity:.6">' + esc(fill(T('arena.d_streak_best', '· best {n}'), { n: d.streak.best })) + '</span>' : '')
+        + (d.streak.active_today ? '' : ' <span style="opacity:.6">' + esc(T('arena.d_streak_keep', '· close today to keep it')) + '</span>') + '</span>'
       : '';
     $('badges').innerHTML = streakChip + (d.badges || []).map(function (b) {
       return '<span class="badge-chip' + (b.earned ? '' : ' locked') + '" title="' + esc(b.desc) + '">'
@@ -619,10 +628,10 @@ window.addEventListener('error', function (e) {
     var qs = d.quests || [];
     if (qs.length) {
       $('quests').hidden = false;
-      $('quests').innerHTML = '<div class="starter"><div class="t">Weekly quests · reset Monday 00:00 UTC</div>'
+      $('quests').innerHTML = '<div class="starter"><div class="t">' + esc(T('arena.d_quests_h', 'Weekly quests · reset Monday 00:00 UTC')) + '</div>'
         + qs.map(function (q) {
           var pct = Math.round(q.have / q.target * 100);
-          return '<div class="step' + (q.done ? ' done' : '') + '">' + q.icon + ' ' + esc(q.name)
+          return '<div class="step' + (q.done ? ' done' : '') + '">' + q.icon + ' ' + esc(T('arena.q_' + q.key, q.name))
             + ' <span class="muted">' + q.have + '/' + q.target + '</span>'
             + (q.done ? ' ✅' : '<div style="height:4px;background:var(--line);border-radius:99px;margin-top:3px"><div style="height:4px;width:'
               + pct + '%;background:var(--gold-bright);border-radius:99px"></div></div>')
@@ -648,7 +657,7 @@ window.addEventListener('error', function (e) {
     var q = quests.filter(function (x) { return x.key === fresh[0]; })[0];
     if (!q) return;
     var el = $('cheer');
-    el.innerHTML = '🎉 Quest complete: <b>' + q.icon + ' ' + esc(q.name) + '</b>';
+    el.innerHTML = esc(T('arena.d_quest_done', '🎉 Quest complete:')) + ' <b>' + q.icon + ' ' + esc(T('arena.q_' + q.key, q.name)) + '</b>';
     el.hidden = false;
     setTimeout(function () { el.hidden = true; }, 5000);
     confetti();
@@ -770,7 +779,12 @@ window.addEventListener('error', function (e) {
   // (after the initial paint) slides in; refreshes never re-animate old rows.
   var tapeSeen = {};
   var tapeFirst = true;
-  var REASON_LABEL = { tp: '🎯 target', sl: '🛡 stop', liquidated: '💀 liquidated', manual: 'closed' };
+  function reasonLabel(r) {
+    return r === 'tp' ? T('arena.d_reason_tp', '🎯 target')
+      : r === 'sl' ? T('arena.d_reason_sl', '🛡 stop')
+      : r === 'liquidated' ? T('arena.d_reason_liq', '💀 liquidated')
+      : r === 'manual' ? T('arena.d_reason_closed', 'closed') : null;
+  }
   function ago(iso) {
     var s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
     return s < 60 ? s + 's ago' : s < 3600 ? Math.floor(s / 60) + 'm ago'
@@ -780,7 +794,7 @@ window.addEventListener('error', function (e) {
     var r = await RC.fetchJSON('/api/arena/tape', { auth: false, timeoutMs: 12000 }).catch(function () { return null; });
     var d = r && r.ok && r.data;
     if (!d) return;   // keep the last good tape on transient errors
-    $('tapePulse').textContent = d.traders + ' traders · ' + d.trades_24h + ' closes in 24h';
+    $('tapePulse').textContent = fill(T('arena.d_tape_pulse', '{n} traders · {m} closes in 24h'), { n: d.traders, m: d.trades_24h });
     if (!d.rows.length) return;   // the i18n empty state stays up
     $('tapeRows').innerHTML = d.rows.map(function (t) {
       var key = t.handle + '|' + t.symbol + '|' + t.closed_at;
@@ -792,7 +806,7 @@ window.addEventListener('error', function (e) {
         + '<span class="sym">' + esc(t.symbol)
         + (t.key ? ' <a href="/call/' + encodeURIComponent(t.key) + '" target="_blank" rel="noopener" title="Provable receipt — sealed at open, verify in your browser">🔏</a>' : '') + '</span>'
         + '<span class="' + pnlCls(t.pct) + '">' + (t.pct > 0 ? '+' : '') + fmt2(t.pct) + '%</span>'
-        + '<span class="how">' + (REASON_LABEL[t.reason] || esc(t.reason)) + '</span>'
+        + '<span class="how">' + (reasonLabel(t.reason) || esc(t.reason)) + '</span>'
         + '<span class="ago">' + ago(t.closed_at) + '</span></div>';
     }).join('');
     tapeFirst = false;
@@ -1013,8 +1027,8 @@ window.addEventListener('error', function (e) {
       var b = e.target.closest('[data-close]'); if (!b) return;
       b.disabled = true;
       var r = await RC.fetchJSON('/api/arena/close', { method: 'POST', body: { position_id: Number(b.getAttribute('data-close')) }, timeoutMs: 14000 }).catch(function () { return null; });
-      if (r && r.ok) { haptic([12, 40, 12]); tmsg('Closed ' + r.data.closed.symbol + ' — PnL ' + (r.data.closed.pnl > 0 ? '+' : '') + fmt2(r.data.closed.pnl) + ' vUSDT'); loadAccount(); loadBoard(); }
-      else { b.disabled = false; tmsg((r && r.data && r.data.error) || 'Close failed — try again.'); }
+      if (r && r.ok) { haptic([12, 40, 12]); tmsg(fill(T('arena.d_closed_msg', 'Closed {s} — PnL {p} vUSDT'), { s: r.data.closed.symbol, p: (r.data.closed.pnl > 0 ? '+' : '') + fmt2(r.data.closed.pnl) })); loadAccount(); loadBoard(); }
+      else { b.disabled = false; tmsg((r && r.data && r.data.error) || T('arena.d_close_failed', 'Close failed — try again.')); }
     });
 
     // Post-mortem expander on closed trades — same delegated pattern as the
@@ -1030,7 +1044,7 @@ window.addEventListener('error', function (e) {
 
     $('optinBtn').addEventListener('click', async function () {
       var h = $('handleInput').value.trim();
-      if (!h) { $('lbMsg').textContent = 'Pick a handle first.'; return; }
+      if (!h) { $('lbMsg').textContent = T('arena.d_pick_handle', 'Pick a handle first.'); return; }
       var r = await RC.fetchJSON('/api/leaderboard/opt-in', { method: 'POST', body: { handle: h }, timeoutMs: 12000 }).catch(function () { return null; });
       $('lbMsg').textContent = r && r.ok ? 'You are on the board as “' + h + '”.' : ((r && r.data && (r.data.detail || r.data.error)) || 'Could not join the board.');
       if (r && r.ok) loadBoard();
