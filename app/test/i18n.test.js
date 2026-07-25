@@ -265,31 +265,6 @@ test('the follow button toggles through T() — a static attribute would be clob
   }
 });
 
-test('the Arena page has no untranslated static English left', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
-  // Only the markup half — the script half builds strings through T().
-  const cut = src.indexOf('<script>\n// Device-visible error trap');
-  assert.ok(cut > 0, 'could not find the end of the markup');
-  // Entities are glyphs, not prose — &times; must not read as the word "times".
-  const markup = src.slice(0, cut).replace(/&[a-zA-Z]+;|&#\d+;/g, ' ');
-  // A visible string in a text-bearing tag that carries no data-i18n renders
-  // English in every language at once. The whole page heading translated while
-  // the form under it did not, which is how this class of bug hides.
-  const BRAND = ['← RUNECLAW'];                 // the product name is not translated
-  const found = [];
-  markup.split('\n').forEach((line, n) => {
-    const re = /<(h1|h2|h3|span|p|button|label|option|summary|th|legend|a)\b([^>]*)>([^<>{}`]*[A-Za-z]{3,}[^<>{}`]*)</g;
-    for (const m of line.matchAll(re)) {
-      const attrs = m[2]; const text = m[3].trim();
-      if (/data-i18n/.test(attrs) || !text) continue;
-      if (BRAND.includes(text)) continue;
-      found.push(`${n + 1}: <${m[1]}> ${text}`);
-    }
-  });
-  assert.deepEqual(found, [], `untranslated static text in arena.html:\n  ${found.join('\n  ')}`);
-});
 
 test('the two Arena paragraphs keep their <b> emphasis in every language', () => {
   const codes = i18n.LANGS.map((l) => l.code);
@@ -385,32 +360,6 @@ test('the landing footer translates — and half of it needed no new strings', (
   for (const c of codes) assert.match(i18n.STRINGS['chat.label'][c], /RUNECLAW/, `chat.label:${c}`);
 });
 
-test('the landing page has no untranslated static English left', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  let src = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-  // Elements translated as HTML own their subtree — the inner <span>/<a> there
-  // is replaced wholesale by the parent's entry, so it needs no key of its own.
-  src = src.replace(/<(\w+)([^>]*data-i18n-html=[^>]*)>[\s\S]*?<\/\1>/g, (m, t, a) => `<${t}${a}></${t}>`);
-  // Scripts build their strings through T(); only markup is in scope here.
-  src = src.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/g, (m) => m.replace(/[^\n]/g, ' '));
-  // HTML entities are glyphs and escapes, not prose: &times; is a × on a close
-  // button, and its letters must not read as an untranslated word.
-  src = src.replace(/&[a-zA-Z]+;|&#\d+;/g, ' ');
-  // Proper nouns are not translated anywhere in the dictionary either — the
-  // same rule that keeps Guardian and dApps as themselves in all twelve.
-  const BRANDS = new Set(['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe']);
-  const found = [];
-  src.split('\n').forEach((line, n) => {
-    const re = /<(h1|h2|h3|h4|span|p|button|label|option|summary|th|legend|a|li|td)\b([^>]*)>([^<>{}`]*[A-Za-z]{3,}[^<>{}`]*)</g;
-    for (const m of line.matchAll(re)) {
-      const text = m[3].trim();
-      if (/data-i18n/.test(m[2]) || !text || BRANDS.has(text)) continue;
-      found.push(`${n + 1}: <${m[1]}> ${text}`);
-    }
-  });
-  assert.deepEqual(found, [], `untranslated static text in index.html:\n  ${found.join('\n  ')}`);
-});
 
 test('landing claims keep the links that back them up, in every language', () => {
   const codes = i18n.LANGS.map((l) => l.code);
@@ -427,5 +376,76 @@ test('landing claims keep the links that back them up, in every language', () =>
     for (const c of codes) {
       assert.ok(!/\$\s?\d|USD\s?\d/.test(i18n.STRINGS[k][c]), `${k}:${c} introduces a dollar figure`);
     }
+  }
+});
+
+// One table-driven guard for every page that has been swept. Adding a page
+// here is the whole ceremony — and a page that regrows English fails with the
+// line number.
+//
+// The scan runs over the WHOLE document, not line by line. A line-based pass
+// silently skips any text node that wraps across a newline, which is exactly
+// how six multi-line <p> paragraphs on guardian.html stayed invisible to the
+// first version of this test.
+const SWEPT_PAGES = {
+  // Only proper nouns may go in an allowlist. Anything else belongs in the
+  // dictionary — "we'd rather not translate it" is not a category.
+  'arena.html': ['← RUNECLAW'],
+  'index.html': ['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe'],
+  'guardian.html': ['← RUNECLAW', 'RUNECLAW Guardian'],
+};
+
+function untranslatedIn(file) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  let src = fs.readFileSync(path.join(__dirname, '..', 'public', file), 'utf8');
+  // An element translated as HTML owns its subtree: the inner <span>/<a>/<i>
+  // is replaced wholesale by the parent's entry and needs no key of its own.
+  src = src.replace(/<(\w+)([^>]*data-i18n-html=[^>]*)>[\s\S]*?<\/\1>/g, (m, t, a) => `<${t}${a}></${t}>`);
+  // Scripts build their strings through T(); comments ship to nobody.
+  src = src.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/g, (m) => m.replace(/[^\n]/g, ' '));
+  src = src.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
+  // Entities are glyphs and escapes, not prose: &times; is a × on a close
+  // button and must not read as the word "times".
+  src = src.replace(/&[a-zA-Z]+;|&#\d+;/g, ' ');
+  const allow = new Set(SWEPT_PAGES[file] || []);
+  const re = /<(h1|h2|h3|h4|span|p|button|label|option|summary|th|legend|a|li|td)\b([^>]*)>([^<>{}`]*?[A-Za-z]{3,}[^<>{}`]*?)</g;
+  const found = [];
+  for (const m of src.matchAll(re)) {
+    if (/data-i18n/.test(m[2])) continue;
+    const text = m[3].replace(/\s+/g, ' ').trim();
+    if (!text || allow.has(text)) continue;
+    found.push(`${src.slice(0, m.index).split('\n').length}: <${m[1]}> ${text}`);
+  }
+  return found;
+}
+
+for (const page of Object.keys(SWEPT_PAGES)) {
+  test(`${page} has no untranslated static English left`, () => {
+    const found = untranslatedIn(page);
+    assert.deepEqual(found, [], `untranslated static text in ${page}:\n  ${found.join('\n  ')}`);
+  });
+}
+
+test('the sweep guard actually catches multi-line copy', () => {
+  // Self-check: the first version of this guard was line-based and would have
+  // passed a page full of untranslated multi-line paragraphs. A page NOT in
+  // the swept table still has English in it, and the scanner must see it —
+  // otherwise every green run above proves nothing.
+  const unswept = untranslatedIn('stress.html');
+  assert.ok(unswept.length > 0, 'an unswept page should still report English');
+  assert.ok(unswept.some((s) => s.length > 60), 'the scanner must see long, wrapped paragraphs');
+});
+
+test('every swept page actually loads the localizer', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  // guardian.html was fully marked up with data-i18n and still rendered
+  // English in all twelve languages, because it never loaded i18n.js. Markup
+  // without the script is markup that does nothing — and the scan guard above
+  // cannot see the difference, so this is asserted separately.
+  for (const page of Object.keys(SWEPT_PAGES)) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', page), 'utf8');
+    assert.match(src, /<script src="\/js\/i18n\.js\?v=\d+"><\/script>/, `${page} does not load i18n.js`);
   }
 });

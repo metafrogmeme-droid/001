@@ -67,7 +67,9 @@ test('the /firewall page + route + Guardian card + nav are wired', () => {
   assert.match(html, /not investment advice|not a verdict/i);
   const gd = fs.readFileSync(path.join(__dirname, '..', 'public', 'guardian.html'), 'utf8');
   assert.match(gd, /href="\/firewall"/);
-  assert.match(gd, /Transaction Firewall<\/span><span class="st live">/);       // promoted to live
+  assert.match(gd, // Attribute-tolerant: the card name and the live pill both carry
+  // data-i18n now. The invariant is the CARD and its live state.
+  /Transaction Firewall<\/span><span class="st live"[^>]*>/);       // promoted to live
   const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(index, /href="\/firewall"/);
 });

@@ -77,7 +77,9 @@ test('the /escape page + route + Guardian card + nav are wired', () => {
   assert.match(html, /not investment advice/i);
   const gd = fs.readFileSync(path.join(__dirname, '..', 'public', 'guardian.html'), 'utf8');
   assert.match(gd, /href="\/escape"/);
-  assert.match(gd, /Universal Escape Agent<\/span><span class="st live">/);   // promoted to live
+  assert.match(gd, // Attribute-tolerant: the card name and the live pill both carry
+  // data-i18n now. The invariant is the CARD and its live state.
+  /Universal Escape Agent<\/span><span class="st live"[^>]*>/);   // promoted to live
   assert.ok(!/class="card soon"/.test(gd), 'every Guardian module is now live');
   const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(index, /href="\/escape"/);
