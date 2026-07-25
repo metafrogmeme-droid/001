@@ -26,6 +26,7 @@ key — it only *reads* balances.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import urllib.request
@@ -66,6 +67,22 @@ def _env_float(name: str, default: float) -> float:
 
 def mint_address() -> str:
     return _env("RCLAW_MINT")
+
+
+def staking_program() -> str:
+    """The $RCLAW staking program id, if the on-chain staking gate is wired.
+
+    When set, tiers are derived from *staked* balance (programs/rclaw_staking)
+    instead of raw wallet balance. Empty => fall back to wallet balance.
+    """
+    return _env("RCLAW_STAKING_PROGRAM")
+
+
+def _decimals() -> int:
+    try:
+        return int(_env("RCLAW_DECIMALS", "9"))
+    except (TypeError, ValueError):
+        return 9
 
 
 def gate_enabled() -> bool:
@@ -125,6 +142,47 @@ def balance_of(wallet: Optional[str]) -> Optional[float]:
     return total
 
 
+def staked_of(wallet: Optional[str]) -> Optional[float]:
+    """On-chain *staked* $RCLAW for ``wallet`` in whole tokens.
+
+    Reads the rclaw_staking program's ``StakeAccount`` for this owner via
+    ``getProgramAccounts`` + a ``memcmp`` on the owner field (Anchor 8-byte
+    discriminator, then owner Pubkey at offset 8), summing ``amount`` (u64 LE)
+    at offset 40. No PDA derivation needed. Returns ``None`` when it cannot be
+    determined (unconfigured, no wallet, or an RPC error) so callers fail-open.
+    """
+    program = staking_program()
+    if not wallet or not program:
+        return None
+    result = _rpc(
+        "getProgramAccounts",
+        [
+            program,
+            {
+                "encoding": "base64",
+                "commitment": "confirmed",
+                "filters": [{"memcmp": {"offset": 8, "bytes": wallet}}],
+            },
+        ],
+    )
+    if result is None:
+        return None
+    total_base = 0
+    try:
+        # getProgramAccounts returns a list (not a {"value": ...} envelope).
+        entries = result if isinstance(result, list) else result.get("value", [])
+        for acc in entries:
+            data_field = acc["account"]["data"]
+            raw = base64.b64decode(data_field[0] if isinstance(data_field, list) else data_field)
+            # 8 disc + 32 owner => amount (u64 LE) at offset 40.
+            if len(raw) >= 48:
+                total_base += int.from_bytes(raw[40:48], "little")
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        system_log.debug("tier_gate staked parse failed: %s", exc)
+        return None
+    return total_base / (10 ** _decimals())
+
+
 def tier_for_balance(balance: float) -> str:
     """Map a whole-token balance to a stake tier."""
     elite_min = _env_float("RCLAW_TIER_ELITE_MIN", 100_000.0)
@@ -169,7 +227,9 @@ def allows_user(users, uid, feature: str) -> bool:
     wallet = _resolve_wallet(users, uid)
     if not wallet:
         return False
-    bal = balance_of(wallet)
+    # Prefer on-chain STAKED balance when a staking program is configured;
+    # otherwise fall back to raw wallet balance. Both fail open on infra error.
+    bal = staked_of(wallet) if staking_program() else balance_of(wallet)
     if bal is None:
         return True  # fail-open on infra error
     have = tier_for_balance(bal)

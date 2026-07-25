@@ -18,6 +18,7 @@ def _reload_clean(monkeypatch, **env):
     for k in [
         "TOKEN_TIER_GATE_ENABLED", "RCLAW_MINT", "RCLAW_RPC_URL",
         "RCLAW_TIER_PRO_MIN", "RCLAW_TIER_ELITE_MIN",
+        "RCLAW_STAKING_PROGRAM", "RCLAW_DECIMALS",
     ]:
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -122,3 +123,60 @@ def test_mainnet_rpc_refused(monkeypatch):
     )
     # _rpc refuses mainnet outright → None (treated as unconfigured / fail-open).
     assert mod._rpc("getVersion", []) is None
+
+
+# ── Staking gate (programs/rclaw_staking) ───────────────────────────────────
+
+def _stake_account_b64(amount_base):
+    """Encode a StakeAccount's data: 8 disc + 32 owner + amount(u64 LE) + …"""
+    import base64 as _b64
+    data = bytearray(57)  # 8 + 32 + 8 + 8 + 1
+    data[40:48] = int(amount_base).to_bytes(8, "little")
+    return _b64.b64encode(bytes(data)).decode()
+
+
+def test_staked_of_none_without_program(monkeypatch):
+    mod = _reload_clean(monkeypatch, RCLAW_MINT="Mint111")
+    assert mod.staking_program() == ""
+    assert mod.staked_of("W") is None
+
+
+def test_staked_of_parses_getprogramaccounts(monkeypatch):
+    mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_DECIMALS="9")
+    # 25,000 tokens @ 9 dp across two stake accounts (10k + 15k).
+    def fake_rpc(method, params):
+        assert method == "getProgramAccounts"
+        assert params[1]["filters"][0]["memcmp"]["offset"] == 8
+        return [
+            {"account": {"data": [_stake_account_b64(10_000 * 10**9), "base64"]}},
+            {"account": {"data": [_stake_account_b64(15_000 * 10**9), "base64"]}},
+        ]
+    monkeypatch.setattr(mod, "_rpc", fake_rpc)
+    assert mod.staked_of("W") == 25_000.0
+
+
+def test_gate_prefers_staked_when_program_set(monkeypatch):
+    mod = _reload_clean(
+        monkeypatch,
+        TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT="Mint111",
+        RCLAW_STAKING_PROGRAM="Stake111",
+    )
+    # Wallet holds plenty un-staked, but only a little is staked → blocked.
+    monkeypatch.setattr(mod, "balance_of", lambda w: 1_000_000.0)
+    monkeypatch.setattr(mod, "staked_of", lambda w: 100.0)
+    assert mod.allows_user(_Users("W"), 1, "premium_scan") is False
+    # Enough staked → allowed.
+    monkeypatch.setattr(mod, "staked_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users("W"), 1, "premium_scan") is True
+
+
+def test_staked_rpc_error_fails_open(monkeypatch):
+    mod = _reload_clean(
+        monkeypatch,
+        TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT="Mint111",
+        RCLAW_STAKING_PROGRAM="Stake111",
+    )
+    monkeypatch.setattr(mod, "staked_of", lambda w: None)  # infra error
+    assert mod.allows_user(_Users("W"), 1, "premium_scan") is True

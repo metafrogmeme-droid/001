@@ -96,3 +96,8 @@ data/*
 # Build stamp written at image build time (see Dockerfile / app/lib/version.js)
 build-info.json
 app/build-info.json
+
+# Solana / Anchor programs (programs/*) — build output and local validator state
+target/
+.anchor/
+test-ledger/

@@ -292,7 +292,13 @@ These are **draft, devnet, feature-flagged** starting points — not a launch:
   `withdrawUnsoldPresaleV1`). Offline `presale:plan` previews it all; everything is driven by
   `metaplex-genesis.config.json` (§5–§6). Smithii config + runbook remain the fallback.
 - `bot/token/tier_gate.py` — the staking-tier gate (§3), OFF by default via
-  `TOKEN_TIER_GATE_ENABLED`; gates `/scalp` `/intraday` `/swing`.
+  `TOKEN_TIER_GATE_ENABLED`; gates `/scalp` `/intraday` `/swing`. When
+  `RCLAW_STAKING_PROGRAM` is set it derives tiers from **staked** balance (read via
+  `getProgramAccounts` + a `memcmp` on the stake account's owner) instead of wallet balance.
+- `programs/rclaw_staking/` — **Anchor (Rust) staking program** (devnet/draft): `stake` /
+  `unstake` with a per-user `StakeAccount` PDA (`["stake", owner]`) and a program-owned vault
+  ATA. Non-custodial (users can unstake at any time); unaudited, so it stays a gated Vision
+  item. The repo's first Rust code — see the root `Cargo.toml` workspace + `Anchor.toml`.
 - `app/lib/solana_verify.js` + `app/public/js/solana_wallet.js` — the wallet connect-and-sign flow.
 
 ---
