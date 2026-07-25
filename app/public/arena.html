@@ -142,9 +142,9 @@
   <nav class="topnav">
     <a href="/">← RUNECLAW</a>
     <span style="flex:1"></span>
-    <a href="/leaderboard">Leaderboard</a>
-    <a href="/guardian">Guardian</a>
-    <a href="/dashboard">Open the app</a>
+    <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
   </nav>
   <div class="ar-hero"><h1 data-i18n="arena.h1">Paper Trading Arena</h1></div>
   <p class="lede" data-i18n-html="arena.lede">Every account starts with the same <b>10,000 vUSDT virtual stake</b> — no exchange API keys,
@@ -157,7 +157,7 @@
        glowing blips, lifted by 24h momentum, green up / red down. Hover to
        inspect. Pure canvas, reduced-motion safe (renders one calm frame). -->
   <section class="panel" id="radarPanel" hidden>
-    <h2>The battlefield <span class="muted" style="text-transform:none;letter-spacing:0">· live market · hover a blip</span></h2>
+    <h2><span data-i18n="arena.p_radar">The battlefield</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_radar">· live market · hover a blip</span></h2>
     <canvas id="mktRadar" style="width:100%;height:min(300px,42vw);display:block"></canvas>
   </section>
 
@@ -165,7 +165,7 @@
        percent only). New prints slide in; the pulse line is counts only. -->
   <section class="panel" id="tapePanel">
     <h2><span data-i18n="arena.p_tape">Live tape</span>
-      <span class="muted" style="text-transform:none;letter-spacing:0">· latest closes · percent only</span>
+      <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_tape">· latest closes · percent only</span>
       <span class="tape-pulse" id="tapePulse"></span></h2>
     <div id="tapeRows" aria-live="polite"><div class="empty" data-i18n="arena.tape_empty">Quiet tape — nothing closed yet. Be the first print of the day.</div></div>
   </section>
@@ -179,40 +179,40 @@
 
   <!-- Hall of Champions — permanent podiums of ended seasons -->
   <section class="panel" id="hallPanel" hidden>
-    <h2><span data-i18n="arena.p_hall">Hall of Champions</span> <span class="muted" style="text-transform:none;letter-spacing:0">· ended seasons · immutable</span></h2>
+    <h2><span data-i18n="arena.p_hall">Hall of Champions</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_hall">· ended seasons · immutable</span></h2>
     <div id="hallRows"></div>
   </section>
 
   <!-- Operator-only: author the next season (server re-checks plan=admin) -->
   <section class="panel" id="seasonAdmin" hidden>
-    <h2>Launch a season <span class="muted" style="text-transform:none;letter-spacing:0">· operator only</span></h2>
+    <h2><span data-i18n="arena.p_season_admin">Launch a season</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_operator">· operator only</span></h2>
     <div class="ticket">
-      <div><label for="ssName">Season name</label>
+      <div><label for="ssName" data-i18n="arena.f_season_name">Season name</label>
         <input id="ssName" maxlength="60" placeholder="Genesis Season" autocomplete="off"></div>
-      <div><label for="ssStart">Starts</label>
+      <div><label for="ssStart" data-i18n="arena.f_starts">Starts</label>
         <input id="ssStart" type="datetime-local"></div>
-      <div><label for="ssEnd">Ends</label>
+      <div><label for="ssEnd" data-i18n="arena.f_ends">Ends</label>
         <input id="ssEnd" type="datetime-local"></div>
-      <div><label for="ssLev">Rule: max leverage <span class="muted" style="text-transform:none">(optional)</span></label>
-        <input id="ssLev" type="number" min="1" max="20" placeholder="open"></div>
+      <div><label for="ssLev"><span data-i18n="arena.f_max_lev">Rule: max leverage</span> <span class="muted" style="text-transform:none" data-i18n="arena.f_optional">(optional)</span></label>
+        <input id="ssLev" type="number" min="1" max="20" placeholder="open" data-i18n-attr="placeholder:arena.ph_open"></div>
       <div><label for="ssMajors" style="display:flex;gap:6px;align-items:center;cursor:pointer">
-        <input id="ssMajors" type="checkbox" style="width:auto"> Rule: majors only</label></div>
-      <div><button class="btn btn--primary" id="ssLaunch" type="button">Launch season</button></div>
+        <input id="ssMajors" type="checkbox" style="width:auto"> <span data-i18n="arena.f_majors">Rule: majors only</span></label></div>
+      <div><button class="btn btn--primary" id="ssLaunch" type="button" data-i18n="arena.b_launch">Launch season</button></div>
     </div>
     <div class="tmsg" id="ssMsg" role="status" aria-live="polite"></div>
   </section>
 
   <!-- Logged-out pitch -->
   <section class="panel" id="loginPitch" hidden>
-    <h2>Join the arena</h2>
-    <p class="lede" style="margin-bottom:var(--s2)">A free account is all it takes — your paper account is created
+    <h2 data-i18n="arena.p_join">Join the arena</h2>
+    <p class="lede" style="margin-bottom:var(--s2)" data-i18n="arena.join_body">A free account is all it takes — your paper account is created
     the moment you open the Arena. No exchange keys, no deposit, nothing to configure.</p>
-    <a class="btn btn--primary btn--sm cta" href="/dashboard">Sign in / create a free account →</a>
+    <a class="btn btn--primary btn--sm cta" href="/dashboard" data-i18n="arena.b_signin">Sign in / create a free account →</a>
   </section>
 
   <!-- Account (logged in) -->
   <section class="panel" id="acctPanel" hidden>
-    <h2><span data-i18n="arena.p_account">Your paper account</span> <span class="muted" style="text-transform:none;letter-spacing:0">· virtual funds only</span></h2>
+    <h2><span data-i18n="arena.p_account">Your paper account</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_virtual">· virtual funds only</span></h2>
     <div class="stats" id="stats"></div>
     <div class="badges" id="badges"></div>
     <div id="quests" hidden></div>
@@ -253,8 +253,8 @@
   </section>
 
   <section class="panel" id="followPanel" hidden>
-    <h2><span data-i18n="arena.p_follow">Practice-follow the engine</span> <span class="muted" style="text-transform:none;letter-spacing:0">· paper only · revocable any time</span></h2>
-    <p class="lede" style="margin-bottom:var(--s2);font-size:var(--fs-sm)">Mirror the engine's live signal stream into
+    <h2><span data-i18n="arena.p_follow">Practice-follow the engine</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_paper_rev">· paper only · revocable any time</span></h2>
+    <p class="lede" style="margin-bottom:var(--s2);font-size:var(--fs-sm)" data-i18n-html="arena.follow_body">Mirror the engine's live signal stream into
     your paper account: each new signal opens a position at your chosen size, filled at the <b>live mark</b>. It starts
     from the next signal — never back-fills old calls — and can never touch real funds.</p>
     <div class="ticket">
@@ -285,16 +285,16 @@
 
   <!-- Leaderboard (public) -->
   <section class="panel">
-    <h2><span data-i18n="arena.p_board">Arena leaderboard</span> <span class="muted" style="text-transform:none;letter-spacing:0">· percent return · anonymous handles</span></h2>
-    <div id="lbRows"><div class="empty">Loading the board…</div></div>
+    <h2><span data-i18n="arena.p_board">Arena leaderboard</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_board">· percent return · anonymous handles</span></h2>
+    <div id="lbRows"><div class="empty" data-i18n="arena.lb_loading">Loading the board…</div></div>
     <div class="optin" id="optin" hidden>
-      <input id="handleInput" maxlength="24" placeholder="Pick an anonymous handle to appear on the board">
+      <input id="handleInput" maxlength="24" placeholder="Pick an anonymous handle to appear on the board" data-i18n-attr="placeholder:arena.ph_handle">
       <button class="btn btn--sm" id="optinBtn" type="button" data-i18n="arena.b_join">Join the board</button>
     </div>
     <div class="tmsg" id="lbMsg" role="status" aria-live="polite"></div>
   </section>
 
-  <p class="disc">The Arena is <b>paper trading</b>: balances are virtual, no real funds ever move, and no order
+  <p class="disc" data-i18n-html="arena.disc">The Arena is <b>paper trading</b>: balances are virtual, no real funds ever move, and no order
   reaches any exchange. Prices are live public Bitget USDT-M marks; fills are simulated at the last price with no
   slippage or fees, so real trading results will differ. The public board shows percent return and opt-in
   anonymous handles only. Practice and competition — not investment advice.</p>
@@ -327,7 +327,7 @@ window.addEventListener('error', function (e) {
 });
 </script>
 <script src="/js/app.js?v=4"></script>
-<script src="/js/i18n.js?v=29"></script>
+<script src="/js/i18n.js?v=30"></script>
 <script src="/js/chartread.js?v=4"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>

@@ -264,3 +264,46 @@ test('the follow button toggles through T() — a static attribute would be clob
     assert.ok(i18n.STRINGS['arena.b_unfollow'][c], `arena.b_unfollow is missing ${c}`);
   }
 });
+
+test('the Arena page has no untranslated static English left', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  // Only the markup half — the script half builds strings through T().
+  const cut = src.indexOf('<script>\n// Device-visible error trap');
+  assert.ok(cut > 0, 'could not find the end of the markup');
+  const markup = src.slice(0, cut);
+  // A visible string in a text-bearing tag that carries no data-i18n renders
+  // English in every language at once. The whole page heading translated while
+  // the form under it did not, which is how this class of bug hides.
+  const BRAND = ['← RUNECLAW'];                 // the product name is not translated
+  const found = [];
+  markup.split('\n').forEach((line, n) => {
+    const re = /<(h1|h2|h3|span|p|button|label|option|summary|th|legend|a)\b([^>]*)>([^<>{}`]*[A-Za-z]{3,}[^<>{}`]*)</g;
+    for (const m of line.matchAll(re)) {
+      const attrs = m[2]; const text = m[3].trim();
+      if (/data-i18n/.test(attrs) || !text) continue;
+      if (BRAND.includes(text)) continue;
+      found.push(`${n + 1}: <${m[1]}> ${text}`);
+    }
+  });
+  assert.deepEqual(found, [], `untranslated static text in arena.html:\n  ${found.join('\n  ')}`);
+});
+
+test('the two Arena paragraphs keep their <b> emphasis in every language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  const tagsOf = (s) => (s.match(/<\/?(b|i|em|strong|code|br)\b/g) || []).sort().join(',');
+  // Both are wired through data-i18n-html, so a dropped tag ships as literal
+  // markup or as a sentence that quietly loses its emphasis.
+  for (const k of ['arena.follow_body', 'arena.disc']) {
+    assert.ok(i18n.STRINGS[k], `${k} missing`);
+    for (const c of codes) {
+      assert.equal(tagsOf(i18n.STRINGS[k][c]), tagsOf(i18n.STRINGS[k].en), `${k}:${c} lost its markup`);
+    }
+  }
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  assert.match(arena, /data-i18n-html="arena\.follow_body"/);
+  assert.match(arena, /data-i18n-html="arena\.disc"/);
+});
