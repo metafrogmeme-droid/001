@@ -25,7 +25,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=18">
+<link rel="stylesheet" href="/styles.css?v=19">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -414,25 +414,25 @@
       <p class="muted small" data-i18n="auth.paper_note">Paper trading works immediately — no Telegram, no exchange keys.</p>
     </div>
     <div id="step-login" class="step">
-      <div class="field"><label for="login-email">Email</label><input class="input" type="email" id="login-email" placeholder="you@example.com" autocomplete="email"></div>
-      <div class="field"><label for="login-pass">Password</label><input class="input" type="password" id="login-pass" placeholder="Your password" autocomplete="current-password"></div>
-      <div class="field hidden" id="login-2fa-box"><label for="login-2fa">Two-factor code</label>
-        <input class="input" type="text" id="login-2fa" placeholder="6-digit code or backup code" autocomplete="one-time-code" inputmode="numeric">
-        <p class="muted small" style="margin-top:4px">From your authenticator app — or one of your saved backup codes.</p></div>
+      <div class="field"><label for="login-email" data-i18n="auth.email">Email</label><input class="input" type="email" id="login-email" placeholder="you@example.com" autocomplete="email" data-i18n-attr="placeholder:auth.email_ph"></div>
+      <div class="field"><label for="login-pass" data-i18n="auth.password">Password</label><input class="input" type="password" id="login-pass" placeholder="Your password" autocomplete="current-password" data-i18n-attr="placeholder:auth.pass_ph"></div>
+      <div class="field hidden" id="login-2fa-box"><label for="login-2fa" data-i18n="auth.tfa_code">Two-factor code</label>
+        <input class="input" type="text" id="login-2fa" placeholder="6-digit code or backup code" autocomplete="one-time-code" inputmode="numeric" data-i18n-attr="placeholder:auth.ph_tfa">
+        <p class="muted small" style="margin-top:4px" data-i18n="auth.tfa_hint">From your authenticator app — or one of your saved backup codes.</p></div>
       <div class="form-err" id="login-err" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" onclick="doLogin()">Log in</button>
+      <button class="btn btn--primary btn-block" onclick="doLogin()" data-i18n="auth.tab_login">Log in</button>
       <p class="muted small" style="text-align:center;margin-top:var(--s2)">
-        <a href="#" onclick="showForgot();return false">Forgot your password?</a>
+        <a href="#" onclick="showForgot();return false" data-i18n="auth.forgot">Forgot your password?</a>
       </p>
     </div>
 
     <div id="step-forgot" class="step">
-      <p class="muted small">Enter your email and we'll send a link to reset your password.</p>
-      <div class="field"><label for="forgot-email">Email</label><input class="input" type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email"></div>
+      <p class="muted small" data-i18n="auth.forgot_body">Enter your email and we'll send a link to reset your password.</p>
+      <div class="field"><label for="forgot-email" data-i18n="auth.email">Email</label><input class="input" type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email" data-i18n-attr="placeholder:auth.email_ph"></div>
       <div class="form-err" id="forgot-msg" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" onclick="doForgot()">Send reset link</button>
+      <button class="btn btn--primary btn-block" onclick="doForgot()" data-i18n="auth.send_reset">Send reset link</button>
       <p class="muted small" style="text-align:center;margin-top:var(--s2)">
-        <a href="#" onclick="switchTab('login');return false">← Back to log in</a>
+        <a href="#" onclick="switchTab('login');return false" data-i18n="auth.back_login">← Back to log in</a>
       </p>
     </div>
 
@@ -449,8 +449,8 @@
 
   <div class="card hidden" id="account">
     <div class="row mb-4" style="justify-content:space-between">
-      <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em">Your account</h2>
-      <button class="btn btn--ghost btn--sm" onclick="doLogout()">Log out</button>
+      <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em" data-i18n="acc.title">Your account</h2>
+      <button class="btn btn--ghost btn--sm" onclick="doLogout()" data-i18n="acc.logout">Log out</button>
     </div>
     <div class="acct-grid">
       <div class="stat"><div class="k">Account</div><div class="v" style="font-family:var(--font-ui);font-size:var(--fs-sm);word-break:break-all" id="d-email">–</div></div>
@@ -458,79 +458,79 @@
     </div>
     <div class="section-note hidden" id="linked-ok" style="border-style:solid;border-color:var(--up);color:var(--up)">
       <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
-      Telegram linked — exchange-key management and live controls unlocked (going live still needs operator approval).
+      <span data-i18n="acc.linked_ok">Telegram linked — exchange-key management and live controls unlocked (going live still needs operator approval).</span>
     </div>
     <div id="link-box">
-      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)">Link Telegram <span class="muted small">(optional)</span></h3>
-      <p class="muted small">Unlocks exchange-key management and your live-trading controls (going live also needs operator approval). Paper trading and chat already work without it.</p>
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)"><span data-i18n="acc.link_tg">Link Telegram</span> <span class="muted small" data-i18n="ui.optional">(optional)</span></h3>
+      <p class="muted small" data-i18n="acc.link_tg_body">Unlocks exchange-key management and your live-trading controls (going live also needs operator approval). Paper trading and chat already work without it.</p>
       <ol class="steps-list">
-        <li>Open <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a> on Telegram</li>
-        <li>Generate your personal link token below</li>
-        <li>Send the bot: <code>/link &lt;token&gt;</code></li>
+        <li data-i18n-html="acc.tg_step1">Open <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a> on Telegram</li>
+        <li data-i18n="acc.tg_step2">Generate your personal link token below</li>
+        <li data-i18n-html="acc.tg_step3">Send the bot: <code>/link &lt;token&gt;</code></li>
       </ol>
       <div id="token-area" class="mt-3">
-        <button class="btn btn--sm" onclick="getToken()">Generate link token</button>
+        <button class="btn btn--sm" onclick="getToken()" data-i18n="acc.gen_token">Generate link token</button>
       </div>
     </div>
     <!-- Link social accounts (shown only when redirect providers are configured) -->
     <div id="link-social" class="hidden mt-4">
-      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)">Link social accounts</h3>
-      <p class="muted small">Connect another way to sign in. You'll stay the same account.</p>
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.link_social">Link social accounts</h3>
+      <p class="muted small" data-i18n="acc.link_social_body">Connect another way to sign in. You'll stay the same account.</p>
       <div id="link-social-btns" style="display:flex;flex-direction:column;gap:8px;margin-top:var(--s2)"></div>
     </div>
 
     <!-- Email verification status (shown only for real email accounts) -->
     <div class="section-note hidden" id="verify-box" style="border-style:solid">
-      <span id="verify-text">Your email isn't verified yet.</span>
-      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" onclick="resendVerification()">Resend verification email</button>
+      <span id="verify-text" data-i18n="acc.verify_text">Your email isn't verified yet.</span>
+      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" onclick="resendVerification()" data-i18n="acc.resend_verify">Resend verification email</button>
     </div>
 
     <!-- Wallet link (shown when the server supports wallet verification) -->
     <div id="wallet-box" class="hidden mt-4">
-      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)">Wallet</h3>
-      <p class="muted small" id="wallet-status">Link a browser wallet to mirror your on-chain balances and DeFi positions — read-only: the wallet signs one login message, never a transaction.</p>
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.wallet">Wallet</h3>
+      <p class="muted small" id="wallet-status" data-i18n="acc.wallet_body">Link a browser wallet to mirror your on-chain balances and DeFi positions — read-only: the wallet signs one login message, never a transaction.</p>
       <div class="form-err" id="wallet-msg" aria-live="polite"></div>
-      <button class="btn btn--sm mt-2" id="wallet-link-btn" onclick="linkWalletToAccount()">🔗 Link wallet</button>
-      <button class="btn btn--sm mt-2" id="wallet-qr-btn" onclick="showWalletQr()">📱 Link with phone</button>
-      <button class="btn btn--ghost btn--sm mt-2 hidden" id="wallet-unlink-btn" onclick="unlinkWalletFromAccount()">Unlink wallet</button>
+      <button class="btn btn--sm mt-2" id="wallet-link-btn" onclick="linkWalletToAccount()" data-i18n="acc.wallet_link">🔗 Link wallet</button>
+      <button class="btn btn--sm mt-2" id="wallet-qr-btn" onclick="showWalletQr()" data-i18n="acc.wallet_phone">📱 Link with phone</button>
+      <button class="btn btn--ghost btn--sm mt-2 hidden" id="wallet-unlink-btn" onclick="unlinkWalletFromAccount()" data-i18n="acc.wallet_unlink">Unlink wallet</button>
       <div id="wallet-qr-box" class="mt-3 hidden"></div>
     </div>
 
     <!-- Change / set password -->
     <div id="pw-box" class="mt-4">
-      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" id="pw-title">Change password</h3>
-      <div class="field" id="pw-current-field"><label for="pw-current">Current password</label><input class="input" type="password" id="pw-current" autocomplete="current-password"></div>
-      <div class="field"><label for="pw-new">New password</label><input class="input" type="password" id="pw-new" placeholder="Min 10 characters" autocomplete="new-password"></div>
-      <div class="field"><label for="pw-new2">Confirm new password</label><input class="input" type="password" id="pw-new2" autocomplete="new-password"></div>
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" id="pw-title" data-i18n="acc.pw_title">Change password</h3>
+      <div class="field" id="pw-current-field"><label for="pw-current" data-i18n="acc.pw_current">Current password</label><input class="input" type="password" id="pw-current" autocomplete="current-password"></div>
+      <div class="field"><label for="pw-new" data-i18n="acc.pw_new">New password</label><input class="input" type="password" id="pw-new" placeholder="Min 10 characters" autocomplete="new-password" data-i18n-attr="placeholder:auth.pass_min_ph"></div>
+      <div class="field"><label for="pw-new2" data-i18n="acc.pw_confirm">Confirm new password</label><input class="input" type="password" id="pw-new2" autocomplete="new-password"></div>
       <div class="form-err" id="pw-msg" aria-live="polite"></div>
-      <button class="btn btn--sm" onclick="doChangePassword()">Update password</button>
+      <button class="btn btn--sm" onclick="doChangePassword()" data-i18n="acc.pw_update">Update password</button>
     </div>
 
     <!-- Two-factor authentication -->
     <div id="tfa-box" class="mt-4">
-      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)">Two-factor authentication</h3>
-      <p class="muted small" id="tfa-state">Checking…</p>
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.tfa">Two-factor authentication</h3>
+      <p class="muted small" id="tfa-state" data-i18n="acc.tfa_checking">Checking…</p>
       <div id="tfa-off" class="hidden">
-        <p class="muted small">Protect your account (and your linked exchange keys) with an authenticator app.</p>
-        <button class="btn btn--sm mt-2" onclick="tfaSetup()">Enable 2FA</button>
+        <p class="muted small" data-i18n="acc.tfa_off_body">Protect your account (and your linked exchange keys) with an authenticator app.</p>
+        <button class="btn btn--sm mt-2" onclick="tfaSetup()" data-i18n="acc.tfa_enable">Enable 2FA</button>
       </div>
       <div id="tfa-pending" class="hidden">
-        <p class="small">1. Add this secret to your authenticator app (Google Authenticator, Aegis, 1Password…):</p>
+        <p class="small" data-i18n="acc.tfa_step1">1. Add this secret to your authenticator app (Google Authenticator, Aegis, 1Password…):</p>
         <div class="token-display" id="tfa-secret" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.textContent)" title="Click to copy"></div>
-        <p class="small mt-2">2. Enter the 6-digit code it shows to confirm:</p>
+        <p class="small mt-2" data-i18n="acc.tfa_step2">2. Enter the 6-digit code it shows to confirm:</p>
         <div class="field"><input class="input" type="text" id="tfa-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code"></div>
-        <button class="btn btn--primary btn--sm" onclick="tfaEnable()">Confirm &amp; enable</button>
+        <button class="btn btn--primary btn--sm" onclick="tfaEnable()" data-i18n="acc.tfa_confirm">Confirm &amp; enable</button>
       </div>
       <div id="tfa-on" class="hidden">
-        <p class="small">✅ 2FA is <b>enabled</b>. <span class="muted" id="tfa-backups"></span></p>
-        <div class="field mt-2"><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code"></div>
-        <button class="btn btn--ghost btn--sm" onclick="tfaDisable()">Disable 2FA</button>
+        <p class="small"><span data-i18n-html="acc.tfa_on">✅ 2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
+        <div class="field mt-2"><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
+        <button class="btn btn--ghost btn--sm" onclick="tfaDisable()" data-i18n="acc.tfa_disable">Disable 2FA</button>
       </div>
       <div id="tfa-codes" class="hidden mt-2"></div>
       <div class="form-err" id="tfa-msg" aria-live="polite"></div>
     </div>
 
-    <a href="/dashboard" class="btn btn--primary btn-block mt-4">Open trading dashboard →</a>
+    <a href="/dashboard" class="btn btn--primary btn-block mt-4" data-i18n="acc.open_dash">Open trading dashboard →</a>
   </div>
 </main>
 
@@ -590,7 +590,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=30"></script>
+<script src="/js/i18n.js?v=31"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=4"></script>
 <script src="/js/chat.js?v=24" defer></script>

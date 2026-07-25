@@ -101,12 +101,19 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
   html { scroll-behavior: auto; }
 }
 
+/* Parked OFF THE TOP, not off the left. `left: -9999px` hides it fine in
+   LTR, but in an RTL document the overflow extends leftward and the browser
+   counts it: the Arabic landing page measured 10411px wide on a 412px phone,
+   which is the same failure that once dragged the fixed CTA off-screen.
+   translateY costs no layout in either direction, and inset-inline-start
+   puts it in the correct corner per direction once focus reveals it. */
 .skip-link {
-  position: absolute; left: -9999px; top: 0; z-index: 200;
+  position: absolute; inset-inline-start: 0; top: 0; z-index: 200;
+  transform: translateY(-200%);
   background: var(--gold); color: var(--bg); padding: var(--s2) var(--s4); border-radius: 0 0 var(--radius-sm) 0;
   font-weight: 600;
 }
-.skip-link:focus { left: 0; }
+.skip-link:focus { transform: none; }
 
 /* ---- Brand ------------------------------------------------------------- */
 .brand { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-brand); font-weight: 700; font-size: 17px; letter-spacing: .10em; color: var(--text); white-space: nowrap; }

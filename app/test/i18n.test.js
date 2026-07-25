@@ -307,3 +307,51 @@ test('the two Arena paragraphs keep their <b> emphasis in every language', () =>
   assert.match(arena, /data-i18n-html="arena\.follow_body"/);
   assert.match(arena, /data-i18n-html="arena\.disc"/);
 });
+
+test('the landing account funnel is translated — log-in, reset, and the account card', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const codes = i18n.LANGS.map((l) => l.code);
+  // Every user passes through this. It was asking a Turkish or Korean visitor
+  // to understand "Two-factor code", "Current password" and "Confirm new
+  // password" in English, on a page otherwise fully translated.
+  const wired = ['auth.tfa_code', 'auth.tfa_hint', 'auth.forgot', 'auth.forgot_body',
+    'auth.send_reset', 'auth.back_login', 'acc.title', 'acc.logout', 'acc.link_tg',
+    'acc.link_tg_body', 'acc.tg_step2', 'acc.gen_token', 'acc.link_social',
+    'acc.verify_text', 'acc.resend_verify', 'acc.wallet', 'acc.wallet_body',
+    'acc.wallet_link', 'acc.wallet_unlink', 'acc.pw_title', 'acc.pw_current',
+    'acc.pw_new', 'acc.pw_confirm', 'acc.pw_update', 'acc.tfa', 'acc.tfa_enable',
+    'acc.tfa_step1', 'acc.tfa_step2', 'acc.tfa_confirm', 'acc.tfa_disable', 'acc.open_dash'];
+  for (const k of wired) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const c of codes) assert.ok(i18n.STRINGS[k][c], `${k} is missing ${c}`);
+    assert.ok(index.includes(`data-i18n="${k}"`), `${k} is not wired into index.html`);
+  }
+  // The log-in step reuses keys that already existed and were simply never
+  // wired — the same oversight as the Arena top nav.
+  for (const k of ['auth.email', 'auth.password', 'auth.tab_login']) {
+    assert.ok(index.includes(`data-i18n="${k}"`), `${k} exists but is still unwired`);
+  }
+  // Markup-bearing entries keep their tags in every language.
+  const tagsOf = (s) => (s.match(/<\/?(b|i|em|strong|code|br)\b/g) || []).sort().join(',');
+  for (const k of ['acc.tfa_on', 'acc.tg_step3']) {
+    for (const c of codes) assert.equal(tagsOf(i18n.STRINGS[k][c]), tagsOf(i18n.STRINGS[k].en), `${k}:${c}`);
+  }
+  // The bot link survives translation — a step that loses it is unfollowable.
+  for (const c of codes) assert.match(i18n.STRINGS['acc.tg_step1'][c], /t\.me\/HTRUNECLAW_bot/, `acc.tg_step1:${c}`);
+});
+
+test('the skip link parks off the TOP, so RTL pages do not scroll sideways', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // `left: -9999px` hides it fine in LTR, but an RTL document counts that
+  // overflow: the Arabic landing page measured 10411px wide on a 412px phone
+  // — the same failure mode that once dragged the fixed CTA off-screen.
+  const rule = css.slice(css.indexOf('.skip-link {'), css.indexOf('}', css.indexOf('.skip-link {')));
+  assert.ok(!/left:\s*-\d+px/.test(rule), 'the skip link is parked off the left again');
+  assert.match(rule, /transform:\s*translateY\(-\d+%\)/, 'it should be parked off the top');
+  assert.match(rule, /inset-inline-start/, 'it should use a direction-aware inset');
+  assert.match(css, /\.skip-link:focus \{ transform: none; \}/, 'focus must still reveal it');
+});
