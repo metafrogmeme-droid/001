@@ -394,12 +394,10 @@ const SWEPT_PAGES = {
   'index.html': ['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe'],
   'guardian.html': ['← RUNECLAW', 'RUNECLAW Guardian'],
   'developers.html': ['← RUNECLAW'],
+  'stress.html': ['← RUNECLAW'],
 };
 
-function untranslatedIn(file) {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  let src = fs.readFileSync(path.join(__dirname, '..', 'public', file), 'utf8');
+function untranslatedInSource(src, allowList) {
   // An element translated as HTML owns its subtree: the inner <span>/<a>/<i>
   // is replaced wholesale by the parent's entry and needs no key of its own.
   src = src.replace(/<(\w+)([^>]*data-i18n-html=[^>]*)>[\s\S]*?<\/\1>/g, (m, t, a) => `<${t}${a}></${t}>`);
@@ -409,7 +407,7 @@ function untranslatedIn(file) {
   // Entities are glyphs and escapes, not prose: &times; is a × on a close
   // button and must not read as the word "times".
   src = src.replace(/&[a-zA-Z]+;|&#\d+;/g, ' ');
-  const allow = new Set(SWEPT_PAGES[file] || []);
+  const allow = new Set(allowList || []);
   const re = /<(h1|h2|h3|h4|span|p|button|label|option|summary|th|legend|a|li|td)\b([^>]*)>([^<>{}`]*?[A-Za-z]{3,}[^<>{}`]*?)</g;
   const found = [];
   for (const m of src.matchAll(re)) {
@@ -421,6 +419,13 @@ function untranslatedIn(file) {
   return found;
 }
 
+function untranslatedIn(file) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  return untranslatedInSource(
+    fs.readFileSync(path.join(__dirname, '..', 'public', file), 'utf8'), SWEPT_PAGES[file]);
+}
+
 for (const page of Object.keys(SWEPT_PAGES)) {
   test(`${page} has no untranslated static English left`, () => {
     const found = untranslatedIn(page);
@@ -429,13 +434,28 @@ for (const page of Object.keys(SWEPT_PAGES)) {
 }
 
 test('the sweep guard actually catches multi-line copy', () => {
-  // Self-check: the first version of this guard was line-based and would have
-  // passed a page full of untranslated multi-line paragraphs. A page NOT in
-  // the swept table still has English in it, and the scanner must see it —
-  // otherwise every green run above proves nothing.
-  const unswept = untranslatedIn('stress.html');
-  assert.ok(unswept.length > 0, 'an unswept page should still report English');
-  assert.ok(unswept.some((s) => s.length > 60), 'the scanner must see long, wrapped paragraphs');
+  // Self-check on a synthetic fixture rather than on a real page: pointing it
+  // at "some page we haven't done yet" goes stale the moment that page is
+  // swept, and a self-check that quietly stops checking is worse than none.
+  //
+  // The first version of this guard was line-based and would have passed the
+  // wrapped paragraph below — that is exactly how six multi-line <p> blocks on
+  // guardian.html stayed invisible.
+  const fixture = [
+    '<div>',
+    '  <p data-i18n="ok.keyed">Keyed copy is invisible to the scan.</p>',
+    '  <p>A wrapped sentence that keeps going',
+    '  onto a second line before it closes.</p>',
+    '  <button>&times;</button>',
+    '  <span>BRANDNAME</span>',
+    '</div>',
+  ].join('\n');
+  const found = untranslatedInSource(fixture, ['BRANDNAME']);
+  assert.equal(found.length, 1, `expected exactly the wrapped paragraph, got ${JSON.stringify(found)}`);
+  assert.match(found[0], /A wrapped sentence that keeps going onto a second line/,
+    'the scanner must join wrapped text, not truncate at the newline');
+  // …and the three exemptions really are exempt: keyed copy, an entity-only
+  // glyph, and an allowlisted brand.
 });
 
 test('every swept page actually loads the localizer', () => {
@@ -482,5 +502,30 @@ test('the developer page never translates an identifier', () => {
       `dv.r2:${c} dropped the "never dollar amounts" guarantee`);
     assert.ok(/percent|porcent|百分比|pourcent|Prozent|procent|パーセント|퍼센트|процент|yüzde|النسب/i.test(i18n.STRINGS['dv.r4'][c]),
       `dv.r4:${c} dropped the "percent-only" guarantee`);
+  }
+});
+
+test('the Stress Lab keeps its honesty clauses in every language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // This page simulates catastrophe on a made-up book. Its two paragraphs are
+  // the only thing stopping a reader treating the output as a forecast of
+  // their own account — so a softer translation would overstate the product.
+  for (const c of codes) {
+    const lede = i18n.STRINGS['sx.lede'][c];
+    const disc = i18n.STRINGS['sx.disc'][c];
+    assert.ok(lede && disc, `sx.lede/sx.disc missing ${c}`);
+    // "never your real balance" / "not your real account"
+    assert.ok(/real|reale|real|réel|echte|werkelijk|実|실제|реальн|gerçek|حقيقي|真實|真实/i.test(lede),
+      `sx.lede:${c} lost the "never your real balance" clause`);
+    // "not investment advice" survives in both paragraphs
+    for (const [k, v] of [['sx.lede', lede], ['sx.disc', disc]]) {
+      assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(v),
+        `${k}:${c} dropped "not investment advice"`);
+    }
+    // The <b>not</b> in sx.disc is the load-bearing word of the whole page.
+    assert.ok(/<b>/.test(disc) && (disc.match(/<b>/g) || []).length >= 2,
+      `sx.disc:${c} lost an emphasis the English relies on`);
+    // The escape hatch to build a REAL envelope must stay reachable.
+    assert.match(disc, /href="\/dashboard#agents"/, `sx.disc:${c} lost the app link`);
   }
 });
