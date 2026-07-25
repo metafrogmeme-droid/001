@@ -573,7 +573,14 @@ _STRINGS: dict[str, dict[str, str]] = {
     "trade_executed_fail": {"en": "<b>Trade didn't go through</b>", "zh": "<b>交易未成功</b>"},
 
     # ── Admin commands (en byte-identical; emoji/separators stay in code) ──
-    "admin_only": {"en": "Admin only.", "zh": "僅限管理員。"},
+    # "Admin only." was a two-word dead end: no explanation, no way forward,
+    # and indistinguishable from a broken command — which is most of why the
+    # command surface felt untrustworthy. Say what it is and where to go.
+    "admin_only": {
+        "en": "That's an operator command — it only runs from the operator's chat. "
+              "Everything you can use is in /help.",
+        "zh": "這是操作員指令，僅能在操作員的對話中執行。你可以使用的指令都在 /help 裡。",
+    },
     "invalid_tg_id": {"en": "Invalid Telegram ID.", "zh": "無效的 Telegram ID。"},
     "invalid_tg_id_numeric": {"en": "Invalid Telegram ID. Must be numeric.", "zh": "無效的 Telegram ID，必須為數字。"},
     "invalid_tg_id_format": {"en": "Invalid Telegram ID format.", "zh": "Telegram ID 格式無效。"},

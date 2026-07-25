@@ -211,3 +211,50 @@ def render_help(is_admin: bool = False, *, per_message: int = 3400) -> List[str]
     if buf.strip():
         chunks.append(buf.rstrip())
     return chunks
+
+
+# Short keywords for "/help trading" style deep-dives. A wall of 125 commands
+# is unreadable even when grouped, so the caller can ask for one section.
+GROUP_KEYS: Dict[str, str] = {
+    "start": "🚀 Start here",
+    "trade": "📈 Trading",
+    "trading": "📈 Trading",
+    "scan": "🔎 Scan & analyse",
+    "analyse": "🔎 Scan & analyse",
+    "analyze": "🔎 Scan & analyse",
+    "market": "🌍 Market context",
+    "macro": "🌍 Market context",
+    "portfolio": "💼 Portfolio & record",
+    "record": "💼 Portfolio & record",
+    "alerts": "🔔 Alerts & notes",
+    "notes": "🔔 Alerts & notes",
+    "research": "🧪 Research & tuning",
+    "tuning": "🧪 Research & tuning",
+    "guardian": "🛡 Guardian (operator)",
+    "ops": "🚦 Engine ops (operator)",
+    "engine": "🚦 Engine ops (operator)",
+    "users": "👥 Users & access (operator)",
+    "access": "👥 Users & access (operator)",
+    "llm": "🧠 LLM & yield (operator)",
+    "yield": "🧠 LLM & yield (operator)",
+}
+
+
+def render_group(keyword: str, is_admin: bool = False) -> str:
+    """One group's commands, or an honest miss listing what CAN be asked for.
+
+    Never silently returns nothing: an unrecognised keyword — or an operator
+    group a normal user asked for — answers with the sections they can
+    actually browse.
+    """
+    key = (keyword or "").strip().lower().lstrip("/")
+    title = GROUP_KEYS.get(key)
+    visible = dict(help_sections(is_admin))
+    if title and title in visible:
+        body = "\n".join(f"  /{n} — {d}" for n, d in visible[title])
+        return f"<b>{title}</b>\n{body}"
+    offer = ", ".join(sorted({
+        k for k, v in GROUP_KEYS.items() if v in visible
+    }))
+    head = (f"No <b>{key}</b> section." if key else "Which section?")
+    return f"{head}\nTry: {offer}\n\nOr /help for everything."

@@ -65,5 +65,46 @@ def test_help_fits_telegram_and_never_tears_a_group_in_half():
 
 
 def test_help_actually_sends_the_catalogue():
-    assert "from bot.skills.command_catalog import render_help" in _SRC
-    assert "render_help(is_admin=self._is_admin(update))" in _SRC
+    assert "from bot.skills.command_catalog import render_group, render_help" in _SRC
+    assert "render_help(is_admin=_admin)" in _SRC
+
+
+# ── "/help <group>" and the refusal message ───────────────────────────────
+# Even grouped, 125 commands is a wall; and the old refusal was two words.
+# Both are what made the surface feel like it "didn't work".
+
+def test_group_deep_dive_answers_or_offers_alternatives():
+    from bot.skills.command_catalog import GROUP_KEYS, render_group
+    out = render_group("trading")
+    assert "📈 Trading" in out and "/trade" in out
+    # Every keyword resolves for the operator (no dead aliases in the table).
+    for key in GROUP_KEYS:
+        assert "No <b>" not in render_group(key, is_admin=True), f"/help {key} is dead"
+    # An unknown keyword never answers with silence — it offers real sections.
+    miss = render_group("zzzz")
+    assert "No <b>zzzz</b>" in miss and "/help for everything" in miss
+    assert "trading" in miss, "the offer must list keywords that work"
+
+
+def test_normal_users_cannot_browse_operator_sections():
+    from bot.skills.command_catalog import render_group
+    refused = render_group("guardian", is_admin=False)
+    assert "No <b>guardian</b> section" in refused
+    assert "/guardian" not in refused, "operator commands leaked to a normal user"
+    # ...and the operator can.
+    assert "🛡 Guardian" in render_group("guardian", is_admin=True)
+
+
+def test_the_refusal_explains_itself_and_points_somewhere():
+    from bot.utils.i18n import t
+    en = t("admin_only", "en")
+    assert "operator command" in en, "must say WHAT it is"
+    assert "/help" in en, "must offer a way forward"
+    assert en != "Admin only.", "the two-word dead end is gone"
+    # Localised too — a refusal is exactly where a user needs their language.
+    zh = t("admin_only", "zh")
+    assert "/help" in zh and zh != "僅限管理員。"
+
+
+def test_help_accepts_an_argument():
+    assert "render_group(_arg, is_admin=_admin)" in _SRC

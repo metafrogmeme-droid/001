@@ -22,7 +22,12 @@ def _eq(got, exp):
 
 
 def test_short_shared_strings():
-    _eq(f"\U0001f512 {t('admin_only', L)}", "\U0001f512 Admin only.")
+    # Deliberately verbose: "Admin only." was a two-word dead end that read
+    # exactly like a broken command. The refusal now names what it is and
+    # points somewhere useful.
+    _eq(f"\U0001f512 {t('admin_only', L)}",
+        "\U0001f512 That's an operator command — it only runs from the operator's "
+        "chat. Everything you can use is in /help.")
     _eq(f"\U0001f534 {t('invalid_tg_id', L)}", "\U0001f534 Invalid Telegram ID.")
     _eq(f"\U0001f534 {t('invalid_tg_id_numeric', L)}", "\U0001f534 Invalid Telegram ID. Must be numeric.")
     _eq(t("invalid_tg_id_format", L), "Invalid Telegram ID format.")
