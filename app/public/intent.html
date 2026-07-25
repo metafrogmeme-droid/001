@@ -66,12 +66,13 @@
   <nav class="topnav">
     <a href="/">← RUNECLAW</a>
     <span style="flex:1"></span>
-    <a href="/guardian">Guardian</a>
-    <a href="/firewall">Firewall</a>
-    <a href="/dashboard">Open the app</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <a href="/firewall" data-i18n="nav.firewall">Firewall</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
   </nav>
-  <div class="in-hero"><h1>Intent Compiler</h1></div>
-  <p class="lede">A wish is not a policy. <b>“Only majors, max 5% per trade, no shorts, stop if down 8%”</b> is
+  <div class="in-hero"><h1 data-i18n="lp.g6_h">Intent Compiler</h1></div>
+  <p class="lede" data-i18n-html="in.lede">A wish is not a policy. <b>“Only majors, max 5% per trade, no shorts, stop if down 8%”</b> is
   what you mean — but an agent can only be trusted with money if that sentence becomes something a machine can
   <b>check before it signs</b>. The Intent Compiler turns plain words into a deterministic, revocable
   <b>Authority Envelope</b>: typed rules, each tagged with <b>who enforces it</b> — the wallet, the risk gate, or a
@@ -79,31 +80,31 @@
   the wallet enforces.</p>
 
   <section class="panel">
-    <h2>Describe your limits</h2>
+    <h2 data-i18n="in.limits_h">Describe your limits</h2>
     <textarea id="intent" rows="3" spellcheck="false" autocomplete="off"
-      placeholder="only majors, max 5% per trade, no shorts, min confidence 70%, stop if down 8%"></textarea>
+      placeholder="only majors, max 5% per trade, no shorts, min confidence 70%, stop if down 8%" data-i18n-attr="placeholder:in.ph"></textarea>
     <div class="chips" id="examples"></div>
   </section>
 
   <div class="summary panel" id="summary" style="border-radius:var(--radius)"></div>
 
   <section class="panel">
-    <h2>Coverage</h2>
+    <h2 data-i18n="in.coverage_h">Coverage</h2>
     <div class="cov" id="coverage"></div>
     <div class="warns" id="warnings"></div>
   </section>
 
   <section class="panel">
-    <h2>Authority Envelope — compiled rules</h2>
+    <h2 data-i18n="in.rules_h">Authority Envelope — compiled rules</h2>
     <div id="rules"></div>
     <div class="actions" id="actions">
-      <button class="chip" type="button" id="shareBtn">🔗 Copy share link</button>
-      <button class="chip" type="button" id="jsonBtn">⧉ Copy as JSON</button>
+      <button class="chip" type="button" id="shareBtn" data-i18n="in.share">🔗 Copy share link</button>
+      <button class="chip" type="button" id="jsonBtn" data-i18n="in.json">⧉ Copy as JSON</button>
       <span class="act-msg muted" id="actMsg" role="status" aria-live="polite"></span>
     </div>
   </section>
 
-  <p class="disc">This is a <b>compiler preview</b>: it turns language into a policy so you can read exactly what
+  <p class="disc" data-i18n-html="in.disc">This is a <b>compiler preview</b>: it turns language into a policy so you can read exactly what
   would be enforced. It binds nothing, signs nothing and moves no funds — in the app, a compiled envelope is
   <b>tighten-only</b> (it can only narrow the engine's caps), previews before it binds, and is revocable at any
   time. It is a public demo, so it never shows a dollar figure; a dollar-denominated approval limit compiles to an
@@ -201,5 +202,6 @@
   render();
 })();
 </script>
+<script src="/js/i18n.js?v=33"></script>
 </body>
 </html>

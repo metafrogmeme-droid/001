@@ -414,6 +414,7 @@ const SWEPT_PAGES = {
   // this element on load — a data-i18n here would be clobbered every time.
   'track.html': ['RUNECLAW', 'Bitget USDT-M perpetuals'],
   'firewall.html': ['← RUNECLAW'],
+  'intent.html': ['← RUNECLAW'],
 };
 
 function untranslatedInSource(src, allowList) {
@@ -627,11 +628,14 @@ test('the public board never promises a dollar figure, in any language', () => {
   for (const c of codes) {
     const lede = i18n.STRINGS['lb.lede'][c];
     assert.ok(lede, `lb.lede missing ${c}`);
+    // EVERY text check goes through searchable(), including this one: Spanish
+    // writes "dólares", and a raw-string match only passed while the accented
+    // spelling happened to be listed by hand.
+    const plain = searchable(lede);
     // "never a dollar figure" — the promise itself
-    assert.ok(/dollar|dólar|dolar|Dollar|金額|금액|долл|مبلغ بالدولار/i.test(lede),
+    assert.ok(/dollar|dolar|金額|금액|долл|بالدولار/i.test(plain),
       `lb.lede:${c} dropped the "never a dollar figure" promise`);
     // anonymous handles, and the publish_hash that makes a row checkable
-    const plain = searchable(lede);
     assert.ok(/anon|匿名|익명|анонимн|مستعار/i.test(plain), `lb.lede:${c} lost "anonymous handles"`);
     assert.ok(lede.includes('<code>publish_hash</code>'), `lb.lede:${c} lost the publish_hash literal`);
     assert.match(lede, /href="\/proof"/, `lb.lede:${c} lost the verify-the-fills link`);
@@ -692,5 +696,38 @@ test('the firewall never oversells itself, in any language', () => {
     // Both paragraphs keep the emphasis the English leans on.
     assert.ok((i18n.STRINGS['fw.lede'][c].match(/<b>/g) || []).length >= 3, `fw.lede:${c} lost emphasis`);
     assert.ok((i18n.STRINGS['fw.disc'][c].match(/<b>/g) || []).length >= 2, `fw.disc:${c} lost emphasis`);
+  }
+});
+
+test('the Intent Compiler states all five of its limits in every language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // in.disc is the densest safety paragraph in the product: five separate
+  // limits, each of which a reader needs in order to understand what binding
+  // an envelope would and would not do to their account.
+  for (const c of codes) {
+    const disc = searchable(i18n.STRINGS['in.disc'][c]);
+    assert.ok(disc, `in.disc missing ${c}`);
+    // 1. binds nothing / signs nothing / moves no funds
+    assert.ok(/sign|firma|assina|signe|signiert|onderteken|署名|서명|подпис|imzala|وقع|簽署/i.test(disc),
+      `in.disc:${c} lost "signs nothing"`);
+    // 2. tighten-only — it can only NARROW the engine's caps
+    assert.ok(/tighten|restri|estrech|收緊|狭め|締める|조이|ужесточ|daralt|مضي|verscharf|aanscherp|resserr/i.test(disc),
+      `in.disc:${c} lost the tighten-only limit`);
+    // 3. revocable at any time
+    assert.ok(/revoc|revog|widerruf|intrekbaar|取り消|취소|отзыв|geri al|إلغاء|撤銷/i.test(disc),
+      `in.disc:${c} lost "revocable at any time"`);
+    // 4. §4 stated inside the product copy: a PUBLIC demo never shows a dollar
+    //    figure; the real number is set privately in the app.
+    assert.ok(/dollar|dolar|金額|금액|долл|بالدولار/i.test(disc),
+      `in.disc:${c} lost the "never shows a dollar figure" clause`);
+    // 5. not investment advice
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|tavsiye|نصيحة/i.test(disc),
+      `in.disc:${c} dropped "not investment advice"`);
+    assert.ok((i18n.STRINGS['in.disc'][c].match(/<b>/g) || []).length >= 2, `in.disc:${c} lost emphasis`);
+  }
+  // The lede's whole argument is that a wish becomes a machine-checkable rule
+  // with a named enforcer, so the four emphasised spans must all survive.
+  for (const c of codes) {
+    assert.ok((i18n.STRINGS['in.lede'][c].match(/<b>/g) || []).length >= 4, `in.lede:${c} lost emphasis`);
   }
 });
