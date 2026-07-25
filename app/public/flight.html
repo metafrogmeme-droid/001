@@ -75,23 +75,23 @@
 <body>
 <div class="fr-wrap" role="main">
   <nav class="topnav">
-    <a href="/">← RUNECLAW</a>
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
     <span style="flex:1"></span>
-    <a href="/proof">Proof of PnL</a>
-    <a href="/track">Track record</a>
-    <a href="/guardian">Guardian</a>
-    <a href="/dashboard">Open the app</a>
+    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+    <a href="/track" data-i18n="nav.track">Track record</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
   </nav>
-  <div class="fr-hero"><h1>Agent Flight Recorder</h1></div>
-  <p class="lede">The black box behind every trade. Each decision the agent makes is sealed into a
+  <div class="fr-hero"><h1 data-i18n="fl.h1">Agent Flight Recorder</h1></div>
+  <p class="lede" data-i18n-html="fl.lede">The black box behind every trade. Each decision the agent makes is sealed into a
   <b>SHA-256 hash-chained, signed append-only ledger</b> — inputs, reasoning, the voters that moved it,
   the risk-gate verdict, the intent policy that authorized it, the geometry and the outcome. Any edit,
   deletion or reorder breaks the chain. <b>Don't trust the P&amp;L — read the decision.</b></p>
 
-  <div class="chain-banner" id="banner"><span class="dot"></span><span class="st">Loading the ledger…</span></div>
+  <div class="chain-banner" id="banner"><span class="dot"></span><span class="st" data-i18n="fl.loading">Loading the ledger…</span></div>
   <div id="list"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
 
-  <p class="disc" id="disc">Public decision ledger · percent, ratio and R-multiple only — <b>no dollar amounts</b>
+  <p class="disc" id="disc" data-i18n-html="fl.disc">Public decision ledger · percent, ratio and R-multiple only — <b>no dollar amounts</b>
   (prices shown are public market data). The cryptographic chain is verified by the engine; the
   window integrity below is re-derived in your own browser. This is evidence, not investment advice.</p>
 </div>
@@ -249,5 +249,6 @@
   setInterval(load, 30000);
 })();
 </script>
+<script src="/js/i18n.js?v=39"></script>
 </body>
 </html>

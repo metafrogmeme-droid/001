@@ -426,6 +426,9 @@ const SWEPT_PAGES = {
   'track.html': ['RUNECLAW', 'Bitget USDT-M perpetuals'],
   'firewall.html': ['← RUNECLAW'],
   'intent.html': ['← RUNECLAW'],
+  'flight.html': [],
+  'sentinel.html': [],
+  'roots.html': [],
 };
 
 function untranslatedInSource(src, allowList) {
