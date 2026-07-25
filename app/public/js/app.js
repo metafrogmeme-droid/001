@@ -18,6 +18,22 @@
   const TOKEN = resolveToken();
   const LOGGED_IN = !!TOKEN;
 
+  // A rejected promise nobody caught is silent in a browser. Every panel
+  // loader is async, so a throw inside one — a TypeError on an unexpected
+  // payload shape, say — leaves no trace at all: no console entry, no
+  // window.onerror (that only fires for synchronous throws), nothing. The
+  // page just quietly renders less than it should, and the failure is
+  // invisible to whoever is trying to reproduce it.
+  //
+  // Same asymmetry the server settled on: name it loudly, change nothing.
+  // Pages that show a visible reporter listen for this event as well.
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e && e.reason;
+    // eslint-disable-next-line no-console
+    console.error('UNHANDLED REJECTION (page kept running):',
+      (r && (r.stack || r.message)) || r);
+  });
+
   function authHeaders() {
     return TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {};
   }

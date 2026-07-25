@@ -52,10 +52,19 @@ async function loadAccount(userId) {
   const [rows] = await pool.execute(
     'SELECT user_id, balance FROM arena_accounts WHERE user_id = ?', [userId]);
   if (rows[0]) return rows[0];
+  // SELECT-then-INSERT is a race: the Arena page and the dashboard's Arena
+  // card can both miss and both insert, and user_id is the PRIMARY KEY — the
+  // loser gets a duplicate-key 500 on what is supposed to be automatic
+  // provisioning. The no-op update makes it idempotent WITHOUT touching an
+  // existing balance; a real upsert here would reset a funded paper account.
   await pool.execute(
-    'INSERT INTO arena_accounts (user_id, balance, created_at) VALUES (?, ?, ?)',
+    `INSERT INTO arena_accounts (user_id, balance, created_at) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE user_id = user_id`,
     [userId, arena.START_BALANCE, new Date()]);
-  return { user_id: userId, balance: arena.START_BALANCE };
+  // Re-read: if we lost the race, the winner's row is the truth.
+  const [again] = await pool.execute(
+    'SELECT user_id, balance FROM arena_accounts WHERE user_id = ?', [userId]);
+  return again[0] || { user_id: userId, balance: arena.START_BALANCE };
 }
 
 async function loadPositions(userId) {
@@ -413,8 +422,20 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
         'SELECT id, symbol, direction FROM signals ORDER BY created_at DESC LIMIT ?', [1]);
       lastId = latest[0] ? Number(latest[0].id) || 0 : 0;
     } catch (e) { /* empty stream — start at 0 */ }
+    // arena_follows.user_id is the PRIMARY KEY, so a bare INSERT fails with a
+    // duplicate-key error the SECOND time anyone toggles this — every 500 the
+    // user has ever seen here. It looked fine locally only because the
+    // in-memory shim implements this statement as an upsert (db.js), so the
+    // real MySQL behaviour is never exercised in tests.
+    //
+    // last_signal_id is refreshed on update as well as insert, deliberately:
+    // re-enabling must start from the next signal and never back-fill old
+    // calls, which is exactly what the panel promises.
     await pool.execute(
-      'INSERT INTO arena_follows (user_id, enabled, margin, leverage, last_signal_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      `INSERT INTO arena_follows (user_id, enabled, margin, leverage, last_signal_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), margin = VALUES(margin),
+                               leverage = VALUES(leverage), last_signal_id = VALUES(last_signal_id)`,
       [userId, v.data.enabled ? 1 : 0, v.data.margin, v.data.leverage, lastId, new Date()]);
     res.json({ ok: true, follow: v.data, virtual: true });
   } catch (err) {
