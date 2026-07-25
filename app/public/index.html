@@ -590,9 +590,9 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=33"></script>
+<script src="/js/i18n.js?v=34"></script>
 <script src="/js/icons.js?v=3"></script>
-<script src="/js/app.js?v=4"></script>
+<script src="/js/app.js?v=5"></script>
 <script src="/js/chat.js?v=24" defer></script>
 <script src="/js/theater.js?v=1" defer></script>
 <script>
@@ -636,9 +636,21 @@
     host.innerHTML = events.length ? events.map(row).join('')
       : '<p class="muted small">The engine hasn\'t pushed an event yet — this section fills in live as it scans.</p>';
   }
+  // "The engine hasn't pushed an event yet" and "we couldn't reach the feed"
+  // are different claims, and the first one is a statement about the engine's
+  // activity that we have no right to make when the read failed.
+  function drawUnreadable() {
+    host.innerHTML = '<p class="muted small" data-i18n="ld.feed_unreadable">'
+      + RC.esc(T('ld.feed_unreadable',
+        'The live feed is unreachable right now — this is a connection problem, not a quiet engine.'))
+      + '</p>';
+  }
   RC.fetchJSON('/api/feed/recent?limit=8', { auth: false })
-    .then(function (r) { draw((r.ok && r.data && r.data.events) || []); })
-    .catch(function () { draw([]); });
+    .then(function (r) {
+      if (!r || !r.ok) { drawUnreadable(); return; }
+      draw((r.data && r.data.events) || []);
+    })
+    .catch(function () { drawUnreadable(); });
   RC.connectStream({ activity: function (e) {
     var ev; try { ev = JSON.parse(e.data); } catch (err) { return; }
     if (!ev || !ev.title) return;

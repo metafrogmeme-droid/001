@@ -171,7 +171,30 @@
   //   loader: async () => html string | '' (empty) | null (empty)
   //   opts: { timeoutMs, empty: {icon, text, cta: {label, href|onClick}}, errorText }
   // States: skeleton -> data | empty (in-app CTA) | error (Retry button).
-  function stateBlock({ icon = 'icon-inbox', text = 'Nothing here yet.', cta = null }) {
+  // Resolved per render, never cached at module load — the language switcher
+  // changes the answer after boot.
+  function t(key, en) {
+    try { return (window.RCI18N && window.RCI18N.translate(key, window.RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  }
+  // A non-2xx answer is a failure to READ, never proof of absence. Rendering a
+  // server error as "nothing here yet" tells the user a lie about their own
+  // money — the panel must say it couldn't look, and offer Retry. Throwing is
+  // how a loader says that: renderPanel's catch turns it into the error state.
+  // 404 is the one honest exception (letter-for-that-week, a deleted record):
+  // the resource genuinely isn't there, so it falls through as empty.
+  function mustRead(r) {
+    if (!r || (!r.ok && r.status !== 404)) {
+      const e = new Error('panel read failed: HTTP ' + (r ? r.status : 'no response'));
+      // Carried so the panel can tell "try again" apart from "you are signed
+      // out" — a Retry button on an expired session retries forever.
+      e.status = r ? r.status : 0;
+      throw e;
+    }
+    return r.ok ? r.data : null;
+  }
+  function stateBlock({ icon = 'icon-inbox', text = null, cta = null }) {
+    if (text == null) text = t('dd.nothing_here', 'Nothing here yet.');
     return `<div class="state-block">
       <svg class="icon"><use href="#${icon}"></use></svg>
       <p>${esc(text)}</p>
@@ -180,7 +203,10 @@
   }
   async function renderPanel(el, loader, opts = {}) {
     if (!el) return;
-    const { timeoutMs = 8000, empty = {}, errorText = "Couldn't load this panel." } = opts;
+    const { timeoutMs = 8000, empty = {} } = opts;
+    // 91 of 95 panels pass no errorText, so this default IS the dashboard's
+    // failure voice — it has to speak the user's language.
+    const errorText = opts.errorText || t('dd.err_panel', "Couldn't load this panel.");
     // Refresh-in-place: once a panel has shown REAL content, periodic
     // re-renders (the every() timers, SSE nudges) keep it on screen while
     // the loader runs — no skeleton flash every 15-30s, and a transient
@@ -191,13 +217,27 @@
     }
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; fail(); }, timeoutMs);
-    function fail() {
+    function fail(err) {
       if (hasContent) return;                 // stale beats blank
+      // An expired session is a different answer from a failed read, and it
+      // needs a different action: Retry would loop forever against a 401.
+      const expired = !!(err && err.status === 401);
+      const text = expired ? t('dd.session_expired', 'Your session expired — sign in again to see this.')
+        : errorText;
+      // data-i18n on the default copy so the failure state re-translates when
+      // the user switches language, and self-heals if a panel failed before
+      // i18n.js finished loading. A caller-supplied errorText is already
+      // resolved by its own T() and carries no key.
+      const key = expired ? 'dd.session_expired' : (opts.errorText ? null : 'dd.err_panel');
+      const action = expired
+        ? `<a class="btn btn--sm" href="/" data-i18n="dd.sign_in">${esc(t('dd.sign_in', 'Sign in'))}</a>`
+        : `<button class="btn btn--sm" type="button" data-i18n="dd.retry">${esc(t('dd.retry', 'Retry'))}</button>`;
       el.innerHTML = `<div class="state-block">
         <svg class="icon"><use href="#icon-offline"></use></svg>
-        <p>${esc(errorText)}</p>
-        <button class="btn btn--sm" type="button">Retry</button>
+        <p${key ? ` data-i18n="${key}"` : ''}>${esc(text)}</p>
+        ${action}
       </div>`;
+      if (window.RCI18N) RCI18N.apply(el);
       const btn = el.querySelector('button');
       if (btn) btn.onclick = () => renderPanel(el, loader, opts);
     }
@@ -222,7 +262,11 @@
       }
     } catch (e) {
       clearTimeout(timer);
-      if (!timedOut) fail();
+      // A swallowed exception makes a genuine loader bug (TypeError, bad shape)
+      // indistinguishable from a dead endpoint. Name it in the console; the
+      // user still just sees the calm error state.
+      console.warn('panel failed:', (e && (e.stack || e.message)) || e);
+      if (!timedOut) fail(e);
     }
   }
 
@@ -363,7 +407,7 @@
   window.RC = {
     TOKEN, LOGGED_IN, authHeaders, logout,
     fetchJSON, postWithStepUp, esc, fmt, fmtMoney, fmtPrice, fmtK, signed, pnlClass, fmtAgo,
-    dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, connectStream,
+    dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, mustRead, connectStream,
     modalA11y, countUp, animateCounters, revealOnScroll,
   };
 })();

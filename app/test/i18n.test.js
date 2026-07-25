@@ -92,7 +92,18 @@ test('dashboard panels: dictionary-backed titles, async panels re-apply on land'
   for (const k of used) assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
   // renderPanel translates async content the moment it lands (both states).
   const appjs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
-  assert.equal((appjs.match(/RCI18N\.apply\(el\)/g) || []).length, 2, 'data AND empty states apply i18n');
+  // All three async states re-apply i18n: data, empty, AND error. The error
+  // state matters most — it is the one a user hits when something is already
+  // going wrong, and reverting to English there is the worst moment for it.
+  assert.equal((appjs.match(/RCI18N\.apply\(el\)/g) || []).length, 3,
+    'data, empty AND error states apply i18n');
+  // Slice fail()'s body exactly (to its own closing brace) so the assertions
+  // can't be satisfied by the data/empty branches further down.
+  const from = appjs.indexOf('function fail(');
+  assert.ok(from > 0, 'renderPanel defines fail()');
+  const failFn = appjs.slice(from, appjs.indexOf('\n    }', from) + 6);
+  assert.match(failFn, /RCI18N\.apply\(el\)/, 'the error state re-translates');
+  assert.match(failFn, /data-i18n="dd\.retry"/, 'Retry re-translates on language switch');
 });
 
 test('markup never dies in translation: data-i18n vs data-i18n-html', () => {

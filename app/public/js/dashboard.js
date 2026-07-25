@@ -125,6 +125,11 @@
     if (cache.portfolio && !force) return cache.portfolio;
     const r = await fetchJSON('/api/portfolio', { timeoutMs: 16000 });
     if (r.ok) cache.portfolio = r.data;
+    // Stale beats blank: a cached portfolio survives a failed refresh. But with
+    // nothing cached, a failed read must NOT return undefined — the panel above
+    // reads that as "no portfolio yet" and invites a first paper trade, which
+    // is a lie to a funded account it simply could not reach.
+    if (!cache.portfolio) mustRead(r);
     return cache.portfolio;
   }
   // One probe per page-load decides whether bridge-fed analytics render at all.
@@ -318,7 +323,10 @@
   }
   async function getFeed(limit) {
     const r = await fetchJSON('/api/feed/recent?limit=' + limit, { auth: false });
-    return (r.ok && r.data?.events) || [];
+    // An unreachable feed is not a silent agent — both callers render this into
+    // a panel, and [] there would claim the agent has done nothing.
+    mustRead(r);
+    return (r.data?.events) || [];
   }
   function feedListHtml(events) {
     if (!events.length) return null; // renderPanel shows the empty state
@@ -378,7 +386,10 @@
   // Pushed hourly by the bot; panels render real data or an empty state.
   async function getReports() {
     const r = await fetchJSON('/api/reports', { auth: false });
-    return (r.ok && r.data?.reports) || null;
+    // An unreachable report feed is not an empty one — the panels below would
+    // otherwise say the hourly scan found nothing.
+    mustRead(r);
+    return (r.data?.reports) || null;
   }
   function reportAge(rep) {
     const t = rep?.generated_at || rep?.received_at;
@@ -699,7 +710,8 @@
       async function loadLetter(week) {
         await renderPanel(C('letter'), async () => {
           const r = await fetchJSON(week ? `/api/letter/${encodeURIComponent(week)}` : '/api/letter/latest');
-          if (!r.ok || !r.data?.letter) return null;
+          mustRead(r);
+          if (!r.data?.letter) return null;
           return letterHtml(r.data.letter);
         }, { empty: { icon: 'icon-sparkle', text: T('dd.e_letter', 'The first letter writes itself after the first full week of recorded activity.') } });
       }
@@ -817,7 +829,8 @@
 
     renderPanel(C('macmini'), async () => {
       const r = await fetchJSON('/api/macro', { auth: false, timeoutMs: 14000 });
-      const m = r && r.ok && r.data && r.data.macro;
+      mustRead(r);
+      const m = r.data && r.data.macro;
       if (!m || !m.band) return null;
       const toneCol = m.band.tone === 'up' ? 'var(--up)' : m.band.tone === 'down' ? 'var(--down)' : 'var(--text-2)';
       const pos = m.risk_score == null ? 50 : Math.max(0, Math.min(100, m.risk_score));
@@ -838,6 +851,7 @@
       // 🤖 bot-managed / ⚠️ unprotected) — the same safety truth as Portfolio,
       // capped to the top few with a link to the full view.
       const r = await fetchJSON('/api/positions', { timeoutMs: 15000 });
+      mustRead(r);
       const d = r.ok ? r.data : null;
       if (!d || !(d.positions || []).length) return null;
       return slPositionsHtml(d, { limit: 5 });
@@ -849,7 +863,10 @@
         fetchJSON('/api/auth/me'), fetchJSON('/api/credentials/status'),
         fetchJSON('/api/controls/status'), getPortfolio(),
       ]);
-      // Every state comes from real endpoints — no invented progress.
+      // Every state comes from real endpoints — no invented progress, and an
+      // unreadable one is not progress-not-made: a failed /me would otherwise
+      // render as "you haven't verified your email".
+      mustRead(me); mustRead(creds); mustRead(ctl);
       const verified = !!me.data?.email_verified;
       const linked = !!me.data?.telegram_linked;
       const connected = !!creds.data?.connected;
@@ -922,6 +939,7 @@
 
     renderPanel(C('hsig'), async () => {
       const r = await fetchJSON('/api/signals?limit=3', { auth: false });
+      mustRead(r);
       const sigs = r.data?.signals || [];
       if (!sigs.length) return null;
       return sigs.map(s => {
@@ -1111,7 +1129,8 @@
     renderPanel(C('dex'), async () => {
       const r = await fetchJSON('/api/market/dex', { auth: false, timeoutMs: 12000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.rows || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.rows || []).length) return null;
       return `<p class="muted small">Live mid prices on <b>${esc(d.dex)}</b> against ${esc(d.cex)} —
           the on-chain perps market, side by side. Avg |basis| ${d.avg_abs_delta_bps != null ? fmt(d.avg_abs_delta_bps, 1) + ' bps' : '—'}.</p>
         <div class="tbl-wrap"><table class="tbl">
@@ -1183,7 +1202,8 @@
     renderPanel(C('rwa'), async () => {
       const r = await fetchJSON('/api/market/rwa', { auth: false, timeoutMs: 12000 });
       const d = r.data;
-      if (!r.ok || !d || !d.sector || !d.sector.listed) return null;
+      mustRead(r);
+      if (!d || !d.sector || !d.sector.listed) return null;
       const s = d.sector;
       const chip = (v) => v == null ? '—'
         : `<b class="num ${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '+' : ''}${fmt(v, 2)}%</b>`;
@@ -1213,7 +1233,8 @@
         ? await fetchJSON('/api/airdrops/me', { timeoutMs: 20000 })
         : await fetchJSON('/api/airdrops', { auth: false, timeoutMs: 12000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.campaigns || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.campaigns || []).length) return null;
       // A richer, colour-coded status vocabulary so more campaign states read at
       // a glance (points-farming vs a live claim vs a snapshot already taken).
       const statusChip = (s) => {
@@ -1255,7 +1276,8 @@
     renderPanel(C('meme'), async () => {
       const r = await fetchJSON('/api/market/meme', { auth: false, timeoutMs: 15000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.tokens || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.tokens || []).length) return null;
       const TIER = {
         extreme: '<span class="badge" style="color:var(--down)">extreme</span>',
         high: '<span class="badge" style="color:var(--text-2)">high</span>',
@@ -1284,7 +1306,8 @@
     renderPanel(C('flow'), async () => {
       const r = await fetchJSON('/api/market/onchain-flow', { auth: false, timeoutMs: 15000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.bases || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.bases || []).length) return null;
       const rows = d.bases.map(b => `<tr>
           <td><b>${esc(b.base)}</b> <span class="muted small">${b.pairs} pools</span></td>
           <td class="num r ${b.flow_bias >= 0 ? 'up' : 'down'}">${b.flow_bias >= 0 ? '+' : ''}${b.flow_bias}</td>
@@ -1304,7 +1327,8 @@
     renderPanel(C('router'), async () => {
       const r = await fetchJSON('/api/market/venue-router', { auth: false, timeoutMs: 12000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.rows || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.rows || []).length) return null;
       const rows = d.rows.map(x => `<tr>
           <td><b>${esc(x.base)}</b></td>
           <td class="r"><b>${esc(x.long_venue)}</b> <span class="num muted small">${x.long_apr >= 0 ? '+' : ''}${x.long_apr}%</span></td>
@@ -1321,7 +1345,11 @@
     }, { empty: { icon: 'icon-target', text: 'The venue router lights up after the next hourly cross-venue funding scan.' } });
 
     // Cross-venue intelligence (one shared fetch; hourly bot-pushed data).
+    // Awaited inside several loaders below; each gets the rejection and paints
+    // its own error state. The no-op catch just keeps it from being flagged as
+    // unhandled in the window between creation and the first await.
     const reportsP = getReports();
+    reportsP.catch(() => {});
     renderPanel(C('xfunding'), async () => {
       const rep = await reportsP;
       const rows = rep?.funding?.rows || [];
@@ -1367,6 +1395,7 @@
       let rows = null;
       await renderPanel(C('chart'), async () => {
         const r = await fetchJSON(`/api/market/candles/${sym}?granularity=${gran}&limit=200`, { auth: false, timeoutMs: 12000 });
+        mustRead(r);
         rows = r.data?.data;
         if (!rows || !rows.length) return null;
         // TradingView Lightweight Charts (vendored, self-hosted). Fall back to
@@ -1505,6 +1534,7 @@
       renderPanel(C('depth'), async () => {
         const sym = symSel.value;
         const r = await fetchJSON(`/api/market/depth/${sym}`, { auth: false, timeoutMs: 10000 });
+        mustRead(r);
         const d = r.data?.data;
         if (!d || !d.asks) return null;
         const rows = (side, arr) => arr.slice(0, 6).map(([p, q]) => `
@@ -1519,6 +1549,7 @@
       renderPanel(C('funding'), async () => {
         const sym = symSel.value;
         const r = await fetchJSON(`/api/market/funding/${sym}`, { auth: false, timeoutMs: 10000 });
+        mustRead(r);
         const raw = r.data?.data;
         const item = Array.isArray(raw) ? raw[0] : raw;
         const rate = parseFloat(item?.fundingRate);
@@ -1542,6 +1573,7 @@
         const r = await fetchJSON(
           `/api/insight?symbol=${encodeURIComponent(base + '/USDT')}&timeframe=${tf}&limit=200`,
           { auth: false, timeoutMs: 12000 });
+        mustRead(r);
         const d = r.data;
         if (!d || d.error || typeof d.confluence !== 'number') return null;
 
@@ -1840,6 +1872,7 @@
 
     renderPanel(C('sstats'), async () => {
       const r = await fetchJSON('/api/signals/stats', { auth: false });
+      mustRead(r);
       const s = r.data;
       if (!s || !s.resolved) return null;
       return `<div class="stat-row">
@@ -1853,6 +1886,7 @@
     async function drawStream() {
       renderPanel(C('stream'), async () => {
         const r = await fetchJSON('/api/signals?limit=40', { auth: false });
+        mustRead(r);
         const sigs = r.data?.signals || [];
         if (!sigs.length) return null;
         return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
@@ -1886,6 +1920,7 @@
 
     renderPanel(C('sinsights'), async () => {
       const r = await fetchJSON('/api/signals/analytics', { auth: false });
+      mustRead(r);
       const a = r.data;
       if (!a || !(a.by_pattern?.length || a.by_symbol?.length)) return null;
       const bars = (rows, key) => rows.slice(0, 6).map(g => {
@@ -2294,6 +2329,7 @@
       // Real top-volume market rows from the public ticker feed.
       renderPanel(document.getElementById('c-prevmkt'), async () => {
         const r = await fetchJSON('/api/market/tickers', { auth: false, timeoutMs: 12000 });
+        mustRead(r);
         const list = r.ok && r.data && Array.isArray(r.data.data) ? r.data.data : [];
         if (!list.length) return null;
         const rows = list.filter(t => /USDT$/.test(t.symbol || ''))
@@ -2380,7 +2416,9 @@
       </div>`);
 
     // Mode note: quiet chip, not a blocker.
-    getPortfolio().then(pf => {
+    // Chrome-only decoration: the portfolio panel reports the failure, so this
+    // one just stays quiet rather than raising an unhandled rejection.
+    getPortfolio().catch(() => null).then(pf => {
       updateModeChip(pf);
       const el = document.getElementById('tradeModeNote');
       if (!el) return;
@@ -2395,7 +2433,8 @@
       renderPanel(C('authority'), async () => {
         const r = await fetchJSON('/api/authority', { timeoutMs: 12000 });
         const d = r.data;
-        if (!r.ok || !d) return null;
+        mustRead(r);
+        if (!d) return null;
         const modePill = (m) => {
           const cls = m === 'enforce' ? 'mode-badge--live' : (m === 'shadow' ? 'mode-badge--paper' : '');
           return `<span class="mode-badge ${cls}">${esc((m || 'off').toUpperCase())}</span>`;
@@ -2766,6 +2805,7 @@
         </div>`);
       renderPanel(document.getElementById('c-prevtrack'), async () => {
         const r = await fetchJSON('/api/public/track-record', { auth: false, timeoutMs: 14000 });
+        mustRead(r);
         const s = r.ok && r.data && r.data.stats;
         if (!s) return null;
         const tile = (k, v, cls) => `<div class="stat"><div class="k">${k}</div><div class="v num ${cls || ''}">${v}</div></div>`;
@@ -2888,11 +2928,15 @@
     // DB-backed panels below reflect the freshest paper state. Keep pf around —
     // it carries the authoritative (truthful) equity + live_unavailable state,
     // which /api/trades/stats does not know about.
-    const pf = await getPortfolio(true);
+    // Never let a failed read abort the mount — the panels below each report
+    // their own failure, and throwing here would freeze the whole view on
+    // skeletons with nothing to retry.
+    const pf = await getPortfolio(true).catch(() => null);
     updateModeChip(pf);
 
     renderPanel(C('pstats'), async () => {
       const r = await fetchJSON('/api/trades/stats');
+      mustRead(r);
       const s = r.data;
       if (!s || (s.equity == null && !s.total_trades)) return null;
       // Equity comes from pf (honest: null/unavailable in LIVE mode when the
@@ -2914,6 +2958,7 @@
 
     renderPanel(C('curve'), async () => {
       const r = await fetchJSON('/api/trades/equity-curve');
+      mustRead(r);
       const snaps = r.data?.snapshots || [];
       if (snaps.length < 2) return null;
       const ce = r.data?.capital_events || 0;
@@ -2991,6 +3036,7 @@
     // real risk). Read-only; nothing here places, moves, or closes an order.
     renderPanel(C('lpos'), async () => {
       const r = await fetchJSON('/api/positions', { timeoutMs: 15000 });
+      mustRead(r);
       const d = r.ok ? r.data : null;
       if (!d) return null;
       if (!(d.positions || []).length) return `<p class="small muted">No open positions right now. When the agent opens one, its stop-loss protection status shows here.</p>`;
@@ -3000,7 +3046,7 @@
     // One-tap: twin the real book in the Stress Lab. The link carries only
     // percentages (each position's margin share of equity) + leverage — never a
     // dollar figure — so it stays §4-clean even when shared.
-    getPortfolio().then(pf => {
+    getPortfolio().catch(() => null).then(pf => {
       const book = stressBookFromPortfolio(pf);
       const host = document.getElementById('c-lpos');
       if (!book || !host || document.getElementById('stressBookLink')) return;
@@ -3013,7 +3059,8 @@
     renderPanel(C('intel'), async () => {
       const r = await fetchJSON('/api/portfolio/intel', { timeoutMs: 15000 });
       const d = r.data?.intel;
-      if (!r.ok || !d || !d.trades) return null;
+      mustRead(r);
+      if (!d || !d.trades) return null;
       const rows = [];
       if (d.alpha) {
         const a = d.alpha;
@@ -3045,6 +3092,7 @@
         fetchJSON('/api/credentials/status', { timeoutMs: 12000 }).catch(() => null),
         fetchJSON('/api/holdings', { timeoutMs: 40000 }).catch(() => null),
       ]);
+      mustRead(cs);
       const status = (cs && cs.ok && cs.data && cs.data.venues) || [];
       const pendingV = cs && cs.ok && cs.data && cs.data.pending ? cs.data.pending_venue : null;
       const equity = new Map(((hd && hd.ok && hd.data && hd.data.venues) || [])
@@ -3082,7 +3130,8 @@
     renderPanel(C('networth'), async () => {
       const r = await fetchJSON('/api/networth', { timeoutMs: 35000 });
       const d = r.data;
-      if (!r.ok || !d || !d.sections) return null;
+      mustRead(r);
+      if (!d || !d.sections) return null;
       const rows = [];
       const c = d.sections.cex;
       if (c && c.connected) {
@@ -3127,7 +3176,8 @@
     renderPanel(C('arena'), async () => {
       const r = await fetchJSON('/api/arena/account', { timeoutMs: 16000 });
       const d = r.data;
-      if (!r.ok || !d) return null;
+      mustRead(r);
+      if (!d) return null;
       const earned = (d.badges || []).filter(b => b.earned);
       const rp = d.return_pct;
       return `<div class="w3-hero">
@@ -3150,7 +3200,8 @@
     renderPanel(C('holdings'), async () => {
       const r = await fetchJSON('/api/holdings', { timeoutMs: 40000 });
       const d = r.data;
-      if (!r.ok || !d) return null;
+      mustRead(r);
+      if (!d) return null;
       // Same holdings feed the allocation donut — one fetch, mounted into its
       // own canvas panel (self-cleaning on nav).
       mountAllocation(d);
@@ -3204,7 +3255,8 @@
     renderPanel(C('idleyield'), async () => {
       const r = await fetchJSON('/api/idleyield', { timeoutMs: 32000 });
       const d = r.data;
-      if (!r.ok || !d || d.available === false) return null;
+      mustRead(r);
+      if (!d || d.available === false) return null;
       if (d.wallet_linked === false) {
         return `<p class="muted">${esc(d.note || 'Link a wallet to scan idle assets for the best rate.')}</p>`;
       }
@@ -3238,7 +3290,8 @@
     renderPanel(C('crossyield'), async () => {
       const r = await fetchJSON('/api/crossyield', { timeoutMs: 32000 });
       const d = r.data;
-      if (!r.ok || !d || d.available === false) return null;
+      mustRead(r);
+      if (!d || d.available === false) return null;
       if (d.wallet_linked === false) return `<p class="muted">${esc(d.note || 'Link a wallet to plan cross-chain yield moves.')}</p>`;
       const plans = (d.plans || []);
       if (!plans.length) return `<p class="muted">${esc(d.note || 'No idle assets to plan a move for right now.')}</p>`;
@@ -3266,7 +3319,8 @@
     renderPanel(C('sentry'), async () => {
       const r = await fetchJSON('/api/sentry', { timeoutMs: 18000 });
       const d = r.data;
-      if (!r.ok || !d) return null;
+      mustRead(r);
+      if (!d) return null;
       if (!d.alerts || !d.alerts.length) {
         return `<div class="kv-row"><span>🟢 Nothing flagged in your current posture.</span></div>
           <p class="small muted" style="margin-top:var(--s2)">Watches for envelope drift, over-cap positions,
@@ -3287,7 +3341,8 @@
     renderPanel(C('exposure'), async () => {
       const r = await fetchJSON('/api/exposure', { timeoutMs: 20000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.assets || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.assets || []).length) return null;
       const flagBadge = (f) => f.includes('stacked_long')
         ? '<span class="badge" style="color:var(--down)">⚠️ doubled</span>'
         : f.includes('hedged') ? '<span class="badge">🛡 hedged</span>' : '';
@@ -3314,7 +3369,8 @@
     renderPanel(C('wallet'), async () => {
       const r = await fetchJSON('/api/wallet/portfolio', { timeoutMs: 25000 });
       const d = r.data;
-      if (!r.ok || !d) return null;
+      mustRead(r);
+      if (!d) return null;
       if (!d.linked) {
         return `<p class="muted">No wallet linked. Connect one with <b>Sign-In with Ethereum</b>
           (Account view) — linking is read-only: the wallet signs a login message, never a transaction.</p>`;
@@ -3369,7 +3425,8 @@
     renderPanel(C('defi'), async () => {
       const r = await fetchJSON('/api/defi', { timeoutMs: 25000 });
       const d = r.data;
-      if (!r.ok || !d) return null;
+      mustRead(r);
+      if (!d) return null;
       if (!d.linked) {
         return `<p class="muted">No wallet linked — link one in the <a href="#account">Account view</a>
           and your Aave, Lido and Uniswap positions appear here with liquidation-risk warnings.</p>`;
@@ -3410,7 +3467,8 @@
       await renderPanel(C('replay'), async () => {
         const r = await fetchJSON(`/api/replay?stake=${encodeURIComponent(stake)}&days=${encodeURIComponent(days)}`);
         const d = r.data;
-        if (!r.ok || !d || !d.trades) return null;
+        mustRead(r);
+        if (!d || !d.trades) return null;
         const f = d.fixed;
         const cls = f.net_pnl_usd >= 0 ? 'up' : 'down';
         const curveSvg = d.curve.length >= 2
@@ -3439,6 +3497,7 @@
 
     renderPanel(C('breakdown'), async () => {
       const r = await fetchJSON('/api/trades/breakdown');
+      mustRead(r);
       const rows = r.data?.by_symbol || [];
       if (!rows.length) return null;
       return rows.slice(0, 8).map(g => `
@@ -3448,6 +3507,7 @@
 
     renderPanel(C('cal'), async () => {
       const r = await fetchJSON('/api/trades/history?limit=200');
+      mustRead(r);
       const trades = (r.data?.trades || []).filter(t => t.closed_at);
       if (!trades.length) return null;
       const byDay = {};
@@ -3472,6 +3532,7 @@
     // closed-trade history the calendar uses; nothing is invented.
     renderPanel(C('edge'), async () => {
       const r = await fetchJSON('/api/trades/history?limit=200');
+      mustRead(r);
       const trades = (r.data?.trades || []).filter(t => t.closed_at);
       if (trades.length < 2) return null;
       const pnls = trades.map(t => parseFloat(t.pnl) || 0);
@@ -3505,6 +3566,7 @@
 
     renderPanel(C('hist'), async () => {
       const r = await fetchJSON('/api/trades/history?limit=25');
+      mustRead(r);
       const trades = r.data?.trades || [];
       if (!trades.length) return null;
       return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
@@ -3799,6 +3861,7 @@
             fetchJSON('/api/reports/yield', { timeoutMs: 12000 }),
             fetchJSON('/api/staking/fixed', { timeoutMs: 30000 }).catch(() => null),
           ]);
+          mustRead(r);
           const y = r.data?.yield;
           if (!y || !(y.rows || []).length) return null;
           const lock = (lockR?.ok && lockR.data?.available) ? lockR.data : null;
@@ -3885,6 +3948,7 @@
     async function drawWalletLink() {
       renderPanel(C('awallet'), async () => {
         const r = await fetchJSON('/api/wallet/portfolio', { timeoutMs: 25000 }).catch(() => null);
+        mustRead(r);
         const d = (r?.ok && r.data) || {};
         // Solana rides alongside the EVM link as a WATCH address — honestly
         // read-only and unauthenticated (SIWE can't sign on Solana), it only
@@ -4037,6 +4101,8 @@
           return `<p class="small muted">This browser doesn't support web push.</p>`;
         }
         const k = await fetchJSON('/api/push/key');
+        // "Notifications are off" and "we couldn't ask" are different answers.
+        mustRead(k);
         if (!k?.ok || !k.data?.enabled) {
           return `<p class="small muted">Push isn't configured on the server yet (operator: set VAPID keys). Telegram alerts keep working meanwhile.</p>`;
         }
@@ -4106,14 +4172,14 @@
     drawPush();
 
     renderPanel(C('aprof'), async () => {
-      if (!me?.ok) return null;
+      mustRead(me);
       return `<div class="kv-row"><span>Email</span><b style="font-family:var(--font-ui)">${esc(me.data.email || '—')}</b></div>
         <div class="kv-row"><span>Mode</span><b><span class="chip chip--paper">PAPER</span>${linked ? ' <span class="chip chip--gold">LIVE-CAPABLE</span>' : ''}</b></div>
         <button class="btn btn--ghost btn--sm mt-3" id="logoutBtn">Log out</button>`;
     }, { empty: { text: 'Could not load your profile.' } });
 
     renderPanel(C('aplan'), async () => {
-      if (!me?.ok) return null;
+      mustRead(me);
       // 'free' is the pre-tier-sync default; the bot's tier authority calls
       // the same thing 'basic'. One label for both.
       const raw = String(me.data.plan || 'basic').toLowerCase();
@@ -4200,7 +4266,8 @@
     // Invite friends — the user's own share link + a live count of who joined.
     renderPanel(C('ainvite'), async () => {
       const r = await fetchJSON('/api/auth/referrals');
-      if (!r.ok || !r.data?.code) return null;
+      mustRead(r);
+      if (!r.data?.code) return null;
       const link = `${location.origin}/?ref=${encodeURIComponent(r.data.code)}`;
       const count = r.data.count || 0;
       const share = encodeURIComponent(link);
@@ -4243,6 +4310,7 @@
         fetchJSON('/api/credentials/status'),
         fetchJSON('/api/auth/config', { auth: false }).catch(() => ({ data: {} })),
       ]);
+      mustRead(r);
       venuesCatalog = (cfg.data?.venues) || [];
       if (r.status === 409) {
         // Not a dead-end: say what's missing AND hand over the next step.
@@ -4310,6 +4378,7 @@
 
     renderPanel(C('actl'), async () => {
       const r = await fetchJSON('/api/controls/status');
+      mustRead(r);
       if (r.status === 409) {
         return `<div class="section-note"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>
           ${esc(r.data?.detail || 'Live controls require a linked Telegram account.')}</div>`;
@@ -4912,7 +4981,12 @@
       if (byonPanel) byonPanel.hidden = false;
       await renderPanel(C('newsbyon'), async () => {
         const r = await fetchJSON('/api/news/key/status', { timeoutMs: 12000 });
-        if (!r?.ok) { if (byonPanel) byonPanel.hidden = true; return null; }
+        // A 404 means BYON isn't provisioned on this deployment — hide it.
+        // A 500 means we couldn't ask, and silently vanishing a feature the
+        // user may already have configured is the worse lie: keep the panel
+        // and let it say it couldn't load.
+        if (r && r.status === 404) { if (byonPanel) byonPanel.hidden = true; return null; }
+        mustRead(r);
         const d = r.data || {};
         const provs = d.providers || [];
         const opts = provs.map(p =>
@@ -4992,6 +5066,7 @@
     async function drawShare() {
       await renderPanel(C('newsshare'), async () => {
         const r = await fetchJSON('/api/ingest', { timeoutMs: 12000 });
+        mustRead(r);
         const notes = (r?.ok && r.data?.notes) || [];
         const list = notes.length ? notes.map((n) => `
           <div class="news-item" data-nid="${esc(String(n.id))}">
@@ -5310,7 +5385,8 @@
         return `<div class="state-block"><svg class="icon"><use href="#icon-offline"></use></svg>
           <p>The agent catalogue needs the bot's analysis bridge (run <code>python api_bridge.py</code> on the bot host).</p></div>`;
       }
-      const agents = (r.ok && r.data && r.data.agents) || [];
+      mustRead(r);
+      const agents = (r.data && r.data.agents) || [];
       if (!agents.length) return null;
       agentCards = agents;
       // Which agents does this user follow? (logged-in only; drives the button
@@ -5796,7 +5872,8 @@
         return `<div class="state-block"><svg class="icon"><use href="#icon-offline"></use></svg>
           <p>The Strategy Lab needs the bot's analysis bridge (run <code>python api_bridge.py</code> on the bot host, port 8000).</p></div>`;
       }
-      if (!r.ok || !r.data?.datasets) return null;
+      mustRead(r);
+      if (!r.data?.datasets) return null;
       meta = r.data;
       const names = Object.keys(meta.datasets);
       if (!names.length) return `<div class="state-block"><p>No frozen benchmark snapshots found on the bot host.</p></div>`;
@@ -6099,7 +6176,8 @@
     renderPanel(C('hubletter'), async () => {
       const r = await fetchJSON('/api/letter/latest');
       const L = r.data?.letter;
-      if (!r.ok || !L) return null;
+      mustRead(r);
+      if (!L) return null;
       return `<p class="muted small" style="margin-bottom:var(--s1)">${esc(L.period.start)} → ${esc(L.period.end)}</p>
         <p style="font-weight:600">${esc(L.headline)}</p>
         <button class="btn btn--sm mt-2" data-ask="this week's letter" type="button">✉️ Read it in chat</button>`;
@@ -6109,7 +6187,8 @@
     renderPanel(C('hubreplay'), async () => {
       const r = await fetchJSON('/api/replay?stake=1000&days=0');
       const d = r.data;
-      if (!r.ok || !d || !d.trades) return null;
+      mustRead(r);
+      if (!d || !d.trades) return null;
       const f = d.fixed;
       return `<p>Mirroring every closed agent trade at <b>$1,000</b>:
           <b class="num ${f.net_pnl_usd >= 0 ? 'up' : 'down'}">${fmtMoney(f.net_pnl_usd)}</b>
@@ -6121,7 +6200,8 @@
     renderPanel(C('hubnw'), async () => {
       const r = await fetchJSON('/api/networth', { timeoutMs: 35000 });
       const d = r.data;
-      if (!r.ok || !d || !d.sections) return null;
+      mustRead(r);
+      if (!d || !d.sections) return null;
       const bits = [];
       const c = d.sections.cex;
       if (c && c.connected) bits.push(`🏦 ${esc((c.venue || 'CEX').toUpperCase())} ${c.ok && c.equity_usd != null ? '$' + fmt(c.equity_usd, 2) : '<span class="muted small">unreadable</span>'}`);
@@ -6136,7 +6216,8 @@
     renderPanel(C('hubexp'), async () => {
       const r = await fetchJSON('/api/exposure', { timeoutMs: 20000 });
       const d = r.data;
-      if (!r.ok || !d || !(d.assets || []).length) return null;
+      mustRead(r);
+      if (!d || !(d.assets || []).length) return null;
       const warn = (d.warnings || []).map(w2 =>
         `<p class="small" style="color:var(--down);margin-top:var(--s1)">⚠️ ${esc(w2)}</p>`).join('');
       return `<p>Net <b class="num">$${fmt(d.net_total_usd, 0)}</b>
@@ -6226,6 +6307,7 @@
         try {
           const r = await fetchJSON(`/api/research/${encodeURIComponent(sym)}/web`,
             { method: 'POST', body: {}, timeoutMs: 35000 });
+          mustRead(r);
           if (r?.ok && r.data?.web_html) {
             out.innerHTML = `<div class="panel" style="background:var(--surface-2,#12151c)">
                 <div class="small muted" style="margin-bottom:6px">🌐 Live web research — ${esc(sym)}${r.data.model ? ' · ' + esc(r.data.model) : ''}</div>
@@ -6352,6 +6434,7 @@
       };
       await renderPanel(C('hubllm'), async () => {
         const r = await fetchJSON('/api/llm', { timeoutMs: 12000 });
+        mustRead(r);
         if (!r?.ok) return '<p class="muted small">LLM connect is unavailable right now (bot gateway offline?).</p>';
         const d = r.data;
         const provs = d.providers || [];
@@ -6508,6 +6591,7 @@
     if (window.RCAgent3D) window.RCAgent3D.mountIfAvailable(container.querySelector('[data-rc-agent3d]'), { mode: 'avatar' });
     renderPanel(C('macro'), async () => {
       const r = await fetchJSON('/api/macro', { auth: false, timeoutMs: 16000 });
+      mustRead(r);
       const m = r && r.ok && r.data && r.data.macro;
       if (!m) return null;
       macroReact(m.band);
@@ -6886,7 +6970,8 @@
           rp.hidden = false;
           renderPanel(C('review'), async () => {
             const r = await fetchJSON('/api/guardian/review', { timeoutMs: 14000 });
-            if (!r || !r.ok || !r.data) return null;
+            mustRead(r);
+            if (!r.data) return null;
             return reviewQueueCard(r.data);
           }, { empty: { icon: 'icon-shield', text: 'No proposed on-chain actions yet — they queue here for review before any signer could act.' } });
         }
@@ -6905,17 +6990,20 @@
       // Own data — needs the JWT (auth: true). Fail-soft: the endpoint always
       // returns a score object (nulls for unobserved axes), so a card renders.
       const r = await fetchJSON('/api/guardian/readiness', { timeoutMs: 14000 });
-      if (!r || !r.ok || !r.data) return null;
+      mustRead(r);
+      if (!r.data) return null;
       return readinessCard(r.data);
     }, { empty: { icon: 'icon-shield', text: 'The readiness score needs you signed in — it reads your own agent’s safety posture.' } });
     renderPanel(C('incidents'), async () => {
       const r = await fetchJSON('/api/guardian/incidents?limit=40', { auth: false, timeoutMs: 14000 });
-      if (!r || !r.ok || !r.data) return null;
+      mustRead(r);
+      if (!r.data) return null;
       return incidentsCard(r.data);
     }, { empty: { icon: 'icon-alert', text: 'No safety incidents recorded yet — the controls have had nothing to stop or recover.' } });
     renderPanel(C('flight'), async () => {
       const r = await fetchJSON('/api/guardian/flight?limit=50', { auth: false, timeoutMs: 16000 });
-      if (!r || !r.ok || !r.data) return null;
+      mustRead(r);
+      if (!r.data) return null;
       return guardianBlock(r.data);
     }, { empty: { icon: 'icon-check', text: 'The decision ledger is unavailable right now — check back in a moment.' } });
   }
