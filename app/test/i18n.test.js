@@ -81,3 +81,16 @@ test('arena dynamic strings: dictionary-backed with intact {x} placeholders', ()
   assert.match(arena, /T\('arena\.d_chart_note'/);
   assert.match(arena, /reasonLabel\(t\.reason\)/);
 });
+
+test('dashboard panels: dictionary-backed titles, async panels re-apply on land', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+  // Every dp.* key referenced in dashboard.js exists in the dictionary.
+  const used = [...new Set([...dash.matchAll(/data-i18n="(dp\.[\w.]+)"/g)].map((m) => m[1]))];
+  assert.ok(used.length >= 20, `expected a real sweep, found ${used.length} dp.* uses`);
+  for (const k of used) assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+  // renderPanel translates async content the moment it lands (both states).
+  const appjs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
+  assert.equal((appjs.match(/RCI18N\.apply\(el\)/g) || []).length, 2, 'data AND empty states apply i18n');
+});

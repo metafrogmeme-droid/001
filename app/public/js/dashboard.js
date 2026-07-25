@@ -390,7 +390,7 @@
     container.innerHTML = viewHead('Live Feed',
       "The agent's mind-stream — every scan, thesis, trade and alert, as it happens")
       + (LOGGED_IN ? `<section class="panel" id="p-tripwires">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>My tripwires
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg><span data-i18n="dp.tripwires">My tripwires</span>
             <span class="badge" style="margin-left:auto" title="One-shot alerts — each disarms after it trips">one-shot</span></h2>
           <p style="color:var(--text-2);margin-bottom:var(--s3)">Personal price alerts, delivered as push notifications.
             You can also just tell the chat: <i>"alert me when BTC drops below $100k"</i>.</p>
@@ -508,9 +508,9 @@
     if (d.events_new) parts.push(`<a class="btn btn--ghost btn--sm" href="#feed">🧠 ${d.events_new} engine event${d.events_new === 1 ? '' : 's'}</a>`);
     if (d.arena && d.arena.closes) parts.push(`<a class="btn btn--ghost btn--sm" href="/arena">🏟️ ${d.arena.closes} paper close${d.arena.closes === 1 ? '' : 's'} <span class="${pnlClass(d.arena.pnl)}">${signed(d.arena.pnl)} vUSDT</span></a>`);
     return `<section class="panel panel--primary" id="p-since">
-      <h2 class="panel-title">👋 While you were away <span class="right muted small">gone ${fmtAway(d.away_s)}</span></h2>
+      <h2 class="panel-title">👋 <span data-i18n="dp.away">While you were away</span> <span class="right muted small"><span data-i18n="dp.away_gone">gone</span> ${fmtAway(d.away_s)}</span></h2>
       <div class="row" style="gap:var(--s2);flex-wrap:wrap">${parts.join('')}</div>
-      <button class="btn btn--ghost btn--sm mt-3" id="sinceDismiss" type="button">Caught up ✓</button>
+      <button class="btn btn--ghost btn--sm mt-3" id="sinceDismiss" type="button" data-i18n="dp.caught_up">Caught up ✓</button>
     </section>`;
   }
   function wireSinceDismiss() {
@@ -569,28 +569,28 @@
       <div class="stack">
         <section class="panel panel--primary" id="p-hero"><div id="c-hero"><div class="skel"></div><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-cmd" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-cmd"><div class="skel"></div></div></section>` : ''}
-        <section class="panel" id="p-next"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg>Getting started</h2><div id="c-next"><div class="skel"></div></div></section>
-        ${LOGGED_IN ? `<section class="panel" id="p-watch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Watchlist
-          <span class="right muted small">engine patterns push for these</span></h2><div id="c-watch"><div class="skel"></div></div></section>` : ''}
-        ${LOGGED_IN ? `<section class="panel" id="p-agent"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Your agent
-          <span class="right muted small">what it's doing for you</span></h2><div id="c-agent"><div class="skel"></div></div></section>` : ''}
-        <section class="panel" id="p-mind"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Agent mind-stream
-          <span class="right"><a class="small" href="#feed">full feed →</a></span></h2><div id="c-mind"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel" id="p-verify"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Don't trust the dashboard — verify the fills
-          <span class="right"><a class="small" href="/proof">Proof of PnL →</a></span></h2>
-          <div id="c-verify"><p style="max-width:64ch;color:var(--text-2);margin:0 0 12px">Every figure here is reconstructed from raw exchange fills and published as a sealed, hash-verifiable statement. Re-derive the hash in your own browser — no login, no trust required.</p>
+        <section class="panel" id="p-next"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.next">Getting started</span></h2><div id="c-next"><div class="skel"></div></div></section>
+        ${LOGGED_IN ? `<section class="panel" id="p-watch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.watch">Watchlist</span>
+          <span class="right muted small" data-i18n="dp.watch_sub">engine patterns push for these</span></h2><div id="c-watch"><div class="skel"></div></div></section>` : ''}
+        ${LOGGED_IN ? `<section class="panel" id="p-agent"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.agent">Your agent</span>
+          <span class="right muted small" data-i18n="dp.agent_sub">what it's doing for you</span></h2><div id="c-agent"><div class="skel"></div></div></section>` : ''}
+        <section class="panel" id="p-mind"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.mind">Agent mind-stream</span>
+          <span class="right"><a class="small" href="#feed" data-i18n="dp.mind_link">full feed →</a></span></h2><div id="c-mind"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-verify"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.verify">Don't trust the dashboard — verify the fills</span>
+          <span class="right"><a class="small" href="/proof" data-i18n="dp.verify_link">Proof of PnL →</a></span></h2>
+          <div id="c-verify"><p style="max-width:64ch;color:var(--text-2);margin:0 0 12px" data-i18n="dp.verify_p">Every figure here is reconstructed from raw exchange fills and published as a sealed, hash-verifiable statement. Re-derive the hash in your own browser — no login, no trust required.</p>
             <div class="row" style="gap:var(--s2);flex-wrap:wrap">
-              <a class="btn btn--sm" href="/proof">🔐 Re-verify the fills</a>
-              <a class="btn btn--sm btn--ghost" href="/track">📈 Public track record</a>
+              <a class="btn btn--sm" href="/proof" data-i18n="dp.verify_btn">🔐 Re-verify the fills</a>
+              <a class="btn btn--sm btn--ghost" href="/track" data-i18n="dp.track_btn">📈 Public track record</a>
             </div></div></section>
-        <section class="panel" id="p-macmini"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Macro backdrop
-          <span class="right"><a class="small" href="#macro">open Macro →</a></span></h2><div id="c-macmini"><div class="skel"></div></div></section>
-        ${LOGGED_IN ? `<section class="panel" id="p-letter"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>The Agent Letter
+        <section class="panel" id="p-macmini"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.macro">Macro backdrop</span>
+          <span class="right"><a class="small" href="#macro" data-i18n="dp.macro_link">open Macro →</a></span></h2><div id="c-macmini"><div class="skel"></div></div></section>
+        ${LOGGED_IN ? `<section class="panel" id="p-letter"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.letter">The Agent Letter</span>
           <select class="input" id="letterWeek" aria-label="Letter week" style="margin-left:auto;width:auto;padding:2px 8px"></select>
-          <a class="small" href="/letter" style="margin-left:8px;white-space:nowrap">public archive →</a></h2>
+          <a class="small" href="/letter" style="margin-left:8px;white-space:nowrap" data-i18n="dp.letter_link">public archive →</a></h2>
           <div id="c-letter"><div class="skel"></div><div class="skel"></div></div></section>` : ''}
-        <section class="panel" id="p-hpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Open positions</h2><div id="c-hpos"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel" id="p-hsig"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Latest engine signals</h2><div id="c-hsig"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-hpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-hpos"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-hsig"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.hsig">Latest engine signals</span></h2><div id="c-hsig"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`);
 
     renderPanel(C('hero'), async () => {
@@ -1025,7 +1025,7 @@
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
         <section class="panel panel--primary" id="p-chart">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Price chart
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.chart">Price chart</span>
             <span class="right">
               <label class="visually-hidden" for="chartSym">Symbol</label>
               <select class="input" id="chartSym" style="width:auto;padding:5px 9px;font-size:var(--fs-sm)"></select>
@@ -1037,19 +1037,19 @@
           <div id="c-chart"><div class="skel"></div><div class="skel"></div></div>
           <div id="chartRead" class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px"></div>
         </section>
-        <section class="panel" id="p-insight"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>AI decision picture
-          <span class="right muted small">the same read the engine trades off</span></h2>
+        <section class="panel" id="p-insight"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.insight">AI decision picture</span>
+          <span class="right muted small" data-i18n="dp.insight_sub">the same read the engine trades off</span></h2>
           <div id="c-insight"><div class="skel"></div><div class="skel"></div></div>
         </section>
         <div class="grid grid-2">
-          <section class="panel" id="p-depth"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Order book</h2><div id="c-depth"><div class="skel"></div></div></section>
-          <section class="panel" id="p-funding"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>Funding rate</h2><div id="c-funding"><div class="skel"></div></div></section>
+          <section class="panel" id="p-depth"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.depth">Order book</span></h2><div id="c-depth"><div class="skel"></div></div></section>
+          <section class="panel" id="p-funding"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.funding">Funding rate</span></h2><div id="c-funding"><div class="skel"></div></div></section>
         </div>
         <div class="grid grid-2">
-          <section class="panel" id="p-xfunding"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Cross-venue funding</h2><div id="c-xfunding"><div class="skel"></div></div></section>
-          <section class="panel" id="p-arb"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Funding-arb paper tracker</h2><div id="c-arb"><div class="skel"></div></div></section>
+          <section class="panel" id="p-xfunding"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.xfunding">Cross-venue funding</span></h2><div id="c-xfunding"><div class="skel"></div></div></section>
+          <section class="panel" id="p-arb"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.arb">Funding-arb paper tracker</span></h2><div id="c-arb"><div class="skel"></div></div></section>
         </div>
-        <section class="panel" id="p-dex"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>DEX ↔ CEX — Hyperliquid vs this venue
+        <section class="panel" id="p-dex"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.dex">DEX ↔ CEX — Hyperliquid vs this venue</span>
           <span class="badge" style="margin-left:auto" title="Public data comparison — nothing here trades">read-only</span></h2>
           <div id="c-dex"><div class="skel"></div></div>
         </section>

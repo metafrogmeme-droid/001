@@ -208,12 +208,16 @@
       if (html == null || html === '') {
         delete el.dataset.rcLoaded;
         el.innerHTML = stateBlock(empty);
+        if (window.RCI18N) RCI18N.apply(el);
       } else {
         // Count-up runs on FIRST population only — soft SSE refreshes keep the
         // live-value flash, they don't re-roll the number.
         const wasLoaded = el.dataset.rcLoaded === '1';
         el.innerHTML = html;
         el.dataset.rcLoaded = '1';
+        // Async content translates like static markup: any data-i18n the
+        // loader emitted is applied the moment it lands.
+        if (window.RCI18N) RCI18N.apply(el);
         if (!wasLoaded) animateCounters(el);
       }
     } catch (e) {
