@@ -455,7 +455,7 @@ router.get('/season', async (req, res) => {
     };
     if (status !== 'upcoming') {
       const [trades] = await pool.execute(
-        'SELECT user_id, pnl FROM arena_trades WHERE closed_at >= ? AND closed_at <= ?',
+        'SELECT user_id, pnl, seal FROM arena_trades WHERE closed_at >= ? AND closed_at <= ?',
         [season.starts_at, season.ends_at]);
       const [handles] = await pool.execute(
         'SELECT id, leaderboard_handle FROM users WHERE leaderboard_handle IS NOT NULL');
@@ -484,7 +484,7 @@ router.get('/seasons', async (req, res) => {
     const out = [];
     for (const s of ended) {
       const [trades] = await pool.execute(
-        'SELECT user_id, pnl FROM arena_trades WHERE closed_at >= ? AND closed_at <= ?',
+        'SELECT user_id, pnl, seal FROM arena_trades WHERE closed_at >= ? AND closed_at <= ?',
         [s.starts_at, s.ends_at]);
       out.push({
         name: s.name, starts_at: s.starts_at, ends_at: s.ends_at,

@@ -78,10 +78,12 @@ function checkSeasonRules(season, order, now = new Date()) {
 function seasonRanking(trades, handleOf) {
   const byUser = new Map();
   for (const t of trades || []) {
-    if (!byUser.has(t.user_id)) byUser.set(t.user_id, { pnl: 0, n: 0 });
+    if (!byUser.has(t.user_id)) byUser.set(t.user_id, { pnl: 0, n: 0, sealed: 0 });
     const u = byUser.get(t.user_id);
     u.pnl += Number(t.pnl) || 0;
     u.n += 1;
+    // Provable Calls: closes carrying an open-time receipt (§4-safe count).
+    if (t.seal) u.sealed += 1;
   }
   const rows = [];
   for (const [userId, u] of byUser) {
@@ -91,6 +93,8 @@ function seasonRanking(trades, handleOf) {
       handle,
       return_pct: Math.round(u.pnl / START_BALANCE * 10000) / 100,
       trades: u.n,
+      sealed: u.sealed,
+      closes: u.n,
     });
   }
   rows.sort((a, b) => b.return_pct - a.return_pct);

@@ -756,6 +756,21 @@ window.addEventListener('error', function (e) {
   // slip "▼n" beside the rank — motion that carries information (WHO is
   // moving), never on first paint. In-page memory only; honest by
   // construction (it can only show moves that actually happened here).
+  // 🔏 receipt badge — how much of a record was sealed at OPEN time. Solid
+  // gold when every close is backed, dim n/N when partial, nothing at all
+  // when none: a hollow badge would be worse than no badge. Shared by the
+  // all-time board and the season standings so they can never disagree.
+  function sealBadge(x) {
+    var sealed = Number(x && x.sealed) || 0;
+    var closes = Number(x && x.closes) || 0;
+    if (sealed <= 0) return '';
+    var full = closes > 0 && sealed >= closes;
+    return ' <span class="lb-seal' + (full ? ' full' : '') + '" title="'
+      + esc(fill(T('arena.d_seal_title', '{n} of {m} closes carry a verifiable open-time receipt — open the card to check the hashes yourself'),
+                 { n: sealed, m: closes })) + '">🔏'
+      + (full ? '' : ' ' + sealed + '/' + closes) + '</span>';
+  }
+
   var prevRanks = null;
   var prevSeasonRanks = null;
   async function loadBoard() {
@@ -769,17 +784,7 @@ window.addEventListener('error', function (e) {
         move = ' <span class="rk-move ' + (up ? 'up-c' : 'down-c') + '">' + (up ? '▲' : '▼')
           + Math.abs(prevRanks[x.handle] - x.rank) + '</span>';
       }
-      // 🔏 receipt badge: how much of this record was sealed at open time.
-      // Fully-backed records get the solid badge; partial ones show n/N. A
-      // trader with no sealed closes gets nothing — never a hollow badge.
-      var seal = '';
-      if (x.sealed > 0) {
-        var full = x.closes > 0 && x.sealed >= x.closes;
-        seal = ' <span class="lb-seal' + (full ? ' full' : '') + '" title="'
-          + esc(fill(T('arena.d_seal_title', '{n} of {m} closes carry a verifiable open-time receipt — open the card to check the hashes yourself'),
-                     { n: x.sealed, m: x.closes })) + '">🔏'
-          + (full ? '' : ' ' + x.sealed + '/' + x.closes) + '</span>';
-      }
+      var seal = sealBadge(x);
       return '<div class="lb-row"><span class="rk">#' + x.rank + move + '</span>'
         + '<span><a href="/trader/' + encodeURIComponent(x.handle) + '">' + esc(x.handle) + '</a>' + seal + '</span>'
         + '<span class="' + pnlCls(x.return_pct) + '">' + (x.return_pct > 0 ? '+' : '') + fmt2(x.return_pct) + '%</span>'
@@ -1111,7 +1116,8 @@ window.addEventListener('error', function (e) {
             move = ' <span class="rk-move ' + (up ? 'up-c' : 'down-c') + '">' + (up ? '▲' : '▼')
               + Math.abs(prevSeasonRanks[x.handle] - x.rank) + '</span>';
           }
-          return '<div class="lb-row"><span class="rk">#' + x.rank + move + '</span><span>' + esc(x.handle) + '</span>'
+          return '<div class="lb-row"><span class="rk">#' + x.rank + move + '</span>'
+            + '<span>' + esc(x.handle) + sealBadge(x) + '</span>'
             + '<span class="' + pnlCls(x.return_pct) + '">' + (x.return_pct > 0 ? '+' : '') + fmt2(x.return_pct) + '%</span>'
             + '<span class="tr">' + x.trades + ' trades</span></div>';
         }).join('') : '<div class="empty">No closed trades in the window yet — the season crown is up for grabs.</div>';

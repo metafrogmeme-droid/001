@@ -63,11 +63,8 @@ test('board rows carry receipt counts — sealed, unsealed and mixed records', a
 
 test('the board renders the badge honestly (full vs partial vs none)', () => {
   const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
-  // Only ever rendered when something is actually sealed.
-  assert.match(arena, /if \(x\.sealed > 0\) \{/);
-  // Full records get the solid badge; partial ones must show the ratio.
-  assert.match(arena, /var full = x\.closes > 0 && x\.sealed >= x\.closes;/);
-  assert.match(arena, /full \? '' : ' ' \+ x\.sealed \+ '\/' \+ x\.closes/);
+  // A fully-backed record reads differently from a partial one at a glance.
+  assert.match(arena, /\.lb-seal \{[^}]*color: var\(--text-3\)/);
   assert.match(arena, /\.lb-seal\.full \{ color: var\(--gold-bright\)/);
   // The explanation is dictionary-backed with its placeholders intact. Only
   // the SET is invariant — word order is the translator's call (zh naturally
@@ -79,4 +76,36 @@ test('the board renders the badge honestly (full vs partial vs none)', () => {
   for (const c of i18n.LANGS.map((l) => l.code)) {
     assert.equal(slots(e[c]), '{m},{n}', `${c} lost a placeholder`);
   }
+});
+
+test('season standings carry the same receipt badges as the all-time board', async () => {
+  const seasons = require('../lib/arena_seasons');
+  // The pure ranking counts receipt-backed closes per trader.
+  const rows = seasons.seasonRanking([
+    { user_id: 1, pnl: 10, seal: 'a' }, { user_id: 1, pnl: 5, seal: 'b' },
+    { user_id: 2, pnl: 8, seal: 'c' }, { user_id: 2, pnl: 1, seal: null },
+    { user_id: 3, pnl: 4, seal: null },
+  ], new Map([[1, 'all'], [2, 'some'], [3, 'none']]));
+  const by = Object.fromEntries(rows.map((r) => [r.handle, r]));
+  assert.deepEqual([by.all.sealed, by.all.closes], [2, 2]);
+  assert.deepEqual([by.some.sealed, by.some.closes], [1, 2]);
+  assert.deepEqual([by.none.sealed, by.none.closes], [0, 1]);
+  // The route must actually SELECT the column, or every badge silently vanishes.
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
+  assert.ok(!/SELECT user_id, pnl FROM arena_trades WHERE closed_at/.test(route),
+    'season queries must select seal too');
+  assert.equal((route.match(/SELECT user_id, pnl, seal FROM arena_trades WHERE closed_at/g) || []).length, 2,
+    'both the live season and the Hall of Champions read seal');
+});
+
+test('one badge builder feeds both boards — they can never drift apart', () => {
+  const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  assert.match(arena, /function sealBadge\(x\) \{/);
+  // Used by BOTH the all-time board row and the season standings row.
+  assert.equal((arena.match(/\+ sealBadge\(x\)|= sealBadge\(x\);/g) || []).length, 2,
+    'both board rows call the one helper');
+  // The honesty rules live in the one helper: nothing when unsealed, ratio
+  // only when partial, solid only when complete.
+  assert.match(arena, /if \(sealed <= 0\) return '';/);
+  assert.match(arena, /var full = closes > 0 && sealed >= closes;/);
 });

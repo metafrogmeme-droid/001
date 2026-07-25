@@ -1314,6 +1314,10 @@ class AnalyzerConfig:
     # bull-bear spread AGREES, but 1h/4h are noise and the overlap-free 24h
     # check is +0.03 — 1 of the required 2 horizons. Stays dark; re-run on a
     # longer window before flipping.
+    # Measure any of the dark flags below with:
+    #     python scripts/ab_flag.py --all --walk-forward
+    # (baseline vs flag-on on the same honest benchmark; only the
+    # walk-forward arm may say FLIP ON, and only a human flips it here.)
     cross_asset_voter_enabled: bool = _env_bool("CROSS_ASSET_VOTER_ENABLED", False)
     # Volume-profile two-pass direction (default OFF — tuning audit): the VP
     # voter's momentum-vs-contrarian split read the RUNNING vote sum, which
