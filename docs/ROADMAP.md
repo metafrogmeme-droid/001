@@ -3,9 +3,11 @@
 **From an autonomous trader to an on-chain agent economy.**
 
 Today RUNECLAW is an autonomous, risk-gated AI that trades perpetuals across four
-venues and that you can chat with and trade alongside from the web. This roadmap
-extends that engine along five fronts — sharper agents, more venues, native web3
-&amp; staking, social growth, and the trust layer that has to come first.
+venues and that you can chat with and trade alongside from the web — wrapped in a
+live safety layer (Guardian), a verifiable record of every call it makes (Provable
+Calls), a paper Arena to practise in, and an agent-facing API. This roadmap extends
+that engine along five fronts — sharper agents, more venues, native web3 &amp;
+staking, social growth, and the trust layer that has to come first.
 
 > Directional roadmap, not a commitment or an offer. Order and scope will shift
 > with evidence and regulation. Nothing here is financial advice or a
@@ -18,6 +20,23 @@ extends that engine along five fronts — sharper agents, more venues, native we
 - **4 venues** — Bitget, Bybit, BingX, Hyperliquid (on-chain).
 - **Per-user live** — bring-your-own-keys, encrypted at rest, operator-gated.
 - **Web app** — chat, place-trade-from-chat, live portfolio, onboarding, invites.
+- **Guardian safety suite** — six live surfaces: [Flight Recorder](https://pmvc58g2.mule.page/flight),
+  [Stress Lab](https://pmvc58g2.mule.page/stress), [Risk Sentinel](https://pmvc58g2.mule.page/sentinel),
+  [Transaction Firewall](https://pmvc58g2.mule.page/firewall),
+  [Escape Agent](https://pmvc58g2.mule.page/escape), [Intent Compiler](https://pmvc58g2.mule.page/intent).
+- **Provable Calls** — every engine call and Arena trade hashed at decision time, daily Merkle
+  roots, per-call receipts anyone can re-derive in their own browser (`/provable`, `/roots`, `/call`).
+- **Paper Trading Arena** — virtual accounts, live prices and liquidation mechanics, competition
+  seasons, weekly quests, and a percent-only public board.
+- **Agent-facing surface** — MCP server, public REST endpoints, ERC-8257 tool manifest and
+  ERC-8004 identity (`/developers`).
+- **Twelve languages** — the web UI ships fully translated in en, es, zh, pt, fr, de, nl, ja, ko,
+  ru, tr, ar, with a test that fails the build if a swept page regrows untranslated copy.
+
+> **Status is checked against the running product, not against intent.** Rows are moved to
+> 🟢 only when the described capability is reachable by a user today; where something shipped
+> *partially*, the row says which half — a green marker on a half-built feature is the fastest
+> way for a roadmap to stop being worth reading.
 
 ## Legend
 
@@ -42,7 +61,7 @@ existing analyzer, learning loop, and shadow book.
 | **Real-time signal fusion** — news, funding/liquidation feeds, and social alpha (X, Telegram) folded into the vote ensemble | Next | 🟡 | the analyzer's voter model |
 | **Per-user agent memory** — remembers risk appetite, watchlist, past decisions; sizes to your calibrated confidence | Next | 🟡 | chat + confidence calibration |
 | **Multi-agent ensemble** — specialist sub-agents (scalp/swing/macro/market-maker) under a portfolio coordinator that allocates risk by live expectancy | Later | 🔵 | the strategy engine |
-| **Talk-to-build strategies** — describe a strategy in plain language; it compiles to gated, backtested config (never unchecked live orders) | Later | 🔵 | the gated config system |
+| **Talk-to-build strategies** — describe a strategy in plain language; it compiles to gated, backtested config (never unchecked live orders) | Later | 🔵 | the *policy* half shipped: the [Intent Compiler](https://pmvc58g2.mule.page/intent) turns plain words into a deterministic, revocable Authority Envelope. Compiling a full **strategy** is still ahead |
 | **On-chain intelligence** — smart-money/whale tracking, DEX flow, liquidity-pool reads as first-class signals | Later | 🔵 | on-chain execution path |
 | **Online self-improvement** — reinforcement from live outcomes, every change validated against the shadow book before it touches capital | Vision | ◆ | shadow-book replay |
 
@@ -66,9 +85,9 @@ agent-managed vaults, and shared upside — **every step gated by the
 
 | Capability | Horizon | Status | Notes |
 | --- | --- | --- | --- |
-| **Self-custody sign-in** — connect a wallet (WalletConnect / MetaMask) to log in and trade on-chain venues without handing over keys | Next | 🟡 | new auth path |
-| **Verifiable track record** — signed, on-chain-anchored trade history; trust performance without trusting the operator | Next | 🟡 | trust primitive for vaults + copy |
-| **Idle-margin yield** — optionally park unused stablecoin margin in audited lending (e.g. Aave); opt-in, withdraw anytime | Next | 🔵 | opt-in, audit-gated |
+| **Self-custody sign-in** — connect a wallet (EIP-6963 picker / MetaMask) to log in without handing over keys; read-only wallet link mirrors balances and DeFi positions | Now | 🟢 | live: sign-in, `/wallet-link`. Trading *from* the wallet on on-chain venues is still ahead |
+| **Verifiable track record** — sealed statements, daily Merkle roots, per-call receipts; trust performance without trusting the operator | Now | 🟢 | live: `/track`, `/proof`, `/provable`, `/roots`, `/call` |
+| **Idle-margin yield** — optionally park unused stablecoin margin in audited lending (e.g. Aave); opt-in, withdraw anytime | Next | 🔵 | **radar only so far**: the dashboard surfaces best available rates read-only and moves nothing. Parking funds is the unshipped part, and stays audit-gated |
 | **$RCLAW staking** — stake for fee discounts, higher live limits, priority agents, and a share of protocol revenue ([token roadmap](./TOKEN_ROADMAP.md)) | Later | ◆ | gated — see Guardrails |
 | **Agent vaults (ERC-4626)** — deposit stablecoins into a vault an agent trades (e.g. delta-neutral funding-farming); hold standard vault shares, redeem on demand | Later | ◆ | gated · non-custodial · audited |
 | **DAO governance** — token-holders vote on risk params, new venues, promoted strategies; on-chain performance-fee splits | Vision | ◆ | gated · post-token |
@@ -82,9 +101,10 @@ just shipped.
 | --- | --- | --- | --- |
 | **Invite friends** — unique links, signup attribution, live "friends joined" count | Now | 🟢 | live today |
 | **Referral rewards &amp; tiers** — turn invites into perks (fee credits, higher limits, post-token rewards) with milestone tiers | Next | 🟡 | the invite system |
-| **Leaderboards &amp; shareable cards** — opt-in performance leaderboards and one-tap shareable trade cards for Telegram/X | Next | 🔵 | new social surface |
+| **Leaderboards &amp; shareable cards** — opt-in performance leaderboards and one-tap shareable trade cards for Telegram/X | Now | 🟢 | live: `/leaderboard` (percent + ratios, anonymous handles), `/trader` cards, Arena board + seasons |
 | **Copy-trading marketplace** — follow top agents/users; creators earn a share of follower fees | Later | 🔵 | verifiable track record |
-| **Agent marketplace** — publish a strategy as a subscribable agent; the protocol handles risk gating, billing, revenue split | Vision | ◆ | the agent economy |
+| **Agent marketplace — catalogue** — browse real strategy presets, each with a verified reproducible backtest; follow one and copy its picks on paper | Now | 🟢 | live: `/agents` |
+| **Agent marketplace — economics** — publish a strategy as a subscribable agent; the protocol handles risk gating, billing, revenue split | Vision | ◆ | the catalogue is live; **billing and revenue split are not**, and stay gated |
 
 ## 5. Trust, risk &amp; compliance
 
@@ -94,6 +114,8 @@ leads, it doesn't follow.
 | Capability | Horizon | Status | Notes |
 | --- | --- | --- | --- |
 | **Hard risk engine** — 23-check gate, circuit breakers, per-user loss breakers, margin caps, kill switch, encrypted secrets vault | Now | 🟢 | live today |
+| **Guardian suite** — Flight Recorder (sealed decision ledger), Stress Lab (digital-twin liquidation modelling), Risk Sentinel (market-wide crowding radar), Transaction Firewall (pre-sign prompt-injection scan, local-only), Escape Agent (dependency-aware unwind planner), Intent Compiler (plain words → revocable Authority Envelope) | Now | 🟢 | live today. All six **warn, explain, simulate and prove — none of them move funds** |
+| **Provable Calls** — decisions hashed before the market moves; outcomes attach to the sealed record and cannot change it. Daily Merkle roots make a whole day independently timestampable | Now | 🟢 | live today; full verification contract at `/provable` |
 | **Independent security audit** — third-party review of money endpoints, credential store, gateway | Next | 🟡 | precedes wider live rollout |
 | **Contract audits &amp; proof-of-reserves** — every vault/staking contract audited; reserves provable on-chain before any deposit | Later | 🔵 | blocks vault launch |
 | **Compliance tiers &amp; disclosures** — jurisdiction-aware access, KYC tiers for higher limits/vaults, clear risk disclosures | Later | 🔵 | gates token &amp; vaults |
