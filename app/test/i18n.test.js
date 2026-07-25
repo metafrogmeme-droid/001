@@ -433,6 +433,8 @@ const SWEPT_PAGES = {
   'agent.html': ['RUNECLAW', 'AI Viking'],
   'agents.html': [],
   'letter.html': [],
+  'proof.html': ['RUNECLAW'],
+  'call.html': [],
 };
 
 function untranslatedInSource(src, allowList) {
