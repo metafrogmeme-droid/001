@@ -107,6 +107,9 @@
   /* Per-position chart expander. The 📈 toggle lives in the SYMBOL cell —
      far from the no-confirmation Close button — with a real touch target. */
   .chartbtn { font-size: 15px; padding: 6px 10px; min-width: 40px; min-height: 34px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface-2); cursor: pointer; vertical-align: middle; }
+  .tf-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .tf-chip { font-family: var(--font-data); font-size: 11px; padding: 4px 10px; min-height: 28px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+  .tf-chip.on { border-color: var(--gold-bright); color: var(--gold-bright); }
   .chartbtn[aria-expanded="true"] { border-color: var(--gold-bright); }
   .chart-row td { padding: 0 2px 10px; }
   /* Inside .tbl-scroll the row spans the full (wide) table — pin the chart
@@ -354,7 +357,13 @@ window.addEventListener('error', function (e) {
   var prevPnl = {};          // position id -> last pnl, for the change pulse
   var lastAccount = null;    // set in renderAccount — expander toggles re-render from it
   var chartOpen = {};        // position id -> true; survives the 20s tbody rebuild
-  var chartData = {};        // symbol -> { at, candles, patterns } (120s cache)
+  var chartData = {};        // "symbol|granularity" -> { at, candles, insight } (120s cache)
+  var patCache = {};         // symbol -> { at, data } — the engine's 4h pattern read (TF-independent)
+  var chartTf = {};          // symbol -> chosen candle granularity (default 1h)
+  // Bitget granularity → engine timeframe notation for /api/insight.
+  var TFS = [['15min', '15m'], ['1h', '1H'], ['4h', '4H'], ['1d', '1D']];
+  var TF_INSIGHT = { '15min': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
+  function tfOf(sym) { return chartTf[sym] || '1h'; }
   var histOpen = {};         // closed-trade id -> true (post-mortem expander)
   var histData = {};         // trade id -> candle rows (immutable window — cached for the session)
 
@@ -422,7 +431,7 @@ window.addEventListener('error', function (e) {
   // patterns incl. Elliott waves, Wyckoff, harmonics, plus the doji/candle
   // map — from the public /api/patterns proxy. When that bridge is down we
   // say so instead of inventing a read.
-  function readChips(p, parsed, pat) {
+  function readChips(p, parsed, pat, gran) {
     var chips = [];
     var CR = window.RCChartRead;
     var vw = CR && parsed.length >= 5 ? CR.vwap(parsed) : null;
@@ -453,19 +462,36 @@ window.addEventListener('error', function (e) {
     }
     if (!pat) chips.push('<span class="read-chip">engine pattern read unavailable right now</span>');
     return '<div class="read-chips">' + chips.join('') + '</div>'
-      + '<div class="muted" style="font-size:10px;margin-top:4px">1h candles · VWAP band + structure computed with the engine\'s formulas · patterns read live from the engine (4h) · not advice</div>';
+      + '<div class="muted" style="font-size:10px;margin-top:4px">' + (gran || '1h') + ' candles · VWAP band + structure computed with the engine\'s formulas · patterns read live from the engine (4h) · not advice</div>';
+  }
+  // Timeframe switcher row for a position expander — active chip highlighted.
+  function tfRow(sym, pid) {
+    return '<div class="tf-row" role="group" aria-label="Chart timeframe">' + TFS.map(function (t) {
+      return '<button type="button" class="tf-chip' + (tfOf(sym) === t[0] ? ' on' : '')
+        + '" data-tf="' + t[0] + '" data-tfpid="' + pid + '" aria-pressed="' + (tfOf(sym) === t[0]) + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
   }
   // Shared per-symbol bundle (candles + engine patterns + insight), 120s
   // cache, stale-good-data preservation — used by the position expander AND
-  // the ticket preview.
-  async function getChartData(sym) {
-    var d0 = chartData[sym];
-    if (d0 && Date.now() - d0.at <= 120000) return d0;
+  // the ticket preview. Candles + insight are cached PER GRANULARITY (the
+  // timeframe switcher); the engine's 4h pattern read is TF-independent and
+  // cached once per symbol so switching timeframes never refetches it.
+  async function getChartData(sym, gran) {
+    gran = gran || '1h';
+    var key = sym + '|' + gran;
+    var d0 = chartData[key];
     var base = sym.replace(/USDT$/, '');
+    var pat0 = patCache[sym];
+    var needPat = !(pat0 && Date.now() - pat0.at <= 120000);
+    if (d0 && Date.now() - d0.at <= 120000 && !needPat) {
+      return { at: d0.at, candles: d0.candles, insight: d0.insight, patterns: pat0.data };
+    }
     var results = await Promise.all([
-      RC.fetchJSON('/api/market/candles/' + encodeURIComponent(sym) + '?granularity=1h&limit=120', { auth: false, timeoutMs: 12000 }).catch(function () { return null; }),
-      RC.fetchJSON('/api/patterns?symbol=' + encodeURIComponent(base + '/USDT') + '&timeframe=4h', { auth: false, timeoutMs: 12000 }).catch(function () { return null; }),
-      RC.fetchJSON('/api/insight?symbol=' + encodeURIComponent(base + '/USDT') + '&timeframe=1h&limit=120', { auth: false, timeoutMs: 12000 }).catch(function () { return null; }),
+      (d0 && Date.now() - d0.at <= 120000) ? null
+        : RC.fetchJSON('/api/market/candles/' + encodeURIComponent(sym) + '?granularity=' + gran + '&limit=120', { auth: false, timeoutMs: 12000 }).catch(function () { return null; }),
+      needPat ? RC.fetchJSON('/api/patterns?symbol=' + encodeURIComponent(base + '/USDT') + '&timeframe=4h', { auth: false, timeoutMs: 12000 }).catch(function () { return null; }) : null,
+      (d0 && Date.now() - d0.at <= 120000) ? null
+        : RC.fetchJSON('/api/insight?symbol=' + encodeURIComponent(base + '/USDT') + '&timeframe=' + (TF_INSIGHT[gran] || '1h') + '&limit=120', { auth: false, timeoutMs: 12000 }).catch(function () { return null; }),
     ]);
     var rows = results[0] && results[0].ok && results[0].data && Array.isArray(results[0].data.data) ? results[0].data.data : [];
     var pat = results[1] && results[1].ok ? results[1].data : null;
@@ -473,28 +499,35 @@ window.addEventListener('error', function (e) {
     // A transient failure must never pin an empty read for 120s: keep the
     // last GOOD data for whatever failed, and when nothing usable came
     // back at all, leave the entry stale so the next repaint retries.
-    var prev = d0 || {};
-    d0 = {
-      at: Date.now(),
-      candles: rows.length ? rows : (prev.candles || []),
-      patterns: pat || prev.patterns || null,
-      insight: insD || prev.insight || null,
-    };
-    if (!rows.length && !d0.candles.length) d0.at = 0;
-    chartData[sym] = d0;
-    return d0;
+    if (results[0] || results[2]) {
+      var prev = d0 || {};
+      d0 = {
+        at: Date.now(),
+        candles: rows.length ? rows : (prev.candles || []),
+        insight: insD || prev.insight || null,
+      };
+      if (!rows.length && !d0.candles.length) d0.at = 0;
+      chartData[key] = d0;
+    }
+    if (needPat) {
+      patCache[sym] = { at: pat ? Date.now() : 0, data: pat || (pat0 && pat0.data) || null };
+      pat0 = patCache[sym];
+    }
+    return { at: d0.at, candles: d0.candles, insight: d0.insight, patterns: pat0 && pat0.data };
   }
   async function paintChart(p) {
     var cell = $('chartCell' + p.id);
     if (!cell) return;
     var sym = String(p.symbol || '').toUpperCase();
-    var d0 = await getChartData(sym);
+    var gran = tfOf(sym);
+    var d0 = await getChartData(sym, gran);
     cell = $('chartCell' + p.id);       // the tbody may have rebuilt mid-fetch
     if (!cell || !chartOpen[p.id]) return;
+    if (tfOf(sym) !== gran) return;     // the user switched timeframe mid-fetch
     var CR = window.RCChartRead;
     var parsed = CR ? CR.parseCandles(d0.candles) : [];
     if (!parsed.length) {
-      cell.innerHTML = '<span class="muted">Market candles unavailable right now — try again shortly.</span>';
+      cell.innerHTML = tfRow(sym, p.id) + '<span class="muted">Market candles unavailable right now — try again shortly.</span>';
       return;
     }
     // Top Elliott read (if the engine sees one) → wave labels on the chart.
@@ -503,13 +536,13 @@ window.addEventListener('error', function (e) {
     for (var wi = 0; wi < cps.length; wi++) {
       if (/^Elliott/i.test(cps[wi].name || '')) { ew = cps[wi]; break; }
     }
-    cell.innerHTML = CR.svgChart(parsed, {
+    cell.innerHTML = tfRow(sym, p.id) + CR.svgChart(parsed, {
       width: Math.max(300, (cell.clientWidth || 0) - 10),
       entry: p.entry, sl: p.sl, tp: p.tp, liq: p.liq_price, direction: p.direction,
       levels: (d0.insight && d0.insight.levels) || [],
       fvgs: (d0.insight && d0.insight.fvgs) || [],
       waves: ew ? CR.elliottWavePoints(ew) : [],
-    }) + readChips(p, parsed, d0.patterns);
+    }) + readChips(p, parsed, d0.patterns, gran);
   }
   function renderAccount(d) {
     lastAccount = d;
@@ -957,6 +990,18 @@ window.addEventListener('error', function (e) {
     });
 
     $('posBody').addEventListener('click', async function (e) {
+      // Timeframe switch inside an open expander: remember the choice per
+      // symbol and repaint just that chart (cache is per symbol|granularity).
+      var tfb = e.target.closest('[data-tf]');
+      if (tfb) {
+        var tpid = Number(tfb.getAttribute('data-tfpid'));
+        var tpos = lastAccount && (lastAccount.positions || []).find(function (x) { return x.id === tpid; });
+        if (tpos) {
+          chartTf[String(tpos.symbol || '').toUpperCase()] = tfb.getAttribute('data-tf');
+          paintChart(tpos);
+        }
+        return;
+      }
       var cbtn = e.target.closest('[data-chart]');
       if (cbtn) {
         var pid = Number(cbtn.getAttribute('data-chart'));

@@ -2081,6 +2081,7 @@
     }
     body.innerHTML = `
       <section class="mt-1">${_insightBlock(ins && ins.data)}</section>
+      <div id="symTf" class="row mt-2" style="gap:6px" role="group" aria-label="Chart timeframe"></div>
       <div id="symChart" class="mt-2"></div>
       <div id="symReadChips" class="row mt-2" style="gap:6px;flex-wrap:wrap"></div>
       <h3 class="mt-4 mb-2" style="font-size:var(--fs-md)">Pattern read</h3>
@@ -2096,16 +2097,40 @@
     // (RCChartRead mirrors session VWAP + fractal BOS/CHoCH) from the same
     // cached 4h candles the mini chart uses. Best-effort: no chips on failure.
     if (window.RCChartRead) {
-      _fetchMiniCandles(base + 'USDT').then((rows) => {
+      // Timeframe switcher: candles refetch per granularity (120s cache);
+      // the engine's S/R levels, FVGs and wave count stay from the 4h read
+      // (the footnote says so). VWAP/structure chips recompute per TF with
+      // the engine's formulas.
+      const SYM_TFS = [['15min', '15m'], ['1h', '1H'], ['4h', '4H'], ['1d', '1D']];
+      let symGran = '4h';
+      const candleCache = {};
+      const candlesAt = async (gran) => {
+        const c = candleCache[gran];
+        if (c && Date.now() - c.at < 120000) return c.rows;
+        const r = await fetchJSON(`/api/market/candles/${base}USDT?granularity=${gran}&limit=120`, { auth: false, timeoutMs: 12000 }).catch(() => null);
+        const rows = r && r.ok && r.data && Array.isArray(r.data.data) ? r.data.data : [];
+        if (rows.length) candleCache[gran] = { at: Date.now(), rows };
+        return rows.length ? rows : (c ? c.rows : []);
+      };
+      const paintTfRow = () => {
+        const tf = document.getElementById('symTf');
+        if (!tf) return;
+        tf.innerHTML = SYM_TFS.map(([g, label]) =>
+          `<button type="button" class="btn btn--sm${symGran === g ? ' btn--primary' : ''}" data-symtf="${g}" aria-pressed="${symGran === g}">${label}</button>`).join('');
+        tf.querySelectorAll('[data-symtf]').forEach((b) => {
+          b.onclick = () => { symGran = b.getAttribute('data-symtf'); paintTfRow(); paintChartAt(); };
+        });
+      };
+      const paintChartAt = async () => {
+        const gran = symGran;
+        const rows = await candlesAt(gran);
         const box = document.getElementById('symReadChips');
-        if (!box || m.hidden || _seq !== _symSeq) return;   // stale open — drop
+        if (!box || m.hidden || _seq !== _symSeq || symGran !== gran) return;   // stale — drop
         const parsed = window.RCChartRead.parseCandles(rows);
         // Full decision-picture chart: VWAP band + structure + (when the
         // caller has skin in it) the position/signal's own geometry lines.
         const chartBox = document.getElementById('symChart');
         if (chartBox && parsed.length >= 5) {
-          // Full picture: engine S/R levels + FVG zones (insight, 4h) and the
-          // top Elliott wave count (patterns, 4h) — matched timeframes.
           let ew = null;
           for (const cp of (pd && pd.chart_patterns) || []) {
             if (/^Elliott/i.test(cp.name || '')) { ew = cp; break; }
@@ -2117,6 +2142,7 @@
               fvgs: (ins && ins.data && ins.data.fvgs) || [],
               waves: ew ? window.RCChartRead.elliottWavePoints(ew) : [] }));
         }
+        box.innerHTML = '';
         if (parsed.length < 15) return;
         const vw = window.RCChartRead.vwap(parsed);
         const st = window.RCChartRead.structure(parsed);
@@ -2127,8 +2153,10 @@
           if (st.bos) chips.push(`<span class="chip ${st.bos_dir > 0 ? 'chip--up' : 'chip--down'}">BOS ${st.bos_dir > 0 ? '↑' : '↓'}</span>`);
           if (st.choch) chips.push(`<span class="chip ${st.choch_dir > 0 ? 'chip--up' : 'chip--down'}">CHoCH ${st.choch_dir > 0 ? '↑' : '↓'}</span>`);
         }
-        if (chips.length) box.innerHTML = chips.join('') + `<span class="muted small" style="align-self:center">4h · engine formulas</span>`;
-      }).catch(() => { /* chips are a bonus read */ });
+        if (chips.length) box.innerHTML = chips.join('') + `<span class="muted small" style="align-self:center">${gran} candles · engine formulas · levels &amp; waves from the 4h read</span>`;
+      };
+      paintTfRow();
+      paintChartAt().catch(() => { /* the chart is a bonus read */ });
     }
     const ask = document.getElementById('symAsk');
     if (ask) ask.onclick = () => {

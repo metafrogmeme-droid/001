@@ -63,8 +63,24 @@ test('arena: account failures speak — expired session, retry, no silent voids'
 });
 
 test('arena: pattern/candle fetches are cached per symbol (rate-limit friendly)', () => {
-  assert.match(arena, /chartData\[sym\]/);
+  // Candles/insight cache per symbol|granularity; the 4h pattern read caches
+  // once per symbol so a timeframe switch never refetches it.
+  assert.match(arena, /chartData\[key\]/);
+  assert.match(arena, /var key = sym \+ '\|' \+ gran;/);
+  assert.match(arena, /patCache\[sym\]/);
   assert.match(arena, /120000/);
+});
+
+test('arena: timeframe switcher on the position expander', () => {
+  assert.match(arena, /\[\['15min', '15m'\], \['1h', '1H'\], \['4h', '4H'\], \['1d', '1D'\]\]/);
+  assert.match(arena, /function tfRow\(sym, pid\)/);
+  assert.match(arena, /data-tf="/);
+  // The choice sticks per symbol, the repaint targets just that position,
+  // and a mid-fetch switch drops the stale paint.
+  assert.match(arena, /chartTf\[String\(tpos\.symbol \|\| ''\)\.toUpperCase\(\)\] = tfb\.getAttribute\('data-tf'\)/);
+  assert.match(arena, /if \(tfOf\(sym\) !== gran\) return;/);
+  // The footnote states the granularity honestly instead of hardcoding 1h.
+  assert.match(arena, /\(gran \|\| '1h'\) \+ ' candles/);
 });
 
 test('review fixes: failures never pin an empty read; stale good data survives', () => {
@@ -97,7 +113,7 @@ test('arena ticket: the prospective trade draws on the chart before you open', (
   assert.match(arena, /if \(!sym \|\| !\(liveMark > 0\) \|\| markSym !== sym\) \{ box\.hidden = true; return; \}/);
   assert.match(arena, /normSym\(\$\('tSym'\)\.value\) !== sym\) return;/);
   // One shared cached bundle feeds both the expander and the ticket.
-  assert.match(arena, /async function getChartData\(sym\)/);
+  assert.match(arena, /async function getChartData\(sym, gran\)/);
   assert.match(arena, /var d0 = await getChartData\(sym\);/);
 });
 
@@ -150,6 +166,17 @@ test('website-wide: the modal is the universal decision picture with geometry', 
   // The delegation (click + keyboard) passes data-geo through.
   assert.match(dash, /openSymbol\(el\.getAttribute\('data-sym'\), _geoOf\(el\)\)/);
   assert.match(dash, /openSymbol\(e\.target\.getAttribute\('data-sym'\), _geoOf\(e\.target\)\)/);
+});
+
+test('symbol modal: timeframe switcher refetches candles, keeps the 4h engine read', () => {
+  assert.match(dash, /\[\['15min', '15m'\], \['1h', '1H'\], \['4h', '4H'\], \['1d', '1D'\]\]/);
+  assert.match(dash, /data-symtf=/);
+  assert.match(dash, /let symGran = '4h'/);
+  // Per-granularity candle cache; a stale open or a mid-fetch TF switch drops the paint.
+  assert.match(dash, /candleCache\[gran\]/);
+  assert.match(dash, /_seq !== _symSeq \|\| symGran !== gran\) return;/);
+  // The chips footnote states the TF and that levels/waves stay on the 4h read.
+  assert.match(dash, /levels &amp; waves from the 4h read/);
 });
 
 test('signals (public): every signal row opens its chart with its own levels', () => {
