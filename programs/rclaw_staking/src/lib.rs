@@ -40,21 +40,45 @@ use anchor_spl::{
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
-/// Optional compile-time pin for the canonical $RCLAW mint.
+/// Compile-time pin for the canonical $RCLAW mint, set from the environment at
+/// build time:
 ///
-/// While this is `None` the program accepts any mint (each mint gets its own
-/// isolated vault and stake records, so cross-mint drain is impossible — but a
-/// user *can* stake a worthless token and have the off-chain tier gate count it
-/// unless the gate also filters on mint). Set it to the real mint before any
-/// deployment where tiers carry value, and `bot/token/tier_gate.py` should pass
-/// `RCLAW_MINT` so it only counts stake of the canonical token.
-pub const PINNED_MINT: Option<Pubkey> = None;
+/// ```bash
+/// RCLAW_PINNED_MINT=<base58 mint address> anchor build
+/// ```
+///
+/// It is deliberately **not** a hardcoded literal: the $RCLAW mint does not
+/// exist yet (`token/` has never been run against a live cluster), and baking a
+/// placeholder into a security constant would either brick staking or give false
+/// assurance. `option_env!` makes the pin a real, enforced deployment setting
+/// while keeping the source honest about what is not yet known.
+///
+/// **Unset (`None`)** — the program accepts any mint. Each mint still gets its
+/// own isolated vault and stake records, so cross-mint drain is impossible, but
+/// a user can stake a worthless token; the off-chain gate must then filter on
+/// mint (`bot/token/tier_gate.py` does, via `RCLAW_MINT`).
+///
+/// **Set** — `stake` rejects every other mint with `UnexpectedMint`. Set it for
+/// any deployment where tiers carry value.
+pub const PINNED_MINT: Option<&str> = option_env!("RCLAW_PINNED_MINT");
+
+/// Parse + compare the pin. Kept separate so the logic is unit-testable without
+/// rebuilding under a different environment.
+fn enforce_pinned_mint(pinned: Option<&str>, mint: &Pubkey) -> Result<()> {
+    let Some(expected) = pinned else { return Ok(()) };
+    let expected = expected.trim();
+    if expected.is_empty() {
+        return Ok(()); // treat an empty pin as unset
+    }
+    let expected: Pubkey = expected
+        .parse()
+        .map_err(|_| error!(StakeError::InvalidPinnedMint))?;
+    require_keys_eq!(*mint, expected, StakeError::UnexpectedMint);
+    Ok(())
+}
 
 fn check_pinned_mint(mint: &Pubkey) -> Result<()> {
-    if let Some(expected) = PINNED_MINT {
-        require_keys_eq!(*mint, expected, StakeError::UnexpectedMint);
-    }
-    Ok(())
+    enforce_pinned_mint(PINNED_MINT, mint)
 }
 
 #[program]
@@ -274,4 +298,41 @@ pub enum StakeError {
     WrongMint,
     #[msg("Mint does not match the pinned $RCLAW mint")]
     UnexpectedMint,
+    #[msg("RCLAW_PINNED_MINT was set to something that is not a valid base58 pubkey")]
+    InvalidPinnedMint,
+}
+
+#[cfg(test)]
+mod pin_tests {
+    use super::*;
+    use std::str::FromStr;
+
+    const A: &str = "So11111111111111111111111111111111111111112";
+    const B: &str = "GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B";
+
+    #[test]
+    fn unset_pin_accepts_any_mint() {
+        let any = Pubkey::from_str(A).unwrap();
+        assert!(enforce_pinned_mint(None, &any).is_ok());
+        assert!(enforce_pinned_mint(Some("   "), &any).is_ok(), "empty pin == unset");
+    }
+
+    #[test]
+    fn set_pin_accepts_only_that_mint() {
+        let a = Pubkey::from_str(A).unwrap();
+        let b = Pubkey::from_str(B).unwrap();
+        assert!(enforce_pinned_mint(Some(A), &a).is_ok());
+        assert!(enforce_pinned_mint(Some(A), &b).is_err(), "a different mint must be rejected");
+        // Surrounding whitespace from an env var must not break the pin.
+        assert!(enforce_pinned_mint(Some(" \nSo11111111111111111111111111111111111111112 "), &a).is_ok());
+    }
+
+    #[test]
+    fn malformed_pin_is_rejected_not_ignored() {
+        let a = Pubkey::from_str(A).unwrap();
+        assert!(
+            enforce_pinned_mint(Some("not-a-pubkey"), &a).is_err(),
+            "a typo'd pin must fail closed, never silently accept every mint"
+        );
+    }
 }

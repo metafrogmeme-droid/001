@@ -1,0 +1,19 @@
+{
+  "//": "TypeScript config for the Anchor workspace TS spec (programs/*/tests/*.ts), run via `anchor test` / ts-mocha. It is scoped to the Anchor tests only — the Python bot and the app/ web frontend do not use TypeScript and are excluded.",
+  "compilerOptions": {
+    "types": ["mocha", "chai", "node"],
+    "typeRoots": ["./node_modules/@types"],
+    "lib": ["es2020", "dom"],
+    "module": "commonjs",
+    "target": "es2020",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["programs/**/tests/**/*.ts"],
+  "exclude": ["node_modules", "app", "token", "target"]
+}

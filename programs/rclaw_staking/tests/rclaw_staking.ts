@@ -7,8 +7,10 @@
  * validator/toolchain there).
  */
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { RclawStaking } from "../target/types/rclaw_staking";
+// NOTE: the generated IDL type lives at ../../../target/types/rclaw_staking and
+// only exists AFTER `anchor build`. It is intentionally not imported here so the
+// spec typechecks before a build has run; once you have built, you may swap
+// `Program<any>` below for the generated `Program<RclawStaking>` for full typing.
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
@@ -19,7 +21,8 @@ import { assert } from "chai";
 describe("rclaw_staking", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.RclawStaking as Program<RclawStaking>;
+  // Untyped until `anchor build` generates the IDL types (see note above).
+  const program: any = anchor.workspace.RclawStaking;
   const owner = provider.wallet as anchor.Wallet;
 
   let mint: anchor.web3.PublicKey;

@@ -74,19 +74,73 @@ mainnet. `release.anza.xyz` and GitHub are blocked by this environment's egress 
 the Solana/Anchor CLIs cannot be installed here — `anchor build`, `anchor test`, and any
 devnet run must happen in an environment with network access.
 
+## Setting `PINNED_MINT`
+
+The pin is a **build-time setting**, not a hardcoded literal:
+
+```bash
+RCLAW_PINNED_MINT=<base58 mint address> anchor build
+```
+
+It is deliberately not baked into the source because **the `$RCLAW` mint does not
+exist yet** — `token/` has never run against a live cluster (devnet is blocked in the
+authoring environment), so `token/.artifacts/token.devnet.json` has never been produced.
+Committing a placeholder pubkey into a security constant would either brick staking or
+give false assurance, so `option_env!` makes the pin a real, enforced deployment step
+while keeping the source honest about what isn't known yet.
+
+| State | Behaviour |
+|---|---|
+| **Unset** (default) | Any mint accepted. Vaults and stake records are still per-mint, so cross-mint drain is impossible — but a user can stake a worthless token, so the off-chain gate must filter on mint (`bot/token/tier_gate.py` does, via `RCLAW_MINT`). |
+| **Set** | `stake` rejects every other mint with `UnexpectedMint` (error 6005). |
+| **Set to junk** | Fails closed with `InvalidPinnedMint` — a typo'd pin never silently accepts everything. |
+
+**Verified end-to-end**, not assumed. Built with a pin, the runtime refuses a
+non-matching mint:
+
+```
+AnchorError thrown in programs/rclaw_staking/src/lib.rs:76.
+Error Code: UnexpectedMint. Error Number: 6005.
+Error Message: Mint does not match the pinned $RCLAW mint.
+```
+
+Because the integration tests mint their own throwaway tokens, they skip themselves
+under a pinned build (with an explanatory message) rather than showing red for a build
+that is behaving correctly. Both modes are green:
+
+```bash
+cargo test -p rclaw_staking                       # 4 unit + 4 integration pass
+RCLAW_PINNED_MINT=<addr> cargo test -p rclaw_staking --test attack   # 4 pass (3 skip)
+```
+
+Set the pin, and set `RCLAW_MINT` for the bot gate, before any deployment where tiers
+carry value.
+
 ## Building / testing
 
 ```bash
-cargo check -p rclaw_staking     # host type-check (works today)
+cargo check -p rclaw_staking     # host type-check
+cargo test  -p rclaw_staking     # unit + in-process integration tests (no toolchain needed)
+
+npm install                      # root package.json — Anchor TS test toolchain
+npm run typecheck                # tsc over programs/*/tests/*.ts
 anchor build                     # needs the Anchor + Solana CLIs
 anchor keys sync                 # replace the placeholder declare_id!
+anchor test                      # runs the TS spec via ts-mocha
 ```
 
-**`anchor test` is not runnable as committed:** the TS spec lives at
-`programs/rclaw_staking/tests/`, but there is no root `tsconfig.json` or `package.json`
-providing `@coral-xyz/anchor`, `@solana/spl-token`, `ts-mocha`, and `chai`. Add those
-before relying on the spec — it is currently an executable *specification*, not a
-passing suite. (Stated plainly rather than left as a silently broken glob in `Anchor.toml`.)
+**`anchor test` tooling is now committed.** The root `package.json` + `tsconfig.json`
+supply `@coral-xyz/anchor`, `@solana/spl-token`, `ts-mocha`, `mocha`, `chai`, and
+`typescript`, and `Anchor.toml`'s `test` script points at
+`programs/rclaw_staking/tests/**/*.ts`. `npm run typecheck` passes.
+
+Two things to know about the TS spec:
+- It needs the **Anchor + Solana CLIs** (unavailable in the authoring environment —
+  `release.anza.xyz` is blocked), so it has not been executed here. The Rust
+  integration tests in `tests/attack.rs` are the ones that actually run today.
+- Its program handle is untyped (`const program: any`) because the generated IDL type
+  at `target/types/rclaw_staking` only exists after `anchor build`. Once you have built,
+  you can import `RclawStaking` from there and restore full typing.
 
 ## Known limitations
 
