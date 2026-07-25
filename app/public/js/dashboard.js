@@ -13,6 +13,15 @@
           pnlClass, fmtAgo, dirChip, sanitizeBotHtml, toast, renderPanel,
           stateBlock, mustRead, connectStream } = RC;
 
+  // Resolved per CALL, never cached: the language switcher changes the answer
+  // after boot. Declared here, above every use, so no caller depends on the
+  // module having finished initialising. The inline English stays as the
+  // never-blank fallback — a missing key degrades to English, never to blank.
+  const T = (key, en) => {
+    try { return (window.RCI18N && RCI18N.translate(key, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+
   // Ordered by the new-user JOURNEY, not build order: the core loop
   // (chat → read signals → trade → see portfolio → browse markets) comes first,
   // the analyst/advanced surfaces follow, and Account sits last. Views are
@@ -810,7 +819,7 @@
           const ok = await saveUserProfile({ risk_pref: rb.dataset.riskpref });
           rb.disabled = false;
           if (ok) { toast(`Saved — your agent now knows you prefer ${rb.dataset.riskpref}.`); showView('home'); }
-          else toast('Could not save your preference — try again.');
+          else toast(T('dd.t_pref_save_failed', 'Could not save your preference — try again.'));
           return;
         }
         const b = e.target.closest('button[data-stance]');
@@ -1701,11 +1710,11 @@
       const wl = new Set(prof.watchlist || []);
       if (wl.has(sym)) wl.delete(sym);
       else {
-        if (wl.size >= 20) { toast('Watchlist is capped at 20 symbols.'); return; }
+        if (wl.size >= 20) { toast(T('dd.t_wl_capped', 'Watchlist is capped at 20 symbols.')); return; }
         wl.add(sym);
       }
       const ok = await saveUserProfile({ watchlist: [...wl] });
-      if (!ok) { toast('Could not save your watchlist — try again.'); return; }
+      if (!ok) { toast(T('dd.t_wl_save_failed', 'Could not save your watchlist — try again.')); return; }
       drawUniverse();
     });
 
@@ -2086,10 +2095,6 @@
   // Dynamic strings share the data-i18n dictionary. The inline English stays
   // as the never-blank fallback, so a missing key degrades to English rather
   // than to an empty panel.
-  const T = (key, en) => {
-    try { return (window.RCI18N && RCI18N.translate(key, RCI18N.getLang())) || en; }
-    catch (e) { return en; }
-  };
 
   // _symSeq: monotonically increasing open token — a slow fetch from a
   // PREVIOUS symbol must never paint into the current modal (the container
@@ -2268,7 +2273,7 @@
     const out = document.getElementById('dsLookOut');
     async function lookup() {
       const raw = (document.getElementById('dsSym')?.value || '').trim().toUpperCase();
-      if (!raw) { toast('Type a symbol first.'); return; }
+      if (!raw) { toast(T('dd.t_need_symbol', 'Type a symbol first.')); return; }
       const sym = raw.includes('/') ? raw : raw + '/USDT';
       const tf = document.getElementById('dsTf')?.value || '4h';
       if (out) out.innerHTML = '<div class="skel"></div>';
@@ -2495,7 +2500,7 @@
     document.getElementById('c-authority').addEventListener('click', async (e) => {
       const mb = e.target.closest('[data-authmode]');
       if (mb) { await authPost('/mode', { mode: mb.dataset.authmode }); drawAuthority(); toast(`Authority mode: ${mb.dataset.authmode}`); return; }
-      if (e.target.closest('#authRevoke')) { await authPost('/revoke', {}); drawAuthority(); toast('Authority revoked.'); }
+      if (e.target.closest('#authRevoke')) { await authPost('/revoke', {}); drawAuthority(); toast(T('dd.t_authority_revoked', 'Authority revoked.')); }
     });
     drawAuthority();
 
@@ -2742,7 +2747,7 @@
         return;
       }
       close();
-      toast('Trade confirmed.', 'up');
+      toast(T('dd.t_trade_confirmed', 'Trade confirmed.'), 'up');
       cache.portfolio = null;
       document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
       if (onDone) onDone(r.data.result_html);
@@ -2750,7 +2755,7 @@
     document.getElementById('tradeModalCancel').onclick = async () => {
       await fetchJSON('/api/trade/cancel', { method: 'POST', body: { trade_id: pt.trade_id } }).catch(() => {});
       close();
-      toast('Order cancelled — nothing was placed.');
+      toast(T('dd.t_order_cancelled', 'Order cancelled — nothing was placed.'));
     };
   }
 
@@ -3945,8 +3950,8 @@
                     confirm_lock_end: sel.lock_end,
                     totp_code: (document.getElementById('ayLockTotp')?.value || '').trim() },
           }).catch(() => null);
-          if (r?.status === 401) { toast('Enter your 2FA code to lock funds.'); yes.disabled = false; return; }
-          if (r?.status === 409) { toast('The lock end date changed (midnight rollover) — re-showing live terms.'); ayLock.sel = null; drawAYield(); return; }
+          if (r?.status === 401) { toast(T('dd.t_need_2fa', 'Enter your 2FA code to lock funds.')); yes.disabled = false; return; }
+          if (r?.status === 409) { toast(T('dd.t_lock_rolled', 'The lock end date changed (midnight rollover) — re-showing live terms.')); ayLock.sel = null; drawAYield(); return; }
           toast(r?.ok ? ('✅ ' + (r.data?.detail || 'Locked.')) : ('🔴 ' + (r?.data?.detail || r?.data?.error || 'Lock failed — nothing moved.')));
           ayLock.sel = null;
           drawAYield();
@@ -4043,7 +4048,7 @@
         const me = await fetchJSON('/api/auth/me').catch(() => null);
         if (me?.ok && me.data?.wallet_address) {
           clearInterval(qrPollTimer);
-          toast('Wallet linked from your phone.');
+          toast(T('dd.t_wallet_linked_phone', 'Wallet linked from your phone.'));
           drawWalletLink();
         }
       }, 5000);
@@ -4053,7 +4058,7 @@
       if (e.target.closest('#walletQr')) { showWalletQr(); return; }
       if (e.target.closest('#solConnect')) {
         if (!window.RCSolanaWallet || !RCSolanaWallet.available()) {
-          toast('No Solana wallet detected — install Phantom or Backpack.'); return;
+          toast(T('dd.t_no_sol_wallet', 'No Solana wallet detected — install Phantom or Backpack.')); return;
         }
         try {
           const c = await RCSolanaWallet.connect();
@@ -4064,20 +4069,20 @@
           toast(v?.ok ? (v.data?.verified ? 'Solana wallet connected & verified ✓' : 'Solana wallet linked.')
             : (v?.data?.error || 'Solana link failed.'));
         } catch (err) {
-          toast('Solana connection was cancelled.');
+          toast(T('dd.t_sol_cancelled', 'Solana connection was cancelled.'));
         }
         drawWalletLink(); return;
       }
       if (e.target.closest('#solWatch')) {
         const addr = (document.getElementById('solAddr')?.value || '').trim();
-        if (!addr) { toast('Paste a Solana address first.'); return; }
+        if (!addr) { toast(T('dd.t_need_sol_addr', 'Paste a Solana address first.')); return; }
         const v = await fetchJSON('/api/auth/wallet/solana', { method: 'POST', body: { address: addr } }).catch(() => null);
         toast(v?.ok ? 'Solana address watched — balances mirror read-only.' : (v?.data?.error || 'Could not watch that address.'));
         drawWalletLink(); return;
       }
       if (e.target.closest('#solUnwatch')) {
         await fetchJSON('/api/auth/wallet/solana/unlink', { method: 'POST', body: {} }).catch(() => {});
-        toast('Solana watch removed.');
+        toast(T('dd.t_sol_removed', 'Solana watch removed.'));
         drawWalletLink(); return;
       }
       const link = e.target.closest('#walletLink'), unlink = e.target.closest('#walletUnlink');
@@ -4085,10 +4090,10 @@
       try {
         if (link) {
           const eth = window.RCWalletPicker ? await RCWalletPicker.pick() : window.ethereum;
-          if (!eth) { toast('No browser wallet detected — install MetaMask, or use Link with phone.'); return; }
+          if (!eth) { toast(T('dd.t_no_evm_wallet', 'No browser wallet detected — install MetaMask, or use Link with phone.')); return; }
           const accounts = await eth.request({ method: 'eth_requestAccounts' });
           const address = (accounts && accounts[0] || '').trim();
-          if (!address) { toast('No wallet account was shared.'); return; }
+          if (!address) { toast(T('dd.t_no_account_shared', 'No wallet account was shared.')); return; }
           const n = await fetchJSON('/api/auth/wallet/nonce', { method: 'POST', body: { address } });
           if (!n?.ok || !n.data?.message) { toast(n?.data?.error || 'Could not start wallet linking.'); return; }
           const signature = await eth.request({ method: 'personal_sign', params: [n.data.message, address] });
@@ -4100,7 +4105,7 @@
           toast(v?.ok ? 'Wallet unlinked.' : 'Could not unlink the wallet.');
         }
       } catch (err) {
-        toast('Wallet linking was cancelled.');
+        toast(T('dd.t_wallet_link_cancelled', 'Wallet linking was cancelled.'));
       }
       drawWalletLink();
     });
@@ -4161,7 +4166,7 @@
         const reg = await navigator.serviceWorker.ready;
         if (on) {
           const perm = await Notification.requestPermission();
-          if (perm !== 'granted') { toast('Notifications were not allowed.'); return; }
+          if (perm !== 'granted') { toast(T('dd.t_push_denied', 'Notifications were not allowed.')); return; }
           const k = await fetchJSON('/api/push/key');
           const sub = await reg.pushManager.subscribe({
             userVisibleOnly: true,
@@ -4175,10 +4180,10 @@
             await fetchJSON('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } });
             await sub.unsubscribe();
           }
-          toast('Push disabled on this device.');
+          toast(T('dd.t_push_off', 'Push disabled on this device.'));
         }
       } catch (err) {
-        toast('Push setup failed: ' + (err?.message || 'unknown error'));
+        toast(T('dd.t_push_setup_failed', 'Push setup failed:') + ' ' + (err?.message || T('dd.t_unknown_error', 'unknown error')));
       }
       drawPush();
     });
@@ -4260,7 +4265,7 @@
         try {
           await navigator.clipboard.writeText(tokEl.textContent.trim());
           tokEl.classList.add('copied');
-          toast('Link token copied.');
+          toast(T('dd.t_link_token_copied', 'Link token copied.'));
           setTimeout(() => tokEl.classList.remove('copied'), 1500);
         } catch { /* clipboard blocked — the token is still visible to copy manually */ }
       }
@@ -4270,7 +4275,7 @@
         try {
           await navigator.clipboard.writeText(refEl.textContent.trim());
           refEl.classList.add('copied');
-          toast('Invite link copied.');
+          toast(T('dd.t_invite_copied', 'Invite link copied.'));
           setTimeout(() => refEl.classList.remove('copied'), 1500);
         } catch { /* clipboard blocked — the link is still visible to copy manually */ }
       }
@@ -4385,7 +4390,7 @@
       const venue = b.dataset.discvenue;
       if (!confirm(`Disconnect your ${venue} keys? Other exchanges stay connected.`)) return;
       await fetchJSON('/api/credentials?venue=' + encodeURIComponent(venue), { method: 'DELETE' }).catch(() => {});
-      toast('Disconnect queued.');
+      toast(T('dd.t_disconnect_queued', 'Disconnect queued.'));
       showView('account');
     });
 
@@ -5021,7 +5026,7 @@
         e.preventDefault();
         const provider = document.getElementById('newsKeyProv').value;
         const key = document.getElementById('newsKeyVal').value.trim();
-        if (!key) { toast('Paste your news-API key first.'); return; }
+        if (!key) { toast(T('dd.t_need_news_key', 'Paste your news-API key first.')); return; }
         const r = await fetchJSON('/api/news/key', { method: 'POST', body: { provider, api_key: key }, timeoutMs: 15000 });
         toast(r?.ok ? `Connected ${provider} — your radar is enriched now.`
                     : (r?.data?.detail || 'Could not connect that key.'));
@@ -5102,7 +5107,7 @@
       if (form) form.onsubmit = async (e) => {
         e.preventDefault();
         const body = document.getElementById('shareBody').value.trim();
-        if (!body) { toast('Paste some text first.'); return; }
+        if (!body) { toast(T('dd.t_need_text', 'Paste some text first.')); return; }
         const r = await fetchJSON('/api/ingest', { method: 'POST', timeoutMs: 15000, body: {
           title: document.getElementById('shareTitle').value.trim(),
           source: document.getElementById('shareSource').value.trim(),
@@ -5122,10 +5127,10 @@
           const all = e.target.closest('#shareClearAll');
           if (del) {
             const r = await fetchJSON('/api/ingest/delete', { method: 'POST', body: { id: del.getAttribute('data-del') } });
-            if (r?.ok) drawShare(); else toast('Could not remove that.');
+            if (r?.ok) drawShare(); else toast(T('dd.t_could_not_remove', 'Could not remove that.'));
           } else if (all) {
             const r = await fetchJSON('/api/ingest/delete', { method: 'POST', body: { id: 'all' } });
-            if (r?.ok) drawShare(); else toast('Could not clear.');
+            if (r?.ok) drawShare(); else toast(T('dd.t_could_not_clear', 'Could not clear.'));
           }
         });
       }
@@ -5203,8 +5208,8 @@
     if (copyBtn) copyBtn.addEventListener('click', async () => {
       const code = codeText();
       if (!code) return;
-      try { await navigator.clipboard.writeText(code); toast('Contract copied.'); }
-      catch (_) { toast('Copy failed — select the code and copy manually.'); }
+      try { await navigator.clipboard.writeText(code); toast(T('dd.t_contract_copied', 'Contract copied.')); }
+      catch (_) { toast(T('dd.t_copy_failed', 'Copy failed — select the code and copy manually.')); }
     });
     const dlBtn = document.getElementById('cs-download');
     if (dlBtn) dlBtn.addEventListener('click', () => {
@@ -5327,7 +5332,7 @@
       btn.disabled = false; msg.textContent = '';
       if (!r || !r.ok || !r.data) {
         if (r && r.status === 429) { msg.textContent = 'Slow down a moment, then retry.'; return; }
-        toast('Couldn\'t draft the contract — try again.'); return;
+        toast(T('dd.t_draft_failed', 'Couldn\'t draft the contract — try again.')); return;
       }
       const d = r.data;
       const flagsp = document.getElementById('cs-flagsp'); flagsp.hidden = false;
@@ -5631,7 +5636,7 @@
       if (!slug) return;
       let s = null;
       try { const r = await fetchJSON('/api/public/user-strategies/' + encodeURIComponent(slug), { auth: false, timeoutMs: 10000 }); s = r.ok && r.data && r.data.agent; } catch (_) { /* fall through */ }
-      if (s) forkInto(s); else toast('Could not load that strategy to fork.');
+      if (s) forkInto(s); else toast(T('dd.t_fork_load_failed', 'Could not load that strategy to fork.'));
     }
     // Deep link: /dashboard?fork=<slug>#agents opens the builder pre-forked.
     try {
@@ -5708,9 +5713,9 @@
         const id = delBtn.getAttribute('data-sdel');
         if (!confirm('Delete this strategy?')) return;
         const r = await fetchJSON(`/api/strategies/${id}`, { method: 'DELETE', timeoutMs: 10000 }).catch(() => ({ ok: false }));
-        if (!r.ok) { toast('Could not delete.'); return; }
+        if (!r.ok) { toast(T('dd.t_could_not_delete', 'Could not delete.')); return; }
         if (String(_stratEditId) === String(id)) resetStratForm();
-        toast('Deleted.'); refreshMyStrat(); loadCommunity();
+        toast(T('dd.t_deleted', 'Deleted.')); refreshMyStrat(); loadCommunity();
       }
     }
 
@@ -5836,12 +5841,12 @@
           .catch(() => ({ ok: false, data: null }));
         e.target.disabled = false;
         if (!r.ok) { if (msg) msg.textContent = (r.data && r.data.error) || 'Could not join — try another handle.'; return; }
-        toast('You\'re on the leaderboard.'); showView('leaderboard');
+        toast(T('dd.t_joined_board', 'You\'re on the leaderboard.')); showView('leaderboard');
       }
       if (e.target.id === 'lbLeave') {
         e.target.disabled = true;
         await fetchJSON('/api/leaderboard/opt-out', { method: 'POST' }).catch(() => {});
-        toast('Left the leaderboard.'); showView('leaderboard');
+        toast(T('dd.t_left_board', 'Left the leaderboard.')); showView('leaderboard');
       }
     });
   }
@@ -6314,7 +6319,7 @@
       if (webBtn) webBtn.onclick = async () => {
         const sym = symOf();
         const out = document.getElementById('hubResWebOut');
-        if (!sym) { toast('Type a coin first.'); return; }
+        if (!sym) { toast(T('dd.t_need_coin', 'Type a coin first.')); return; }
         if (out) out.innerHTML = '<div class="skel"></div><div class="skel"></div>';
         webBtn.disabled = true;
         try {
@@ -6380,14 +6385,14 @@
       if (on) on.onclick = async () => {
         try {
           const perm = await Notification.requestPermission();
-          if (perm !== 'granted') { toast('Notifications were not allowed.'); return; }
+          if (perm !== 'granted') { toast(T('dd.t_push_denied', 'Notifications were not allowed.')); return; }
           const reg = await navigator.serviceWorker.ready;
           const k = await fetchJSON('/api/push/key');
           const sub = await reg.pushManager.subscribe({
             userVisibleOnly: true, applicationServerKey: urlB64ToU8(k.data.public_key) });
           const r = await fetchJSON('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
           toast(r?.ok ? 'Push enabled — the agent can reach you here now.' : 'Could not save the subscription.');
-        } catch (err) { toast('Push setup failed: ' + (err?.message || 'unknown error')); }
+        } catch (err) { toast(T('dd.t_push_setup_failed', 'Push setup failed:') + ' ' + (err?.message || T('dd.t_unknown_error', 'unknown error'))); }
         drawHubToggles();
       };
       if (off) off.onclick = async () => {
@@ -6398,8 +6403,8 @@
             await fetchJSON('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } });
             await sub.unsubscribe();
           }
-          toast('Push disabled on this device.');
-        } catch (err) { toast('Push setup failed: ' + (err?.message || 'unknown error')); }
+          toast(T('dd.t_push_off', 'Push disabled on this device.'));
+        } catch (err) { toast(T('dd.t_push_setup_failed', 'Push setup failed:') + ' ' + (err?.message || T('dd.t_unknown_error', 'unknown error'))); }
         drawHubToggles();
       };
     }
@@ -6418,7 +6423,7 @@
       const b = document.getElementById('hubMcpCopy');
       if (b) b.onclick = async () => {
         const cmd = `claude mcp add --transport http runeclaw ${location.origin}/mcp`;
-        try { await navigator.clipboard.writeText(cmd); toast('Copied — paste it into your terminal.'); }
+        try { await navigator.clipboard.writeText(cmd); toast(T('dd.t_copied_terminal', 'Copied — paste it into your terminal.')); }
         catch (e) { toast(cmd); }
       };
     }, 0);
@@ -6485,7 +6490,7 @@
         e.preventDefault();
         const provider = document.getElementById('hubLlmProv').value;
         const key = document.getElementById('hubLlmKey').value.trim();
-        if (!key) { toast('Paste an API key first.'); return; }
+        if (!key) { toast(T('dd.t_need_api_key', 'Paste an API key first.')); return; }
         const r = await fetchJSON('/api/llm', { method: 'POST', body: { provider, api_key: key }, timeoutMs: 15000 });
         toast(r?.ok ? `Connected ${provider} — your agent answers on your key now.`
                     : (r?.data?.detail || 'Could not connect that key.'));
@@ -7093,7 +7098,7 @@
       if (e.target.closest('#pol-clear')) {
         const r = await fetchJSON('/api/controls/policy/clear', { method: 'POST' }).catch(() => null);
         if (r?.ok) { toast(r.data && r.data.removed ? 'Policy cleared.' : 'No policy was set.'); showView('guardian'); }
-        else toast('Clear failed.');
+        else toast(T('dd.t_clear_failed', 'Clear failed.'));
       }
     });
   }
@@ -7366,7 +7371,7 @@
   connectStream({
     scan: () => { beat(); cache.scan = null; agentReact('analyze'); getScan().then(updateConnChip); if (currentView === 'engine' || currentView === 'deepscan') showView(currentView, { soft: true }); },
     portfolio: () => { beat(); cache.portfolio = null; if (currentView === 'home' || currentView === 'portfolio') showView(currentView, { soft: true }); },
-    trade: () => { beat(); cache.portfolio = null; agentReact('execute'); toast('Trade update from the engine.'); if (currentView === 'home' || currentView === 'portfolio' || currentView === 'trade') showView(currentView, { soft: true }); },
+    trade: () => { beat(); cache.portfolio = null; agentReact('execute'); toast(T('dd.t_trade_update', 'Trade update from the engine.')); if (currentView === 'home' || currentView === 'portfolio' || currentView === 'trade') showView(currentView, { soft: true }); },
     signals: () => { beat(); agentReact('alert'); if (currentView === 'signals') showView('signals', { soft: true }); },
     activity: (e) => { beat(); onActivity(e); },
   });
