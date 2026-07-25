@@ -387,6 +387,18 @@ test('landing claims keep the links that back them up, in every language', () =>
 // silently skips any text node that wraps across a newline, which is exactly
 // how six multi-line <p> paragraphs on guardian.html stayed invisible to the
 // first version of this test.
+// Match against BOTH the original string and a diacritic-stripped copy.
+//
+// Stripping alone is wrong: NFD decomposes Japanese ブ into フ + combining
+// dakuten and Hangul 익 into jamo, and \p{Diacritic} then deletes the dakuten
+// outright — NFC cannot restore a mark that has been removed. So kana and
+// Hangul must be matched in their ORIGINAL form, while Latin accents (Spanish
+// "anónimos", Portuguese "à mão") need the stripped one. Searching the
+// concatenation of both gets each script what it needs.
+function searchable(s) {
+  return s + ' \u0000 ' + s.normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+}
+
 const SWEPT_PAGES = {
   // Only proper nouns may go in an allowlist. Anything else belongs in the
   // dictionary — "we'd rather not translate it" is not a category.
@@ -401,6 +413,7 @@ const SWEPT_PAGES = {
   // 'Bitget USDT-M perpetuals' is the API's own venue string, written over
   // this element on load — a data-i18n here would be clobbered every time.
   'track.html': ['RUNECLAW', 'Bitget USDT-M perpetuals'],
+  'firewall.html': ['← RUNECLAW'],
 };
 
 function untranslatedInSource(src, allowList) {
@@ -618,12 +631,7 @@ test('the public board never promises a dollar figure, in any language', () => {
     assert.ok(/dollar|dólar|dolar|Dollar|金額|금액|долл|مبلغ بالدولار/i.test(lede),
       `lb.lede:${c} dropped the "never a dollar figure" promise`);
     // anonymous handles, and the publish_hash that makes a row checkable
-    // Diacritics are stripped before matching: an ASCII stem can never match
-    // Spanish "anónimos" or Portuguese "anónimos", and listing every accented
-    // spelling by hand is how this assertion quietly rots.
-    // NFC again afterwards: NFD also decomposes Hangul into jamo, which would
-    // break the Korean match this line exists to make.
-    const plain = lede.normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+    const plain = searchable(lede);
     assert.ok(/anon|匿名|익명|анонимн|مستعار/i.test(plain), `lb.lede:${c} lost "anonymous handles"`);
     assert.ok(lede.includes('<code>publish_hash</code>'), `lb.lede:${c} lost the publish_hash literal`);
     assert.match(lede, /href="\/proof"/, `lb.lede:${c} lost the verify-the-fills link`);
@@ -631,8 +639,7 @@ test('the public board never promises a dollar figure, in any language', () => {
   }
   // Opt-in and revocable is a consent statement, not decoration.
   for (const c of codes) {
-    // Same diacritic-insensitive treatment as above (Turkish gönüllü, etc).
-    const note = i18n.STRINGS['lb.note'][c].normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+    const note = searchable(i18n.STRINGS['lb.note'][c]);
     assert.ok(/opt|volunt|volont|任意|自願|자발|доброволь|gonull|vrijwillig|freiwillig|opcional|اختياري/i.test(note),
       `lb.note:${c} dropped the opt-in/revocable statement`);
   }
@@ -651,11 +658,39 @@ test('the track record keeps its "nothing is hand-entered" claim everywhere', ()
   // closed trades and equity snapshots, with nothing typed in by a human.
   // A translation that loses that clause leaves the numbers unsupported.
   for (const c of codes) {
-    const lede = i18n.STRINGS['tk.lede'][c].normalize('NFD').replace(/\p{Diacritic}/gu, '').normalize('NFC');
+    const lede = searchable(i18n.STRINGS['tk.lede'][c]);
     assert.ok(lede, `tk.lede missing ${c}`);
     assert.ok(/hand|mano|mao|main|手|손|вручную|elle|يدوي/i.test(lede),
       `tk.lede:${c} dropped the "nothing is hand-entered" claim`);
     assert.ok(/automat|otomat|自動|자동|автомат|تلقائ/i.test(lede),
       `tk.lede:${c} dropped "aggregated automatically"`);
+  }
+});
+
+test('the firewall never oversells itself, in any language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  const plain = searchable;
+  // Someone pastes a signing request into this page. Two clauses carry the
+  // whole product:
+  //   fw.lede — the scan runs ENTIRELY in the browser and nothing leaves the
+  //     page. Weaken that and a reader in that language reasonably believes
+  //     they just uploaded a transaction they were about to sign.
+  //   fw.disc — a clean result is NOT a guarantee and a flag is not a verdict.
+  //     A heuristic scanner that reads as authoritative is worse than none.
+  for (const c of codes) {
+    const lede = plain(i18n.STRINGS['fw.lede'][c]);
+    const disc = plain(i18n.STRINGS['fw.disc'][c]);
+    assert.ok(lede && disc, `fw.lede/fw.disc missing ${c}`);
+    assert.ok(/brows|navegador|navigateur|ブラウザ|브라우저|браузер|taray|متصفح|瀏覽器/i.test(lede),
+      `fw.lede:${c} lost the "runs in your browser" promise`);
+    assert.ok(/loca|loka|ローカル|로컬|локальн|yerel|محلي|本機/i.test(disc),
+      `fw.disc:${c} lost "the scan is local"`);
+    assert.ok(/heuristi|heuristisch|ヒューリスティック|휴리스틱|эвристи|sezgisel|استدلال|啟發式/i.test(disc),
+      `fw.disc:${c} dropped the word "heuristic"`);
+    assert.ok(/guarant|garant|保証|보장|гаранти|garanti|ضمان|保證/i.test(disc),
+      `fw.disc:${c} dropped "a clean result is not a guarantee"`);
+    // Both paragraphs keep the emphasis the English leans on.
+    assert.ok((i18n.STRINGS['fw.lede'][c].match(/<b>/g) || []).length >= 3, `fw.lede:${c} lost emphasis`);
+    assert.ok((i18n.STRINGS['fw.disc'][c].match(/<b>/g) || []).length >= 2, `fw.disc:${c} lost emphasis`);
   }
 });

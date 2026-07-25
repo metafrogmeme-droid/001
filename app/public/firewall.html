@@ -59,33 +59,34 @@
   <nav class="topnav">
     <a href="/">← RUNECLAW</a>
     <span style="flex:1"></span>
-    <a href="/guardian">Guardian</a>
-    <a href="/flight">Flight Recorder</a>
-    <a href="/dashboard">Open the app</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <a href="/flight" data-i18n="nav.flight">Flight Recorder</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
   </nav>
-  <div class="fw-hero"><h1>Transaction Firewall</h1></div>
-  <p class="lede">Before an agent signs, something has to check what it's signing. Paste anything it's about to
+  <div class="fw-hero"><h1 data-i18n="lp.g4_h">Transaction Firewall</h1></div>
+  <p class="lede" data-i18n-html="fw.lede">Before an agent signs, something has to check what it's signing. Paste anything it's about to
   act on — a message, a token's metadata, a URL, an address, a signing request — and the firewall flags the
   patterns behind <b>prompt-injection</b> and <b>malicious signing</b>: instructions that hijack the agent,
   seed-phrase lures, drain and unlimited-approval language, hidden and look-alike characters, phishing URLs and
   address poisoning. It runs <b>entirely in your browser</b> — nothing you paste leaves the page.</p>
 
   <section class="panel">
-    <textarea id="in" placeholder="Paste a message, token name/metadata, URL, address or a signing request…" spellcheck="false" autocomplete="off"></textarea>
+    <textarea id="in" placeholder="Paste a message, token name/metadata, URL, address or a signing request…" data-i18n-attr="placeholder:fw.ph" spellcheck="false" autocomplete="off"></textarea>
     <div class="row">
-      <button class="btn btn--primary btn--sm" id="scanBtn" type="button">Scan</button>
-      <span class="ex">or try:</span>
-      <button class="chip-btn" data-ex="injection" type="button">injection</button>
-      <button class="chip-btn" data-ex="seed" type="button">seed-phrase lure</button>
-      <button class="chip-btn" data-ex="approval" type="button">unlimited approval</button>
-      <button class="chip-btn" data-ex="phish" type="button">phishing URL</button>
-      <button class="chip-btn" data-ex="poison" type="button">address poisoning</button>
+      <button class="btn btn--primary btn--sm" id="scanBtn" type="button" data-i18n="lp.loop1_b">Scan</button>
+      <span class="ex" data-i18n="fw.try">or try:</span>
+      <button class="chip-btn" data-ex="injection" type="button" data-i18n="fw.ex_injection">injection</button>
+      <button class="chip-btn" data-ex="seed" type="button" data-i18n="fw.ex_seed">seed-phrase lure</button>
+      <button class="chip-btn" data-ex="approval" type="button" data-i18n="fw.ex_approval">unlimited approval</button>
+      <button class="chip-btn" data-ex="phish" type="button" data-i18n="fw.ex_phish">phishing URL</button>
+      <button class="chip-btn" data-ex="poison" type="button" data-i18n="fw.ex_poison">address poisoning</button>
     </div>
   </section>
 
   <div id="out"></div>
 
-  <p class="disc">The firewall is a <b>heuristic</b> pre-sign scan — it flags known attack patterns and explains
+  <p class="disc" data-i18n-html="fw.disc">The firewall is a <b>heuristic</b> pre-sign scan — it flags known attack patterns and explains
   why, but a clean result is <b>not</b> a guarantee and a flag is not a verdict. Always verify the destination
   address, the amount and the approval scope yourself. Nothing you paste is sent anywhere; the scan is local.
   This is a safety aid, not investment advice.</p>
@@ -134,5 +135,6 @@
   if (!F) $('out').innerHTML = '<div class="panel">The firewall model failed to load.</div>';
 })();
 </script>
+<script src="/js/i18n.js?v=33"></script>
 </body>
 </html>
