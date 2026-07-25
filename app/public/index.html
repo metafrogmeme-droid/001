@@ -101,10 +101,10 @@
 </style>
 </head>
 <body>
-<a class="skip-link" href="#main-content">Skip to content</a>
+<a class="skip-link" href="#main-content" data-i18n="dash.skip">Skip to content</a>
 
 <nav class="topbar" aria-label="Main">
-  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub">Command Core</span></a>
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub" data-i18n="lp.brand_sub">Command Core</span></a>
   <div class="spacer"></div>
   <div class="nav-links">
     <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
@@ -152,10 +152,10 @@
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it">
-    <li class="trust-badge">🔎 <span>Every fill <a href="/proof">verifiable</a></span></li>
-    <li class="trust-badge">🔒 <span>Non-custodial — you hold the keys</span></li>
-    <li class="trust-badge">🔑 <span>Withdrawal-disabled API keys</span></li>
-    <li class="trust-badge">🧾 <span>Source-available</span></li>
+    <li class="trust-badge">🔎 <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
+    <li class="trust-badge">🔒 <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
+    <li class="trust-badge">🔑 <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
+    <li class="trust-badge">🧾 <span data-i18n="lp.tb_source">Source-available</span></li>
   </ul>
   <!-- Explore the flagship experiences straight from the hero, so a first-time
        visitor sees the breadth (not just a signup box). -->
@@ -186,10 +186,10 @@
     <p data-i18n="sec.why_p">Most bots ask you to trust a black box. RUNECLAW is built to earn it.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><h3>Explainable, not a black box</h3><p>Every decision is sealed into a tamper-evident ledger you can re-inspect — inputs, reasoning, the risk verdict and the outcome. Read the decision, don't just trust the P&amp;L.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3>Guarded, not just optimized</h3><p>A whole safety layer around every trade — a digital-twin stress lab, a systemic-risk radar, a transaction firewall and an escape planner — not just a chase for returns.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3>Non-custodial by design</h3><p>You hold the keys. Exchange API keys are withdrawal-disabled, and funds move only inside a revocable authority envelope you set in plain words and can switch off any time.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3>Verifiable, not claimed</h3><p>Re-derive the track record in your own browser. Public surfaces show percent and ratio only — never a fabricated number, never someone else's dollars.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><h3 data-i18n="lp.why1_h">Explainable, not a black box</h3><p data-i18n="lp.why1_p">Every decision is sealed into a tamper-evident ledger you can re-inspect — inputs, reasoning, the risk verdict and the outcome. Read the decision, don't just trust the P&amp;L.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="lp.why2_h">Guarded, not just optimized</h3><p data-i18n="lp.why2_p">A whole safety layer around every trade — a digital-twin stress lab, a systemic-risk radar, a transaction firewall and an escape planner — not just a chase for returns.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3 data-i18n="lp.why3_h">Non-custodial by design</h3><p data-i18n="lp.why3_p">You hold the keys. Exchange API keys are withdrawal-disabled, and funds move only inside a revocable authority envelope you set in plain words and can switch off any time.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="lp.why4_h">Verifiable, not claimed</h3><p data-i18n="lp.why4_p">Re-derive the track record in your own browser. Public surfaces show percent and ratio only — never a fabricated number, never someone else's dollars.</p></div>
   </div>
 </section>
 
@@ -209,9 +209,9 @@
     <div class="muted" style="font-size:var(--fs-xs);margin-top:6px" data-i18n="sec.prov_mirror">Copy that hash anywhere public and the whole day is frozen for everyone — we can't add a call to it afterwards without breaking your copy.</div>
   </div>
   <div class="feature-grid rc-stagger">
-    <a class="feature" href="/provable"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧾</span><h3>Verify it yourself</h3><p>The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
-    <a class="feature" href="/roots"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌳</span><h3>Daily seal roots</h3><p>One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
-    <a class="feature" href="/proof"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🔐</span><h3>Proof of PnL</h3><p>The performance side of the same doctrine: figures rebuilt from raw exchange fills and published as a sealed statement your browser re-derives.</p></a>
+    <a class="feature" href="/provable"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧾</span><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
+    <a class="feature" href="/roots"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌳</span><h3 data-i18n="lp.prov2_h">Daily seal roots</h3><p data-i18n="lp.prov2_p">One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
+    <a class="feature" href="/proof"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🔐</span><h3 data-i18n="nav.proof">Proof of PnL</h3><p data-i18n="lp.prov3_p">The performance side of the same doctrine: figures rebuilt from raw exchange fills and published as a sealed statement your browser re-derives.</p></a>
   </div>
 </section>
 
@@ -228,28 +228,28 @@
     <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
     <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
   </div>
-  <div class="card" id="landingFeed"><p class="muted small">Connecting to the agent…</p></div>
+  <div class="card" id="landingFeed"><p class="muted small" data-i18n="lp.connecting">Connecting to the agent…</p></div>
 </section>
 
 <section class="section hidden" id="theaterSection" hidden aria-labelledby="theater-h">
   <div class="section-head">
-    <h2 id="theater-h">Watch a real trade unfold</h2>
-    <p>Replayed frame by frame from the engine's recorded log — a real entry, a real exit, real PnL. Wins and losses alike.</p>
+    <h2 id="theater-h" data-i18n="lp.replay_h">Watch a real trade unfold</h2>
+    <p data-i18n="lp.replay_p">Replayed frame by frame from the engine's recorded log — a real entry, a real exit, real PnL. Wins and losses alike.</p>
   </div>
   <div class="card" id="theaterCard">
     <div class="row" style="gap:var(--s2);flex-wrap:wrap;align-items:center;margin-bottom:var(--s2)">
-      <span class="badge" id="theaterBadge">REAL RECORDED TRADE</span>
+      <span class="badge" id="theaterBadge" data-i18n="lp.replay_badge">REAL RECORDED TRADE</span>
       <b id="theaterTitle"></b>
       <span class="muted small" id="theaterWhen"></span>
-      <button class="btn btn--sm" id="theaterReplay" type="button" style="margin-left:auto">↺ Replay</button>
+      <button class="btn btn--sm" id="theaterReplay" type="button" style="margin-left:auto" data-i18n="lp.replay_btn">↺ Replay</button>
     </div>
     <div id="theaterStage" style="position:relative"></div>
     <div class="row" style="gap:var(--s4);flex-wrap:wrap;margin-top:var(--s2)">
-      <span>Entry <b class="num" id="theaterEntry"></b></span>
-      <span>Exit <b class="num" id="theaterExit"></b></span>
-      <span>Return <b class="num" id="theaterPnl"></b></span>
+      <span><span data-i18n="arena.th_entry">Entry</span> <b class="num" id="theaterEntry"></b></span>
+      <span><span data-i18n="arena.th_exit">Exit</span> <b class="num" id="theaterExit"></b></span>
+      <span><span data-i18n="lp.replay_return">Return</span> <b class="num" id="theaterPnl"></b></span>
     </div>
-    <p class="muted small" style="margin-top:var(--s2)">From the same recorded history behind the <a href="/track">public track record</a>. Past results ≠ future results.</p>
+    <p class="muted small" style="margin-top:var(--s2)" data-i18n-html="lp.replay_note">From the same recorded history behind the <a href="/track">public track record</a>. Past results ≠ future results.</p>
   </div>
 </section>
 
@@ -258,15 +258,15 @@
      size-agnostic by construction, never a dollar figure. -->
 <section class="section hidden" id="boardTease" hidden aria-labelledby="board-h">
   <div class="section-head">
-    <h2 id="board-h">A leaderboard you can't fake</h2>
-    <p>Anonymous handles, sealed statements, a publish hash anyone can re-verify — performance you can check, not screenshots.</p>
+    <h2 id="board-h" data-i18n="lp.board_h">A leaderboard you can't fake</h2>
+    <p data-i18n="lp.board_p">Anonymous handles, sealed statements, a publish hash anyone can re-verify — performance you can check, not screenshots.</p>
   </div>
   <div class="card">
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Agent</th><th class="r">Profit factor</th><th class="r">Sharpe</th><th class="r">Round trips</th><th>Proof</th></tr></thead>
+      <thead><tr><th>#</th><th data-i18n="lp.th_agent">Agent</th><th class="r" data-i18n="lp.th_pf">Profit factor</th><th class="r">Sharpe</th><th class="r" data-i18n="lp.th_trips">Round trips</th><th data-i18n="lp.th_proof">Proof</th></tr></thead>
       <tbody id="boardTeaseRows"></tbody>
     </table></div>
-    <p class="muted small" style="margin-top:var(--s2)"><a href="/leaderboard">See the full verifiable board →</a> · Size-agnostic by design · Past results ≠ future results.</p>
+    <p class="muted small" style="margin-top:var(--s2)"><a href="/leaderboard" data-i18n="lp.board_cta">See the full verifiable board →</a> · Size-agnostic by design · Past results ≠ future results.</p>
   </div>
 </section>
 
@@ -284,7 +284,7 @@
       <p data-i18n="sec.strength_p">Every Bitget USDT-perp plotted by momentum, funding and open interest, coloured by long-vs-short strength — the entire universe at a glance. Orbit it, tap a coin for its factor breakdown, then open the trade on your CEX or DEX of choice.</p>
     </div>
     <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:var(--s4)">
-      <span class="sm-pill">Momentum</span><span class="sm-pill">Trend</span><span class="sm-pill">ΔOI</span><span class="sm-pill">Funding</span><span class="sm-pill">Long / Short strength</span>
+      <span class="sm-pill" data-i18n="lp.ax_momentum">Momentum</span><span class="sm-pill" data-i18n="lp.ax_trend">Trend</span><span class="sm-pill">ΔOI</span><span class="sm-pill" data-i18n="lp.ax_funding">Funding</span><span class="sm-pill" data-i18n="lp.ax_ls">Long / Short strength</span>
     </div>
     <a class="btn btn--primary btn--sm" href="/strengthmap" data-i18n="sec.strength_cta">🌐 Open the 3D Strength Map →</a>
   </div>
@@ -313,12 +313,12 @@
     <p data-i18n-html="sec.guardian_p">Most bots only chase returns. Guardian makes an autonomous agent <b>trustworthy</b> — it proves every decision, simulates what breaks you, watches the market for systemic risk, blocks malicious signing, and plans your way out. The AI proposes · deterministic controls authorize · the wallet enforces · the recorder proves · the escape agent recovers.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <a class="feature" href="/flight"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛰️</span><h3>Flight Recorder</h3><p>The verifiable black box behind every trade — inputs, reasoning, risk verdict and outcome, sealed into a hash-chained ledger you can re-inspect.</p></a>
-    <a class="feature" href="/stress"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌀</span><h3>Stress Lab</h3><p>A digital twin of your book: your drawdown and which leveraged legs get liquidated in a −30% drop, an alt crash or a black swan.</p></a>
-    <a class="feature" href="/sentinel"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📡</span><h3>Systemic Risk Sentinel</h3><p>A market-wide crowding radar — funding heat, one-sided positioning and leverage surges that precede a cascade, from public data.</p></a>
-    <a class="feature" href="/firewall"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛡️</span><h3>Transaction Firewall</h3><p>Paste what an agent is about to sign; it flags prompt-injection, drain and unlimited-approval language, phishing URLs and address poisoning — locally.</p></a>
-    <a class="feature" href="/escape"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🪂</span><h3>Universal Escape Agent</h3><p>A dependency-aware emergency exit: the safe order to unwind perps, loans, collateral, LPs and staking — the way out you plan before you need it.</p></a>
-    <a class="feature" href="/intent"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧭</span><h3>Intent Compiler</h3><p>Say your limits in plain words; they compile to a deterministic, revocable Authority Envelope — typed rules tagged with who enforces each one.</p></a>
+    <a class="feature" href="/flight"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛰️</span><h3 data-i18n="nav.flight">Flight Recorder</h3><p data-i18n="lp.g1_p">The verifiable black box behind every trade — inputs, reasoning, risk verdict and outcome, sealed into a hash-chained ledger you can re-inspect.</p></a>
+    <a class="feature" href="/stress"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌀</span><h3 data-i18n="nav.stress">Stress Lab</h3><p data-i18n="lp.g2_p">A digital twin of your book: your drawdown and which leveraged legs get liquidated in a −30% drop, an alt crash or a black swan.</p></a>
+    <a class="feature" href="/sentinel"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📡</span><h3 data-i18n="lp.g3_h">Systemic Risk Sentinel</h3><p data-i18n="lp.g3_p">A market-wide crowding radar — funding heat, one-sided positioning and leverage surges that precede a cascade, from public data.</p></a>
+    <a class="feature" href="/firewall"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛡️</span><h3 data-i18n="lp.g4_h">Transaction Firewall</h3><p data-i18n="lp.g4_p">Paste what an agent is about to sign; it flags prompt-injection, drain and unlimited-approval language, phishing URLs and address poisoning — locally.</p></a>
+    <a class="feature" href="/escape"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🪂</span><h3 data-i18n="lp.g5_h">Universal Escape Agent</h3><p data-i18n="lp.g5_p">A dependency-aware emergency exit: the safe order to unwind perps, loans, collateral, LPs and staking — the way out you plan before you need it.</p></a>
+    <a class="feature" href="/intent"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧭</span><h3 data-i18n="lp.g6_h">Intent Compiler</h3><p data-i18n="lp.g6_p">Say your limits in plain words; they compile to a deterministic, revocable Authority Envelope — typed rules tagged with who enforces each one.</p></a>
   </div>
   <p style="margin-top:var(--s4)">
     <a class="btn btn--primary btn--sm" href="/guardian" data-i18n="sec.guardian_cta">Explore Guardian →</a>
@@ -354,7 +354,7 @@
     <div id="ltRows" style="display:flex;flex-direction:column;gap:4px;max-width:560px;margin:0 auto"></div>
   </div>
   <div class="section-head">
-    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-target"></use></svg> <span>Paper Trading Arena</span></div>
+    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-target"></use></svg> <span data-i18n="arena.h1">Paper Trading Arena</span></div>
     <h2 id="arena-h" data-i18n="sec.arena_h">Prove your edge before you risk a cent</h2>
     <p data-i18n="sec.arena_p">Every account gets a paper trading account the moment you open the Arena — the same virtual starting stake for everyone, no exchange keys, no setup. Trade live markets at real prices with real liquidation mechanics, and climb a public leaderboard ranked purely on percent return. When paper competitions run, this is where they happen.</p>
   </div>
@@ -370,32 +370,32 @@
 
 <section class="section reveal-on-scroll" aria-labelledby="features-h">
   <div class="section-head">
-    <h2 id="features-h">Everything the bot does, on the web</h2>
-    <p>The same engine that runs the autonomous scanner, scoped to your account.</p>
+    <h2 id="features-h" data-i18n="lp.web_h">Everything the bot does, on the web</h2>
+    <p data-i18n="lp.web_p">The same engine that runs the autonomous scanner, scoped to your account.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><h3>Chat with the engine</h3><p>Ask for a scan, your portfolio, or type "buy SOL 71 sl 70 tp 76" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3>Trade from the dashboard</h3><p>A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live needs your toggle and operator approval.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><h3>Signal stream</h3><p>Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3>Your portfolio, tracked</h3><p>Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3>Hard risk engine</h3><p>Circuit breakers, funding-clock gate, equity throttle, and margin caps you control. The engine's shadow book even audits what its own rejections cost.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3>CEX + DEX, venue-aware</h3><p>Live trading runs on Bitget USDT-M perpetuals, with connectable Bybit, BingX and Hyperliquid — an on-chain perps DEX — plus a new-listing radar and full venue telemetry on the dashboard's Engine view.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><h3 data-i18n="lp.w1_h">Chat with the engine</h3><p data-i18n="lp.w1_p">Ask for a scan, your portfolio, or type "buy SOL 71 sl 70 tp 76" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="lp.w2_h">Trade from the dashboard</h3><p data-i18n="lp.w2_p">A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live needs your toggle and operator approval.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><h3 data-i18n="dp.stream">Signal stream</h3><p data-i18n="lp.w3_p">Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="lp.w4_h">Your portfolio, tracked</h3><p data-i18n="lp.w4_p">Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="lp.w5_h">Hard risk engine</h3><p data-i18n="lp.w5_p">Circuit breakers, funding-clock gate, equity throttle, and margin caps you control. The engine's shadow book even audits what its own rejections cost.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3 data-i18n="lp.w6_h">CEX + DEX, venue-aware</h3><p data-i18n="lp.w6_p">Live trading runs on Bitget USDT-M perpetuals, with connectable Bybit, BingX and Hyperliquid — an on-chain perps DEX — plus a new-listing radar and full venue telemetry on the dashboard's Engine view.</p></div>
   </div>
 </section>
 
 <section class="section reveal-on-scroll" aria-labelledby="how-h">
   <div class="section-head">
-    <h2 id="how-h">One loop, running continuously</h2>
-    <p>Not a static screener — a live decision loop that never stops.</p>
+    <h2 id="how-h" data-i18n="lp.loop_h">One loop, running continuously</h2>
+    <p data-i18n="lp.loop_p">Not a static screener — a live decision loop that never stops.</p>
   </div>
   <ol class="loop-steps rc-stagger" aria-label="The trading loop">
-    <li class="loop-step"><span class="loop-num">1</span><b>Scan</b><span class="muted small">800+ symbols, around the clock</span></li>
+    <li class="loop-step"><span class="loop-num">1</span><b data-i18n="lp.loop1_b">Scan</b><span class="muted small" data-i18n="lp.loop1_s">800+ symbols, around the clock</span></li>
     <li class="loop-arrow" aria-hidden="true">→</li>
-    <li class="loop-step"><span class="loop-num">2</span><b>Analyze</b><span class="muted small">LLM reasoning + technical confluence</span></li>
+    <li class="loop-step"><span class="loop-num">2</span><b data-i18n="lp.loop2_b">Analyze</b><span class="muted small" data-i18n="lp.loop2_s">LLM reasoning + technical confluence</span></li>
     <li class="loop-arrow" aria-hidden="true">→</li>
-    <li class="loop-step"><span class="loop-num">3</span><b>Risk gate</b><span class="muted small">refuses anything out of bounds</span></li>
+    <li class="loop-step"><span class="loop-num">3</span><b data-i18n="lp.loop3_b">Risk gate</b><span class="muted small" data-i18n="lp.loop3_s">refuses anything out of bounds</span></li>
     <li class="loop-arrow" aria-hidden="true">→</li>
-    <li class="loop-step"><span class="loop-num">4</span><b>Execute</b><span class="muted small">paper or live — your choice</span></li>
+    <li class="loop-step"><span class="loop-num">4</span><b data-i18n="lp.loop4_b">Execute</b><span class="muted small" data-i18n="lp.loop4_s">paper or live — your choice</span></li>
   </ol>
 </section>
 
@@ -590,7 +590,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=32"></script>
+<script src="/js/i18n.js?v=33"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=4"></script>
 <script src="/js/chat.js?v=24" defer></script>

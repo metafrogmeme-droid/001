@@ -27,8 +27,17 @@ test('theater shows PERCENT return, never dollars (§4)', () => {
   assert.match(theater, /toFixed\(2\) \+ '%'/);
   // No derivable percent -> an outcome word, still never a dollar figure.
   assert.match(theater, /'WIN' : 'LOSS'/);
-  assert.ok(landing.includes('Return <b class="num" id="theaterPnl">'),
+  // The label is now translatable, so the §4 guarantee has to hold in TWELVE
+  // languages rather than one: it must still be the Return label sitting on
+  // theaterPnl, and no translation of it may introduce a currency term.
+  assert.match(landing, /data-i18n="lp\.replay_return">Return<\/span> <b class="num" id="theaterPnl">/,
     'the summary row label must say Return, not PnL');
+  const i18n = require('../public/js/i18n');
+  for (const c of i18n.LANGS.map((l) => l.code)) {
+    const v = i18n.STRINGS['lp.replay_return'][c];
+    assert.ok(v, `lp.replay_return is missing ${c}`);
+    assert.ok(!/[$€£¥₺₽﷼]|USD|USDT|dollar/i.test(v), `lp.replay_return:${c} smuggles a currency in`);
+  }
 });
 
 test('theater reveal waits until the section is actually seen', () => {

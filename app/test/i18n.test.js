@@ -272,7 +272,8 @@ test('the Arena page has no untranslated static English left', () => {
   // Only the markup half — the script half builds strings through T().
   const cut = src.indexOf('<script>\n// Device-visible error trap');
   assert.ok(cut > 0, 'could not find the end of the markup');
-  const markup = src.slice(0, cut);
+  // Entities are glyphs, not prose — &times; must not read as the word "times".
+  const markup = src.slice(0, cut).replace(/&[a-zA-Z]+;|&#\d+;/g, ' ');
   // A visible string in a text-bearing tag that carries no data-i18n renders
   // English in every language at once. The whole page heading translated while
   // the form under it did not, which is how this class of bug hides.
@@ -382,4 +383,49 @@ test('the landing footer translates — and half of it needed no new strings', (
   }
   // RUNECLAW is a product name and stays itself wherever a language embeds it.
   for (const c of codes) assert.match(i18n.STRINGS['chat.label'][c], /RUNECLAW/, `chat.label:${c}`);
+});
+
+test('the landing page has no untranslated static English left', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  let src = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  // Elements translated as HTML own their subtree — the inner <span>/<a> there
+  // is replaced wholesale by the parent's entry, so it needs no key of its own.
+  src = src.replace(/<(\w+)([^>]*data-i18n-html=[^>]*)>[\s\S]*?<\/\1>/g, (m, t, a) => `<${t}${a}></${t}>`);
+  // Scripts build their strings through T(); only markup is in scope here.
+  src = src.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/g, (m) => m.replace(/[^\n]/g, ' '));
+  // HTML entities are glyphs and escapes, not prose: &times; is a × on a close
+  // button, and its letters must not read as an untranslated word.
+  src = src.replace(/&[a-zA-Z]+;|&#\d+;/g, ' ');
+  // Proper nouns are not translated anywhere in the dictionary either — the
+  // same rule that keeps Guardian and dApps as themselves in all twelve.
+  const BRANDS = new Set(['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe']);
+  const found = [];
+  src.split('\n').forEach((line, n) => {
+    const re = /<(h1|h2|h3|h4|span|p|button|label|option|summary|th|legend|a|li|td)\b([^>]*)>([^<>{}`]*[A-Za-z]{3,}[^<>{}`]*)</g;
+    for (const m of line.matchAll(re)) {
+      const text = m[3].trim();
+      if (/data-i18n/.test(m[2]) || !text || BRANDS.has(text)) continue;
+      found.push(`${n + 1}: <${m[1]}> ${text}`);
+    }
+  });
+  assert.deepEqual(found, [], `untranslated static text in index.html:\n  ${found.join('\n  ')}`);
+});
+
+test('landing claims keep the links that back them up, in every language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // "Every fill verifiable" and "the public track record" are claims whose
+  // whole weight is the link. A translation that drops it leaves an unbacked
+  // assertion — worse than the English sentence it replaced.
+  for (const c of codes) {
+    assert.match(i18n.STRINGS['lp.tb_fill'][c], /href="\/proof"/, `lp.tb_fill:${c} lost its evidence link`);
+    assert.match(i18n.STRINGS['lp.replay_note'][c], /href="\/track"/, `lp.replay_note:${c} lost its evidence link`);
+  }
+  // §4 on the public landing surface: the marketing copy talks in percent and
+  // ratio, and must not introduce a dollar figure in any language.
+  for (const k of ['lp.why4_p', 'lp.board_p', 'lp.replay_p', 'lp.replay_return']) {
+    for (const c of codes) {
+      assert.ok(!/\$\s?\d|USD\s?\d/.test(i18n.STRINGS[k][c]), `${k}:${c} introduces a dollar figure`);
+    }
+  }
 });

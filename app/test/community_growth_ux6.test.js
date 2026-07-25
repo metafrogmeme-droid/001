@@ -52,7 +52,9 @@ test('the landing board tease shows the verified chip + a re-verifiable publish 
   // The hash links to the full board where it can be re-derived.
   assert.match(index, /href="\/leaderboard" title="Re-derive the hash yourself"/);
   // A Proof column header was added for it.
-  assert.match(index, /<th class="r">Round trips<\/th><th>Proof<\/th>/);
+  // Attribute-tolerant: both headers now carry data-i18n so the board tease
+  // translates. The invariant is that a Proof column follows Round trips.
+  assert.match(index, /<th class="r"[^>]*>Round trips<\/th><th[^>]*>Proof<\/th>/);
 });
 
 test('the dashboard shows the caller their REAL rank (position-only, no dollars)', () => {
