@@ -395,6 +395,7 @@ const SWEPT_PAGES = {
   'guardian.html': ['← RUNECLAW', 'RUNECLAW Guardian'],
   'developers.html': ['← RUNECLAW'],
   'stress.html': ['← RUNECLAW'],
+  'provable.html': ['← RUNECLAW'],
 };
 
 function untranslatedInSource(src, allowList) {
@@ -527,5 +528,44 @@ test('the Stress Lab keeps its honesty clauses in every language', () => {
       `sx.disc:${c} lost an emphasis the English relies on`);
     // The escape hatch to build a REAL envelope must stay reachable.
     assert.match(disc, /href="\/dashboard#agents"/, `sx.disc:${c} lost the app link`);
+  }
+});
+
+test('the verification contract survives translation intact', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // Highest-stakes page on the site: a reader follows these words to reproduce
+  // a hash. Blur "hash it verbatim, never re-serialize", drop "deduplicated,
+  // sorted ascending", or loosen "promoted unchanged", and the reader gets a
+  // mismatch and concludes OUR receipts are broken — when the instructions
+  // were. Every code literal must therefore be byte-identical per locale.
+  const literals = {
+    'pv.c_v1_p': ['<code>seal_payload</code>'],
+    'pv.s2_l1': ['<code>GET /api/call/&lt;key&gt;</code>', '<code>sig:…</code>', '<code>arena:…</code>'],
+    'pv.s2_l2': ['<code>sha256(seal_payload)</code>', 'UTF-8'],
+    'pv.s2_l3': ['<code>seal</code>', '<code>current</code>'],
+    'pv.s3_l1': ['64'],
+    'pv.s3_l2': ['<code>sha256(utf8(leftHex + rightHex))</code>'],
+    'pv.s3_proof': ['<code>anchor.proof</code>', '<code>{pos, hash}</code>'],
+    'pv.s3_p': ['href="/api/roots"', 'href="/roots"', 'Merkle'],
+  };
+  for (const [k, needles] of Object.entries(literals)) {
+    for (const c of codes) {
+      const v = i18n.STRINGS[k][c];
+      assert.ok(v, `${k} is missing ${c}`);
+      for (const n of needles) assert.ok(v.includes(n), `${k}:${c} lost the literal "${n}"`);
+    }
+  }
+  // §4: the arena payload clause is a guarantee about what is published.
+  for (const c of codes) {
+    assert.ok(/virtu|仮想|가상|виртуальн|sanal|افتراض|虛擬/i.test(i18n.STRINGS['pv.c_v2_p'][c]),
+      `pv.c_v2_p:${c} dropped the "virtual balances never appear" guarantee`);
+  }
+  // The honest-scope note bounds what a seal actually proves. It must keep its
+  // <b> lead-in and its refusal to claim future performance.
+  for (const c of codes) {
+    const scope = i18n.STRINGS['pv.scope'][c];
+    assert.match(scope, /<b>/, `pv.scope:${c} lost its emphasis`);
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(scope),
+      `pv.scope:${c} dropped "not investment advice"`);
   }
 });

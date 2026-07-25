@@ -21,38 +21,38 @@
 </head>
 <body>
 <div class="pv-wrap" role="main">
-  <nav class="topnav"><a href="/">← RUNECLAW</a><span style="flex:1"></span><a href="/roots">Daily roots</a><a href="/proof">Proof of PnL</a><a href="/api/roots">Raw feed</a></nav>
-  <h1 style="font-family:var(--font-display);letter-spacing:.03em">🔏 Verify it yourself</h1>
-  <p style="margin-top:6px">This page is the complete, self-contained verification contract for RUNECLAW's Provable Calls.
+  <nav class="topnav"><a href="/">← RUNECLAW</a><span style="flex:1"></span><a href="/roots" data-i18n="pv.nav_roots">Daily roots</a><a href="/proof" data-i18n="nav.proof">Proof of PnL</a><a href="/api/roots" data-i18n="pv.nav_raw">Raw feed</a><span data-i18n-switcher></span></nav>
+  <h1 style="font-family:var(--font-display);letter-spacing:.03em" data-i18n="pv.h1">🔏 Verify it yourself</h1>
+  <p style="margin-top:6px" data-i18n="pv.lede">This page is the complete, self-contained verification contract for RUNECLAW's Provable Calls.
   You need nothing from us but public URLs — no account, no API key, no trust. If any check on this page ever fails,
   the receipt is broken and you should say so loudly.</p>
 
-  <h2>1 · What gets sealed, and when</h2>
-  <p>The moment the engine publishes a trading call — and the moment any Arena paper trade fills — the decision facts
+  <h2 data-i18n="pv.s1_h">1 · What gets sealed, and when</h2>
+  <p data-i18n-html="pv.s1_p">The moment the engine publishes a trading call — and the moment any Arena paper trade fills — the decision facts
   are serialized to a canonical JSON string and hashed with SHA-256. That hash is the <b>seal</b>. Outcomes attach to
   the same record later and mathematically cannot move the seal. A call that was edited, backdated, or invented after
   the fact cannot produce a matching hash.</p>
 
-  <div class="contract"><div class="t">Canonical payload · v1 · engine signal</div>
+  <div class="contract"><div class="t" data-i18n="pv.c_v1_t">Canonical payload · v1 · engine signal</div>
 <pre>{"v":1,"signal_key":&lt;string&gt;,"symbol":&lt;string&gt;,"direction":&lt;string&gt;,
  "entry_price":&lt;number&gt;,"stop_loss":&lt;number&gt;,"take_profit":&lt;number&gt;,
  "confidence":&lt;number&gt;,"pattern":&lt;string|null&gt;,"regime":&lt;string|null&gt;,
  "created_at":&lt;ISO-8601 UTC&gt;}</pre>
-  <p>Key order is the contract. The served <code>seal_payload</code> is the exact sealed string — hash it verbatim,
+  <p data-i18n-html="pv.c_v1_p">Key order is the contract. The served <code>seal_payload</code> is the exact sealed string — hash it verbatim,
   never re-serialize it.</p></div>
 
-  <div class="contract"><div class="t">Canonical payload · v2 · arena paper trade</div>
+  <div class="contract"><div class="t" data-i18n="pv.c_v2_t">Canonical payload · v2 · arena paper trade</div>
 <pre>{"v":2,"kind":"arena_trade","trade_key":&lt;string&gt;,"handle":&lt;string|null&gt;,
  "symbol":&lt;string&gt;,"direction":&lt;string&gt;,"entry":&lt;number&gt;,"leverage":&lt;number&gt;,
  "tp":&lt;number|null&gt;,"sl":&lt;number|null&gt;,"opened_at":&lt;ISO-8601 UTC&gt;}</pre>
-  <p>Sealed at open — before anyone knows how the trade ends. The payload carries prices, leverage and times only;
+  <p data-i18n="pv.c_v2_p">Sealed at open — before anyone knows how the trade ends. The payload carries prices, leverage and times only;
   virtual balances never appear on any public surface.</p></div>
 
-  <h2>2 · Verify one call</h2>
+  <h2 data-i18n="pv.s2_h">2 · Verify one call</h2>
   <ol>
-    <li>Fetch <code>GET /api/call/&lt;key&gt;</code> (keys look like <code>sig:…</code> or <code>arena:…</code>).</li>
-    <li>Compute <code>sha256(seal_payload)</code> over the served string, UTF-8, exactly as-is.</li>
-    <li>It must equal <code>seal</code>. Then compare the payload's fields to <code>current</code> — any difference
+    <li data-i18n-html="pv.s2_l1">Fetch <code>GET /api/call/&lt;key&gt;</code> (keys look like <code>sig:…</code> or <code>arena:…</code>).</li>
+    <li data-i18n-html="pv.s2_l2">Compute <code>sha256(seal_payload)</code> over the served string, UTF-8, exactly as-is.</li>
+    <li data-i18n-html="pv.s2_l3">It must equal <code>seal</code>. Then compare the payload's fields to <code>current</code> — any difference
         means the live record was rewritten after sealing.</li>
   </ol>
 <pre>import hashlib, json, urllib.request
@@ -62,18 +62,18 @@ p = json.loads(d["seal_payload"])
 for k, v in d["current"].items():
     assert p.get(k) == v or k in ("trade_key", "signal_key"), (k, p.get(k), v)
 print("intact ✔")</pre>
-  <p>Every <code>/call/&lt;key&gt;</code> page runs the same math in your browser with WebCrypto — this snippet just
+  <p data-i18n-html="pv.s2_note">Every <code>/call/&lt;key&gt;</code> page runs the same math in your browser with WebCrypto — this snippet just
   proves you don't need our page to do it.</p>
 
-  <h2>3 · Verify a whole day</h2>
-  <p>At the end of each UTC day, every seal minted that day folds into one Merkle root, published at
+  <h2 data-i18n="pv.s3_h">3 · Verify a whole day</h2>
+  <p data-i18n-html="pv.s3_p">At the end of each UTC day, every seal minted that day folds into one Merkle root, published at
   <a href="/api/roots">/api/roots</a> (human view: <a href="/roots">/roots</a>). The construction:</p>
   <ul>
-    <li>Leaves = the day's seals (64-char hex), deduplicated, sorted ascending.</li>
-    <li>Parent = <code>sha256(utf8(leftHex + rightHex))</code> — the two hex strings concatenated.</li>
-    <li>An unpaired last node is promoted unchanged. A single leaf is its own root.</li>
+    <li data-i18n="pv.s3_l1">Leaves = the day's seals (64-char hex), deduplicated, sorted ascending.</li>
+    <li data-i18n-html="pv.s3_l2">Parent = <code>sha256(utf8(leftHex + rightHex))</code> — the two hex strings concatenated.</li>
+    <li data-i18n="pv.s3_l3">An unpaired last node is promoted unchanged. A single leaf is its own root.</li>
   </ul>
-  <p>Receipts from completed days carry <code>anchor.proof</code> — a list of <code>{pos, hash}</code> steps. Replay it:</p>
+  <p data-i18n-html="pv.s3_proof">Receipts from completed days carry <code>anchor.proof</code> — a list of <code>{pos, hash}</code> steps. Replay it:</p>
 <pre>h = d["seal"]
 for step in d["anchor"]["proof"]:
     pair = step["hash"] + h if step["pos"] == "L" else h + step["hash"]
@@ -81,17 +81,18 @@ for step in d["anchor"]["proof"]:
 assert h == d["anchor"]["root"]
 print("anchored in", d["anchor"]["day"], "✔")</pre>
 
-  <h2>4 · Become a mirror</h2>
-  <p>Copy any day's root anywhere durable and public — a tweet, a git commit, a chain memo. From that moment the day
+  <h2 data-i18n="pv.s4_h">4 · Become a mirror</h2>
+  <p data-i18n-html="pv.s4_p">Copy any day's root anywhere durable and public — a tweet, a git commit, a chain memo. From that moment the day
   is frozen for everyone: we cannot back-insert a call into it without changing the root you hold. One mirrored hash
   timestamps every call of the day. That's the whole design: <b>don't trust the screenshot — verify the call.</b></p>
 
-  <div class="muted-note">
+  <div class="muted-note" data-i18n-html="pv.scope">
     <b>Honest scope:</b> a seal proves the decision facts existed unchanged since sealing; a root proves set membership
     for its day; a mirror makes the day independently timestamped. None of this proves future performance, and none of
     it is investment advice. Operator-published on-chain anchoring of the same roots is planned and will be stated on
     the verify pages when live — never before.
   </div>
 </div>
+<script src="/js/i18n.js?v=33"></script>
 </body>
 </html>
