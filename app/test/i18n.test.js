@@ -88,9 +88,47 @@ test('dashboard panels: dictionary-backed titles, async panels re-apply on land'
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   // Every dp.* key referenced in dashboard.js exists in the dictionary.
   const used = [...new Set([...dash.matchAll(/data-i18n="(dp\.[\w.]+)"/g)].map((m) => m[1]))];
-  assert.ok(used.length >= 20, `expected a real sweep, found ${used.length} dp.* uses`);
+  assert.ok(used.length >= 100, `expected the full sweep, found ${used.length} dp.* uses`);
   for (const k of used) assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
   // renderPanel translates async content the moment it lands (both states).
   const appjs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
   assert.equal((appjs.match(/RCI18N\.apply\(el\)/g) || []).length, 2, 'data AND empty states apply i18n');
+});
+
+test('markup never dies in translation: data-i18n vs data-i18n-html', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const pub = path.join(__dirname, '..', 'public');
+  // 1) A data-i18n element sets textContent — so English markup inside one is
+  // either dropped (translated) or printed as literal tags. Those must use
+  // data-i18n-html instead.
+  const offenders = [];
+  for (const f of fs.readdirSync(pub).filter((x) => x.endsWith('.html'))) {
+    const src = fs.readFileSync(path.join(pub, f), 'utf8');
+    for (const m of src.matchAll(/<(\w+)[^>]*\sdata-i18n="([\w.]+)"[^>]*>/g)) {
+      const end = src.indexOf(`</${m[1]}>`, m.index + m[0].length);
+      if (end < 0) continue;
+      const inner = src.slice(m.index + m[0].length, end);
+      if (/<(b|i|em|strong|code|a|br)\b/.test(inner)) offenders.push(`${f}:${m[2]}`);
+    }
+  }
+  assert.deepEqual(offenders, [], 'these need data-i18n-html: ' + offenders.join(', '));
+  // 2) When a key IS html, every language must carry the same tags as English —
+  // a translation that quietly drops the <b> loses the emphasis for everyone
+  // reading in that language.
+  const codes = i18n.LANGS.map((l) => l.code);
+  const tagsOf = (s) => (s.match(/<\/?(b|i|em|strong|code|br)\b/g) || []).sort().join(',');
+  const htmlKeys = new Set();
+  for (const f of fs.readdirSync(pub).filter((x) => x.endsWith('.html'))) {
+    const src = fs.readFileSync(path.join(pub, f), 'utf8');
+    for (const m of src.matchAll(/data-i18n-html="([\w.]+)"/g)) htmlKeys.add(m[1]);
+  }
+  assert.ok(htmlKeys.size > 0, 'the html-aware path should actually be in use');
+  for (const k of htmlKeys) {
+    const e = i18n.STRINGS[k];
+    if (!e) continue;   // markup-only key with no dictionary entry is fine
+    for (const c of codes) {
+      assert.equal(tagsOf(e[c]), tagsOf(e.en), `${k}:${c} lost/changed markup vs English`);
+    }
+  }
 });

@@ -1053,38 +1053,38 @@
           <span class="badge" style="margin-left:auto" title="Public data comparison — nothing here trades">read-only</span></h2>
           <div id="c-dex"><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-radar3d"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Sector sweep — live 3D radar
+        <section class="panel" id="p-radar3d"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.radar3d">Sector sweep — live 3D radar</span>
           <span class="badge" style="margin-left:auto" title="Live tokens plotted by momentum &amp; volume on a tilted radar, swept in real time. Visualization only — it never trades.">read-only</span></h2>
           <canvas id="radar3dCanvas" style="width:100%;height:320px;display:block"></canvas>
           <div id="radar3dLog" class="row" style="gap:6px;flex-wrap:wrap;min-height:22px;margin-top:var(--s2)" aria-live="polite" aria-label="Recent radar contacts"></div>
           <p class="small muted" id="radar3dLegend" style="margin-top:var(--s2)">Each blip is a live token — angle by sector, distance by 24h volume, height by 24h momentum, colour by direction. The plane orbits, the beam sweeps, and strong movers ping on contact. Hover a blip to name it.</p>
           <p class="small" style="margin-top:var(--s2)"><a href="/strengthmap">🌐 Open the 3D Strength Map →</a> <span class="muted">— the whole USDT-perp universe by long/short strength, then trade it on any CEX or DEX.</span></p>
         </section>
-        <section class="panel" id="p-rwa"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>RWA &amp; on-chain radar
+        <section class="panel" id="p-rwa"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.rwa">RWA &amp; on-chain radar</span>
           <span class="badge" style="margin-left:auto" title="Market intelligence from live venue tickers — the radar never trades">read-only</span></h2>
           <div id="c-rwa"><div class="skel"></div><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-airdrops"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Airdrop &amp; testnet radar
+        <section class="panel" id="p-airdrops"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.airdrops">Airdrop &amp; testnet radar</span>
           <span class="badge" style="margin-left:auto" title="Curated campaigns with guided checklists — you perform and sign every step yourself. RUNECLAW never automates participation or farms with multiple wallets.">guided-only</span></h2>
           <div id="c-airdrops"><div class="skel"></div><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-meme"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Meme &amp; AI-token radar
+        <section class="panel" id="p-meme"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.meme">Meme &amp; AI-token radar</span>
           <span class="badge" style="margin-left:auto" title="Live DEX pairs with an explicit per-token risk read — most memecoins go to zero; this never trades or launches anything">safety-first</span></h2>
           <div id="c-meme"><div class="skel"></div><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-flow"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>On-chain flow — DEX taker balance
+        <section class="panel" id="p-flow"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.flow">On-chain flow — DEX taker balance</span>
           <span class="badge" style="margin-left:auto" title="24h buy/sell taker balance across the deepest DEX pools per asset. NOT exchange netflow, NOT whale attribution — keyless public data, honestly labeled">read-only</span></h2>
           <div id="c-flow"><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-router"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Venue router — cheapest exchange per pair
+        <section class="panel" id="p-router"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.router">Venue router — cheapest exchange per pair</span>
           <span class="badge" style="margin-left:auto" title="Funding-cost read from the hourly cross-venue scan. Recommendations only — RUNECLAW never auto-routes orders">manual-first</span></h2>
           <div id="c-router"><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-mkpat"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Engine pattern read
+        <section class="panel" id="p-mkpat"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.mkpat">Engine pattern read</span>
           <span class="right muted small">chart &amp; candle patterns · observations, not signals</span></h2>
           <div id="c-mkpat"><div class="skel"></div><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-universe"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Universe
+        <section class="panel" id="p-universe"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.universe">Universe</span>
           <span class="right"><label class="visually-hidden" for="uniSearch">Filter symbols</label><input class="input" id="uniSearch" placeholder="Filter…" style="width:130px;padding:5px 9px;font-size:var(--fs-sm)"></span></h2>
           <div id="c-universe"><div class="skel"></div><div class="skel"></div></div>
         </section>
@@ -1810,10 +1810,10 @@
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
         <section class="panel" id="p-sstats"><div id="c-sstats"><div class="skel"></div></div></section>
-        <section class="panel panel--primary" id="p-stream"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Signal stream</h2><div id="c-stream"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel" id="p-spat"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Pattern read
+        <section class="panel panel--primary" id="p-stream"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.stream">Signal stream</span></h2><div id="c-stream"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-spat"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.spat">Pattern read</span>
           <span class="right muted small">the chart &amp; candle patterns behind live signals</span></h2><div id="c-spat"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel" id="p-sinsights"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>What works
+        <section class="panel" id="p-sinsights"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.sinsights">What works</span>
           <span class="right muted small">win-rate by pattern & symbol (resolved signals)</span></h2><div id="c-sinsights"><div class="skel"></div></div></section>
       </div>`);
 
@@ -2198,9 +2198,9 @@
     container.innerHTML = viewHead('Deep Scan', 'The engine\'s per-symbol pattern read — chart & candlestick');
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
-        <section class="panel panel--primary" id="p-dscards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Deep Scan
+        <section class="panel panel--primary" id="p-dscards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.dscards">Deep Scan</span>
           <span class="right muted small">chart & candle patterns</span></h2><div id="c-dscards"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel" id="p-dslook"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Check any symbol
+        <section class="panel" id="p-dslook"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.dslook">Check any symbol</span>
           <span class="right muted small">live pattern read</span></h2>
           <div class="row" style="gap:var(--s2);flex-wrap:wrap">
             <input class="input" id="dsSym" placeholder="e.g. BTC" autocomplete="off" style="max-width:200px">
@@ -2262,12 +2262,12 @@
         <div class="stack">
           <section class="panel">${loginGate('Log in to place paper trades — the same risk engine, zero risk.')}</section>
           <section class="panel" id="p-prevmkt">
-            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>The live market — real data, right now
+            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.prevmkt">The live market — real data, right now</span>
               <span class="badge" style="margin-left:auto">public feed</span></h2>
             <div id="c-prevmkt"><div class="skel"></div></div>
           </section>
           <section class="panel">
-            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>The order ticket you'd be using
+            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.prevticket">The order ticket you'd be using</span>
               <span class="badge" style="margin-left:auto">preview</span></h2>
             <p class="small muted" style="margin-bottom:var(--s3)">Every order — paper or live — runs the engine's
             <b>23-check risk gate</b> before it exists. New accounts trade paper by default: real prices, real
@@ -2306,7 +2306,7 @@
       <div class="stack">
         <div id="tradeModeNote"></div>
         <section class="panel" id="p-authority">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Your trading authority
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.authority">Your trading authority</span>
             <span class="badge" style="margin-left:auto" title="A revocable, tighten-only Authority Envelope you set in plain words. Enforce mode is required before any live trade on your own keys.">custody</span></h2>
           <p style="color:var(--text-2);margin-bottom:var(--s2)">Say what your agent may do — <i>"only majors, max $500 a trade, $2,000 a day, only on bitget"</i>. It compiles to a revocable envelope that <b>caps and authorizes</b> every live order. Nothing is enforced until you switch it on.</p>
           <form class="stack" id="authForm">
@@ -2321,7 +2321,7 @@
         </section>
         <div class="grid grid-main">
           <section class="panel panel--primary" id="p-ticket">
-            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Order ticket</h2>
+            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ticket">Order ticket</span></h2>
             <form id="ticketForm" class="stack" novalidate>
               <div class="form-row">
                 <div class="field"><label for="tDir">Direction</label>
@@ -2355,7 +2355,7 @@
             </form>
           </section>
           <section class="panel" id="p-sizer">
-            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Position sizer</h2>
+            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.sizer">Position sizer</span></h2>
             <div class="stack">
               <div class="field"><label for="szRisk">Risk amount ($)</label><input class="input input--num" id="szRisk" type="number" step="any" min="0" placeholder="25"></div>
               <div class="field"><label for="szLev">Leverage</label><input class="input input--num" id="szLev" type="number" step="1" min="1" value="10"></div>
@@ -2364,11 +2364,11 @@
           </section>
         </div>
         <section class="panel" id="p-tinsight">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Decision picture
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.tinsight">Decision picture</span>
             <span class="badge" style="margin-left:auto" title="The engine's live directional read for this symbol — the same confluence and voters behind the market view. Read-only context, not an instruction.">the why</span></h2>
           <div id="c-tinsight"><p class="muted small">Enter a symbol to see its live decision picture.</p></div>
         </section>
-        <section class="panel" id="p-tpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Open positions</h2><div id="c-tpos"><div class="skel"></div></div></section>
+        <section class="panel" id="p-tpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-tpos"><div class="skel"></div></div></section>
       </div>`);
 
     // Mode note: quiet chip, not a blocker.
@@ -2739,12 +2739,12 @@
         <div class="stack">
           <section class="panel">${loginGate('Log in to track your trades, equity curve, and journal.')}</section>
           <section class="panel" id="p-prevtrack">
-            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>The engine's real public record
+            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.prevtrack">The engine's real public record</span>
               <span class="badge" style="margin-left:auto">verifiable</span></h2>
             <div id="c-prevtrack"><div class="skel"></div></div>
           </section>
           <section class="panel">
-            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>What your account unlocks</h2>
+            <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg><span data-i18n="dp.unlocks">What your account unlocks</span></h2>
             ${[
               ['📈', 'Your equity curve, drawdown chart and trade journal — built from your actual fills'],
               ['🌐', 'Net worth everywhere — connected exchange + on-chain wallet, read-only'],
@@ -2776,11 +2776,11 @@
       <div class="stack">
         <section class="panel panel--primary" id="p-pstats"><div id="c-pstats"><div class="skel"></div><div class="skel"></div></div></section>
         <section class="panel" id="p-venues">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Your venues — at a glance
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.venues">Your venues — at a glance</span>
             <span class="badge" style="margin-left:auto" title="Connection status + live equity per venue, in one place. Read-only aggregation; manage keys in Account.">status + equity</span></h2>
           <div id="c-venues"><div class="skel"></div></div>
         </section>
-        <section class="panel" id="p-curve"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Equity curve</h2><div id="c-curve"><div class="skel"></div></div></section>
+        <section class="panel" id="p-curve"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.curve">Equity curve</span></h2><div id="c-curve"><div class="skel"></div></div></section>
         <section class="panel" id="p-underwater" hidden>
           <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Drawdown — underwater curve
             <span class="badge" style="margin-left:auto" title="How far below its running peak your equity has been, over time — the pain chart pro desks watch. Derived from your equity snapshots. Visualization only.">derived</span></h2>
@@ -2788,17 +2788,17 @@
           <p class="small muted" id="underwaterLegend" style="margin-top:var(--s2)"></p>
         </section>
         <section class="panel" id="p-lpos">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Open positions &amp; stop-loss
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.lpos">Open positions &amp; stop-loss</span>
             <span class="badge" style="margin-left:auto" title="Whether each stop-loss is actually live ON THE EXCHANGE (protected) or bot-managed — the same truth the Telegram bot shows. Read-only.">read-only</span></h2>
           <div id="c-lpos"><div class="skel"></div><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-intel">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Trade intelligence
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.intel">Trade intelligence</span>
             <span class="badge" style="margin-left:auto" title="Every figure derived only from your recorded closed trades — the buy-and-hold benchmark is rebuilt from each trade's own entry/exit prices, nothing is estimated">derived</span></h2>
           <div id="c-intel"><div class="skel"></div></div>
         </section>
         <section class="panel panel--primary" id="p-networth">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Net worth — everywhere
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.networth">Net worth — everywhere</span>
             <span class="badge" style="margin-left:auto" title="Read-only aggregation — RUNECLAW can read these balances, never move them">read-only</span></h2>
           <div id="c-networth"><div class="skel"></div></div>
         </section>
@@ -2811,47 +2811,47 @@
           </div>
         </section>
         <section class="panel" id="p-holdings">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>Funds by venue &amp; wallet
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg><span data-i18n="dp.holdings">Funds by venue &amp; wallet</span>
             <span class="badge" style="margin-left:auto" title="Every connected exchange and on-chain wallet chain, itemised — read-only, RUNECLAW can never move them">read-only</span></h2>
           <div id="c-holdings"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-arena">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Paper Arena
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.arena">Paper Arena</span>
             <span class="badge" style="margin-left:auto" title="Your practice account — virtual funds only, real live prices. Nothing here can move real money.">virtual</span></h2>
           <div id="c-arena"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-sentry">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Risk sentry
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.sentry">Risk sentry</span>
             <span class="badge" style="margin-left:auto" title="A proactive read-only watch over your standing book — envelope drift, over-cap, concentration, crowding, daily spend. It flags; it never acts.">watch-only</span></h2>
           <div id="c-sentry"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-exposure">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Exposure — everywhere
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.exposure">Exposure — everywhere</span>
             <span class="badge" style="margin-left:auto" title="Perp positions netted against on-chain spot — intelligence only, nothing here can act">read-only</span></h2>
           <div id="c-exposure"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-wallet">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>On-chain wallet
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg><span data-i18n="dp.wallet">On-chain wallet</span>
             <span class="badge" style="margin-left:auto" title="Balances read straight from the chain — RUNECLAW can never move them">read-only</span></h2>
           <div id="c-wallet"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-defi">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>DeFi positions
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.defi">DeFi positions</span>
             <span class="badge" style="margin-left:auto" title="Aave/Lido/Uniswap read straight from protocol contracts — RUNECLAW warns, it can never manage a position">read-only</span></h2>
           <div id="c-defi"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-idleyield">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Idle yield — best rate for idle assets
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.idleyield">Idle yield — best rate for idle assets</span>
             <span class="badge" style="margin-left:auto" title="Best cross-source rate per idle asset — non-custodial preferred so you keep custody. Recommendation only, nothing is moved">read-only</span></h2>
           <div id="c-idleyield"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-crossyield">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Worth moving? — cross-chain yield planner
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.crossyield">Worth moving? — cross-chain yield planner</span>
             <span class="badge" style="margin-left:auto" title="Whether relocating idle capital to a better rate out-earns the gas + bridge cost, and after how many days it breaks even. Estimates only — nothing is moved">read-only</span></h2>
           <div id="c-crossyield"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-replay">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>What-if replay
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.hubreplay">What-if replay</span>
             <span class="badge" style="margin-left:auto" title="Real recorded agent trades, mirrored at your stake — hypothetical, not account history">hypothetical</span></h2>
           <p style="color:var(--text-2);margin-bottom:var(--s3)">What if you'd mirrored <b>every trade the agent closed</b> with a fixed stake?
             Replayed from real recorded results — you can also just ask the chat.</p>
@@ -2869,11 +2869,11 @@
           <div id="c-replay"><div class="skel"></div></div>
         </section>
         <div class="grid grid-2">
-          <section class="panel" id="p-breakdown"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>By symbol</h2><div id="c-breakdown"><div class="skel"></div></div></section>
-          <section class="panel" id="p-cal"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Daily PnL — last 4 weeks</h2><div id="c-cal"><div class="skel"></div></div></section>
+          <section class="panel" id="p-breakdown"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.breakdown">By symbol</span></h2><div id="c-breakdown"><div class="skel"></div></div></section>
+          <section class="panel" id="p-cal"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.cal">Daily PnL — last 4 weeks</span></h2><div id="c-cal"><div class="skel"></div></div></section>
         </div>
-        <section class="panel" id="p-edge"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>Edge metrics — the numbers pro desks track</h2><div id="c-edge"><div class="skel"></div></div></section>
-        <section class="panel" id="p-hist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Trade history & journal</h2><div id="c-hist"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-edge"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.edge">Edge metrics — the numbers pro desks track</span></h2><div id="c-edge"><div class="skel"></div></div></section>
+        <section class="panel" id="p-hist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hist">Trade history & journal</span></h2><div id="c-hist"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`);
 
     // Fetch /api/portfolio first: triggers the DB write-through so the
@@ -3617,17 +3617,17 @@
         <span><b>Shared engine telemetry.</b> This is the operator's autonomous bot — read-only, the same numbers for every viewer. Your own account lives in Home and Portfolio.</span></div>
       <div class="stack">
         <div class="grid grid-2">
-          <section class="panel" id="p-eregime"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Market regime</h2><div id="c-eregime"><div class="skel"></div></div></section>
-          <section class="panel" id="p-ecb"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Engine account</h2><div id="c-ecb"><div class="skel"></div></div></section>
+          <section class="panel" id="p-eregime"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.eregime">Market regime</span></h2><div id="c-eregime"><div class="skel"></div></div></section>
+          <section class="panel" id="p-ecb"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.ecb">Engine account</span></h2><div id="c-ecb"><div class="skel"></div></div></section>
         </div>
-        <section class="panel" id="p-emods"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>Engine modules</h2><div id="c-emods"><div class="skel"></div></div></section>
-        <section class="panel" id="p-ecards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Engine's current setups</h2><div id="c-ecards"><div class="skel"></div></div></section>
+        <section class="panel" id="p-emods"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.emods">Engine modules</span></h2><div id="c-emods"><div class="skel"></div></div></section>
+        <section class="panel" id="p-ecards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ecards">Engine's current setups</span></h2><div id="c-ecards"><div class="skel"></div></div></section>
         <div class="grid grid-2">
-          <section class="panel panel--quiet" id="p-eshadow"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Shadow book — what the gates cost</h2><div id="c-eshadow"><div class="skel"></div></div></section>
-          <section class="panel panel--quiet" id="p-elist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg>New listings radar</h2><div id="c-elist"><div class="skel"></div></div></section>
+          <section class="panel panel--quiet" id="p-eshadow"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.eshadow">Shadow book — what the gates cost</span></h2><div id="c-eshadow"><div class="skel"></div></div></section>
+          <section class="panel panel--quiet" id="p-elist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.elist">New listings radar</span></h2><div id="c-elist"><div class="skel"></div></div></section>
         </div>
-        <section class="panel panel--quiet" id="p-eparity"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Live ↔ backtest parity</h2><div id="c-eparity"><div class="skel"></div></div></section>
-        <section class="panel panel--quiet" id="p-estrat"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-cog"></use></svg>Strategy configuration</h2><div id="c-estrat"><div class="skel"></div></div></section>
+        <section class="panel panel--quiet" id="p-eparity"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.eparity">Live ↔ backtest parity</span></h2><div id="c-eparity"><div class="skel"></div></div></section>
+        <section class="panel panel--quiet" id="p-estrat"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-cog"></use></svg><span data-i18n="dp.estrat">Strategy configuration</span></h2><div id="c-estrat"><div class="skel"></div></div></section>
       </div>`);
 
     // Parity headline: does live execution still match the model? Pushed
@@ -3763,14 +3763,14 @@
     }
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
-        <section class="panel" id="p-aprof"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg>Profile</h2><div id="c-aprof"><div class="skel"></div></div></section>
-        <section class="panel" id="p-aplan"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Membership</h2><div id="c-aplan"><div class="skel"></div></div></section>
-        <section class="panel" id="p-atg"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>Telegram link <span class="right muted small">optional — unlocks live trading</span></h2><div id="c-atg"><div class="skel"></div></div></section>
-        <section class="panel" id="p-awallet"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>Wallet link <span class="right muted small">read-only balance mirror</span></h2><div id="c-awallet"><div class="skel"></div></div></section>
-        <section class="panel" id="p-apush"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>Push notifications <span class="right muted small">trades & alerts, straight to this device</span></h2><div id="c-apush"><div class="skel"></div></div></section>
-        <section class="panel" id="p-ainvite"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg>Invite friends</h2><div id="c-ainvite"><div class="skel"></div></div></section>
-        <section class="panel" id="p-akeys"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>Exchange keys</h2><div id="c-akeys"><div class="skel"></div></div></section>
-        <section class="panel" id="p-actl"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Live controls</h2><div id="c-actl"><div class="skel"></div></div></section>
+        <section class="panel" id="p-aprof"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span data-i18n="dp.aprof">Profile</span></h2><div id="c-aprof"><div class="skel"></div></div></section>
+        <section class="panel" id="p-aplan"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.aplan">Membership</span></h2><div id="c-aplan"><div class="skel"></div></div></section>
+        <section class="panel" id="p-atg"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg><span data-i18n="dp.atg">Telegram link</span> <span class="right muted small">optional — unlocks live trading</span></h2><div id="c-atg"><div class="skel"></div></div></section>
+        <section class="panel" id="p-awallet"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg><span data-i18n="dp.awallet">Wallet link</span> <span class="right muted small">read-only balance mirror</span></h2><div id="c-awallet"><div class="skel"></div></div></section>
+        <section class="panel" id="p-apush"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.apush">Push notifications</span> <span class="right muted small">trades & alerts, straight to this device</span></h2><div id="c-apush"><div class="skel"></div></div></section>
+        <section class="panel" id="p-ainvite"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span data-i18n="dp.ainvite">Invite friends</span></h2><div id="c-ainvite"><div class="skel"></div></div></section>
+        <section class="panel" id="p-akeys"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg><span data-i18n="dp.akeys">Exchange keys</span></h2><div id="c-akeys"><div class="skel"></div></div></section>
+        <section class="panel" id="p-actl"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.actl">Live controls</span></h2><div id="c-actl"><div class="skel"></div></div></section>
       </div>`);
 
     const me = await fetchJSON('/api/auth/me').catch(() => null);
@@ -3780,7 +3780,7 @@
     // panel only exists for admin-plan users; the API re-checks server-side.
     if (me?.data?.plan === 'admin') {
       document.getElementById('p-aplan').insertAdjacentHTML('afterend', `
-        <section class="panel" id="p-ayield"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg>Yield radar <span class="right muted small">operator report</span></h2><div id="c-ayield"><div class="skel"></div></div></section>`);
+        <section class="panel" id="p-ayield"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.ayield">Yield radar</span> <span class="right muted small">operator report</span></h2><div id="c-ayield"><div class="skel"></div></div></section>`);
       // WEB-2: operator lock flow lives here too — step 1 picks a term,
       // step 2 is an inline FINAL CONFIRM that names the lock END date; the
       // gateway re-enforces both the admin role and the echoed end date.
@@ -4866,10 +4866,10 @@
     }
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
-        <section class="panel" id="p-newsdd"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>On your positions</h2><div id="c-newsdd"><div class="skel"></div></div></section>
+        <section class="panel" id="p-newsdd"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.newsdd">On your positions</span></h2><div id="c-newsdd"><div class="skel"></div></div></section>
         <section class="panel" id="p-newsbyon" hidden><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Your news source</h2><div id="c-newsbyon"><div class="skel"></div></div></section>
-        <section class="panel" id="p-newsshare"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>Share with your agent</h2><div id="c-newsshare"><div class="skel"></div></div></section>
-        <section class="panel" id="p-newsfeed"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Latest headlines</h2><div id="c-newsfeed"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-newsshare"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><span data-i18n="dp.newsshare">Share with your agent</span></h2><div id="c-newsshare"><div class="skel"></div></div></section>
+        <section class="panel" id="p-newsfeed"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.newsfeed">Latest headlines</span></h2><div id="c-newsfeed"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`);
 
     let data = null;
@@ -5262,12 +5262,12 @@
         <div id="c-agentpicks"></div>
       </section>` : ''}
       ${LOGGED_IN ? `<section class="panel" id="p-mystrat">
-        <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>Build your own strategy
+        <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.mystrat">Build your own strategy</span>
           <span class="right muted small">your rules · publish to the community marketplace · config only, no dollars</span></h2>
         <div id="c-mystrat"><div class="skel"></div></div>
       </section>` : ''}
       <section class="panel" id="p-agents">
-        <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>The lineup
+        <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.agents">The lineup</span>
           <span class="right muted small">real presets · design &amp; regime only · verified % in the Lab</span></h2>
         <div id="c-agents"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
       </section>
@@ -5664,8 +5664,8 @@
     }
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
-        <section class="panel" id="p-lbjoin"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg>Your spot</h2><div id="c-lbjoin"><div class="skel"></div></div></section>
-        <section class="panel" id="p-lbtable"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg>Top traders</h2><div id="c-lbtable"><div class="skel"></div><div class="skel"></div></div></section>
+        <section class="panel" id="p-lbjoin"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span data-i18n="dp.lbjoin">Your spot</span></h2><div id="c-lbjoin"><div class="skel"></div></div></section>
+        <section class="panel" id="p-lbtable"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.lbtable">Top traders</span></h2><div id="c-lbtable"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`);
 
     let data = null;
@@ -5755,7 +5755,7 @@
     }
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
-        <section class="panel" id="p-labform"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>Configure a run
+        <section class="panel" id="p-labform"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.labform">Configure a run</span>
           <span class="right muted small">frozen data · honest fees &amp; fills · one job at a time</span></h2>
           <div id="c-labform"><div class="skel"></div></div></section>
         <section class="panel" id="p-labres" hidden><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Result</h2>
@@ -5975,7 +5975,7 @@
         </section>
         <section class="panel panel--primary" id="p-hubstat"><div id="c-hubstat"><div class="skel"></div><div class="skel"></div></div></section>
         <section class="panel" id="p-hubask">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>Ask in one tap
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><span data-i18n="dp.hubask">Ask in one tap</span>
             <span class="right muted small">each opens the chat with the question ready</span></h2>
           <div class="row" style="gap:var(--s2);flex-wrap:wrap">
             ${[['📰 Market briefing', 'Give me a market briefing'],
@@ -5993,34 +5993,34 @@
           </div>
         </section>
         <div class="grid grid-2">
-          <section class="panel" id="p-hubalerts"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>Tripwires
+          <section class="panel" id="p-hubalerts"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg><span data-i18n="dp.hubalerts">Tripwires</span>
             <span class="right"><a class="small" href="#feed">arm & manage →</a></span></h2>
             <p class="small" style="color:var(--text-2);margin-bottom:var(--s2)">One-shot price alerts → push. Or just tell the chat: <i>"alert me when BTC drops below $100k"</i>.</p>
             <div id="alertList"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubletter"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>The Agent Letter
+          <section class="panel" id="p-hubletter"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.letter">The Agent Letter</span>
             <span class="right"><a class="small" href="#home">read in Home →</a></span></h2>
             <div id="c-hubletter"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubreplay"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>What-if replay
+          <section class="panel" id="p-hubreplay"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.hubreplay">What-if replay</span>
             <span class="right"><a class="small" href="#portfolio">full controls →</a></span></h2>
             <div id="c-hubreplay"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubnw"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Net worth
+          <section class="panel" id="p-hubnw"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.hubnw">Net worth</span>
             <span class="right"><a class="small" href="#portfolio">details →</a></span></h2>
             <div id="c-hubnw"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubexp"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Exposure
+          <section class="panel" id="p-hubexp"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.hubexp">Exposure</span>
             <span class="right"><a class="small" href="#portfolio">details →</a></span></h2>
             <div id="c-hubexp"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubwatch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>Watchlist
+          <section class="panel" id="p-hubwatch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.watch">Watchlist</span>
             <span class="right"><a class="small" href="#markets">pin from Markets →</a></span></h2>
             <div id="c-hubwatch"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hublab"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-cog"></use></svg>Strategy Lab</h2>
+          <section class="panel" id="p-hublab"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-cog"></use></svg><span data-i18n="dp.hublab">Strategy Lab</span></h2>
             <div id="c-hublab"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubresearch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>Research desk</h2>
+          <section class="panel" id="p-hubresearch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.hubresearch">Research desk</span></h2>
             <div id="c-hubresearch"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubtoggles"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg>Voice & push</h2>
+          <section class="panel" id="p-hubtoggles"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span data-i18n="dp.hubtoggles">Voice & push</span></h2>
             <div id="c-hubtoggles"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubmcp"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>Agent API (MCP)</h2>
+          <section class="panel" id="p-hubmcp"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg><span data-i18n="dp.hubmcp">Agent API (MCP)</span></h2>
             <div id="c-hubmcp"><div class="skel"></div></div></section>
-          <section class="panel" id="p-hubllm"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>Your AI engine</h2>
+          <section class="panel" id="p-hubllm"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.hubllm">Your AI engine</span></h2>
             <div id="c-hubllm"><div class="skel"></div></div></section>
         </div>
       </div>`);
@@ -6474,7 +6474,7 @@
         <div><h1>Macro AI</h1><span class="sub">The market’s risk backdrop — sentiment, structure &amp; the engine’s regime</span></div>
       </div>
       <div class="stack">
-        <section class="panel panel--primary" id="p-macro"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Risk backdrop
+        <section class="panel panel--primary" id="p-macro"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.macro_risk">Risk backdrop</span>
           <span class="right muted small">sentiment · market structure · BTC regime</span></h2>
           <div id="c-macro"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`;
@@ -6835,13 +6835,13 @@
           <div id="c-review"><div class="skel"></div><div class="skel"></div></div></section>
         <section class="panel" id="p-signer" hidden></section>
         <section class="panel" id="p-yieldplan" hidden></section>
-        <section class="panel" id="p-readiness"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>Readiness score
+        <section class="panel" id="p-readiness"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.readiness">Readiness score</span>
           <span class="right muted small">how constrained the agent is right now</span></h2>
           <div id="c-readiness"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel" id="p-incidents"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>Incident ledger
+        <section class="panel" id="p-incidents"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg><span data-i18n="dp.incidents">Incident ledger</span>
           <span class="right muted small">what the controls stopped &amp; recovered</span></h2>
           <div id="c-incidents"><div class="skel"></div><div class="skel"></div></div></section>
-        <section class="panel panel--primary" id="p-flight"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>Decision ledger
+        <section class="panel panel--primary" id="p-flight"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg><span data-i18n="dp.flight">Decision ledger</span>
           <span class="right muted small">inputs · reasoning · model · risk gate · outcome</span></h2>
           <div id="c-flight"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
       </div>`;
