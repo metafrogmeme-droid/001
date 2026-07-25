@@ -21,7 +21,7 @@ const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
-const { getTickers } = require('../lib/tickers');
+const { getTickers, getTickersWithin } = require('../lib/tickers');
 const arena = require('../lib/arena');
 const { sealArenaTrade, newTradeKey } = require('../lib/callseal');
 
@@ -154,7 +154,11 @@ router.get('/account', authMiddleware, async (req, res) => {
     const userId = req.user.user_id;
     const acct = await loadAccount(userId);
     let marks = {};
-    try { marks = await getTickers(); } catch (e) { /* stale-mark view below */ }
+    // Bounded: the client abandons this request at 14s, so a cold upstream
+    // fetch must not eat the whole budget. Falls back to the last known map,
+    // then to {} — a position then renders with a null mark, which the UI
+    // already shows honestly as '—' rather than inventing a price.
+    marks = await getTickersWithin(6000);
     let positions = await loadPositions(userId);
     positions = await settleLiquidations(userId, positions, marks);
     const swept = await sweepFollows(userId, positions, marks);
@@ -314,7 +318,7 @@ router.get('/leaderboard', async (req, res) => {
       sealedOf = new Map(sealedCounts.map((t) => [t.user_id, Number(t.n) || 0]));
     } catch (e) { /* pre-receipt deployment — the board still ranks */ }
     let marks = {};
-    try { marks = await getTickers(); } catch (e) { /* rank on balances only */ }
+    marks = await getTickersWithin(6000);   // rank on balances if marks are slow
     const posOf = new Map();
     for (const p of allPos) {
       if (!posOf.has(p.user_id)) posOf.set(p.user_id, []);
@@ -426,7 +430,7 @@ router.get('/trader/:handle', async (req, res) => {
     const [trades] = await pool.execute(
       'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
     let marks = {};
-    try { marks = await getTickers(); } catch (e) { /* percent renders from balance */ }
+    marks = await getTickersWithin(6000);   // percent renders from balance if slow
     res.json(traderLib.buildTraderCard({ handle, balance: acct[0].balance, positions, marks, trades }));
   } catch (err) {
     console.error('Arena trader error:', err.stack || err.message);

@@ -572,7 +572,7 @@ test('the Stress Lab keeps its honesty clauses in every language', () => {
       `sx.lede:${c} lost the "never your real balance" clause`);
     // "not investment advice" survives in both paragraphs
     for (const [k, v] of [['sx.lede', lede], ['sx.disc', disc]]) {
-      assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(v),
+      assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(v),
         `${k}:${c} dropped "not investment advice"`);
     }
     // The <b>not</b> in sx.disc is the load-bearing word of the whole page.
@@ -617,7 +617,7 @@ test('the verification contract survives translation intact', () => {
   for (const c of codes) {
     const scope = i18n.STRINGS['pv.scope'][c];
     assert.match(scope, /<b>/, `pv.scope:${c} lost its emphasis`);
-    assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(scope),
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(scope),
       `pv.scope:${c} dropped "not investment advice"`);
   }
 });
@@ -638,12 +638,12 @@ test('the Escape Agent never claims to act, in any language', () => {
     const disc = i18n.STRINGS['es.disc'][c];
     assert.ok(lede && disc, `es.lede/es.disc missing ${c}`);
     // "never executes" / "does not execute"
-    assert.ok(/never|nunca|絕不|jamais|niemals|nooit|一切行いません|않습니다|никогда|asla|إطلاقًا|أبدًا/i.test(lede),
+    assert.ok(/never|nunca|mai\b|絕不|jamais|niemals|nooit|一切行いません|않습니다|никогда|asla|إطلاقًا|أبدًا/i.test(lede),
       `es.lede:${c} lost the "never executes anything" clause`);
     // the planner does not move funds / place orders / sign
     assert.ok(/sign|firma|assina|signe|signiert|onderteken|署名|서명|подписывает|imzalamaz|يوقّع|簽署/i.test(disc),
       `es.disc:${c} lost the "signs nothing" clause`);
-    assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(disc),
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(disc),
       `es.disc:${c} dropped "not investment advice"`);
     // the risks it explicitly does NOT model must stay listed
     assert.ok(/slippage|kayma|انزلاق|滑價|スリッページ|슬리피지|проскальзыван/i.test(disc),
@@ -722,9 +722,9 @@ test('the firewall never oversells itself, in any language', () => {
       `fw.lede:${c} lost the "runs in your browser" promise`);
     assert.ok(/loca|loka|ローカル|로컬|локальн|yerel|محلي|本機/i.test(disc),
       `fw.disc:${c} lost "the scan is local"`);
-    assert.ok(/heuristi|heuristisch|ヒューリスティック|휴리스틱|эвристи|sezgisel|استدلال|啟發式/i.test(disc),
+    assert.ok(/heuristi|euristic|heuristisch|ヒューリスティック|휴리스틱|эвристи|sezgisel|استدلال|啟發式/i.test(disc),
       `fw.disc:${c} dropped the word "heuristic"`);
-    assert.ok(/guarant|garant|保証|보장|гаранти|garanti|ضمان|保證/i.test(disc),
+    assert.ok(/guarant|garant|garanz|保証|보장|гаранти|garanti|ضمان|保證/i.test(disc),
       `fw.disc:${c} dropped "a clean result is not a guarantee"`);
     // Both paragraphs keep the emphasis the English leans on.
     assert.ok((i18n.STRINGS['fw.lede'][c].match(/<b>/g) || []).length >= 3, `fw.lede:${c} lost emphasis`);
@@ -754,7 +754,7 @@ test('the Intent Compiler states all five of its limits in every language', () =
     assert.ok(/dollar|dolar|金額|금액|долл|بالدولار/i.test(disc),
       `in.disc:${c} lost the "never shows a dollar figure" clause`);
     // 5. not investment advice
-    assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|tavsiye|نصيحة/i.test(disc),
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|consulenza|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|tavsiye|نصيحة/i.test(disc),
       `in.disc:${c} dropped "not investment advice"`);
     assert.ok((i18n.STRINGS['in.disc'][c].match(/<b>/g) || []).length >= 2, `in.disc:${c} lost emphasis`);
   }
@@ -782,7 +782,7 @@ test('a failed Arena load says UNKNOWN, never "you have none"', () => {
     // Assert POSITIVELY that it says "unknown". A leading-"no" heuristic is
     // wrong here: Spanish opens "No se pudo cargar" — a negated VERB ("could
     // not load"), not a claim of emptiness.
-    assert.ok(/unknown|desconocid|desconhecid|inconnue|unbekannt|onbekend|不明|未知|알 수 없|неизвест|bilinmiyor|غير معروف/i.test(searchable(v)),
+    assert.ok(/unknown|desconocid|desconhecid|inconnue|ignot|unbekannt|onbekend|不明|未知|알 수 없|неизвест|bilinmiyor|غير معروف/i.test(searchable(v)),
       `arena.d_unknown:${c} does not actually say "unknown"`);
     assert.notEqual(v, i18n.STRINGS['arena.e_pos'][c], `arena.d_unknown:${c} is just the empty state`);
   }
