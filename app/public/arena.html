@@ -110,6 +110,10 @@
   .tf-row { display: flex; gap: 6px; margin-bottom: 6px; }
   .tf-chip { font-family: var(--font-data); font-size: 11px; padding: 4px 10px; min-height: 28px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
   .tf-chip.on { border-color: var(--gold-bright); color: var(--gold-bright); }
+  /* 🔏 receipt badge on board rows — dim when partial, gold when the whole
+     record is receipt-backed. Cursor:help signals the explanatory title. */
+  .lb-seal { font-size: var(--fs-xs); font-family: var(--font-data); color: var(--text-3); cursor: help; white-space: nowrap; }
+  .lb-seal.full { color: var(--gold-bright); }
   .chartbtn[aria-expanded="true"] { border-color: var(--gold-bright); }
   .chart-row td { padding: 0 2px 10px; }
   /* Inside .tbl-scroll the row spans the full (wide) table — pin the chart
@@ -765,8 +769,19 @@ window.addEventListener('error', function (e) {
         move = ' <span class="rk-move ' + (up ? 'up-c' : 'down-c') + '">' + (up ? '▲' : '▼')
           + Math.abs(prevRanks[x.handle] - x.rank) + '</span>';
       }
+      // 🔏 receipt badge: how much of this record was sealed at open time.
+      // Fully-backed records get the solid badge; partial ones show n/N. A
+      // trader with no sealed closes gets nothing — never a hollow badge.
+      var seal = '';
+      if (x.sealed > 0) {
+        var full = x.closes > 0 && x.sealed >= x.closes;
+        seal = ' <span class="lb-seal' + (full ? ' full' : '') + '" title="'
+          + esc(fill(T('arena.d_seal_title', '{n} of {m} closes carry a verifiable open-time receipt — open the card to check the hashes yourself'),
+                     { n: x.sealed, m: x.closes })) + '">🔏'
+          + (full ? '' : ' ' + x.sealed + '/' + x.closes) + '</span>';
+      }
       return '<div class="lb-row"><span class="rk">#' + x.rank + move + '</span>'
-        + '<span><a href="/trader/' + encodeURIComponent(x.handle) + '">' + esc(x.handle) + '</a></span>'
+        + '<span><a href="/trader/' + encodeURIComponent(x.handle) + '">' + esc(x.handle) + '</a>' + seal + '</span>'
         + '<span class="' + pnlCls(x.return_pct) + '">' + (x.return_pct > 0 ? '+' : '') + fmt2(x.return_pct) + '%</span>'
         + '<span class="tr">' + x.trades + ' trades</span></div>';
     }).join('') : '<div class="empty">Nobody on the board yet — open a paper trade, pick a handle, and take rank #1.</div>';

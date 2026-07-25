@@ -303,6 +303,16 @@ router.get('/leaderboard', async (req, res) => {
     const [tradeCounts] = await pool.execute(
       'SELECT user_id, COUNT(*) AS n FROM arena_trades GROUP BY user_id');
     const countOf = new Map(tradeCounts.map((t) => [t.user_id, t.n]));
+    // Provable Calls v2 on the BOARD: how many of each trader's closes carry a
+    // verifiable open-time receipt. §4-safe (a count), and it makes the
+    // leaderboard itself advertise which records can be checked. Fail-open —
+    // a missing column on an old deployment just means no badges.
+    let sealedOf = new Map();
+    try {
+      const [sealedCounts] = await pool.execute(
+        'SELECT user_id, COUNT(*) AS n FROM arena_trades WHERE seal IS NOT NULL GROUP BY user_id');
+      sealedOf = new Map(sealedCounts.map((t) => [t.user_id, Number(t.n) || 0]));
+    } catch (e) { /* pre-receipt deployment — the board still ranks */ }
     let marks = {};
     try { marks = await getTickers(); } catch (e) { /* rank on balances only */ }
     const posOf = new Map();
@@ -314,10 +324,14 @@ router.get('/leaderboard', async (req, res) => {
       .filter((a) => handleOf.has(a.user_id))
       .map((a) => {
         const eq = arena.equity(a.balance, posOf.get(a.user_id) || [], marks);
+        const closes = countOf.get(a.user_id) || 0;
         return {
           handle: handleOf.get(a.user_id),
           return_pct: round2(arena.returnPct(eq)),
-          trades: (countOf.get(a.user_id) || 0) + (posOf.get(a.user_id) || []).length,
+          trades: closes + (posOf.get(a.user_id) || []).length,
+          // Receipt-backed closes out of total closes — counts only (§4).
+          sealed: sealedOf.get(a.user_id) || 0,
+          closes,
         };
       })
       .sort((x, y) => y.return_pct - x.return_pct)

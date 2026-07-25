@@ -473,8 +473,14 @@ class MemoryDB {
         return [rows.map(r => ({ ...r })), []];
       }
       if (cmd.includes('COUNT(*)') && cmd.includes('GROUP BY USER_ID')) {
+        // Two shapes: all closes, and receipt-backed closes only (leaderboard
+        // 🔏 badge). The sealed filter must be honored BEFORE the generic count.
+        const sealedOnly = cmd.includes('SEAL IS NOT NULL');
         const counts = {};
-        for (const t of this.arenaTrades) counts[t.user_id] = (counts[t.user_id] || 0) + 1;
+        for (const t of this.arenaTrades) {
+          if (sealedOnly && !t.seal) continue;
+          counts[t.user_id] = (counts[t.user_id] || 0) + 1;
+        }
         return [Object.entries(counts).map(([user_id, n]) => ({ user_id: Number(user_id), n })), []];
       }
       if (!cmd.includes('WHERE')) {
