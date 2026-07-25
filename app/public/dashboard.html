@@ -17,7 +17,7 @@
 <a class="skip-link" href="#view-root" data-i18n="dash.skip">Skip to content</a>
 
 <header class="topbar">
-  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW<span class="brand-sub">Command Core</span></a>
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW<span class="brand-sub" data-i18n="ac.brand_sub">Command Core</span></a>
   <span id="connChip" class="chip chip--offline">● CONNECTING</span>
   <div class="spacer"></div>
   <div class="top-actions">
@@ -56,7 +56,7 @@
   <div id="chatBody" class="chat-body" aria-live="polite"></div>
   <div id="chatChips" class="chat-chips" aria-label="Suggested prompts" data-i18n-attr="aria-label:a11y.prompts"></div>
   <form class="chat-inputrow" id="chatForm">
-    <label class="visually-hidden" for="chatInput">Message the RUNECLAW assistant</label>
+    <label class="visually-hidden" for="chatInput" data-i18n="dd.chat_label">Message the RUNECLAW assistant</label>
     <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
            placeholder='Ask anything — or "buy SOL 71 sl 70 tp 76"' data-i18n-attr="placeholder:dash.chat_ph">
     <button class="btn" id="chatMic" type="button" aria-pressed="false"
@@ -84,14 +84,14 @@
 <div id="symModal" class="modal hidden" hidden role="dialog" aria-modal="true" aria-label="Symbol detail" data-i18n-attr="aria-label:a11y.symbol_detail">
   <div class="modal-card" style="max-width:560px;width:100%;max-height:88vh;overflow:auto">
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:var(--s2)">
-      <h2 id="symModalTitle">Symbol</h2>
+      <h2 id="symModalTitle" data-i18n="a11y.symbol">Symbol</h2>
       <button class="btn btn--ghost btn--sm" id="symModalClose" aria-label="Close" data-i18n-attr="aria-label:a11y.close">&times;</button>
     </div>
     <div id="symModalBody"><div class="skel"></div><div class="skel"></div></div>
   </div>
 </div>
 
-<script src="/js/i18n.js?v=41"></script>
+<script src="/js/i18n.js?v=42"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=5"></script>
 <script src="/js/wallet_picker.js" defer></script>
@@ -118,7 +118,7 @@
 <script src="/js/radar3d.js?v=3" defer></script>
 <script src="/js/charts2d.js?v=1" defer></script>
 <script src="/js/chartread.js?v=4" defer></script>
-<script src="/js/dashboard.js?v=111" defer></script>
+<script src="/js/dashboard.js?v=112" defer></script>
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 </body>
 </html>

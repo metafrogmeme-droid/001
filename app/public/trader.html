@@ -58,19 +58,19 @@
 <body>
 <div class="tc-wrap" role="main">
   <nav class="topnav">
-    <a href="/">← RUNECLAW</a>
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
     <span style="flex:1"></span>
-    <a href="/arena">Paper Arena</a>
-    <a href="/leaderboard">Leaderboard</a>
+    <a href="/arena" data-i18n="dp.arena">Paper Arena</a>
+    <a href="/leaderboard" data-i18n="vh.leaderboard.title">Leaderboard</a>
   </nav>
   <div class="card">
     <div id="root"><div class="empty">Loading the trader card…</div></div>
     <div class="cta-row">
-      <a class="btn btn--primary btn--sm" href="/arena">⚔️ Challenge them in the Arena</a>
-      <button class="btn btn--sm" id="copyLink" type="button">🔗 Copy card link</button>
+      <a class="btn btn--primary btn--sm" href="/arena" data-i18n="tr.challenge">⚔️ Challenge them in the Arena</a>
+      <button class="btn btn--sm" id="copyLink" type="button" data-i18n="tr.copy_link">🔗 Copy card link</button>
     </div>
   </div>
-  <p class="disc">Paper Arena trader card — <b>virtual stake, real live prices</b>. Everything shown is percent,
+  <p class="disc" data-i18n-html="tr.lede">Paper Arena trader card — <b>virtual stake, real live prices</b>. Everything shown is percent,
   count or achievement; no dollar figures, and no real funds are involved anywhere in the Arena. Handles are
   anonymous and opt-in. Not investment advice.</p>
 </div>
@@ -227,5 +227,6 @@
     .catch(function () { root.innerHTML = '<div class="empty">The card is unavailable right now — try again shortly.</div>'; });
 })();
 </script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>

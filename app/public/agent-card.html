@@ -45,21 +45,21 @@
 <body>
 <div class="ac-wrap">
   <nav class="topnav">
-    <a href="/">← RUNECLAW</a>
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
     <span class="spacer"></span>
-    <a href="/proof">Proof of PnL</a>
-    <a href="/leaderboard">Leaderboard</a>
-    <a href="/letter">Agent Letter</a>
+    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+    <a href="/leaderboard" data-i18n="vh.leaderboard.title">Leaderboard</a>
+    <a href="/letter" data-i18n="acd.letter_link">Agent Letter</a>
   </nav>
 
-  <div class="ac-hero"><h1>Agent Identity Card</h1></div>
+  <div class="ac-hero"><h1 data-i18n="acd.h1">Agent Identity Card</h1></div>
   <p class="lede">A <b>portable, verifiable identity</b>: an ERC-8004 card binding this agent's
   on-chain address to the commitment of a sealed Proof-of-PnL statement and its
   custody posture. The card is content-hashed and Ed25519-signed — re-verified on
   every read, and anyone can re-derive it. The on-chain anchor is reported
   <b>honestly as UNVERIFIED</b> until a real transaction confirms it.</p>
 
-  <div class="panel" id="card"><div class="empty">Looking up the agent…</div></div>
+  <div class="panel" id="card"><div class="empty" data-i18n="acd.loading">Looking up the agent…</div></div>
 </div>
 
 <script>
@@ -127,5 +127,6 @@
     });
 })();
 </script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>

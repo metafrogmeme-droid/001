@@ -11,16 +11,16 @@
 <body>
 <main class="auth-wrap">
   <div class="card">
-    <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em;margin-bottom:var(--s3)">Choose a new password</h2>
+    <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em;margin-bottom:var(--s3)" data-i18n="rs.h2">Choose a new password</h2>
     <div id="form">
-      <div class="field"><label for="pw">New password</label><input class="input" type="password" id="pw" placeholder="Min 10 characters" autocomplete="new-password"></div>
-      <div class="field"><label for="pw2">Confirm new password</label><input class="input" type="password" id="pw2" autocomplete="new-password"></div>
+      <div class="field"><label for="pw" data-i18n="acc.pw_new">New password</label><input class="input" type="password" id="pw" placeholder="Min 10 characters" autocomplete="new-password"></div>
+      <div class="field"><label for="pw2" data-i18n="acc.pw_confirm">Confirm new password</label><input class="input" type="password" id="pw2" autocomplete="new-password"></div>
       <div class="form-err" id="msg" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" id="submit">Reset password</button>
+      <button class="btn btn--primary btn-block" id="submit" data-i18n="rs.submit">Reset password</button>
     </div>
     <div id="done" class="hidden">
       <div class="section-note" style="border-style:solid;border-color:var(--up);color:var(--up)">✓ Your password has been reset.</div>
-      <a href="/" class="btn btn--primary btn-block mt-4">Go to log in →</a>
+      <a href="/" class="btn btn--primary btn-block mt-4" data-i18n="rs.go_login">Go to log in →</a>
     </div>
   </div>
 </main>
@@ -44,5 +44,6 @@ document.getElementById('submit').addEventListener('click',async()=>{
   }catch(e){msg.textContent='Network error — try again.';}
 });
 </script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>

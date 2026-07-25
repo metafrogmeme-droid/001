@@ -108,11 +108,11 @@
 </head>
 <body>
 <div class="sm-top">
-  <a class="btn btn--ghost btn--sm" href="/">← RUNECLAW</a>
+  <a class="btn btn--ghost btn--sm" href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
   <span class="sm-title"><b>3D</b> Strength Map</span>
   <span class="sm-seg" role="group" aria-label="Bias" data-i18n-attr="aria-label:a11y.bias">
-    <button type="button" class="long" id="biasLong" aria-pressed="true">● Long</button>
-    <button type="button" class="short" id="biasShort" aria-pressed="false">● Short</button>
+    <button type="button" class="long" id="biasLong" aria-pressed="true" data-i18n="sm.bias_long">● Long</button>
+    <button type="button" class="short" id="biasShort" aria-pressed="false" data-i18n="sm.bias_short">● Short</button>
   </span>
   <span class="sm-axes">
     <label>X <select id="axX"></select></label>
@@ -124,10 +124,10 @@
 <canvas class="sm-canvas" id="smCanvas" aria-label="3D strength map of the USDT-perp universe" data-i18n-attr="aria-label:a11y.strength_map"></canvas>
 <div class="sm-tip" id="smTip" role="status" aria-hidden="true"></div>
 <div class="sm-count" id="smCount"></div>
-<div class="sm-hint">Drag to orbit · scroll to zoom · tap a coin for its factor breakdown and where to trade it · <a href="/sentinel">systemic risk radar</a> · <a href="/dashboard#markets">open the app</a></div>
+<div class="sm-hint" data-i18n-html="sm.hint">Drag to orbit · scroll to zoom · tap a coin for its factor breakdown and where to trade it · <a href="/sentinel">systemic risk radar</a> · <a href="/dashboard#markets">open the app</a></div>
 
-<div class="sm-empty" id="smEmpty">Loading the live universe from public Bitget market data…</div>
-<div class="sm-fallback" id="smFallback"><table><thead><tr><th>Coin</th><th>24h</th><th>Long</th><th>Short</th><th>Funding</th></tr></thead><tbody id="smFbBody"></tbody></table></div>
+<div class="sm-empty" id="smEmpty" data-i18n="sm.loading">Loading the live universe from public Bitget market data…</div>
+<div class="sm-fallback" id="smFallback"><table><thead><tr><th data-i18n="sm.coin">Coin</th><th>24h</th><th data-i18n="sm.long">Long</th><th data-i18n="sm.short">Short</th><th data-i18n="lp.ax_funding">Funding</th></tr></thead><tbody id="smFbBody"></tbody></table></div>
 
 <aside class="sm-panel" id="smPanel" aria-live="polite">
   <button class="x" id="smClose" aria-label="Close" data-i18n-attr="aria-label:a11y.close">&times;</button>
@@ -145,5 +145,6 @@ window.__SM_FACTORS = [
 </script>
 <script src="/js/strengthmap.js?v=3" type="module"></script>
 <script nomodule>document.getElementById('smEmpty').textContent = 'This 3D view needs a modern browser. Open the app for the market tables.';</script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>

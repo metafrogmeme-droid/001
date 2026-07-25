@@ -11,9 +11,9 @@
 <body>
 <main class="auth-wrap">
   <div class="card" style="text-align:center">
-    <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em;margin-bottom:var(--s3)">Email verification</h2>
+    <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em;margin-bottom:var(--s3)" data-i18n="vf.h2">Email verification</h2>
     <div id="status" class="muted">Verifying…</div>
-    <a href="/" class="btn btn--primary btn-block mt-4">Continue to RUNECLAW →</a>
+    <a href="/" class="btn btn--primary btn-block mt-4" data-i18n="vf.continue">Continue to RUNECLAW →</a>
   </div>
 </main>
 <script>
@@ -29,5 +29,6 @@ const status=document.getElementById('status');
   }catch(e){status.textContent='Network error — try again.';status.className='form-err';}
 })();
 </script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>

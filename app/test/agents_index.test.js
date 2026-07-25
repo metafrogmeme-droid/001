@@ -61,5 +61,5 @@ test('the directory is read-only and reduced-motion safe (no trade path)', () =>
 });
 
 test('the per-agent page links back to the /agents directory', () => {
-  assert.match(strategy, /<a href="\/agents">All agents<\/a>/);
+  assert.match(strategy, /<a href="\/agents"[^>]*>All agents<\/a>/);
 });

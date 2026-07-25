@@ -34,17 +34,17 @@
 <div class="wl-wrap" role="main">
   <div class="wl-brand"><span class="mark">⚔ RUNECLAW ⚔</span></div>
   <div class="wl-card">
-    <h1>🔗 Link this wallet</h1>
-    <p class="muted small" style="margin-bottom:var(--s3)">
+    <h1 data-i18n="wl.h1">🔗 Link this wallet</h1>
+    <p class="muted small" style="margin-bottom:var(--s3)" data-i18n-html="wl.lede">
       Read-only linking: your wallet signs <b>one login message</b> — never a
       transaction, never an approval. RUNECLAW can then mirror balances and
       DeFi positions; it can never move funds.
     </p>
     <div class="wl-status busy" id="statusBox" role="status" aria-live="polite">
       <span class="wl-spin" aria-hidden="true"></span>
-      <div id="state" class="small">Checking for a wallet…</div>
+      <div id="state" class="small" data-i18n="wl.checking">Checking for a wallet…</div>
     </div>
-    <button class="btn btn--primary btn-block mt-3 hidden" id="linkBtn" type="button">Sign &amp; link wallet</button>
+    <button class="btn btn--primary btn-block mt-3 hidden" id="linkBtn" type="button" data-i18n="wl.sign">Sign &amp; link wallet</button>
   </div>
 </div>
 <script>
@@ -190,5 +190,6 @@
   };
 })();
 </script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>

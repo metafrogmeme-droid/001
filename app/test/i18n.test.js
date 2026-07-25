@@ -435,6 +435,19 @@ const SWEPT_PAGES = {
   'letter.html': [],
   'proof.html': ['RUNECLAW'],
   'call.html': [],
+  'trader.html': ['RUNECLAW'],
+  'strengthmap.html': ['RUNECLAW'],
+  'strategy.html': [],
+  'wallet-link.html': ['⚔ RUNECLAW ⚔'],
+  'status.html': [],
+  'agent-card.html': [],
+  'reset.html': [],
+  'verify.html': [],
+  // The last page in. Both chips are written over by JS on every refresh
+  // (updateConnChip / updateModeChip), so a data-i18n here would be clobbered
+  // within a second — the same reason track.html allowlists its venue string.
+  // Their live values are translated in dashboard.js.
+  'dashboard.html': ['● CONNECTING', 'PAPER'],
 };
 
 function untranslatedInSource(src, allowList) {

@@ -43,14 +43,14 @@
 <body>
 <div class="sa-wrap" role="main">
   <nav class="topnav">
-    <a href="/">← RUNECLAW</a>
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
     <span class="spacer"></span>
-    <a href="/agents">All agents</a>
-    <a href="/leaderboard">Leaderboard</a>
-    <a href="/proof">Proof of PnL</a>
+    <a href="/agents" data-i18n="st.all_agents">All agents</a>
+    <a href="/leaderboard" data-i18n="vh.leaderboard.title">Leaderboard</a>
+    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
   </nav>
 
-  <div id="sa-root"><div class="empty">Loading strategy agent…</div></div>
+  <div id="sa-root"><div class="empty" data-i18n="st.loading">Loading strategy agent…</div></div>
 </div>
 
 <script>
@@ -207,5 +207,6 @@
     .catch(unavailable);
 })();
 </script>
+<script src="/js/i18n.js?v=42"></script>
 </body>
 </html>
