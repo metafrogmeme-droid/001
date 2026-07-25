@@ -154,16 +154,17 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
     program = staking_program()
     if not wallet or not program:
         return None
+    # StakeAccount layout (must match programs/rclaw_staking/src/lib.rs):
+    #   8 disc | owner @8 (32) | mint @40 (32) | amount @72 (u64 LE) | ...
+    # Filter on owner, and — when a mint is configured — ALSO on mint, so a
+    # stake of some worthless token can never be counted as $RCLAW tier.
+    filters = [{"memcmp": {"offset": 8, "bytes": wallet}}]
+    mint = mint_address()
+    if mint:
+        filters.append({"memcmp": {"offset": 40, "bytes": mint}})
     result = _rpc(
         "getProgramAccounts",
-        [
-            program,
-            {
-                "encoding": "base64",
-                "commitment": "confirmed",
-                "filters": [{"memcmp": {"offset": 8, "bytes": wallet}}],
-            },
-        ],
+        [program, {"encoding": "base64", "commitment": "confirmed", "filters": filters}],
     )
     if result is None:
         return None
@@ -174,9 +175,8 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
         for acc in entries:
             data_field = acc["account"]["data"]
             raw = base64.b64decode(data_field[0] if isinstance(data_field, list) else data_field)
-            # 8 disc + 32 owner => amount (u64 LE) at offset 40.
-            if len(raw) >= 48:
-                total_base += int.from_bytes(raw[40:48], "little")
+            if len(raw) >= 80:
+                total_base += int.from_bytes(raw[72:80], "little")
     except (KeyError, TypeError, ValueError, IndexError) as exc:
         system_log.debug("tier_gate staked parse failed: %s", exc)
         return None
@@ -241,7 +241,7 @@ def upgrade_message(mode: str = "premium") -> str:
     pro_min = int(_env_float("RCLAW_TIER_PRO_MIN", 10_000.0))
     return (
         f"\U0001f512 <b>{mode.capitalize()} scan is a staked-tier feature.</b>\n"
-        f"Stake at least <b>{pro_min:,} $RCLAW</b> and link your Solana wallet to unlock "
-        f"premium scan modes. See the token roadmap for details.\n"
+        f"Stake at least <b>{pro_min:,} $RCLAW</b>, then link your wallet with "
+        f"<code>/linkwallet &lt;address&gt;</code> to unlock premium scan modes.\n"
         f"<i>(Draft feature — $RCLAW is a gated Vision item.)</i>"
     )

@@ -337,9 +337,13 @@ These are **draft, devnet, feature-flagged** starting points — not a launch:
   `RCLAW_STAKING_PROGRAM` is set it derives tiers from **staked** balance (read via
   `getProgramAccounts` + a `memcmp` on the stake account's owner) instead of wallet balance.
 - `programs/rclaw_staking/` — **Anchor (Rust) staking program** (devnet/draft): `stake` /
-  `unstake` with a per-user `StakeAccount` PDA (`["stake", owner]`) and a program-owned vault
-  ATA. Non-custodial (users can unstake at any time); unaudited, so it stays a gated Vision
-  item. The repo's first Rust code — see the root `Cargo.toml` workspace + `Anchor.toml`.
+  `unstake` with a per-user, **per-mint** `StakeAccount` PDA (`["stake", owner, mint]`) and a
+  **mint-scoped** vault authority (`["vault", mint]`). Token-2022 aware (`transfer_checked`).
+  Non-custodial (users can unstake at any time). ⚠️ **Unaudited, and an earlier revision
+  shipped a critical vault-drain bug** (no mint binding) that an adversarial review caught —
+  fixed, but **do not deploy** anywhere holding value until audited. See
+  [`programs/rclaw_staking/README.md`](../programs/rclaw_staking/README.md). The repo's first
+  Rust code — root `Cargo.toml` workspace + `Anchor.toml`.
 - `app/lib/solana_verify.js` + `app/public/js/solana_wallet.js` — the wallet connect-and-sign flow.
 
 ---

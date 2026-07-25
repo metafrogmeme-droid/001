@@ -128,10 +128,12 @@ def test_mainnet_rpc_refused(monkeypatch):
 # ── Staking gate (programs/rclaw_staking) ───────────────────────────────────
 
 def _stake_account_b64(amount_base):
-    """Encode a StakeAccount's data: 8 disc + 32 owner + amount(u64 LE) + …"""
+    """Encode StakeAccount data — layout MUST match programs/rclaw_staking:
+    8 disc | owner @8 (32) | mint @40 (32) | amount @72 (u64 LE) | staked_at | bump
+    """
     import base64 as _b64
-    data = bytearray(57)  # 8 + 32 + 8 + 8 + 1
-    data[40:48] = int(amount_base).to_bytes(8, "little")
+    data = bytearray(89)  # 8 + 32 + 32 + 8 + 8 + 1
+    data[72:80] = int(amount_base).to_bytes(8, "little")
     return _b64.b64encode(bytes(data)).decode()
 
 
@@ -180,3 +182,44 @@ def test_staked_rpc_error_fails_open(monkeypatch):
     )
     monkeypatch.setattr(mod, "staked_of", lambda w: None)  # infra error
     assert mod.allows_user(_Users("W"), 1, "premium_scan") is True
+
+
+# ── Regressions for the audit findings (RC-AUDIT) ───────────────────────────
+
+def test_staked_of_filters_on_mint(monkeypatch):
+    """A stake of some OTHER token must not count toward $RCLAW tier.
+
+    The staking program previously bound no mint to a stake record; the gate now
+    memcmp-filters on the mint at offset 40 whenever RCLAW_MINT is configured.
+    """
+    mod = _reload_clean(
+        monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_MINT="Mint111", RCLAW_DECIMALS="9"
+    )
+    seen = {}
+
+    def fake_rpc(method, params):
+        seen['filters'] = params[1]["filters"]
+        return []
+
+    monkeypatch.setattr(mod, "_rpc", fake_rpc)
+    mod.staked_of("W")
+    offsets = [f["memcmp"]["offset"] for f in seen['filters']]
+    assert 8 in offsets, "must filter on owner @8"
+    assert 40 in offsets, "must ALSO filter on mint @40 so foreign-token stake is excluded"
+    mint_filter = [f for f in seen['filters'] if f["memcmp"]["offset"] == 40][0]
+    assert mint_filter["memcmp"]["bytes"] == "Mint111"
+
+
+def test_staked_of_reads_amount_at_offset_72(monkeypatch):
+    """Byte-layout lock: amount lives at offset 72 once StakeAccount carries a mint."""
+    mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_DECIMALS="9")
+    monkeypatch.setattr(
+        mod, "_rpc",
+        lambda m, p: [{"account": {"data": [_stake_account_b64(7 * 10**9), "base64"]}}],
+    )
+    assert mod.staked_of("W") == 7.0
+    # An account too short to hold the new layout must be ignored, not misread.
+    import base64 as _b64
+    short = _b64.b64encode(bytes(57)).decode()  # the OLD 57-byte layout
+    monkeypatch.setattr(mod, "_rpc", lambda m, p: [{"account": {"data": [short, "base64"]}}])
+    assert mod.staked_of("W") == 0.0

@@ -355,6 +355,7 @@ class TelegramHandler:
             ("version", self._cmd_version),
             # Strategy preset shortcuts (aliases for /run <name>)
             ("momentum", self._cmd_momentum), ("dip", self._cmd_dip),
+            ("linkwallet", self._cmd_linkwallet),
             ("scalp", self._cmd_scalp),
             ("intraday", self._cmd_intraday),
             ("swing", self._cmd_swing),
@@ -8074,6 +8075,40 @@ class TelegramHandler:
         except Exception as exc:
             system_log.debug("strategy setups card render failed: %s", exc)
             return False
+
+    @guard("help")
+    async def _cmd_linkwallet(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Link (or clear) the Solana wallet used by the $RCLAW tier gate.
+
+        Without this, nothing ever calls UserStore.set_sol_wallet, so the gate
+        could never resolve a wallet and would block every user once enabled.
+        Read-only: the address is used solely for public balance/stake reads.
+        """
+        args = (ctx.args if ctx and getattr(ctx, "args", None) else [])
+        uid = self._get_tg_id(update)
+        if args and args[0].lower() in ("clear", "none", "off"):
+            self.users.set_sol_wallet(uid, None)
+            await self._send(update, "✅ Solana wallet unlinked.")
+            return
+        if not args:
+            current = self.users.get_sol_wallet(uid)
+            await self._send(update,
+                ("◎ <b>Linked Solana wallet:</b> <code>" + html.escape(current) + "</code>\n"
+                 if current else "◎ <b>No Solana wallet linked.</b>\n")
+                + "Usage: <code>/linkwallet &lt;address&gt;</code> or <code>/linkwallet clear</code>\n"
+                  "<i>Read-only — used only to read your public $RCLAW balance/stake.</i>")
+            return
+        addr = args[0].strip()
+        # Base58, 32-44 chars — same shape the web app validates.
+        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr):
+            await self._send(update, "\U0001f534 That doesn't look like a Solana address (base58, 32-44 chars).")
+            return
+        if not self.users.set_sol_wallet(uid, addr):
+            await self._send(update, "\U0001f534 Could not link that wallet (unknown user).")
+            return
+        await self._send(update,
+            f"✅ Solana wallet linked: <code>{html.escape(addr)}</code>\n"
+            "<i>Read-only. Used to read your public $RCLAW stake for tier access.</i>")
 
     async def _token_gate_blocks(self, update: Update, mode: str) -> bool:
         """True (and notify) if the $RCLAW token-tier gate blocks a premium scan.

@@ -29,6 +29,7 @@ GROUPS: List[Group] = [
         ("connect", "link your own exchange account"),
         ("exchange", "your linked-account status (never shows keys)"),
         ("disconnect", "remove your linked credentials"),
+        ("linkwallet", "link a Solana wallet (read-only) for $RCLAW tier access"),
         ("lang", "switch language"),
         ("version", "bot version and mode"),
         ("health", "system health"),
@@ -297,7 +298,9 @@ GROUP_TITLES_ZH: Dict[str, str] = {
 DESC_ZH: Dict[str, str] = {
     "start": "註冊並查看目前狀態", "help": "本指令總覽", "dashboard": "開啟網頁儀表板",
     "connect": "連結你自己的交易所帳戶", "exchange": "你的帳戶連結狀態（永不顯示金鑰）",
-    "disconnect": "移除已連結的憑證", "lang": "切換語言", "version": "機器人版本與模式",
+    "disconnect": "移除已連結的憑證",
+    "linkwallet": "連結 Solana 錢包（唯讀）以取得 $RCLAW 等級權限",
+    "lang": "切換語言", "version": "機器人版本與模式",
     "health": "系統健康狀態", "status": "引擎目前狀態",
     "trade": "下單 — /trade buy SOL 71.42 sl 70.05 tp 76.42", "paper": "用虛擬資金無風險練習",
     "golive": "啟用實盤交易（需二次確認）", "open_positions": "你的持倉",

@@ -17,4 +17,8 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+# The TS spec lives beside the program. Running it needs a root tsconfig.json +
+# package.json with @coral-xyz/anchor, @solana/spl-token, ts-mocha, chai — none
+# of which are committed yet, so `anchor test` is not runnable as-is. Documented
+# in programs/rclaw_staking/README.md rather than left as a silently broken glob.
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 programs/rclaw_staking/tests/**/*.ts"

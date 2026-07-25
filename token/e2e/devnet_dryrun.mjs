@@ -111,7 +111,7 @@ function saveReport(steps) {
 
 async function main() {
   log(`mode: ${DRY ? 'DRY (offline)' : 'LIVE (devnet)'}`);
-  const { publicStart, depositEnd, tge } = writeDerivedConfig();
+  const { cfg: cfgBase, publicStart, depositEnd, tge } = writeDerivedConfig();
   log(`derived config: ${DERIVED_CONFIG}`);
   log(`windows → deposit ${iso(publicStart)}..${iso(depositEnd)}, claim/TGE ${iso(tge)}`);
 
@@ -140,7 +140,10 @@ async function main() {
   steps.push(run('liquidity', ['presale/genesis_presale.mjs', 'liquidity']));
 
   await sleepUntil(publicStart);
-  steps.push(run('deposit', ['presale/genesis_presale.mjs', 'deposit', '--amount', '1']));
+  // Deposit the configured MINIMUM, not 1 SOL: keygen airdrops exactly 1 SOL,
+  // so depositing 1 SOL could never cover the deposit plus rent/fees.
+  const depositSol = String(cfgBase.sale?.minContributionSol ?? 0.25);
+  steps.push(run('deposit', ['presale/genesis_presale.mjs', 'deposit', '--amount', depositSol]));
 
   await sleepUntil(tge);
   steps.push(run('claim', ['presale/genesis_presale.mjs', 'claim']));

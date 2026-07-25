@@ -111,7 +111,12 @@ export function derivePresaleParams(cfg) {
   const decimals = cfg.token.decimals;
   const t = cfg.timeline;
 
-  const depositStart = unix(t.publicStart);
+  // Deposits open at the WHITELIST start (when one is configured) so the
+  // allowlist window [whitelistStart, publicStart) is actually inside the
+  // deposit window. Opening at publicStart — which is exactly when the
+  // allowlist expires — would make the whitelist round zero-length.
+  const hasWhitelist = Array.isArray(cfg.whitelist) && cfg.whitelist.length > 0;
+  const depositStart = unix(hasWhitelist && t.whitelistStart ? t.whitelistStart : t.publicStart);
   const depositEnd = unix(t.depositEnd);
   const tge = unix(t.tge);
   const claimEnd = unix(t.claimEnd);
@@ -161,6 +166,9 @@ export function fundingModeValue(cfg) {
 const toHex = (u8) => Buffer.from(u8).toString('hex');
 const fromHex = (hex) => Uint8Array.from(Buffer.from(hex, 'hex'));
 
+/** Required u8[6] `padding` field of AllowlistInitArgs (no serializer default). */
+const ALLOWLIST_PADDING = [0, 0, 0, 0, 0, 0];
+
 /**
  * Build a Merkle allowlist from a list of base58 addresses. Returns the tree
  * root, per-address proofs, height, and the `AllowlistInitArgs` to hand to
@@ -184,6 +192,10 @@ export function buildAllowlist(cfg, addresses) {
     initArgs: {
       enabled: true,
       merkleTreeHeight: treeHeight,
+      // `padding` is a required fixed-size u8[6] in AllowlistInitArgs with no
+      // kinobi default; omitting it makes the umi array serializer throw on
+      // `value.length` before any transaction is built.
+      padding: ALLOWLIST_PADDING,
       merkleRoot: root,
       endTime,
       quoteCap,
@@ -196,6 +208,7 @@ export function allowlistInitArgsFromArtifact(cfg, artifact) {
   return {
     enabled: true,
     merkleTreeHeight: artifact.treeHeight,
+    padding: ALLOWLIST_PADDING,
     merkleRoot: fromHex(artifact.rootHex),
     endTime: unix(cfg.timeline.publicStart),
     quoteCap: solToLamports(cfg.sale.hardCapSol),

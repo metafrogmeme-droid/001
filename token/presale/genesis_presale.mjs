@@ -95,7 +95,8 @@ function cmdPlan() {
   }
   // Liquidity bucket summary.
   const lp = deriveLiquidityParams(cfg);
-  console.log('Liquidity       :', `${cfg.liquidity.tokenAllocation} ${cfg.token.symbol} to ${cfg.liquidity.dex}, ${lp.raisedSolToLiquidityBps / 100}% of raise, LP locked forever (never-claim)`);
+  console.log('Liquidity       :', `${cfg.liquidity.tokenAllocation} ${cfg.token.symbol} to ${cfg.liquidity.dex}, LP locked forever (never-claim)`);
+  console.log('                 ', `NOT WIRED: the ${lp.raisedSolToLiquidityBps / 100}% quote-token split is config-only — no instruction encodes it yet (needs an endBehaviors SendQuoteTokenPercentage on the presale bucket).`);
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
   console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → presale:claim.');
 }
@@ -248,7 +249,9 @@ async function cmdLiquidity() {
     lpLockSchedule: lp.lpLockSchedule, // never-claim => LP locked forever
     startCondition: lp.startCondition, // pool created at deposit-window close
   }).sendAndConfirm(umi);
-  console.log(`Liquidity bucket added. ${lp.raisedSolToLiquidityBps / 100}% of the raise routes to the pool at finalize; LP is permanently locked.`);
+  console.log('Liquidity bucket added; LP is permanently locked (never-claim schedule).');
+  console.log(`WARNING: the ${lp.raisedSolToLiquidityBps / 100}% raise->pool split is NOT encoded on-chain by this command.`);
+  console.log('Wire it with an `endBehaviors: [SendQuoteTokenPercentage{...}]` on the presale bucket before relying on it.');
 }
 
 // ── withdraw: depositor cancels their deposit (refund) ──────────────────────
@@ -293,6 +296,10 @@ async function cmdWithdrawUnsold() {
     recipient: me,
     recipientTokenAccount: recipientTokenAccount[0],
     associatedTokenProgram: publicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
+    // `index` and `padding` are REQUIRED (non-optional) on this instruction —
+    // omitting them throws before a transaction is built.
+    index: BUCKET_INDEX,
+    padding: [0, 0, 0, 0, 0, 0],
   }).sendAndConfirm(umi);
   console.log('Unsold-token withdrawal confirmed.');
 }
