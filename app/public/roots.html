@@ -47,7 +47,13 @@
     return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
   var box = document.getElementById('rows');
   fetch('/api/roots', { headers: { Accept: 'application/json' } })
-    .then(function (r) { return r.ok ? r.json() : null; })
+    // A non-ok answer must reach the catch below, not resolve to null: null
+    // renders "no completed day has sealed calls yet", which asserts the seal
+    // ledger is empty on the one page whose entire job is proving it isn't.
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(function (d) {
       var roots = (d && d.roots) || [];
       if (!roots.length) {

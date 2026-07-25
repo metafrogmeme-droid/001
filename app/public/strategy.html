@@ -177,21 +177,34 @@
   }
   // Try the engine catalogue first, then fall back to a published community
   // strategy — the same slug space serves both.
+  function unavailable() {
+    root.innerHTML = '<div class="empty">The catalogue is unavailable right now. '
+      + 'Try the <a href="/dashboard#agents">app</a>.</div>';
+  }
+  // "No strategy named X" is a claim about the catalogue's CONTENTS, and a
+  // failed read is no evidence for it. Only a 404 — the server answering that
+  // this slug is not there — earns notFound(); every other failure says so.
+  // Someone opening a shared strategy link during an outage should not be told
+  // their strategy does not exist.
   fetch('/api/public/strategies', { headers: { Accept: 'application/json' } })
-    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(function (d) {
       var agents = (d && d.agents) || [];
       var a = agents.filter(function (x) { return String(x.id).toLowerCase() === slug; })[0];
       if (a) { render(a); return; }
       fetch('/api/public/user-strategies/' + encodeURIComponent(slug), { headers: { Accept: 'application/json' } })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          if (r.status === 404) return null;              // genuinely not there
+          if (!r.ok) throw new Error('HTTP ' + r.status);  // we could not look
+          return r.json();
+        })
         .then(function (cd) { if (cd && cd.agent) render(cd.agent); else notFound(); })
-        .catch(function () { notFound(); });
+        .catch(unavailable);
     })
-    .catch(function () {
-      root.innerHTML = '<div class="empty">The catalogue is unavailable right now. '
-        + 'Try the <a href="/dashboard#agents">app</a>.</div>';
-    });
+    .catch(unavailable);
 })();
 </script>
 </body>

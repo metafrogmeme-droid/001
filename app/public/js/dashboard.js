@@ -1142,7 +1142,7 @@
             <td class="num r ${x.delta_bps >= 0 ? 'up' : 'down'}">${x.delta_bps != null ? (x.delta_bps >= 0 ? '+' : '') + fmt(x.delta_bps, 1) + ' bps' : '—'}</td></tr>`).join('')}</tbody>
         </table></div>
         <p class="muted small" style="margin-top:var(--s2)">${esc(d.execution_note)}</p>`;
-    }, { empty: { icon: 'icon-globe', text: 'The DEX comparison lights up when Hyperliquid public data is reachable.' } });
+    }, { empty: { icon: 'icon-globe', text: T('dd.e_dex', 'No pairs quoted on both venues right now — the comparison needs a symbol listed on each side.') } });
 
     // Live 3D sector radar — plot the RWA-radar tokens as blips (angle by
     // category, distance by 24h volume, colour by direction) and sweep them.
@@ -1299,7 +1299,7 @@
             <thead><tr><th>Token</th><th class="r">Price</th><th class="r">24h</th><th class="r">Volume</th><th class="r">Liquidity</th><th class="r">Risk</th></tr></thead>
             <tbody>${rows}</tbody></table></div>`
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.disclaimer)}</p>`;
-    }, { empty: { icon: 'icon-radar', text: 'The meme radar lights up when DEXScreener public data is reachable.' } });
+    }, { empty: { icon: 'icon-radar', text: T('dd.e_meme', 'No pairs clear the radar\u2019s liquidity and age floor right now.') } });
 
     // On-chain flow — 24h DEX taker balance for the majors. The same payload
     // the engine's gated on-chain voter consumes; honestly labeled.
@@ -1320,7 +1320,7 @@
           <thead><tr><th>Asset</th><th class="r">Flow bias</th><th class="r">Buy share</th><th class="r">Txns 24h</th><th class="r">DEX volume</th></tr></thead>
           <tbody>${rows}</tbody></table></div>`
         + (d.unavailable.length ? `<p class="small muted" style="margin-top:var(--s2)">No usable on-chain sample right now: ${d.unavailable.map(esc).join(', ')}.</p>` : '');
-    }, { empty: { icon: 'icon-globe', text: 'Flow reads appear when DEXScreener public data is reachable.' } });
+    }, { empty: { icon: 'icon-globe', text: T('dd.e_flow', 'No base has enough paired liquidity for a flow read right now.') } });
 
     // Venue router — where is each pair cheapest to hold right now?
     // Pure funding-cost read; nothing here places or routes an order.
@@ -3169,7 +3169,7 @@
         + composition
         + rows.join('')
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
-    }, { empty: { icon: 'icon-globe', text: 'Net worth aggregates once a venue or wallet is reachable.' } });
+    }, { empty: { icon: 'icon-globe', text: T('dd.e_networth', 'Connect an exchange or link a wallet and your real net worth aggregates here \u2014 read-only, always.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // Paper Arena — the practice account beside the real one. Private surface
     // (§4: virtual dollars fine); percent + badge glory is what we celebrate.
@@ -3248,7 +3248,7 @@
             <span><b>Real total</b>${d.partial ? ' <span class="muted small">(partial — some sources unreadable)</span>' : ''}</span>
             <b class="num">${d.total_real_usd != null ? '$' + fmt(d.total_real_usd, 2) : '—'}</b></div>
           <p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
-    }, { empty: { icon: 'icon-wallet', text: 'Funds itemise once a venue or wallet is reachable.' } });
+    }, { empty: { icon: 'icon-wallet', text: T('dd.e_holdings', 'Nothing to itemise yet \u2014 connect an exchange or link a wallet and every source gets its own row.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // Idle yield — best cross-source rate per idle wallet asset. Non-custodial
     // (Lido/Aave, live) preferred honestly; recommendation only, nothing moves.
@@ -3256,9 +3256,16 @@
       const r = await fetchJSON('/api/idleyield', { timeoutMs: 32000 });
       const d = r.data;
       mustRead(r);
-      if (!d || d.available === false) return null;
+      // available:false is the scanner FAILING soft inside a 200 (gateway down,
+      // not configured) — a failure wearing an empty state's clothes. A user
+      // with no wallet comes back available:true, wallet_linked:false, which is
+      // the genuine empty below.
+      if (!d || d.available === false) throw new Error('idle-yield scanner unavailable');
       if (d.wallet_linked === false) {
-        return `<p class="muted">${esc(d.note || 'Link a wallet to scan idle assets for the best rate.')}</p>`;
+        return stateBlock({ icon: 'icon-wallet',
+          text: d.note || T('dd.e_idle_nowallet',
+            'Link a wallet and idle-yield shows what is sitting still, with the best rate for each asset. Read-only — RUNECLAW never moves your funds.'),
+          cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } });
       }
       const recd = (d.recommendations || []).filter(x => x.status === 'recommended');
       if (!recd.length) {
@@ -3283,7 +3290,7 @@
             <b class="num">≈$${fmt(d.total_est_year_usd, 2)}/yr</b></div>
           <p class="small muted" style="margin-top:var(--s2)">${nc} non-custodial rate(s) live (Lido/Aave via DefiLlama).
             Recommendation only — RUNECLAW never moves your funds.</p>`;
-    }, { empty: { icon: 'icon-coin', text: 'Idle-yield scans your wallet assets once one is reachable.' } });
+    }, { empty: { icon: 'icon-coin', text: T('dd.e_idle', 'Nothing is sitting idle \u2014 every asset the scanner can see is already earning or too small to move.') } });
 
     // Cross-chain yield planner — is relocating idle capital to the best rate
     // worth the gas + bridge cost, and when does it break even? Estimates only.
@@ -3291,8 +3298,14 @@
       const r = await fetchJSON('/api/crossyield', { timeoutMs: 32000 });
       const d = r.data;
       mustRead(r);
-      if (!d || d.available === false) return null;
-      if (d.wallet_linked === false) return `<p class="muted">${esc(d.note || 'Link a wallet to plan cross-chain yield moves.')}</p>`;
+      // Same soft-failure shape as idle-yield above.
+      if (!d || d.available === false) throw new Error('cross-yield planner unavailable');
+      if (d.wallet_linked === false) {
+        return stateBlock({ icon: 'icon-globe',
+          text: d.note || T('dd.e_cross_nowallet',
+            'Link a wallet and the planner works out whether moving idle capital to a better rate beats the gas and bridge cost. Estimates only — nothing moves.'),
+          cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } });
+      }
       const plans = (d.plans || []);
       if (!plans.length) return `<p class="muted">${esc(d.note || 'No idle assets to plan a move for right now.')}</p>`;
       const _WORTH = {
@@ -3418,7 +3431,7 @@
         ${groups}
         <p style="margin-top:var(--s2)">Total (priced, all chains): <b class="num">$${Number(d.total_usd).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b></p>
         ${unreadable.length ? `<p class="muted small">${esc(unreadable.join(', '))} unreadable right now (RPC).</p>` : ''}`;
-    }, { empty: { icon: 'icon-wallet', text: 'The wallet mirror lights up when a chain RPC is reachable.' } });
+    }, { empty: { icon: 'icon-wallet', text: T('dd.e_wallet', 'No wallet linked yet \u2014 link one to mirror its balances read-only. Linking signs a message; it never grants spending power.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // DeFi positions: Aave health factors, Lido stETH, Uniswap LP counts —
     // read from protocol contracts, with the warnings a risk desk would raise.
@@ -6210,7 +6223,7 @@
       return `<p class="small" style="color:var(--text-2)">${bits.length ? bits.join(' · ') : 'No exchange connected, no wallet linked yet.'}</p>
         <p style="margin-top:var(--s2)">Real total <b class="num" style="font-size:var(--fs-lg)">${d.total_real_usd != null ? '$' + fmt(d.total_real_usd, 2) : '—'}</b></p>
         <p class="small muted mt-2">Paper equity is listed in Portfolio but never counted as real.</p>`;
-    }, { empty: { icon: 'icon-globe', text: 'Net worth aggregates once a venue or wallet is reachable.' } });
+    }, { empty: { icon: 'icon-globe', text: T('dd.e_networth', 'Connect an exchange or link a wallet and your real net worth aggregates here \u2014 read-only, always.'), cta: { label: T('dd.cta_link_wallet', 'Link a wallet'), href: '#account/awallet' } } });
 
     // ── Exposure: net / gross + risk flags ──
     renderPanel(C('hubexp'), async () => {

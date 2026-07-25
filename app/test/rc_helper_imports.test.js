@@ -15,6 +15,10 @@ const path = require('node:path');
 
 const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
 const DASH = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+// Every file that destructures window.RC is subject to the same trap.
+const CONSUMERS = ['dashboard.js', 'chat.js'].map((f) => ({
+  name: f, src: fs.readFileSync(path.join(__dirname, '..', 'public', 'js', f), 'utf8'),
+}));
 
 function rcExports() {
   const m = APP.match(/window\.RC = \{([\s\S]*?)\};/);
@@ -22,16 +26,18 @@ function rcExports() {
   return m[1].split(',').map((s) => s.trim()).filter((s) => /^[A-Za-z_$][\w$]*$/.test(s));
 }
 
-function dashImports() {
-  const m = DASH.match(/const \{([\s\S]*?)\} = RC;/);
-  assert.ok(m, 'dashboard.js destructures RC');
+function importsOf(src, name) {
+  const m = src.match(/const \{([\s\S]*?)\} = (?:window\.)?RC;/);
+  assert.ok(m, `${name} destructures RC`);
   return m[1].split(',').map((s) => s.trim()).filter(Boolean);
 }
+function dashImports() { return importsOf(DASH, 'dashboard.js'); }
 
-test('every RC helper dashboard.js calls is destructured from RC', () => {
+test('every RC helper its consumers call is destructured from RC', () => {
   const exported = new Set(rcExports());
-  const imported = new Set(dashImports());
   const missing = [];
+  for (const { name: file, src: DASH } of CONSUMERS) {
+  const imported = new Set(importsOf(DASH, file));
   for (const name of exported) {
     if (imported.has(name)) continue;
     // Called bare somewhere in dashboard.js? Then it must be imported.
@@ -41,7 +47,8 @@ test('every RC helper dashboard.js calls is destructured from RC', () => {
       .map((line, i) => ({ line, n: i + 1 }))
       .filter(({ line }) => bare.test(line) && !new RegExp(`(RC|window\\.RC)\\.${name}`).test(line)
         && !/^\s*(\/\/|\*)/.test(line));
-    if (hits.length) missing.push(`${name} (first use: dashboard.js:${hits[0].n})`);
+    if (hits.length) missing.push(`${name} (first use: ${file}:${hits[0].n})`);
+  }
   }
   assert.deepStrictEqual(missing, [],
     'these are called bare but never imported — they throw ReferenceError at runtime:\n  '
