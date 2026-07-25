@@ -93,7 +93,7 @@ router.get('/', async (req, res) => {
   try {
     res.json(await loadProfile(req.user.user_id));
   } catch (err) {
-    console.error('Profile read error:', err.message);
+    console.error('Profile read error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read profile' });
   }
 });
@@ -142,7 +142,7 @@ router.put('/', putLimit, async (req, res) => {
       [uid, riskPref, JSON.stringify(watchlist), JSON.stringify(prefs)]);
     res.json({ ok: true, risk_pref: riskPref, watchlist, prefs });
   } catch (err) {
-    console.error('Profile write error:', err.message);
+    console.error('Profile write error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to save profile' });
   }
 });

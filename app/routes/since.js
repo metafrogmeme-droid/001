@@ -58,7 +58,7 @@ router.get('/', authMiddleware, async (req, res) => {
     } catch (e) { /* no arena activity → 0 */ }
     res.json(out);
   } catch (err) {
-    console.error('Since error:', err.message);
+    console.error('Since error:', err.stack || err.message);
     res.status(500).json({ error: 'Digest unavailable' });
   }
 });

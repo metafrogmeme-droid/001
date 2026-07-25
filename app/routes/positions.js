@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     relay(res, await getGateway(`/positions?telegram_id=${encodeURIComponent(ident.id)}`, 15000));
   } catch (err) {
-    console.error('Positions error:', err.message);
+    console.error('Positions error:', err.stack || err.message);
     res.status(502).json({ error: 'Positions unavailable' });
   }
 });

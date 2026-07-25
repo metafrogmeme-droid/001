@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
   try {
     res.json(await buildExposure(req.user.user_id));
   } catch (err) {
-    console.error('Exposure error:', err.message);
+    console.error('Exposure error:', err.stack || err.message);
     res.status(500).json({ error: 'Exposure unavailable' });
   }
 });

@@ -36,7 +36,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Reports read error:', err.message);
+    console.error('Reports read error:', err.stack || err.message);
     res.json({ reports: null });
   }
 });
@@ -54,7 +54,7 @@ router.get('/yield', authMiddleware, async (req, res) => {
       generated_at: (r && r.generated_at) || null,
     });
   } catch (err) {
-    console.error('Yield report read error:', err.message);
+    console.error('Yield report read error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read yield report' });
   }
 });

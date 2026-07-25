@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     relay(res, await getGateway(`/sentry?telegram_id=${encodeURIComponent(ident.id)}`, 15000));
   } catch (err) {
-    console.error('Risk sentry error:', err.message);
+    console.error('Risk sentry error:', err.stack || err.message);
     res.status(502).json({ error: 'Risk sentry unavailable' });
   }
 });

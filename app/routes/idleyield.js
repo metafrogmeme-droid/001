@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     res.json(await buildIdleYield(ident, req.user.user_id));
   } catch (err) {
-    console.error('Idle-yield error:', err.message);
+    console.error('Idle-yield error:', err.stack || err.message);
     res.status(500).json({ error: 'Idle-yield unavailable' });
   }
 });

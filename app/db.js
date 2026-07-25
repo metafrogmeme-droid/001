@@ -13,7 +13,7 @@ if (USE_MYSQL) {
     pool = mysql.createPool(process.env.DATABASE_URL);
     console.log('Using MySQL database');
   } catch (err) {
-    console.error('mysql2 not available, falling back to in-memory:', err.message);
+    console.error('mysql2 not available, falling back to in-memory:', err.stack || err.message);
     USE_MYSQL = false;
   }
 }

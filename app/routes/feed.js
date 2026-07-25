@@ -47,7 +47,7 @@ router.get('/recent', async (req, res) => {
     cache = { at: Date.now(), limit, events };
     res.json({ events });
   } catch (err) {
-    console.error('Feed recent error:', err.message);
+    console.error('Feed recent error:', err.stack || err.message);
     res.json({ events: [] });
   }
 });

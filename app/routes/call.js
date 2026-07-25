@@ -104,7 +104,7 @@ router.get('/:key', async (req, res) => {
       outcome: { status: s.status, pnl: s.pnl == null ? null : Number(s.pnl), resolved_at: s.resolved_at },
     });
   } catch (err) {
-    console.error('Call verify error:', err.message);
+    console.error('Call verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Verify feed unavailable' });
   }
 });

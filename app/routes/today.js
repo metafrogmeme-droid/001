@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=30');
     res.json(cache.data);
   } catch (err) {
-    console.error('Today digest error:', err.message);
+    console.error('Today digest error:', err.stack || err.message);
     res.status(500).json({ error: 'Digest unavailable' });
   }
 });

@@ -52,7 +52,7 @@ router.get('/status', async (req, res) => {
       pending: pend.length > 0,
     });
   } catch (err) {
-    console.error('Controls status error:', err.message);
+    console.error('Controls status error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read controls' });
   }
 });
@@ -98,7 +98,7 @@ router.post('/', ctlLimit, async (req, res) => {
     secLog('controls_change', req, `live=${live} paused=${paused} margin=${margin}`);
     res.json({ ok: true, pending: true });
   } catch (err) {
-    console.error('Controls submit error:', err.message);
+    console.error('Controls submit error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to submit controls' });
   }
 });
@@ -132,7 +132,7 @@ router.post('/stance', ctlLimit, async (req, res) => {
     secLog('stance_queued', req, `mode=${mode}`);
     res.json({ ok: true, pending: true, mode });
   } catch (err) {
-    console.error('Stance submit error:', err.message);
+    console.error('Stance submit error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to queue stance change' });
   }
 });
@@ -167,7 +167,7 @@ router.post('/stop', stopLimit, async (req, res) => {
     secLog('emergency_stop', req);
     res.json({ ok: true, stopping: true });
   } catch (err) {
-    console.error('Emergency stop error:', err.message);
+    console.error('Emergency stop error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to queue emergency stop' });
   }
 });
@@ -210,7 +210,7 @@ router.post('/policy/preview', ctlLimit, async (req, res) => {
     const r = await postGateway('/policy/preview', { telegram_id: tg, text }, 15000);
     return relay(res, r);
   } catch (err) {
-    console.error('Policy preview error:', err.message);
+    console.error('Policy preview error:', err.stack || err.message);
     res.status(502).json({ error: 'Policy preview failed' });
   }
 });
@@ -229,7 +229,7 @@ router.post('/policy/apply', ctlLimit, async (req, res) => {
     secLog('policy_apply', req, `mode=${mode}`);
     return relay(res, r);
   } catch (err) {
-    console.error('Policy apply error:', err.message);
+    console.error('Policy apply error:', err.stack || err.message);
     res.status(502).json({ error: 'Policy apply failed' });
   }
 });
@@ -245,7 +245,7 @@ router.post('/policy/mode', ctlLimit, async (req, res) => {
     secLog('policy_mode', req, `mode=${mode}`);
     return relay(res, r);
   } catch (err) {
-    console.error('Policy mode error:', err.message);
+    console.error('Policy mode error:', err.stack || err.message);
     res.status(502).json({ error: 'Policy mode change failed' });
   }
 });
@@ -259,7 +259,7 @@ router.post('/policy/clear', ctlLimit, async (req, res) => {
     secLog('policy_clear', req);
     return relay(res, r);
   } catch (err) {
-    console.error('Policy clear error:', err.message);
+    console.error('Policy clear error:', err.stack || err.message);
     res.status(502).json({ error: 'Policy clear failed' });
   }
 });

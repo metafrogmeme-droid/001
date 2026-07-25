@@ -42,7 +42,7 @@ router.get('/report', async (req, res) => {
     const rows = await loadClosed(req.user.user_id);
     res.json(buildReport(rows, { year: parseYear(req.query.year) }));
   } catch (err) {
-    console.error('Tax report error:', err.message);
+    console.error('Tax report error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to build tax report' });
   }
 });
@@ -58,7 +58,7 @@ router.get('/export.csv', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
     res.send(toCsv(report.disposals));
   } catch (err) {
-    console.error('Tax export error:', err.message);
+    console.error('Tax export error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to export tax CSV' });
   }
 });

@@ -41,7 +41,7 @@ router.get('/card', async (req, res) => {
     }
     res.type('png').set('Cache-Control', 'private, max-age=300').send(r.body);
   } catch (err) {
-    console.error('Share card error:', err.message);
+    console.error('Share card error:', err.stack || err.message);
     res.status(502).json({ error: 'Card unavailable' });
   }
 });

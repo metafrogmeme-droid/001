@@ -52,7 +52,7 @@ router.get('/portfolio', async (req, res) => {
       generated_at: new Date().toISOString(),
     });
   } catch (err) {
-    console.error('Wallet portfolio error:', err.message);
+    console.error('Wallet portfolio error:', err.stack || err.message);
     res.status(502).json({ error: 'Wallet read unavailable' });
   }
 });

@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     relay(res, await getGateway(`/news?telegram_id=${encodeURIComponent(ident.id)}`, 15000));
   } catch (err) {
-    console.error('News radar error:', err.message);
+    console.error('News radar error:', err.stack || err.message);
     res.status(502).json({ error: 'News radar unavailable' });
   }
 });

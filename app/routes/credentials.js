@@ -63,7 +63,7 @@ router.get('/status', async (req, res) => {
       crypto_ready: creds.isConfigured(),
     });
   } catch (err) {
-    console.error('Cred status error:', err.message);
+    console.error('Cred status error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read status' });
   }
 });
@@ -111,7 +111,7 @@ router.post('/', credLimit, async (req, res) => {
     secLog('exchange_connect_submitted', req, `venue=${venue}`);
     res.json({ ok: true, pending: 'connect', venue });
   } catch (err) {
-    console.error('Cred submit error:', err.message); // never logs the body
+    console.error('Cred submit error:', err.stack || err.message); // never logs the body
     res.status(500).json({ error: 'Failed to submit credentials' });
   }
 });
@@ -145,7 +145,7 @@ router.delete('/', credLimit, async (req, res) => {
     secLog('exchange_disconnect_requested', req);
     res.json({ ok: true, pending: 'disconnect' });
   } catch (err) {
-    console.error('Cred disconnect error:', err.message);
+    console.error('Cred disconnect error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to queue disconnect' });
   }
 });

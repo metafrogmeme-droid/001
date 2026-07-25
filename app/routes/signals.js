@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
     );
     res.json({ signals: rows });
   } catch (err) {
-    console.error('Signals fetch error:', err.message);
+    console.error('Signals fetch error:', err.stack || err.message);
     // Fail soft — an empty stream is better than a dashboard error.
     res.json({ signals: [] });
   }
@@ -61,7 +61,7 @@ router.get('/stats', async (req, res) => {
       net_pnl: Math.round(parseFloat(r.net_pnl || 0) * 100) / 100,
     });
   } catch (err) {
-    console.error('Signal stats error:', err.message);
+    console.error('Signal stats error:', err.stack || err.message);
     res.json({ resolved: 0, wins: 0, losses: 0, win_rate: 0, net_pnl: 0 });
   }
 });
@@ -83,7 +83,7 @@ router.get('/analytics', async (req, res) => {
     );
     res.json(computeAnalytics(rows));
   } catch (err) {
-    console.error('Signal analytics error:', err.message);
+    console.error('Signal analytics error:', err.stack || err.message);
     res.json(EMPTY_ANALYTICS); // fail soft — empty insights beat a dashboard error
   }
 });

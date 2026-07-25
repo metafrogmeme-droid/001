@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
     const agents = await store.listPublic(req.query.limit);
     res.json({ agents, count: agents.length, community: true });
   } catch (err) {
-    console.error('Public community strategies error:', err.message);
+    console.error('Public community strategies error:', err.stack || err.message);
     res.status(502).json({ error: 'Community strategies unavailable' });
   }
 });
@@ -34,7 +34,7 @@ router.get('/:slug', async (req, res) => {
     if (!agent) return res.status(404).json({ error: 'Strategy not found' });
     res.json({ agent });
   } catch (err) {
-    console.error('Public community strategy error:', err.message);
+    console.error('Public community strategy error:', err.stack || err.message);
     res.status(502).json({ error: 'Community strategy unavailable' });
   }
 });

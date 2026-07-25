@@ -26,7 +26,7 @@ router.get('/latest', async (req, res) => {
     if (!pub) return res.status(404).json({ error: 'No letter yet' });
     res.json({ letter: pub });
   } catch (err) {
-    console.error('Public letter latest error:', err.message);
+    console.error('Public letter latest error:', err.stack || err.message);
     res.status(500).json({ error: 'Letter unavailable' });
   }
 });
@@ -36,7 +36,7 @@ router.get('/archive', async (req, res) => {
     const rows = await letters.listLetters(12);
     res.json({ weeks: rows.map(r => r.week_key) });
   } catch (err) {
-    console.error('Public letter archive error:', err.message);
+    console.error('Public letter archive error:', err.stack || err.message);
     res.status(500).json({ error: 'Archive unavailable' });
   }
 });
@@ -47,7 +47,7 @@ router.get('/:week', async (req, res) => {
     if (!pub) return res.status(404).json({ error: 'No letter for that week' });
     res.json({ letter: pub });
   } catch (err) {
-    console.error('Public letter fetch error:', err.message);
+    console.error('Public letter fetch error:', err.stack || err.message);
     res.status(500).json({ error: 'Letter unavailable' });
   }
 });

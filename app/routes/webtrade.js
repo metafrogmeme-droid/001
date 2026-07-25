@@ -77,7 +77,7 @@ router.post('/propose', tradeLimit, async (req, res) => {
     });
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Trade propose proxy error:', err.message);
+    console.error('Trade propose proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Trading unavailable' });
   }
 });
@@ -124,7 +124,7 @@ router.post('/confirm', tradeLimit, async (req, res) => {
     }, 30000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Trade confirm proxy error:', err.message);
+    console.error('Trade confirm proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Trading unavailable' });
   }
 });
@@ -146,7 +146,7 @@ router.post('/copilot', tradeLimit, async (req, res) => {
     }, 12000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Trade copilot proxy error:', err.message);
+    console.error('Trade copilot proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Co-pilot unavailable' });
   }
 });
@@ -166,7 +166,7 @@ router.post('/cancel', tradeLimit, async (req, res) => {
     });
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Trade cancel proxy error:', err.message);
+    console.error('Trade cancel proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Trading unavailable' });
   }
 });

@@ -266,7 +266,7 @@ async function sendVerificationEmail(userId, email) {
     });
     return true;
   } catch (err) {
-    console.error('sendVerificationEmail error:', err.message);
+    console.error('sendVerificationEmail error:', err.stack || err.message);
     return false;
   }
 }
@@ -328,7 +328,7 @@ router.post('/register', async (req, res) => {
   } catch (err) {
     // Uniform response to prevent user enumeration (don't reveal ER_DUP_ENTRY)
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Registration failed. Please try a different email.' });
-    console.error('Register error:', err.message);
+    console.error('Register error:', err.stack || err.message);
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -398,7 +398,7 @@ router.post('/login', async (req, res) => {
     clearAccountFailures(normalizedEmail);
     res.json(await sessionResponse(user));
   } catch (err) {
-    console.error('Login error:', err.message);
+    console.error('Login error:', err.stack || err.message);
     res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -417,7 +417,7 @@ router.get('/me', authMiddleware, async (req, res) => {
                sol_address: user.sol_address || null,
                has_password: !!user.password_hash, equity });
   } catch (err) {
-    console.error('Me error:', err.message);
+    console.error('Me error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
@@ -533,7 +533,7 @@ router.get('/referrals', authMiddleware, async (req, res) => {
     const count = joined.length;
     res.json({ code, count, ...referralTier(count) });
   } catch (err) {
-    console.error('Referrals error:', err.message);
+    console.error('Referrals error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to load referrals' });
   }
 });
@@ -548,7 +548,7 @@ router.post('/link-token', authMiddleware, async (req, res) => {
     );
     res.json({ token });
   } catch (err) {
-    console.error('Link token error:', err.message);
+    console.error('Link token error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to generate token' });
   }
 });
@@ -581,7 +581,7 @@ router.post('/validate-token', async (req, res) => {
 
     res.json({ user_id: user.id, email: user.email, plan: user.plan });
   } catch (err) {
-    console.error('Validate token error:', err.message);
+    console.error('Validate token error:', err.stack || err.message);
     res.status(500).json({ error: 'Token validation failed' });
   }
 });
@@ -699,7 +699,7 @@ router.post('/wallet/verify', async (req, res) => {
     });
     res.json(await sessionResponse(user, { provider: 'wallet' }));
   } catch (err) {
-    console.error('Wallet verify error:', err.message);
+    console.error('Wallet verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Wallet sign-in failed' });
   }
 });
@@ -741,7 +741,7 @@ router.post('/wallet/link', authMiddleware, async (req, res) => {
       [lower, req.user.user_id]);
     res.json({ ok: true, address: lower });
   } catch (err) {
-    console.error('Wallet link error:', err.message);
+    console.error('Wallet link error:', err.stack || err.message);
     res.status(500).json({ error: 'Wallet link failed' });
   }
 });
@@ -769,7 +769,7 @@ router.post('/wallet/link-code', authMiddleware, async (req, res) => {
     } catch (e) { /* QR lib missing → the URL alone still works */ }
     res.json({ code, url, svg, expires_in_sec: LINK_CODE_TTL_MS / 1000 });
   } catch (err) {
-    console.error('Wallet link-code error:', err.message);
+    console.error('Wallet link-code error:', err.stack || err.message);
     res.status(500).json({ error: 'Could not create a link code' });
   }
 });
@@ -810,7 +810,7 @@ router.post('/wallet/link-by-code', async (req, res) => {
       [lower, rec.userId]);
     res.json({ ok: true, address: lower });
   } catch (err) {
-    console.error('Wallet link-by-code error:', err.message);
+    console.error('Wallet link-by-code error:', err.stack || err.message);
     res.status(500).json({ error: 'Wallet link failed' });
   }
 });
@@ -821,7 +821,7 @@ router.post('/wallet/unlink', authMiddleware, async (req, res) => {
       [null, req.user.user_id]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Wallet unlink error:', err.message);
+    console.error('Wallet unlink error:', err.stack || err.message);
     res.status(500).json({ error: 'Wallet unlink failed' });
   }
 });
@@ -843,7 +843,7 @@ router.post('/wallet/solana/nonce', authMiddleware, async (req, res) => {
     await _linkStore.putNonce('sol:' + address, message, Date.now() + _NONCE_TTL_MS);
     res.json({ message });
   } catch (err) {
-    console.error('Solana nonce error:', err.message);
+    console.error('Solana nonce error:', err.stack || err.message);
     res.status(500).json({ error: 'Could not start Solana wallet link' });
   }
 });
@@ -878,7 +878,7 @@ router.post('/wallet/solana', authMiddleware, async (req, res) => {
       [address, req.user.user_id]);
     res.json({ ok: true, sol_address: address, verified });
   } catch (err) {
-    console.error('Solana link error:', err.message);
+    console.error('Solana link error:', err.stack || err.message);
     res.status(500).json({ error: 'Solana address link failed' });
   }
 });
@@ -889,7 +889,7 @@ router.post('/wallet/solana/unlink', authMiddleware, async (req, res) => {
       [null, req.user.user_id]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Solana watch unlink error:', err.message);
+    console.error('Solana watch unlink error:', err.stack || err.message);
     res.status(500).json({ error: 'Solana address unlink failed' });
   }
 });
@@ -908,7 +908,7 @@ router.post('/telegram', async (req, res) => {
     });
     res.json(await sessionResponse(user));
   } catch (err) {
-    console.error('Telegram auth error:', err.message);
+    console.error('Telegram auth error:', err.stack || err.message);
     res.status(500).json({ error: 'Telegram login failed' });
   }
 });
@@ -935,7 +935,7 @@ router.post('/google', async (req, res) => {
     });
     res.json(await sessionResponse(user));
   } catch (err) {
-    console.error('Google auth error:', err.message);
+    console.error('Google auth error:', err.stack || err.message);
     res.status(500).json({ error: 'Google login failed' });
   }
 });
@@ -963,7 +963,7 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Change-password error:', err.message);
+    console.error('Change-password error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -1009,7 +1009,7 @@ router.post('/forgot-password', async (req, res) => {
     }
     res.json(generic);
   } catch (err) {
-    console.error('Forgot-password error:', err.message);
+    console.error('Forgot-password error:', err.stack || err.message);
     // Still return the generic body — don't leak that something errored.
     res.json(generic);
   }
@@ -1036,7 +1036,7 @@ router.post('/reset-password', async (req, res) => {
     clearAccountFailures(String(rows[0].email).trim().toLowerCase());
     res.json({ ok: true });
   } catch (err) {
-    console.error('Reset-password error:', err.message);
+    console.error('Reset-password error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to reset password' });
   }
 });
@@ -1055,7 +1055,7 @@ router.post('/verify-email', async (req, res) => {
       [rows[0].id]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Verify-email error:', err.message);
+    console.error('Verify-email error:', err.stack || err.message);
     res.status(500).json({ error: 'Verification failed' });
   }
 });
@@ -1073,7 +1073,7 @@ router.post('/send-verification', authMiddleware, async (req, res) => {
     await sendVerificationEmail(rows[0].id, rows[0].email);
     res.json({ ok: true, sent: mailer.isConfigured() });
   } catch (err) {
-    console.error('Send-verification error:', err.message);
+    console.error('Send-verification error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to send verification' });
   }
 });
@@ -1176,7 +1176,7 @@ router.get('/oauth/:provider/callback', async (req, res) => {
     )).toString('base64');
     res.redirect(`/#oauth=${payload}`);
   } catch (err) {
-    console.error(`OAuth ${provider} callback error:`, err.message);
+    console.error(`OAuth ${provider} callback error:`, err.stack || err.message);
     return fail('login failed');
   }
 });

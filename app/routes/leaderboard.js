@@ -65,7 +65,7 @@ router.get('/', async (req, res) => {
     const my_rank = myIdx >= 0 ? myIdx + 1 : null;
     res.json({ rows, opted_in: !!handle, handle, my_rank, ranked_total: scored.length });
   } catch (err) {
-    console.error('Leaderboard error:', err.message);
+    console.error('Leaderboard error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to load leaderboard' });
   }
 });
@@ -85,7 +85,7 @@ router.post('/opt-in', optLimit, async (req, res) => {
     await pool.execute('UPDATE users SET leaderboard_handle = ? WHERE id = ?', [handle, req.user.user_id]);
     res.json({ ok: true, handle });
   } catch (err) {
-    console.error('Leaderboard opt-in error:', err.message);
+    console.error('Leaderboard opt-in error:', err.stack || err.message);
     res.status(500).json({ error: 'Could not join the leaderboard' });
   }
 });
@@ -96,7 +96,7 @@ router.post('/opt-out', optLimit, async (req, res) => {
     await pool.execute('UPDATE users SET leaderboard_handle = ? WHERE id = ?', [null, req.user.user_id]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Leaderboard opt-out error:', err.message);
+    console.error('Leaderboard opt-out error:', err.stack || err.message);
     res.status(500).json({ error: 'Could not leave the leaderboard' });
   }
 });

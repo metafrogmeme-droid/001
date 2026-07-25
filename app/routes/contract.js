@@ -59,7 +59,7 @@ router.post('/studio', studioLimit, async (req, res) => {
     const r = await gateway.postGateway('/contract/studio', payload, STUDIO_TIMEOUT_MS);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Contract Studio proxy error:', err.message);
+    console.error('Contract Studio proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Contract Studio unavailable' });
   }
 });
@@ -89,7 +89,7 @@ router.post('/compile', compileLimit, async (req, res) => {
     const r = await gateway.postGateway('/contract/compile', payload, COMPILE_TIMEOUT_MS);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Contract compile proxy error:', err.message);
+    console.error('Contract compile proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Contract compile unavailable' });
   }
 });

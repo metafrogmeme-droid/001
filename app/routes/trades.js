@@ -80,7 +80,7 @@ router.get('/stats', async (req, res) => {
       losses: totalTrades - wins,
     });
   } catch (err) {
-    console.error('Stats error:', err.message);
+    console.error('Stats error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to compute stats' });
   }
 });
@@ -106,7 +106,7 @@ router.get('/history', async (req, res) => {
 
     res.json({ trades: rows, total: parseInt(countRows[0].total) });
   } catch (err) {
-    console.error('History error:', err.message);
+    console.error('History error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch history' });
   }
 });
@@ -123,7 +123,7 @@ router.get('/open', async (req, res) => {
     );
     res.json({ positions: rows });
   } catch (err) {
-    console.error('Open error:', err.message);
+    console.error('Open error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch positions' });
   }
 });
@@ -144,7 +144,7 @@ router.patch('/:id/notes', notesLimit, async (req, res) => {
     if (!result.affectedRows) return res.status(404).json({ error: 'Trade not found' });
     res.json({ ok: true });
   } catch (err) {
-    console.error('Trade notes error:', err.message);
+    console.error('Trade notes error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to save note' });
   }
 });
@@ -172,7 +172,7 @@ router.get('/activity', async (req, res) => {
     events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     res.json({ events: events.slice(0, limit) });
   } catch (err) {
-    console.error('Activity error:', err.message);
+    console.error('Activity error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch activity' });
   }
 });
@@ -198,7 +198,7 @@ router.get('/breakdown', async (req, res) => {
     const startEquity = snap.length > 0 ? Math.max(parseFloat(snap[0].equity) - net, 1) : 10000;
     res.json(computePerformance(rows, { startEquity }));
   } catch (err) {
-    console.error('Breakdown error:', err.message);
+    console.error('Breakdown error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to compute breakdown' });
   }
 });
@@ -229,7 +229,7 @@ router.get('/equity-curve', async (req, res) => {
       capital_events: Math.max(0, segments.length - 1),
     });
   } catch (err) {
-    console.error('Equity curve error:', err.message);
+    console.error('Equity curve error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch equity curve' });
   }
 });

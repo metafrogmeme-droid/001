@@ -30,7 +30,7 @@ router.get('/', authMiddleware, async (req, res) => {
       'SELECT symbol FROM user_watchlist WHERE user_id = ?', [req.user.user_id]);
     res.json({ symbols: rows.map((r) => r.symbol), max: MAX_WATCH });
   } catch (err) {
-    console.error('Watchlist error:', err.message);
+    console.error('Watchlist error:', err.stack || err.message);
     res.status(500).json({ error: 'Watchlist unavailable' });
   }
 });
@@ -55,7 +55,7 @@ router.post('/toggle', authMiddleware, async (req, res) => {
       [userId, sym, new Date()]);
     res.json({ ok: true, watching: true, symbol: sym });
   } catch (err) {
-    console.error('Watchlist toggle error:', err.message);
+    console.error('Watchlist toggle error:', err.stack || err.message);
     res.status(500).json({ error: 'Watchlist update failed' });
   }
 });

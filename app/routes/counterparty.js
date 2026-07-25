@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
     const holdings = await buildHoldings(ident, req.user.user_id);
     res.json({ read_only: true, ...computeCounterparty(holdings), generated_at: holdings.generated_at });
   } catch (err) {
-    console.error('Counterparty error:', err.message);
+    console.error('Counterparty error:', err.stack || err.message);
     res.status(502).json({ error: 'Counterparty monitor unavailable' });
   }
 });

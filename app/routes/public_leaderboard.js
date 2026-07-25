@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
     }
     relay(res, r);
   } catch (err) {
-    console.error('Public leaderboard error:', err.message);
+    console.error('Public leaderboard error:', err.stack || err.message);
     res.status(502).json({ error: 'Leaderboard unavailable' });
   }
 });

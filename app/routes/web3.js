@@ -29,7 +29,7 @@ router.get('/identity', async (req, res) => {
     const identity = await resolveIdentity(address);
     res.json({ read_only: true, linked: true, ...identity });
   } catch (err) {
-    console.error('Web3 identity error:', err.message);
+    console.error('Web3 identity error:', err.stack || err.message);
     res.status(502).json({ error: 'Identity unavailable' });
   }
 });
@@ -51,7 +51,7 @@ router.get('/collectibles', async (req, res) => {
       note: nft.note,
     });
   } catch (err) {
-    console.error('Web3 collectibles error:', err.message);
+    console.error('Web3 collectibles error:', err.stack || err.message);
     res.status(502).json({ error: 'Collectibles unavailable' });
   }
 });
@@ -86,7 +86,7 @@ router.get('/profile', async (req, res) => {
       note: 'Badges are earned only from what your wallet verifiably holds right now — no self-reported claims.',
     });
   } catch (err) {
-    console.error('Web3 profile error:', err.message);
+    console.error('Web3 profile error:', err.stack || err.message);
     res.status(502).json({ error: 'Profile unavailable' });
   }
 });

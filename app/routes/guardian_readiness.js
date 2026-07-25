@@ -122,7 +122,7 @@ router.get('/', async (req, res) => {
     out.generated_at = new Date().toISOString();
     return res.json(out);
   } catch (err) {
-    console.error('Guardian readiness compose error:', err.message);
+    console.error('Guardian readiness compose error:', err.stack || err.message);
     return res.status(502).json({ error: 'Readiness score unavailable' });
   }
 });

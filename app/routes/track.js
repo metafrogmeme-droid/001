@@ -123,7 +123,7 @@ router.get('/track-record', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=120');
     res.json(payload);
   } catch (err) {
-    console.error('Track record error:', err.message);
+    console.error('Track record error:', err.stack || err.message);
     res.status(500).json({ error: 'Track record unavailable' });
   }
 });
@@ -175,7 +175,7 @@ router.get('/replay-trade', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=120');
     res.json(payload);
   } catch (err) {
-    console.error('Replay trade error:', err.message);
+    console.error('Replay trade error:', err.stack || err.message);
     res.status(500).json({ error: 'Replay trade unavailable' });
   }
 });

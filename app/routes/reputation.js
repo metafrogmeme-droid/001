@@ -37,7 +37,7 @@ router.get('/', async (req, res) => {
     const startEquity = snap.length > 0 ? Math.max(parseFloat(snap[0].equity) - net, 1) : 10000;
     res.json(computeReputation(rows, { startEquity }));
   } catch (err) {
-    console.error('Reputation error:', err.message);
+    console.error('Reputation error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to compute reputation' });
   }
 });

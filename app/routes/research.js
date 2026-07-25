@@ -46,7 +46,7 @@ router.get('/:symbol', async (req, res) => {
     if (!d) return res.status(404).json({ error: 'Not listed on the venue — no trusted data' });
     res.json(d);
   } catch (err) {
-    console.error('Research error:', err.message);
+    console.error('Research error:', err.stack || err.message);
     res.status(500).json({ error: 'Research unavailable' });
   }
 });

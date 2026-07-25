@@ -49,7 +49,7 @@ router.post('/', publicChatLimit, async (req, res) => {
     const r = await gateway.postGateway('/chat/public', payload, CHAT_TIMEOUT_MS);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Public chat proxy error:', err.message);
+    console.error('Public chat proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Chat unavailable' });
   }
 });

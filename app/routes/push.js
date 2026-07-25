@@ -64,7 +64,7 @@ router.post('/subscribe', subLimit, async (req, res) => {
                                        auth: String(keys.auth).slice(0, 100) })]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Push subscribe error:', err.message);
+    console.error('Push subscribe error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to subscribe' });
   }
 });
@@ -79,7 +79,7 @@ router.post('/unsubscribe', subLimit, async (req, res) => {
       [req.user.user_id, endpoint]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Push unsubscribe error:', err.message);
+    console.error('Push unsubscribe error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to unsubscribe' });
   }
 });

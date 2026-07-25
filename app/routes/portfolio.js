@@ -228,11 +228,11 @@ router.get('/', pfLimit, async (req, res) => {
     try {
       await writeThrough(userId, pf);
     } catch (err) {
-      console.error('Portfolio write-through error:', err.message);
+      console.error('Portfolio write-through error:', err.stack || err.message);
     }
     return res.json({ ...pf, linked: ident.linked, stale: false });
   } catch (err) {
-    console.error('Portfolio proxy error:', err.message);
+    console.error('Portfolio proxy error:', err.stack || err.message);
     try {
       const fb = await dbFallback(userId);
       return res.json({ ...fb, mode: 'PAPER' });

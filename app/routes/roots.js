@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=60');
     res.json(cache.body);
   } catch (err) {
-    console.error('Seal roots error:', err.message);
+    console.error('Seal roots error:', err.stack || err.message);
     res.status(500).json({ error: 'Roots feed unavailable' });
   }
 });

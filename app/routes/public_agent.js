@@ -39,7 +39,7 @@ router.get('/:address', async (req, res) => {
     }
     relay(res, r);
   } catch (err) {
-    console.error('Public agent error:', err.message);
+    console.error('Public agent error:', err.stack || err.message);
     res.status(502).json({ error: 'Agent directory unavailable' });
   }
 });

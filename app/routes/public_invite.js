@@ -40,7 +40,7 @@ router.get('/:code', async (req, res) => {
     cache.set(code, { at: now, ...out });
     res.status(out.status).json(out.data);
   } catch (err) {
-    console.error('Public invite error:', err.message);
+    console.error('Public invite error:', err.stack || err.message);
     res.status(500).json({ error: 'Invite lookup unavailable' });
   }
 });

@@ -24,7 +24,7 @@ router.get('/', readLimit, async (req, res) => {
       max: store.MAX_PER_USER, max_public: store.MAX_PUBLIC_PER_USER,
     });
   } catch (err) {
-    console.error('Strategies list error:', err.message);
+    console.error('Strategies list error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to load strategies' });
   }
 });
@@ -36,7 +36,7 @@ router.post('/', writeLimit, async (req, res) => {
     if (!r.ok) return res.status(400).json({ error: r.error });
     res.json({ ok: true, slug: r.slug });
   } catch (err) {
-    console.error('Strategy create error:', err.message);
+    console.error('Strategy create error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to create strategy' });
   }
 });
@@ -48,7 +48,7 @@ router.put('/:id', writeLimit, async (req, res) => {
     if (!r.ok) return res.status(r.error === 'Strategy not found.' ? 404 : 400).json({ error: r.error });
     res.json({ ok: true });
   } catch (err) {
-    console.error('Strategy update error:', err.message);
+    console.error('Strategy update error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to update strategy' });
   }
 });
@@ -60,7 +60,7 @@ router.delete('/:id', writeLimit, async (req, res) => {
     if (!ok) return res.status(404).json({ error: 'Strategy not found' });
     res.json({ ok: true });
   } catch (err) {
-    console.error('Strategy delete error:', err.message);
+    console.error('Strategy delete error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to delete strategy' });
   }
 });
@@ -72,7 +72,7 @@ router.post('/:id/publish', writeLimit, async (req, res) => {
     if (!r.ok) return res.status(r.error === 'Strategy not found.' ? 404 : 400).json({ error: r.error });
     res.json({ ok: true, visibility: r.visibility });
   } catch (err) {
-    console.error('Strategy publish error:', err.message);
+    console.error('Strategy publish error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to publish strategy' });
   }
 });
@@ -82,7 +82,7 @@ router.post('/:id/unpublish', writeLimit, async (req, res) => {
     if (!r.ok) return res.status(404).json({ error: r.error });
     res.json({ ok: true, visibility: r.visibility });
   } catch (err) {
-    console.error('Strategy unpublish error:', err.message);
+    console.error('Strategy unpublish error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to unpublish strategy' });
   }
 });

@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
       `/guardian/review?telegram_id=${encodeURIComponent(ident.id)}`, 12000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Guardian review proxy error:', err.message);
+    console.error('Guardian review proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Review queue unavailable' });
   }
 });
@@ -56,7 +56,7 @@ router.post('/tighten', async (req, res) => {
     }, 15000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Guardian tighten proxy error:', err.message);
+    console.error('Guardian tighten proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Tightening unavailable' });
   }
 });

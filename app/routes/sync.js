@@ -63,7 +63,7 @@ router.get('/scan', async (req, res) => {
       return res.json({ scan: latestScan });
     }
   } catch (err) {
-    console.error('Scan cache load error:', err.message);
+    console.error('Scan cache load error:', err.stack || err.message);
   }
   return res.json({ scan: null, message: 'No scan data yet. Run /scan in Telegram.' });
 });
@@ -249,7 +249,7 @@ router.post('/', async (req, res) => {
     nudge('portfolio');
     res.json({ ok: true, synced: { closed: closedCount, open: openCount, equity: eq } });
   } catch (err) {
-    console.error('Sync error:', err.message);
+    console.error('Sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Sync failed' });
   }
 });
@@ -303,7 +303,7 @@ router.post('/trade-event', async (req, res) => {
     nudge('trade');
     res.json({ ok: true });
   } catch (err) {
-    console.error('Trade event error:', err.message);
+    console.error('Trade event error:', err.stack || err.message);
     res.status(500).json({ error: 'Trade event failed' });
   }
 });
@@ -331,7 +331,7 @@ router.post('/tiers', async (req, res) => {
     }
     res.json({ ok: true, received: rows.length, updated });
   } catch (err) {
-    console.error('Tier sync error:', err.message);
+    console.error('Tier sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Tier sync failed' });
   }
 });
@@ -357,7 +357,7 @@ router.post('/reports', async (req, res) => {
     nudge('reports');
     res.json({ ok: true });
   } catch (err) {
-    console.error('Reports sync error:', err.message);
+    console.error('Reports sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Reports sync failed' });
   }
 });
@@ -387,7 +387,7 @@ router.get('/stance/pending', async (req, res) => {
       'SELECT mode, requested_by, telegram_id FROM pending_stance WHERE id = 1');
     res.json({ pending: rows[0] || null });
   } catch (err) {
-    console.error('Stance pending error:', err.message);
+    console.error('Stance pending error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read pending stance' });
   }
 });
@@ -396,7 +396,7 @@ router.post('/stance/ack', async (req, res) => {
     await pool.execute('DELETE FROM pending_stance WHERE id = 1');
     res.json({ ok: true });
   } catch (err) {
-    console.error('Stance ack error:', err.message);
+    console.error('Stance ack error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to ack stance' });
   }
 });
@@ -485,7 +485,7 @@ router.post('/events', async (req, res) => {
     }
     res.json({ ok: true, inserted });
   } catch (err) {
-    console.error('Agent feed sync error:', err.message);
+    console.error('Agent feed sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Feed sync failed' });
   }
 });
@@ -537,7 +537,7 @@ router.post('/scan', async (req, res) => {
     nudge('scan');
     res.json({ ok: true });
   } catch (err) {
-    console.error('Scan sync error:', err.message);
+    console.error('Scan sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Scan sync failed' });
   }
 });
@@ -582,7 +582,7 @@ router.post('/flight', async (req, res) => {
     nudge('flight', { count: records.length, chain_ok: chain.ok !== false });
     res.json({ ok: true, stored: records.length });
   } catch (err) {
-    console.error('Flight sync error:', err.message);
+    console.error('Flight sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Flight sync failed' });
   }
 });
@@ -661,7 +661,7 @@ router.post('/signals', async (req, res) => {
     nudge('signals');
     res.json({ ok: true, upserted });
   } catch (err) {
-    console.error('Signals sync error:', err.message);
+    console.error('Signals sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Signals sync failed' });
   }
 });
@@ -680,7 +680,7 @@ router.get('/credentials/pending', async (req, res) => {
     );
     res.json({ pending: rows });
   } catch (err) {
-    console.error('Cred pending fetch error:', err.message);
+    console.error('Cred pending fetch error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch pending credentials' });
   }
 });
@@ -717,7 +717,7 @@ router.post('/credentials/ack', async (req, res) => {
     }
     res.json({ ok: true, applied });
   } catch (err) {
-    console.error('Cred ack error:', err.message);
+    console.error('Cred ack error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to ack credentials' });
   }
 });
@@ -735,7 +735,7 @@ router.get('/controls/pending', async (req, res) => {
     );
     res.json({ pending: rows });
   } catch (err) {
-    console.error('Controls pending fetch error:', err.message);
+    console.error('Controls pending fetch error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch pending controls' });
   }
 });
@@ -769,7 +769,7 @@ router.post('/controls/ack', async (req, res) => {
     }
     res.json({ ok: true, applied });
   } catch (err) {
-    console.error('Controls ack error:', err.message);
+    console.error('Controls ack error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to ack controls' });
   }
 });
@@ -786,7 +786,7 @@ router.get('/flatten/pending', async (req, res) => {
       'SELECT user_id, telegram_id, created_at FROM pending_flatten ORDER BY created_at ASC LIMIT 200');
     res.json({ pending: rows });
   } catch (err) {
-    console.error('Flatten pending error:', err.message);
+    console.error('Flatten pending error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch flatten requests' });
   }
 });
@@ -804,7 +804,7 @@ router.post('/flatten/ack', async (req, res) => {
     }
     res.json({ ok: true, applied });
   } catch (err) {
-    console.error('Flatten ack error:', err.message);
+    console.error('Flatten ack error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to ack flatten' });
   }
 });
@@ -828,7 +828,7 @@ router.get('/leaderboard/pending', async (req, res) => {
     );
     res.json({ optins: rows });
   } catch (err) {
-    console.error('Leaderboard pending fetch error:', err.message);
+    console.error('Leaderboard pending fetch error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to fetch leaderboard opt-ins' });
   }
 });
@@ -848,7 +848,7 @@ router.get('/exposure', async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'No linked web account' });
     res.json(await require('../lib/exposure').buildExposure(rows[0].id));
   } catch (err) {
-    console.error('Sync exposure error:', err.message);
+    console.error('Sync exposure error:', err.stack || err.message);
     res.status(500).json({ error: 'Exposure unavailable' });
   }
 });
@@ -862,7 +862,7 @@ router.get('/research/:symbol', async (req, res) => {
     if (!d) return res.status(404).json({ error: 'Not listed on the venue — no trusted data' });
     res.json(d);
   } catch (err) {
-    console.error('Sync research error:', err.message);
+    console.error('Sync research error:', err.stack || err.message);
     res.status(500).json({ error: 'Research unavailable' });
   }
 });
@@ -871,7 +871,7 @@ router.get('/rwa', async (req, res) => {
   try {
     res.json(await require('../lib/rwa').getRadar());
   } catch (err) {
-    console.error('Sync rwa error:', err.message);
+    console.error('Sync rwa error:', err.stack || err.message);
     res.status(500).json({ error: 'RWA radar unavailable' });
   }
 });
@@ -882,7 +882,7 @@ router.get('/onchain-flow', async (req, res) => {
   try {
     res.json(await require('../lib/onchain_flow').getFlowRadar());
   } catch (err) {
-    console.error('Sync onchain-flow error:', err.message);
+    console.error('Sync onchain-flow error:', err.stack || err.message);
     res.status(500).json({ error: 'Flow radar unavailable' });
   }
 });

@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     relay(res, await getGateway(`/proofofpnl?telegram_id=${encodeURIComponent(ident.id)}`, 15000));
   } catch (err) {
-    console.error('Proof-of-PnL error:', err.message);
+    console.error('Proof-of-PnL error:', err.stack || err.message);
     res.status(502).json({ error: 'Proof-of-PnL unavailable' });
   }
 });

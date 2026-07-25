@@ -55,7 +55,7 @@ router.get('/', async (req, res) => {
   try {
     res.json({ following: await followingIds(req.user.user_id) });
   } catch (err) {
-    console.error('Copy list error:', err.message);
+    console.error('Copy list error:', err.stack || err.message);
     res.json({ following: [] });
   }
 });
@@ -75,7 +75,7 @@ router.post('/follow', writeLimit, async (req, res) => {
        ON DUPLICATE KEY UPDATE agent_id = VALUES(agent_id)`, [uid, agentId]);
     res.json({ ok: true, following: await followingIds(uid) });
   } catch (err) {
-    console.error('Copy follow error:', err.message);
+    console.error('Copy follow error:', err.stack || err.message);
     res.status(500).json({ error: 'follow_failed' });
   }
 });
@@ -89,7 +89,7 @@ router.post('/unfollow', writeLimit, async (req, res) => {
       'DELETE FROM copy_subscriptions WHERE user_id = ? AND agent_id = ?', [uid, agentId]);
     res.json({ ok: true, following: await followingIds(uid) });
   } catch (err) {
-    console.error('Copy unfollow error:', err.message);
+    console.error('Copy unfollow error:', err.stack || err.message);
     res.status(500).json({ error: 'unfollow_failed' });
   }
 });
@@ -123,7 +123,7 @@ router.get('/picks', async (req, res) => {
       : 'The agent catalogue needs the bot bridge to resolve each agent’s gates.';
     res.json({ agents, note });
   } catch (err) {
-    console.error('Copy picks error:', err.message);
+    console.error('Copy picks error:', err.stack || err.message);
     res.json({ agents: [], note: '' });
   }
 });

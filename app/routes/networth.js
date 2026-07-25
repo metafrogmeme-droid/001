@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     res.json(await buildNetWorth(ident, req.user.user_id));
   } catch (err) {
-    console.error('Net worth error:', err.message);
+    console.error('Net worth error:', err.stack || err.message);
     res.status(500).json({ error: 'Net worth unavailable' });
   }
 });

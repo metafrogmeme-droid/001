@@ -43,7 +43,7 @@ router.post('/execute', async (req, res) => {
     }, 15000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Web3 execute preview proxy error:', err.message);
+    console.error('Web3 execute preview proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Web3 execution unavailable' });
   }
 });
@@ -81,7 +81,7 @@ router.post('/sign', async (req, res) => {
     }, 20000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Web3 sign proxy error:', err.message);
+    console.error('Web3 sign proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Web3 signing unavailable' });
   }
 });
@@ -112,7 +112,7 @@ router.post('/cross-plan', async (req, res) => {
     }, 15000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Cross-yield plan proxy error:', err.message);
+    console.error('Cross-yield plan proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Yield execution unavailable' });
   }
 });
@@ -146,7 +146,7 @@ router.post('/deploy', async (req, res) => {
     }, 30000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Web3 deploy proxy error:', err.message);
+    console.error('Web3 deploy proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Web3 deploy unavailable' });
   }
 });
@@ -169,7 +169,7 @@ router.get('/sign/status', async (req, res) => {
     const r = await gateway.getGateway(`/web3/sign/status?telegram_id=${q}`, 12000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Web3 sign status proxy error:', err.message);
+    console.error('Web3 sign status proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Web3 signing unavailable' });
   }
 });
@@ -195,7 +195,7 @@ router.post('/sign/prepare', async (req, res) => {
     }, 15000);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Web3 sign prepare proxy error:', err.message);
+    console.error('Web3 sign prepare proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Web3 signing unavailable' });
   }
 });

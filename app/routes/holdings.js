@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
     const ident = await resolveBotIdentity(req);
     res.json(await buildHoldings(ident, req.user.user_id));
   } catch (err) {
-    console.error('Holdings error:', err.message);
+    console.error('Holdings error:', err.stack || err.message);
     res.status(500).json({ error: 'Holdings unavailable' });
   }
 });

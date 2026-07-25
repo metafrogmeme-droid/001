@@ -38,7 +38,7 @@ router.get('/', readLimit, async (req, res) => {
       max_active: alerts.MAX_ACTIVE_PER_USER,
     });
   } catch (err) {
-    console.error('Alerts list error:', err.message);
+    console.error('Alerts list error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to load alerts' });
   }
 });
@@ -59,7 +59,7 @@ router.post('/', writeLimit, async (req, res) => {
     if (!r.ok) return res.status(400).json({ error: r.error });
     res.json({ ok: true, label: alerts.describeCondition(r.alert), now: r.now });
   } catch (err) {
-    console.error('Alert create error:', err.message);
+    console.error('Alert create error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to create alert' });
   }
 });
@@ -71,7 +71,7 @@ router.delete('/:id', writeLimit, async (req, res) => {
     if (!ok) return res.status(404).json({ error: 'Alert not found' });
     res.json({ ok: true });
   } catch (err) {
-    console.error('Alert delete error:', err.message);
+    console.error('Alert delete error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to delete alert' });
   }
 });

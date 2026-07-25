@@ -92,7 +92,7 @@ router.get('/', async (req, res) => {
     }
     return res.json(out);
   } catch (err) {
-    console.error('Cross-yield planner error:', err.message);
+    console.error('Cross-yield planner error:', err.stack || err.message);
     return res.status(502).json({ error: 'Yield planner unavailable' });
   }
 });

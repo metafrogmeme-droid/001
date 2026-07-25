@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
     if (r.status >= 200 && r.status < 300) cache = { at: now, status: 200, data: r.data };
     relay(res, r);
   } catch (err) {
-    console.error('Public Proof-of-PnL error:', err.message);
+    console.error('Public Proof-of-PnL error:', err.stack || err.message);
     res.status(502).json({ error: 'Proof-of-PnL unavailable' });
   }
 });

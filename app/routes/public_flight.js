@@ -53,7 +53,7 @@ router.get('/', async (req, res) => {
     cache = { at: now, body };
     res.json(body);
   } catch (err) {
-    console.error('Public flight error:', err.message);
+    console.error('Public flight error:', err.stack || err.message);
     res.status(502).json({ error: 'Flight recorder unavailable' });
   }
 });
@@ -67,7 +67,7 @@ router.get('/:decisionId', async (req, res) => {
     if (!rec) return res.status(404).json({ error: 'Decision not found in recent window' });
     res.json({ record: sanitizeRecord(rec), chain: (flight && flight.chain) || {} });
   } catch (err) {
-    console.error('Public flight-by-id error:', err.message);
+    console.error('Public flight-by-id error:', err.stack || err.message);
     res.status(502).json({ error: 'Flight recorder unavailable' });
   }
 });

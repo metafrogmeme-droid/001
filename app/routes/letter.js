@@ -22,7 +22,7 @@ router.get('/latest', async (req, res) => {
     const r = await letters.getLetter(letters.lastCompletedWeek());
     res.json({ generated_at: r.generated_at, letter: r.letter });
   } catch (err) {
-    console.error('Letter latest error:', err.message);
+    console.error('Letter latest error:', err.stack || err.message);
     res.status(500).json({ error: 'Letter unavailable' });
   }
 });
@@ -31,7 +31,7 @@ router.get('/archive', async (req, res) => {
   try {
     res.json({ letters: await letters.listLetters(12) });
   } catch (err) {
-    console.error('Letter archive error:', err.message);
+    console.error('Letter archive error:', err.stack || err.message);
     res.status(500).json({ error: 'Archive unavailable' });
   }
 });
@@ -42,7 +42,7 @@ router.get('/:week', async (req, res) => {
     if (!r) return res.status(404).json({ error: 'No letter for that week' });
     res.json(r);
   } catch (err) {
-    console.error('Letter fetch error:', err.message);
+    console.error('Letter fetch error:', err.stack || err.message);
     res.status(500).json({ error: 'Letter unavailable' });
   }
 });

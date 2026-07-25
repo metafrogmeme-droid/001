@@ -45,7 +45,7 @@ router.get('/flight', async (req, res) => {
       updated_at: flight.updated_at || null,
     });
   } catch (err) {
-    console.error('Guardian flight error:', err.message);
+    console.error('Guardian flight error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read flight records' });
   }
 });
@@ -62,7 +62,7 @@ router.get('/flight/:decisionId', async (req, res) => {
     if (!rec) return res.status(404).json({ error: 'Decision not found in recent window' });
     res.json({ record: rec, chain: (flight && flight.chain) || {} });
   } catch (err) {
-    console.error('Guardian flight-by-id error:', err.message);
+    console.error('Guardian flight-by-id error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read decision' });
   }
 });
@@ -115,7 +115,7 @@ router.get('/incidents', async (req, res) => {
         : 'No safety incidents recorded — the controls have had nothing to stop or recover.',
     });
   } catch (err) {
-    console.error('Guardian incidents error:', err.message);
+    console.error('Guardian incidents error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read incidents' });
   }
 });

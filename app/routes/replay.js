@@ -26,7 +26,7 @@ router.get('/', replayLimit, async (req, res) => {
     });
     res.json({ hypothetical: true, ...result });
   } catch (err) {
-    console.error('Replay error:', err.message);
+    console.error('Replay error:', err.stack || err.message);
     res.status(500).json({ error: 'Replay failed' });
   }
 });

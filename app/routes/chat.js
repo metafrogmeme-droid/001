@@ -155,7 +155,7 @@ router.post('/', chatLimit, async (req, res) => {
     }, CHAT_TIMEOUT_MS);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Chat proxy error:', err.message);
+    console.error('Chat proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Chat unavailable' });
   }
 });
@@ -172,7 +172,7 @@ router.get('/history', async (req, res) => {
       `/chat/history?telegram_id=${encodeURIComponent(ident.id)}&limit=${limit}`);
     return gateway.relay(res, r);
   } catch (err) {
-    console.error('Chat history proxy error:', err.message);
+    console.error('Chat history proxy error:', err.stack || err.message);
     return res.status(502).json({ error: 'Chat unavailable' });
   }
 });

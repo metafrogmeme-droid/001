@@ -82,6 +82,28 @@ const reportsRouter = require('./routes/reports');
 const profileRouter = require('./routes/profile');
 const { router: streamRouter } = require('./routes/stream');
 
+// ── Process-level safety nets ──────────────────────────────────────────────
+// Node 22 KILLS THE PROCESS on an unhandled promise rejection. This app has 13
+// background timers (scan loops, ticker refresh, sync); each one is an async
+// boundary where a rejected promise is never awaited by a request handler. One
+// stray rejection in any of them would take the whole server down — dropping
+// every in-flight request and every open mind-stream — and Docker would restart
+// it with no record of why.
+//
+// A rejected background promise must not be fatal to a trading server, so it is
+// logged with its stack and swallowed. An uncaughtException is different: after
+// one, process state may genuinely be inconsistent, so we log and let the
+// supervisor (`restart: unless-stopped`) bring up a clean process — but it now
+// exits SAYING SOMETHING, which is the part that was missing.
+process.on('unhandledRejection', (reason) => {
+  const e = reason instanceof Error ? (reason.stack || reason.message) : reason;
+  console.error('UNHANDLED REJECTION (kept running):', e);
+});
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION (exiting for a clean restart):', err.stack || err.message);
+  process.exit(1);
+});
+
 const app = express();
 
 // Behind the deployment's reverse proxy, req.ip is the proxy's address unless
@@ -446,7 +468,7 @@ app.get('/agents/:slug', async (req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message);
+  console.error('Unhandled error:', err.stack || err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
 
@@ -455,7 +477,7 @@ app.use((err, req, res, next) => {
     await migrate();
     console.log('Database migrated successfully');
   } catch (err) {
-    console.error('Migration failed:', err.message);
+    console.error('Migration failed:', err.stack || err.message);
     process.exit(1);
   }
 

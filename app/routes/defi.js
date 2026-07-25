@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
     if (!d) return res.status(400).json({ error: 'Linked wallet address unreadable' });
     res.json({ linked: true, ...d });
   } catch (err) {
-    console.error('DeFi positions error:', err.message);
+    console.error('DeFi positions error:', err.stack || err.message);
     res.status(502).json({ error: 'DeFi read unavailable' });
   }
 });
