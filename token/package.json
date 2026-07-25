@@ -16,7 +16,9 @@
     "presale:deposit": "node presale/genesis_presale.mjs deposit",
     "presale:claim": "node presale/genesis_presale.mjs claim",
     "presale:withdraw": "node presale/genesis_presale.mjs withdraw",
-    "presale:withdraw-unsold": "node presale/genesis_presale.mjs withdraw-unsold"
+    "presale:withdraw-unsold": "node presale/genesis_presale.mjs withdraw-unsold",
+    "e2e:plan": "node e2e/devnet_dryrun.mjs --dry",
+    "e2e:dryrun": "node e2e/devnet_dryrun.mjs"
   },
   "engines": {
     "node": ">=18"

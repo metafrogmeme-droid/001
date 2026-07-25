@@ -30,8 +30,14 @@ export const TOKEN_ROOT = path.resolve(__dirname, '..');
 const DEVNET_RPC = 'https://api.devnet.solana.com';
 
 export function loadConfig() {
-  const raw = fs.readFileSync(path.join(PRESALE_DIR, 'metaplex-genesis.config.json'), 'utf8');
-  return JSON.parse(raw);
+  // GENESIS_CONFIG lets the e2e dry-run harness point the presale commands at a
+  // generated near-now config without editing the committed one. Absolute path
+  // or relative to the token/ root; defaults to the committed config.
+  const override = process.env.GENESIS_CONFIG;
+  const cfgPath = override
+    ? (path.isAbsolute(override) ? override : path.join(TOKEN_ROOT, override))
+    : path.join(PRESALE_DIR, 'metaplex-genesis.config.json');
+  return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 }
 
 // Minimal .env reader (no runtime dependency) — mirrors token/scripts/lib.mjs.
