@@ -18,16 +18,19 @@ test('the landing links to the public /agents marketplace in nav + footer', () =
   // Two nav blocks (primary + mobile menu) + the footer = at least 3 links.
   const links = index.match(/href="\/agents"[^>]*>/g) || [];
   assert.ok(links.length >= 3, `expected /agents linked in nav (x2) + footer, found ${links.length}`);
-  // the primary nav link is translatable and labelled "Marketplace"
-  assert.match(index, /<a href="\/agents" data-i18n="nav\.agents">Marketplace<\/a>/);
+  // The primary nav link is translatable and labelled "Marketplace". The key
+  // is nav.marketplace, NOT nav.agents: the dashboard rail auto-emits
+  // data-i18n="nav.<view id>" and has its own "Agents" view, so sharing the
+  // key renamed that rail item to "Marketplace" in every non-English locale.
+  assert.match(index, /<a href="\/agents" data-i18n="nav\.marketplace">Marketplace<\/a>/);
 });
 
 test('the nav link reads "Marketplace" across every locale', () => {
-  assert.match(i18n, /'nav\.agents':\s*\{\s*en: 'Marketplace'/);
-  const m = i18n.match(/'nav\.agents':\s*\{([^}]*)\}/);
+  assert.match(i18n, /'nav\.marketplace':\s*\{\s*en: 'Marketplace'/);
+  const m = i18n.match(/'nav\.marketplace':\s*\{([^}]*)\}/);
   assert.ok(m);
   ['es', 'zh', 'pt', 'fr', 'ar'].forEach(function (loc) {
-    assert.ok(new RegExp(loc + ':').test(m[1]), 'nav.agents missing locale ' + loc);
+    assert.ok(new RegExp(loc + ':').test(m[1]), 'nav.marketplace missing locale ' + loc);
   });
 });
 

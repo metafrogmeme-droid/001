@@ -39,14 +39,23 @@
   var STRINGS = {
     'nav.dashboard': { en: 'Dashboard', es: 'Panel', zh: '儀表板', pt: 'Painel', fr: 'Tableau de bord', ar: 'لوحة التحكم', de: 'Dashboard', nl: 'Dashboard', ja: 'ダッシュボード', ko: '대시보드', ru: 'Панель' },
     'nav.track': { en: 'Track record', es: 'Historial', zh: '業績記錄', pt: 'Histórico', fr: 'Historique', ar: 'السجل', de: 'Erfolgsbilanz', nl: 'Trackrecord', ja: '実績記録', ko: '실적 기록', ru: 'История результатов' },
-    'nav.agents': { en: 'Marketplace', es: 'Mercado', zh: '市場', pt: 'Mercado', fr: 'Place de marché', ar: 'السوق', de: 'Marktplatz', nl: 'Marktplaats', ja: 'マーケットプレイス', ko: '마켓플레이스', ru: 'Маркетплейс' },
+    // The landing link is labelled "Marketplace"; the dashboard rail has its
+    // own "Agents" view. They used to share nav.agents, so the rail item was
+    // silently renamed to "Marketplace" in every language except English
+    // (English never translates — the markup text is the fallback). Two
+    // destinations, two names, two keys.
+    'nav.marketplace': { en: 'Marketplace', es: 'Mercado', zh: '市場', pt: 'Mercado', fr: 'Place de marché', ar: 'السوق', de: 'Marktplatz', nl: 'Marktplaats', ja: 'マーケットプレイス', ko: '마켓플레이스', ru: 'Маркетплейс' },
     'nav.strengthmap': { en: 'Strength Map', es: 'Mapa de fuerza', zh: '強度地圖', pt: 'Mapa de força', fr: 'Carte de force', ar: 'خريطة القوة', de: 'Stärkekarte', nl: 'Sterktekaart', ja: '強度マップ', ko: '강도 맵', ru: 'Карта силы' },
     'nav.proof': { en: 'Proof of PnL', es: 'Prueba de PnL', zh: 'PnL 證明', pt: 'Prova de PnL', fr: 'Preuve de PnL', ar: 'إثبات الأرباح', de: 'PnL-Nachweis', nl: 'PnL-bewijs', ja: '損益の証明', ko: '손익 증명', ru: 'Доказательство PnL' },
-    'nav.guardian': { en: 'Guardian', es: 'Guardián', zh: '守護者', pt: 'Guardião', fr: 'Guardian', ar: 'الحارس', de: 'Guardian', nl: 'Guardian', ja: 'Guardian', ko: 'Guardian', ru: 'Guardian' },
+    // nav.guardian and nav.leaderboard are defined once, with the dashboard
+    // nav block below — they were duplicated here, and in a JS object literal
+    // the LATER definition silently wins, so these translations were dead.
     'nav.flight': { en: 'Flight Recorder', es: 'Registro de vuelo', zh: '飛行記錄儀', pt: 'Registro de voo', fr: 'Boîte noire', ar: 'مسجل الرحلة', de: 'Flugschreiber', nl: 'Vluchtrecorder', ja: 'フライトレコーダー', ko: '플라이트 레코더', ru: 'Бортовой самописец' },
     'nav.stress': { en: 'Stress Lab', es: 'Lab de estrés', zh: '壓力測試', pt: 'Lab de estresse', fr: 'Labo de stress', ar: 'مختبر الضغط', de: 'Stresslabor', nl: 'Stresslab', ja: 'ストレスラボ', ko: '스트레스 랩', ru: 'Стресс-лаборатория' },
-    'nav.leaderboard': { en: 'Leaderboard', es: 'Clasificación', zh: '排行榜', pt: 'Classificação', fr: 'Classement', ar: 'المتصدرون', de: 'Bestenliste', nl: 'Ranglijst', ja: 'ランキング', ko: '순위표', ru: 'Лидеры' },
     'nav.letter': { en: 'Agent Letter', es: 'Carta del agente', zh: '代理週報', pt: 'Carta do agente', fr: 'Lettre de l’agent', ar: 'رسالة الوكيل', de: 'Agenten-Brief', nl: 'Agentbrief', ja: 'エージェントレター', ko: '에이전트 레터', ru: 'Письмо агента' },
+    // The landing page's mobile hamburger. It carried data-i18n="nav.menu"
+    // with no entry behind it, so it read "Menu" in all eleven languages.
+    'nav.menu': { en: 'Menu', es: 'Menú', zh: '選單', pt: 'Menu', fr: 'Menu', ar: 'القائمة', de: 'Menü', nl: 'Menu', ja: 'メニュー', ko: '메뉴', ru: 'Меню' },
     'nav.docs': { en: 'Docs', es: 'Docs', zh: '文件', pt: 'Docs', fr: 'Docs', ar: 'الوثائق', de: 'Doku', nl: 'Docs', ja: 'ドキュメント', ko: '문서', ru: 'Документация' },
     'nav.get_started': { en: 'Get started', es: 'Empezar', zh: '開始使用', pt: 'Começar', fr: 'Commencer', ar: 'ابدأ', de: 'Loslegen', nl: 'Aan de slag', ja: 'はじめる', ko: '시작하기', ru: 'Начать' },
 
@@ -350,7 +359,11 @@
     'nav.hub': { en: 'Agent Hub', es: 'Centro del agente', zh: '智能體中心', pt: 'Central do agente', fr: 'Hub de l’agent', ar: 'مركز الوكيل', de: 'Agenten-Hub', nl: 'Agent-hub', ja: 'エージェントハブ', ko: '에이전트 허브', ru: 'Центр агента' },
     'nav.markets': { en: 'Markets', es: 'Mercados', zh: '市場', pt: 'Mercados', fr: 'Marchés', ar: 'الأسواق', de: 'Märkte', nl: 'Markten', ja: 'マーケット', ko: '마켓', ru: 'Рынки' },
     'nav.macro': { en: 'Macro', es: 'Macro', zh: '總經', pt: 'Macro', fr: 'Macro', ar: 'الاقتصاد الكلي', de: 'Makro', nl: 'Macro', ja: 'マクロ', ko: '매크로', ru: 'Макро' },
-    'nav.guardian': { en: 'Guardian', es: 'Guardián', zh: '守護者', pt: 'Guardião', fr: 'Gardien', ar: 'الحارس', de: 'Guardian', nl: 'Guardian', ja: 'Guardian', ko: 'Guardian', ru: 'Guardian' },
+    // Guardian is a PRODUCT name, not a noun to translate — every language
+    // already writes it untranslated in hero.explore_guardian and
+    // sec.guardian_cta, so the nav link matches them rather than calling the
+    // same product a second thing on the same page.
+    'nav.guardian': { en: 'Guardian', es: 'Guardian', zh: 'Guardian', pt: 'Guardian', fr: 'Guardian', ar: 'Guardian', de: 'Guardian', nl: 'Guardian', ja: 'Guardian', ko: 'Guardian', ru: 'Guardian' },
     'nav.signals': { en: 'Signals', es: 'Señales', zh: '信號', pt: 'Sinais', fr: 'Signaux', ar: 'الإشارات', de: 'Signale', nl: 'Signalen', ja: 'シグナル', ko: '신호', ru: 'Сигналы' },
     'nav.deepscan': { en: 'Deep Scan', es: 'Escaneo profundo', zh: '深度掃描', pt: 'Varredura profunda', fr: 'Analyse approfondie', ar: 'فحص عميق', de: 'Tiefenscan', nl: 'Diepe scan', ja: 'ディープスキャン', ko: '딥 스캔', ru: 'Глубокое сканирование' },
     'nav.feed': { en: 'Live Feed', es: 'Feed en vivo', zh: '即時動態', pt: 'Feed ao vivo', fr: 'Flux en direct', ar: 'البث المباشر', de: 'Live-Feed', nl: 'Live-feed', ja: 'ライブフィード', ko: '라이브 피드', ru: 'Живая лента' },
@@ -360,6 +373,18 @@
     'nav.lab': { en: 'Lab', es: 'Laboratorio', zh: '實驗室', pt: 'Laboratório', fr: 'Labo', ar: 'المختبر', de: 'Labor', nl: 'Lab', ja: 'ラボ', ko: '랩', ru: 'Лаборатория' },
     'nav.engine': { en: 'Engine', es: 'Motor', zh: '引擎', pt: 'Motor', fr: 'Moteur', ar: 'المحرك', de: 'Engine', nl: 'Motor', ja: 'エンジン', ko: '엔진', ru: 'Движок' },
     'nav.account': { en: 'Account', es: 'Cuenta', zh: '帳戶', pt: 'Conta', fr: 'Compte', ar: 'الحساب', de: 'Konto', nl: 'Account', ja: 'アカウント', ko: '계정', ru: 'Аккаунт' },
+    // The rail emits data-i18n="nav.<view id>" for EVERY view, so a view with
+    // no key here renders English in every language. These seven had none.
+    // 'dApps' stays as-is everywhere: it is the ecosystem's own term, the way
+    // Guardian and RUNECLAW are.
+    'nav.news': { en: 'News', es: 'Noticias', zh: '新聞', pt: 'Notícias', fr: 'Actualités', ar: 'الأخبار', de: 'Nachrichten', nl: 'Nieuws', ja: 'ニュース', ko: '뉴스', ru: 'Новости' },
+    'nav.tax': { en: 'Tax', es: 'Impuestos', zh: '稅務', pt: 'Impostos', fr: 'Fiscalité', ar: 'الضرائب', de: 'Steuern', nl: 'Belasting', ja: '税務', ko: '세무', ru: 'Налоги' },
+    'nav.reputation': { en: 'Reputation', es: 'Reputación', zh: '信譽', pt: 'Reputação', fr: 'Réputation', ar: 'السمعة', de: 'Reputation', nl: 'Reputatie', ja: '評判', ko: '평판', ru: 'Репутация' },
+    'nav.counterparty': { en: 'Counterparty', es: 'Contraparte', zh: '交易對手', pt: 'Contraparte', fr: 'Contrepartie', ar: 'الطرف المقابل', de: 'Gegenpartei', nl: 'Tegenpartij', ja: '取引相手', ko: '거래상대방', ru: 'Контрагент' },
+    'nav.worlds': { en: 'Worlds', es: 'Mundos', zh: '虛擬世界', pt: 'Mundos', fr: 'Mondes', ar: 'العوالم', de: 'Welten', nl: 'Werelden', ja: 'ワールド', ko: '월드', ru: 'Миры' },
+    'nav.dapps': { en: 'dApps', es: 'dApps', zh: 'dApps', pt: 'dApps', fr: 'dApps', ar: 'dApps', de: 'dApps', nl: 'dApps', ja: 'dApps', ko: 'dApps', ru: 'dApps' },
+    'nav.agents': { en: 'Agents', es: 'Agentes', zh: '策略代理', pt: 'Agentes', fr: 'Agents', ar: 'الوكلاء', de: 'Agenten', nl: 'Agents', ja: 'エージェント', ko: '에이전트', ru: 'Агенты' },
+    'nav.studio': { en: 'Contract Studio', es: 'Estudio de contratos', zh: '合約工作室', pt: 'Estúdio de contratos', fr: 'Studio de contrats', ar: 'استوديو العقود', de: 'Contract Studio', nl: 'Contractstudio', ja: 'コントラクトスタジオ', ko: '컨트랙트 스튜디오', ru: 'Студия контрактов' },
 
     // Dashboard view headers (title + subtitle), emitted centrally by viewHead.
     'vh.home.title': { en: 'Home', es: 'Inicio', zh: '首頁', pt: 'Início', fr: 'Accueil', ar: 'الرئيسية', de: 'Start', nl: 'Start', ja: 'ホーム', ko: '홈', ru: 'Главная' },

@@ -148,3 +148,77 @@ test('dashboard dynamic strings: dictionary-backed with English fallback', () =>
   assert.ok(!/errorText: '/.test(dash), 'an errorText is still hardcoded');
   assert.ok(!/label: 'Link Telegram'/.test(dash), 'a CTA label is still hardcoded');
 });
+
+test('every dashboard view has a nav key — a new view cannot ship untranslated', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+  // The rail emits data-i18n="nav.<view id>" for EVERY entry, so a view whose
+  // id has no dictionary key renders English in all languages — silently, on
+  // the most-used surface in the product. Seven did.
+  assert.match(dash, /data-i18n="nav\.\$\{v\.id\}"/, 'the rail must key nav items by view id');
+  const start = dash.indexOf('const VIEWS = [');
+  assert.ok(start > 0, 'VIEWS array not found');
+  const block = dash.slice(start, dash.indexOf('];', start));
+  const ids = [...block.matchAll(/id: '(\w+)'/g)].map((m) => m[1]);
+  assert.ok(ids.length >= 23, `expected the full rail, found ${ids.length}`);
+  const codes = i18n.LANGS.map((l) => l.code);
+  for (const id of ids) {
+    const e = i18n.STRINGS['nav.' + id];
+    assert.ok(e, `view "${id}" has no nav.${id} key — it will render English everywhere`);
+    for (const c of codes) assert.ok(e[c], `nav.${id} is missing ${c}`);
+  }
+});
+
+test('no key is defined twice — a duplicate silently discards a translation', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
+  // In a JS object literal the LATER definition wins, so a duplicated key
+  // means one full row of translations is dead code that no edit can reach.
+  // nav.guardian and nav.leaderboard were each defined twice.
+  const defs = [...src.matchAll(/^\s+'([\w.]+)': \{/gm)].map((m) => m[1]);
+  const seen = new Map();
+  for (const k of defs) seen.set(k, (seen.get(k) || 0) + 1);
+  const dup = [...seen].filter(([, n]) => n > 1).map(([k]) => k);
+  assert.deepEqual(dup, [], `duplicated key(s): ${dup.join(', ')}`);
+  assert.equal(defs.length, Object.keys(i18n.STRINGS).length, 'parsed defs should match the object');
+});
+
+test('every data-i18n reference in the shipped pages resolves to a real key', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const pub = path.join(__dirname, '..', 'public');
+  // A key referenced in markup but absent from the dictionary is invisible:
+  // the inline English simply never gets replaced, in every language at once.
+  // nav.menu on the landing hamburger was exactly that.
+  const dangling = [];
+  const walk = (d) => {
+    for (const f of fs.readdirSync(d)) {
+      const p = path.join(d, f);
+      if (fs.statSync(p).isDirectory()) { if (f !== 'node_modules') walk(p); continue; }
+      if (!/\.html$/.test(f)) continue;
+      const src = fs.readFileSync(p, 'utf8');
+      for (const m of src.matchAll(/data-i18n(?:-html)?="([\w.]+)"/g)) {
+        if (!i18n.STRINGS[m[1]]) dangling.push(`${f}:${m[1]}`);
+      }
+    }
+  };
+  walk(pub);
+  assert.deepEqual(dangling, [], `data-i18n keys with no dictionary entry: ${dangling.join(', ')}`);
+});
+
+test('Guardian is a product name, spelled the same way in every language', () => {
+  // It appears untranslated in hero.explore_guardian and sec.guardian_cta in
+  // all eleven languages; the nav link used to translate it in five of them,
+  // so the same product had two names on one page.
+  for (const c of i18n.LANGS.map((l) => l.code)) {
+    assert.equal(i18n.STRINGS['nav.guardian'][c], 'Guardian', `nav.guardian:${c} renames the product`);
+    assert.match(i18n.STRINGS['hero.explore_guardian'][c], /Guardian/, `hero.explore_guardian:${c}`);
+    assert.match(i18n.STRINGS['sec.guardian_cta'][c], /Guardian/, `sec.guardian_cta:${c}`);
+  }
+  // The landing "Marketplace" link and the dashboard "Agents" view are
+  // different destinations and must not share a key again.
+  assert.equal(i18n.STRINGS['nav.marketplace'].en, 'Marketplace');
+  assert.equal(i18n.STRINGS['nav.agents'].en, 'Agents');
+});
