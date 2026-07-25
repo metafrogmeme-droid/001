@@ -177,3 +177,26 @@ test('wiring: /provable — the third-party verification contract page', () => {
   const roots = fs.readFileSync(path.join(__dirname, '..', 'public', 'roots.html'), 'utf8');
   assert.match(roots, /href="\/provable"/);
 });
+
+test('landing: the Provable Calls trust section is real, linked, and honest', () => {
+  const idx = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(idx, /id="provableTease"/);
+  assert.match(idx, /Don't trust the screenshot\. Verify the call\./);
+  // All three trust surfaces reachable from the front door.
+  for (const href of ['/provable', '/roots', '/proof']) {
+    assert.ok(idx.includes(`href="${href}"`), `landing must link ${href}`);
+  }
+  // The root strip shows a REAL root or nothing — it ships hidden and is only
+  // revealed when the public feed actually returns one (no invented history).
+  assert.match(idx, /id="rootStrip" hidden/);
+  assert.match(idx, /if \(!row \|\| !row\.root\) return;/);
+  assert.match(idx, /rootStrip'\)\.hidden = false/);
+  // The bolded claim renders as markup in every language (textContent would
+  // print literal tags), and the strings are dictionary-backed.
+  assert.match(idx, /data-i18n-html="sec\.prov_p"/);
+  const i18n = require('../public/js/i18n');
+  for (const k of ['sec.prov_eyebrow', 'sec.prov_h', 'sec.prov_p', 'sec.prov_mirror', 'sec.prov_root_head']) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+  }
+  assert.match(i18n.STRINGS['sec.prov_root_head'].es, /\{day\}[\s\S]*\{n\}/, 'placeholders survive translation');
+});
