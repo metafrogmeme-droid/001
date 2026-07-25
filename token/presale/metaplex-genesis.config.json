@@ -55,5 +55,7 @@
     "perWalletMinViaMinimumDepositAmount": true,
     "whitelistViaAllowlistMerkle": true,
     "backendSignerOptional": true
-  }
+  },
+  "whitelist": [],
+  "_whitelistNote": "Base58 wallet addresses for the OG round. Run `npm run presale:whitelist` to build the Merkle tree + proofs (token/.artifacts/allowlist.devnet.json); the root is applied on presale:create and each wallet's proof is presented automatically on presale:deposit during the whitelist window (which ends at timeline.publicStart)."
 }

@@ -35,10 +35,14 @@ mint address, ATA, and tx signatures. `verify` reads that file (or `MINT=<addres
 | `npm run keygen` | `scripts/keygen.mjs` | Generate `.keys/mint-payer.json` (gitignored) + devnet airdrop |
 | `npm run create` | `scripts/create_token.mjs` | Token-2022 mint + metadata, mint 1B to ATA, revoke mint authority, null freeze authority |
 | `npm run verify` | `scripts/verify_token.mjs` | Re-read on-chain state and assert it matches `token.config.json` |
-| `npm run presale:plan` | `presale/genesis_presale.mjs` | **Offline** — print every derived Genesis on-chain param (no RPC) |
-| `npm run presale:create` | `presale/genesis_presale.mjs` | `initializeV2` + `addPresaleBucketV2` — create the fixed-price presale |
-| `npm run presale:deposit -- --amount N` | `presale/genesis_presale.mjs` | `depositPresaleV2` — contribute N SOL |
+| `npm run presale:plan` | `presale/genesis_presale.mjs` | **Offline** — every derived param + whitelist root + liquidity (no RPC) |
+| `npm run presale:whitelist` | `presale/genesis_presale.mjs` | `prepareAllowlist` — build the Merkle allowlist + proofs |
+| `npm run presale:create` | `presale/genesis_presale.mjs` | `initializeV2` + `addPresaleBucketV2` (+ allowlist if built) |
+| `npm run presale:liquidity` | `presale/genesis_presale.mjs` | `addRaydiumCpmmBucketV2` — Raydium bucket, permanent LP lock |
+| `npm run presale:deposit -- --amount N` | `presale/genesis_presale.mjs` | `depositPresaleV2` — contribute N SOL (auto whitelist proof) |
 | `npm run presale:claim` | `presale/genesis_presale.mjs` | `claimPresaleV2` — claim vested tokens |
+| `npm run presale:withdraw` | `presale/genesis_presale.mjs` | `withdrawPresaleV1` — depositor cancel/refund |
+| `npm run presale:withdraw-unsold` | `presale/genesis_presale.mjs` | `withdrawUnsoldPresaleV1` — operator recovers unsold |
 
 ## Metaplex Genesis presale (real SDK)
 

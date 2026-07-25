@@ -11,12 +11,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { keypairIdentity, sol, lamports } from '@metaplex-foundation/umi';
+import { keypairIdentity, sol, lamports, publicKey } from '@metaplex-foundation/umi';
+import { findAssociatedTokenPda } from '@metaplex-foundation/mpl-toolbox';
 import {
   genesis,
   WRAPPED_SOL_MINT,
   createTimeAbsoluteCondition,
   createClaimSchedule,
+  createNeverClaimSchedule,
+  prepareAllowlist,
+  findPresaleDepositV2Pda,
 } from '@metaplex-foundation/genesis';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -146,4 +150,79 @@ export function fundingModeValue(cfg) {
   return (fm.mode === 'transfer') ? (fm.transferValue ?? 1) : (fm.mintValue ?? 0);
 }
 
-export { WRAPPED_SOL_MINT, sol, lamports };
+// ── Whitelist (Merkle allowlist) ────────────────────────────────────────────
+
+const toHex = (u8) => Buffer.from(u8).toString('hex');
+const fromHex = (hex) => Uint8Array.from(Buffer.from(hex, 'hex'));
+
+/**
+ * Build a Merkle allowlist from a list of base58 addresses. Returns the tree
+ * root, per-address proofs, height, and the `AllowlistInitArgs` to hand to
+ * `addPresaleBucketV2`. The whitelist round ends at `timeline.publicStart`
+ * (after which anyone may deposit), and is capped at the hard cap.
+ */
+export function buildAllowlist(cfg, addresses) {
+  const members = addresses.map((a) => ({ address: publicKey(a) }));
+  const { root, proofs, treeHeight } = prepareAllowlist(members);
+  const endTime = unix(cfg.timeline.publicStart);
+  const quoteCap = solToLamports(cfg.sale.hardCapSol);
+  // Map address -> hex-encoded proof nodes (stable JSON for the artifact).
+  const proofByAddress = {};
+  addresses.forEach((a, i) => {
+    proofByAddress[a] = (proofs[i] || []).map(toHex);
+  });
+  return {
+    rootHex: toHex(root),
+    treeHeight,
+    proofByAddress,
+    initArgs: {
+      enabled: true,
+      merkleTreeHeight: treeHeight,
+      merkleRoot: root,
+      endTime,
+      quoteCap,
+    },
+  };
+}
+
+/** Rebuild the AllowlistInitArgs from a saved allowlist artifact (hex root). */
+export function allowlistInitArgsFromArtifact(cfg, artifact) {
+  return {
+    enabled: true,
+    merkleTreeHeight: artifact.treeHeight,
+    merkleRoot: fromHex(artifact.rootHex),
+    endTime: unix(cfg.timeline.publicStart),
+    quoteCap: solToLamports(cfg.sale.hardCapSol),
+  };
+}
+
+/** Convert a saved hex proof (array of 32-byte nodes) to umi PublicKey[]. */
+export function proofToPublicKeys(hexNodes) {
+  return (hexNodes || []).map((h) => publicKey(fromHex(h)));
+}
+
+// ── Raydium liquidity bucket (permanent LP lock) ────────────────────────────
+
+/**
+ * Derive params for `addRaydiumCpmmBucketV2`: the LP token allocation, a
+ * permanent LP lock (never-claim schedule), and a start condition at the end
+ * of the deposit window (pool created once the presale closes).
+ */
+export function deriveLiquidityParams(cfg) {
+  const decimals = cfg.token.decimals;
+  return {
+    baseTokenAllocation: BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(decimals),
+    lpLockSchedule: createNeverClaimSchedule(),
+    startCondition: createTimeAbsoluteCondition(unix(cfg.timeline.depositEnd)),
+    raisedSolToLiquidityBps: cfg.liquidity.raisedSolToLiquidityBps,
+  };
+}
+
+export {
+  WRAPPED_SOL_MINT,
+  sol,
+  lamports,
+  publicKey,
+  findAssociatedTokenPda,
+  findPresaleDepositV2Pda,
+};

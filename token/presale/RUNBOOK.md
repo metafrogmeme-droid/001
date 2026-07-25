@@ -40,39 +40,54 @@ npm install                      # pulls @metaplex-foundation/genesis + umi
 cp .env.example .env             # devnet; never a mainnet key
 npm run keygen                   # devnet operator wallet + airdrop
 
-npm run presale:plan             # OFFLINE preview: prints every derived on-chain param
-npm run presale:create           # initializeV2 (genesis account) + addPresaleBucketV2
-npm run presale:deposit -- --amount 1   # depositPresaleV2 during the deposit window
+npm run presale:plan             # OFFLINE preview: every derived param + whitelist + liquidity
+npm run presale:whitelist        # build the Merkle allowlist from config.whitelist
+npm run presale:create           # initializeV2 (genesis account) + addPresaleBucketV2 (+ allowlist)
+npm run presale:liquidity        # addRaydiumCpmmBucketV2 with a permanent LP lock
+npm run presale:deposit -- --amount 1   # depositPresaleV2 (auto-presents whitelist proof)
 npm run presale:claim            # claimPresaleV2 once the claim window opens (post-TGE)
+# recovery:
+npm run presale:withdraw          # depositor cancels/refunds their own deposit
+npm run presale:withdraw-unsold   # operator recovers unsold presale tokens
 ```
 
 What the script does, mapped to the SDK:
 
 1. **`presale:plan`** — pure offline derivation via `createTimeAbsoluteCondition` /
-   `createClaimSchedule`; prints fixed price (`allocation / hardCap`), lamport caps,
-   per-wallet min/max, deposit + claim windows, and the vesting schedule. No RPC, no keypair.
-2. **`presale:create`** — `initializeV2` creates the genesis account (PDA via
+   `createClaimSchedule` / `createNeverClaimSchedule`; prints fixed price (`allocation / hardCap`),
+   lamport caps, per-wallet min/max, deposit + claim windows, vesting, the **whitelist root**,
+   and the **liquidity/LP-lock** summary. No RPC, no keypair.
+2. **`presale:whitelist`** — `prepareAllowlist(config.whitelist)` builds the Merkle tree and
+   writes the root + per-address proofs to `token/.artifacts/allowlist.devnet.json`.
+3. **`presale:create`** — `initializeV2` creates the genesis account (PDA via
    `findGenesisAccountV2Pda`), then `addPresaleBucketV2` configures the fixed-price presale:
    `baseTokenAllocation`, `allocationQuoteTokenCap` (= hard cap), the four time conditions,
-   `minimumDepositAmount` / `depositLimit` (per-wallet floor/ceiling), and a `claimSchedule`
-   (33% at TGE via `cliffAmountBps`, linear tail). Writes `token/.artifacts/presale.devnet.json`.
-3. **`presale:deposit` / `presale:claim`** — `depositPresaleV2` / `claimPresaleV2` against the
-   bucket recorded in the artifact.
+   `minimumDepositAmount` / `depositLimit` (per-wallet floor/ceiling), a `claimSchedule`
+   (33% at TGE via `cliffAmountBps`, linear tail), and — if a whitelist artifact exists — the
+   `allowlist` (Merkle root, ends at `publicStart`). Writes `token/.artifacts/presale.devnet.json`.
+4. **`presale:liquidity`** — `addRaydiumCpmmBucketV2` with `baseTokenAllocation` = the 100M
+   liquidity allocation, `lpLockSchedule` = `createNeverClaimSchedule()` (**LP locked forever**),
+   and a `startCondition` at the deposit-window close.
+5. **`presale:deposit` / `presale:claim`** — `depositPresaleV2` / `claimPresaleV2` against the
+   bucket. During the whitelist window the depositor's Merkle `proof` is looked up and presented
+   automatically.
+6. **`presale:withdraw` / `presale:withdraw-unsold`** — `withdrawPresaleV1` (depositor
+   cancel/refund; deposit PDA via `findPresaleDepositV2Pda`) / `withdrawUnsoldPresaleV1` (operator
+   recovers unsold tokens; ATAs via `findAssociatedTokenPda`).
 
 **Funding mode** (`config.fundingMode.mode`): `mint` lets Genesis create + mint the supply
 itself (self-contained demo); `transfer` reuses the mint from the `token/` tooling (set
 `config.token.mint` from `token/.artifacts/token.devnet.json`). *Confirm the on-chain
 `fundingMode` numeric against the Genesis program before mainnet.*
 
-**Still operational (not in the script):**
-- **Liquidity at finalize** — add a Raydium bucket via `addRaydiumCpmmBucketV2` with
-  `createNeverClaimSchedule()` for a permanent LP lock (60% of raise → pool). Left as a
-  deliberate manual step so LP routing is reviewed before it runs.
-- **Whitelist** — the OG round uses a Merkle `allowlist` (see the SDK's `createMerkleTree`);
-  wire the allowlist arg + per-deposit `proof` when the whitelist is finalized.
-- **Soft-cap / refund** — Genesis fixed-price presale is "buy until cap"; soft-cap/refund is
-  enforced operationally (cancel + refund) or via a min-raise extension. Confirm before launch.
-- **Publish** — genesis account, bucket, mint, LP-lock proof, audit report.
+**Confirm on devnet / before launch:**
+- **Soft-cap / refund semantics** — Genesis fixed-price presale is "buy until cap." The
+  `withdraw`/`withdraw-unsold` commands cover depositor-cancel and operator-recover-unsold; a
+  true *soft-cap-missed → auto-refund-all* still needs an operational cancel (or a min-raise
+  extension). Validate the exact V2 behavior on devnet.
+- **Liquidity finalize** — `presale:liquidity` adds the Raydium bucket + permanent LP lock;
+  confirm the pool-creation/finalize flow end-to-end on devnet before mainnet.
+- **Publish** — genesis account, bucket, mint, whitelist root, LP-lock proof, audit report.
 
 ## Path B — Smithii (fallback)
 

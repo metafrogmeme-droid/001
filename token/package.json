@@ -10,9 +10,13 @@
     "verify": "node scripts/verify_token.mjs",
     "keygen": "node scripts/keygen.mjs",
     "presale:plan": "node presale/genesis_presale.mjs plan",
+    "presale:whitelist": "node presale/genesis_presale.mjs whitelist",
     "presale:create": "node presale/genesis_presale.mjs create",
+    "presale:liquidity": "node presale/genesis_presale.mjs liquidity",
     "presale:deposit": "node presale/genesis_presale.mjs deposit",
-    "presale:claim": "node presale/genesis_presale.mjs claim"
+    "presale:claim": "node presale/genesis_presale.mjs claim",
+    "presale:withdraw": "node presale/genesis_presale.mjs withdraw",
+    "presale:withdraw-unsold": "node presale/genesis_presale.mjs withdraw-unsold"
   },
   "engines": {
     "node": ">=18"

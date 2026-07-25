@@ -285,8 +285,11 @@ operator (`bot/proofofpnl/`, [`ONCHAIN_GOLIVE.md`](./ONCHAIN_GOLIVE.md), ethers-
 These are **draft, devnet, feature-flagged** starting points — not a launch:
 - `token/` — SPL Token-2022 mint + verify scripts and the token config (§2, §4).
 - `token/presale/genesis_presale.mjs` — **real `@metaplex-foundation/genesis` SDK integration**
-  (Umi): a fixed-price presale via `initializeV2` + `addPresaleBucketV2`, with offline
-  `presale:plan`, `presale:create`, `presale:deposit`, and `presale:claim` — all driven by
+  (Umi): a fixed-price presale via `initializeV2` + `addPresaleBucketV2`, a **Merkle whitelist**
+  (`prepareAllowlist` → `presale:whitelist`, proof auto-presented on deposit), **Raydium
+  liquidity with a permanent LP lock** (`addRaydiumCpmmBucketV2` + `createNeverClaimSchedule` →
+  `presale:liquidity`), and **withdraw/refund** paths (`withdrawPresaleV1` /
+  `withdrawUnsoldPresaleV1`). Offline `presale:plan` previews it all; everything is driven by
   `metaplex-genesis.config.json` (§5–§6). Smithii config + runbook remain the fallback.
 - `bot/token/tier_gate.py` — the staking-tier gate (§3), OFF by default via
   `TOKEN_TIER_GATE_ENABLED`; gates `/scalp` `/intraday` `/swing`.
