@@ -396,6 +396,7 @@ const SWEPT_PAGES = {
   'developers.html': ['← RUNECLAW'],
   'stress.html': ['← RUNECLAW'],
   'provable.html': ['← RUNECLAW'],
+  'escape.html': ['← RUNECLAW'],
 };
 
 function untranslatedInSource(src, allowList) {
@@ -567,5 +568,37 @@ test('the verification contract survives translation intact', () => {
     assert.match(scope, /<b>/, `pv.scope:${c} lost its emphasis`);
     assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(scope),
       `pv.scope:${c} dropped "not investment advice"`);
+  }
+});
+
+test('the Escape Agent never claims to act, in any language', () => {
+  const codes = i18n.LANGS.map((l) => l.code);
+  // This planner sequences an unwind of real money. Its two paragraphs are the
+  // only thing telling a reader it does NOT act: "Planning only — it never
+  // executes anything" and "it does not move funds, place orders or sign
+  // anything — you execute each step yourself". A translation that softens
+  // either one describes a different, far more dangerous product.
+  //
+  // escape.test.js asserts those clauses against the English markup; that keeps
+  // working because data-i18n leaves the inline English in place as the
+  // fallback. This covers the other eleven, which that test cannot see.
+  for (const c of codes) {
+    const lede = i18n.STRINGS['es.lede'][c];
+    const disc = i18n.STRINGS['es.disc'][c];
+    assert.ok(lede && disc, `es.lede/es.disc missing ${c}`);
+    // "never executes" / "does not execute"
+    assert.ok(/never|nunca|絕不|jamais|niemals|nooit|一切行いません|않습니다|никогда|asla|إطلاقًا|أبدًا/i.test(lede),
+      `es.lede:${c} lost the "never executes anything" clause`);
+    // the planner does not move funds / place orders / sign
+    assert.ok(/sign|firma|assina|signe|signiert|onderteken|署名|서명|подписывает|imzalamaz|يوقّع|簽署/i.test(disc),
+      `es.disc:${c} lost the "signs nothing" clause`);
+    assert.ok(/advice|asesoram|conselho|aconselh|conseil|Anlageberatung|beleggingsadvies|投資建議|投資助言|투자 조언|инвестиционн|yatırım tavsiyesi|نصيحة/i.test(disc),
+      `es.disc:${c} dropped "not investment advice"`);
+    // the risks it explicitly does NOT model must stay listed
+    assert.ok(/slippage|kayma|انزلاق|滑價|スリッページ|슬리피지|проскальзыван/i.test(disc),
+      `es.disc:${c} dropped the un-modelled-risk list`);
+    // both paragraphs keep the emphasis the English leans on
+    assert.ok((lede.match(/<b>/g) || []).length >= 3, `es.lede:${c} lost emphasis`);
+    assert.match(disc, /<b>/, `es.disc:${c} lost emphasis`);
   }
 });
