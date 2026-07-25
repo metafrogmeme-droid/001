@@ -26,19 +26,25 @@ function buildTraderCard(ctx) {
   const badges = computeArenaBadges({ trades, returnPct })
     .filter((b) => b.earned)
     .map((b) => ({ key: b.key, icon: b.icon, name: b.name }));
+  // Provable Calls v2 — how much of this record is receipt-backed (counts).
+  const sealedCount = trades.filter((t) => t.seal).length;
   return {
     handle: ctx.handle,
     return_pct: Math.round(returnPct * 100) / 100,
+    // §4-safe count: consecutive close-days (recent window) — a public fact.
+    streak_days: require('./arena_streaks').computeStreak(trades).current,
     closed_trades: trades.length,
     open_positions: (ctx.positions || []).length,
     win_rate_pct: trades.length ? Math.round(wins / trades.length * 1000) / 10 : null,
     badges,
+    receipts: { sealed: sealedCount, total: trades.length },
     recent: trades.slice(0, 15).map((t) => ({
       symbol: t.symbol,
       direction: t.direction,
       leverage: t.leverage,
       ret_pct: t.margin > 0 ? Math.round(Number(t.pnl) / Number(t.margin) * 10000) / 100 : null,
       reason: t.reason,
+      key: t.seal ? t.trade_key : null,   // 🔏 verifiable receipt address
       closed_at: t.closed_at,
     })),
     virtual: true,
@@ -62,7 +68,7 @@ async function fetchTraderCard(handle) {
   const [positions] = await pool.execute(
     'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
   const [trades] = await pool.execute(
-    'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
+    'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
   let marks = {};
   try { marks = await getTickers(); } catch (e) { /* percent renders from balance */ }
   return buildTraderCard({ handle, balance: acct[0].balance, positions, marks, trades });

@@ -23,8 +23,26 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
 const { getTickers } = require('../lib/tickers');
 const arena = require('../lib/arena');
+const { sealArenaTrade, newTradeKey } = require('../lib/callseal');
 
 const router = express.Router();
+
+// Provable Calls v2 — every open is sealed with the trader's opted-in handle
+// AT THAT MOMENT (null = anonymous receipt; still verifiable by key).
+async function handleFor(userId) {
+  try {
+    const [rows] = await pool.execute('SELECT id, leaderboard_handle FROM users WHERE id = ?', [userId]);
+    return (rows[0] && rows[0].leaderboard_handle) || null;
+  } catch (e) { return null; }
+}
+
+// { trade_key, seal, seal_payload, sealed_at } for one open. §4: the payload
+// carries prices/leverage/times only — margin (vUSDT) never enters it.
+function sealedOpen(handle, { symbol, direction, entry, leverage, tp, sl, opened_at }) {
+  const trade_key = newTradeKey();
+  const receipt = sealArenaTrade({ trade_key, handle, symbol, direction, entry, leverage, tp, sl, opened_at });
+  return { trade_key, seal: receipt.seal, seal_payload: receipt.seal_payload, sealed_at: opened_at };
+}
 
 const tradeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
 
@@ -42,7 +60,7 @@ async function loadAccount(userId) {
 
 async function loadPositions(userId) {
   const [rows] = await pool.execute(
-    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
+    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
   return rows;
 }
 
@@ -50,6 +68,7 @@ async function loadPositions(userId) {
 // account at the live mark (lazy — runs on account reads, no background job).
 // Returns the refreshed { positions, balance } after any opens.
 const followLib = require('../lib/arena_follow');
+const streaks = require('../lib/arena_streaks');
 async function sweepFollows(userId, positions, marks) {
   const [fr] = await pool.execute('SELECT user_id, enabled, margin, leverage, last_signal_id FROM arena_follows WHERE user_id = ?', [userId]);
   const follow = fr[0];
@@ -69,6 +88,7 @@ async function sweepFollows(userId, positions, marks) {
     const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
     seasonRow = srows[0] || null;
   } catch (e) { /* no season read → no constraint */ }
+  const followHandle = plan.opens.length ? await handleFor(userId) : null;
   for (const o of plan.opens) {
     const sr = require('../lib/arena_seasons').checkSeasonRules(seasonRow, o);
     if (!sr.ok) continue;
@@ -80,9 +100,14 @@ async function sweepFollows(userId, positions, marks) {
     const tsSl = arena.validateTpSl(o.direction, o.price, null, sig.stop_loss);
     const tp = tsTp.ok ? tsTp.data.tp : null;
     const sl = tsSl.ok ? tsSl.data.sl : null;
+    const openedAt = new Date();
+    const rc = sealedOpen(followHandle, {
+      symbol: o.symbol, direction: o.direction, entry: o.price,
+      leverage: o.leverage, tp, sl, opened_at: openedAt });
     await pool.execute(
-      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [userId, o.symbol, o.direction, o.price, o.margin, o.leverage, 'signal', tp, sl, new Date()]);
+      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, o.symbol, o.direction, o.price, o.margin, o.leverage, 'signal', tp, sl,
+        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
     bal -= o.margin;
   }
   if (plan.opens.length) {
@@ -106,9 +131,11 @@ async function settleLiquidations(userId, positions, marks) {
     if (!exit) { alive.push(p); continue; }
     const pnl = exit.reason === 'liquidated' ? -p.margin : arena.posPnl(p, exit.price);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, round2(exit.price),
-        p.margin, p.leverage, round2(pnl), exit.reason, p.opened_at, new Date()]);
+        p.margin, p.leverage, round2(pnl), exit.reason,
+        p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
+        p.opened_at, new Date()]);
     await pool.execute(
       'DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     if (exit.reason !== 'liquidated') credit += p.margin + pnl;
@@ -136,7 +163,11 @@ router.get('/account', authMiddleware, async (req, res) => {
     const fresh = await loadAccount(userId);
     acct.balance = fresh.balance;
     const [history] = await pool.execute(
-      'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
+      'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
+    // Full close history (uncapped) — streaks and weekly quests recompute
+    // from ALL facts so they can never drift from the truth.
+    const [allTrades] = await pool.execute(
+      'SELECT symbol, pnl, reason, closed_at FROM arena_trades WHERE user_id = ?', [userId]);
     const eq = arena.equity(acct.balance, positions, marks);
     res.json({
       start_balance: arena.START_BALANCE,
@@ -157,6 +188,7 @@ router.get('/account', authMiddleware, async (req, res) => {
           source: p.source || 'manual',
           tp: p.tp == null ? null : p.tp,
           sl: p.sl == null ? null : p.sl,
+          key: p.seal ? p.trade_key : null,   // Provable Calls receipt address
           opened_at: p.opened_at,
         };
       }),
@@ -165,6 +197,8 @@ router.get('/account', authMiddleware, async (req, res) => {
       history,
       badges: require('../lib/arena_badges').computeArenaBadges({
         trades: history, returnPct: arena.returnPct(eq) }),
+      streak: streaks.computeStreak(allTrades),
+      quests: streaks.weeklyQuests(allTrades),
       virtual: true,   // §4: this account holds no real funds
     });
   } catch (err) {
@@ -200,12 +234,17 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
     // Optional TP/SL — validated against the actual fill price.
     const ts = arena.validateTpSl(v.data.direction, price, (req.body || {}).tp, (req.body || {}).sl);
     if (!ts.ok) return res.status(400).json({ error: ts.error });
+    const openedAt = new Date();
+    const rc = sealedOpen(await handleFor(userId), {
+      symbol: v.data.symbol, direction: v.data.direction, entry: price,
+      leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, opened_at: openedAt });
     await pool.execute(
-      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [userId, v.data.symbol, v.data.direction, price, v.data.margin, v.data.leverage, 'manual', ts.data.tp, ts.data.sl, new Date()]);
+      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, v.data.symbol, v.data.direction, price, v.data.margin, v.data.leverage, 'manual', ts.data.tp, ts.data.sl,
+        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance - v.data.margin), userId]);
-    res.json({ ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl } });
+    res.json({ ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } });
   } catch (err) {
     console.error('Arena open error:', err.message);
     res.status(500).json({ error: 'Arena unavailable' });
@@ -221,7 +260,7 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
       return res.status(400).json({ error: 'Invalid position_id' });
     }
     const [rows] = await pool.execute(
-      'SELECT id, user_id, symbol, direction, entry, margin, leverage, opened_at FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
+      'SELECT id, user_id, symbol, direction, entry, margin, leverage, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
     const p = rows[0];
     if (!p) return res.status(404).json({ error: 'Position not found' });
     let marks;
@@ -235,9 +274,11 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
     const pnl = liquidated ? -p.margin : arena.posPnl(p, mark);
     const acct = await loadAccount(userId);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, exitPrice, p.margin, p.leverage,
-        round2(pnl), liquidated ? 'liquidated' : 'manual', p.opened_at, new Date()]);
+        round2(pnl), liquidated ? 'liquidated' : 'manual',
+        p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
+        p.opened_at, new Date()]);
     await pool.execute('DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance + p.margin + pnl), userId]);
@@ -296,7 +337,7 @@ router.get('/leaderboard', async (req, res) => {
 router.get('/tape', async (req, res) => {
   try {
     const [trades] = await pool.execute(
-      'SELECT id, user_id, symbol, direction, margin, pnl, reason, closed_at FROM arena_trades ORDER BY id DESC LIMIT 40');
+      'SELECT id, user_id, symbol, direction, margin, pnl, reason, trade_key, seal, closed_at FROM arena_trades ORDER BY id DESC LIMIT 40');
     const [handles] = await pool.execute(
       'SELECT id, leaderboard_handle FROM users WHERE leaderboard_handle IS NOT NULL');
     const handleOf = new Map(handles.map((h) => [h.id, h.leaderboard_handle]));
@@ -309,6 +350,7 @@ router.get('/tape', async (req, res) => {
         direction: t.direction,
         pct: Number(t.margin) > 0 ? round2((Number(t.pnl) / Number(t.margin)) * 100) : 0,
         reason: t.reason,
+        key: t.seal ? t.trade_key : null,   // 🔏 verifiable receipt
         closed_at: t.closed_at,
       }));
     // Pulse line: counts only (§4-safe) — how alive the floor is right now.
@@ -368,7 +410,7 @@ router.get('/trader/:handle', async (req, res) => {
     if (!acct[0]) return res.status(404).json({ error: 'No arena account' });
     const positions = await loadPositions(userId);
     const [trades] = await pool.execute(
-      'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
+      'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30', [userId]);
     let marks = {};
     try { marks = await getTickers(); } catch (e) { /* percent renders from balance */ }
     res.json(traderLib.buildTraderCard({ handle, balance: acct[0].balance, positions, marks, trades }));

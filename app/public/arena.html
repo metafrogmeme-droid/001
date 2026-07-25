@@ -60,6 +60,9 @@
   /* Leaderboard */
   .lb-row { display: grid; grid-template-columns: 44px 1fr auto auto; gap: var(--s3); padding: 8px 4px; border-bottom: 1px solid var(--line); align-items: baseline; font-family: var(--font-data); font-size: var(--fs-sm); }
   .lb-row .rk { color: var(--gold-bright); }
+  .rk-move { font-size: var(--fs-xs); animation: rkPop .6s ease-out; display: inline-block; }
+  @keyframes rkPop { 0% { transform: translateY(4px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .rk-move { animation: none; } }
   .lb-row .tr { color: var(--text-3); font-size: var(--fs-xs); }
   .season-head { display: flex; gap: var(--s3); align-items: baseline; flex-wrap: wrap; margin-bottom: var(--s2); }
   .season-head .nm { font-family: var(--font-display); letter-spacing: .04em; font-size: var(--fs-lg); color: var(--gold-bright); }
@@ -205,6 +208,7 @@
     <h2><span data-i18n="arena.p_account">Your paper account</span> <span class="muted" style="text-transform:none;letter-spacing:0">· virtual funds only</span></h2>
     <div class="stats" id="stats"></div>
     <div class="badges" id="badges"></div>
+    <div id="quests" hidden></div>
     <div id="starter" hidden></div>
     <div id="cheer" class="cheer" hidden role="status" aria-live="polite"></div>
   </section>
@@ -529,6 +533,7 @@ window.addEventListener('error', function (e) {
         + '<button class="chartbtn" data-chart="' + p.id + '" type="button" aria-expanded="'
         + (chartOpen[p.id] ? 'true' : 'false') + '" title="Chart & engine read">📈</button> '
         + esc(p.symbol)
+        + (p.key ? ' <a href="/call/' + encodeURIComponent(p.key) + '" target="_blank" rel="noopener" title="Provable receipt — sealed at open, verify the hash in your browser">🔏</a>' : '')
         + (p.source === 'signal' ? ' <span class="chip chip--info" title="Opened by practice-follow">⚡ signal</span>' : '') + '</td>'
         + '<td class="' + (p.direction === 'LONG' ? 'up-c' : 'down-c') + '">' + esc(p.direction) + '</td>'
         + '<td>' + p.leverage + '×</td>'
@@ -551,7 +556,8 @@ window.addEventListener('error', function (e) {
       var hrow = '<tr><td class="sym">'
         + '<button class="chartbtn" data-histchart="' + t.id + '" type="button" aria-expanded="'
         + (histOpen[t.id] ? 'true' : 'false') + '" title="How it played out">📈</button> '
-        + esc(t.symbol) + '</td>'
+        + esc(t.symbol)
+        + (t.seal && t.trade_key ? ' <a href="/call/' + encodeURIComponent(t.trade_key) + '" target="_blank" rel="noopener" title="Provable receipt — sealed at open, before the outcome">🔏</a>' : '') + '</td>'
         + '<td class="' + (t.direction === 'LONG' ? 'up-c' : 'down-c') + '">' + esc(t.direction) + '</td>'
         + '<td>' + fmtP(t.entry) + '</td><td>' + fmtP(t.exit_price) + '</td>'
         + '<td class="' + pnlCls(t.pnl) + '">' + (t.pnl > 0 ? '+' : '') + fmt2(t.pnl) + '</td>'
@@ -565,12 +571,55 @@ window.addEventListener('error', function (e) {
     (d.history || []).forEach(function (t) { if (histOpen[t.id]) paintHistChart(t); });
     $('histEmpty').hidden = (d.history || []).length > 0;
     // Achievements — earned bright, locked dimmed with what's left to earn.
-    $('badges').innerHTML = (d.badges || []).map(function (b) {
+    var streakChip = (d.streak && d.streak.current > 0)
+      ? '<span class="badge-chip" title="Consecutive days with a closed trade (UTC). Best: '
+        + d.streak.best + '">🔥 ' + d.streak.current + '-day streak'
+        + (d.streak.best > d.streak.current ? ' <span style="opacity:.6">· best ' + d.streak.best + '</span>' : '')
+        + (d.streak.active_today ? '' : ' <span style="opacity:.6">· close today to keep it</span>') + '</span>'
+      : '';
+    $('badges').innerHTML = streakChip + (d.badges || []).map(function (b) {
       return '<span class="badge-chip' + (b.earned ? '' : ' locked') + '" title="' + esc(b.desc) + '">'
         + b.icon + ' ' + esc(b.name) + '</span>';
     }).join('');
+    // Weekly quests — three per ISO week, same for the whole arena, progress
+    // recomputed from THIS week's real closes. Done quests celebrate once.
+    var qs = d.quests || [];
+    if (qs.length) {
+      $('quests').hidden = false;
+      $('quests').innerHTML = '<div class="starter"><div class="t">Weekly quests · reset Monday 00:00 UTC</div>'
+        + qs.map(function (q) {
+          var pct = Math.round(q.have / q.target * 100);
+          return '<div class="step' + (q.done ? ' done' : '') + '">' + q.icon + ' ' + esc(q.name)
+            + ' <span class="muted">' + q.have + '/' + q.target + '</span>'
+            + (q.done ? ' ✅' : '<div style="height:4px;background:var(--line);border-radius:99px;margin-top:3px"><div style="height:4px;width:'
+              + pct + '%;background:var(--gold-bright);border-radius:99px"></div></div>')
+            + '</div>';
+        }).join('') + '</div>';
+      celebrateQuests(qs);
+    }
     celebrate(d.badges || []);
     starter(d);
+  }
+
+  // Celebrate NEWLY completed weekly quests — same localStorage-diff pattern
+  // as badges, keyed per quest so a done quest cheers exactly once.
+  function celebrateQuests(quests) {
+    var KEY = 'rc_arena_quests';
+    var seen;
+    try { seen = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { seen = []; }
+    var doneKeys = quests.filter(function (q) { return q.done; })
+      .map(function (q) { return q.key; });
+    var fresh = doneKeys.filter(function (k) { return seen.indexOf(k) < 0; });
+    try { localStorage.setItem(KEY, JSON.stringify(doneKeys)); } catch (e) { /* private mode */ }
+    if (!fresh.length || fresh.length === doneKeys.length && doneKeys.length > 1 && !seen.length) return;
+    var q = quests.filter(function (x) { return x.key === fresh[0]; })[0];
+    if (!q) return;
+    var el = $('cheer');
+    el.innerHTML = '🎉 Quest complete: <b>' + q.icon + ' ' + esc(q.name) + '</b>';
+    el.hidden = false;
+    setTimeout(function () { el.hidden = true; }, 5000);
+    confetti();
+    haptic([16, 30, 16]);
   }
 
   // Celebrate NEWLY earned badges (diffed against localStorage — client-side
@@ -657,16 +706,31 @@ window.addEventListener('error', function (e) {
     if (rb) rb.onclick = loadAccount;
   }
 
+  // Rank-change chips: between board refreshes, a climb shows "▲n" and a
+  // slip "▼n" beside the rank — motion that carries information (WHO is
+  // moving), never on first paint. In-page memory only; honest by
+  // construction (it can only show moves that actually happened here).
+  var prevRanks = null;
+  var prevSeasonRanks = null;
   async function loadBoard() {
     var r = await RC.fetchJSON('/api/arena/leaderboard', { auth: false, timeoutMs: 14000 }).catch(function () { return null; });
     var d = r && r.ok && r.data;
     if (!d) { $('lbRows').innerHTML = '<div class="empty">The board is unavailable right now.</div>'; return; }
     $('lbRows').innerHTML = d.rows.length ? d.rows.map(function (x) {
-      return '<div class="lb-row"><span class="rk">#' + x.rank + '</span>'
+      var move = '';
+      if (prevRanks && prevRanks[x.handle] != null && prevRanks[x.handle] !== x.rank) {
+        var up = prevRanks[x.handle] > x.rank;
+        move = ' <span class="rk-move ' + (up ? 'up-c' : 'down-c') + '">' + (up ? '▲' : '▼')
+          + Math.abs(prevRanks[x.handle] - x.rank) + '</span>';
+      }
+      return '<div class="lb-row"><span class="rk">#' + x.rank + move + '</span>'
         + '<span><a href="/trader/' + encodeURIComponent(x.handle) + '">' + esc(x.handle) + '</a></span>'
         + '<span class="' + pnlCls(x.return_pct) + '">' + (x.return_pct > 0 ? '+' : '') + fmt2(x.return_pct) + '%</span>'
         + '<span class="tr">' + x.trades + ' trades</span></div>';
     }).join('') : '<div class="empty">Nobody on the board yet — open a paper trade, pick a handle, and take rank #1.</div>';
+    var nr = {};
+    d.rows.forEach(function (x) { nr[x.handle] = x.rank; });
+    prevRanks = nr;
   }
 
   // Live tape — the floor's latest closes. A print seen for the first time
@@ -692,7 +756,8 @@ window.addEventListener('error', function (e) {
       return '<div class="tape-row' + (fresh ? ' tape-new' : '') + '">'
         + '<span class="' + (t.direction === 'LONG' ? 'up-c' : 'down-c') + '">' + (t.direction === 'LONG' ? '▲' : '▼') + '</span>'
         + '<span><a href="/trader/' + encodeURIComponent(t.handle) + '">' + esc(t.handle) + '</a></span>'
-        + '<span class="sym">' + esc(t.symbol) + '</span>'
+        + '<span class="sym">' + esc(t.symbol)
+        + (t.key ? ' <a href="/call/' + encodeURIComponent(t.key) + '" target="_blank" rel="noopener" title="Provable receipt — sealed at open, verify in your browser">🔏</a>' : '') + '</span>'
         + '<span class="' + pnlCls(t.pct) + '">' + (t.pct > 0 ? '+' : '') + fmt2(t.pct) + '%</span>'
         + '<span class="how">' + (REASON_LABEL[t.reason] || esc(t.reason)) + '</span>'
         + '<span class="ago">' + ago(t.closed_at) + '</span></div>';
@@ -964,10 +1029,23 @@ window.addEventListener('error', function (e) {
     $('seasonRows').innerHTML = s.status === 'upcoming'
       ? '<div class="empty">Standings open when the season starts — trades closed inside the window count.</div>'
       : rows.length ? rows.map(function (x) {
-          return '<div class="lb-row"><span class="rk">#' + x.rank + '</span><span>' + esc(x.handle) + '</span>'
+          // Same rank-move chips as the main board: in-page memory only,
+          // never on first paint — the race becomes visible mid-session.
+          var move = '';
+          if (prevSeasonRanks && prevSeasonRanks[x.handle] != null && prevSeasonRanks[x.handle] !== x.rank) {
+            var up = prevSeasonRanks[x.handle] > x.rank;
+            move = ' <span class="rk-move ' + (up ? 'up-c' : 'down-c') + '">' + (up ? '▲' : '▼')
+              + Math.abs(prevSeasonRanks[x.handle] - x.rank) + '</span>';
+          }
+          return '<div class="lb-row"><span class="rk">#' + x.rank + move + '</span><span>' + esc(x.handle) + '</span>'
             + '<span class="' + pnlCls(x.return_pct) + '">' + (x.return_pct > 0 ? '+' : '') + fmt2(x.return_pct) + '%</span>'
             + '<span class="tr">' + x.trades + ' trades</span></div>';
         }).join('') : '<div class="empty">No closed trades in the window yet — the season crown is up for grabs.</div>';
+    if (rows.length) {
+      var nsr = {};
+      rows.forEach(function (x) { nsr[x.handle] = x.rank; });
+      prevSeasonRanks = nsr;
+    }
   }
 
   // Operator-only season authoring — what to SHOW; the server re-checks admin.

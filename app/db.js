@@ -77,10 +77,12 @@ class MemoryDB {
       // created_at, resolved_at. ON DUPLICATE KEY updates status/pnl/resolved_at.
       const cols = ['signal_key','symbol','direction','confidence','score','pattern',
         'regime','entry_price','stop_loss','take_profit','rr','thesis','status','pnl',
-        'created_at','resolved_at'];
+        'created_at','resolved_at','seal','seal_payload','sealed_at'];
       const row = {}; cols.forEach((k, i) => { row[k] = params[i]; });
       const existing = this.signals.find(s => s.signal_key === row.signal_key);
       if (existing) {
+        // Provable Calls: ON DUPLICATE updates outcome fields ONLY — the
+        // seal, payload and every decision-time value stay untouched.
         existing.status = row.status; existing.pnl = row.pnl; existing.resolved_at = row.resolved_at;
       } else {
         row.id = this._nextSignalId++;
@@ -102,6 +104,19 @@ class MemoryDB {
       return [[{ resolved: resolved.length, wins, net_pnl }], []];
     }
 
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('SIGNAL_KEY = ?')) {
+      // Provable Calls verify: one sealed row by its stable key
+      const rows = this.signals.filter(s => s.signal_key === params[0]);
+      return [rows.map(r => ({ ...r })), []];
+    }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('RESOLVED_AT >=')) {
+      // daily digest: rows resolved since a cutoff (NULL resolved_at never
+      // passes a >= comparison, mirroring MySQL)
+      const lo = new Date(params[0]).getTime();
+      const rows = this.signals.filter(
+        s => s.resolved_at && new Date(s.resolved_at).getTime() >= lo);
+      return [rows.map(r => ({ ...r })), []];
+    }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('ID >')) {
       // Practice-follow sweep: WHERE id > ? ORDER BY id ASC LIMIT ?
       const after = Number(params[0]) || 0;
@@ -282,13 +297,20 @@ class MemoryDB {
       return [Object.values(this.arenaAccounts).map(a => ({ ...a })), []];
     }
     if (cmd.includes('INSERT INTO ARENA_POSITIONS')) {
-      // params: user_id, symbol, direction, entry, margin, leverage, source, tp, sl, opened_at
+      // Two shapes: legacy (user_id, symbol, direction, entry, margin,
+      // leverage, source, tp, sl, opened_at) and sealed — same prefix with
+      // (trade_key, seal, seal_payload, sealed_at) between sl and opened_at.
+      const sealed = cmd.includes('TRADE_KEY');
       this.arenaPositions.push({
         id: this._nextArenaPosId++, user_id: params[0], symbol: params[1],
         direction: params[2], entry: params[3], margin: params[4],
         leverage: params[5], source: params[6] || 'manual',
         tp: params[7] == null ? null : params[7], sl: params[8] == null ? null : params[8],
-        opened_at: params[9],
+        trade_key: sealed ? params[9] : null,
+        seal: sealed ? params[10] : null,
+        seal_payload: sealed ? params[11] : null,
+        sealed_at: sealed ? params[12] : null,
+        opened_at: sealed ? params[13] : params[9],
       });
       return [{ affectedRows: 1, insertId: this._nextArenaPosId - 1 }, []];
     }
@@ -339,6 +361,11 @@ class MemoryDB {
       return [{ affectedRows: before - this.arenaPositions.length }, []];
     }
     if (cmd.includes('FROM ARENA_POSITIONS')) {
+      if (cmd.includes('WHERE TRADE_KEY')) {
+        // Provable Calls verify: one open position by its receipt key
+        const rows = this.arenaPositions.filter(p => p.trade_key === params[0]);
+        return [rows.map(r => ({ ...r })), []];
+      }
       if (cmd.includes('WHERE ID')) {
         // params: id, user_id
         const rows = this.arenaPositions.filter(p => p.id === params[0] && p.user_id === params[1]);
@@ -353,12 +380,21 @@ class MemoryDB {
       return [this.arenaPositions.map(r => ({ ...r })), []];
     }
     if (cmd.includes('INSERT INTO ARENA_TRADES')) {
-      // params: user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at
+      // Two shapes: legacy (user_id, symbol, direction, entry, exit_price,
+      // margin, leverage, pnl, reason, opened_at, closed_at) and sealed —
+      // (trade_key, seal, seal_payload, sealed_at) between reason and opened_at.
+      const sealed = cmd.includes('TRADE_KEY');
       this.arenaTrades.push({
         id: this._nextArenaTradeId++, user_id: params[0], symbol: params[1],
         direction: params[2], entry: params[3], exit_price: params[4],
         margin: params[5], leverage: params[6], pnl: params[7],
-        reason: params[8], opened_at: params[9], closed_at: params[10],
+        reason: params[8],
+        trade_key: sealed ? params[9] : null,
+        seal: sealed ? params[10] : null,
+        seal_payload: sealed ? params[11] : null,
+        sealed_at: sealed ? params[12] : null,
+        opened_at: sealed ? params[13] : params[9],
+        closed_at: sealed ? params[14] : params[10],
       });
       return [{ affectedRows: 1, insertId: this._nextArenaTradeId - 1 }, []];
     }
@@ -386,6 +422,11 @@ class MemoryDB {
       return [rows.map(r => ({ ...r })), []];
     }
     if (cmd.includes('FROM ARENA_TRADES')) {
+      if (cmd.includes('WHERE TRADE_KEY')) {
+        // Provable Calls verify: one closed trade by its receipt key
+        const rows = this.arenaTrades.filter(t => t.trade_key === params[0]);
+        return [rows.map(r => ({ ...r })), []];
+      }
       if (cmd.includes('COUNT(*)') && cmd.includes('CLOSED_AT >=')) {
         // tape pulse: WHERE closed_at >= ? (single cutoff, count only)
         const lo = new Date(params[0]).getTime();
@@ -417,6 +458,12 @@ class MemoryDB {
       if (!cmd.includes('WHERE')) {
         // live tape: newest closes across ALL users (route maps to handles)
         const rows = this.arenaTrades.slice().sort((a, b) => b.id - a.id).slice(0, 40);
+        return [rows.map(r => ({ ...r })), []];
+      }
+      if (cmd.includes('WHERE USER_ID') && !cmd.includes('LIMIT') && !cmd.includes('CLOSED_AT')) {
+        // streaks/quests: the user's FULL close history (no cap)
+        const rows = this.arenaTrades.filter(t => t.user_id === params[0])
+          .sort((a, b) => b.id - a.id);
         return [rows.map(r => ({ ...r })), []];
       }
       // history: WHERE user_id = ? ORDER BY id DESC LIMIT 30
@@ -1320,10 +1367,22 @@ async function migrate() {
         pnl DECIMAL(20,8) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         resolved_at TIMESTAMP NULL DEFAULT NULL,
+        seal VARCHAR(64) DEFAULT NULL,
+        seal_payload TEXT DEFAULT NULL,
+        sealed_at TIMESTAMP NULL DEFAULT NULL,
         INDEX idx_created (created_at),
         INDEX idx_symbol (symbol)
       )
     `);
+    // Provable Calls columns for pre-existing installs (fresh installs get
+    // them from the CREATE above).
+    for (const ddl of [
+      'ALTER TABLE signals ADD COLUMN seal VARCHAR(64) DEFAULT NULL',
+      'ALTER TABLE signals ADD COLUMN seal_payload TEXT DEFAULT NULL',
+      'ALTER TABLE signals ADD COLUMN sealed_at TIMESTAMP NULL DEFAULT NULL',
+    ]) {
+      try { await pool.execute(ddl); } catch (e) { /* exists */ }
+    }
     // Web-push subscriptions (opt-in, per browser). endpoint is the unique
     // key so re-subscribing the same browser updates instead of duplicating.
     await pool.execute(`
@@ -1554,8 +1613,13 @@ async function migrate() {
         source VARCHAR(10) NOT NULL DEFAULT 'manual',
         tp DOUBLE NULL,
         sl DOUBLE NULL,
+        trade_key VARCHAR(40) NULL,
+        seal VARCHAR(64) NULL,
+        seal_payload TEXT NULL,
+        sealed_at TIMESTAMP NULL,
         opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_arena_pos_user (user_id)
+        INDEX idx_arena_pos_user (user_id),
+        INDEX idx_arena_pos_key (trade_key)
       )
     `);
     // Back-fill columns on pre-existing deployments (CREATE TABLE IF NOT
@@ -1565,6 +1629,12 @@ async function migrate() {
     } catch (e) { /* already present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN tp DOUBLE NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN sl DOUBLE NULL'); } catch (e) { /* present */ }
+    // Provable Calls v2 — arena receipts sealed at open time.
+    try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN trade_key VARCHAR(40) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN seal VARCHAR(64) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN seal_payload TEXT NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN sealed_at TIMESTAMP NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_positions ADD INDEX idx_arena_pos_key (trade_key)'); } catch (e) { /* present */ }
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS arena_trades (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1577,11 +1647,22 @@ async function migrate() {
         leverage INT NOT NULL,
         pnl DOUBLE NOT NULL,
         reason VARCHAR(12) NOT NULL,
+        trade_key VARCHAR(40) NULL,
+        seal VARCHAR(64) NULL,
+        seal_payload TEXT NULL,
+        sealed_at TIMESTAMP NULL,
         opened_at TIMESTAMP NULL,
         closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_arena_tr_user (user_id)
+        INDEX idx_arena_tr_user (user_id),
+        INDEX idx_arena_tr_key (trade_key)
       )
     `);
+    // Provable Calls v2 — the seal rides the position onto the closed trade.
+    try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN trade_key VARCHAR(40) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN seal VARCHAR(64) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN seal_payload TEXT NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN sealed_at TIMESTAMP NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE arena_trades ADD INDEX idx_arena_tr_key (trade_key)'); } catch (e) { /* present */ }
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS arena_seasons (
         id INT AUTO_INCREMENT PRIMARY KEY,
