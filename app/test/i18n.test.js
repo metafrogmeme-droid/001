@@ -355,3 +355,31 @@ test('the skip link parks off the TOP, so RTL pages do not scroll sideways', () 
   assert.match(rule, /inset-inline-start/, 'it should use a direction-aware inset');
   assert.match(css, /\.skip-link:focus \{ transform: none; \}/, 'focus must still reveal it');
 });
+
+test('the landing footer translates — and half of it needed no new strings', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const codes = i18n.LANGS.map((l) => l.code);
+  // Ten of the twenty footer links already had nav.* keys from the landing and
+  // dashboard navs and had simply never been wired here — the same oversight
+  // as the Arena top nav and the log-in step. Reuse, don't re-author.
+  const reused = ['nav.dashboard', 'nav.marketplace', 'nav.strengthmap', 'nav.track', 'nav.proof',
+    'nav.guardian', 'nav.flight', 'nav.stress', 'nav.leaderboard', 'nav.letter', 'nav.docs'];
+  const added = ['nav.roots', 'nav.sentinel', 'nav.firewall', 'nav.escape', 'nav.developers',
+    'nav.status', 'nav.tg_bot', 'nav.community'];
+  for (const k of reused.concat(added)) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const c of codes) assert.ok(i18n.STRINGS[k][c], `${k} is missing ${c}`);
+    assert.ok(index.includes(`data-i18n="${k}"`), `${k} is not wired into index.html`);
+  }
+  // The public chat drawer is where anonymous visitors meet the assistant.
+  assert.match(index, /data-i18n="chat\.label"/);
+  assert.match(index, /data-i18n-attr="placeholder:chat\.ph"/);
+  for (const c of codes) {
+    assert.ok(i18n.STRINGS['chat.label'][c], `chat.label is missing ${c}`);
+    assert.ok(i18n.STRINGS['chat.ph'][c], `chat.ph is missing ${c}`);
+  }
+  // RUNECLAW is a product name and stays itself wherever a language embeds it.
+  for (const c of codes) assert.match(i18n.STRINGS['chat.label'][c], /RUNECLAW/, `chat.label:${c}`);
+});

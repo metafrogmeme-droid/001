@@ -156,7 +156,9 @@ test('wiring: the human-readable /roots mirror page', () => {
   assert.match(page, /Honest ledgers start empty/, 'the empty state never invents a root');
   assert.match(page, /promoted unchanged/, 'the construction is documented for mirrors');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-  assert.match(idx, /href="\/roots">Seal Roots</, 'the front door links the trust surface');
+  // Attribute-tolerant: the link now also carries data-i18n="nav.roots" so the
+  // footer translates. The invariant is the LINK and its label, not the markup.
+  assert.match(idx, /href="\/roots"[^>]*>Seal Roots</, 'the front door links the trust surface');
 });
 
 test('wiring: /provable — the third-party verification contract page', () => {
