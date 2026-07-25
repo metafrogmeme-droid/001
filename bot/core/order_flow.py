@@ -42,7 +42,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from pydantic import BaseModel, Field
@@ -71,6 +71,31 @@ def _env_bool(key: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def entry_max_spread_pct() -> float:
+    """The EXECUTION-layer spread ceiling, percent of mid — derived, not free.
+
+    Two spread gates guard entries at different layers: the liquidity guard
+    here (OF_MAX_SPREAD_BPS, default 50bps) kills a marginal book at analysis
+    time, and the live executor's last-line safeguard refuses to place orders
+    into a book wider than THIS value (it also covers manual/Telegram entries
+    that never passed the guard). They used to be two unrelated knobs in two
+    units; now the executor ceiling derives from the guard at 2x unless the
+    operator sets ENTRY_MAX_SPREAD_PCT explicitly (0 disables). Defaults are
+    behavior-preserving: 2 x 50bps = 1.0%. Read at call time, never raises.
+    """
+    raw = os.environ.get("ENTRY_MAX_SPREAD_PCT")
+    if raw is not None and str(raw).strip() != "":
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass  # junk override -> fall through to the derived value
+    try:
+        bps = float(os.environ.get("OF_MAX_SPREAD_BPS", "") or 50.0)
+    except (TypeError, ValueError):
+        bps = 50.0
+    return 2.0 * bps / 100.0
 
 
 @dataclass(frozen=True)
@@ -108,7 +133,8 @@ class OrderFlowConfig:
     # scoring byte-identical to the enrichment-only behavior.
     cross_venue_vote_enabled: bool = _env_bool("OF_CROSS_VENUE_VOTE_ENABLED", False)
     w_cross_venue: float = _env_float("OF_W_CROSS_VENUE", 0.3)
-    # Large-cap symbols that should always require $10K+ book depth
+    # Large-cap symbols get a raised depth floor (see liquidity_guard):
+    large_cap_depth_floor_usd: float = _env_float("OF_LARGE_CAP_DEPTH_FLOOR_USD", 10_000.0)
     LARGE_CAP_SYMBOLS: frozenset = frozenset({
         "BTC/USDT", "ETH/USDT", "SOL/USDT",
         "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
@@ -337,6 +363,12 @@ class OrderFlowAnalyzer:
         funding_task = exchange.fetch_funding_rate(deriv_sym)
         oi_task = exchange.fetch_open_interest(deriv_sym)
 
+        # Pre-annotated: mypy cannot infer the unpacked tuple types from
+        # gather(..., return_exceptions=True) (each slot is result-or-exception).
+        book_result: Any
+        trades_result: Any
+        funding_result: Any
+        oi_result: Any
         book_result, trades_result, funding_result, oi_result = await asyncio.gather(
             book_task, trades_task, funding_task, oi_task,
             return_exceptions=True
@@ -962,10 +994,14 @@ class OrderFlowAnalyzer:
         trade safely, else None. Wire this into RiskEngine as a 17th check.
 
         The depth threshold scales with position size so micro-test trades
-        ($10) are not blocked by a $50K requirement.  Formula:
-            effective_threshold = max(position_size_usd * 10, min_book_depth_usd)
-        For large-cap pairs (BTC/ETH/SOL) a $50K floor is enforced because
-        those books should always carry that depth.
+        ($10) are not blocked by an oversized requirement.  Formula:
+            effective_threshold = max(position_size_usd * 10, min_depth)
+        For large-cap pairs (BTC/ETH/SOL) min_depth is raised to the
+        large_cap_depth_floor_usd knob (OF_LARGE_CAP_DEPTH_FLOOR_USD,
+        default $10K) — those books should always carry that much. The
+        audit found the old docstring promising a $50K floor the code
+        never enforced; the knob makes the real floor visible, tunable,
+        and measurable from the recorded OF snapshots.
 
         Fail-OPEN by design: if the book never resolved we cannot judge
         liquidity, so we do not block on missing data here -- the analyzer's
@@ -981,7 +1017,7 @@ class OrderFlowAnalyzer:
         effective_symbol = symbol or sig.symbol
         if effective_symbol in self.config.LARGE_CAP_SYMBOLS:
             # Large-cap pairs should carry more depth, but scale with position
-            min_depth = max(min_depth, 10_000.0)
+            min_depth = max(min_depth, self.config.large_cap_depth_floor_usd)
 
         if position_size_usd > 0:
             scaled = position_size_usd * 10.0

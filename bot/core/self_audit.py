@@ -53,6 +53,12 @@ ALLOWED_FLAGS: dict[str, dict[str, Any]] = {
     "LIVE_PERF_REDUCE_MULT": {"type": "float", "min": 0.25, "max": 0.75},
     "VOLATILITY_GUARD_ATR_PCT": {"type": "float", "min": 0.03, "max": 0.15},
     "SYMBOL_LOSS_STREAK_THRESHOLD": {"type": "float", "min": 2, "max": 6},
+    # Liquidity-guard knobs (order_flow): the audit found these measured
+    # nightly but untunable by the self-audit. The executor's spread ceiling
+    # DERIVES from OF_MAX_SPREAD_BPS (2x) unless overridden, so proposing a
+    # tighter/looser guard moves both layers coherently.
+    "OF_MAX_SPREAD_BPS": {"type": "float", "min": 10, "max": 200},
+    "OF_MIN_DEPTH_USD": {"type": "float", "min": 500, "max": 50_000},
 }
 
 _SYSTEM_PROMPT = """You are the nightly self-audit of RUNECLAW, a live \

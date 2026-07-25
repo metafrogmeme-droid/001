@@ -158,3 +158,22 @@ test('wiring: the human-readable /roots mirror page', () => {
   const idx = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(idx, /href="\/roots">Seal Roots</, 'the front door links the trust surface');
 });
+
+test('wiring: /provable — the third-party verification contract page', () => {
+  const server_ = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server_, /app\.get\('\/provable'/);
+  const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'provable.html'), 'utf8');
+  // Both canonical payload contracts documented, field order included.
+  assert.match(page, /"v":1,"signal_key"/);
+  assert.match(page, /"v":2,"kind":"arena_trade"/);
+  // Copy-paste verification: single-call hash and Merkle proof replay.
+  assert.match(page, /hashlib\.sha256\(d\["seal_payload"\]/);
+  assert.match(page, /d\["anchor"\]\["root"\]/);
+  // Honest scope stays on the page.
+  assert.match(page, /none of\s+it is investment advice/i);
+  // The verify surfaces link the contract.
+  const call = fs.readFileSync(path.join(__dirname, '..', 'public', 'call.html'), 'utf8');
+  assert.match(call, /href="\/provable"/);
+  const roots = fs.readFileSync(path.join(__dirname, '..', 'public', 'roots.html'), 'utf8');
+  assert.match(roots, /href="\/provable"/);
+});

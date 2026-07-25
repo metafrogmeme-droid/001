@@ -31,7 +31,8 @@
   <div class="explain">
     <b>What this proves:</b> the call’s decision facts (symbol, direction, entry, stop, target, confidence, time — for Arena paper trades: symbol, direction, entry, leverage, exits, open time) hash to the seal shown — if any had been edited after sealing, the hash your browser computes would not match, and any difference between the sealed payload and the live record is flagged in red. Outcomes attach to the same sealed record later; losers can’t be deleted without leaving a hole in the stream.<br>
     <b>Daily seal roots (live):</b> at the end of each UTC day, every seal minted that day is folded into one Merkle root, published on the <a href="/roots">daily roots page</a> (raw feed: <a href="/api/roots">/api/roots</a>). A receipt from a completed day shows its proof above — replayed in your browser. Anyone can mirror the roots feed (a repo, a tweet, a chain memo); whoever holds a day’s root holds an independent timestamp for every call in it.<br>
-    <b>What it doesn’t prove yet:</b> a day’s honesty to someone who mirrored nothing — until a third party holds the root, you’re trusting that the feed wasn’t rewritten wholesale. Mirroring solves that today; operator-published on-chain anchoring of the same roots is planned and will be stated here when live. Not investment advice.
+    <b>What it doesn’t prove yet:</b> a day’s honesty to someone who mirrored nothing — until a third party holds the root, you’re trusting that the feed wasn’t rewritten wholesale. Mirroring solves that today; operator-published on-chain anchoring of the same roots is planned and will be stated here when live. Not investment advice.<br>
+    <b>Verify with your own tools:</b> the complete contract — payload formats, root construction, copy-paste snippets — lives at <a href="/provable">/provable</a>.
   </div>
 </div>
 <script>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Verify it yourself — Provable Calls — RUNECLAW</title>
+<meta name="description" content="The complete third-party verification contract for RUNECLAW's Provable Calls: re-derive every seal and every daily Merkle root with your own tools. Don't trust the screenshot. Verify the call.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=22">
+<style>
+  .pv-wrap { max-width: 780px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s7); }
+  .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); flex-wrap: wrap; }
+  .pv-wrap h2 { font-family: var(--font-display); letter-spacing: .03em; font-size: var(--fs-lg); margin: var(--s6) 0 var(--s2); }
+  .pv-wrap p, .pv-wrap li { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; }
+  .pv-wrap ol, .pv-wrap ul { margin: var(--s2) 0 var(--s2) 20px; display: flex; flex-direction: column; gap: 6px; }
+  pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); overflow-x: auto; font-family: var(--font-data); font-size: var(--fs-xs); line-height: 1.6; margin: var(--s2) 0; }
+  .contract { border: 1px solid var(--gold); border-radius: var(--radius); padding: var(--s3) var(--s4); margin: var(--s3) 0; }
+  .contract .t { font-family: var(--font-data); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--gold-bright); margin-bottom: 6px; }
+  .muted-note { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.65; border-top: 1px solid var(--line); margin-top: var(--s5); padding-top: var(--s3); }
+</style>
+</head>
+<body>
+<div class="pv-wrap" role="main">
+  <nav class="topnav"><a href="/">← RUNECLAW</a><span style="flex:1"></span><a href="/roots">Daily roots</a><a href="/proof">Proof of PnL</a><a href="/api/roots">Raw feed</a></nav>
+  <h1 style="font-family:var(--font-display);letter-spacing:.03em">🔏 Verify it yourself</h1>
+  <p style="margin-top:6px">This page is the complete, self-contained verification contract for RUNECLAW's Provable Calls.
+  You need nothing from us but public URLs — no account, no API key, no trust. If any check on this page ever fails,
+  the receipt is broken and you should say so loudly.</p>
+
+  <h2>1 · What gets sealed, and when</h2>
+  <p>The moment the engine publishes a trading call — and the moment any Arena paper trade fills — the decision facts
+  are serialized to a canonical JSON string and hashed with SHA-256. That hash is the <b>seal</b>. Outcomes attach to
+  the same record later and mathematically cannot move the seal. A call that was edited, backdated, or invented after
+  the fact cannot produce a matching hash.</p>
+
+  <div class="contract"><div class="t">Canonical payload · v1 · engine signal</div>
+<pre>{"v":1,"signal_key":&lt;string&gt;,"symbol":&lt;string&gt;,"direction":&lt;string&gt;,
+ "entry_price":&lt;number&gt;,"stop_loss":&lt;number&gt;,"take_profit":&lt;number&gt;,
+ "confidence":&lt;number&gt;,"pattern":&lt;string|null&gt;,"regime":&lt;string|null&gt;,
+ "created_at":&lt;ISO-8601 UTC&gt;}</pre>
+  <p>Key order is the contract. The served <code>seal_payload</code> is the exact sealed string — hash it verbatim,
+  never re-serialize it.</p></div>
+
+  <div class="contract"><div class="t">Canonical payload · v2 · arena paper trade</div>
+<pre>{"v":2,"kind":"arena_trade","trade_key":&lt;string&gt;,"handle":&lt;string|null&gt;,
+ "symbol":&lt;string&gt;,"direction":&lt;string&gt;,"entry":&lt;number&gt;,"leverage":&lt;number&gt;,
+ "tp":&lt;number|null&gt;,"sl":&lt;number|null&gt;,"opened_at":&lt;ISO-8601 UTC&gt;}</pre>
+  <p>Sealed at open — before anyone knows how the trade ends. The payload carries prices, leverage and times only;
+  virtual balances never appear on any public surface.</p></div>
+
+  <h2>2 · Verify one call</h2>
+  <ol>
+    <li>Fetch <code>GET /api/call/&lt;key&gt;</code> (keys look like <code>sig:…</code> or <code>arena:…</code>).</li>
+    <li>Compute <code>sha256(seal_payload)</code> over the served string, UTF-8, exactly as-is.</li>
+    <li>It must equal <code>seal</code>. Then compare the payload's fields to <code>current</code> — any difference
+        means the live record was rewritten after sealing.</li>
+  </ol>
+<pre>import hashlib, json, urllib.request
+d = json.load(urllib.request.urlopen("https://pmvc58g2.mule.page/api/call/KEY"))
+assert hashlib.sha256(d["seal_payload"].encode()).hexdigest() == d["seal"]
+p = json.loads(d["seal_payload"])
+for k, v in d["current"].items():
+    assert p.get(k) == v or k in ("trade_key", "signal_key"), (k, p.get(k), v)
+print("intact ✔")</pre>
+  <p>Every <code>/call/&lt;key&gt;</code> page runs the same math in your browser with WebCrypto — this snippet just
+  proves you don't need our page to do it.</p>
+
+  <h2>3 · Verify a whole day</h2>
+  <p>At the end of each UTC day, every seal minted that day folds into one Merkle root, published at
+  <a href="/api/roots">/api/roots</a> (human view: <a href="/roots">/roots</a>). The construction:</p>
+  <ul>
+    <li>Leaves = the day's seals (64-char hex), deduplicated, sorted ascending.</li>
+    <li>Parent = <code>sha256(utf8(leftHex + rightHex))</code> — the two hex strings concatenated.</li>
+    <li>An unpaired last node is promoted unchanged. A single leaf is its own root.</li>
+  </ul>
+  <p>Receipts from completed days carry <code>anchor.proof</code> — a list of <code>{pos, hash}</code> steps. Replay it:</p>
+<pre>h = d["seal"]
+for step in d["anchor"]["proof"]:
+    pair = step["hash"] + h if step["pos"] == "L" else h + step["hash"]
+    h = hashlib.sha256(pair.encode()).hexdigest()
+assert h == d["anchor"]["root"]
+print("anchored in", d["anchor"]["day"], "✔")</pre>
+
+  <h2>4 · Become a mirror</h2>
+  <p>Copy any day's root anywhere durable and public — a tweet, a git commit, a chain memo. From that moment the day
+  is frozen for everyone: we cannot back-insert a call into it without changing the root you hold. One mirrored hash
+  timestamps every call of the day. That's the whole design: <b>don't trust the screenshot — verify the call.</b></p>
+
+  <div class="muted-note">
+    <b>Honest scope:</b> a seal proves the decision facts existed unchanged since sealing; a root proves set membership
+    for its day; a mirror makes the day independently timestamped. None of this proves future performance, and none of
+    it is investment advice. Operator-published on-chain anchoring of the same roots is planned and will be stated on
+    the verify pages when live — never before.
+  </div>
+</div>
+</body>
+</html>

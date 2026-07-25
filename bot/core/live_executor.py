@@ -2680,9 +2680,12 @@ class LiveExecutor:
             # ── QC-2 SAFEGUARD 0b: spread gate ──
             # The entire entry path keys off `last`; on a wide book `last`
             # can sit far from where an order actually fills. When the venue
-            # reports bid/ask, refuse entries on spreads wider than
-            # ENTRY_MAX_SPREAD_PCT of mid (default 1.0; 0 disables).
-            _max_spread = float(os.environ.get("ENTRY_MAX_SPREAD_PCT", "1.0"))
+            # reports bid/ask, refuse entries on spreads wider than the
+            # ceiling from entry_max_spread_pct(): ENTRY_MAX_SPREAD_PCT when
+            # set (0 disables), otherwise 2x the analysis-layer liquidity
+            # guard (OF_MAX_SPREAD_BPS) so the two gates move together.
+            from bot.core.order_flow import entry_max_spread_pct
+            _max_spread = entry_max_spread_pct()
             if _max_spread > 0 and isinstance(ticker, dict):
                 try:
                     _bid = float(ticker.get("bid") or 0)

@@ -254,6 +254,9 @@ app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); r
 app.get('/call/:key', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'call.html')); });
 // The daily Merkle roots, human-readable — the page people mirror from.
 app.get('/roots', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'roots.html')); });
+// The complete third-party verification contract (payload formats, root
+// construction, copy-paste verification snippets) — no account, no trust.
+app.get('/provable', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'provable.html')); });
 app.get('/leaderboard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'leaderboard.html')); });
 // /arena — SSR unfurl: when a season exists, shared links carry its live
 // status ("RUNECLAW Arena · Genesis is LIVE"). §4: name + status + window
