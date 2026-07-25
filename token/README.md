@@ -35,6 +35,19 @@ mint address, ATA, and tx signatures. `verify` reads that file (or `MINT=<addres
 | `npm run keygen` | `scripts/keygen.mjs` | Generate `.keys/mint-payer.json` (gitignored) + devnet airdrop |
 | `npm run create` | `scripts/create_token.mjs` | Token-2022 mint + metadata, mint 1B to ATA, revoke mint authority, null freeze authority |
 | `npm run verify` | `scripts/verify_token.mjs` | Re-read on-chain state and assert it matches `token.config.json` |
+| `npm run presale:plan` | `presale/genesis_presale.mjs` | **Offline** — print every derived Genesis on-chain param (no RPC) |
+| `npm run presale:create` | `presale/genesis_presale.mjs` | `initializeV2` + `addPresaleBucketV2` — create the fixed-price presale |
+| `npm run presale:deposit -- --amount N` | `presale/genesis_presale.mjs` | `depositPresaleV2` — contribute N SOL |
+| `npm run presale:claim` | `presale/genesis_presale.mjs` | `claimPresaleV2` — claim vested tokens |
+
+## Metaplex Genesis presale (real SDK)
+
+`presale/genesis_presale.mjs` integrates the real **`@metaplex-foundation/genesis`** SDK
+(Umi-based) for a fixed-price presale, driven entirely by
+`presale/metaplex-genesis.config.json`. Start with `npm run presale:plan` (offline preview),
+then `presale:create` on devnet. Full walkthrough and the operational steps not in the script
+(Raydium liquidity, Merkle whitelist, soft-cap/refund) are in
+[`presale/RUNBOOK.md`](presale/RUNBOOK.md).
 
 ## Config
 

@@ -3,17 +3,26 @@
   "version": "0.1.0-draft",
   "private": true,
   "type": "module",
-  "description": "DRAFT / DEVNET-ONLY tooling to mint and verify the $RCLAW SPL Token-2022. Not for mainnet without the legal review + audit gates in docs/TOKEN_ROADMAP.md.",
+  "description": "DRAFT / DEVNET-ONLY tooling to mint/verify the $RCLAW SPL Token-2022 and run a Metaplex Genesis fixed-price presale. Not for mainnet without the legal review + audit gates in docs/TOKEN_ROADMAP.md.",
   "license": "BUSL-1.1",
   "scripts": {
     "create": "node scripts/create_token.mjs",
     "verify": "node scripts/verify_token.mjs",
-    "keygen": "node scripts/keygen.mjs"
+    "keygen": "node scripts/keygen.mjs",
+    "presale:plan": "node presale/genesis_presale.mjs plan",
+    "presale:create": "node presale/genesis_presale.mjs create",
+    "presale:deposit": "node presale/genesis_presale.mjs deposit",
+    "presale:claim": "node presale/genesis_presale.mjs claim"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@metaplex-foundation/genesis": "^0.40.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
+    "@metaplex-foundation/mpl-toolbox": "^0.10.0",
+    "@metaplex-foundation/umi": "^1.4.1",
+    "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@solana/spl-token": "^0.4.9",
     "@solana/spl-token-metadata": "^0.1.6",
     "@solana/web3.js": "^1.95.0"

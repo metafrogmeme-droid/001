@@ -1,11 +1,20 @@
 {
-  "_comment": "PROPOSED BASELINE for the RECOMMENDED primary venue (Metaplex Genesis). Devnet/draft. Ratify every value before launch — see docs/TOKEN_ROADMAP.md §5-6, §13.",
+  "_comment": "PROPOSED BASELINE for the RECOMMENDED primary venue (Metaplex Genesis, @metaplex-foundation/genesis). Devnet/draft. Ratify every value before launch — see docs/TOKEN_ROADMAP.md §5-6, §13. Consumed by token/presale/genesis_presale.mjs.",
   "venue": "metaplex-genesis",
   "cluster": "devnet",
   "token": {
     "symbol": "RCLAW",
-    "mint": "<FILL_FROM token/.artifacts/token.devnet.json>",
-    "decimals": 9
+    "name": "RUNECLAW Token",
+    "decimals": 9,
+    "totalSupply": "1000000000",
+    "metadataUri": "https://raw.githubusercontent.com/Humanoid-Traders/RUNECLAW/main/token/config/rclaw-metadata.json",
+    "mint": "<FILL_FROM token/.artifacts/token.devnet.json when fundingMode=transfer; leave blank for mint mode>"
+  },
+  "fundingMode": {
+    "_comment": "How the presale is funded with base tokens. 'mint' => Genesis initializes + mints the supply itself (self-contained demo). 'transfer' => you pre-minted via token/ tooling and transfer from your ATA. The on-chain numeric value is confirmed at runtime from the config below; verify against the Genesis program before mainnet.",
+    "mode": "mint",
+    "mintValue": 0,
+    "transferValue": 1
   },
   "sale": {
     "type": "fixed-price-presale",
@@ -16,47 +25,35 @@
     "hardCapSol": 5000,
     "minContributionSol": 0.25,
     "maxContributionSol": 25,
-    "refundIfSoftCapMissed": true
-  },
-  "rounds": [
-    {
-      "name": "whitelist-og",
-      "durationHours": 48,
-      "priceSolPerToken": 0.00003,
-      "whitelistRequired": true,
-      "note": "Discounted vs public round."
-    },
-    {
-      "name": "public",
-      "durationHours": 72,
-      "priceSolPerToken": 0.0000333,
-      "whitelistRequired": false,
-      "note": "Ends at hardCap or duration, whichever first."
-    }
-  ],
-  "vesting": {
-    "tgeUnlockPercent": 33,
-    "linearMonthsAfterTge": 2,
-    "cliffMonths": 0
+    "refundIfSoftCapMissed": true,
+    "_softCapNote": "Genesis fixed-price presale is 'buy at fixed price until the cap'. allocationQuoteTokenCap == hardCapSol. Soft-cap/refund is NOT a native presale field — enforce it operationally (cancel + refund path) or via a min-raise extension; confirm before launch."
   },
   "timeline": {
-    "_comment": "RFC3339 UTC. Placeholders — set at launch.",
+    "_comment": "RFC3339 UTC. Placeholders — set at launch. Converted to unix-second TimeAbsolute conditions by the script.",
     "whitelistStart": "2026-09-01T15:00:00Z",
     "publicStart": "2026-09-03T15:00:00Z",
     "depositEnd": "2026-09-06T15:00:00Z",
     "tge": "2026-09-08T15:00:00Z",
-    "claimOpen": "2026-09-08T16:00:00Z"
+    "claimEnd": "2027-09-08T15:00:00Z"
+  },
+  "vesting": {
+    "_comment": "33% unlocked at TGE (cliff), remainder linear over 2 months. Maps to createClaimSchedule({cliffAmountBps, startTime, endTime, cliffTime, period}).",
+    "tgeUnlockPercent": 33,
+    "cliffAmountBps": 3300,
+    "linearMonthsAfterTge": 2,
+    "vestingPeriodSeconds": 86400
   },
   "liquidity": {
-    "raisedSolToLiquidityPercent": 60,
+    "raisedSolToLiquidityBps": 6000,
     "tokenAllocation": "100000000",
     "dex": "raydium",
-    "lpAction": "burn-or-lock",
-    "lpLockMonths": 12
+    "lpLock": "never-claim (permanent)",
+    "_note": "Add via addRaydiumCpmmBucketV2 with createNeverClaimSchedule() for a permanent LP lock. Wired as an optional step in the runbook."
   },
   "antiAbuse": {
-    "perWalletCapEnforced": true,
-    "antiSnipeAtTge": true,
-    "kycTier": "counsel-driven"
+    "perWalletMaxViaDepositLimit": true,
+    "perWalletMinViaMinimumDepositAmount": true,
+    "whitelistViaAllowlistMerkle": true,
+    "backendSignerOptional": true
   }
 }
