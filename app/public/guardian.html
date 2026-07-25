@@ -92,7 +92,7 @@
     <!-- The envelope, drawn literally: six modules orbiting your capital.
          Hover names a module; click opens it. Reduced-motion → one calm frame. -->
     <canvas id="gdOrbit" style="width:100%;max-width:560px;height:230px;display:block;margin:var(--s3) auto 0"
-      aria-label="The six Guardian modules orbiting your capital — click a module to open it" role="img"></canvas>
+      aria-label="The six Guardian modules orbiting your capital — click a module to open it" data-i18n-attr="aria-label:a11y.guardian_orbit" role="img"></canvas>
     <div class="principle">
       <div class="p"><div class="a">The AI</div><div class="b">proposes</div></div>
       <div class="p"><div class="a">Controls</div><div class="b">authorize</div></div>
@@ -106,11 +106,11 @@
        answers inline (Firewall + Sentinel) or opens the tool (Stress / Escape /
        Flight). Deterministic + local — no LLM key, nothing leaves the page
        except the public Sentinel read. -->
-  <section class="gd-console" aria-label="Ask Guardian">
+  <section class="gd-console" aria-label="Ask Guardian" data-i18n-attr="aria-label:a11y.ask_guardian">
     <div class="lbl">◆ Ask Guardian</div>
     <div class="bar">
       <input id="gcInput" type="text" autocomplete="off" spellcheck="false"
-        placeholder="Paste a transaction to scan · &quot;how crowded is the market?&quot; · &quot;plan my exit&quot;" aria-label="Ask Guardian" data-i18n-attr="placeholder:gd.ask_ph">
+        placeholder="Paste a transaction to scan · &quot;how crowded is the market?&quot; · &quot;plan my exit&quot;" aria-label="Ask Guardian" data-i18n-attr="aria-label:a11y.ask_guardian;placeholder:gd.ask_ph">
       <button class="btn btn--primary btn--sm" id="gcRun" type="button" data-i18n="gd.ask">Ask</button>
     </div>
     <div id="gcOut"></div>
@@ -178,6 +178,6 @@ window.addEventListener('DOMContentLoaded', function () {
   ]);
 });
 </script>
-<script src="/js/i18n.js?v=36"></script>
+<script src="/js/i18n.js?v=38"></script>
 </body>
 </html>

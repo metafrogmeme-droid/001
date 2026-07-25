@@ -9,6 +9,13 @@
   'use strict';
   const { LOGGED_IN, fetchJSON, postWithStepUp, esc, fmt, fmtMoney, signed, sanitizeBotHtml, toast, modalA11y } = window.RC;
 
+  // Resolved per call, above every use — the language switcher changes the
+  // answer after boot, and the inline English is the never-blank fallback.
+  const T = (key, en) => {
+    try { return (window.RCI18N && window.RCI18N.translate(key, window.RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+
   // Anonymous visitors (landing page, not signed in) get the SAME drawer wired
   // to the account-free public endpoint: general market/product Q&A only, no
   // history, no portfolio, no trade cards. Signed-in users keep the full path.
@@ -53,9 +60,9 @@
   }
   async function addImageFile(file) {
     if (!file || !/^image\//.test(file.type || '')) return;
-    if (attached.length >= 3) { toast('Up to 3 images at a time.'); return; }
+    if (attached.length >= 3) { toast(T('dd.ct_max_images', 'Up to 3 images at a time.')); return; }
     try { attached.push(await downscaleImage(file)); renderAttachments(); }
-    catch (e) { toast('Couldn\'t read that image — try another.'); }
+    catch (e) { toast(T('dd.ct_bad_image', 'Couldn\'t read that image — try another.')); }
   }
   if (!PUBLIC && form && sendBtn) {
     fileInput = document.createElement('input');
@@ -64,8 +71,8 @@
       const f = fileInput.files && fileInput.files[0]; if (f) addImageFile(f); fileInput.value = ''; });
     const attachBtn = document.createElement('button');
     attachBtn.type = 'button'; attachBtn.className = 'chat-attach-btn';
-    attachBtn.title = 'Attach a chart or screenshot';
-    attachBtn.setAttribute('aria-label', 'Attach an image'); attachBtn.textContent = '📎';
+    attachBtn.title = T('dd.ct_attach_title', 'Attach a chart or screenshot');
+    attachBtn.setAttribute('aria-label', T('dd.ct_attach_aria', 'Attach an image')); attachBtn.textContent = '📎';
     attachBtn.addEventListener('click', () => fileInput.click());
     sendBtn.parentNode.insertBefore(attachBtn, sendBtn);
     attachRow = document.createElement('div');
@@ -233,7 +240,7 @@
     const btn = div.querySelector('button');
     btn.onclick = async () => {
       btn.disabled = true;
-      btn.textContent = 'Setting up…';
+      btn.textContent = T('dd.ct_setting_up', 'Setting up\u2026');
       const r = await fetchJSON('/api/trade/propose', {
         method: 'POST',
         body: { direction: dir, symbol: s.symbol, entry: s.entry, sl: s.sl, tp: s.tp },
@@ -242,7 +249,7 @@
       if (!r.ok || !r.data || !r.data.pending_trade) {
         appendMsg('bot', `<b>Couldn't set up that trade:</b> ${esc(r.data?.detail || r.data?.error || 'try again')}`);
         btn.disabled = false;
-        btn.textContent = 'Trade this';
+        btn.textContent = T('dd.ct_trade_this', 'Trade this');
         return;
       }
       div.remove();  // replace the hint with the real confirmable trade card
@@ -329,8 +336,8 @@
       const vb = document.createElement('button');
       vb.type = 'button';
       vb.className = 'chip chat-chip chat-chip--vision';
-      vb.textContent = '📎 Read a chart';
-      vb.title = 'Attach or paste a chart / screenshot for the agent to read';
+      vb.textContent = T('dd.ct_read_chart', '\ud83d\udcce Read a chart');
+      vb.title = T('dd.ct_attach_hint', 'Attach or paste a chart / screenshot for the agent to read');
       vb.addEventListener('click', () => fileInput.click());
       chipsEl.appendChild(vb);
     }
@@ -385,9 +392,9 @@
       // stay quiet for benign 'no-speech'/'aborted'.
       const err = ev && ev.error;
       if (err === 'not-allowed' || err === 'service-not-allowed') {
-        toast('Microphone blocked — enable mic access in your browser to dictate.');
+        toast(T('dd.ct_mic_blocked', 'Microphone blocked — enable mic access in your browser to dictate.'));
       } else if (err && err !== 'no-speech' && err !== 'aborted') {
-        toast('Voice input unavailable.');
+        toast(T('dd.ct_voice_off', 'Voice input unavailable.'));
       }
       stopMic();
     };
@@ -395,7 +402,7 @@
     micBtn.classList.add('mic--live');
     micBtn.setAttribute('aria-pressed', 'true');
     micBtn.textContent = '⏺';
-    try { recog.start(); } catch (e) { stopMic(); toast('Voice input unavailable.'); }
+    try { recog.start(); } catch (e) { stopMic(); toast(T('dd.ct_voice_off', 'Voice input unavailable.')); }
   }
   if (micBtn && SR) {
     micBtn.hidden = false;
@@ -504,12 +511,12 @@
     // silently dropping it — chip clicks and post-mortem asks used to vanish.
     // Echo the user's message now so the queue is visible; drain on finally.
     if (busy) {
-      if (imgs.length) { toast('Finishing the last reply — resend your image in a moment.'); return; }
+      if (imgs.length) { toast(T('dd.ct_busy_image', 'Finishing the last reply — resend your image in a moment.')); return; }
       if (pending == null) {
         pending = text;
         if (!isRetry) { input.value = ''; appendMsg('user', text); }
       } else {
-        toast('One message at a time — still finishing the last one.');
+        toast(T('dd.ct_busy', 'One message at a time — still finishing the last one.'));
       }
       return;
     }
@@ -532,7 +539,7 @@
     cancelBtn.type = 'button';
     cancelBtn.className = 'btn btn--sm chat-cancel';
     cancelBtn.style.marginLeft = '8px';
-    cancelBtn.textContent = 'Cancel';
+    cancelBtn.textContent = T('dd.ct_cancel', 'Cancel');
     cancelBtn.addEventListener('click', () => { cancelled = true; ac.abort(); });
     typing.appendChild(cancelBtn);
     hideChips();

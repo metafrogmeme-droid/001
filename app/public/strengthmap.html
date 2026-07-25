@@ -110,7 +110,7 @@
 <div class="sm-top">
   <a class="btn btn--ghost btn--sm" href="/">← RUNECLAW</a>
   <span class="sm-title"><b>3D</b> Strength Map</span>
-  <span class="sm-seg" role="group" aria-label="Bias">
+  <span class="sm-seg" role="group" aria-label="Bias" data-i18n-attr="aria-label:a11y.bias">
     <button type="button" class="long" id="biasLong" aria-pressed="true">● Long</button>
     <button type="button" class="short" id="biasShort" aria-pressed="false">● Short</button>
   </span>
@@ -121,7 +121,7 @@
   </span>
 </div>
 
-<canvas class="sm-canvas" id="smCanvas" aria-label="3D strength map of the USDT-perp universe"></canvas>
+<canvas class="sm-canvas" id="smCanvas" aria-label="3D strength map of the USDT-perp universe" data-i18n-attr="aria-label:a11y.strength_map"></canvas>
 <div class="sm-tip" id="smTip" role="status" aria-hidden="true"></div>
 <div class="sm-count" id="smCount"></div>
 <div class="sm-hint">Drag to orbit · scroll to zoom · tap a coin for its factor breakdown and where to trade it · <a href="/sentinel">systemic risk radar</a> · <a href="/dashboard#markets">open the app</a></div>
@@ -130,7 +130,7 @@
 <div class="sm-fallback" id="smFallback"><table><thead><tr><th>Coin</th><th>24h</th><th>Long</th><th>Short</th><th>Funding</th></tr></thead><tbody id="smFbBody"></tbody></table></div>
 
 <aside class="sm-panel" id="smPanel" aria-live="polite">
-  <button class="x" id="smClose" aria-label="Close">&times;</button>
+  <button class="x" id="smClose" aria-label="Close" data-i18n-attr="aria-label:a11y.close">&times;</button>
   <div id="smPanelBody"></div>
 </aside>
 

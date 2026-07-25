@@ -29,7 +29,7 @@
 </header>
 
 <div class="shell">
-  <nav class="rail" id="railNav" aria-label="Dashboard sections"></nav>
+  <nav class="rail" id="railNav" aria-label="Dashboard sections" data-i18n-attr="aria-label:a11y.sections"></nav>
 
   <main class="content" id="view-root">
     <!-- Views are rendered by js/dashboard.js into this container. -->
@@ -39,36 +39,36 @@
   </main>
 </div>
 
-<nav class="tabbar" id="tabbarNav" aria-label="Dashboard sections"></nav>
+<nav class="tabbar" id="tabbarNav" aria-label="Dashboard sections" data-i18n-attr="aria-label:a11y.sections"></nav>
 
 <!-- Chat -->
-<button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat">
+<button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat" data-i18n-attr="aria-label:a11y.open_chat">
   <svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>
 </button>
-<section id="chatDrawer" class="chat-drawer hidden" hidden role="dialog" aria-label="RUNECLAW chat">
+<section id="chatDrawer" class="chat-drawer hidden" hidden role="dialog" aria-label="RUNECLAW chat" data-i18n-attr="aria-label:a11y.chat">
   <div class="chat-head">
     <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
     <button class="chat-tts" id="chatTts" type="button" aria-pressed="false"
-      aria-label="Read replies aloud" title="Read replies aloud" hidden>🔇</button>
-    <button class="chat-close" id="chatClose" aria-label="Close chat">&times;</button>
+      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden>🔇</button>
+    <button class="chat-close" id="chatClose" aria-label="Close chat" data-i18n-attr="aria-label:a11y.close_chat">&times;</button>
   </div>
-  <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio"></div>
+  <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio" data-i18n-attr="aria-label:a11y.portfolio"></div>
   <div id="chatBody" class="chat-body" aria-live="polite"></div>
-  <div id="chatChips" class="chat-chips" aria-label="Suggested prompts"></div>
+  <div id="chatChips" class="chat-chips" aria-label="Suggested prompts" data-i18n-attr="aria-label:a11y.prompts"></div>
   <form class="chat-inputrow" id="chatForm">
     <label class="visually-hidden" for="chatInput">Message the RUNECLAW assistant</label>
     <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
            placeholder='Ask anything — or "buy SOL 71 sl 70 tp 76"' data-i18n-attr="placeholder:dash.chat_ph">
     <button class="btn" id="chatMic" type="button" aria-pressed="false"
-      aria-label="Dictate a message" title="Dictate a message" hidden>🎤</button>
-    <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message">
+      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden>🎤</button>
+    <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message" data-i18n-attr="aria-label:a11y.send">
       <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
     </button>
   </form>
 </section>
 
 <!-- Trade confirm modal -->
-<div id="tradeModal" class="modal hidden" hidden role="dialog" aria-modal="true" aria-label="Confirm trade">
+<div id="tradeModal" class="modal hidden" hidden role="dialog" aria-modal="true" aria-label="Confirm trade" data-i18n-attr="aria-label:a11y.confirm_trade">
   <div class="modal-card">
     <h2 data-i18n="dash.confirm_trade">Confirm trade</h2>
     <div id="tradeModalBody"></div>
@@ -81,22 +81,22 @@
 </div>
 
 <!-- Symbol detail drill-down modal -->
-<div id="symModal" class="modal hidden" hidden role="dialog" aria-modal="true" aria-label="Symbol detail">
+<div id="symModal" class="modal hidden" hidden role="dialog" aria-modal="true" aria-label="Symbol detail" data-i18n-attr="aria-label:a11y.symbol_detail">
   <div class="modal-card" style="max-width:560px;width:100%;max-height:88vh;overflow:auto">
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:var(--s2)">
       <h2 id="symModalTitle">Symbol</h2>
-      <button class="btn btn--ghost btn--sm" id="symModalClose" aria-label="Close">&times;</button>
+      <button class="btn btn--ghost btn--sm" id="symModalClose" aria-label="Close" data-i18n-attr="aria-label:a11y.close">&times;</button>
     </div>
     <div id="symModalBody"><div class="skel"></div><div class="skel"></div></div>
   </div>
 </div>
 
-<script src="/js/i18n.js?v=36"></script>
+<script src="/js/i18n.js?v=38"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=5"></script>
 <script src="/js/wallet_picker.js" defer></script>
 <script src="/js/solana_wallet.js" defer></script>
-<script src="/js/chat.js?v=24" defer></script>
+<script src="/js/chat.js?v=25" defer></script>
 <!-- 3D AI Viking agent: import map + reactive viewer (defers; no-op if the model is absent). -->
 <script type="importmap">
 { "imports": {

@@ -103,7 +103,7 @@
 <body>
 <a class="skip-link" href="#main-content" data-i18n="dash.skip">Skip to content</a>
 
-<nav class="topbar" aria-label="Main">
+<nav class="topbar" aria-label="Main" data-i18n-attr="aria-label:a11y.main">
   <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub" data-i18n="lp.brand_sub">Command Core</span></a>
   <div class="spacer"></div>
   <div class="nav-links">
@@ -117,7 +117,7 @@
     <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
     <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
     <details class="nav-menu">
-      <summary aria-label="Open menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
+      <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
       <div class="nav-menu-panel">
         <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
         <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
@@ -136,7 +136,7 @@
 
 <header class="hero">
   <canvas id="rc-constellation" aria-hidden="true"></canvas>
-  <div class="hero-agent3d" data-rc-agent3d aria-label="RUNECLAW 3D agent"></div>
+  <div class="hero-agent3d" data-rc-agent3d aria-label="RUNECLAW 3D agent" data-i18n-attr="aria-label:a11y.agent3d"></div>
   <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> <span data-i18n="hero.eyebrow">Live · Bitget USDT-M futures</span></div>
   <h1 data-i18n-html="hero.h1">An AI trading engine<br>you can <span>talk to — and trust.</span></h1>
   <div class="tagline" data-i18n="hero.tagline">Intelligent · Explainable · Guarded</div>
@@ -144,14 +144,14 @@
        style="gap:var(--s4);flex-wrap:wrap;justify-content:center;align-items:baseline;margin-bottom:var(--s3)"></div>
   <p data-i18n="hero.body">RUNECLAW scans 800+ symbols around the clock, explains every decision, and refuses anything its risk engine doesn't like — then proves it in a tamper-evident ledger, simulates what could break you, and blocks malicious signing. Create an account and paper-trade in your browser within a minute; go live only when you choose to.</p>
   <form class="hero-cta hero-signup" id="heroSignup" novalidate>
-    <input class="input hero-email" type="email" id="hero-email" placeholder="you@example.com" autocomplete="email" aria-label="Email address" data-i18n-attr="placeholder:auth.email_ph">
+    <input class="input hero-email" type="email" id="hero-email" placeholder="you@example.com" autocomplete="email" aria-label="Email address" data-i18n-attr="aria-label:a11y.email;placeholder:auth.email_ph">
     <button class="btn btn--primary" type="submit" data-i18n="hero.cta_create">Create free account</button>
     <a class="btn" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
   </form>
   <p class="hero-note muted small" data-i18n="hero.free_note">Free · paper-trade in your browser instantly · no exchange keys needed.</p>
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
-  <ul class="trust-badges" aria-label="Why you can trust it">
+  <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
     <li class="trust-badge">🔎 <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
     <li class="trust-badge">🔒 <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
     <li class="trust-badge">🔑 <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
@@ -176,7 +176,7 @@
      (server-cached, percent moves only — no account data on this page). -->
 <div id="tickerStrip" class="muted small" hidden
      style="gap:var(--s4);flex-wrap:wrap;justify-content:center;padding:10px var(--s4);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"
-     aria-label="Live market snapshot"></div>
+     aria-label="Live market snapshot" data-i18n-attr="aria-label:a11y.snapshot"></div>
 
 <!-- Why we're different: the trust pillars, high on the page — concrete backing
      for the hero's "and trust" promise. Capability claims only (§4). -->
@@ -388,7 +388,7 @@
     <h2 id="how-h" data-i18n="lp.loop_h">One loop, running continuously</h2>
     <p data-i18n="lp.loop_p">Not a static screener — a live decision loop that never stops.</p>
   </div>
-  <ol class="loop-steps rc-stagger" aria-label="The trading loop">
+  <ol class="loop-steps rc-stagger" aria-label="The trading loop" data-i18n-attr="aria-label:a11y.trading_loop">
     <li class="loop-step"><span class="loop-num">1</span><b data-i18n="lp.loop1_b">Scan</b><span class="muted small" data-i18n="lp.loop1_s">800+ symbols, around the clock</span></li>
     <li class="loop-arrow" aria-hidden="true">→</li>
     <li class="loop-step"><span class="loop-num">2</span><b data-i18n="lp.loop2_b">Analyze</b><span class="muted small" data-i18n="lp.loop2_s">LLM reasoning + technical confluence</span></li>
@@ -565,35 +565,35 @@
 </footer>
 
 <!-- Chat — anonymous visitors get the account-free public assistant -->
-<button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat">
+<button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat" data-i18n-attr="aria-label:a11y.open_chat">
   <svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg>
 </button>
-<section id="chatDrawer" class="chat-drawer hidden" hidden role="dialog" aria-label="RUNECLAW chat">
+<section id="chatDrawer" class="chat-drawer hidden" hidden role="dialog" aria-label="RUNECLAW chat" data-i18n-attr="aria-label:a11y.chat">
   <div class="chat-head">
     <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
     <button class="chat-tts" id="chatTts" type="button" aria-pressed="false"
-      aria-label="Read replies aloud" title="Read replies aloud" hidden>🔇</button>
-    <button class="chat-close" id="chatClose" aria-label="Close chat">&times;</button>
+      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden>🔇</button>
+    <button class="chat-close" id="chatClose" aria-label="Close chat" data-i18n-attr="aria-label:a11y.close_chat">&times;</button>
   </div>
-  <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio"></div>
+  <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio" data-i18n-attr="aria-label:a11y.portfolio"></div>
   <div id="chatBody" class="chat-body" aria-live="polite"></div>
-  <div id="chatChips" class="chat-chips" aria-label="Suggested prompts"></div>
+  <div id="chatChips" class="chat-chips" aria-label="Suggested prompts" data-i18n-attr="aria-label:a11y.prompts"></div>
   <form class="chat-inputrow" id="chatForm">
     <label class="visually-hidden" for="chatInput" data-i18n="chat.label">Message the RUNECLAW assistant</label>
     <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
            placeholder="Ask about crypto, markets, or how RUNECLAW works" data-i18n-attr="placeholder:chat.ph">
     <button class="btn" id="chatMic" type="button" aria-pressed="false"
-      aria-label="Dictate a message" title="Dictate a message" hidden>🎤</button>
-    <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message">
+      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden>🎤</button>
+    <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message" data-i18n-attr="aria-label:a11y.send">
       <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
     </button>
   </form>
 </section>
 
-<script src="/js/i18n.js?v=36"></script>
+<script src="/js/i18n.js?v=38"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=5"></script>
-<script src="/js/chat.js?v=24" defer></script>
+<script src="/js/chat.js?v=25" defer></script>
 <script src="/js/theater.js?v=1" defer></script>
 <script>
 // Hero email-capture: the primary conversion action lives above the fold. It
