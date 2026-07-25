@@ -11,7 +11,7 @@
   const RC = window.RC;
   const { LOGGED_IN, fetchJSON, esc, fmt, fmtMoney, fmtPrice, fmtK, signed,
           pnlClass, fmtAgo, dirChip, sanitizeBotHtml, toast, renderPanel,
-          stateBlock, connectStream } = RC;
+          stateBlock, mustRead, connectStream } = RC;
 
   // Ordered by the new-user JOURNEY, not build order: the core loop
   // (chat → read signals → trade → see portfolio → browse markets) comes first,
