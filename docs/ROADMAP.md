@@ -69,7 +69,7 @@ agent-managed vaults, and shared upside — **every step gated by the
 | **Self-custody sign-in** — connect a wallet (WalletConnect / MetaMask) to log in and trade on-chain venues without handing over keys | Next | 🟡 | new auth path |
 | **Verifiable track record** — signed, on-chain-anchored trade history; trust performance without trusting the operator | Next | 🟡 | trust primitive for vaults + copy |
 | **Idle-margin yield** — optionally park unused stablecoin margin in audited lending (e.g. Aave); opt-in, withdraw anytime | Next | 🔵 | opt-in, audit-gated |
-| **$CLAW staking** — stake for fee discounts, higher live limits, priority agents, and a share of protocol revenue | Later | ◆ | gated — see Guardrails |
+| **$RCLAW staking** — stake for fee discounts, higher live limits, priority agents, and a share of protocol revenue ([token roadmap](./TOKEN_ROADMAP.md)) | Later | ◆ | gated — see Guardrails |
 | **Agent vaults (ERC-4626)** — deposit stablecoins into a vault an agent trades (e.g. delta-neutral funding-farming); hold standard vault shares, redeem on demand | Later | ◆ | gated · non-custodial · audited |
 | **DAO governance** — token-holders vote on risk params, new venues, promoted strategies; on-chain performance-fee splits | Vision | ◆ | gated · post-token |
 

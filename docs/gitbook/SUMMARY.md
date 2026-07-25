@@ -8,6 +8,7 @@
 * [Telegram Confirmation Flow](telegram-confirmation.md)
 * [AI Learning System](ai-learning-system.md)
 * [Solana Ecosystem Mode](solana-ecosystem.md)
+* [$RCLAW Token Roadmap](token-roadmap.md)
 * [18 Pre-Trade Risk Checks](risk-checks-18.md)
 * [Risk Framework](risk-framework.md)
 * [Agent Hub Alignment](agent-hub-alignment.md)
