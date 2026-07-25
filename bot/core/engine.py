@@ -3287,6 +3287,16 @@ class RuneClawEngine:
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
             of_signal = results[1] if not isinstance(results[1], Exception) else None
 
+            # Seed the exchange-flow cache with the funding rate this pass just
+            # fetched — funding_rate_provider (the macro LIQUIDATION_RISK
+            # check) reads that cache, and nothing else fills it. Fail-open.
+            if of_signal is not None and not isinstance(of_signal, BaseException) \
+                    and getattr(of_signal, "funding_rate", None) is not None:
+                try:
+                    self.exchange_flow.seed_funding_rate(signal.symbol, of_signal.funding_rate)
+                except Exception:
+                    pass
+
             # #17: shadow-record the live order-flow snapshot so the backtest can
             # replay the same microstructure path (gated OF_RECORD_SNAPSHOTS, now
             # default ON). Write-only, best-effort, fail-open — never breaks the

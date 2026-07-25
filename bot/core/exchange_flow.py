@@ -5,9 +5,11 @@ Feeds live funding rates and open interest from Bitget (via ccxt) into
 the RUNECLAW analysis pipeline.
 
 Consumers:
-  - smart_money.SmartMoneyEngine  (analyze_exchange_flow, composite_flow_signal)
   - macro_events.MacroEventProvider(funding_provider=provider.funding_rate_provider)
-  - Telegram alert formatting
+    reads the CACHE via the sync accessor; the cache is warmed by
+    Engine seeding order-flow funding rates (seed_funding_rate) —
+    the async getters below are self-contained fetchers kept for
+    Telegram formatting and ad-hoc use.
 
 Design rules (consistent with the rest of RUNECLAW):
   - Fail-open: every fetch is independently guarded; errors degrade to
@@ -310,6 +312,28 @@ class ExchangeFlowProvider:
     # ------------------------------------------------------------------
     # Synchronous callable for MacroEventProvider
     # ------------------------------------------------------------------
+
+    def seed_funding_rate(self, symbol: str, rate: float) -> None:
+        """Warm the cache with a funding rate obtained elsewhere.
+
+        The engine's order-flow pass already fetches live funding for every
+        symbol it analyzes; seeding that value here is what makes
+        ``funding_rate_provider`` (and through it MacroEventProvider's
+        synthetic LIQUIDATION_RISK event) actually see data — the async
+        getters on this provider have no caller in the engine loop, so
+        without seeding the cache stays empty forever and the macro check
+        reads 0.0 for every symbol.
+        """
+        try:
+            rate = float(rate)
+        except (TypeError, ValueError):
+            return
+        swap = _to_swap_symbol(symbol)
+        with self._lock:
+            entry = self._entry(swap)
+            entry["funding_rate"] = rate
+            entry["updated_at"] = time.time()
+        self._prune()
 
     def funding_rate_provider(self, symbol: str) -> float:
         """Synchronous accessor returning the last cached funding rate.
