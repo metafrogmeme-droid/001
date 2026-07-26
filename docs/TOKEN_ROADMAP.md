@@ -514,6 +514,55 @@ and the BUSL-1.1 license.
   not change that disclaimer.
 - **Not an offer.** This document is directional design, not a solicitation.
 
+### The refundable alternative — considered and rejected (2026-07-26)
+
+**Corrected 2026-07-26.** This roadmap and the audit both said a refund was
+impossible with Metaplex Genesis. That was wrong: it is impossible with the
+**fixed-price presale bucket** this tooling builds, and the program offers
+another bucket type that supports exactly what §5 originally wanted.
+
+| | Fixed-price presale (current) | LaunchPool |
+|---|---|---|
+| Price | **Fixed and known** — 30,000 tokens/SOL | Pro-rata: a fixed token allocation split across all deposits, so price depends on total demand |
+| Buyer knows their allocation | **Yes**, at deposit time | No — not until the sale closes |
+| Soft cap | Descriptive only, unenforceable | **Enforced on-chain** (`SoftCap` extension) |
+| Refund if soft cap missed | **None** | `refundLaunchPoolV2` |
+| Exit during the sale | None | `withdrawLaunchPoolV2`, subject to `withdrawPenalty` |
+
+Each structure hands the buyer a different uncertainty. Fixed-price guarantees
+what they receive but nothing about getting their money back. A launch pool
+guarantees the downside but not the allocation. Neither is strictly better, which
+is precisely why the tooling has **not** switched on its own — moving would
+rewrite §5's mechanics and §4's fixed-price arithmetic.
+
+**Proven:** the instructions, the `SoftCap` extension and the
+`LaunchPoolFundingThresholdNotMet` / `LaunchPoolThresholdMet` error codes all
+exist in the SDK. **Not proven:** that the refund is gated on the threshold being
+missed — inferred from the error names, **not executed**. Held to the same
+standard as everything else here, that means it must be run on a validator before
+anyone relies on it.
+
+**Decision: the fixed-price presale stays.** §6 selected Metaplex Genesis
+fixed-price on the strength of allocation certainty, and the existence of a
+refund path elsewhere in the same program does not change that reasoning — it
+changes which uncertainty the buyer carries, not how much there is. The refund
+gap is **disclosed** (§10) rather than hidden, which is the honest way to carry
+it.
+
+**What would reopen it** — a real bar, not a formality:
+
+1. **Counsel requires a refund** for a target jurisdiction, which would make the
+   current structure unusable there rather than merely riskier.
+2. **Evidence that buyers price allocation uncertainty below principal risk** —
+   for instance a comparable Solana launch where the pro-rata structure
+   demonstrably raised more.
+3. **The soft cap becomes a hard commitment** in published terms, since it cannot
+   be enforced on this bucket type.
+
+Absent one of those, this is settled. If it ever reopens, note that the refund
+gating is **inferred and never executed** — it would need a validator run before
+anything is built on it.
+
 ### Unsold presale tokens
 
 A partial raise leaves `presaleAllocation - sold` in the presale bucket, and no
@@ -551,11 +600,20 @@ reading about it, and each is held in one place —
 `presale:plan` prints in full on every run, so the sale cannot be planned without
 them being seen. `token/presale/lp_parity.test.mjs` fails if any is removed.
 
-1. **There is no refund, at any raise level.** Once a deposit lands, no
-   instruction in the Genesis program can return it: `withdrawPresaleV1` and
-   `withdrawUnsoldPresaleV1` are V1-only and reject a V2 genesis account
-   (`0x2f`), and the SDK ships no V2 equivalent. Published terms must not promise
-   a refund of any kind, including a soft-cap refund.
+1. **There is no refund, at any raise level — with this sale structure.** Once a
+   deposit lands in the fixed-price V2 presale bucket this tooling builds, no
+   instruction returns it: `withdrawPresaleV1` and `withdrawUnsoldPresaleV1` are
+   V1-only and reject a V2 genesis account (`0x2f`), and the SDK ships no V2
+   equivalent *for a presale bucket*. Published terms must not promise a refund
+   of any kind while the sale uses this bucket type.
+
+   **Corrected 2026-07-26:** this previously read "no instruction in the Genesis
+   program can return it", which was wrong. The program ships
+   `refundLaunchPoolV2`, `withdrawLaunchPoolV2` and an on-chain `SoftCap`
+   extension — on **LaunchPool** buckets. A refundable, soft-cap-enforced sale is
+   possible with this venue; it is unavailable here because of the bucket type
+   chosen, not a missing feature. That is a product decision — see §5, *The
+   refundable alternative*.
 
 2. **The program running the sale is upgradeable, by someone else.** Metaplex
    Genesis (`GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B`) custodies the entire
@@ -701,7 +759,13 @@ Everything below is a **proposed default that the team must ratify** — nothing
 
 **Opened by building the integration — these did not exist as questions before:**
 
-- **Soft-cap enforcement mechanism.** Genesis has no native soft-cap/refund (§5). Choose an
+- ~~**Sale structure: fixed-price vs refundable launch pool**~~ — **settled
+  2026-07-26: fixed-price presale kept.** Investigated after discovering the
+  program does support a refundable, soft-cap-enforced LaunchPool bucket. Kept
+  for allocation certainty; the refund gap is disclosed instead. §5 records the
+  three things that would reopen it.
+- **Soft-cap enforcement mechanism.** Genesis has no native soft-cap/refund
+  **for the presale bucket type this sale uses** (§5). Choose an
   operational cancel-and-refund path or a min-raise extension, and disclose it before the sale.
   **Partially addressed 2026-07-26:** there is still no on-chain enforcement and there cannot
   be — but `presale:trigger` now reads the realised raise from the bucket and refuses to open
@@ -814,7 +878,7 @@ disclosed.
 | `rclaw_staking` program | **Executed in-process** (`solana-program-test`): 4 unit + 4 integration tests, pinned and unpinned; attack rejected, balances asserted | **No audit**; no SBF/BPF runtime (compute budget, serialization limits); never on devnet/mainnet |
 | `PINNED_MINT` | Enforcement observed at runtime (`UnexpectedMint` 6005); malformed pin fails closed | No real mint exists to pin yet |
 | Tier gate (`tier_gate.py`) | 17 tests incl. mint-filter and byte-layout locks | Never read a real on-chain stake account |
-| Genesis presale scripts | **Executed on devnet and on a local validator** (2026-07-26): `create` → `liquidity` → `allocate` → `finalize` → `deposit` → `trigger` → `claim` all land. `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `withdraw`/`withdraw-unsold` are V1-only and **cannot run at all** against the V2 presale this tooling creates. Unsold supply is handled instead by a `BaseTokenRollover` behavior (executed and verified); the **depositor refund has no mechanism at all** and cannot be built (see §10) |
+| Genesis presale scripts | **Executed on devnet and on a local validator** (2026-07-26): `create` → `liquidity` → `allocate` → `finalize` → `deposit` → `trigger` → `claim` all land. `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `withdraw`/`withdraw-unsold` are V1-only and **cannot run at all** against the V2 presale this tooling creates. Unsold supply is handled instead by a `BaseTokenRollover` behavior (executed and verified); the **depositor refund has no mechanism for this bucket type**; a LaunchPool bucket does have one (`refundLaunchPoolV2`), untested — see §5 |
 | e2e harness | **Full lifecycle green** against a local validator, and previously against devnet | Never run against a public cluster with more than one depositor; no concurrency coverage |
 | Wormhole bridge | Script resolves + typechecks | No NTT deployment, no transfer |
 | Anchor TS spec | `npm run typecheck` passes | **Never executed** — needs the Anchor/Solana CLIs |

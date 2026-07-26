@@ -60,7 +60,9 @@ npm run presale:claim            # claimPresaleV2 once the claim window opens (p
 # recovery: BOTH OF THESE ARE DEAD FOR A V2 PRESALE — they refuse up front.
 # withdrawPresaleV1/withdrawUnsoldPresaleV1 are V1-only and reject a V2 genesis
 # account (0x2f); the SDK has no V2 equivalent. Verified on devnet 2026-07-26.
-# There is NO depositor refund and NO unsold-token recovery. See the audit doc.
+# Unsold tokens ARE recovered — by the BaseTokenRollover behavior presale:trigger
+# executes, not by these commands. The DEPOSITOR refund is what does not exist
+# for a presale bucket (a LaunchPool bucket has one). See the audit doc.
 npm run presale:withdraw          # refuses: no V2 refund instruction exists
 npm run presale:withdraw-unsold   # refuses: no V2 unsold-recovery instruction exists
 ```
@@ -127,7 +129,7 @@ Refusing to open the pool below the presale price.
 This is not a bug and re-running will not clear it. The LP token side was fixed
 when the bucket was created, so a raise short of what it was priced for opens the
 pool under what buyers paid — permanently, because the LP lock is never-claim,
-and there is no refund instruction for a V2 presale.
+and there is no refund instruction for a V2 PRESALE bucket. (A LaunchPool bucket does have one — see roadmap §5, The refundable alternative. Switching is a product decision.)
 
 **There is no clean option at this point**, and the runbook should say so rather
 than imply one:

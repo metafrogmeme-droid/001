@@ -42,6 +42,11 @@ The audit's scope did not reach them because nothing had ever been executed.
 
 ### F-12 is worse than reported: there is no refund path at all
 
+> **Corrected 2026-07-26 — see *A refund IS possible, with a different bucket
+> type* below.** The finding stands for the fixed-price presale bucket this
+> tooling builds. The generalisation to "the Genesis program has no refund" was
+> mine and was wrong.
+
 F-12 observed that `softCapSol` reaches no instruction, so the
 `refundIfSoftCapMissed` promise was unenforceable. Execution shows the problem is
 broader. Both withdraw paths in the tooling are **V1-only instructions**, and
@@ -66,8 +71,9 @@ broader. Both withdraw paths in the tooling are **V1-only instructions**, and
   unsold supply should be treated as stranded. It is now implemented and
   executed. See *Unsold supply is no longer stranded* below.
 
-  The depositor-refund half of F-12 is **unchanged and unsolvable in code**: once
-  a deposit lands, no V2 instruction returns it.
+  The depositor-refund half of F-12 is unchanged **for this bucket type**: once a
+  deposit lands in a fixed-price presale bucket, no V2 instruction returns it. It
+  is NOT unsolvable in general — see the correction below.
 
 Both commands now refuse up front with this explanation rather than failing with
 an opaque on-chain error, because the moment either is reached is the moment
@@ -158,6 +164,56 @@ against the very constant used to build it, so flipping `cancelableBySender` to
 The flag-coverage canary had the same defect. Only mutating the source exposed
 either. They now assert against literals restated in the test file and against
 the SDK's own type, which is external and cannot move in sympathy.
+
+### CORRECTION (2026-07-26): a refund IS possible, with a different bucket type
+
+This report, the config disclosures and two merged PRs all stated some version of
+"there is **no** refund — once a deposit lands it cannot be returned by any
+instruction in the Genesis program." **That generalisation was wrong, and it was
+mine.**
+
+What is true is narrower: there is no refund **for a fixed-price V2 presale
+bucket**, which is what this tooling builds. `withdrawPresaleV1` and
+`withdrawUnsoldPresaleV1` really are V1-only and really do reject a V2 genesis
+account with `0x2f`, and the SDK really does ship no V2 equivalent *for a presale
+bucket*. All of that was verified by execution and none of it changes.
+
+What I never checked was the **other bucket types**. The program has:
+
+| Capability | Where |
+|---|---|
+| `refundLaunchPoolV2` — refund a depositor's whole deposit | LaunchPool bucket |
+| `withdrawLaunchPoolV2` — partial withdrawal mid-sale, `amountQuoteToken` | LaunchPool bucket |
+| `SoftCap` extension — an **on-chain** minimum raise | `LaunchPoolV2Extensions` |
+| `LaunchPoolFundingThresholdNotMet` / `LaunchPoolThresholdMet` | program errors |
+| `DepositAlreadyRefunded`, `SoftCapBelowThreshold` | program errors |
+
+So a **refundable, soft-cap-enforced sale is possible with this exact program**.
+It is not available here because of the bucket type the integration chose, not
+because the venue lacks the feature.
+
+**The mistake is the same class this whole engagement has been about**, which is
+why it is written up rather than quietly patched: a conclusion that looked
+proven and was not. I verified the presale path exhaustively, then generalised
+from "this path has no refund" to "the program has no refund" without enumerating
+the alternatives. The evidence I cited was real; the scope I claimed for it was
+not. The corrective habit is the one already applied elsewhere in this report —
+enumerate what the surface actually offers before concluding something is absent.
+
+**What is proven vs inferred**, held to the same standard as everything else
+here. Proven: the instructions, the extension and the error codes exist in the
+SDK. **Not proven:** that `refundLaunchPoolV2` is gated on the threshold being
+missed. That is inferred from the error names and **has not been executed**. It
+should not be relied on until it has been.
+
+**This is a product decision, not a bug fix, so the tooling has not switched.** A
+fixed-price presale tells a buyer exactly how many tokens their SOL buys. A
+launch pool splits a fixed allocation pro-rata across all deposits, so the buyer
+knows their downside — refund if the soft cap is missed — but not their
+allocation until the sale closes. That inverts which uncertainty the buyer
+carries, and it rewrites §5's published mechanics and §4's fixed-price
+arithmetic. The team decides; `sale._launchPoolAlternative` records the
+trade-off.
 
 ### Unsold supply is no longer stranded (2026-07-26)
 

@@ -1,9 +1,10 @@
 // Unsold presale tokens, pinned.
 //
 // A partial raise leaves `presaleAllocation - sold` sitting in the presale
-// bucket, and NOTHING can move it out afterwards: `withdrawUnsoldPresaleV1` and
+// bucket, and nothing can move it out afterwards: `withdrawUnsoldPresaleV1` and
 // `withdrawPresaleV1` are V1-only and reject a V2 genesis account (0x2f), and
-// the SDK ships no V2 equivalent. Without a rollover behavior attached AT
+// the SDK ships no V2 equivalent FOR A PRESALE BUCKET. (LaunchPool buckets are a
+// different story — see the CORRECTION tests at the bottom of this file.) Without a rollover behavior attached AT
 // CREATION — end behaviors cannot be added after finalize — that supply is
 // stranded permanently. At a soft-cap raise that is ~120,000,000 tokens, 12% of
 // supply, frozen in an account no key can reach.
@@ -105,4 +106,43 @@ test('the sale still explains that unsold tokens have no other exit', () => {
   const cfg = committed();
   assert.match(cfg.sale._unsoldRolloverNote, /withdrawUnsoldPresaleV1/);
   assert.match(cfg.sale._unsoldRolloverNote, /stranded permanently/);
+});
+
+test('CORRECTION: the no-refund disclosure is scoped to the bucket type', () => {
+  // This disclosure previously said no refund exists "by any instruction in the
+  // Genesis program". That was false — refundLaunchPoolV2 and
+  // withdrawLaunchPoolV2 exist, and LaunchPool buckets carry an on-chain
+  // SoftCap. The claim is true only of the fixed-price PRESALE bucket this
+  // tooling builds, and a disclosure published to buyers must not overstate.
+  const cfg = committed();
+  const d = cfg.disclosures.noRefund;
+  assert.match(d, /THIS SALE STRUCTURE|presale bucket/,
+    'the no-refund claim must be scoped, not absolute');
+  assert.ok(
+    !/no instruction in the Genesis program/.test(d),
+    'the over-broad claim is back — the program does have refundLaunchPoolV2'
+  );
+  // And the alternative has to stay recorded, with its trade-off.
+  assert.match(cfg.sale._launchPoolAlternative, /refundLaunchPoolV2/);
+  assert.match(cfg.sale._launchPoolAlternative, /NOT PROVEN EITHER WAY/,
+    'the gating is inferred from error names and has not been executed — say so');
+  // The decision, and the bar for revisiting it. A rejected alternative with no
+  // recorded reopening condition is indistinguishable from one nobody thought
+  // about, and this one was thought about.
+  assert.match(cfg.sale._launchPoolAlternative, /CONSIDERED AND REJECTED/);
+  assert.match(cfg.sale._launchPoolAlternative, /WHAT WOULD REOPEN THIS/);
+});
+
+test('CORRECTION: the SDK really does ship the launch-pool refund path', () => {
+  // The evidence for the correction, checked rather than remembered. If a future
+  // SDK bump removes these, the correction above needs revisiting.
+  const dir = path.join(PRESALE_DIR, '..', 'node_modules', '@metaplex-foundation',
+    'genesis', 'dist', 'src', 'generated');
+  for (const f of ['instructions/refundLaunchPoolV2.d.ts',
+                   'instructions/withdrawLaunchPoolV2.d.ts',
+                   'types/softCap.d.ts']) {
+    assert.ok(fs.existsSync(path.join(dir, f)), `${f} is gone — recheck the refund correction`);
+  }
+  const errs = fs.readFileSync(path.join(dir, 'errors', 'genesis.js'), 'utf8');
+  assert.match(errs, /LaunchPoolFundingThresholdNotMet/);
 });
