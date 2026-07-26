@@ -105,6 +105,9 @@ function persistBaseMintKeypair(signer) {
   }
   const file = path.join(dir, `basemint-${signer.publicKey.toString()}.json`);
   fs.writeFileSync(file, JSON.stringify(Array.from(signer.secretKey)), { mode: 0o600 });
+  // writeFileSync's mode applies only on CREATE — an existing file keeps its
+  // old mode. Repair rather than assume, the same way keygen.mjs does.
+  if (process.platform !== 'win32') fs.chmodSync(file, 0o600);
   try {
     fs.chmodSync(file, 0o600);
   } catch {

@@ -10,6 +10,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Imported, not reimplemented. A second copy of a security check is how the two
+// drift apart; the loopback guard already had to grow a test asserting both of
+// its copies agreed.
+import { assertKeyfilePermissions } from '../scripts/lib.mjs';
+
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { base58, keypairIdentity, sol, lamports, publicKey, transactionBuilder } from '@metaplex-foundation/umi';
 import { findAssociatedTokenPda, mplToolbox } from '@metaplex-foundation/mpl-toolbox';
@@ -86,6 +91,10 @@ function loadKeypair(umi, env) {
   if (!fs.existsSync(abs)) {
     throw new Error(`Keypair not found at ${abs}. Run \`npm run keygen\` or set KEYPAIR_PATH.`);
   }
+  // KEYPAIR_PATH is operator-supplied, so the check belongs here at the load
+  // site and not only where keygen writes the file. This key signs the deposit,
+  // the allocations, finalize, and the irreversible LP lock.
+  assertKeyfilePermissions(abs);
   const secret = Uint8Array.from(JSON.parse(fs.readFileSync(abs, 'utf8')));
   return umi.eddsa.createKeypairFromSecretKey(secret);
 }
