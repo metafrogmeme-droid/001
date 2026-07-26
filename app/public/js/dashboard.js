@@ -22,6 +22,16 @@
     catch (e) { return en; }
   };
 
+  // Translate + fill {slots}. A label that interpolates a value needs a slot the
+  // translator can MOVE — concatenating around a value only ever yields English
+  // word order. Degrades like T() does: if i18n.js never loaded, the English
+  // template is filled locally rather than throwing or leaking a raw "{sym}".
+  const TF = (key, en, map) => {
+    const tpl = T(key, en);
+    try { if (window.RCI18N && RCI18N.fill) return RCI18N.fill(tpl, map); } catch (e) { /* fall through */ }
+    return String(tpl).replace(/\{(\w+)\}/g, (w, k) => (map && map[k] != null ? String(map[k]) : w));
+  };
+
   // Ordered by the new-user JOURNEY, not build order: the core loop
   // (chat → read signals → trade → see portfolio → browse markets) comes first,
   // the analyst/advanced surfaces follow, and Account sits last. Views are
@@ -415,13 +425,13 @@
           <p style="color:var(--text-2);margin-bottom:var(--s3)">Personal price alerts, delivered as push notifications.
             You can also just tell the chat: <i>"alert me when BTC drops below $100k"</i>.</p>
           <form class="row" id="alertForm" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)">
-            <input class="input" id="alertSym" placeholder="BTC" style="width:7rem" maxlength="10" aria-label="Symbol" required>
-            <select class="input" id="alertOp" aria-label="Direction" style="width:auto">
+            <input class="input" id="alertSym" placeholder="BTC" style="width:7rem" maxlength="10" aria-label="${T('aria.symbol', 'Symbol')}" required>
+            <select class="input" id="alertOp" aria-label="${T('aria.direction', 'Direction')}" style="width:auto">
               <option value=">">price above</option>
               <option value="<">price below</option>
             </select>
-            <input class="input" id="alertTh" type="number" step="any" min="0" placeholder="100000" style="width:9rem" aria-label="Level" required>
-            <select class="input" id="alertMode" aria-label="Alert mode" style="width:auto">
+            <input class="input" id="alertTh" type="number" step="any" min="0" placeholder="100000" style="width:9rem" aria-label="${T('aria.level', 'Level')}" required>
+            <select class="input" id="alertMode" aria-label="${T('aria.alert_mode', 'Alert mode')}" style="width:auto">
               <option value="once">one-shot</option>
               <option value="recurring">recurring (hourly max)</option>
             </select>
@@ -475,7 +485,7 @@
         : `<span class="badge">tripped${a.trigger_price != null ? ' @ ' + fmtPrice(a.trigger_price) : ''}</span>`;
       return `<div class="row" style="gap:var(--s2);align-items:center;padding:var(--s1) 0;border-bottom:1px solid var(--border)">
           <b>${esc(a.label)}</b> ${state}
-          <button class="btn btn--sm" data-del="${a.id}" type="button" style="margin-left:auto" aria-label="Delete alert">✕</button>
+          <button class="btn btn--sm" data-del="${a.id}" type="button" style="margin-left:auto" aria-label="${T('aria.delete_alert', 'Delete alert')}">✕</button>
         </div>`;
     }).join('');
     el.onclick = async (e) => {
@@ -606,7 +616,7 @@
         <section class="panel" id="p-macmini"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.macro">Macro backdrop</span>
           <span class="right"><a class="small" href="#macro" data-i18n="dp.macro_link">open Macro →</a></span></h2><div id="c-macmini"><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-letter"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.letter">The Agent Letter</span>
-          <select class="input" id="letterWeek" aria-label="Letter week" style="margin-left:auto;width:auto;padding:2px 8px"></select>
+          <select class="input" id="letterWeek" aria-label="${T('aria.letter_week', 'Letter week')}" style="margin-left:auto;width:auto;padding:2px 8px"></select>
           <a class="small" href="/letter" style="margin-left:8px;white-space:nowrap" data-i18n="dp.letter_link">public archive →</a></h2>
           <div id="c-letter"><div class="skel"></div><div class="skel"></div></div></section>` : ''}
         <section class="panel" id="p-hpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-hpos"><div class="skel"></div><div class="skel"></div></div></section>
@@ -1035,7 +1045,7 @@
   async function renderMarkets() {
     container.innerHTML = viewHead('Markets', 'Live exchange data');
     container.insertAdjacentHTML('beforeend', `
-      <nav class="jumpnav" aria-label="Jump to radar">
+      <nav class="jumpnav" aria-label="${T('aria.jump_radar', 'Jump to radar')}">
         ${MARKET_JUMPS.map(([id, label]) =>
           `<button type="button" class="chip jumpnav-btn" data-jump="${id}">${esc(label)}</button>`).join('')}
       </nav>`);
@@ -1083,7 +1093,7 @@
         <section class="panel" id="p-radar3d"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.radar3d">Sector sweep — live 3D radar</span>
           <span class="badge" style="margin-left:auto" title="Live tokens plotted by momentum &amp; volume on a tilted radar, swept in real time. Visualization only — it never trades.">read-only</span></h2>
           <canvas id="radar3dCanvas" style="width:100%;height:320px;display:block"></canvas>
-          <div id="radar3dLog" class="row" style="gap:6px;flex-wrap:wrap;min-height:22px;margin-top:var(--s2)" aria-live="polite" aria-label="Recent radar contacts"></div>
+          <div id="radar3dLog" class="row" style="gap:6px;flex-wrap:wrap;min-height:22px;margin-top:var(--s2)" aria-live="polite" aria-label="${T('aria.recent_contacts', 'Recent radar contacts')}"></div>
           <p class="small muted" id="radar3dLegend" style="margin-top:var(--s2)">Each blip is a live token — angle by sector, distance by 24h volume, height by 24h momentum, colour by direction. The plane orbits, the beam sweeps, and strong movers ping on contact. Hover a blip to name it.</p>
           <p class="small" style="margin-top:var(--s2)"><a href="/strengthmap">🌐 Open the 3D Strength Map →</a> <span class="muted">— the whole USDT-perp universe by long/short strength, then trade it on any CEX or DEX.</span></p>
         </section>
@@ -1684,7 +1694,7 @@
           return parseFloat(b.quoteVolume || 0) - parseFloat(a.quoteVolume || 0);
         });
         return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
-          <thead><tr><th aria-label="Pinned"></th><th>Pair</th><th class="r">Price</th><th class="r">24h</th><th class="r">Volume</th><th>Engine</th></tr></thead>
+          <thead><tr><th aria-label="${T('aria.pinned', 'Pinned')}"></th><th>Pair</th><th class="r">Price</th><th class="r">24h</th><th class="r">Volume</th><th>Engine</th></tr></thead>
           <tbody>${rows.slice(0, 30).map(t => {
             const chg = parseFloat(t.change24h) * 100;
             const tag = scanSyms[t.symbol];
@@ -1764,7 +1774,7 @@
     const last = cs[cs.length - 1];
     out += `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(last.c)}" y2="${y(last.c)}" stroke="var(--gold)" stroke-width="1" stroke-dasharray="4 4"/>
       <text x="${W - PAD.r + 6}" y="${y(last.c) + 4}" fill="var(--gold-bright)" font-size="11" font-weight="700" font-family="var(--font-data)">${fmtPrice(last.c).replace('$', '')}</text>`;
-    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Price chart" style="display:block">${out}</svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${T('aria.price_chart', 'Price chart')}" style="display:block">${out}</svg>`;
   }
 
   // ── Deep-scan card mini-charts ──────────────────────────────────────────────
@@ -1799,7 +1809,7 @@
     const last = cs[cs.length - 1];
     const lc = opts.bias === 'bull' ? 'var(--up)' : opts.bias === 'bear' ? 'var(--down)' : 'var(--gold-bright)';
     out += `<line x1="${P}" x2="${W - P}" y1="${f(y(last.c))}" y2="${f(y(last.c))}" stroke="${lc}" stroke-width="1" stroke-dasharray="2 2" stroke-opacity=".85"/>`;
-    return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="Recent 4h price with pattern high/low band" style="display:block">${out}</svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="${T('aria.recent_band', 'Recent 4h price with pattern high/low band')}" style="display:block">${out}</svg>`;
   }
 
   const _miniCandles = new Map(); // "SYMUSDT" -> { ts, rows }
@@ -2129,7 +2139,7 @@
     }
     body.innerHTML = `
       <section class="mt-1">${_insightBlock(ins && ins.data)}</section>
-      <div id="symTf" class="row mt-2" style="gap:6px" role="group" aria-label="Chart timeframe"></div>
+      <div id="symTf" class="row mt-2" style="gap:6px" role="group" aria-label="${T('aria.chart_timeframe', 'Chart timeframe')}"></div>
       <div id="symChart" class="mt-2"></div>
       <div id="symReadChips" class="row mt-2" style="gap:6px;flex-wrap:wrap"></div>
       <h3 class="mt-4 mb-2" style="font-size:var(--fs-md)">Pattern read</h3>
@@ -2910,8 +2920,8 @@
             Replayed from real recorded results — you can also just ask the chat.</p>
           <form class="row" id="replayForm" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)">
             <label class="small" style="align-self:center">Stake $</label>
-            <input class="input" id="replayStake" type="number" min="10" max="1000000" step="any" value="1000" style="width:8rem" aria-label="Stake per trade">
-            <select class="input" id="replayDays" aria-label="Period" style="width:auto">
+            <input class="input" id="replayStake" type="number" min="10" max="1000000" step="any" value="1000" style="width:8rem" aria-label="${T('aria.stake_per_trade', 'Stake per trade')}">
+            <select class="input" id="replayDays" aria-label="${T('aria.period', 'Period')}" style="width:auto">
               <option value="0">all time</option>
               <option value="90">last 90d</option>
               <option value="30">last 30d</option>
@@ -3596,9 +3606,9 @@
             <td data-label="PnL" class="r num ${pnlClass(t.pnl)}">${signed(parseFloat(t.pnl))}</td>
             <td data-label="Closed" class="r muted small">${fmtAgo(t.closed_at)}</td>
             <td data-label="Note"><div class="row" style="gap:6px;align-items:center">
-              <input class="input" style="padding:4px 8px;font-size:var(--fs-xs);min-width:110px" placeholder="Add note…" value="${esc(t.notes || '')}" data-trade-id="${t.id}" aria-label="Journal note for ${esc(t.symbol)}">
-              <button class="btn btn--sm share-trade" type="button" title="Share this trade" aria-label="Share ${esc(String(t.symbol).split('/')[0])} trade" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}">Share</button>
-              <button class="btn btn--sm ask-ai" type="button" title="Ask the AI analyst to post-mortem this trade" aria-label="Post-mortem ${esc(String(t.symbol).split('/')[0])} trade with the AI analyst" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}" data-pnl="${esc(String(t.pnl))}">Ask AI</button>
+              <input class="input" style="padding:4px 8px;font-size:var(--fs-xs);min-width:110px" placeholder="Add note…" value="${esc(t.notes || '')}" data-trade-id="${t.id}" aria-label="${esc(TF('aria.journal_for', 'Journal note for {sym}', { sym: t.symbol }))}">
+              <button class="btn btn--sm share-trade" type="button" title="Share this trade" aria-label="${esc(TF('aria.share_trade_x', 'Share {sym} trade', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}">Share</button>
+              <button class="btn btn--sm ask-ai" type="button" title="Ask the AI analyst to post-mortem this trade" aria-label="${esc(TF('aria.postmortem_x', 'Post-mortem {sym} trade with the AI analyst', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}" data-pnl="${esc(String(t.pnl))}">Ask AI</button>
             </div></td>
           </tr>`).join('')}</tbody></table></div>`;
     }, { empty: { icon: 'icon-coin', text: 'No closed trades yet — your history and journal live here.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } } });
@@ -3689,7 +3699,7 @@
         <text x="${W - PAD.r + 6}" y="${y(v) + 4}" fill="var(--text-3)" font-size="11" font-family="var(--font-data)">${fmtK(v)}</text>`;
     }
     const lastX = x(pts.length - 1), lastY = y(pts[pts.length - 1].v);
-    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Equity curve" style="display:block">
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${T('aria.equity_curve', 'Equity curve')}" style="display:block">
       ${grid}
       <path d="${line} L${lastX},${H - PAD.b} L${PAD.l},${H - PAD.b} Z" fill="${col}" opacity="0.08"/>
       <path d="${line}" fill="none" stroke="${col}" stroke-width="2"/>
@@ -4456,7 +4466,7 @@
         <section class="panel" id="p-dappctl">
           <div class="row" style="gap:8px;align-items:center;margin-bottom:10px">
             <input id="dappSearch" class="input" type="search" placeholder="Search dApps by name or purpose…"
-                   aria-label="Search dApps" style="flex:1 1 220px;max-width:340px">
+                   aria-label="${T('aria.search_dapps', 'Search dApps')}" style="flex:1 1 220px;max-width:340px">
             <span class="small muted" id="dappCount" aria-live="polite"></span>
           </div>
           <div id="c-dappctl"><div class="skel"></div></div>
@@ -5015,8 +5025,8 @@
           : `<p class="small" style="color:var(--text-2)">Bring your own paid news-API key to enrich <b>your</b> radar with a richer feed — your quota, seen only by you. Stored encrypted by the bot; this site never keeps it. Compliant by design: headlines, source, and links only.</p>`;
         return `${status}
           <form class="row mt-2" id="newsKeyForm" style="gap:var(--s2);flex-wrap:wrap">
-            <select class="input" id="newsKeyProv" aria-label="News provider" style="width:11rem">${opts}</select>
-            <input class="input" id="newsKeyVal" type="password" placeholder="API key" maxlength="128" autocomplete="off" style="flex:1;min-width:12rem" aria-label="News API key">
+            <select class="input" id="newsKeyProv" aria-label="${T('aria.news_provider', 'News provider')}" style="width:11rem">${opts}</select>
+            <input class="input" id="newsKeyVal" type="password" placeholder="API key" maxlength="128" autocomplete="off" style="flex:1;min-width:12rem" aria-label="${T('aria.news_key', 'News API key')}">
             <button class="btn btn--primary btn--sm" type="submit">${d.connected ? '↻ Replace key' : '🔌 Connect'}</button>
             ${d.connected ? '<button class="btn btn--sm" id="newsKeyClear" type="button">Disconnect</button>' : ''}
           </form>`;
@@ -5090,14 +5100,14 @@
           <div class="news-item" data-nid="${esc(String(n.id))}">
             <div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px">
               <b>${esc(n.title || (n.source ? 'From ' + n.source : 'Shared note'))}</b>
-              <button class="btn btn--sm" data-del="${esc(String(n.id))}" type="button" aria-label="Remove this note">Remove</button></div>
+              <button class="btn btn--sm" data-del="${esc(String(n.id))}" type="button" aria-label="${T('aria.remove_note', 'Remove this note')}">Remove</button></div>
             <div class="small muted">${esc(n.preview || '')}</div>
           </div>`).join('') : '<p class="small muted">Nothing shared yet.</p>';
         return `<p class="small" style="color:var(--text-2)">Paste something you already have — a newsletter you received, notes, an article excerpt — and your agent can draw on it in chat. <b>Private to you</b>, stored encrypted, never shared or made public. You're responsible for what you paste; don't share paywalled content you're not allowed to.</p>
           <form id="shareForm" class="stack mt-2" style="gap:6px">
-            <input class="input" id="shareTitle" maxlength="200" placeholder="Title (optional)" aria-label="Note title">
-            <input class="input" id="shareSource" maxlength="200" placeholder="Source (optional, e.g. Bankless)" aria-label="Note source">
-            <textarea class="input" id="shareBody" rows="4" maxlength="20000" placeholder="Paste the text here…" aria-label="Note text" style="width:100%;box-sizing:border-box"></textarea>
+            <input class="input" id="shareTitle" maxlength="200" placeholder="Title (optional)" aria-label="${T('aria.note_title', 'Note title')}">
+            <input class="input" id="shareSource" maxlength="200" placeholder="Source (optional, e.g. Bankless)" aria-label="${T('aria.note_source', 'Note source')}">
+            <textarea class="input" id="shareBody" rows="4" maxlength="20000" placeholder="Paste the text here…" aria-label="${T('aria.note_text', 'Note text')}" style="width:100%;box-sizing:border-box"></textarea>
             <div class="row" style="gap:8px"><button class="btn btn--primary btn--sm" type="submit">Share with my agent</button>
               ${notes.length ? '<button class="btn btn--sm" id="shareClearAll" type="button">Clear all</button>' : ''}</div>
           </form>
@@ -5240,7 +5250,7 @@
       bar.hidden = false;
       bar.innerHTML = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <span class="chip" style="background:rgba(56,189,248,.12)">🐍 Deploy — <b>testnet only</b></span>
-          <select id="cs-net" class="input input--sm" aria-label="Testnet">${opts}</select>
+          <select id="cs-net" class="input input--sm" aria-label="${T('aria.testnet', 'Testnet')}">${opts}</select>
           <button class="btn btn--sm btn--primary" id="cs-deploy" type="button">Deploy to testnet</button>
           <span id="cs-deploymsg" class="small muted"></span>
         </div>
@@ -5456,7 +5466,7 @@
           <div class="row" style="gap:var(--s2);align-items:center">
             <span style="font-size:26px;line-height:1">${esc(a.icon || '🤖')}</span>
             <div style="min-width:0"><b style="font-size:var(--fs-lg)">${esc(a.name)}</b>
-              <a href="/agents/${esc(a.id)}" title="Public shareable page" style="margin-left:6px;font-size:var(--fs-sm);color:var(--text-3)" aria-label="Public page for ${esc(a.name)}">↗</a></div>
+              <a href="/agents/${esc(a.id)}" title="Public shareable page" style="margin-left:6px;font-size:var(--fs-sm);color:var(--text-3)" aria-label="${esc(TF('aria.public_page_for', 'Public page for {name}', { name: a.name }))}">↗</a></div>
           </div>
           ${a.tagline ? `<p class="small" style="color:var(--text-2)">${esc(a.tagline)}</p>` : ''}
           <p class="small muted" style="margin:0"><b>How it trades:</b> ${esc(a.how)}</p>
@@ -5676,7 +5686,7 @@
             <span style="margin-left:auto"></span>
             <button class="btn btn--sm ${pub ? 'btn--ghost' : 'btn--primary'}" data-s${pub ? 'unpub' : 'pub'}="${s.dbId}" type="button">${pub ? 'Unpublish' : 'Publish'}</button>
             <button class="btn btn--ghost btn--sm" data-sedit="${s.dbId}" type="button">Edit</button>
-            <button class="btn btn--ghost btn--sm" data-sdel="${s.dbId}" type="button" aria-label="Delete">✕</button></div>
+            <button class="btn btn--ghost btn--sm" data-sdel="${s.dbId}" type="button" aria-label="${T('aria.delete', 'Delete')}">✕</button></div>
           ${s.tagline ? `<p class="small muted" style="margin:0">${esc(s.tagline)}</p>` : ''}
           <div class="row" style="gap:5px;flex-wrap:wrap">${chips}</div></div>`;
       }).join('');
@@ -5808,7 +5818,7 @@
       }
       return `<p class="small" style="color:var(--text-2)">Join with an anonymous handle to appear in the ranks — leave any time. We show your handle and % return only, never your email or any dollar amount.</p>
         <div class="row mt-3" style="gap:var(--s2);flex-wrap:wrap;align-items:center">
-          <input class="input" id="lbHandle" maxlength="20" placeholder="Pick a handle (3–20 chars)" style="max-width:220px" aria-label="Leaderboard handle">
+          <input class="input" id="lbHandle" maxlength="20" placeholder="Pick a handle (3–20 chars)" style="max-width:220px" aria-label="${T('aria.leaderboard_handle', 'Leaderboard handle')}">
           <button class="btn btn--primary btn--sm" id="lbJoin" type="button">Join leaderboard</button>
         </div>
         <p class="small mt-1" id="lbMsg" aria-live="polite" style="color:var(--down)"></p>`;
@@ -6053,7 +6063,7 @@
         const y0 = Math.min(...ys), y1 = Math.max(...ys);
         const pts = curve.map((p, i) => `${(P + (W - 2 * P) * i / (curve.length - 1)).toFixed(1)},${(H - P - (H - 2 * P) * (y1 === y0 ? 0.5 : (p.equity - y0) / (y1 - y0))).toFixed(1)}`).join(' ');
         const up = ys[ys.length - 1] >= ys[0];
-        curveSvg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:170px;display:block;margin-top:var(--s3)" role="img" aria-label="Backtest equity curve">
+        curveSvg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:170px;display:block;margin-top:var(--s3)" role="img" aria-label="${T('aria.backtest_equity_curve', 'Backtest equity curve')}">
           <polyline points="${pts}" fill="none" stroke="${up ? '#2fbf71' : '#e5484d'}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
       }
       const perSym = res.per_symbol ? Object.entries(res.per_symbol) : [];
@@ -6250,11 +6260,11 @@
         const prof = await getUserProfile(true);
         const wl = prof.watchlist || [];
         const chips2 = wl.map(s => `<span class="chip" style="gap:4px">${esc(String(s).replace('USDT', ''))}
-            <button class="btn btn--ghost btn--sm" data-unpin="${esc(s)}" type="button" aria-label="Remove ${esc(s)}" style="padding:0 4px">✕</button></span>`).join(' ');
+            <button class="btn btn--ghost btn--sm" data-unpin="${esc(s)}" type="button" aria-label="${esc(TF('aria.remove_x', 'Remove {x}', { x: s }))}" style="padding:0 4px">✕</button></span>`).join(' ');
         return `${wl.length ? `<div class="row" style="gap:var(--s1);flex-wrap:wrap">${chips2}</div>`
             : '<p class="small muted">Nothing pinned yet — the agent watches these coins for you in chat.</p>'}
           <form class="row mt-3" id="hubWlForm" style="gap:var(--s2)">
-            <input class="input" id="hubWlSym" placeholder="BTC" maxlength="12" style="width:7rem" aria-label="Symbol to watch">
+            <input class="input" id="hubWlSym" placeholder="BTC" maxlength="12" style="width:7rem" aria-label="${T('aria.watch_symbol', 'Symbol to watch')}">
             <button class="btn btn--sm" type="submit">＋ Watch</button>
           </form>`;
       }, { empty: { text: 'Watchlist unavailable.' } });
@@ -6301,7 +6311,7 @@
       await renderPanel(C('hubresearch'), async () =>
         `<p class="small" style="color:var(--text-2)">An evidence dossier from live venue data and the agent's own recorded history — sources named, nothing invented.</p>
          <form class="row mt-3" id="hubResForm" style="gap:var(--s2)">
-           <input class="input" id="hubResSym" placeholder="PENDLE" maxlength="12" style="width:9rem" aria-label="Coin to research">
+           <input class="input" id="hubResSym" placeholder="PENDLE" maxlength="12" style="width:9rem" aria-label="${T('aria.research_coin', 'Coin to research')}">
            <button class="btn btn--primary btn--sm" type="submit">🔬 Research</button>
            ${isAdmin ? '<button class="btn btn--sm" id="hubResWeb" type="button" title="Live, cited web research — operator only">🌐 Live web</button>' : ''}
          </form>
@@ -6472,8 +6482,8 @@
           <p class="small muted">ULTRA sends admin thesis/learning to claude-fable-5 ($10/$50 per MTok). Non-admin users are never routed to the operator key.</p>` : '';
         return `${status}
           <form class="row mt-2" id="hubLlmForm" style="gap:var(--s2);flex-wrap:wrap">
-            <select class="input" id="hubLlmProv" aria-label="LLM provider" style="width:11rem">${opts}</select>
-            <input class="input" id="hubLlmKey" type="password" placeholder="API key" maxlength="512" autocomplete="off" style="flex:1;min-width:12rem" aria-label="LLM API key">
+            <select class="input" id="hubLlmProv" aria-label="${T('aria.llm_provider', 'LLM provider')}" style="width:11rem">${opts}</select>
+            <input class="input" id="hubLlmKey" type="password" placeholder="API key" maxlength="512" autocomplete="off" style="flex:1;min-width:12rem" aria-label="${T('aria.llm_key', 'LLM API key')}">
             <button class="btn btn--primary btn--sm" type="submit">${d.connected ? '↻ Replace key' : '🔌 Connect'}</button>
             ${d.connected ? '<button class="btn btn--sm" id="hubLlmClear" type="button">Disconnect</button>' : ''}
           </form>

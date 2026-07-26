@@ -20,6 +20,13 @@
 (function () {
   'use strict';
 
+  // Resolved per call, not at load: the language switcher changes the answer
+  // after boot, and the inline English stays the never-blank fallback.
+  var T = function (key, en) {
+    try { return (window.RCI18N && window.RCI18N.translate(key, window.RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+
   function parseCandles(rows) {
     var out = [];
     for (var i = 0; i < (rows || []).length; i++) {
@@ -271,7 +278,8 @@
     var cw = Math.max(1.5, step * 0.62);
     function X(i) { return PAD + i * step + step / 2; }
     function Y(p) { return PAD + (1 - (p - lo) / span) * (H - PAD * 2); }
-    var s = '<svg class="rc-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart with position levels">';
+    var s = '<svg class="rc-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="'
+      + T('aria.price_chart_levels', 'Price chart with position levels') + '">';
     // VWAP ±1σ band first (underneath everything)
     if (vw) {
       s += '<rect x="' + PAD + '" y="' + Y(vw.upper1).toFixed(1) + '" width="' + iw + '" height="'

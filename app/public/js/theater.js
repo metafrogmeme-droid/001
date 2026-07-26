@@ -12,6 +12,21 @@
   const section = document.getElementById('theaterSection');
   if (!section) return;
 
+  // Resolved per call, not at load: the language switcher changes the answer
+  // after boot, and the inline English stays the never-blank fallback.
+  const T = (key, en) => {
+    try { return (window.RCI18N && window.RCI18N.translate(key, window.RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  // Translate + fill {slots}; degrades to the filled English template rather
+  // than throwing or leaking a raw "{sym}" if i18n.js never loaded.
+  const TF = (key, en, map) => {
+    const tpl = T(key, en);
+    try { if (window.RCI18N && window.RCI18N.fill) return window.RCI18N.fill(tpl, map); }
+    catch (e) { /* fall through */ }
+    return String(tpl).replace(/\{(\w+)\}/g, (w, k) => (map && map[k] != null ? String(map[k]) : w));
+  };
+
   const stage = document.getElementById('theaterStage');
   const titleEl = document.getElementById('theaterTitle');
   const whenEl = document.getElementById('theaterWhen');
@@ -110,7 +125,8 @@
     const dirUp = trade.direction === 'LONG';
 
     stage.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img"
-        aria-label="Replay of a recorded ${trade.direction} ${trade.symbol} trade" style="display:block">
+        aria-label="${TF('aria.replay_of', 'Replay of a recorded {dir} {sym} trade',
+          { dir: trade.direction, sym: trade.symbol })}" style="display:block">
       <line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(trade.entry_price)}" y2="${y(trade.entry_price)}"
         stroke="var(--text-3)" stroke-dasharray="4 4" opacity="0.6"/>
       <text x="${W - PAD.r + 6}" y="${y(trade.entry_price) + 4}" fill="var(--text-3)" font-size="11">entry</text>

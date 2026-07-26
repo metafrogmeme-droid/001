@@ -50,7 +50,10 @@ test('airdrop status vocabulary is richer and uses the shared chip system', () =
 
 test('the Markets view has a radar jump-nav wired to the panels', () => {
   assert.match(dash, /const MARKET_JUMPS = \[/);
-  assert.match(dash, /class="jumpnav" aria-label="Jump to radar"/);
+  // The label is translated now, so assert the wiring + the i18n key rather
+  // than the English string — pinning the English would force a rewrite of this
+  // test every time a label gets localised, which is how labels stay English.
+  assert.match(dash, /class="jumpnav" aria-label="\$\{T\('aria\.jump_radar'/);
   assert.match(dash, /data-jump="\$\{id\}"/);
   // click handler is delegated (leak-safe) and scrolls + flashes the target.
   assert.match(dash, /e\.target\.closest\('\[data-jump\]'\)/);

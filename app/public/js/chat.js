@@ -44,7 +44,8 @@
     attachRow.innerHTML = attached.map((a, i) =>
       '<span class="chat-attach"><img alt="attachment preview" src="data:'
       + a.media_type + ';base64,' + a.data + '">'
-      + '<button type="button" data-i="' + i + '" aria-label="Remove image">×</button></span>').join('');
+      + '<button type="button" data-i="' + i + '" aria-label="'
+      + T('aria.remove_image', 'Remove image') + '">×</button></span>').join('');
   }
   async function downscaleImage(file) {
     const url = URL.createObjectURL(file);
@@ -531,7 +532,8 @@
     // wait reads as the agent actually looking at the image, not a generic hang.
     const typing = appendMsg('bot',
       (imgs.length ? '<span class="chat-vision-label">Reading your screenshot… </span>' : '')
-      + '<span class="typing-dots" aria-label="Assistant is typing"><span></span><span></span><span></span></span>',
+      + '<span class="typing-dots" aria-label="'
+      + T('aria.typing', 'Assistant is typing') + '"><span></span><span></span><span></span></span>',
       'pending');
     const ac = new AbortController();
     let cancelled = false;
