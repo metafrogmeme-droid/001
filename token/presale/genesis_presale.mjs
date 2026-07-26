@@ -16,10 +16,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { generateSigner, publicKey } from '@metaplex-foundation/umi';
+import { generateSigner, publicKey, lamports } from '@metaplex-foundation/umi';
+import { createTokenIfMissing, transferSol, syncNative } from '@metaplex-foundation/mpl-toolbox';
 import {
   initializeV2,
-  addPresaleBucketV2,
+  finalizeV2,
+  WRAPPED_SOL_MINT,
+  addPresaleBucketV2Base,
+  addPresaleBucketV2Extensions,
+  setPresaleBucketV2Behaviors,
+  presaleV2Extension,
   addRaydiumCpmmBucketV2,
   depositPresaleV2,
   claimPresaleV2,
@@ -38,13 +44,13 @@ import {
   makeUmi,
   assertDevnet,
   sendChecked,
+  awaitAccount,
   derivePresaleParams,
   fixedPriceSolPerToken,
   fundingModeValue,
   buildAllowlist,
   proofToPublicKeys,
   deriveLiquidityParams,
-  rebalancedLpAllocation,
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
   TOKEN_ROOT,
@@ -169,9 +175,13 @@ function cmdPlan() {
     `presale ${pr.presalePrice.toExponential(4)} | pool at hard cap ${pr.bestCasePoolPrice.toExponential(4)} ` +
     `| pool at soft cap ${pr.worstCasePoolPrice.toExponential(4)} SOL/token`);
   console.log('                 ',
-    `those pool prices assume the LP token side stays FIXED. presale:rebalance-lp scales it to the ` +
-    `realised raise, which holds the opening price at the presale price for any raise between the ` +
-    `caps — skip that step and a weak raise opens the pool below it, permanently.`);
+    `the LP token side is FIXED at creation and CANNOT be changed afterwards (proven on devnet: ` +
+    `updateRaydiumCpmmBucketV2 is rejected once the genesis account is finalized, and deposits ` +
+    `require finalize). Size it for the SOFT cap or a weak raise opens the pool below the ` +
+    `presale price, permanently.`);
+  console.log('                 ',
+    `to be safe at EVERY raise, set liquidity.tokenAllocation <= ` +
+    `${lp._pricing.softCapParityTokens.toLocaleString()} (currently ${Number(cfg.liquidity.tokenAllocation).toLocaleString()}).`);
   console.log('                 ',
     `quote split: ${lp.raisedSolToLiquidityBps / 100}% of the raise is encoded on chain as a ` +
     `SendQuoteTokenPercentage end behavior on the presale bucket (${lp.raisedSolToLiquidityBps} bps), ` +
@@ -181,9 +191,8 @@ function cmdPlan() {
     'genesis authority replace it until it is triggered, so presale:liquidity and presale:trigger ' +
     're-read the live bucket and refuse on a mismatch. A multisig authority is the real mitigation.');
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
-  console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → (window closes) → presale:rebalance-lp → presale:trigger → presale:claim.');
-  console.log('       rebalance-lp scales the LP token side to the REALISED raise so the pool opens at the presale');
-  console.log('       price rather than below it — run it after the window closes and before the pool is created.');
+  console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:finalize → presale:deposit → (window closes) → presale:trigger → presale:claim.');
+  console.log('       presale:finalize is REQUIRED before any deposit and PERMANENTLY locks bucket configuration.');
 }
 
 // ── create: initializeV2 + addPresaleBucketV2 ───────────────────────────────
@@ -384,23 +393,8 @@ async function cmdCreate() {
   }
   console.log('  tx:', sigInit);
   checkpoint('initializeV2', sigInit);
-
-  const presaleInput = {
-    genesisAccount: genesisAccount[0],
-    baseMint: baseMintPk,
-    bucketIndex: BUCKET_INDEX,
-    baseTokenAllocation: p.baseTokenAllocation,
-    allocationQuoteTokenCap: p.allocationQuoteTokenCap,
-    depositStartCondition: p.depositStartCondition,
-    depositEndCondition: p.depositEndCondition,
-    claimStartCondition: p.claimStartCondition,
-    claimEndCondition: p.claimEndCondition,
-    // Per-wallet floor/ceiling (OptionOrNullable — raw value is fine).
-    minimumDepositAmount: { amount: p.perWalletMinLamports },
-    depositLimit: { limit: p.perWalletMaxLamports },
-    // 33% at TGE, linear tail.
-    claimSchedule: p.claimSchedule,
-  };
+  // Do not proceed until the account is actually readable — see awaitAccount.
+  await awaitAccount(umi, genesisAccount[0], 'genesis account');
 
   // Encode the raise->liquidity split ON CHAIN rather than promising it.
   //
@@ -430,66 +424,147 @@ async function cmdCreate() {
   // cmdLiquidity: the liquidity bucket must be created before the deposit window
   // closes, or the behavior points at nothing.
   const bps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
-  if (bps > 0) {
-    presaleInput.endBehaviors = [
-      behavior('SendQuoteTokenPercentage', {
-        processed: false,
-        percentageBps: bps,
-        padding: [0, 0, 0, 0],
-        destinationBucket: liquidityBucket[0],
-      }),
-    ];
-    console.log(
-      `    endBehaviors: SendQuoteTokenPercentage ${bps} bps (${bps / 100}%) -> ${liquidityBucket[0]}`
-    );
-  } else {
-    console.log('    endBehaviors: none (raisedSolToLiquidityBps is 0)');
-  }
+  const endBehaviors = bps > 0
+    ? [
+        behavior('SendQuoteTokenPercentage', {
+          processed: false,
+          percentageBps: bps,
+          padding: [0, 0, 0, 0],
+          destinationBucket: liquidityBucket[0],
+        }),
+      ]
+    : [];
+
+  // A single addPresaleBucketV2 does not fit in a Solana transaction.
+  //
+  // Observed on devnet, not reasoned about: the combined instruction serialised
+  // to 1652 bytes against the 1232-byte limit and the RPC rejected it at
+  // simulation. Every parameter it carries is load-bearing — four time
+  // conditions, the claim schedule, per-wallet floor and ceiling, the quote
+  // split, optionally a Merkle allowlist — so nothing could simply be dropped.
+  //
+  // The SDK's answer is the split form, which is why those instructions exist:
+  //   addPresaleBucketV2Base       core allocation, cap and the four conditions
+  //   addPresaleBucketV2Extensions min/max deposit, claim schedule, allowlist
+  //   setPresaleBucketV2Behaviors  the quote split
+  //
+  // That makes create a FOUR-transaction sequence with no atomicity, so each
+  // step checkpoints and the artifact only flips to complete at the end. A
+  // bucket that exists with no extensions is a real, reachable state: it has no
+  // per-wallet cap and no vesting, so it must never be treated as a live sale.
+  const step = async (label, build, describe) => {
+    try {
+      // build() is invoked INSIDE the try on purpose. Passing an already-built
+      // builder evaluates it as an argument, so a serialization error (a wrong
+      // fixed-array length, say) is thrown before this function is even
+      // entered — skipping the recovery message at the exact moment a bucket
+      // exists half-configured on chain. Observed on devnet, then fixed.
+      const sig = await sendChecked(build(), umi, label);
+      console.log('  tx:', sig);
+      checkpoint(label, sig);
+      return sig;
+    } catch (err) {
+      console.error(
+        `\n=== INCOMPLETE PRESALE — RECOVERY INFORMATION ===\n` +
+        `${label} FAILED. ${describe}\n` +
+        `  genesis account : ${genesisAccount[0]}\n` +
+        `  presale bucket  : ${bucket[0]}\n` +
+        `  base mint       : ${baseMintPk}\n` +
+        (keyFile ? `  base-mint key   : ${path.relative(TOKEN_ROOT, keyFile)} (0600)\n` : '') +
+        `  steps completed : ${progress.completedSteps.join(', ') || 'none'}\n` +
+        `  artifact        : .artifacts/${PRESALE_ARTIFACT} (status: pending)\n` +
+        'These addresses are NOT recoverable from anything else — .artifacts/ is\n' +
+        'gitignored and the base mint was generated in this process. Do not delete\n' +
+        'them. Re-running `presale:create` creates a DIFFERENT presale; it does not\n' +
+        'retry this one.'
+      );
+      throw err;
+    }
+  };
+
+  console.log('[2/4] addPresaleBucketV2Base — allocation, cap and the time conditions…');
+  await step(
+    'addPresaleBucketV2Base',
+    () => addPresaleBucketV2Base(umi, {
+      genesisAccount: genesisAccount[0],
+      baseMint: baseMintPk,
+      bucketIndex: BUCKET_INDEX,
+      baseTokenAllocation: p.baseTokenAllocation,
+      allocationQuoteTokenCap: p.allocationQuoteTokenCap,
+      depositStartCondition: p.depositStartCondition,
+      depositEndCondition: p.depositEndCondition,
+      claimStartCondition: p.claimStartCondition,
+      claimEndCondition: p.claimEndCondition,
+    }),
+    'A genesis account exists with NO presale bucket.'
+  );
+  await awaitAccount(umi, bucket[0], 'presale bucket');
+
+  // Order matters within the extensions array only in that all of them must
+  // land: without ClaimSchedule there is no vesting, and without the deposit
+  // bounds the per-wallet cap the sale terms promise does not exist.
+  const extensions = [
+    presaleV2Extension('MinimumDepositAmount', {
+      minimumDepositAmount: { amount: p.perWalletMinLamports },
+    }),
+    presaleV2Extension('DepositLimit', {
+      depositLimit: { limit: p.perWalletMaxLamports },
+    }),
+    presaleV2Extension('ClaimSchedule', { claimSchedule: p.claimSchedule }),
+  ];
   if (allowlistArgs) {
-    presaleInput.allowlist = allowlistArgs;
-    console.log('    whitelist: applying Merkle root', wl.rootHex.slice(0, 16) + '… (ends at publicStart)');
+    extensions.push(presaleV2Extension('Allowlist', { allowlist: allowlistArgs }));
+    console.log('    whitelist: applying Merkle root', wl.rootHex.slice(0, 16) + '…');
   } else {
     console.log('    whitelist: NONE — this round is open to any wallet.');
   }
-  console.log('[2/2] addPresaleBucketV2 — configuring the fixed-price presale…');
-  let sigBucket;
-  try {
-    sigBucket = await sendChecked(
-      addPresaleBucketV2(umi, presaleInput), umi, 'addPresaleBucketV2'
+
+  console.log(`[3/4] addPresaleBucketV2Extensions — ${extensions.length} extension(s)…`);
+  await step(
+    'addPresaleBucketV2Extensions',
+    () => addPresaleBucketV2Extensions(umi, {
+      genesisAccount: genesisAccount[0],
+      bucket: bucket[0],
+      padding: [0, 0, 0], // size 3 — fixed-size arrays throw on any other length
+      extensions,
+    }),
+    'The bucket exists but has NO per-wallet limits and NO claim schedule — it must not be sold into.'
+  );
+
+  if (bps > 0) {
+    console.log(`[4/4] setPresaleBucketV2Behaviors — quote split ${bps} bps -> ${liquidityBucket[0]}…`);
+    await step(
+      'setPresaleBucketV2Behaviors',
+      () => setPresaleBucketV2Behaviors(umi, {
+        genesisAccount: genesisAccount[0],
+        bucket: bucket[0],
+        padding: [0, 0, 0], // size 3
+        endBehaviors,
+      }),
+      'The bucket exists but routes NO share of the raise to liquidity.'
     );
-  } catch (err) {
-    // The dangerous half-state. Say precisely what exists and how to reach it,
-    // because none of it is derivable from anything else on disk.
-    console.error(
-      '\n=== INCOMPLETE PRESALE — RECOVERY INFORMATION ===\n' +
-      'initializeV2 SUCCEEDED and addPresaleBucketV2 FAILED, so a genesis account\n' +
-      'exists on-chain with no presale bucket configured.\n' +
-      `  genesis account : ${genesisAccount[0]}\n` +
-      `  base mint       : ${baseMintPk}\n` +
-      (keyFile ? `  base-mint key   : ${path.relative(TOKEN_ROOT, keyFile)} (0600)\n` : '') +
-      `  artifact        : .artifacts/${PRESALE_ARTIFACT} (status: pending)\n` +
-      'These addresses are NOT recoverable from anything else — .artifacts/ is\n' +
-      'gitignored and the base mint was generated in this process. Do not delete\n' +
-      'them. Re-running `presale:create` creates a DIFFERENT presale; it does not\n' +
-      'retry this one.'
-    );
-    throw err;
+  } else {
+    console.log('[4/4] No quote split configured (raisedSolToLiquidityBps is 0).');
   }
-  console.log('  tx:', sigBucket);
+
+  // Do not mark the sale complete until the split is READABLE, not merely sent.
+  // Downstream commands verify it against the live account, so a "complete"
+  // artifact whose behavior is not yet visible just moves the failure one step
+  // later, onto the command that creates the irreversible LP lock.
+  if (bps > 0) {
+    await assertEncodedSplitOnChain(umi, { ...progress, liquidityBucket: liquidityBucket[0].toString() }, cfg);
+  }
 
   // Only now is the sale real. Every downstream command treats a "complete"
-  // artifact as proof of that, so the flip happens after BOTH sends confirmed
-  // error-free — sendChecked throws on a non-null result.value.err, so a
-  // transaction that landed and failed does not reach this line.
+  // artifact as proof of that, and sendChecked throws on a non-null
+  // result.value.err, so a transaction that landed and failed never reaches here.
   const artifact = {
     ...progress,
     status: 'complete',
     note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
-    completedSteps: [...progress.completedSteps, 'addPresaleBucketV2'],
     hardCapSol: cfg.sale.hardCapSol,
     allowlisted: Boolean(allowlistArgs),
     quoteSplitBps: bps,
-    txs: { ...progress.txs, initialize: sigInit, addPresaleBucket: sigBucket },
   };
   const out = saveArtifact(PRESALE_ARTIFACT, artifact);
   console.log('\n=== DONE ===');
@@ -537,8 +612,28 @@ async function cmdDeposit() {
   } else if (wl) {
     console.log('  public round — allowlist expired, no proof required.');
   }
+  // The quote token is WRAPPED SOL, and depositPresaleV2 pulls it from the
+  // depositor's wSOL token account — it does not take lamports directly. A
+  // wallet that has never wrapped SOL has no such account, and the program
+  // rejects the empty system-owned address it finds there with
+  //   "The token account is not owned by the SPL Token program"
+  // which reads like a config bug and is really a missing wrap. Found on
+  // devnet, on the first deposit ever attempted. So: create the ATA if
+  // missing, move the lamports in, sync, and deposit — one atomic transaction.
+  const wsolAta = findAssociatedTokenPda(umi, {
+    mint: WRAPPED_SOL_MINT,
+    owner: umi.identity.publicKey,
+  });
   console.log(`Depositing ${amountSol} SOL into presale bucket ${a.bucket}…`);
-  const sig = await sendChecked(depositPresaleV2(umi, input), umi, 'depositPresaleV2');
+  console.log(`  wrapping ${amountSol} SOL into ${wsolAta[0]} in the same transaction`);
+  const builder = createTokenIfMissing(umi, {
+    mint: WRAPPED_SOL_MINT,
+    owner: umi.identity.publicKey,
+  })
+    .add(transferSol(umi, { destination: wsolAta[0], amount: lamports(amountQuoteToken) }))
+    .add(syncNative(umi, { account: wsolAta[0] }))
+    .add(depositPresaleV2(umi, input));
+  const sig = await sendChecked(builder, umi, 'depositPresaleV2');
   console.log('Deposit confirmed. tx:', sig);
 }
 
@@ -635,6 +730,10 @@ async function cmdLiquidity() {
     'addRaydiumCpmmBucketV2'
   );
   console.log('Liquidity bucket added; LP is permanently locked (never-claim schedule). tx:', sig);
+  // finalizeV2 sums every bucket's allocation. If this one is not readable yet
+  // the sum comes up short and the program reports "Total supply must be fully
+  // allocated before finalize" — an allocation error that is really RPC lag.
+  await awaitAccount(umi, expectedBucket, 'liquidity bucket');
 }
 
 // ── withdraw: depositor cancels their deposit (refund) ──────────────────────
@@ -767,10 +866,23 @@ async function assertEncodedSplitOnChain(umi, artifact, cfg) {
   const wantBps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
   if (wantBps <= 0) return null;
 
-  const bucket = await fetchPresaleBucketV2(umi, publicKey(artifact.bucket));
-  const split = (bucket.endBehaviors || []).find(
-    (b) => b.__kind === 'SendQuoteTokenPercentage'
-  );
+  // Retry before concluding the behavior is absent. This guard is fail-closed by
+  // design, but an RPC that has not caught up yet is not the same thing as a
+  // missing behavior — and treating it as one blocks a correct launch while
+  // reporting tampering. Seen on devnet: this fired immediately after a
+  // setPresaleBucketV2Behaviors that had confirmed. Bounded retries keep the
+  // guard's meaning (a genuinely absent behavior still fails) without the false
+  // alarm.
+  let split = null;
+  let bucket = null;
+  for (let i = 0; i < 15; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    bucket = await fetchPresaleBucketV2(umi, publicKey(artifact.bucket));
+    split = (bucket.endBehaviors || []).find((b) => b.__kind === 'SendQuoteTokenPercentage');
+    if (split) break;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   if (!split) {
     throw new Error(
       `The presale bucket on chain carries NO SendQuoteTokenPercentage behavior, but the config ` +
@@ -800,126 +912,80 @@ async function assertEncodedSplitOnChain(umi, artifact, cfg) {
   return split;
 }
 
-// ── rebalance-lp: scale the LP token side to the realised raise ─────────────
+// ── finalize: lock the launch configuration and open it for deposits ─────────
 //
-// THE SOFT-CAP FIX. The audit (F-25) recorded that at the soft cap the pool
-// opens ~5x below the presale price, and `deriveLiquidityParams` says outright
-// that "scaling the allocation with the raise is the only real fix". This is
-// that fix: `updateRaydiumCpmmBucketV2` takes an optional `baseTokenAllocation`,
-// so once the deposit window closes and the raise is FINAL, the token side can
-// be set to the value that opens the pool exactly at the presale price.
+// REQUIRED, and discovered only by running it. `depositPresaleV2` fails with
+// custom program error 0x2c and the log "The Genesis Account is not finalized"
+// until this is called, so a presale configured perfectly is simply not open for
+// business. Nothing in the SDK's type surface says so — `finalizeV2` takes no
+// arguments beyond padding, and `GenesisAccountV2.finalized` is just a boolean
+// nobody has to read. It cost a full devnet run to find.
 //
-// It is an authority action, not a protocol guarantee, and the same instruction
-// that fixes the problem could be used to open the pool at an absurd price. So
-// every guard below is load-bearing: the value is computed, never passed in; it
-// can only ever go DOWN; the raise must be final; and the pool must not exist.
-async function cmdRebalanceLp() {
-  const cfg = loadConfig();
+// Run it AFTER every bucket exists. Buckets are the configuration being frozen,
+// so anything not added by this point may not be addable afterwards.
+async function cmdFinalize() {
   const env = loadEnv();
   const umi = makeUmi(env);
   await assertDevnet(umi);
   const a = requirePresale();
+  const cfg = loadConfig();
 
-  const { fetchPresaleBucketV2, fetchRaydiumCpmmBucketV2, updateRaydiumCpmmBucketV2 } =
-    await import('@metaplex-foundation/genesis');
+  // The last chance to check the split before deposits can start.
+  await assertEncodedSplitOnChain(umi, a, cfg);
 
-  const presaleBucket = await fetchPresaleBucketV2(umi, publicKey(a.bucket));
-  const lpBucket = await fetchRaydiumCpmmBucketV2(umi, publicKey(a.liquidityBucket));
+  console.log(`Finalizing genesis account ${a.genesisAccount}…`);
+  console.log('  After this, deposits can be made. Configuration is being frozen —');
+  console.log('  verify the presale bucket and the liquidity bucket are both correct NOW.');
 
-  // The raise must be FINAL. Rebalancing mid-window prices the pool off a
-  // partial raise, and every deposit after it re-breaks the parity it just set.
-  const depositEndSec = Math.floor(Date.parse(cfg.timeline.depositEnd) / 1000);
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (!(nowSec >= depositEndSec) && !process.argv.includes('--force')) {
-    throw new Error(
-      `The deposit window has not closed (ends ${cfg.timeline.depositEnd}). The raise is not ` +
-      'final, so any allocation computed now is wrong the moment the next deposit lands. ' +
-      'Wait for the window to close.'
-    );
+  // EVERY bucket must be passed as a remaining account. The generated
+  // instruction declares only genesisAccount/baseMint/authority, so this is
+  // invisible from the SDK's type surface — the program reports it as:
+  //   Program log: Missing bucket accounts for finalize
+  // and it is checked in addition to the supply-fully-allocated rule.
+  const buckets = [publicKey(a.bucket), publicKey(a.liquidityBucket)].filter(Boolean);
+  console.log(`  passing ${buckets.length} bucket account(s) as remaining accounts`);
+  // Every one of them must be readable, or the allocation sum silently comes up
+  // short and finalize rejects with a message about supply rather than lag.
+  for (const b of buckets) {
+    // eslint-disable-next-line no-await-in-loop
+    await awaitAccount(umi, b, 'bucket');
   }
-
-  // A created pool cannot be repriced — the allocation is spent.
-  if (lpBucket.graduatedBaseTokenAmount > 0n) {
-    throw new Error(
-      `The pool has already been created (graduatedBaseTokenAmount = ` +
-      `${lpBucket.graduatedBaseTokenAmount}). Its price is set and the LP lock is permanent; ` +
-      'there is nothing left to rebalance.'
-    );
-  }
-
-  const raised = presaleBucket.quoteTokenDepositTotal;
-  const { allocation, parity, configured, clamped } = rebalancedLpAllocation(cfg, raised);
-  const current = lpBucket.bucket.baseTokenAllocation;
-
-  const dec = 10 ** cfg.token.decimals;
-  const asTokens = (n) => (Number(n) / dec).toLocaleString(undefined, { maximumFractionDigits: 3 });
-  const quoteToPool = (raised * BigInt(cfg.liquidity.raisedSolToLiquidityBps)) / 10_000n;
-  const priceOf = (base) => (base === 0n ? Infinity : Number(quoteToPool) / Number(base));
-
-  console.log('=== LP rebalance (DEVNET / DRAFT) ===');
-  console.log('Raise (final)   :', `${Number(raised) / 1e9} SOL`, `(${raised} lamports)`);
-  console.log('Quote to pool   :', `${Number(quoteToPool) / 1e9} SOL`,
-    `(${cfg.liquidity.raisedSolToLiquidityBps / 100}%)`);
-  console.log('Presale price   :', fixedPriceSolPerToken(cfg).toExponential(6), 'SOL/token');
-  console.log('Current alloc   :', asTokens(current), `-> pool opens at ${priceOf(current).toExponential(6)}`);
-  console.log('Parity alloc    :', asTokens(parity), `-> pool opens at ${priceOf(parity).toExponential(6)}`);
-  if (clamped) {
-    console.log('  (clamped to the configured allocation ' + asTokens(configured) +
-      ' — parity would need more tokens than the bucket was created with, so the pool ' +
-      'opens slightly ABOVE the presale price instead.)');
-  }
-
-  if (allocation === 0n) {
-    throw new Error('Computed allocation is 0 — nothing was raised. Refusing to zero the pool.');
-  }
-  // Only ever downward. An increase is not a parity correction, and the tokens
-  // to back it may not exist in the bucket.
-  if (allocation > current) {
-    throw new Error(
-      `Refusing to INCREASE the LP allocation (${asTokens(current)} -> ${asTokens(allocation)}). ` +
-      'This command only scales the token side down to meet the realised raise. An increase ' +
-      'is a different decision and needs the tokens to actually be in the bucket.'
-    );
-  }
-  if (allocation === current) {
-    console.log('\nAlready at the correct allocation — nothing to do.');
-    return;
-  }
-
   const sig = await sendChecked(
-    updateRaydiumCpmmBucketV2(umi, {
+    finalizeV2(umi, {
       genesisAccount: publicKey(a.genesisAccount),
-      bucket: publicKey(a.liquidityBucket),
+      baseMint: publicKey(a.baseMint),
       padding: [0, 0, 0, 0, 0, 0, 0],
-      baseTokenAllocation: allocation,
-      startCondition: null, // leave the pool-start timing exactly as configured
-    }),
+    }).addRemainingAccounts(
+      buckets.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true }))
+    ),
     umi,
-    'updateRaydiumCpmmBucketV2'
+    'finalizeV2'
   );
-  console.log('\nRebalanced. tx:', sig);
+  console.log('Finalized. tx:', sig);
 
-  // Read back rather than trust the send. The whole point of this command is the
-  // number that ends up on-chain, and it becomes irreversible at pool creation.
-  const after = await fetchRaydiumCpmmBucketV2(umi, publicKey(a.liquidityBucket));
-  const wrote = after.bucket.baseTokenAllocation;
-  if (wrote !== allocation) {
-    throw new Error(
-      `VERIFICATION FAILED: wrote ${allocation} but the bucket reads ${wrote}. Do NOT let the ` +
-      'pool be created until this is understood.'
-    );
+  // Wait for the FLAG, not just for the transaction. `finalizeV2` confirming
+  // does not mean the next RPC read sees finalized === true, and depositPresaleV2
+  // rejects with "The Genesis Account is not finalized" (0x2c) when it does not —
+  // which looks exactly like finalize having silently failed. Observed on devnet
+  // immediately after a finalize that had, in fact, succeeded.
+  const { fetchGenesisAccountV2 } = await import('@metaplex-foundation/genesis');
+  for (let i = 0; i < 30; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const ga = await fetchGenesisAccountV2(umi, publicKey(a.genesisAccount));
+    if (ga.finalized) {
+      console.log('  confirmed on chain: finalized = true. Deposits are now open.');
+      break;
+    }
+    if (i === 29) {
+      throw new Error(
+        'finalizeV2 confirmed but the genesis account still reads finalized = false after 30 ' +
+        'attempts. Do NOT run finalize again — inspect the account before doing anything else.'
+      );
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 1000));
   }
-  console.log('Verified on-chain:', asTokens(wrote), 'base tokens ->',
-    `pool opens at ${priceOf(wrote).toExponential(6)} SOL/token`);
-  saveArtifact(PRESALE_ARTIFACT, {
-    ...a,
-    lpRebalance: {
-      raisedLamports: raised.toString(),
-      baseTokenAllocation: wrote.toString(),
-      clamped,
-      tx: sig,
-    },
-  });
+  saveArtifact(PRESALE_ARTIFACT, { ...a, finalized: true, txs: { ...a.txs, finalize: sig } });
 }
 
 // ── claim: claimPresaleV2 ───────────────────────────────────────────────────
@@ -928,15 +994,36 @@ async function cmdClaim() {
   const umi = makeUmi(env);
   const a = requirePresale();
   console.log(`Claiming vested tokens from bucket ${a.bucket}…`);
-  const sig = await sendChecked(
+  // Same shape as the deposit-side wSOL gap, on the base side: claimPresaleV2
+  // sends the claimed tokens to the recipient's base-token ATA, and a wallet
+  // that has never held the token does not have one. The program rejects the
+  // empty address with "The token account is not owned by the SPL Token
+  // program". Create it in the same transaction — createTokenIfMissing is
+  // idempotent, so repeat claims are unaffected.
+  // Two ATAs must exist and neither is ours to assume: the recipient's (a
+  // wallet that never held the token), and — far less obviously — the Genesis
+  // protocol FEE wallet's ATA for this mint. The SDK hardcodes fee wallet
+  // 9kFjQsxtpBsaw8s7aUyiY3wazYDNgFP4Lj5rsBVVF8tb and derives its ATA for the
+  // base mint, and for a mint created minutes ago that ATA cannot exist yet.
+  // The first claimer pays the rent for it; createTokenIfMissing keeps repeat
+  // claims free.
+  const FEE_WALLET = publicKey('9kFjQsxtpBsaw8s7aUyiY3wazYDNgFP4Lj5rsBVVF8tb');
+  const builder = createTokenIfMissing(umi, {
+    mint: publicKey(a.baseMint),
+    owner: umi.identity.publicKey,
+  }).add(
+    createTokenIfMissing(umi, {
+      mint: publicKey(a.baseMint),
+      owner: FEE_WALLET,
+    })
+  ).add(
     claimPresaleV2(umi, {
       genesisAccount: publicKey(a.genesisAccount),
       bucket: publicKey(a.bucket),
       baseMint: publicKey(a.baseMint),
-    }),
-    umi,
-    'claimPresaleV2'
+    })
   );
+  const sig = await sendChecked(builder, umi, 'claimPresaleV2');
   console.log('Claim confirmed. tx:', sig);
 }
 
@@ -951,8 +1038,8 @@ const table = {
   whitelist: cmdWhitelist,
   create: cmdCreate,
   liquidity: cmdLiquidity,
+  finalize: cmdFinalize,
   trigger: cmdTrigger,
-  'rebalance-lp': cmdRebalanceLp,
   deposit: cmdDeposit,
   claim: cmdClaim,
   withdraw: cmdWithdraw,
@@ -970,7 +1057,7 @@ if (invokedDirectly) {
   if (!table[cmd]) {
     console.error(
       'Usage: node genesis_presale.mjs ' +
-        '<plan|whitelist|create|liquidity|rebalance-lp|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
+        '<plan|whitelist|create|liquidity|finalize|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
     );
     process.exit(2);
   }

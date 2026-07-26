@@ -5,11 +5,20 @@
 // presale price does not. At the 1,000 SOL soft cap the pool opened ~5x below
 // what presale buyers paid, against a PERMANENT LP lock.
 //
-// `updateRaydiumCpmmBucketV2` takes an optional `baseTokenAllocation`, so once
-// the raise is final the token side can be scaled to match. These tests pin the
-// arithmetic that decides that number. It becomes irreversible the moment the
-// pool is created, and it is the number that decides whether every presale buyer
-// is above or below water at listing.
+// CORRECTION (2026-07-26, proven on devnet). An earlier version of this file
+// backed `presale:rebalance-lp`, which scaled the allocation to the realised
+// raise via updateRaydiumCpmmBucketV2 after the deposit window closed. That
+// command was removed because it cannot run:
+//
+//   depositPresaleV2 requires the genesis account FINALIZED       (error 0x2c)
+//   finalizeV2 permanently locks bucket configuration             (error 0x2b)
+//   the realised raise is only known AFTER deposits
+//
+// so the allocation is immutable before the number needed to compute it exists.
+// The arithmetic below is still exactly right and still load-bearing — it just
+// applies at CONFIGURATION time instead. Sized to the SOFT cap it guarantees the
+// pool opens at or above the presale price at every raise in range; sized to the
+// hard cap (the committed 100M) it does not.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -77,7 +86,26 @@ test('parity holds at EVERY raise between the soft and hard cap', () => {
   }
 });
 
-test('the soft-cap case that F-25 reported is actually fixed', () => {
+test('sizing to the SOFT cap is safe at every raise in range', () => {
+  // The config-time fix, and the property that makes it the right one: one
+  // allocation, chosen before any deposit, that is never below parity.
+  const cfg = baseConfig();
+  const softAlloc = parityLpBaseUnitsForRaise(cfg, 1000n * SOL);
+  for (const sol of [1000, 1500, 2500, 4000, 5000]) {
+    assert.ok(
+      opensAtOrAbovePresale(cfg, BigInt(sol) * SOL, softAlloc),
+      `soft-cap-sized allocation opened below presale price at ${sol} SOL`
+    );
+  }
+  // And the committed 100M allocation does NOT have that property.
+  const configured = BigInt(cfg.liquidity.tokenAllocation) * 10n ** 9n;
+  assert.ok(
+    !opensAtOrAbovePresale(cfg, 1000n * SOL, configured),
+    'the committed allocation must still reproduce the F-25 defect at the soft cap'
+  );
+});
+
+test('the soft-cap case that F-25 reported still reproduces un-fixed', () => {
   const cfg = baseConfig();
   const raised = 1000n * SOL;
   const presale = fixedPriceSolPerToken(cfg);
@@ -104,7 +132,7 @@ test('scaling is proportional — 20% of the cap gets 20% of the tokens', () => 
   assert.equal(atSoft / 10n ** 9n, 20_001_000n, '20,001,000 whole tokens at the soft cap');
 });
 
-// ── The clamp ───────────────────────────────────────────────────────────────
+// ── The clamp (still used by the config-time sizing helper) ─────────────────
 
 test('a full raise clamps to the configured allocation rather than exceeding it', () => {
   // Parity at the hard cap wants 100,005,000 tokens — marginally more than the

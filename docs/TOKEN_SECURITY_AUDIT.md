@@ -58,14 +58,31 @@ property does not hold until `revokeV2` is called. There is no instruction to
 renounce the genesis authority itself. Recorded as a hard gate in
 `docs/TOKEN_ROADMAP.md` §11.
 
-**F-25 is now fixable and fixed.** The report concluded that the soft-cap spread
-needed a product decision because the LP token side is fixed while the SOL side
-scales. `updateRaydiumCpmmBucketV2` accepts an optional `baseTokenAllocation`,
-so the token side can be scaled to the realised raise once the deposit window
-closes — holding the pool's opening price at the presale price for any raise
-between the caps. Shipped as `presale:rebalance-lp`, with the arithmetic pinned
-in `token/presale/lp_parity.test.mjs`. It is an authority action, so it inherits
-the multisig requirement above.
+**F-25: the report's original conclusion was right, and is now proven.** An
+intermediate attempt claimed F-25 was fixed by `presale:rebalance-lp`, which
+scaled the LP allocation to the realised raise via `updateRaydiumCpmmBucketV2`
+after the deposit window closed. That command has been **removed — it cannot
+run.** Devnet rejects it:
+
+    Program log: UpdateRaydiumCpmmBucketV2
+    Program log: The Genesis Account is already finalized and no new buckets
+                 can be added                    (custom program error 0x2b)
+
+`depositPresaleV2` requires the genesis account finalized (`0x2c`), `finalizeV2`
+permanently locks bucket configuration (`0x2b`), and the realised raise is only
+known after deposits — so the allocation is immutable before the number needed to
+compute it exists. The audit said this needed a product decision rather than
+code; that judgement stands, and is now backed by execution rather than
+inference.
+
+What execution *did* add is the actionable number: sizing
+`liquidity.tokenAllocation` to the **soft cap** (20,001,000 at current
+parameters, versus the committed 100,000,000) makes the pool open at or above the
+presale price at every raise in range. `presale:plan` prints it and
+`token/presale/lp_parity.test.mjs` pins the arithmetic. It contradicts the
+published 10% supply bucket, so it remains a tokenomics decision — but it is now
+a decision with a specific number attached, and one that must be made before
+`presale:create`.
 
 ## Scope
 

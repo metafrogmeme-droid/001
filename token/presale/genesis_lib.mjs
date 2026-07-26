@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { base58, keypairIdentity, sol, lamports, publicKey } from '@metaplex-foundation/umi';
-import { findAssociatedTokenPda } from '@metaplex-foundation/mpl-toolbox';
+import { findAssociatedTokenPda, mplToolbox } from '@metaplex-foundation/mpl-toolbox';
 import {
   genesis,
   WRAPPED_SOL_MINT,
@@ -80,9 +80,25 @@ function loadKeypair(umi, env) {
   return umi.eddsa.createKeypairFromSecretKey(secret);
 }
 
-/** Build a Umi instance with the genesis plugin and the devnet payer identity. */
+/**
+ * Build a Umi instance with the genesis plugin and the devnet payer identity.
+ *
+ * `mplToolbox()` is not optional and its absence is not cosmetic. Umi resolves
+ * program addresses through a repository that plugins register into, and
+ * `initializeV2` internally calls `findAssociatedTokenPda`, which looks up
+ * `splAssociatedToken`. With only `genesis()` registered that lookup throws:
+ *
+ *     ProgramNotRecognizedError: The provided program name [splAssociatedToken]
+ *     is not recognized in the [devnet] cluster.
+ *
+ * so `presale:create` failed on its very first instruction and no presale could
+ * ever have been created. This was invisible to every check in the repo —
+ * `presale:plan` is pure derivation and never builds a Umi, and the offline
+ * tests exercise the serializers directly — and it surfaced the moment the
+ * first real transaction was attempted against devnet.
+ */
 export function makeUmi(env = loadEnv()) {
-  const umi = createUmi(rpcUrl(env)).use(genesis());
+  const umi = createUmi(rpcUrl(env)).use(mplToolbox()).use(genesis());
   const kp = loadKeypair(umi, env);
   umi.use(keypairIdentity(kp));
   return umi;
@@ -126,6 +142,39 @@ export async function sendChecked(builder, umi, label) {
     );
   }
   return sig;
+}
+
+
+/**
+ * Block until `address` is actually readable, then return.
+ *
+ * A multi-transaction sequence is not safe just because each send confirms.
+ * `sendAndConfirm` returning means the transaction reached the confirmed
+ * commitment level; the NEXT instruction is simulated by the RPC against
+ * whatever slot that node has, which can still be behind. When it is, the
+ * program sees an account that does not exist yet and rejects with something
+ * that reads like a logic error rather than a race:
+ *
+ *     Program log: AddPresaleBucketV2Base
+ *     Program log: The Genesis Account is invalid   (custom program error 0x2f)
+ *
+ * That is exactly what happened on devnet — the same code path succeeded on one
+ * run and failed on the next two with no change to the arguments. Polling for
+ * readability turns an intermittent, misleading failure into a bounded wait.
+ */
+export async function awaitAccount(umi, address, label, { tries = 30, delayMs = 1000 } = {}) {
+  for (let i = 0; i < tries; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await umi.rpc.accountExists(publicKey(address));
+    if (exists) return true;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error(
+    `${label} (${address}) was still not readable after ${tries} attempts. The transaction that ` +
+    'created it confirmed, so this is an RPC lag or a wrong derivation — do NOT retry the ' +
+    'sequence blindly, it would create a second launch.'
+  );
 }
 
 // ── Derivations: human config → exact on-chain params ───────────────────────
@@ -405,6 +454,13 @@ export function deriveLiquidityParams(cfg) {
   // the LP lock is permanent so nothing can be corrected afterwards. Compute
   // both ends of the range so the mismatch is visible rather than discovered.
   const presalePrice = fixedPriceSolPerToken(cfg);
+  // The allocation that opens the pool exactly at the presale price on the
+  // WEAKEST permitted raise. Sizing at or below this is the only way to be safe
+  // at every raise, because the number is frozen before the raise is known.
+  const softCapParityTokens = Number(
+    parityLpBaseUnitsForRaise(cfg, BigInt(cfg.sale.softCapSol) * 1_000_000_000n) /
+      10n ** BigInt(cfg.token.decimals)
+  );
   const bps = Number(cfg.liquidity.raisedSolToLiquidityBps);
   const lpTokens = Number(cfg.liquidity.tokenAllocation);
   const poolPriceAt = (raisedSol) => ((bps / 10_000) * Number(raisedSol)) / lpTokens;
@@ -434,6 +490,17 @@ export function deriveLiquidityParams(cfg) {
   if (worstCasePoolPrice < presalePrice) {
     const ratio = (presalePrice / worstCasePoolPrice).toFixed(1);
     console.warn(
+      `\nWARNING: liquidity.tokenAllocation is ${Number(cfg.liquidity.tokenAllocation).toLocaleString()}, ` +
+      `which prices the pool for a FULL raise. At the soft cap the pool would open ${ratio}x BELOW ` +
+      `the presale price.\n` +
+      `      Set liquidity.tokenAllocation <= ${softCapParityTokens.toLocaleString()} to be at or ` +
+      `above the presale price at EVERY raise between the caps.\n` +
+      `      This must be decided BEFORE presale:create. The allocation cannot be changed later: ` +
+      `updateRaydiumCpmmBucketV2 is rejected once the genesis account is finalized (error 0x2b), ` +
+      `and deposits are impossible before finalize (0x2c) — so by the time the raise is known, the ` +
+      `number is already immutable. Verified on devnet 2026-07-26.\n`
+    );
+    console.warn(
       `NOTE: at the SOFT cap a FIXED ${Number(cfg.liquidity.tokenAllocation).toLocaleString()}-token ` +
       `allocation would open the pool at ${worstCasePoolPrice.toExponential(6)} SOL/token — ` +
       `${ratio}x below the presale price ${presalePrice.toExponential(6)}, with a permanent LP ` +
@@ -448,11 +515,12 @@ export function deriveLiquidityParams(cfg) {
 
   return {
     baseTokenAllocation: BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(decimals),
+    softCapParityTokens,
     lpLockSchedule: createNeverClaimSchedule(),
     startCondition: createTimeAbsoluteCondition(unix(cfg.timeline.depositEnd)),
     raisedSolToLiquidityBps: cfg.liquidity.raisedSolToLiquidityBps,
     // Surfaced so `presale:plan` can show the range an operator is committing to.
-    _pricing: { presalePrice, worstCasePoolPrice, bestCasePoolPrice },
+    _pricing: { presalePrice, worstCasePoolPrice, bestCasePoolPrice, softCapParityTokens },
   };
 }
 

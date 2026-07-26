@@ -228,16 +228,39 @@ liquidity allocation), remainder to audit, operations, and treasury. Exact split
 > in §11: `updateGenesisV2` can mint or burn base supply, and `updateRaydiumCpmmBucketV2` can
 > change the LP token allocation.
 
-**Pool opens at the presale price on any raise (2026-07-26).** The LP token side was a
-constant while the SOL side scaled with the raise, so a soft-cap raise opened the pool ~5x
-*below* what presale buyers paid, against a permanent LP lock (audit F-25 — previously judged
-unfixable without a product decision). `updateRaydiumCpmmBucketV2` accepts an optional
-`baseTokenAllocation`, so `npm run presale:rebalance-lp` scales the token side down to the
-realised raise once the deposit window closes, holding the opening price at parity for any
-raise between the caps. It only ever reduces the allocation, refuses before the window closes,
-refuses once the pool exists, and reads the result back. The 100M figure remains the ceiling.
+**Pool pricing — the fix is at configuration time, not after the raise
+(2026-07-26, corrected same day).** The LP token side is fixed while the SOL side
+scales with the raise, so a soft-cap raise opens the pool ~5x *below* what
+presale buyers paid, against a permanent LP lock (audit F-25).
 
----
+> **A correction.** Earlier today this section described `presale:rebalance-lp`,
+> which scaled the token side to the realised raise via
+> `updateRaydiumCpmmBucketV2` after the deposit window closed. **That command has
+> been removed: it cannot run.** Proven against devnet —
+>
+> ```
+> Program log: UpdateRaydiumCpmmBucketV2
+> Program log: The Genesis Account is already finalized and no new buckets can be added
+> ```
+>
+> The ordering is a closed trap: `depositPresaleV2` requires the genesis account
+> to be **finalized** (error `0x2c`), `finalizeV2` **permanently locks** bucket
+> configuration (error `0x2b`), and the realised raise is only known **after**
+> deposits. By the time the number needed to compute the allocation exists, the
+> allocation is already immutable. No ordering escapes this.
+
+The real fix is to size `liquidity.tokenAllocation` for the **soft cap** rather
+than the hard cap, before `presale:create`. At the current parameters that is
+**20,001,000 tokens**, not 100,000,000 — `npm run presale:plan` computes and
+prints the number. Sized that way the pool opens at or above the presale price at
+every raise between the caps; sized at 100M it does not.
+
+That is a **tokenomics decision, not a code change**: 20M contradicts the
+published 10% supply bucket in §4, and a thinner pool is a real cost. The
+alternatives are to narrow the 5x soft/hard cap spread, or to accept that a weak
+raise lists below the presale price and say so in the published terms. **This
+must be settled before `presale:create` — it cannot be corrected afterwards.**
+Tracked in §13.
 
 ## 6. Launch venue comparison + recommendation
 
