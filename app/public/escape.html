@@ -43,6 +43,11 @@
   .summary b { color: var(--text-1); }
   /* Steps timeline */
   .step { display: grid; grid-template-columns: 34px 1fr; gap: var(--s3); padding: var(--s3) 0; border-top: 1px solid var(--line); }
+  /* Circuit cascade: steps start dark and light up IN PLAN ORDER — the
+     animation is the pedagogy (order matters). Reduced motion: always lit. */
+  .step.dim { opacity: .22; }
+  .step { transition: opacity .45s ease; }
+  @media (prefers-reduced-motion: reduce) { .step { transition: none; } .step.dim { opacity: 1; } }
   .step:first-child { border-top: 0; }
   .step .n { width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; font-family: var(--font-data); font-weight: 700; border: 1px solid var(--line-2); color: var(--text-2); }
   .step.risk-high .n { border-color: #ff5c6c; color: #ff5c6c; } .step.risk-medium .n { border-color: #ff9f45; color: #ff9f45; } .step.risk-low .n { border-color: var(--up); color: var(--up); }
@@ -182,13 +187,19 @@
     return lead;
   }
 
+  var lastPlanKey;
   function render() {
     var plan = E.buildPlan(toModel());
     $('summary').innerHTML = '<b>' + esc(T('esc.s_title', 'Escape plan:')) + '</b> ' + esc(summaryText(plan))
       + ' <span class="muted">· ' + esc(TF('esc.c_steps', '{n} steps', { n: plan.counts.steps }))
       + (plan.counts.blocked ? ' · ' + esc(TF('esc.c_locked', '{n} locked', { n: plan.counts.blocked })) : '') + '</span>';
+    // Cascade only when the PLAN changed shape — retyping a symbol must not
+    // restrobe the list. First paint cascades (lastPlanKey starts undefined).
+    var planKey = plan.steps.map(function (s) { return s.type + '|' + s.asset + '|' + (s.chain || ''); }).join(';');
+    var cascade = planKey !== lastPlanKey;
+    lastPlanKey = planKey;
     $('steps').innerHTML = plan.steps.length ? plan.steps.map(function (s) {
-      return '<div class="step risk-' + esc(s.risk) + '"><div class="n">' + s.n + '</div><div>'
+      return '<div class="step risk-' + esc(s.risk) + (cascade ? ' dim' : '') + '"><div class="n">' + s.n + '</div><div>'
         + '<div class="act">' + esc(T('esc.a.' + s.type, s.action)) + ' <span class="as">' + esc(s.asset) + '</span> ' + esc(T('esc.l.' + s.type, s.label))
         + (s.chain ? '<span class="ch">' + esc(s.chain) + '</span>' : '')
         + (function () {
@@ -228,6 +239,13 @@
         }).join('; ') + '</div>' : '')
         + '</div></div>';
     }).join('') : '<p class="muted small">' + esc(T('esc.none', 'Add positions above to generate a plan.')) + '</p>';
+    if (cascade) {
+      // Light the circuit in plan order. Under prefers-reduced-motion the
+      // .dim class already renders fully lit (CSS), so this is a no-op there.
+      $('steps').querySelectorAll('.step.dim').forEach(function (el, i) {
+        setTimeout(function () { el.classList.remove('dim'); }, 140 + i * 130);
+      });
+    }
     var bp = $('blkPanel');
     if (plan.blockers.length) {
       bp.hidden = false;

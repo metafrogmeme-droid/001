@@ -124,6 +124,11 @@
   .sig-row:first-child { border-top: 0; }
   .sig-row > div:last-child { flex: none; }
   @media (max-width: 520px) { .sig-row { flex-direction: column; align-items: stretch; } .sig-row > div:last-child { align-self: flex-start; } }
+  /* Portfolio-heat ember: a bar that fills to the REAL heat percent and
+     warms gold → ember as it rises. Reduced motion: no travel, just state. */
+  .heatbar { display: inline-block; width: 90px; height: 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); vertical-align: middle; margin-inline-end: 6px; overflow: hidden; }
+  .heatbar .hfill { display: block; height: 100%; width: 0; border-radius: 999px; background: #e6c34b; transition: width .7s ease, background-color .7s ease; }
+  @media (prefers-reduced-motion: reduce) { .heatbar .hfill { transition: none; } }
   .read-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .read-chip { font-size: var(--fs-xs); font-family: var(--font-data); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); }
   .read-chip.up-c { border-color: rgba(47,191,113,.5); }
@@ -600,6 +605,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
       waves: ew ? CR.elliottWavePoints(ew) : [],
     }) + readChips(p, parsed, d0.patterns, gran);
   }
+  var lastHeatPct = 0;
   function renderAccount(d) {
     lastAccount = d;
     var r = d.return_pct;
@@ -620,6 +626,17 @@ window.addEventListener('unhandledrejection', rcReportPageError);
       var h = R.heat(d.positions, d.equity);
       var parts = [];
       if (h.pct != null) {
+        // The ember: fills from the LAST rendered heat to the current one,
+        // so periodic account refreshes glide instead of restarting at zero.
+        var hue = h.pct > 5 ? '#ff5c6c' : h.pct > 2 ? '#ff9f45' : '#e6c34b';
+        parts.push('<span class="heatbar" aria-hidden="true"><span class="hfill" id="heatFill" style="width:'
+          + Math.min(lastHeatPct || 0, 100) + '%;background-color:' + hue + '"></span></span>');
+        var target = Math.min(h.pct, 100);
+        requestAnimationFrame(function () {
+          var f = document.getElementById('heatFill');
+          if (f) f.style.width = target + '%';
+        });
+        lastHeatPct = target;
         parts.push('<span title="' + esc(T('arena.heat_t',
           'Heat sums each stopped position’s loss-at-stop against current equity. Arithmetic, not a forecast: stops fill at their trigger price here, a gapping market can be worse, and fees are excluded.'))
           + '">🔥 ' + esc(fill(T('arena.heat', 'Portfolio heat: if every stop filled, −{p}% of equity across {n} stopped position(s).'), { p: h.pct, n: h.stopped })) + '</span>');
