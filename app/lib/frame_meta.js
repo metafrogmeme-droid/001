@@ -36,4 +36,23 @@ function injectCallMeta(html, key, origin) {
   return html.replace('</head>', tags + '\n</head>');
 }
 
-module.exports = { injectCallMeta, KEY_RE };
+/** Same contract for /trader/:handle — the leaderboard record as a frame. */
+function injectTraderMeta(html, handle, origin) {
+  const { HANDLE_RE } = require('./arena_trader');
+  const base = String(origin || '').trim().replace(/\/+$/, '');
+  if (!base || !HANDLE_RE.test(String(handle || ''))) return html;
+  const img = `${base}/api/frame/trader/${encodeURIComponent(handle)}/image`;
+  const page = `${base}/trader/${encodeURIComponent(handle)}`;
+  const tags = [
+    '<meta name="fc:frame" content="vNext">',
+    `<meta name="fc:frame:image" content="${escAttr(img)}">`,
+    '<meta name="fc:frame:button:1" content="View the record">',
+    '<meta name="fc:frame:button:1:action" content="link">',
+    `<meta name="fc:frame:button:1:target" content="${escAttr(page)}">`,
+    `<meta property="og:image" content="${escAttr(img)}">`,
+    `<meta property="og:url" content="${escAttr(page)}">`,
+  ].join('\n');
+  return html.replace('</head>', tags + '\n</head>');
+}
+
+module.exports = { injectCallMeta, injectTraderMeta, KEY_RE };

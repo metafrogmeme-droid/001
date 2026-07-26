@@ -28,19 +28,19 @@ const W = 800, H = 418; // 1.91:1 — the frame/OG aspect
 const cache = new Map();
 const CACHE_MAX = 200;
 
-function baseCard() {
+function baseCard(subtitle) {
   const c = new Card(W, H, COLORS.bg);
   c.fillRect(0, 0, W, 4, COLORS.gold);
   c.fillRect(0, H - 4, W, 4, COLORS.gold);
   c.center('RUNECLAW', 36, 5, COLORS.gold);
-  c.center('PROVABLE CALL', 92, 2, COLORS.muted);
+  c.center(subtitle, 92, 2, COLORS.muted);
   return c;
 }
 
 async function renderFor(key) {
   const { lookupCall } = require('./call');
   const r = await lookupCall(key);
-  const c = baseCard();
+  const c = baseCard('PROVABLE CALL');
   if (r.code !== 200) {
     c.center('NO SEALED CALL', 180, 3, COLORS.down);
     c.center('UNDER THIS KEY', 230, 3, COLORS.down);
@@ -79,4 +79,62 @@ router.get('/call/:key/image', async (req, res) => {
   }
 });
 
+// ── Public trader card — the leaderboard record as a feed image ──────────────
+// §4 on a public surface, drawn strictly: SETTLED percent (from the closed
+// balance alone — open positions and marks deliberately excluded, so the
+// number is a fact, not a snapshot guess) plus counts. No amount is drawn,
+// not even the virtual one. Trader records change, so this cache is a 60s
+// TTL, unlike the immutable seal cards above.
+const { buildTraderCard, HANDLE_RE } = require('../lib/arena_trader');
+const traderCache = new Map();
+
+router.get('/trader/:handle/image', async (req, res) => {
+  try {
+    const handle = String(req.params.handle || '').trim();
+    if (!HANDLE_RE.test(handle)) return res.status(400).json({ error: 'Bad handle' });
+    const hit = traderCache.get(handle);
+    if (hit && Date.now() - hit.at < 60_000) {
+      return res.type('png').set('Cache-Control', 'public, max-age=60').send(hit.png);
+    }
+    const { pool } = require('../db');
+    const c = baseCard('PAPER TRADER - VIRTUAL STAKE');
+    const [u] = await pool.execute('SELECT id FROM users WHERE leaderboard_handle = ?', [handle]);
+    if (!u[0]) {
+      c.center('NO SUCH TRADER', 200, 3, COLORS.down);
+      c.center('HANDLES ARE OPT-IN', 270, 2, COLORS.muted);
+      const png = c.png();
+      return res.type('png').set('Cache-Control', 'public, max-age=60').send(png);
+    }
+    const [acct] = await pool.execute(
+      'SELECT user_id, balance FROM arena_accounts WHERE user_id = ?', [u[0].id]);
+    if (!acct[0]) {
+      // A zero balance would draw as -100 PCT — a fabrication. Say the truth.
+      c.center('NO ARENA ACCOUNT YET', 200, 3, COLORS.down);
+      const png0 = c.png();
+      return res.type('png').set('Cache-Control', 'public, max-age=60').send(png0);
+    }
+    const [trades] = await pool.execute(
+      'SELECT id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, opened_at, closed_at FROM arena_trades WHERE user_id = ? ORDER BY id DESC LIMIT 30',
+      [u[0].id]);
+    const card = buildTraderCard({ handle, balance: acct[0].balance,
+      positions: [], marks: {}, trades: trades || [] });
+    c.center('#' + handle, 150, 3, COLORS.text);
+    const pct = card.return_pct;
+    c.center('SETTLED RETURN ' + (pct >= 0 ? '' : '-') + Math.abs(pct).toFixed(2) + ' PCT',
+      206, 4, pct >= 0 ? COLORS.up : COLORS.down);
+    c.center('CLOSES:' + card.closed_trades + '  SEALED:' + card.receipts.sealed
+      + '  STREAK:' + card.streak_days, 276, 2, COLORS.text);
+    c.center('PERCENT AND COUNTS ONLY - NEVER AN AMOUNT', 320, 2, COLORS.muted);
+    c.center('OPEN THE RECORD - EVERY SEALED CLOSE VERIFIES', 356, 2, COLORS.muted);
+    const png = c.png();
+    if (traderCache.size >= CACHE_MAX) traderCache.delete(traderCache.keys().next().value);
+    traderCache.set(handle, { at: Date.now(), png });
+    res.type('png').set('Cache-Control', 'public, max-age=60').send(png);
+  } catch (err) {
+    console.error('Trader frame error:', err.stack || err.message);
+    res.status(500).json({ error: 'Card unavailable' });
+  }
+});
+
 module.exports = router;
+

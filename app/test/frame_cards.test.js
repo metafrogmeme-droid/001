@@ -123,12 +123,88 @@ test('an unknown key answers an honest not-found card, still a PNG', async () =>
   assert.equal(bad.status, 400);
 });
 
+test('trader cards: a real handle renders; no account renders the truth, not -100%', async () => {
+  await pool.execute('INSERT INTO users (email, password_hash) VALUES (?, ?)',
+    ['framer@test.io', 'x'.repeat(60)]);
+  const [u] = await pool.execute('SELECT * FROM users WHERE email = ?', ['framer@test.io']);
+  await pool.execute('UPDATE users SET leaderboard_handle = ? WHERE id = ?', ['FrameFox', u[0].id]);
+
+  // Handle exists, no arena account yet → the honest card, never a fabricated
+  // -100 percent from a zero balance.
+  const empty = await get('/api/frame/trader/FrameFox/image');
+  assert.equal(empty.status, 200);
+  assert.match(empty.type, /image\/png/);
+
+  await pool.execute(
+    `INSERT INTO arena_accounts (user_id, balance, created_at) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE user_id = user_id`, [u[0].id, 11500, new Date()]);
+  const now = new Date();
+  await pool.execute(
+    `INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price,
+      margin, leverage, pnl, reason, seal, opened_at, closed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [u[0].id, 'BTCUSDT', 'LONG', 100, 110, 500, 3, 150, 'tp', 'f'.repeat(64), now, now]);
+
+  const r = await get('/api/frame/trader/FrameFox/image');
+  assert.equal(r.status, 200);
+  assert.match(r.type, /image\/png/);
+  assert.equal(r.body.readUInt32BE(16), 800);
+  assert.equal(r.body.readUInt32BE(20), 418);
+
+  const missing = await get('/api/frame/trader/NobodyHere99/image');
+  assert.equal(missing.status, 200, 'an unknown handle answers the honest card');
+  assert.match(missing.type, /image\/png/);
+  const bad = await get('/api/frame/trader/a/image');
+  assert.equal(bad.status, 400);
+});
+
+test('trader meta: injected for valid handles, untouched otherwise, static og:image yields', () => {
+  const { injectTraderMeta } = require('../lib/frame_meta');
+  const html = '<html><head><t></t></head><body></body></html>';
+  const out = injectTraderMeta(html, 'FrameFox', 'https://pmvc58g2.mule.page');
+  assert.match(out, /fc:frame:image" content="https:\/\/pmvc58g2\.mule\.page\/api\/frame\/trader\/FrameFox\/image"/);
+  assert.match(out, /View the record/);
+  assert.equal(injectTraderMeta(html, 'no spaces here', 'https://x.io'), html);
+  assert.equal(injectTraderMeta(html, 'FrameFox', ''), html);
+  const srv = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(srv, /injectTraderMeta/);
+  assert.match(srv, /withMeta !== html/,
+    'scrapers take the FIRST og:image — the static one is dropped when the card injects');
+  assert.match(srv, /og_image_1200x630/);
+});
+
+test('the trader page shares the record: share row after i18n, brand labels, honest text', () => {
+  const page = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'public', 'trader.html'), 'utf8');
+  assert.match(page, /id="shWc"/);
+  assert.ok(page.indexOf('/js/i18n.js') < page.indexOf("RCI18N.translate('tp.share_txt'"),
+    'share links build after the dictionary loads');
+  const i18n = require('../public/js/i18n.js');
+  for (const l of i18n.LANGS) {
+    assert.ok(String(i18n.STRINGS['tp.share_txt'][l.code] || '').trim().length,
+      `tp.share_txt missing ${l.code}`);
+  }
+  assert.doesNotMatch(String(i18n.STRINGS['tp.share_txt'].en), /\$|usd|vUSDT/i);
+});
+
+test('the trader card draws §4 strictly — the honesty line is on the image itself', () => {
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'routes', 'frame.js'), 'utf8');
+  assert.match(src, /PERCENT AND COUNTS ONLY - NEVER AN AMOUNT/);
+  assert.match(src, /SETTLED RETURN/, 'the number is named for what it is');
+  assert.match(src, /open positions and marks deliberately excluded/i);
+  assert.match(src, /60_000/, 'trader records change — a TTL cache, not a permanent one');
+});
+
 test('the card never carries prices or outcomes — source pin', () => {
   const src = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '..', 'routes', 'frame.js'), 'utf8');
   assert.match(src, /symbol \+ direction only/i);
-  assert.doesNotMatch(src, /entry_price|stop_loss|take_profit|pnl/,
-    'sealed prices exist in the record; the FEED card still shows none');
+  // Scan what is DRAWN, not what is queried: every center()/text() call.
+  const drawn = [...src.matchAll(/c\.(?:center|text)\(([^;]*)\)/g)].map((m) => m[1]).join('\n');
+  assert.doesNotMatch(drawn, /entry|stop_loss|take_profit|\bpnl\b|balance|vusdt|\$/i,
+    'sealed prices and amounts exist in the record; the FEED card still draws none');
   assert.match(src, /SERVER RECOMPUTED/, 'the card says where verification ran');
   assert.match(src, /RE-DERIVE THE HASH IN YOUR OWN BROWSER/);
   const srv = require('node:fs').readFileSync(

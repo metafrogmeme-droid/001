@@ -348,10 +348,18 @@ app.get('/trader/:handle', async (req, res) => {
         + ' — same virtual stake for everyone, ranked on skill alone. Think you can beat them?';
     }
   } catch (e) { /* stats are decoration on the unfurl — the page still works */ }
-  const html = require('fs').readFileSync(path.join(__dirname, 'public', 'trader.html'), 'utf8')
+  let html = require('fs').readFileSync(path.join(__dirname, 'public', 'trader.html'), 'utf8')
     .replace(/__TITLE__/g, title.replace(/[&<>"']/g, ''))
     .replace(/__OGLINE__/g, ogline.replace(/[&<>"']/g, ''))
     .replace(/__HANDLE__/g, safe);
+  // Frame + og:image meta — feeds unfurl the pixel trader card (percent and
+  // counts only, server-rendered from records, forgery-proof). Scrapers take
+  // the FIRST og:image, so the static one is dropped when the card injects.
+  const withMeta = require('./lib/frame_meta').injectTraderMeta(
+    html, raw, require('./lib/public_origin').configured());
+  if (withMeta !== html) {
+    html = withMeta.replace(/<meta property="og:image" content="[^"]*og_image_1200x630\.jpg">\n?/, '');
+  }
   res.type('html').send(html);
 });
 // Digital Asset Links — lets the Android TWA app (Bubblewrap wrapper) open
