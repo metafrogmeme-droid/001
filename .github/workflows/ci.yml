@@ -117,13 +117,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # gitleaks scans history, not just the tip
+          # The action needs the PR's base commit to compute its diff range.
+          fetch-depth: 0
 
       # .gitignore keeps key material out by pattern, but a pattern only helps
       # for paths someone thought of. This catches the ones nobody did — most
       # importantly a Solana keypair, which is a bare 64-byte JSON array and
       # looks nothing like a conventional API token.
-      - name: gitleaks
+      #
+      # SCOPE: on a pull_request event this action scans only the PR's own
+      # commits (it overrides the range to <head>^..<head>), NOT full history.
+      # That is the right gate for "this PR introduces no secret", and it is all
+      # this job claims to be.
+      #
+      # A full-history scan is deliberately NOT wired up yet: as of 2026-07-26 it
+      # reports one REAL credential still reachable in history —
+      # BOT_SYNC_SECRET, hardcoded in app/server.js in commit 9435602 and
+      # removed in f79518a (#3), live in the tree for about a week. That secret
+      # authenticates the bot↔web sync API (app/routes/sync.js). Removing a line
+      # does not remove it from git, so it must be ROTATED, not re-deleted.
+      # Enabling a history scan before that is done would only paint a
+      # pre-existing incident red on every unrelated PR.
+      - name: gitleaks (pull-request scope)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

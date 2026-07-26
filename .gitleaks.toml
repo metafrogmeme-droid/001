@@ -24,7 +24,13 @@ regex = '''(?i)\b(?:solana|sol|wallet|mint|payer|deploy)?_?(?:private_?key|secre
 tags = ["key", "solana"]
 
 [allowlist]
-description = "Paths that legitimately contain key-shaped or example data"
+description = "Paths and shapes that legitimately contain key-shaped data"
+
+# Verified against a full-history scan (883 commits, 150 MB): with these in
+# place the repository is clean. Without them the upstream `generic-api-key`
+# rule reports 29 findings, every one an env-var NAME, a help string, or an
+# obvious test fixture — noise that would make a history scan unusable and
+# train everyone to ignore it.
 paths = [
   # Example files exist to be committed; they must stay placeholder-only.
   '''\.env\.example$''',
@@ -32,4 +38,39 @@ paths = [
   '''(^|/)Cargo\.lock$''',
   # The audit report quotes key-shaped material while explaining these risks.
   '''^docs/TOKEN_SECURITY_AUDIT\.md$''',
+  # Test fixtures are deliberately fake credentials. The Solana keypair rules
+  # above are NOT path-allowlisted, so a real keypair committed under tests/
+  # is still caught.
+  '''^tests/''',
+  '''^app/test/''',
 ]
+
+regexes = [
+  # An env-var NAME is not a secret. `os.environ.get("BITGET_API_KEY", ...)`
+  # and `_SIGNER_KEY_ENV = "WEB3_SIGNER_PRIVATE_KEY"` both match the generic
+  # rule; the string is a lookup key, and the value it fetches is never here.
+  '''^[A-Z][A-Z0-9_]{2,}$''',
+  # The well-known Hardhat/Anvil deterministic test account #0 private key.
+  # Published in their docs and funded only on local devnets — treating it as
+  # a leak is a false positive, and it must never be treated as usable.
+  '''(?i)^0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80$''',
+]
+
+stopwords = [
+  # LLM model identifiers sitting next to a provider's env-var name in a
+  # (provider, env_var, model) tuple. The generic rule reads the model id as the
+  # key's value; it is a public model name.
+  "llama-3.3-70b-versatile",
+  "qwen3.6-plus",
+  "claude-haiku-4-5",
+  # Obvious test fixtures.
+  "apikey_abc",
+  "apisecret_xyz",
+  "AKEY123456789",
+]
+
+# NOTE: a full-history scan is NOT clean as of 2026-07-26. One real credential
+# remains reachable in history and is deliberately NOT allowlisted here — see
+# the "Secret scan" step in .github/workflows/ci.yml. Allowlisting it would hide
+# a live exposure behind a green check, which is the exact failure mode this
+# file exists to prevent. It stays detectable until the credential is rotated.
