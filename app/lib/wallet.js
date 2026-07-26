@@ -99,6 +99,23 @@ const CHAINS = [
     ],
   },
   {
+    key: 'avalanche', label: 'Avalanche', chainId: 43114,
+    rpcEnv: 'WEB3_RPC_URL_AVALANCHE', rpcDefault: 'https://api.avax.network/ext/bc/C/rpc',
+    rpcFallbacks: ['https://avalanche-c-chain-rpc.publicnode.com'],
+    native: { symbol: 'AVAX', ticker: 'AVAXUSDT' },
+    // Every address below was verified against the C-Chain itself before
+    // inclusion (eth_call symbol() + decimals() must match exactly) — the
+    // display symbols are the tokens' own on-chain symbols, dots and all.
+    tokens: [
+      { symbol: 'USDC', address: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E', decimals: 6, stable: true },
+      { symbol: 'USDt', address: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7', decimals: 6, stable: true },
+      { symbol: 'WETH.e', address: '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB', decimals: 18, ticker: 'ETHUSDT' },
+      { symbol: 'WAVAX', address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7', decimals: 18, ticker: 'AVAXUSDT' },
+      { symbol: 'BTC.b', address: '0x152b9d0FdC40C096757F570A51E494bd4b943E50', decimals: 8, ticker: 'BTCUSDT' },
+      { symbol: 'LINK.e', address: '0x5947BB275c521040051D82396192181b413227A3', decimals: 18, ticker: 'LINKUSDT' },
+    ],
+  },
+  {
     key: 'polygon', label: 'Polygon', chainId: 137,
     // polygon-rpc.com answers -32051 "API key disabled, tenant disabled".
     rpcEnv: 'WEB3_RPC_URL_POLYGON', rpcDefault: 'https://polygon-bor-rpc.publicnode.com',

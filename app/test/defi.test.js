@@ -63,6 +63,7 @@ const PROVIDERS = {
   }),
   base: new FakeProvider('base', {}),
   optimism: new FakeProvider('optimism', {}, { down: true }),   // RPC dead
+  avalanche: new FakeProvider('avalanche', {}),
   polygon: new FakeProvider('polygon', {}),
 };
 

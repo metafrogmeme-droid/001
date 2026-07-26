@@ -297,7 +297,7 @@ const TOOLS = {
 
   get_gas: {
     description: 'Live gas across the EVM chains RUNECLAW mirrors (Ethereum, '
-      + 'Base, Arbitrum, Optimism, BNB Chain, Polygon): current gas price in '
+      + 'Base, Arbitrum, Optimism, BNB Chain, Avalanche, Polygon): current gas price in '
       + 'gwei per chain, the live native-coin price, and xfer_cost_usd — a '
       + 'FLOOR for one bridge-ish transaction (gas × 100k gas units × native '
       + 'price; bridge fees, relayers, L1 data fees and destination gas all '

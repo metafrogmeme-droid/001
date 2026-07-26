@@ -49,6 +49,7 @@ const PROVIDERS = {
   arbitrum: new FakeProvider('arbitrum', { down: true }),
   optimism: new FakeProvider('optimism', {}),
   bnb: new FakeProvider('bnb', {}),
+  avalanche: new FakeProvider('avalanche', {}),
   polygon: new FakeProvider('polygon', {}),
 };
 
@@ -69,7 +70,7 @@ test('portfolio: per-chain sections, combined total, down chain isolated', async
   const p = await wallet.getWalletPortfolio(ADDR);
   assert.ok(p && p.read_only === true);
   assert.equal(p.chain, 'multi');
-  assert.equal(p.chains.length, 6);   // + BNB Chain
+  assert.equal(p.chains.length, 7);   // + BNB Chain, Avalanche
 
   const eth = p.chains.find(c => c.chain === 'ethereum');
   // 2 ETH * 2500 + 500 USDC = 5500.
@@ -88,6 +89,27 @@ test('portfolio: per-chain sections, combined total, down chain isolated', async
   assert.equal(p.assets.length, 3);
   assert.ok(p.assets.every(a => a.chain));
   assert.equal(p.assets[0].symbol, 'ETH');      // sorted by USD desc
+});
+
+test('avalanche: the entry matches what the C-Chain itself answered at inclusion time', () => {
+  // Every address was verified live (eth_call symbol() + decimals() on the
+  // C-Chain) before entering CHAINS — this pins that verified state so a
+  // later edit can't silently swap an address out from under the mirror.
+  const av = wallet.CHAINS.find((c) => c.key === 'avalanche');
+  assert.ok(av, 'avalanche is in the chain set');
+  assert.equal(av.chainId, 43114);
+  assert.deepEqual(av.native, { symbol: 'AVAX', ticker: 'AVAXUSDT' });
+  const by = Object.fromEntries(av.tokens.map((t) => [t.symbol, t]));
+  assert.equal(by['USDC'].address, '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E');
+  assert.equal(by['USDt'].address, '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7');
+  assert.equal(by['WETH.e'].address, '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB');
+  assert.equal(by['WAVAX'].address, '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7');
+  assert.equal(by['BTC.b'].address, '0x152b9d0FdC40C096757F570A51E494bd4b943E50');
+  assert.equal(by['BTC.b'].decimals, 8);
+  assert.equal(by['LINK.e'].address, '0x5947BB275c521040051D82396192181b413227A3');
+  for (const t of av.tokens) {
+    assert.ok(t.stable || t.ticker, `${t.symbol} must be priceable off the venue's own tickers`);
+  }
 });
 
 test('chat: multi-chain breakdown with the down chain named', async (t) => {
@@ -110,14 +132,14 @@ test('chat: "my wallet on base" filters to that chain; unknown chain honest', as
 
   const un = await wallet.maybeHandleWalletChat(rows[0].id, 'my wallet on fantom');
   assert.match(un.reply_html, /don't mirror/);
-  assert.match(un.reply_html, /Ethereum, Base, Arbitrum, Optimism, BNB Chain, Polygon/);
+  assert.match(un.reply_html, /Ethereum, Base, Arbitrum, Optimism, BNB Chain, Avalanche, Polygon/);
 });
 
 test('WEB3_CHAINS trims the sweep (and invalid values fall back to all)', () => {
   process.env.WEB3_CHAINS = 'ethereum,base';
   assert.deepEqual(wallet.activeChains().map(c => c.key), ['ethereum', 'base']);
   process.env.WEB3_CHAINS = 'nonsense';
-  assert.equal(wallet.activeChains().length, 6);
+  assert.equal(wallet.activeChains().length, 7);
   delete process.env.WEB3_CHAINS;
 });
 
