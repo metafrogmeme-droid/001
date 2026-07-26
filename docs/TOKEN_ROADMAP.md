@@ -499,6 +499,13 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Soft/hard caps, min/max contribution, round durations, presale price** (§5).
 - **Liquidity split of raised SOL** (**66.67%**, ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled:**
   permanent never-claim lock (§7).
+- ~~**Staking lock-up period**~~ — **settled:** **30 days**, ratified 2026-07-26.
+  `LOCKUP_SECONDS` in `programs/rclaw_staking/src/lib.rs`. Without a lock the tier is a live
+  spot balance, so one position can be unstaked and re-staked to another wallet in the same
+  slot and serve unlimited users by rotation; the lock is what makes a tier cost something to
+  hold. It is read at stake time and written into each record's `unlock_at`, so changing it
+  later applies to **new deposits only** — existing positions keep the unlock they were
+  promised. Safe to change freely today because nothing is deployed.
 - ~~**Primary venue**~~ — **settled:** Metaplex Genesis, integrated in draft (§6). Smithii
   remains a documented fallback only.
 - **Jurisdiction exclusions and KYC threshold** (counsel-driven).
@@ -586,6 +593,5 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
 5. **Transfer the program upgrade authority off the deploy key — before the vault
    accepts its first deposit, not after.** See §11; the window between deploy and
    transfer is the entire exposure.
-6. Ratify every §13 parameter, including `LOCKUP_SECONDS` in
-   `programs/rclaw_staking/src/lib.rs` (currently 7 days) — it is a tokenomics
-   choice, not a security constant.
+6. Ratify every remaining §13 parameter. `LOCKUP_SECONDS` in
+   `programs/rclaw_staking/src/lib.rs` is **settled: 30 days** (2026-07-26).

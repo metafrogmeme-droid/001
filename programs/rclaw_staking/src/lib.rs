@@ -81,11 +81,16 @@ pub const PINNED_MINT: Option<&str> = option_env!("RCLAW_PINNED_MINT");
 /// unlimited number of users by rotation. The lock is what makes a tier cost
 /// something to hold.
 ///
-/// **This is a tokenomics parameter, not a security constant** — the 7-day value
-/// is the audit's suggested default and should be ratified alongside the tier
-/// thresholds before any value-bearing deployment (docs/TOKEN_ROADMAP.md §13).
-/// Set to `0` to restore the previous always-liquid behaviour.
-pub const LOCKUP_SECONDS: i64 = 7 * 24 * 60 * 60;
+/// **This is a tokenomics parameter, not a security constant.** 30 days was
+/// ratified on 2026-07-26, superseding the audit's suggested 7-day default
+/// (docs/TOKEN_ROADMAP.md §13). Set to `0` to restore always-liquid behaviour.
+///
+/// Changing it is safe today only because nothing is deployed. It is read at
+/// stake time and written into each record's `unlock_at`, so an upgrade that
+/// changed it would apply to NEW deposits only — existing positions keep the
+/// unlock they were promised, which is the correct direction for that hazard but
+/// means a live change silently splits the pool into two cohorts.
+pub const LOCKUP_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 /// Parse + compare the pin. Kept separate so the logic is unit-testable without
 /// rebuilding under a different environment.

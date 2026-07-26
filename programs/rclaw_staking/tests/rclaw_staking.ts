@@ -98,7 +98,7 @@ describe("rclaw_staking", () => {
   });
 
   it("refuses to unstake inside the lock-up window", async () => {
-    // LOCKUP_SECONDS is 7 days and a validator clock cannot be warped from here,
+    // LOCKUP_SECONDS is 30 days and a validator clock cannot be warped from here,
     // so this asserts the lock holds. The post-expiry path is covered in-process
     // by tests/attack.rs, which can move the sysvar clock.
     try {

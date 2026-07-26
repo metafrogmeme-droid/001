@@ -158,8 +158,8 @@ between deploy and transfer is the entire exposure. See `docs/TOKEN_ROADMAP.md` 
 ## Known limitations
 
 - **Unaudited** (above) — the binding constraint.
-- `unstake` enforces a `LOCKUP_SECONDS` lock (7 days) so a tier costs something to hold.
-  That value is a tokenomics parameter awaiting ratification, not a security constant.
+- `unstake` enforces a `LOCKUP_SECONDS` lock (**30 days**, ratified 2026-07-26) so a tier
+  costs something to hold. It is a tokenomics parameter, not a security constant.
 - No reward accrual — this is an access-tier vault, not a yield product.
 - `declare_id!` is a placeholder until `anchor keys sync` runs; CI rejects the placeholder.
 - No migration or rescue instruction. `StakeAccount` carries a `version` byte and 64
