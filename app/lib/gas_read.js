@@ -57,4 +57,31 @@ async function readGas(fetchImpl) {
   return { chains, read_at: new Date().toISOString(), indicative: true };
 }
 
-module.exports = { readGas, PER_CHAIN_TIMEOUT_MS };
+// Execution gas of a bridge-ish transaction, chosen LOW on purpose: the
+// figure it produces must be a floor. Real bridge deposits usually burn
+// 100k–300k gas, and bridge fees, relayer fees, L1 data fees and
+// destination-chain gas all come on top — so "gas × this × native price"
+// can understate the cost of moving an asset, never overstate it.
+const XFER_GAS_UNITS = 100_000;
+
+/**
+ * Enrich a readGas() body with what a transaction on each chain costs in
+ * dollars RIGHT NOW — both public market facts (gas price × native price).
+ * Pure: same-shape body out; a chain whose native mark is missing keeps its
+ * gwei and simply gains nothing (omitted, never invented). Never throws.
+ */
+function withXferCosts(body, tickers) {
+  if (!body || !body.chains || !tickers) return body;
+  for (const c of CHAINS) {
+    const hit = body.chains[c.key];
+    const tk = c.native && tickers[c.native.ticker];
+    const usd = tk && Number(tk.price);
+    if (!hit || !Number.isFinite(usd) || usd <= 0) continue;
+    hit.native_usd = usd;
+    // Floor cost of one bridge-ish transaction: gwei → ETH-units → dollars.
+    hit.xfer_cost_usd = Math.round(hit.gwei * 1e-9 * XFER_GAS_UNITS * usd * 10000) / 10000;
+  }
+  return body;
+}
+
+module.exports = { readGas, withXferCosts, PER_CHAIN_TIMEOUT_MS, XFER_GAS_UNITS };

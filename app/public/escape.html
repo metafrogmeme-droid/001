@@ -103,7 +103,7 @@
 <!-- Ahead of the page script, not after it. The plan renders synchronously at
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
-<script src="/js/i18n.js?v=67"></script>
+<script src="/js/i18n.js?v=68"></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
 (function () {
@@ -196,8 +196,27 @@
           var k = String(s.chain).trim().toLowerCase();
           var hit = GAS[k];
           if (!hit) return '';
-          return ' <span class="ch" title="' + esc(T('es.gas_t', 'Live gas on this chain right now — the node’s current suggestion, indicative only, not a quote for your transaction.'))
+          var out = ' <span class="ch" title="' + esc(T('es.gas_t', 'Live gas on this chain right now — the node’s current suggestion, indicative only, not a quote for your transaction.'))
             + '">⛽ ' + esc(TF('es.gas', '{n} gwei', { n: hit.gwei })) + '</span>';
+          // Dust vs bridge cost — only on bridge-home steps for wallet-loaded
+          // rows (they carry a real value). The cost is a FLOOR: gas × a
+          // typical bridge transaction × the live native price; bridge fees,
+          // relayers and destination gas all come on top. So "≥" is literal —
+          // and when even the floor eats 5%+ of the balance, say so.
+          if (s.type === 'bridged' && hit.xfer_cost_usd > 0) {
+            var val = 0;
+            for (var pi = 0; pi < positions.length; pi++) {
+              var p = positions[pi];
+              if (p.usd > 0 && String(p.asset) === String(s.asset)
+                && String(p.chain).trim().toLowerCase() === k) { val = p.usd; break; }
+            }
+            var pct = val > 0 ? Math.round(hit.xfer_cost_usd / val * 100) : 0;
+            if (pct >= 5) {
+              out += ' <span class="ch" title="' + esc(T('es.dust_t', 'A floor, not a quote: current gas × a typical bridge transaction × the live native-coin price, compared to this balance. Bridge fees, relayer fees and destination gas come on top. A heuristic flag from live prices — it moves; never a verdict.'))
+                + '">⚠ ' + esc(TF('es.dust', 'moving this may cost ≥{p}% of it', { p: pct })) + '</span>';
+            }
+          }
+          return out;
         })()
         + (s.urgent ? '<span class="urg">' + esc(T('esc.badge_now', 'act now')) + '</span>' : '') + '</div>'
         + '<div class="rz">' + esc(T('esc.r.' + s.type, s.reason)) + '</div>'
@@ -270,8 +289,12 @@
       var kept = sorted.slice(0, MAX_ROWS);
       var droppedN = sorted.length - kept.length;
       positions = kept.map(function (a) {
+        // usd rides along (never rendered as a dollar figure) so the plan can
+        // compare a balance against what moving it would cost. Hand-typed
+        // rows have no value, so they simply never get the dust flag.
         return { type: a.chain === home ? 'spot' : 'bridged',
-          asset: String(a.symbol).slice(0, 20), chain: String(a.chain).slice(0, 20), status: '' };
+          asset: String(a.symbol).slice(0, 20), chain: String(a.chain).slice(0, 20),
+          status: '', usd: Number(a.usd) || 0 };
       });
       renderRows(); render();
       var msg = TF('es.w_loaded',

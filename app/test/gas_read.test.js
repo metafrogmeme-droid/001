@@ -8,7 +8,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { readGas } = require('../lib/gas_read.js');
+const { readGas, withXferCosts, XFER_GAS_UNITS } = require('../lib/gas_read.js');
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 
 const rpcOk = (weiHexByHost) => async (url) => ({
@@ -47,6 +47,56 @@ test('garbage results are rotated past, not surfaced', async () => {
     ok: true, json: async () => ({ jsonrpc: '2.0', result: '0x0' }),
   }));
   assert.deepEqual(g.chains, {}, 'a zero gas price is not a market read');
+});
+
+test('xfer cost: gas × a bridge-floor × the live native price — dollars from two market facts', async () => {
+  // 20 gwei on ethereum with ETH at $2500: 20e-9 × 100k gas × 2500 = $5.
+  const g = await readGas(rpcOk({ 'publicnode.com': '0x4a817c800' }));
+  withXferCosts(g, { ETHUSDT: { price: 2500 } });
+  assert.equal(g.chains.ethereum.native_usd, 2500);
+  assert.equal(g.chains.ethereum.xfer_cost_usd, 20e-9 * XFER_GAS_UNITS * 2500);
+  assert.equal(g.chains.ethereum.xfer_cost_usd, 5);
+});
+
+test('xfer cost: no fresh native mark → gwei stays, cost fields are absent', async () => {
+  const g = await readGas(rpcOk({ 'base.org': '0xb71b00' }));
+  withXferCosts(g, { BNBUSDT: { price: 600 } });          // wrong coin for base
+  assert.equal(g.chains.base.gwei, 0.012, 'the gas read itself is untouched');
+  assert.ok(!('xfer_cost_usd' in g.chains.base) && !('native_usd' in g.chains.base),
+    'a cost we could not price is omitted, never invented');
+  // Zero / garbage marks are refused the same way.
+  const g2 = await readGas(rpcOk({ 'base.org': '0xb71b00' }));
+  withXferCosts(g2, { ETHUSDT: { price: 0 } });
+  assert.ok(!('xfer_cost_usd' in g2.chains.base));
+  // And a missing map is a no-op, not a throw.
+  assert.equal(withXferCosts(g2, null), g2);
+});
+
+test('the route prices costs through the BOUNDED ticker read — a page load never waits on a cold fetch', () => {
+  const src = read('routes', 'gas.js');
+  assert.match(src, /getTickersWithin\(/, 'display path: bounded, with stale fallback');
+  assert.doesNotMatch(src, /getTickers\(\)/,
+    'the unbounded fetch can spend 10s — that budget belongs to order paths only');
+  assert.match(src, /withXferCosts\(body, map\)/);
+});
+
+test('the dust flag: bridged steps only, wallet-loaded values only, floor stated as a floor', () => {
+  const page = read('public', 'escape.html');
+  assert.match(page, /s\.type === 'bridged' && hit\.xfer_cost_usd > 0/,
+    'the flag exists exactly where a bridge-home step meets a priced cost');
+  assert.match(page, /usd: Number\(a\.usd\) \|\| 0/,
+    'wallet rows carry their value; hand-typed rows never get the flag');
+  assert.match(page, /pct >= 5/, 'below 5% the flag is noise, not honesty');
+  assert.match(page, /es\.dust_t/, 'the floor-not-a-quote tooltip is the honesty surface');
+  const i18n = require('../public/js/i18n.js');
+  for (const k of ['es.dust', 'es.dust_t']) {
+    for (const l of i18n.LANGS) {
+      assert.ok(String(i18n.STRINGS[k][l.code] || '').trim().length, `${k} missing ${l.code}`);
+      if (k === 'es.dust') {
+        assert.ok(String(i18n.STRINGS[k][l.code]).includes('{p}'), `es.dust lost {p} in ${l.code}`);
+      }
+    }
+  }
 });
 
 test('the route is public, and an empty read is never cached', () => {
