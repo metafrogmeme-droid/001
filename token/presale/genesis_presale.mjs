@@ -699,6 +699,12 @@ async function cmdDeposit() {
   const cfg = loadConfig();
   const env = loadEnv();
   const umi = makeUmi(env);
+  // Every command that opens a connection verifies the cluster by GENESIS HASH.
+  // This one did not, and `rpcUrl()`'s `url.includes('mainnet')` was the only
+  // thing standing in front of it — a case-sensitive substring test that lets
+  // through `https://API.MAINNET-BETA.SOLANA.COM` (DNS is case-insensitive; the
+  // test is not), every rebranded endpoint, and any bare IP.
+  await assertDevnet(umi);
   const a = requirePresale();
   const amountSol = Number(arg('--amount') || '0');
   if (!(amountSol > 0)) throw new Error('Provide --amount <SOL> greater than 0.');
@@ -856,6 +862,12 @@ async function cmdLiquidity() {
   const cfg = loadConfig();
   const env = loadEnv();
   const umi = makeUmi(env);
+  // Every command that opens a connection verifies the cluster by GENESIS HASH.
+  // This one did not, and `rpcUrl()`'s `url.includes('mainnet')` was the only
+  // thing standing in front of it — a case-sensitive substring test that lets
+  // through `https://API.MAINNET-BETA.SOLANA.COM` (DNS is case-insensitive; the
+  // test is not), every rebranded endpoint, and any bare IP.
+  await assertDevnet(umi);
   const a = requirePresale();
   const lp = deriveLiquidityParams(cfg);
 
@@ -975,6 +987,12 @@ function refuseV1WithdrawPath(command, consequence) {
 async function cmdWithdraw() {
   const env = loadEnv();
   const umi = makeUmi(env);
+  // Every command that opens a connection verifies the cluster by GENESIS HASH.
+  // This one did not, and `rpcUrl()`'s `url.includes('mainnet')` was the only
+  // thing standing in front of it — a case-sensitive substring test that lets
+  // through `https://API.MAINNET-BETA.SOLANA.COM` (DNS is case-insensitive; the
+  // test is not), every rebranded endpoint, and any bare IP.
+  await assertDevnet(umi);
   const a = requirePresale();
   const bucket = publicKey(a.bucket);
   const mint = publicKey(a.baseMint);
@@ -1006,6 +1024,12 @@ async function cmdWithdraw() {
 async function cmdWithdrawUnsold() {
   const env = loadEnv();
   const umi = makeUmi(env);
+  // Every command that opens a connection verifies the cluster by GENESIS HASH.
+  // This one did not, and `rpcUrl()`'s `url.includes('mainnet')` was the only
+  // thing standing in front of it — a case-sensitive substring test that lets
+  // through `https://API.MAINNET-BETA.SOLANA.COM` (DNS is case-insensitive; the
+  // test is not), every rebranded endpoint, and any bare IP.
+  await assertDevnet(umi);
   const a = requirePresale();
   const bucket = publicKey(a.bucket);
   const mint = publicKey(a.baseMint);
@@ -1650,6 +1674,12 @@ async function cmdFinalize() {
 async function cmdClaim() {
   const env = loadEnv();
   const umi = makeUmi(env);
+  // Every command that opens a connection verifies the cluster by GENESIS HASH.
+  // This one did not, and `rpcUrl()`'s `url.includes('mainnet')` was the only
+  // thing standing in front of it — a case-sensitive substring test that lets
+  // through `https://API.MAINNET-BETA.SOLANA.COM` (DNS is case-insensitive; the
+  // test is not), every rebranded endpoint, and any bare IP.
+  await assertDevnet(umi);
   const a = requirePresale();
   console.log(`Claiming vested tokens from bucket ${a.bucket}…`);
   // Same shape as the deposit-side wSOL gap, on the base side: claimPresaleV2

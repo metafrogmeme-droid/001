@@ -26,6 +26,7 @@ true of the current tree. What changed, and when:
 | 2026-07-26 | npm advisory ratchet in CI (`token/scripts/audit_gate.mjs`) | Narrows "**Dependency advisories are current only as of the audit date** … a new advisory landing tomorrow will not surface anywhere." New advisories now fail CI. The 37 recorded here (1 critical, 15 high) are baselined, still outstanding, and still block a value-bearing deployment. |
 
 | 2026-07-26 | Genesis SDK read directly (`token/node_modules`, unavailable during the audit) | Corrects an overstatement and closes **F-25**. See below. |
+| 2026-07-26 | Cluster guard reached only 4 of 9 commands (`presale/cluster_coverage.test.mjs`) | **Reopens and widens F-19.** The genesis-hash guard was correct where it ran, but `deposit`, `liquidity`, `withdraw`, `withdraw-unsold` and `claim` never called it — see below. |
 
 **The presale now runs end to end on devnet (2026-07-26).** This retires the
 report's largest standing caveat — "No transaction was ever sent by any script in
@@ -3309,3 +3310,66 @@ What a reader should **not** conclude from this audit:
 3. **Make the bridge honest.** Either materialize the transfer generator and report the true count of unsigned transactions, or delete the call and print "not implemented"; require `--recipient` explicitly rather than defaulting to the source-chain sender; and fix the config comment at `ntt.config.json:27` that promises a redeem this tooling never performs. Closes **F-24**. *Without it a command that signs and sends nothing reports success, and the destination address silently defaults to a sender address from the wrong chain.*
 4. **Give the offline harness real assertions.** Add a `derive_params.test.mjs` pinning the derived lamport values and window ordering against the committed config, and run `node --test` plus `npm run e2e:plan` in CI. Closes the `--dry` mode finding. *Without it `--dry` asserts only that a command exits 0, and the already-written allowlist serialization regression test never runs anywhere.*
 5. **Fix the documentation drift.** Correct `bot/token/tier_gate.py:150-151` (which says offset 40 where the code correctly reads 72), and correct `programs/rclaw_staking/README.md:41`, which claims the Python test "locks both the offsets and the mint filter" when the fixture would shift with the reader and stay green. *Without it the next person to edit either side trusts a comment that already desynchronized once, in commit `b5e9868`.*
+---
+
+## Addendum (2026-07-26): F-19's fix was correct, and reached less than half the commands
+
+F-19 was recorded as closed once `assertDevnet()` resolved `getGenesisHash()` and
+allowlisted chains by hash. The function is right. The problem was never the
+function.
+
+**Five of the nine commands that open an RPC connection never called it.**
+`cmdCreate`, `cmdTrigger`, `cmdAllocate` and `cmdFinalize` did. `cmdDeposit`,
+`cmdLiquidity`, `cmdWithdraw`, `cmdWithdrawUnsold` and `cmdClaim` did not.
+
+`cmdDeposit` sends buyer SOL. `cmdLiquidity` creates the Raydium bucket with the
+**never-claim LP lock**, which is irreversible by construction — there is no
+instruction that undoes it on any cluster.
+
+What stood in front of those five was `rpcUrl()`'s `url.includes('mainnet')`, the
+substring test F-19 was raised to replace. Measured against real endpoint shapes:
+
+| RPC URL | Refused by the substring test? |
+|---|---|
+| `https://api.mainnet-beta.solana.com` | yes |
+| `https://API.MAINNET-BETA.SOLANA.COM` | **no** |
+| `https://rpc.helius.xyz/?api-key=…` | **no** |
+| `https://alpha.quiknode.pro/…` | **no** |
+| `https://solana-rpc.publicnode.com` | **no** |
+| `http://10.0.0.5:8899` | **no** |
+
+The second row is the finding. `.includes` is case-sensitive and DNS is not, so
+the **literal mainnet endpoint** in capitals resolves to mainnet and passes. No
+rebranding, no private RPC, no exotic setup —
+`RPC_URL=https://API.MAINNET-BETA.SOLANA.COM npm run presale:deposit` reached the
+signing path.
+
+### Why the original finding did not catch this
+
+F-19 was written about the *quality* of the check and was verified by testing the
+check. Every test passed, because every test called the function. Nothing asked
+the different question — *is it called everywhere it needs to be* — and that
+question is invisible from any test that exercises a guarded path.
+
+### Remediation
+
+All five now `await assertDevnet(umi)` immediately after `makeUmi`, before the
+artifact load, so the cluster is settled before anything else is attempted. The
+pre-check is lowercased.
+
+The guard cannot be moved into `makeUmi`: `assertDevnet` is async because it asks
+the chain, and `makeUmi` is synchronous. So the call stays a per-command
+responsibility, and `token/presale/cluster_coverage.test.mjs` holds it — a
+structural test that parses the source and fails if any function calling
+`makeUmi` omits `assertDevnet`. A tenth command cannot be added unguarded.
+
+It also pins that `rpcUrl` is **not** authoritative, asserting it still accepts
+the rebranded endpoints above, so nobody deletes `assertDevnet` on the theory
+that the URL check covers it.
+
+Verified at runtime, not only in source: `deposit` against a local validator
+prints the genesis hash it resolved (`6qZF9XF9r4A6B46Pu3bFDzCpijrWGp7ca5tnyRqg5Tip`)
+before failing on the missing artifact, and both `deposit` and `liquidity` refuse
+the uppercase mainnet URL. Mutation-tested: removing the call from `cmdDeposit`,
+reverting the pre-check to case-sensitive, or making it over-broad each turns a
+distinct test red.

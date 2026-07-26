@@ -61,7 +61,17 @@ export function loadEnv() {
 
 export function rpcUrl(env) {
   const url = env.RPC_URL || DEVNET_RPC;
-  if (url.includes('mainnet')) {
+  // A synchronous courtesy check so the obvious mistake fails instantly with a
+  // clear message, before any network round trip. It is NOT the cluster guard —
+  // `assertDevnet` is, and it asks the chain for its genesis hash. Keep it that
+  // way: a URL cannot identify a cluster, and this test alone let through every
+  // rebranded endpoint and any bare IP.
+  //
+  // Lowercased because it did not used to be, and `.includes` is case-sensitive
+  // while DNS is not: `https://API.MAINNET-BETA.SOLANA.COM` resolves to mainnet
+  // and sailed straight past. That is the literal mainnet endpoint, not an
+  // exotic one.
+  if (url.toLowerCase().includes('mainnet')) {
     throw new Error(
       'Refusing mainnet. This is draft/devnet tooling — a real launch is gated behind ' +
         'legal review + audit (docs/TOKEN_ROADMAP.md §10-11).'
