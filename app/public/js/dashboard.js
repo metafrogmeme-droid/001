@@ -4080,11 +4080,28 @@
           : `<p class="small muted mt-2">${onMobile
               ? esc(T('dd.w_hint_mobile', 'One tap — the wallet picker opens this page inside your wallet app, where one signature links it.'))
               : esc(T('dd.w_hint_desktop', 'No wallet extension in this browser. Scan the QR with your phone and sign in your wallet app — or install MetaMask or Rabby and reload.'))}</p>`;
+        // Desktop with no extension got a dead end: a QR and the word "install".
+        // The mobile page has had a branded picker all along; this is its
+        // desktop counterpart — install links rather than deep links, because a
+        // deep link into an app you do not have is not an action you can take.
+        const INSTALL = [
+          { name: 'MetaMask', href: 'https://metamask.io/download/', color: '#f6851b', letter: 'M' },
+          { name: 'Rabby', href: 'https://rabby.io/', color: '#7084ff', letter: 'R' },
+          { name: 'Coinbase Wallet', href: 'https://www.coinbase.com/wallet/downloads', color: '#0052ff', letter: 'C' },
+          { name: 'Rainbow', href: 'https://rainbow.me/extension', color: '#8754c9', letter: 'W' },
+        ];
+        const installBlock = (w.present || onMobile) ? '' : `
+          <div class="wl-grid mt-2">${INSTALL.map((i) => `
+            <a class="wl-wallet" href="${esc(i.href)}" target="_blank" rel="noopener">
+              <span class="wl-logo" style="background:${esc(i.color)}" aria-hidden="true">${esc(i.letter)}</span>
+              <span>${esc(TF('dd.w_install_x', 'Install {wallet}', { wallet: i.name }))}</span></a>`).join('')}</div>`;
         return `<p class="small" style="color:var(--text-2)">${esc(T('dd.w_intro',
             'Link a wallet to see your on-chain balances inside RUNECLAW — strictly read-only: '
             + 'the wallet signs one login message, never a transaction.'))}</p>
           <div class="row" style="gap:var(--s2);flex-wrap:wrap">${buttons}</div>
           ${status}
+          <p class="small mt-1" id="walletStep" aria-live="polite" hidden></p>
+          ${installBlock}
           <div id="walletQrBox" class="mt-3" hidden></div>
           ${solBlock}`;
       }, { timeoutMs: 27000, empty: { text: 'Wallet status unavailable.' } });
@@ -4194,27 +4211,71 @@
       }
       const link = e.target.closest('#walletLink'), unlink = e.target.closest('#walletUnlink');
       if (!link && !unlink) return;
+      // Progress goes in the panel, not only in a toast at the end. Approving
+      // the account and signing are each a multi-second round trip into the
+      // wallet UI, and the button gave no sign it was waiting on anything.
+      const step = (txt, colour) => {
+        const el = document.getElementById('walletStep');
+        if (!el) return;
+        el.hidden = false;
+        el.textContent = txt;
+        el.style.color = colour || 'var(--text-3)';
+      };
+      if (link) link.disabled = true;
+      // Re-render ONLY when something actually changed. Redrawing after a
+      // failure repaints the panel and wipes the explanation with it, leaving
+      // the user with a vanished error and no idea what went wrong.
+      let changed = false;
       try {
         if (link) {
           const eth = window.RCWalletPicker ? await RCWalletPicker.pick() : window.ethereum;
           if (!eth) { toast(T('dd.t_no_evm_wallet', 'No browser wallet detected — install MetaMask, or use Link with phone.')); return; }
+          const brand = detectWallet().name;
+          step(TF('dd.w_step_approve', 'Approve the connection in {wallet}…', { wallet: brand }));
           const accounts = await eth.request({ method: 'eth_requestAccounts' });
           const address = (accounts && accounts[0] || '').trim();
           if (!address) { toast(T('dd.t_no_account_shared', 'No wallet account was shared.')); return; }
+          step(T('dd.w_step_nonce', 'Preparing the login message…'));
           const n = await fetchJSON('/api/auth/wallet/nonce', { method: 'POST', body: { address } });
           if (!n?.ok || !n.data?.message) { toast(n?.data?.error || 'Could not start wallet linking.'); return; }
+          step(TF('dd.w_step_sign', 'Sign the login message in {wallet} — this is not a transaction.', { wallet: brand }));
           const signature = await eth.request({ method: 'personal_sign', params: [n.data.message, address] });
+          step(T('dd.w_step_verify', 'Verifying the signature…'));
           const v = await fetchJSON('/api/auth/wallet/link', { method: 'POST', body: { address, signature } });
-          toast(v?.ok ? 'Wallet linked — your on-chain balances now mirror into the dashboard.'
-            : (v?.data?.error || 'Wallet link failed.'));
+          if (v?.ok) {
+            changed = true;
+            step(T('dd.w_step_done', '✓ Linked.'), 'var(--up)');
+            toast(T('dd.t_wallet_linked', 'Wallet linked — your on-chain balances now mirror into the dashboard.'));
+          } else {
+            // A server refusal is NOT the user changing their mind. Say which.
+            step(T('dd.w_step_failed', 'Linking failed — nothing was changed.'), 'var(--down)');
+            toast(v?.data?.error || T('dd.t_wallet_link_failed', 'Wallet link failed.'));
+          }
         } else {
           const v = await fetchJSON('/api/auth/wallet/unlink', { method: 'POST', body: {} });
-          toast(v?.ok ? 'Wallet unlinked.' : 'Could not unlink the wallet.');
+          changed = !!v?.ok;
+          toast(v?.ok ? T('dd.t_wallet_unlinked', 'Wallet unlinked.')
+            : T('dd.t_wallet_unlink_failed', 'Could not unlink the wallet.'));
         }
       } catch (err) {
-        toast(T('dd.t_wallet_link_cancelled', 'Wallet linking was cancelled.'));
+        // EIP-1193 4001 is the user declining in their wallet. Everything else
+        // is us failing, and reporting it as "cancelled" blamed the user for a
+        // fault that was never theirs — and hid the real reason.
+        const declined = err && (err.code === 4001 || err.code === 'ACTION_REJECTED');
+        if (declined) {
+          step(T('dd.w_step_declined', 'You declined in your wallet — nothing was linked.'));
+          toast(T('dd.t_wallet_link_cancelled', 'Wallet linking was cancelled.'));
+        } else {
+          const why = String((err && (err.message || err.reason)) || '').slice(0, 120);
+          step(T('dd.w_step_failed', 'Linking failed — nothing was changed.'), 'var(--down)');
+          toast(why
+            ? TF('dd.t_wallet_link_error', 'Wallet linking failed: {why}', { why })
+            : T('dd.t_wallet_link_failed', 'Wallet link failed.'));
+        }
+      } finally {
+        if (link) link.disabled = false;
       }
-      drawWalletLink();
+      if (changed) drawWalletLink();
     });
     drawWalletLink();
 

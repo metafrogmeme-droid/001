@@ -132,3 +132,80 @@ test('the QR is framed and visibly dead once expired', () => {
   assert.match(css, /\.wl-qr \{/, 'the QR is still a bare white square');
   assert.match(css, /\.wl-qr\.is-expired \{/, 'an expired QR looks identical to a live one');
 });
+
+// ── Progress + honest failure ────────────────────────────────────────────────
+// Approving the account and signing are each a multi-second round trip into the
+// wallet's own UI, and the panel used to show nothing at all until a final
+// toast. Worse, the catch reported EVERY failure as "Wallet linking was
+// cancelled" — so a server 500 blamed the user for changing their mind, and hid
+// the real reason.
+
+const STEP_KEYS = ['dd.w_step_approve', 'dd.w_step_nonce', 'dd.w_step_sign',
+  'dd.w_step_verify', 'dd.w_step_done', 'dd.w_step_failed', 'dd.w_step_declined',
+  'dd.w_install_x', 'dd.t_wallet_linked', 'dd.t_wallet_link_failed',
+  'dd.t_wallet_link_error', 'dd.t_wallet_unlinked', 'dd.t_wallet_unlink_failed'];
+
+test('a declined signature is distinguished from a failure', () => {
+  // EIP-1193 4001 is the user declining. Anything else is us failing.
+  assert.match(dash, /err\.code === 4001 \|\| err\.code === 'ACTION_REJECTED'/,
+    'user rejection is not distinguished from an error');
+  assert.match(dash, /dd\.w_step_declined/, 'a decline is not reported as a decline');
+  assert.match(dash, /dd\.t_wallet_link_error/,
+    'a real error must surface its reason, not be reported as a cancellation');
+});
+
+test('a failure says nothing was changed', () => {
+  // After a failed link the user must know their account was not half-modified.
+  const e = i18n.STRINGS['dd.w_step_failed'];
+  assert.match(e.en, /nothing was changed/i);
+  const declined = i18n.STRINGS['dd.w_step_declined'];
+  assert.match(declined.en, /nothing was linked/i);
+});
+
+test('each slow step reports itself while it waits', () => {
+  for (const k of ['dd.w_step_approve', 'dd.w_step_sign', 'dd.w_step_verify']) {
+    assert.match(dash, new RegExp(k.replace('.', '\\.')), `${k} is never shown`);
+  }
+  assert.match(dash, /id="walletStep"/, 'there is nowhere to show progress');
+  assert.match(dash, /aria-live="polite"/, 'progress is invisible to a screen reader');
+});
+
+test('the signing step still says it is NOT a transaction', () => {
+  // The moment the wallet pops up is exactly when a user needs telling.
+  const e = i18n.STRINGS['dd.w_step_sign'];
+  for (const c of codes) assert.match(String(e[c]), /\{wallet\}/, `dd.w_step_sign:${c} lost its slot`);
+  assert.match(e.en, /not a transaction/i);
+});
+
+test('the button is disabled while the flow is in flight', () => {
+  assert.match(dash, /if \(link\) link\.disabled = true;/, 'double-click starts two flows');
+  assert.match(dash, /finally \{\s*\n\s*if \(link\) link\.disabled = false;/,
+    'a thrown error would leave the button permanently disabled');
+});
+
+test('desktop without a wallet gets install options, not just a QR', () => {
+  assert.match(dash, /const INSTALL = \[/);
+  assert.match(dash, /const installBlock = \(w\.present \|\| onMobile\) \? '' :/,
+    'install links must not show when a wallet is already present, nor on mobile '
+      + '(where the deep-link picker is the right affordance)');
+  assert.match(css, /\.wl-grid \{/, 'the picker grid is not styled outside wallet-link.html');
+});
+
+test('every progress and install string exists in all 14 languages', () => {
+  for (const k of STEP_KEYS) {
+    const e = i18n.STRINGS[k];
+    assert.ok(e, `${k} missing from the dictionary`);
+    for (const c of codes) assert.ok(String(e[c] || '').trim().length, `${k} is missing ${c}`);
+  }
+});
+
+test('a failed attempt does not repaint its own explanation away', () => {
+  // Caught in the browser, not by these tests: the handler ended with an
+  // unconditional drawWalletLink(), which re-rendered the panel and wiped the
+  // step message the instant it was written. Both failure paths showed an
+  // empty explanation. Re-render only when something actually changed.
+  assert.match(dash, /if \(changed\) drawWalletLink\(\);/,
+    'an unconditional re-render wipes the failure explanation');
+  assert.match(dash, /changed = true;/, 'a successful link must still refresh the panel');
+  assert.match(dash, /changed = !!v\?\.ok;/, 'unlink must refresh only when it succeeded');
+});
