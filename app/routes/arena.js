@@ -27,6 +27,25 @@ const { sealArenaTrade, newTradeKey } = require('../lib/callseal');
 
 const router = express.Router();
 
+// ── Error diagnostic: surface WHY, not just THAT. ──
+// Same philosophy as wallet.js error_detail — the operator cannot tell a
+// schema mismatch from a timeout from a connection refusal without the reason.
+// Sanitise hard: URIs → <uri>, file paths → <path>, long hex → <hex>,
+// passwords/secrets → stripped. Tests drive this sanitiser directly.
+function safeReason(err) {
+  if (!err) return null;
+  let m = String(err.code ? `${err.code}: ${err.message}` : err.message || err).slice(0, 200);
+  // Strip connection strings: mysql://user:pass@host/db → <uri>
+  m = m.replace(/\b[a-z+]+:\/\/[^\s'")]+/gi, '<uri>');
+  // Strip file paths
+  m = m.replace(/(?:\/[\w.-]+){3,}/g, '<path>');
+  // Strip long hex tokens (32+ chars)
+  m = m.replace(/\b[0-9a-f]{32,}\b/gi, '<hex>');
+  // Strip anything that looks like a password param
+  m = m.replace(/password[=:]\S+/gi, '<redacted>');
+  return m || null;
+}
+
 // Provable Calls v2 — every open is sealed with the trader's opted-in handle
 // AT THAT MOMENT (null = anonymous receipt; still verifiable by key).
 async function handleFor(userId) {
@@ -225,7 +244,8 @@ router.get('/account', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('Arena account error:', err.stack || err.message);
-    res.status(500).json({ error: 'Arena unavailable' });
+    const reason = safeReason(err);
+    res.status(500).json({ error: 'Arena unavailable', ...(reason ? { reason } : {}) });
   }
 });
 
@@ -269,7 +289,7 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
     res.json({ ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } });
   } catch (err) {
     console.error('Arena open error:', err.stack || err.message);
-    res.status(500).json({ error: 'Arena unavailable' });
+    res.status(500).json({ error: 'Arena unavailable', ...(safeReason(err) ? { reason: safeReason(err) } : {}) });
   }
 });
 
@@ -307,7 +327,7 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
     res.json({ ok: true, closed: { symbol: p.symbol, pnl: round2(pnl), exit_price: exitPrice, liquidated } });
   } catch (err) {
     console.error('Arena close error:', err.stack || err.message);
-    res.status(500).json({ error: 'Arena unavailable' });
+    res.status(500).json({ error: 'Arena unavailable', ...(safeReason(err) ? { reason: safeReason(err) } : {}) });
   }
 });
 

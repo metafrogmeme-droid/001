@@ -754,8 +754,8 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     // This message is built in JS, so it needs T() — for a long time it was the
     // one string on the page that stayed English in every locale, which is a
     // poor thing to discover mid-incident.
-    var reason = r && r.data && r.data.error
-      ? esc(r.data.error)
+    var reason = r && r.data && (r.data.reason || r.data.error)
+      ? esc(r.data.reason || r.data.error)
       : T('arena.d_net_error', 'network error');
     var msg = r && r.status === 401
       ? T('arena.d_session_expired',
