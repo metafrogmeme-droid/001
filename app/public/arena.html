@@ -220,6 +220,7 @@
     <div class="stats" id="stats"></div>
     <div class="badges" id="badges"></div>
     <div id="quests" hidden></div>
+    <div id="discipline" hidden></div>
     <div id="starter" hidden></div>
     <div id="cheer" class="cheer" hidden role="status" aria-live="polite"></div>
   </section>
@@ -358,7 +359,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=62"></script>
+<script src="/js/i18n.js?v=63"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -689,6 +690,31 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     }
     celebrate(d.badges || []);
     starter(d);
+    // Discipline read — private, derived from recorded closes only, and it
+    // declines to exist below its minimum sample rather than grade noise.
+    var disc = d.discipline;
+    var de = $('discipline');
+    if (de && disc && disc.enough) {
+      de.hidden = false;
+      var lvl = disc.level === 'planned' ? T('arena.disc_planned', '🎯 planned exits')
+        : disc.level === 'mixed' ? T('arena.disc_mixed', '⚖️ mixed exits')
+        : T('arena.disc_improvised', '🌀 improvised exits');
+      var rows = [
+        fill(T('arena.disc_rate', '{p}% of your {n} closes were made by a pre-set exit (target, stop or trail).'),
+          { p: disc.planned_rate_pct, n: disc.closes }),
+        disc.liquidation_rate_pct > 0
+          ? fill(T('arena.disc_liq', '{p}% ended in liquidation — the market closed what the plan did not.'), { p: disc.liquidation_rate_pct })
+          : T('arena.disc_noliq', 'No liquidations — every exit was yours.'),
+        (disc.win_rate_planned_pct != null && disc.win_rate_manual_pct != null)
+          ? fill(T('arena.disc_vs', 'Planned exits won {a}% of the time; improvised closes won {b}%.'),
+            { a: disc.win_rate_planned_pct, b: disc.win_rate_manual_pct })
+          : null,
+      ].filter(Boolean);
+      de.innerHTML = '<div class="starter"><div class="t">'
+        + esc(T('arena.disc_h', 'Your exit discipline · a read, not a verdict')) + ' <span class="badge-chip">' + esc(lvl) + '</span></div>'
+        + rows.map(function (r) { return '<div class="step">' + esc(r) + '</div>'; }).join('')
+        + '</div>';
+    } else if (de) { de.hidden = true; }
   }
 
   // Celebrate NEWLY completed weekly quests — same localStorage-diff pattern

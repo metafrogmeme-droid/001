@@ -260,6 +260,9 @@ router.get('/account', authMiddleware, async (req, res) => {
         trades: history, returnPct: arena.returnPct(eq) }),
       streak: streaks.computeStreak(allTrades),
       quests: streaks.weeklyQuests(allTrades),
+      // Private-only discipline read — derived from the same recorded closes
+      // the history shows; declines to exist below its minimum sample.
+      discipline: require('../lib/arena_discipline').computeDiscipline(allTrades),
       virtual: true,   // §4: this account holds no real funds
     });
   } catch (err) {
