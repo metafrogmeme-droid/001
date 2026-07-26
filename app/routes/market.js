@@ -4,7 +4,6 @@
  */
 
 const express = require('express');
-const https = require('https');
 
 const router = express.Router();
 
@@ -47,33 +46,10 @@ router.use((req, res, next) => {
   next();
 });
 
-// Simple HTTPS GET with promise
-function fetchJSON(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: 8000 }, (res) => {
-      let body = '';
-      res.on('data', d => body += d);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body)); }
-        catch (e) { reject(new Error('Invalid JSON')); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-  });
-}
-
-// Cache to avoid hammering Bitget (5-second TTL)
-const cache = {};
-function cached(key, ttlMs, fetcher) {
-  return async () => {
-    const now = Date.now();
-    if (cache[key] && now - cache[key].ts < ttlMs) return cache[key].data;
-    const data = await fetcher();
-    cache[key] = { data, ts: now };
-    return data;
-  };
-}
+// The fetch + TTL cache now live in lib/http_cache so the MCP server shares the
+// SAME cached snapshots as this route. Two private caches would let the website
+// and an agent read different ticker snapshots of the same instant.
+const { fetchJSON, cached } = require('../lib/http_cache');
 
 // Symbol validation — prevent query-param injection
 function validateSymbol(sym) {
@@ -262,19 +238,15 @@ router.get('/strengthmap', async (req, res) => {
 // GET /api/market/sentinel — Systemic Risk Sentinel: a market-wide crowding /
 // herding read over the whole USDT-perp universe from public data. Heuristic
 // flags, never a verdict (§4). Its own ΔOI snapshot so its surge read is stable.
-const { buildSentinel } = require('../lib/sentinel');
-let _sentinelOi = null;
+// The ΔOI baseline the surge read compares against lives in lib/sentinel_live
+// so this route and the MCP tool advance the SAME one — two baselines would
+// have the website and an agent report different surges for the same market.
+const { getSentinel } = require('../lib/sentinel_live');
 router.get('/sentinel', async (req, res) => {
   try {
-    const raw = await cached('tickers', 5000, () =>
-      fetchJSON('https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES')
-    )();
-    const tickers = (raw && Array.isArray(raw.data)) ? raw.data : [];
-    if (!tickers.length) return res.status(502).json({ error: 'Market data unavailable' });
-    const { coins, oiSnapshot } = buildStrengthMap(tickers, _sentinelOi, 400);
-    _sentinelOi = oiSnapshot;
+    const payload = await getSentinel();
     res.setHeader('Cache-Control', 'public, max-age=15');
-    res.json(buildSentinel(coins, Date.now()));
+    res.json(payload);
   } catch (err) {
     res.status(502).json({ error: 'Sentinel unavailable' });
   }

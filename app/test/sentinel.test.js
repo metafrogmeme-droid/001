@@ -73,7 +73,13 @@ test('§4: the payload carries market facts + heuristic flags, no user account/P
 test('the /api/market/sentinel endpoint + /sentinel page + nav are wired', () => {
   const market = fs.readFileSync(path.join(__dirname, '..', 'routes', 'market.js'), 'utf8');
   assert.match(market, /router\.get\('\/sentinel'/);
-  assert.match(market, /buildSentinel/);
+  // The route delegates to the shared live read rather than rebuilding the
+  // Sentinel itself — that shared module is what keeps the page and the MCP
+  // tool on ONE ΔOI baseline (see sentinel_live_shared.test.js).
+  assert.match(market, /require\('\.\.\/lib\/sentinel_live'\)/);
+  assert.match(market, /getSentinel\(\)/);
+  const live = fs.readFileSync(path.join(__dirname, '..', 'lib', 'sentinel_live.js'), 'utf8');
+  assert.match(live, /buildSentinel/);
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(server, /app\.get\('\/sentinel'/);
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'sentinel.html'), 'utf8');

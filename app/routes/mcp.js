@@ -234,6 +234,29 @@ const TOOLS = {
     },
   },
 
+  // The sixth Guardian module. Unlike the four above it reads no caller input —
+  // it is a market-wide read of PUBLIC venue data, the same payload
+  // /api/market/sentinel already serves, so it belongs to the published-data
+  // family and adds no new exposure.
+  get_systemic_risk: {
+    description: 'Systemic Risk Sentinel: a market-wide crowding and herding '
+      + 'read over the whole USDT-perp universe from public venue data — where '
+      + 'positioning is one-sided, where funding is hot, and where open '
+      + 'interest surged since the last poll, which together are the setup for '
+      + 'a liquidation cascade. Use it to ask whether the trade your agent '
+      + 'wants is the trade everyone else is already in. Heuristic flags with '
+      + 'reasons, never a verdict, and never a forecast: crowding says nothing '
+      + 'about direction or timing.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const s = await require('../lib/sentinel_live').getSentinel();
+      return { ...s, heuristic: true,
+        note: 'Public market facts (tickers, open interest, funding) read for '
+          + 'crowding. Heuristic flags with reasons, never a verdict and never '
+          + 'a forecast — a crowded book can stay crowded.' };
+    },
+  },
+
   get_track_record: {
     description: "RUNECLAW's public verifiable track record: closed-trade "
       + 'stats (win rate, profit factor, net PnL, drawdown), monthly PnL, '
