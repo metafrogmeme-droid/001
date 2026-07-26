@@ -1943,6 +1943,13 @@
             const tradeBtn = canTrade
               ? `<button class="btn btn--sm" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
               : '';
+            // One-tap Arena open — the vUSDT paper account needs no Telegram
+            // link and no full geometry, only a signal the engine still
+            // stands behind. Fills at the LIVE mark server-side; the toast
+            // reports the drift and any exit the market already passed.
+            const arenaBtn = s.pnl == null && s.signal_key
+              ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
+              : '';
             return `<tr>
               <td data-label="Signal" data-sym="${esc(dsBase(s.symbol))}"
                   data-geo='${esc(JSON.stringify({ e: s.entry_price, sl: s.stop_loss, tp: s.take_profit, d: s.direction }))}'
@@ -1954,7 +1961,7 @@
               <td data-label="R:R" class="r num">${fmt(s.rr, 1)}</td>
               <td data-label="Status">${status}</td>
               <td data-label="Age" class="r muted small">${fmtAgo(s.created_at)}</td>
-              <td data-label="" class="r">${tradeBtn}</td>
+              <td data-label="" class="r">${tradeBtn}${arenaBtn}</td>
             </tr>`;
           }).join('')}</tbody></table></div>`;
       }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } });
@@ -7596,6 +7603,46 @@
     // UX-4: one-tap paper-trade — stash the signal geometry and jump to the
     // Trade view, which applies it on mount. Delegated so it survives every
     // signal-stream re-render.
+    const abtn = e.target.closest('[data-parena]');
+    if (abtn) {
+      (async () => {
+        abtn.disabled = true;
+        const r = await fetchJSON('/api/arena/open-signal', { method: 'POST', body: {
+          signal_key: abtn.getAttribute('data-parena'), margin: 200, leverage: 2,
+        }, timeoutMs: 14000 }).catch(() => null);
+        abtn.disabled = false;
+        if (r?.status === 401) { toast(T('dd.arena_login', 'Log in to paper-trade signals in the Arena.')); return; }
+        if (r?.ok && r.data?.filled) {
+          const f = r.data.filled;
+          // Same honesty payload the Arena panel shows: the live fill, the
+          // call's own price, and any exit that was already behind the market.
+          const parts = [TF('arena.sig_filled', 'Opened {s} {d} at {e} — the live mark.',
+            { s: f.symbol, d: f.direction, e: f.entry })];
+          if (f.drift_pct != null && f.signal_entry != null) {
+            parts.push(TF('arena.sig_filled_drift', 'The call was posted at {p} ({m}%).',
+              { p: f.signal_entry, m: (f.drift_pct > 0 ? '+' : '') + f.drift_pct }));
+          }
+          if (f.dropped?.length) {
+            parts.push(f.dropped.length === 2
+              ? T('arena.sig_dropped_both', 'Both of its exits were already behind the market, so neither was carried over — set your own.')
+              : f.dropped[0] === 'tp'
+                ? T('arena.sig_dropped_tp', 'Its take-profit was already behind the market and was not carried over.')
+                : T('arena.sig_dropped_sl', 'Its stop-loss was already behind the market and was not carried over.'));
+          }
+          parts.push(T('dd.arena_view', 'See it in the Arena →'));
+          toast(parts.join(' '));
+        } else {
+          // The route names WHY (stale, already_open, limits) — translate the
+          // coded refusals, pass the rest through as the server said it.
+          const code = r?.data?.code;
+          const coded = { stale: ['arena.sig_b_stale', 'Too old to open'],
+            already_open: ['arena.sig_b_open', 'Already open'] }[code];
+          toast(coded ? T(coded[0], coded[1])
+            : (r?.data?.error || T('arena.sig_failed', 'Could not open that call — try again.')));
+        }
+      })();
+      return;
+    }
     const pbtn = e.target.closest('[data-ptrade]');
     if (pbtn) {
       try { tradePrefill = JSON.parse(pbtn.getAttribute('data-ptrade')); } catch (_) { tradePrefill = null; }

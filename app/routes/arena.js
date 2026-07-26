@@ -335,12 +335,20 @@ router.get('/signals', authMiddleware, async (req, res) => {
 router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
   try {
     const userId = req.user.user_id;
+    // Two ways to name a signal: the Arena panel sends the numeric id; the
+    // dashboard's signal stream sends signal_key — the SAME public identifier
+    // /call/<key> verification uses, because /api/signals (public) does not
+    // expose row ids.
     const signalId = Number((req.body || {}).signal_id);
-    if (!Number.isInteger(signalId) || signalId <= 0) {
+    const signalKey = String((req.body || {}).signal_key || '').slice(0, 128);
+    if ((!Number.isInteger(signalId) || signalId <= 0) && !signalKey) {
       return res.status(400).json({ error: 'Invalid signal_id' });
     }
-    const [srows] = await pool.execute(
-      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM signals WHERE id = ?', [signalId]);
+    const [srows] = Number.isInteger(signalId) && signalId > 0
+      ? await pool.execute(
+        'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM signals WHERE id = ?', [signalId])
+      : await pool.execute(
+        'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM signals WHERE signal_key = ?', [signalKey]);
     const sig = srows[0];
     if (!sig) return res.status(404).json({ error: 'That signal no longer exists' });
 

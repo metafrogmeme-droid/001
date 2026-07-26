@@ -296,6 +296,41 @@ test('the "dropped, not faked" promise survives translation everywhere', () => {
   }
 });
 
+// ── one-tap from the dashboard signal stream ───────────────────────────────
+
+test('the route accepts signal_key — the stream’s only public identifier', () => {
+  // /api/signals (public) exposes signal_key, not row ids; it is the same
+  // identifier /call/<key> verification uses. Both lookups must exist.
+  assert.match(routeSrc, /FROM signals WHERE id = \?/);
+  assert.match(routeSrc, /FROM signals WHERE signal_key = \?/);
+  // Bounded like everywhere else the key is accepted.
+  assert.match(routeSrc, /signal_key \|\| ''\)\.slice\(0, 128\)/);
+});
+
+test('the dashboard stream has the one-tap Arena button and its handler', () => {
+  const dash = read('public', 'js', 'dashboard.js');
+  assert.match(dash, /data-parena="\$\{esc\(s\.signal_key\)\}"/,
+    'the button must carry the signal_key, not an id the public API lacks');
+  assert.match(dash, /s\.pnl == null && s\.signal_key/,
+    'a resolved signal must not offer an open');
+  assert.match(dash, /signal_key: abtn\.getAttribute\('data-parena'\)/);
+  // The refusals the route encodes translate; free-text errors pass through.
+  assert.match(dash, /stale: \['arena\.sig_b_stale'/);
+  assert.match(dash, /already_open: \['arena\.sig_b_open'/);
+  // And the toast carries the same honesty payload the Arena panel shows.
+  for (const k of ['arena.sig_filled', 'arena.sig_filled_drift', 'arena.sig_dropped_both']) {
+    assert.ok(dash.includes(k), `the stream toast dropped ${k}`);
+  }
+});
+
+test('the one-tap strings exist in all 14 languages', () => {
+  for (const k of ['dd.b_arena', 'dd.arena_t', 'dd.arena_login', 'dd.arena_view']) {
+    const e = i18n.STRINGS[k];
+    assert.ok(e, `${k} missing from the dictionary`);
+    for (const c of codes) assert.ok(String(e[c] || '').trim().length, `${k} is missing ${c}`);
+  }
+});
+
 test('every slot survives every translation', () => {
   const slots = {
     'arena.sig_drift': ['p'], 'arena.sig_conf': ['p'], 'arena.sig_min': ['n'],
