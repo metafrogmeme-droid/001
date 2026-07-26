@@ -207,6 +207,7 @@ app.use('/api/strategies', require('./routes/user_strategies'));
 app.use('/api/replay', require('./routes/replay'));
 app.use('/api/letter', require('./routes/letter'));
 app.use('/api/wallet', require('./routes/wallet'));
+app.use('/api/gas', require('./routes/gas'));
 app.use('/api/defi', require('./routes/defi'));
 app.use('/api/networth', require('./routes/networth'));
 app.use('/api/holdings', require('./routes/holdings'));

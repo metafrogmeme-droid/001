@@ -103,7 +103,7 @@
 <!-- Ahead of the page script, not after it. The plan renders synchronously at
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
-<script src="/js/i18n.js?v=66"></script>
+<script src="/js/i18n.js?v=67"></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
 (function () {
@@ -191,6 +191,14 @@
       return '<div class="step risk-' + esc(s.risk) + '"><div class="n">' + s.n + '</div><div>'
         + '<div class="act">' + esc(T('esc.a.' + s.type, s.action)) + ' <span class="as">' + esc(s.asset) + '</span> ' + esc(T('esc.l.' + s.type, s.label))
         + (s.chain ? '<span class="ch">' + esc(s.chain) + '</span>' : '')
+        + (function () {
+          if (!GAS || !s.chain) return '';
+          var k = String(s.chain).trim().toLowerCase();
+          var hit = GAS[k];
+          if (!hit) return '';
+          return ' <span class="ch" title="' + esc(T('es.gas_t', 'Live gas on this chain right now — the node’s current suggestion, indicative only, not a quote for your transaction.'))
+            + '">⛽ ' + esc(TF('es.gas', '{n} gwei', { n: hit.gwei })) + '</span>';
+        })()
         + (s.urgent ? '<span class="urg">' + esc(T('esc.badge_now', 'act now')) + '</span>' : '') + '</div>'
         + '<div class="rz">' + esc(T('esc.r.' + s.type, s.reason)) + '</div>'
         + (s.depends_on && s.depends_on.length ? '<div class="dep">↳ ' + s.depends_on.map(function (d, i) {
@@ -280,6 +288,14 @@
 
   if (!E) { $('steps').innerHTML = '<p class="muted">The Escape Agent model failed to load.</p>'; return; }
   renderRows(); render();
+
+  // Live per-chain gas — a public market fact for the plan you are staring
+  // at. Indicative (the node's current suggestion, not a quote), and a chain
+  // we could not read simply shows nothing: omitted, never invented.
+  var GAS = null;
+  fetch('/api/gas').then(function (r) { return r.ok ? r.json() : null; }).then(function (g) {
+    if (g && g.chains && Object.keys(g.chains).length) { GAS = g.chains; render(); }
+  }).catch(function () { /* no gas chips — the plan stands alone */ });
 })();
 </script>
 </body>
