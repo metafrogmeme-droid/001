@@ -152,7 +152,11 @@ test('dashboard dynamic strings: dictionary-backed with English fallback', () =>
   assert.match(dash, /const T = \(key, en\) =>/);
   assert.match(dash, /RCI18N\.translate\(key, RCI18N\.getLang\(\)\)\) \|\| en/);
   // Every dd.* key used in dashboard.js exists in the dictionary...
-  const used = [...new Set([...dash.matchAll(/T\('(dd\.[\w.]+)'/g)].map((m) => m[1]))];
+  // A key ending in '_' or '.' is a computed prefix (e.g. T('dd.rp_' + m)) —
+  // the full key is assembled at runtime and always carries an English
+  // fallback, so the static scan cannot (and need not) resolve it.
+  const used = [...new Set([...dash.matchAll(/T\('(dd\.[\w.]+)'/g)].map((m) => m[1]))]
+    .filter((k) => !/[._]$/.test(k));
   assert.ok(used.length >= 16, `expected the dynamic sweep, found ${used.length}`);
   for (const k of used) assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
   // ...and no error/CTA/empty string is left as a bare literal on those paths.

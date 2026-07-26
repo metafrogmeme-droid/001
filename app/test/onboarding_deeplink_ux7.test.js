@@ -42,7 +42,10 @@ test('checklist CTAs deep-link to the exact Account panel', () => {
 
 test('a step that just completed gets a one-time pop, diffed against localStorage', () => {
   assert.match(dash, /localStorage\.getItem\('rc_chk_done'\)/);
-  assert.match(dash, /s\._justDone = s\.done && !prevDone\.has\(s\.label\)/);
+  // Diffed by the step's stable KEY: labels are translated now, so a
+  // language switch must not replay the celebration (the old label values
+  // are still accepted so existing storage doesn't re-pop once either).
+  assert.match(dash, /s\._justDone = s\.done && !prevDone\.has\(s\.key\) && !prevDone\.has\(s\.label\)/);
   assert.match(dash, /localStorage\.setItem\('rc_chk_done'/);
   // The row template carries the pop class only for a freshly-done step.
   assert.match(dash, /\$\{s\._justDone \? ' chk-pop' : ''\}/);

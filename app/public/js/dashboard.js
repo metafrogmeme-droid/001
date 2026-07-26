@@ -650,7 +650,7 @@
         return stateBlock({ icon: 'icon-coin', text: 'Live account connected, but the exchange balance is unavailable right now — the engine will refresh it on the next sync.' });
       }
       if (!pf || pf.equity == null) {
-        return stateBlock({ icon: 'icon-coin', text: 'No portfolio yet — place your first paper trade and your equity shows up here.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } });
+        return stateBlock({ icon: 'icon-coin', text: T('dd.h_nopf', 'No portfolio yet — place your first paper trade and your equity shows up here.'), cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } });
       }
       const daily = pf.daily_pnl, total = pf.total_pnl;
       // 'sync' source IS the live feed (operator account) — only label offline
@@ -784,27 +784,27 @@
         if (today.length) {
           const net = today.reduce((a, t) => a + (parseFloat(t.pnl) || 0), 0);
           const wins = today.filter(t => parseFloat(t.pnl) > 0).length;
-          lines.push(`<div class="kv-row"><span>Today for you</span><b class="num ${pnlClass(net)}">${today.length} closed (${wins} wins) · ${net < 0 ? '-' : '+'}$${Math.abs(net).toFixed(2)}</b></div>`);
+          lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_today', 'Today for you'))}</span><b class="num ${pnlClass(net)}">${esc(TF('dd.ac_closed', '{n} closed ({w} wins)', { n: today.length, w: wins }))} · ${net < 0 ? '-' : '+'}$${Math.abs(net).toFixed(2)}</b></div>`);
         } else {
-          lines.push(`<div class="kv-row"><span>Today for you</span><b class="muted">no closed trades yet — only setups that clear the risk gate get taken</b></div>`);
+          lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_today', 'Today for you'))}</span><b class="muted">${esc(T('dd.ac_none', 'no closed trades yet — only setups that clear the risk gate get taken'))}</b></div>`);
         }
         const nOpen = (pf?.open_positions || []).length;
-        lines.push(`<div class="kv-row"><span>Carrying</span><b class="num">${nOpen} open position${nOpen === 1 ? '' : 's'}</b></div>`);
+        lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_carrying', 'Carrying'))}</span><b class="num">${esc(TF('dd.ac_open', '{n} open position(s)', { n: nOpen }))}</b></div>`);
         // YOUR risk preference — personal (saved to your profile, shapes how
         // the agent talks to you in chat); it never changes the engine.
         const rp = prof?.risk_pref || null;
-        lines.push(`<div class="kv-row"><span>Your risk preference</span><b>
+        lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_riskpref', 'Your risk preference'))}</span><b>
           ${[['conservative', '🛡'], ['balanced', '⚖️'], ['aggressive', '🔥']].map(([m, ic]) =>
-            `<button class="btn btn--sm ${rp === m ? 'btn--primary' : ''}" data-riskpref="${m}" type="button" aria-pressed="${rp === m}" style="margin-left:4px">${ic} ${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
+            `<button class="btn btn--sm ${rp === m ? 'btn--primary' : ''}" data-riskpref="${m}" type="button" aria-pressed="${rp === m}" style="margin-left:4px">${ic} ${esc(T('dd.rp_' + m, m[0].toUpperCase() + m.slice(1)))}</button>`).join('')}
         </b></div>`);
         if ((prof?.watchlist || []).length) {
-          lines.push(`<div class="kv-row"><span>Watching</span><b class="num small">${prof.watchlist.slice(0, 8).map(s => esc(s.replace('USDT', ''))).join(' · ')}</b></div>`);
+          lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_watching', 'Watching'))}</span><b class="num small">${prof.watchlist.slice(0, 8).map(s => esc(s.replace('USDT', ''))).join(' · ')}</b></div>`);
         }
         lines.push(`<div class="row mt-3" style="gap:var(--s2);flex-wrap:wrap">
-          <a class="btn btn--sm" href="#chat">💬 Ask your agent</a>
-          <a class="btn btn--sm" href="#hub">🎛 Agent Hub</a>
-          <a class="btn btn--sm" href="#signals">📡 Signals</a>
-          <a class="btn btn--sm" href="#portfolio">📊 Portfolio</a>
+          <a class="btn btn--sm" href="#chat">${esc(T('dd.b_ask', '💬 Ask your agent'))}</a>
+          <a class="btn btn--sm" href="#hub">${esc(T('dd.b_hub', '🎛 Agent Hub'))}</a>
+          <a class="btn btn--sm" href="#signals">${esc(T('dd.b_signals', '📡 Signals'))}</a>
+          <a class="btn btn--sm" href="#portfolio">${esc(T('dd.b_portfolio', '📊 Portfolio'))}</a>
         </div>`);
         // Operator stance control — same presets as Telegram /agent. The web
         // only QUEUES the change; the bot re-verifies the requester's tier
@@ -844,7 +844,7 @@
     }
 
     renderPanel(C('mind'), async () => feedListHtml(await getFeed(10)),
-      { empty: { icon: 'icon-radar', text: 'The agent narrates its work here — scans, theses, trades and stop moves, live as they happen.' } });
+      { empty: { icon: 'icon-radar', text: T('dd.m_empty', 'The agent narrates its work here — scans, theses, trades and stop moves, live as they happen.') } });
 
     renderPanel(C('macmini'), async () => {
       const r = await fetchJSON('/api/macro', { auth: false, timeoutMs: 14000 });
@@ -897,33 +897,33 @@
       // Ordered onboarding ladder. `locked` steps can't be started until an
       // earlier prerequisite is met (Go live needs connected keys).
       const steps = [
-        { done: verified, label: 'Verify your email',
-          hint: 'Confirm your address to secure the account and enable recovery.',
+        { key: 'verify', done: verified, label: T('dd.chk_verify_l', 'Verify your email'),
+          hint: T('dd.chk_verify_h', 'Confirm your address to secure the account and enable recovery.'),
           cta: { label: T('dd.cta_verify', 'Resend verification'), href: '#account/aprof' } },
-        { done: traded, label: T('dd.cta_paper', 'Place a paper trade'),
-          hint: 'Real 23-check risk gate, zero risk — watch the engine execute.',
+        { key: 'paper', done: traded, label: T('dd.cta_paper', 'Place a paper trade'),
+          hint: T('dd.chk_paper_h', 'Real 23-check risk gate, zero risk — watch the engine execute.'),
           cta: { label: T('dd.cta_ticket', 'Open the trade ticket'), href: '#trade' } },
         // Telegram BEFORE exchange keys — connecting keys requires a linked
         // Telegram account, so the ladder must climb in that order (the old
         // order sent users into a 409 dead-end).
-        { done: linked, label: T('dd.cta_tg', 'Link Telegram'),
-          hint: 'Get trade alerts, chat with the agent — and unlock exchange connections.',
+        { key: 'tg', done: linked, label: T('dd.cta_tg', 'Link Telegram'),
+          hint: T('dd.chk_tg_h', 'Get trade alerts, chat with the agent — and unlock exchange connections.'),
           cta: { label: T('dd.cta_tg', 'Link Telegram'), href: '#account/atg' } },
-        { done: connected, pending: credsPending, locked: !linked, label: 'Connect an exchange',
-          hint: 'Link Bitget, Bybit, BingX or Hyperliquid keys to prepare live trading.',
-          cta: { label: credsPending ? 'Finish connecting' : 'Connect exchange', href: '#account/akeys' } },
-        { done: liveReady, locked: !connected, label: 'Go live',
-          hint: liveReady ? 'Live trading is enabled for your account.'
-            : 'Needs connected keys, your live toggle, and operator approval.',
+        { key: 'keys', done: connected, pending: credsPending, locked: !linked, label: T('dd.chk_keys_l', 'Connect an exchange'),
+          hint: T('dd.chk_keys_h', 'Link Bitget, Bybit, BingX or Hyperliquid keys to prepare live trading.'),
+          cta: { label: credsPending ? T('dd.cta_finish_keys', 'Finish connecting') : T('dd.cta_keys', 'Connect exchange'), href: '#account/akeys' } },
+        { key: 'live', done: liveReady, locked: !connected, label: T('dd.chk_live_l', 'Go live'),
+          hint: liveReady ? T('dd.chk_live_on', 'Live trading is enabled for your account.')
+            : T('dd.chk_live_off', 'Needs connected keys, your live toggle, and operator approval.'),
           cta: { label: T('dd.cta_live', 'Review live controls'), href: '#account/actl' } },
       ];
       // Completion moment: a step that flipped to Done since the last render
       // (on this device) gets a brief pop, so progress is felt, not silent.
       try {
         const prevDone = new Set(JSON.parse(localStorage.getItem('rc_chk_done') || '[]'));
-        steps.forEach((s) => { s._justDone = s.done && !prevDone.has(s.label); });
+        steps.forEach((s) => { s._justDone = s.done && !prevDone.has(s.key) && !prevDone.has(s.label); });
         localStorage.setItem('rc_chk_done',
-          JSON.stringify(steps.filter((s) => s.done).map((s) => s.label)));
+          JSON.stringify(steps.filter((s) => s.done).map((s) => s.key)));
       } catch (_e) { /* private-mode / quota — pop is cosmetic, skip */ }
       const doneN = steps.filter((s) => s.done).length;
       const pct = Math.round(doneN / steps.length * 100);
@@ -2085,7 +2085,7 @@
   async function watchStripLoader() {
     const s = await getWatchlist();
     if (!s.size) {
-      return `<p class="small muted">Star symbols from any chart (☆ Watch in the symbol view) — engine pattern alerts then cover your watchlist, not just your open positions.</p>`;
+      return `<p class="small muted">${esc(T('dd.w_hint', 'Star symbols from any chart (☆ Watch in the symbol view) — engine pattern alerts then cover your watchlist, not just your open positions.'))}</p>`;
     }
     const r = await fetchJSON('/api/market/tickers', { auth: false, timeoutMs: 10000 }).catch(() => null);
     const px = new Map((((r || {}).data || {}).data || []).map((t) => [t.symbol, t]));
