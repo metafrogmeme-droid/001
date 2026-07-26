@@ -1017,8 +1017,76 @@ turned out to be.
    Then re-run `anchor idl upgrade` on every subsequent deploy, or the published
    IDL silently describes an older program. This was flagged as unexamined in the
    audit (`docs/TOKEN_SECURITY_AUDIT.md`, *Coverage & Limitations*, deferred area
-   1) and is a checklist item rather than a code change because there is no
-   program deployed to claim an IDL for.
+   1).
+
+   **The Anchor CLI is not required, and the item is no longer blocked on it
+   (2026-07-26).** This sat undone because `anchor idl init` needs a CLI that
+   cannot be installed in the authoring container, which left the exposure open
+   for want of a tool. It turns out the CLI is not what claims the account. The
+   IDL instructions are compiled into every Anchor program unless the `no-idl`
+   feature is set — ours does not set it — and they dispatch on a fixed 8-byte
+   tag rather than through generated code, so the instruction can be built by
+   hand:
+
+   ```bash
+   node programs/rclaw_staking/scripts/claim_idl.mjs <PROGRAM_ID> \
+     --rpc <URL> --keypair <PATH>                     # claim, idempotent
+   node programs/rclaw_staking/scripts/claim_idl.mjs <PROGRAM_ID> \
+     --rpc <URL> --keypair <PATH> --set-authority <MULTISIG>
+   ```
+
+   It exits non-zero if the account is held by anyone else, so it works as a
+   deploy gate rather than only as a command. It claims the account; it does not
+   publish an IDL, because generating one still needs `anchor build
+   --features idl-build`. That split is the right one — **claiming is the part
+   that is irreversible if lost, writing the content is not**, and the authority
+   is retained so the real IDL can be written later.
+
+   Every constant in it was read out of the vendored `anchor-lang` /
+   `anchor-syn` source rather than recalled; the first value reached for from
+   memory (`IDL_IX_TAG`) was wrong.
+
+### Devnet deployment record (2026-07-26)
+
+The first real deployment of `rclaw_staking`. Devnet only — nothing here holds
+value, and none of the Phase 0 Guardrails are cleared.
+
+| | |
+|---|---|
+| Program id | `6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW` |
+| ProgramData | `FhkLJcdkwNSTyAwwEBYFnpQwcZw93dGt5m97sspeFYez` |
+| Upgrade authority | `5g7AScZQEnhqJkxXvmp3FikZ7zQu6Pwa4r936DYtdcMh` |
+| IDL account | `9juexZjZymueKaaSuqEjoc1kqVGmst66eVLU5dEbudxo` (claimed same session) |
+| Artifact sha256 | `67296c4fb4bd17b99d10adaaedb4f5e8cd9837ff9bf053ebb261343e0786ff22` |
+| `RCLAW_PINNED_MINT` | **unset** — no canonical mint exists yet |
+
+Two things about this record are load-bearing.
+
+**The upgrade authority is a dedicated key, not the presale payer.** Deploying
+from `token/.keys/mint-payer.json` would have been one command shorter and would
+have collapsed the separation of duties F-04 asks for: the same key would hold
+the presale/genesis authority and the power to replace the bytecode that signs
+for every `["vault", mint]` PDA. It is still a single hot key and still has to
+move to a Squads multisig — see item 5 — but the split is rehearsed rather than
+deferred.
+
+**The pin state is published with the hash, so the claim is checkable.** Rebuild
+this commit with `RCLAW_PINNED_MINT` unset and the artifact hashes to the value
+above; build it *pinned* and it hashes to `3467c133…` instead. Verified against
+the live cluster, not asserted: `solana program dump` of the deployed program
+matches the local artifact byte for byte. That is what makes "which build is
+deployed" an answerable question — see step 4.
+
+Two operational notes for whoever repeats this:
+
+- `solana program deploy` **panics** in this environment on the QUIC/TPU path
+  (`InvalidCertificate(UnknownIssuer)` — the agent proxy's CA). `--use-rpc`
+  routes around it. Do not disable TLS verification.
+- A failed deploy **strands its buffer**, holding the full 2.13 SOL. Two failed
+  attempts left 4.27 SOL locked. `solana program show --buffers
+  --buffer-authority <KEY>` finds them and `solana program close <BUFFER>
+  --recipient <KEY>` refunds in full. Check for these before concluding the
+  wallet is short.
 9. **Do not run a bare `cargo update`.** The program is only buildable for
    deployment because `Cargo.lock` is pinned to **lockfile v3** and 19 transitive
    crates are held at older versions. The SBF toolchain pinned in `Anchor.toml`
