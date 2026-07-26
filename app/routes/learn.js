@@ -118,6 +118,31 @@ router.post('/tutor', rateLimit({ windowMs: 60000, max: 10, key: userKey }), asy
   }
 });
 
+// ── The weekly Study Letter: recomputed from the week's own records.
+router.get('/letter', async (req, res) => {
+  try {
+    const { lastCompletedWeek } = require('../lib/letter');
+    const week = lastCompletedWeek();
+    const startStr = week.start.toISOString().slice(0, 10);
+    const endStr = week.end.toISOString().slice(0, 10);
+    const [entryRows] = await pool.execute(
+      `SELECT day, body, created_at, edited_at FROM learn_diary
+       WHERE user_id = ? ORDER BY day DESC LIMIT 60`, [req.user.user_id]);
+    const entries = (entryRows || []).filter((e) => e.day >= startStr && e.day < endStr);
+    const [tradeRows] = await pool.execute(
+      'SELECT symbol, pnl, reason, closed_at FROM arena_trades WHERE user_id = ?',
+      [req.user.user_id]);
+    const trades = (tradeRows || []).filter((t) => {
+      const at = new Date(t.closed_at).getTime();
+      return at >= week.start.getTime() && at < week.end.getTime();
+    });
+    res.json({ letter: require('../lib/learn_letter').composeStudyLetter(week, { entries, trades }) });
+  } catch (err) {
+    console.error('Study letter error:', err.stack || err.message);
+    res.status(500).json({ error: 'Letter unavailable' });
+  }
+});
+
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_BODY = 4000;
 
