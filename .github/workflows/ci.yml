@@ -367,3 +367,25 @@ jobs:
       - name: SCA — npm advisory ratchet
         working-directory: token
         run: node scripts/audit_gate.mjs
+
+  rune-nft:
+    name: Rune NFT (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: contracts/rune/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/rune
+        run: npm ci --no-audit --no-fund
+
+      # Compiles the real contract (solc) and runs the real bytecode on an
+      # in-process EVM with real EIP-712 signatures. Hermetic: no network.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/rune
+        run: npm test
