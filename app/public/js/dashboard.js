@@ -4095,11 +4095,21 @@
             const mp = await fetchJSON('/api/nft/mint-plan').catch(() => null);
             const p = mp?.ok && mp.data;
             if (p && p.ready) {
+              if (p.minted_token_id > 0 && p.minted_image) {
+                // The ceremony: after this panel's HTML lands, the rune card
+                // whitelist-rebuilds the on-chain SVG and draws it on stroke
+                // by stroke (RCRuneCard honors prefers-reduced-motion). The
+                // <img> inside stays as the no-ceremony fallback.
+                setTimeout(() => {
+                  const holder = document.getElementById('runeCard');
+                  if (holder && window.RCRuneCard) RCRuneCard.mount(holder, p.minted_image, { size: 140 });
+                }, 0);
+              }
               runeBlock = p.minted_token_id > 0
                 ? `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
                     <p class="small" style="color:var(--text-2)">⚔ ${esc(TF('dd.r_minted',
                       'Rune of Entry #{id} — soulbound, yours forever.', { id: p.minted_token_id }))}</p>
-                    ${p.minted_image ? `<img src="${esc(p.minted_image)}" alt="Rune of Entry #${esc(String(p.minted_token_id))}" width="120" height="120" style="border-radius:8px;border:1px solid var(--line)">` : ''}</div>`
+                    ${p.minted_image ? `<div id="runeCard"><img src="${esc(p.minted_image)}" alt="Rune of Entry #${esc(String(p.minted_token_id))}" width="120" height="120" style="border-radius:8px;border:1px solid var(--line)"></div>` : ''}</div>`
                 : `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
                     <p class="small" style="color:var(--text-2)">⚔ ${esc(T('dd.r_pitch',
                       'Your Rune of Entry is waiting: a unique sigil generated and stored fully on-chain. '
