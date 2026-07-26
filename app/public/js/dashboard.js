@@ -4329,7 +4329,7 @@
     // server-side needs no client change.
     let venuesCatalog = [];
     const fieldsHtml = (venue) => (venue?.fields || []).map(f =>
-      `<div class="field"><label for="cf-${esc(venue.id)}-${esc(f.key)}">${esc(f.label)}</label>
+      `<div class="field"><label for="cf-${esc(venue.id)}-${esc(f.key)}">${esc(T('venue.f.' + f.key, f.label))}</label>
         <input class="input" id="cf-${esc(venue.id)}-${esc(f.key)}" data-fkey="${esc(f.key)}" type="${f.type === 'password' ? 'password' : 'text'}" autocomplete="off"></div>`
     ).join('');
 
@@ -4358,16 +4358,16 @@
         const st = statusOf(v.id);
         const connected = !!(st && st.connected);
         const pending = pendingFor === v.id ? c.pending : null;
-        const chip = connected ? '<span class="chip chip--up">✓ connected</span>'
-          : pending ? `<span class="chip chip--warn">applying ${esc(pending)}…</span>`
-          : '<span class="chip">not connected</span>';
+        const chip = connected ? `<span class="chip chip--up">✓ ${esc(T('venue.connected', 'connected'))}</span>`
+          : pending ? `<span class="chip chip--warn">${esc(TF('venue.applying', 'applying {venue}…', { venue: pending }))}</span>`
+          : `<span class="chip">${esc(T('venue.not_connected', 'not connected'))}</span>`;
         const disc = connected
-          ? `<button class="btn btn--danger btn--sm" data-discvenue="${esc(v.id)}" type="button">Disconnect</button>` : '';
+          ? `<button class="btn btn--danger btn--sm" data-discvenue="${esc(v.id)}" type="button">${esc(T('venue.disconnect', 'Disconnect'))}</button>` : '';
         const form = connected ? '' : `
           <form class="credForm stack mt-2" data-venue="${esc(v.id)}">
-            <p class="muted small">${esc(v.help || '')}</p>
+            <p class="muted small">${esc(T('venue.help.' + v.id, v.help || ''))}</p>
             <div class="form-row">${fieldsHtml(v)}</div>
-            <div class="row"><button class="btn btn--primary btn--sm" type="submit">Connect ${esc(v.label)}</button>
+            <div class="row"><button class="btn btn--primary btn--sm" type="submit">${esc(TF('venue.connect_x', 'Connect {venue}', { venue: v.label }))}</button>
               <span class="small muted credMsg" aria-live="polite"></span></div>
           </form>`;
         return `<div style="border:1px solid var(--line);border-radius:var(--radius);padding:var(--s3) var(--s4);margin-bottom:var(--s3)">
@@ -4376,10 +4376,12 @@
           ${form}</div>`;
       }).join('');
       return cards
-        + `<p class="muted small">Keys are AES-256-GCM encrypted at rest and pulled by the bot over an
-           authenticated channel. Withdrawal permissions are never required. Connect as many exchanges
-           as you like — each is independent, and smart per-pair venue routing builds on this next.</p>`;
-    }, { empty: { text: 'Credential connect is unavailable right now.' } });
+        + `<p class="muted small">${esc(T('venue.encrypt_note',
+             'Keys are AES-256-GCM encrypted at rest and pulled by the bot over an '
+             + 'authenticated channel. Withdrawal permissions are never required. Connect as many '
+             + 'exchanges as you like — each is independent, and smart per-pair venue routing '
+             + 'builds on this next.'))}</p>`;
+    }, { empty: { text: T('venue.unavailable', 'Credential connect is unavailable right now.') } });
     // Each venue card has its own form (data-venue) and message span, so the
     // handlers are delegated by class, not id — every card works independently.
     onView('submit', async (e) => {
@@ -4389,9 +4391,10 @@
       const msg = f.querySelector('.credMsg');
       const body = { venue: f.dataset.venue || 'bitget' };
       for (const inp of f.querySelectorAll('[data-fkey]')) body[inp.dataset.fkey] = inp.value.trim();
-      if (msg) msg.textContent = 'Encrypting & queueing…';
+      if (msg) msg.textContent = T('venue.encrypting', 'Encrypting & queueing…');
       const r = await fetchJSON('/api/credentials', { method: 'POST', body }).catch(() => ({ ok: false }));
-      if (msg) msg.textContent = r.ok ? 'Queued — the bot applies it within a minute.' : (r.data?.detail || r.data?.error || 'Failed.');
+      if (msg) msg.textContent = r.ok ? T('venue.queued', 'Queued — the bot applies it within a minute.')
+        : (r.data?.detail || r.data?.error || T('venue.failed', 'Failed.'));
       if (r.ok) setTimeout(() => showView('account'), 1200);
     });
     onView('click', async (e) => {
