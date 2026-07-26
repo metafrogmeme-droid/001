@@ -27,7 +27,9 @@
     "test": "node --test presale/*.test.mjs scripts/*.test.mjs",
     "test:network": "RUN_NETWORK_TESTS=1 node --test presale/*.test.mjs scripts/*.test.mjs",
     "audit:gate": "node scripts/audit_gate.mjs",
-    "audit:baseline": "node scripts/audit_gate.mjs --update"
+    "audit:baseline": "node scripts/audit_gate.mjs --update",
+    "programs:inventory": "node scripts/program_inventory.mjs",
+    "programs:baseline": "node scripts/program_inventory.mjs --update"
   },
   "engines": {
     "node": ">=18"

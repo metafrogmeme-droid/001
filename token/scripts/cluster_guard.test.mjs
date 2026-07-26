@@ -20,6 +20,7 @@ import assert from 'node:assert/strict';
 
 import {
   getConnection,
+  isLoopbackRpc,
   MAINNET_GENESIS,
   DEVNET_GENESIS,
   TESTNET_GENESIS,
@@ -80,4 +81,61 @@ test('a config naming mainnet is refused before any network call', () => {
       { expectCluster: 'mainnet-beta' }),
     /draft\/devnet tooling/
   );
+});
+
+// ── the loopback narrowing (offline — always runs) ──────────────────────────
+//
+// A local test validator mints a fresh genesis hash on every --reset, so it can
+// never be allowlisted by value. Both guards therefore accept an UNRECOGNISED
+// chain when it is reached over loopback, on the reasoning that a validator on
+// this machine holds nothing. That widening is only safe if "loopback" is
+// decided correctly, which is exactly the shape of F-19: `mainnet` appearing
+// somewhere in a string is not the same as the endpoint being mainnet, and
+// `localhost` appearing somewhere in a host is not the same as the host being
+// localhost. So the check parses the URL, and these cases pin it.
+
+const LOOPBACK = [
+  'http://127.0.0.1:8899',
+  'http://localhost:8899',
+  'http://[::1]:8899',
+  'https://localhost',
+  'http://127.0.0.1',
+];
+
+const NOT_LOOPBACK = [
+  // The attack this exists to stop: a hostname that merely CONTAINS the token.
+  'https://localhost.evil.com',
+  'http://127.0.0.1.evil.com:8899',
+  'https://evil.com/localhost',
+  'https://evil.com/?rpc=127.0.0.1',
+  // Userinfo that looks like a loopback host to a naive parser.
+  'https://127.0.0.1@evil.com/',
+  'https://localhost@evil.com/',
+  // Real remote clusters.
+  'https://api.devnet.solana.com',
+  'https://api.mainnet-beta.solana.com',
+  // Not a URL at all.
+  '127.0.0.1:8899',
+  'localhost',
+  '',
+];
+
+test('isLoopbackRpc accepts only real loopback endpoints', () => {
+  for (const url of LOOPBACK) {
+    assert.equal(isLoopbackRpc(url), true, `${url} should be loopback`);
+  }
+  for (const url of NOT_LOOPBACK) {
+    assert.equal(isLoopbackRpc(url), false, `${url} must NOT be treated as loopback`);
+  }
+});
+
+test('both copies of the loopback check agree', async () => {
+  // scripts/lib.mjs guards the mint/verify tooling and presale/genesis_lib.mjs
+  // guards the presale commands. Two copies of one security decision drifting
+  // apart would leave one path weaker than the other, and nothing else would
+  // notice. Pin them to the same answers.
+  const { isLoopbackRpc: genesisCopy } = await import('../presale/genesis_lib.mjs');
+  for (const url of [...LOOPBACK, ...NOT_LOOPBACK]) {
+    assert.equal(genesisCopy(url), isLoopbackRpc(url), `the two guards disagree about ${url}`);
+  }
 });

@@ -109,9 +109,32 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
 4. Run the same devnet dry-run (contribute → finalize → auto-list → claim).
 5. Publish the same proof artifacts.
 
+## Rehearse it for free, on a local validator
+
+Devnet SOL is faucet-limited to 10 SOL per 8 hours. Rehearse against a local
+validator instead — it costs nothing and can be reset as often as you like, so
+there is no reason to run this sequence for the first time on the real thing.
+Full instructions in [`../e2e/README.md`](../e2e/README.md).
+
+After any rehearsal, run the program inventory:
+
+```bash
+RPC_URL=http://127.0.0.1:8899 npm run programs:inventory
+```
+
+It pulls the logs of every transaction the run produced and lists each program
+that actually executed, CPIs included, failing on anything not in
+`token/.program-inventory.json`. This is not the same check as `npm audit`: a
+CPI target is not a package, so no dependency scanner can see it. That is how
+the deposit, trigger and claim paths were found to be routing through MPL Token
+Extras (`TokExjvjJ…`), third-party upgradeable bytecode that appeared nowhere in
+this repository. Anything new in that list is a program you are trusting with
+buyer funds — identify it and its upgrade authority before you continue.
+
 ## Post-sale checklist (both paths)
 
 - [ ] LP burned or locked ≥ 12 months, proof link published.
+- [ ] `npm run programs:inventory` clean — no unattributed program in the money path.
 - [ ] Mint + freeze authority already revoked (verified via `token` `npm run verify`).
 - [ ] Treasury/team/advisor allocations on-chain-verifiable as locked.
 - [ ] Claim window open and tested end-to-end.

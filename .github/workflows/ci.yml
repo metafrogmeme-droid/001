@@ -185,7 +185,25 @@ jobs:
       # commits (it overrides the range to <head>^..<head>), NOT full history.
       # That is the right gate for "this PR introduces no secret". The
       # full-history scan below answers a different question and runs separately.
+      #
+      # Restricted to pull_request events, and that is a fix rather than a
+      # narrowing. On any other event there is no PR to scope to, so the action
+      # falls back to a bare `gitleaks detect` over all history — WITHOUT the
+      # --baseline-path the step below uses. It therefore re-reports the single
+      # triaged historical finding and fails, every time, on every manual re-run
+      # and every push to main. Observed on run 30205745169: `event type:
+      # workflow_dispatch`, then the dead BOT_SYNC_SECRET at 9435602.
+      #
+      # A step that is guaranteed red on a whole class of events carries no
+      # signal and trains people to click past the scanner — the exact failure
+      # the note below this one exists to avoid. Nothing is lost: the
+      # full-history step runs unconditionally, with the baseline, so those
+      # events are still scanned, and scanned correctly.
+      #
+      # Passing --baseline-path to the action instead would put a second copy of
+      # the suppression in a second place. One fingerprint, one owner.
       - name: gitleaks (pull-request scope)
+        if: github.event_name == 'pull_request'
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -265,9 +283,67 @@ jobs:
       # self-skip unless RUN_NETWORK_TESTS=1, so CI stays hermetic and does not
       # go red when a public RPC is rate-limiting; the offline case (a config
       # naming mainnet is refused before any network call) always runs.
+      #
+      # This glob also picks up presale/ata_idempotent.test.mjs, whose on-chain
+      # half self-skips here because no validator is running yet. That is
+      # intentional coverage of the skip path — the step below then runs the
+      # same file against a validator and FAILS if anything skips.
       - name: Tests — offline unit tests
         working-directory: token
         run: node --test presale/*.test.mjs scripts/*.test.mjs
+
+      # A local validator, so presale/ata_idempotent.test.mjs's on-chain half
+      # actually RUNS here instead of self-skipping. A test that skips in CI is
+      # a test that never runs, and this one covers the SPL Associated Token
+      # program's dispatch on the CreateIdempotent discriminant — the exact
+      # thing that cannot be verified by reading a client library, and the exact
+      # thing mpl-toolbox got wrong.
+      #
+      # Fully hermetic: no --clone and no devnet. A bare validator ships SPL
+      # Token and the ATA program built in. It notably does NOT ship MPL Token
+      # Extras (TokExjvjJ…), the third-party program the deposit/trigger/claim
+      # paths used to route through — which is how that dependency was found,
+      # and is itself worth having wired into CI.
+      - name: Install the Solana CLI (for solana-test-validator)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      # nohup + setsid: each `run:` block is its own shell, and a bare `&` child
+      # can take the SIGHUP when that shell exits. Detaching keeps the validator
+      # alive for the step that actually uses it.
+      - name: Start a local validator
+        run: |
+          setsid nohup solana-test-validator --reset --quiet --ledger /tmp/ci-ledger \
+            >/tmp/validator.log 2>&1 < /dev/null &
+          for i in $(seq 1 60); do
+            if solana cluster-version --url http://127.0.0.1:8899 >/dev/null 2>&1; then
+              echo "validator up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "validator never became healthy"; tail -50 /tmp/validator.log; exit 1
+
+      # Deliberately NOT `|| true`: the step above proved a validator is
+      # reachable, so a skip here would mean the file decided to skip for some
+      # other reason, which is exactly the failure this is guarding against.
+      #
+      # Bounded at 5 minutes: the whole file runs in ~5 SECONDS against a
+      # healthy validator, so anything approaching this is a sick validator, and
+      # it should say so rather than quietly consume the job's 20-minute budget
+      # and take the SCA gates down with it. (The first attempt did exactly
+      # that — umi's default `finalized` commitment, 32 slots a transaction.)
+      - name: Tests — on-chain (local validator)
+        working-directory: token
+        timeout-minutes: 5
+        env:
+          RPC_URL: http://127.0.0.1:8899
+        run: |
+          out=$(node --test presale/ata_idempotent.test.mjs)
+          echo "$out"
+          if echo "$out" | grep -q '# SKIP'; then
+            echo "::error::on-chain tests skipped despite a healthy validator"; exit 1
+          fi
 
       # Fully offline: derives every on-chain parameter from config with no RPC
       # and no keypair, so a config that cannot produce a sane sale fails here.

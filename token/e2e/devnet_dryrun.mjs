@@ -30,7 +30,33 @@ const DRY = process.argv.includes('--dry');
 // Devnet-only stand-in recipient for allocation buckets whose recipient is blank
 // in the committed config. A real launch must set every one of them explicitly —
 // `presale:allocate` refuses a blank recipient rather than defaulting.
-const DRY_RUN_RECIPIENT = process.env.E2E_ALLOCATION_RECIPIENT || null;
+const DRY_RUN_RECIPIENT_OVERRIDE = process.env.E2E_ALLOCATION_RECIPIENT || null;
+
+/**
+ * Who the six allocation buckets pay out to during a dry run.
+ *
+ * This used to be the env var alone, defaulting to `null` — which meant the
+ * derived config carried blank recipients, `presale:allocate` refused them (as
+ * it must), and the run died at step five unless the operator happened to know
+ * about an undocumented variable. Worse, the report the harness wrote asserted
+ * in `harnessSimplifications` that "recipients defaulted to the devnet payer",
+ * which was simply not true of the code. A harness that describes a behaviour
+ * it does not have is the same class of problem as a test that passes without
+ * asserting: it reads as covered.
+ *
+ * So the default is now real, and it is the signing payer — the only key a dry
+ * run has. `presale:allocate`'s refusal is untouched and still fires for a real
+ * launch, because a real launch uses the committed config, where the recipients
+ * are blank on purpose.
+ */
+async function dryRunRecipient() {
+  if (DRY_RUN_RECIPIENT_OVERRIDE) return DRY_RUN_RECIPIENT_OVERRIDE;
+  const { Keypair } = await import('@solana/web3.js');
+  const kp = Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(fs.readFileSync(path.join(TOKEN_ROOT, '.keys', 'mint-payer.json'), 'utf8')))
+  );
+  return kp.publicKey.toBase58();
+}
 
 // Window sizing (seconds from now). Short so the run finishes in ~a few minutes.
 const OPEN_IN = 20;      // deposit window opens
@@ -54,7 +80,8 @@ function log(msg) {
 
 // Build a near-now Genesis config from the committed one. Funding mode = mint so
 // the run is self-contained (Genesis mints the supply; no separate token/ mint).
-function writeDerivedConfig() {
+async function writeDerivedConfig() {
+  const recipient = await dryRunRecipient();
   const base = JSON.parse(
     fs.readFileSync(path.join(TOKEN_ROOT, 'presale', 'metaplex-genesis.config.json'), 'utf8')
   );
@@ -71,14 +98,26 @@ function writeDerivedConfig() {
   //
   // Recipients must be set for `presale:allocate` to run. Devnet uses the payer
   // for all six; a real launch must not (see the refusal in cmdAllocate).
+  // Shrink the per-wallet contribution floor for the dry run. This is the
+  // single largest recurring cost of a live devnet run and it is unrecoverable:
+  // a V2 presale has NO refund instruction (see #857), so every lamport a test
+  // deposits is destroyed. The deposit path is exercised identically at 0.01 SOL
+  // — same wSOL wrap, same instruction, same fee deduction, same claim. Caps and
+  // totalSupply are untouched, so the derived price and the allocation
+  // arithmetic remain the real ones.
+  //
+  // (An earlier edit removing the totalSupply narrowing deleted this block by
+  // accident, which is how a run ended up depositing 0.5 SOL again.)
+  const sale = { ...base.sale, minContributionSol: 0.005 };
   const cfg = {
     ...base,
+    sale,
     _comment: 'GENERATED near-now dry-run config — do not commit. See token/e2e/.',
     allocations: base.allocations && {
       ...base.allocations,
       buckets: (base.allocations.buckets || []).map((b) => ({
         ...b,
-        recipient: b.recipient || DRY_RUN_RECIPIENT,
+        recipient: b.recipient || recipient,
         // Near-now cliffs so the dry run does not have to wait until 2027.
         unlockAt: iso(nowSec() + 5),
       })),
@@ -154,7 +193,7 @@ function saveReport(steps) {
 
 async function main() {
   log(`mode: ${DRY ? 'DRY (offline)' : 'LIVE (devnet)'}`);
-  const { cfg: cfgBase, publicStart, depositEnd, tge } = writeDerivedConfig();
+  const { cfg: cfgBase, publicStart, depositEnd, tge } = await writeDerivedConfig();
   log(`derived config: ${DERIVED_CONFIG}`);
   log(`windows → deposit ${iso(publicStart)}..${iso(depositEnd)}, claim/TGE ${iso(tge)}`);
 
@@ -217,9 +256,34 @@ async function main() {
     Uint8Array.from(JSON.parse(fs.readFileSync(path.join(TOKEN_ROOT, '.keys', 'mint-payer.json'), 'utf8')))
   );
   const conn = await getConnection(loadTokenEnv());
-  const balanceSol = (await conn.getBalance(kp.publicKey)) / LAMPORTS_PER_SOL;
   const MIN_RUN_SOL = 0.3;
-  log(`payer ${kp.publicKey.toBase58()} balance ${balanceSol.toFixed(4)} SOL`);
+
+  // Read at FINALIZED, not the connection default, because that is the
+  // commitment the presale commands are preflighted at — and the two disagree
+  // for longer than you would expect. On a freshly started local validator the
+  // finalized slot trails by ~32 slots, so `solana balance` and this gate both
+  // showed 100 SOL while the very first `initializeV2` died with
+  //
+  //   Transaction simulation failed: Attempt to debit an account but found no
+  //   record of a prior credit.
+  //
+  // — an error that reads like an empty wallet and is really a commitment
+  // mismatch. Gating on the optimistic number is the same false-green shape as
+  // gating on keygen's exit code: the check passes, the run does not.
+  const finalizedBalance = async () =>
+    (await conn.getBalance(kp.publicKey, 'finalized')) / LAMPORTS_PER_SOL;
+  let balanceSol = await finalizedBalance();
+  if (balanceSol < MIN_RUN_SOL) {
+    const optimistic = (await conn.getBalance(kp.publicKey, 'confirmed')) / LAMPORTS_PER_SOL;
+    if (optimistic >= MIN_RUN_SOL) {
+      log(`balance ${optimistic.toFixed(4)} SOL is confirmed but not yet finalized — waiting…`);
+      for (let i = 0; i < 60 && balanceSol < MIN_RUN_SOL; i += 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+        balanceSol = await finalizedBalance();
+      }
+    }
+  }
+  log(`payer ${kp.publicKey.toBase58()} balance ${balanceSol.toFixed(4)} SOL (finalized)`);
   if (!keygen.ok || balanceSol < MIN_RUN_SOL) {
     log(
       `Insufficient balance (${balanceSol.toFixed(4)} < ${MIN_RUN_SOL} SOL) or keygen failed — ` +

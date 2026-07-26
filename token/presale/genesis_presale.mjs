@@ -17,7 +17,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { generateSigner, publicKey, lamports } from '@metaplex-foundation/umi';
-import { createTokenIfMissing, transferSol, syncNative } from '@metaplex-foundation/mpl-toolbox';
+import { transferSol, syncNative } from '@metaplex-foundation/mpl-toolbox';
 import {
   initializeV2,
   finalizeV2,
@@ -56,6 +56,7 @@ import {
   deriveAllocationBuckets,
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
+  createAtaIdempotent,
   TOKEN_ROOT,
 } from './genesis_lib.mjs';
 
@@ -647,7 +648,7 @@ async function cmdDeposit() {
   });
   console.log(`Depositing ${amountSol} SOL into presale bucket ${a.bucket}…`);
   console.log(`  wrapping ${amountSol} SOL into ${wsolAta[0]} in the same transaction`);
-  const builder = createTokenIfMissing(umi, {
+  const builder = createAtaIdempotent(umi, {
     mint: WRAPPED_SOL_MINT,
     owner: umi.identity.publicKey,
   })
@@ -941,7 +942,7 @@ async function cmdTrigger() {
   // is created with a base-token allocation and no quote side. The bucket is a
   // PDA, so this is an off-curve ATA — legal, but it will not appear by itself.
   const sig = await sendChecked(
-    createTokenIfMissing(umi, {
+    createAtaIdempotent(umi, {
       mint: WRAPPED_SOL_MINT,
       owner: destinationOwner,
     }).add(
@@ -1199,21 +1200,25 @@ async function cmdClaim() {
   // sends the claimed tokens to the recipient's base-token ATA, and a wallet
   // that has never held the token does not have one. The program rejects the
   // empty address with "The token account is not owned by the SPL Token
-  // program". Create it in the same transaction — createTokenIfMissing is
+  // program". Create it in the same transaction — createAtaIdempotent is
   // idempotent, so repeat claims are unaffected.
   // Two ATAs must exist and neither is ours to assume: the recipient's (a
   // wallet that never held the token), and — far less obviously — the Genesis
   // protocol FEE wallet's ATA for this mint. The SDK hardcodes fee wallet
   // 9kFjQsxtpBsaw8s7aUyiY3wazYDNgFP4Lj5rsBVVF8tb and derives its ATA for the
   // base mint, and for a mint created minutes ago that ATA cannot exist yet.
-  // The first claimer pays the rent for it; createTokenIfMissing keeps repeat
-  // claims free.
+  //
+  // The fee-wallet ATA is why the idempotence has to be real and on-chain
+  // rather than a client-side existence check: EVERY claimer builds this same
+  // instruction, exactly one of them creates the account, and the rest must
+  // sail past it. A read-then-decide would make that a race whose loser's
+  // otherwise-valid claim fails.
   const FEE_WALLET = publicKey('9kFjQsxtpBsaw8s7aUyiY3wazYDNgFP4Lj5rsBVVF8tb');
-  const builder = createTokenIfMissing(umi, {
+  const builder = createAtaIdempotent(umi, {
     mint: publicKey(a.baseMint),
     owner: umi.identity.publicKey,
   }).add(
-    createTokenIfMissing(umi, {
+    createAtaIdempotent(umi, {
       mint: publicKey(a.baseMint),
       owner: FEE_WALLET,
     })

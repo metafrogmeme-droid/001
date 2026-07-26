@@ -628,6 +628,52 @@ Two lessons are baked into the code now rather than just noted:
   checked for vacuity — e.g. the allowlist serialization test fails with the exact
   `TypeError` the audit predicted when the fix is removed.
 
+### Verification is now free, and that changed what gets checked
+
+Devnet SOL is faucet-limited to 10 SOL per 8 hours, which made every full
+lifecycle run a scarce resource and quietly biased the work toward *not*
+re-running things. The whole presale now runs against a local
+`solana-test-validator` instead — programs cloned from devnet, no faucet, no
+budget, resettable at will:
+
+```bash
+solana-test-validator --reset --quiet --ledger /tmp/ledger \
+  --url https://api.devnet.solana.com \
+  --clone-upgradeable-program GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B \
+  --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
+RPC_URL=http://127.0.0.1:8899 npm --prefix token run e2e:dryrun
+```
+
+`assertDevnet()` accepts this by *structure*, not by allowlist: a local
+validator generates a fresh genesis hash on every `--reset`, so it can never be
+named in advance. An unrecognised chain reached over **loopback** is a validator
+on this machine and holds nothing of value. Mainnet is still refused first and
+unconditionally, by genesis hash, before that reasoning runs — so tunnelling
+`127.0.0.1:8899` to a real mainnet RPC gains nothing. The loopback test parses
+the URL rather than substring-matching it, because `https://localhost.evil.com`
+is exactly the mistake that check exists to avoid.
+
+**The narrower environment found a dependency the full one hid.** A validator
+carrying only the programs the sale genuinely needs turned an invisible
+dependency into a hard failure: `presale:deposit` died with
+`Attempt to load a program that does not exist`. The missing program was
+`TokExjvjJmhKaRBShsBAsbSvEWMA1AgUNK7ps4SAc2p` — **MPL Token Extras**, a
+third-party upgradeable program that `createTokenIfMissing` invokes internally,
+and that the deposit, trigger and claim paths therefore all ran through. It is
+deployed on mainnet, devnet and testnet, so nothing would ever have failed;
+it appeared in no config, no runbook and no dependency list, because the source
+says `createTokenIfMissing` and nothing says `TokExjvjJ…`.
+
+Those three paths now build the SPL Associated Token program's own
+`CreateIdempotent` instruction directly, so they reach nothing but SPL System,
+SPL Token and SPL Associated Token. Full write-up in
+`docs/TOKEN_SECURITY_AUDIT.md`, *New (2026-07-26)*.
+
+The general lesson is cheap to apply and now wired into CI: **a minimal test
+environment is a dependency inventory that a realistic one cannot perform.**
+Devnet has everything, so on devnet every dependency is satisfied and none is
+disclosed.
+
 ### Verification matrix
 
 | Component | Verified how | Not verified |
@@ -635,8 +681,8 @@ Two lessons are baked into the code now rather than just noted:
 | `rclaw_staking` program | **Executed in-process** (`solana-program-test`): 4 unit + 4 integration tests, pinned and unpinned; attack rejected, balances asserted | **No audit**; no SBF/BPF runtime (compute budget, serialization limits); never on devnet/mainnet |
 | `PINNED_MINT` | Enforcement observed at runtime (`UnexpectedMint` 6005); malformed pin fails closed | No real mint exists to pin yet |
 | Tier gate (`tier_gate.py`) | 17 tests incl. mint-filter and byte-layout locks | Never read a real on-chain stake account |
-| Genesis presale scripts | All SDK exports resolve; `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `create`/`deposit`/`claim`/`liquidity`/`withdraw` **never sent a transaction** |
-| e2e harness | `e2e:plan` runs offline end-to-end | The live devnet run has never executed |
+| Genesis presale scripts | **Executed on devnet and on a local validator** (2026-07-26): `create` → `liquidity` → `allocate` → `finalize` → `deposit` → `trigger` → `claim` all land. `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `withdraw`/`withdraw-unsold` are V1-only and **cannot run at all** against the V2 presale this tooling creates (see §14, no-refund note) |
+| e2e harness | **Full lifecycle green** against a local validator, and previously against devnet | Never run against a public cluster with more than one depositor; no concurrency coverage |
 | Wormhole bridge | Script resolves + typechecks | No NTT deployment, no transfer |
 | Anchor TS spec | `npm run typecheck` passes | **Never executed** — needs the Anchor/Solana CLIs |
 
@@ -647,6 +693,17 @@ They are environmental, not optional. The authoring environment's egress policy 
 `release.anza.xyz`/GitHub — so the Solana and Anchor CLIs cannot be installed, `anchor build`
 and `anchor test` cannot run, and no devnet transaction is possible. In-process execution
 via `solana-program-test` was used because `index.crates.io` *is* reachable.
+
+**No longer true as of 2026-07-26.** Devnet, the faucet and `release.anza.xyz`
+are all reachable now; the Solana CLI is installed, the SBF artifact builds, the
+presale runs end to end, and the bytecode has been deployed and executed. What
+that means for this section is worth stating plainly: **every gap listed above
+was described as environmental, and every one of them was hiding a real defect.**
+Restoring the environment did not confirm the work — it produced thirteen
+blocking bugs across paths that had never run, three of which were introduced by
+earlier fixes in this same effort. Treat any remaining "cannot be verified here"
+as an open finding rather than an excuse, because that is what each of these
+turned out to be.
 
 ### Before any deployment holding value
 
@@ -728,7 +785,32 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    The long-term fix is a **Solana/platform-tools bump** to a release whose cargo
    supports modern crates — the same decision the RustSec backlog needs. Until
    then the pins are load-bearing.
-10. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
+10. **Inventory the on-chain programs every signed transaction invokes** — not
+   just the npm packages it imports. Package-level SCA cannot see a CPI target,
+   and this repository was routing all three money-moving instructions
+   (`deposit`, `trigger`, `claim`) through a third-party upgradeable program
+   nobody had chosen and nothing had recorded. Replay the lifecycle against a
+   local validator carrying **only** the programs the sale is supposed to need;
+   anything that then fails with `Attempt to load a program that does not exist`
+   is an undeclared dependency.
+
+   `npm run programs:inventory` does this from the run's own transaction logs
+   and fails on anything not in `token/.program-inventory.json`. Measured over a
+   full lifecycle, five programs execute: SPL System, SPL Token, SPL Associated
+   Token, Metaplex Token Metadata and Metaplex Genesis. The first four are
+   immutable on mainnet-beta (native, non-upgradeable loader, or upgrade
+   authority revoked).
+
+   **Metaplex Genesis is not**, and that is the item for this checklist.
+   `GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B` custodies the entire raise,
+   the vesting schedules and the never-claim LP lock, and its mainnet upgrade
+   authority — `bfQVv6niKVgEURYqQ1beJmiEQQN7MrvLRvk3mZGFubb`, an off-curve PDA,
+   so program-controlled rather than a bare key — can replace that bytecode at
+   any time with no change here. Every immutability claim §11 makes about the
+   presale holds *within* Genesis, not against it. **Say so in the published sale
+   terms**, and re-run the inventory before launch in case the authority or the
+   deployed slot has moved.
+11. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
    it; as of 2026-07-26 it is 1 critical and 15 high, baselined in
    `token/.audit-baseline.json`. The ratchet stops it *growing*; it does not make
    the existing advisories acceptable in code that signs transactions.

@@ -77,12 +77,46 @@ export async function getConnection(env, { expectCluster = 'devnet' } = {}) {
     );
   }
   if (genesis !== expected) {
+    // A local test validator mints a fresh genesis hash on every --reset, so it
+    // can never match a configured cluster and can never be allowlisted by
+    // value. Identify it structurally: an unrecognised chain reached over
+    // LOOPBACK is a validator on this machine and holds nothing of value.
+    //
+    // Note the ordering — the mainnet-by-hash refusal above already ran, and it
+    // is unconditional. Being on loopback is never a reason to skip it, because
+    // 127.0.0.1:8899 can be tunnelled anywhere.
+    //
+    // This is what makes verification free: devnet SOL is faucet-limited to 10
+    // per 8 hours, while a local validator with the Genesis program cloned from
+    // devnet can be reset as often as needed. See token/e2e/README.md.
+    if (isLoopbackRpc(url)) {
+      console.warn(
+        `NOTE: ${url} reports unrecognised genesis ${genesis} over loopback — treating it as a ` +
+        'LOCAL test validator. Mainnet is still refused by hash.'
+      );
+      return conn;
+    }
     throw new Error(
       `Cluster mismatch: config says "${expectCluster}" (genesis ${expected}) but ${url} ` +
         `reports genesis ${genesis}. Refusing to continue.`
     );
   }
   return conn;
+}
+
+/**
+ * True only for a loopback RPC endpoint. Parsed with the URL API rather than a
+ * substring test — "localhost" appearing somewhere in a string is not the same
+ * as the host being localhost, and `https://localhost.evil.com` must not pass.
+ */
+export function isLoopbackRpc(url) {
+  let host;
+  try {
+    ({ hostname: host } = new URL(url));
+  } catch {
+    return false;
+  }
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
 }
 
 /**

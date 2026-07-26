@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { base58, keypairIdentity, sol, lamports, publicKey } from '@metaplex-foundation/umi';
+import { base58, keypairIdentity, sol, lamports, publicKey, transactionBuilder } from '@metaplex-foundation/umi';
 import { findAssociatedTokenPda, mplToolbox } from '@metaplex-foundation/mpl-toolbox';
 import {
   genesis,
@@ -59,7 +59,7 @@ export function loadEnv() {
   return env;
 }
 
-function rpcUrl(env) {
+export function rpcUrl(env) {
   const url = env.RPC_URL || DEVNET_RPC;
   if (url.includes('mainnet')) {
     throw new Error(
@@ -111,18 +111,146 @@ export function makeUmi(env = loadEnv()) {
  * mainnet endpoint defeats. The genesis hash is the chain's identity, so this is
  * the check that actually holds — and it fails CLOSED on anything unrecognised.
  */
-export async function assertDevnet(umi) {
+/**
+ * True only for a loopback RPC endpoint — i.e. a validator on this machine.
+ *
+ * Parsed with the URL API rather than a substring test, because that is the
+ * mistake F-19 was about: "localhost" appearing anywhere in a string is not the
+ * same as the host being localhost, and `https://localhost.evil.com` would pass
+ * a naive check.
+ */
+export function isLoopbackRpc(url) {
+  let host;
+  try {
+    ({ hostname: host } = new URL(url));
+  } catch {
+    return false;
+  }
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+}
+
+export async function assertDevnet(umi, rpcEndpoint = undefined) {
   const genesisHash = await umi.rpc.getGenesisHash();
+
+  // Mainnet is refused FIRST and unconditionally, before any other reasoning.
+  // A local validator can be pointed anywhere, and someone could tunnel
+  // 127.0.0.1:8899 to a real mainnet RPC — so being on loopback must never be a
+  // reason to skip this.
   if (genesisHash === MAINNET_GENESIS) {
     throw new Error(
       `Refusing to run against mainnet-beta (genesis ${genesisHash}). Draft/devnet tooling — ` +
         'a real launch is gated behind legal review + audit (docs/TOKEN_ROADMAP.md §10-11).'
     );
   }
-  if (![DEVNET_GENESIS, TESTNET_GENESIS].includes(genesisHash)) {
-    throw new Error(`Refusing unrecognized cluster (genesis ${genesisHash}). Expected devnet.`);
+  if ([DEVNET_GENESIS, TESTNET_GENESIS].includes(genesisHash)) return genesisHash;
+
+  // A local test validator generates a FRESH genesis hash on every --reset, so
+  // it can never be allowlisted by value. Identify it structurally instead: an
+  // unrecognised chain reached over loopback is a validator running on this
+  // machine, which by construction holds nothing of value.
+  //
+  // This exists because devnet SOL is faucet-rate-limited to 10 per 8 hours,
+  // which made every verification run a scarce resource. A local validator with
+  // the Genesis program cloned from devnet costs nothing and can be reset
+  // freely:
+  //
+  //   solana-test-validator --reset --url https://api.devnet.solana.com \
+  //     --clone-upgradeable-program GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B
+  //
+  // The narrowing is deliberate: unknown genesis + loopback = local. Unknown
+  // genesis + any remote host is still refused, so a private RPC that merely
+  // omits the word "mainnet" gains nothing.
+  const endpoint = rpcEndpoint ?? umi.rpc.getEndpoint?.() ?? '';
+  if (isLoopbackRpc(endpoint)) {
+    console.warn(
+      `NOTE: unrecognised genesis ${genesisHash} over loopback (${endpoint}) — treating this as ` +
+      'a LOCAL test validator. Nothing here holds value. Mainnet is still refused by hash.'
+    );
+    return genesisHash;
   }
-  return genesisHash;
+
+  throw new Error(
+    `Refusing unrecognized cluster (genesis ${genesisHash}) at ${endpoint || 'unknown endpoint'}. ` +
+    'Expected devnet, testnet, or a local validator on loopback.'
+  );
+}
+
+export const SPL_ASSOCIATED_TOKEN_PROGRAM_ID = publicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+export const SPL_TOKEN_PROGRAM_ID = publicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+export const SPL_SYSTEM_PROGRAM_ID = publicKey('11111111111111111111111111111111');
+
+/**
+ * Create an associated token account, doing nothing if it already exists.
+ *
+ * This is the SPL Associated Token program's own `CreateIdempotent` — a bare
+ * instruction built here rather than taken from a library, for two reasons that
+ * both came out of running the presale rather than reading it.
+ *
+ * 1. It replaces `createTokenIfMissing` from `@metaplex-foundation/mpl-toolbox`,
+ *    which the deposit, trigger and claim paths all used. That helper does not
+ *    talk to the ATA program directly — it invokes MPL Token Extras
+ *    (`TokExjvjJmhKaRBShsBAsbSvEWMA1AgUNK7ps4SAc2p`), a separate upgradeable
+ *    program, which then CPIs into the ATA program. So every RCLAW deposit and
+ *    every claim was routed through third-party bytecode that the sale does not
+ *    need and whose upgrade authority we do not hold. It is deployed on
+ *    mainnet, devnet and testnet, so this was never going to fail outright —
+ *    which is exactly why it went unnoticed. It surfaced only when the presale
+ *    was replayed against a local validator with just the programs the sale
+ *    genuinely requires cloned into it, where the deposit died with
+ *    `ProgramAccountNotFound` on an address nothing in this repo mentions.
+ *
+ * 2. mpl-toolbox's own `createIdempotentAssociatedToken` is not a usable
+ *    substitute. Its generated code emits EMPTY instruction data, and the ATA
+ *    program reads empty data as the legacy `Create` discriminant — the
+ *    on-chain log says `Program log: Create`, so the "idempotent" instruction
+ *    is the non-idempotent one and a second call fails with
+ *    `AccountAlreadyInUse`. It also never derives a default for `ata` (unlike
+ *    its non-idempotent sibling), so omitting that input substitutes the
+ *    program id into the account slot and the instruction fails `InvalidSeeds`
+ *    before it can do anything at all. Both were reproduced on a validator; see
+ *    ata_idempotent.test.mjs, which pins the discriminant byte.
+ *
+ * Idempotence matters beyond tidiness: the claim path must create the Genesis
+ * protocol fee wallet's ATA, which the FIRST claimer pays for and every later
+ * claimer would otherwise collide with. Doing it with a client-side "does it
+ * exist?" check instead would reintroduce that race.
+ *
+ * `tokenProgram` defaults to the LEGACY SPL Token program, not Token-2022, and
+ * that is deliberate rather than an oversight: Genesis mints the base token
+ * under legacy SPL Token and its own instructions pass that program, so an ATA
+ * derived under a different one would simply not be the account the program
+ * looks for. The default matches what `createTokenIfMissing` did here before,
+ * so this swap changes no addresses — verified by replaying the presale.
+ *
+ * @param {import('@metaplex-foundation/umi').Umi} umi
+ * @param {{mint: import('@metaplex-foundation/umi').PublicKey,
+ *          owner: import('@metaplex-foundation/umi').PublicKey,
+ *          tokenProgram?: import('@metaplex-foundation/umi').PublicKey}} input
+ */
+export function createAtaIdempotent(umi, { mint, owner, tokenProgram = SPL_TOKEN_PROGRAM_ID }) {
+  const ata = findAssociatedTokenPda(umi, { mint, owner, tokenProgramId: tokenProgram })[0];
+  const keys = [
+    { pubkey: umi.payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: ata, isSigner: false, isWritable: true },
+    { pubkey: owner, isSigner: false, isWritable: false },
+    { pubkey: mint, isSigner: false, isWritable: false },
+    { pubkey: SPL_SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: tokenProgram, isSigner: false, isWritable: false },
+  ];
+  return transactionBuilder([
+    {
+      instruction: {
+        keys,
+        programId: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
+        // 1 = CreateIdempotent. 0 (or empty data) is Create, which throws
+        // AccountAlreadyInUse on an existing account. This single byte is the
+        // whole difference and ata_idempotent.test.mjs mutates it to prove so.
+        data: new Uint8Array([1]),
+      },
+      signers: [umi.payer],
+      bytesCreatedOnChain: 0,
+    },
+  ]);
 }
 
 /**

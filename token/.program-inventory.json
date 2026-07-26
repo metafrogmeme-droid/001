@@ -1,0 +1,113 @@
+{
+  "_comment": "Every on-chain program observed executing in a presale transaction, including CPI targets. Regenerate with `npm run programs:baseline` after a full lifecycle run; `npm run programs:inventory` FAILS on anything not listed here. Package-level SCA cannot produce this list \u2014 a CPI target is not a dependency. Upgrade authorities below were read from mainnet-beta on 2026-07-26, because that is the cluster whose answer matters; a devnet deployment can differ.",
+  "_measuredOn": "mainnet-beta (authorities) / local validator cloned from devnet (invocations)",
+  "programs": {
+    "11111111111111111111111111111111": {
+      "name": "SPL System Program",
+      "upgradeAuthority": "n/a \u2014 native program, not deployed bytecode",
+      "loader": "NativeLoader11111111111111111111111111111111",
+      "mutability": "IMMUTABLE (native)",
+      "firstSeen": "2026-07-26",
+      "steps": [
+        "addPresaleBucketV2Base",
+        "allocate:advisors",
+        "allocate:community",
+        "allocate:partnerships",
+        "allocate:reserve",
+        "allocate:team",
+        "allocate:treasury",
+        "claim",
+        "deposit",
+        "initializeV2",
+        "liquidity",
+        "setPresaleBucketV2Behaviors"
+      ],
+      "maxDepth": 3
+    },
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL": {
+      "name": "SPL Associated Token Account Program",
+      "upgradeAuthority": "n/a \u2014 BPFLoader2 has no upgrade mechanism",
+      "loader": "BPFLoader2111111111111111111111111111111111",
+      "mutability": "IMMUTABLE (non-upgradeable loader)",
+      "firstSeen": "2026-07-26",
+      "steps": [
+        "addPresaleBucketV2Base",
+        "allocate:advisors",
+        "allocate:community",
+        "allocate:partnerships",
+        "allocate:reserve",
+        "allocate:team",
+        "allocate:treasury",
+        "claim",
+        "deposit",
+        "initializeV2",
+        "liquidity",
+        "trigger"
+      ],
+      "maxDepth": 2
+    },
+    "GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B": {
+      "name": "Metaplex Genesis",
+      "upgradeAuthority": "bfQVv6niKVgEURYqQ1beJmiEQQN7MrvLRvk3mZGFubb",
+      "loader": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "programData": "JBKDSq6Sdgh24SNA15QJD1P19KUAoBzRFYvsUagReKNN",
+      "mutability": "UPGRADEABLE \u2014 the only mutable program in the money path",
+      "note": "THE trust assumption of this sale. Genesis custodies the entire raise, the vesting schedules and the never-claim LP lock, and its bytecode can be replaced by the authority above at any time, without any change to this repository. That authority is OFF-CURVE, so it is a PDA rather than a bare keypair (consistent with a Squads-style multisig vault); the signer threshold is not observable from here and is not something this project controls. Measured on mainnet-beta 2026-07-26.",
+      "firstSeen": "2026-07-26",
+      "steps": [
+        "addPresaleBucketV2Base",
+        "addPresaleBucketV2Extensions",
+        "allocate:advisors",
+        "allocate:community",
+        "allocate:partnerships",
+        "allocate:reserve",
+        "allocate:team",
+        "allocate:treasury",
+        "claim",
+        "deposit",
+        "finalize",
+        "initializeV2",
+        "liquidity",
+        "setPresaleBucketV2Behaviors",
+        "trigger"
+      ],
+      "maxDepth": 1
+    },
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": {
+      "name": "Metaplex Token Metadata",
+      "upgradeAuthority": null,
+      "loader": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "programData": "PwDiXFxQsGra4sFFTT8r1QWRMd4vfumiWC1jfWNfdYT",
+      "mutability": "IMMUTABLE (upgrade authority revoked on mainnet-beta)",
+      "note": "Reached only via initializeV2, which creates the base mint metadata.",
+      "firstSeen": "2026-07-26",
+      "steps": [
+        "initializeV2"
+      ],
+      "maxDepth": 2
+    },
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA": {
+      "name": "SPL Token Program",
+      "upgradeAuthority": null,
+      "loader": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "programData": "3gvYRKWyXRR9xKWe1ZjPhLY5ZJRN7KDB4rFZFGoJfFk2",
+      "mutability": "IMMUTABLE (upgrade authority revoked on mainnet-beta)",
+      "firstSeen": "2026-07-26",
+      "steps": [
+        "addPresaleBucketV2Base",
+        "allocate:advisors",
+        "allocate:community",
+        "allocate:partnerships",
+        "allocate:reserve",
+        "allocate:team",
+        "allocate:treasury",
+        "claim",
+        "deposit",
+        "initializeV2",
+        "liquidity",
+        "trigger"
+      ],
+      "maxDepth": 3
+    }
+  }
+}

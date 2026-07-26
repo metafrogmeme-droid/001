@@ -125,6 +125,124 @@ authority is still a single key, the Anchor IDL account lifecycle remains
 unowned, and linear vesting for team/advisors/community is specified in §4 but
 not implemented (the allocation buckets encode cliffs only).
 
+### New (2026-07-26): every deposit and every claim ran through a third-party upgradeable program
+
+The report's dependency work stopped at npm — 37 advisories, now ratcheted in CI.
+It did not ask a different question: **which on-chain programs does a transaction
+this repository builds actually invoke?** The answer included one nobody chose.
+
+`presale:deposit`, `presale:trigger` and `presale:claim` all had to create an
+associated token account, and all three used `createTokenIfMissing` from
+`@metaplex-foundation/mpl-toolbox`. That helper does not talk to the SPL
+Associated Token program. It invokes **MPL Token Extras**
+(`TokExjvjJmhKaRBShsBAsbSvEWMA1AgUNK7ps4SAc2p`), a separate third-party program,
+which then CPIs onward. So the three instructions that move buyer money — the
+deposit, the routing of the raise to liquidity, and the payout — each executed
+bytecode belonging to someone else, to do something the SPL programs already do
+natively.
+
+It is deployed on mainnet-beta, devnet and testnet, so nothing would ever have
+failed. That is precisely why it was invisible: a dependency that works is not a
+dependency anyone looks at, and the program id appears nowhere in this
+repository, in any config, or in any runbook. Reviewing the source could not
+surface it, because the source says `createTokenIfMissing`.
+
+**Sizing it honestly:** an earlier draft of this section said the program was
+"upgradeable" and "held under an upgrade authority this project does not
+control". Checking rather than assuming shows that is wrong — its upgrade
+authority is **revoked on mainnet-beta**, so the bytecode is frozen. The finding
+is the *undeclared* dependency, not a mutable one: an unrecorded program in the
+money path is a supply-chain surface whether or not it can currently change, and
+"it happens to be immutable today" is a fact nobody here had established either.
+The point stands and the severity is lower than first written.
+
+**What surfaced it was narrowing the environment rather than widening the
+analysis.** Replaying the presale against a local validator carrying only the
+programs the sale genuinely needs turned the invisible dependency into a hard
+failure:
+
+    Transaction simulation failed: Attempt to load a program that does not exist
+    err: "ProgramAccountNotFound"
+
+The absent account was `TokExjvjJ…`. A test environment built from an explicit
+list of required programs is an inventory check that the full-fidelity
+environment cannot perform — devnet has *everything*, so on devnet every
+dependency is satisfied and none is disclosed.
+
+`token/presale/genesis_lib.mjs` now builds the ATA program's own
+`CreateIdempotent` instruction directly (`createAtaIdempotent`), so the deposit,
+trigger and claim paths reach nothing but SPL System, SPL Token and SPL
+Associated Token. Same derived addresses, one less CPI hop, and no third-party
+upgrade authority anywhere near the money.
+
+**The obvious library replacement is broken, which is its own finding.**
+mpl-toolbox ships `createIdempotentAssociatedToken`, which targets the ATA
+program directly and looks like the drop-in answer. It is not usable, in two
+independent ways, both reproduced on a validator:
+
+- Its generated code emits **empty instruction data**. The ATA program reads
+  empty data as the legacy `Create` discriminant — the on-chain log says
+  `Program log: Create` — so the "idempotent" instruction is the non-idempotent
+  one, and a second call fails.
+- It never derives a default for the `ata` account (its non-idempotent sibling
+  does). Omitting that input leaves the slot unresolved, the generated code
+  substitutes the **program id** into it, and the instruction fails `InvalidSeeds`
+  before doing anything at all.
+
+Had this been swapped in on the strength of its name, `presale:claim` would have
+worked for the first claimer of the Genesis fee-wallet ATA and failed for every
+claimer after — a bug that appears only under concurrency, only in production,
+and only after money is in the contract. `token/presale/ata_idempotent.test.mjs`
+pins all of it against a real validator, including a mutation that flips the
+discriminant byte from `1` to `0` and asserts the second call *must* fail — so
+the idempotence claim rests on observed dispatch behaviour rather than on the
+byte looking right.
+
+Two general points fall out of this, both cheap to act on:
+
+1. **Enumerate the programs a transaction invokes, not just the packages it
+   imports.** Package-level SCA cannot see a CPI target. The program-id inventory
+   is a separate artifact and nothing here was producing one.
+2. **A minimal test environment finds dependencies that a realistic one hides.**
+   This cost nothing — a local validator needs no faucet — and it is now the
+   default way these paths are exercised.
+
+### The program inventory this produced, and the one program that can still change
+
+`token/scripts/program_inventory.mjs` (`npm run programs:inventory`) now does the
+first of those mechanically: it pulls the logs of every transaction a lifecycle
+run produced, extracts each `Program <id> invoke [depth]` line — CPIs included —
+and **fails** on anything not recorded in `token/.program-inventory.json`. Run
+against a complete local lifecycle (15 transactions, `create` through `claim`),
+five programs execute:
+
+| Program | Reached from | Mainnet mutability |
+|---|---|---|
+| `11111111111111111111111111111111` SPL System | everything, to CPI depth 3 | native, immutable |
+| `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` SPL Token | everything, to depth 3 | **upgrade authority revoked** |
+| `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` SPL Associated Token | everything, to depth 2 | BPFLoader2, no upgrade path |
+| `metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s` Metaplex Token Metadata | `initializeV2` only | **upgrade authority revoked** |
+| `GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B` Metaplex Genesis | every presale instruction | **UPGRADEABLE** |
+
+MPL Token Extras is absent, which is the fix landing. But the table's real
+content is its last row, and it is a trust assumption this report never stated:
+
+**Metaplex Genesis is the only mutable program in the money path, and its
+mainnet upgrade authority is `bfQVv6niKVgEURYqQ1beJmiEQQN7MrvLRvk3mZGFubb`.**
+Genesis custodies the entire raise, every vesting schedule and the never-claim LP
+lock. Whoever controls that key can replace its bytecode at any time — before,
+during or after the sale — with no change to this repository and no signal to
+anyone holding $RCLAW. Every "immutable" property this project advertises about
+the presale is immutable *within* the current Genesis program, not against it.
+
+That authority address is **off-curve**, so it is a PDA rather than a bare
+keypair — consistent with a Squads-style multisig vault, which is the good case.
+The signer threshold is not observable from here and is not ours to set. What
+this repository can do is state the dependency plainly in the sale terms rather
+than let buyers infer that "on-chain and locked" means the code cannot change.
+Both facts were read from mainnet-beta on 2026-07-26 and are recorded in the
+inventory baseline so a future deploy of Genesis is visible as a diff.
+
 ### Correction to the F-11 remediation, and a new authority finding
 
 The audit could not read the Genesis SDK — `token/node_modules` was not
