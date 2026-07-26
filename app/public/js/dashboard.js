@@ -1008,7 +1008,7 @@
     let banner;
     if (d.live && unp > 0) banner = `<div class="lpos-alert lpos-alert--bad">⚠️ <b>${unp} live position${unp === 1 ? '' : 's'} without an exchange stop.</b> The bot keeps re-arming the stop, but until it's placed the exchange itself won't auto-close it. Review below.</div>`;
     else if (d.live) banner = `<div class="lpos-alert lpos-alert--ok">🛡️ All ${prot} live position${prot === 1 ? '' : 's'} have their stop-loss on the exchange.</div>`;
-    else banner = `<div class="lpos-alert">Paper — stops are bot-managed in-sim (no exchange order). Go live to place real exchange stops.</div>`;
+    else banner = `<div class="lpos-alert">${esc(T('ctl.paper_stops', 'Paper — stops are bot-managed in-sim (no exchange order). Go live to place real exchange stops.'))}</div>`;
     const shown = opts.limit ? rows.slice(0, opts.limit) : rows;
     const body = shown.map((p) => {
       const dist = (p.sl_dist_pct != null && p.sl_dist_pct > 0) ? ` <span class="muted small">(${p.sl_dist_pct}% away)</span>` : '';
@@ -4417,28 +4417,28 @@
       const c = r.data || {};
       const liveEff = c.live_enabled && c.allowlisted;
       return `<div class="row mb-3">
-          ${liveEff ? '<span class="chip chip--live">● LIVE ON</span>'
-            : c.live_enabled ? '<span class="chip chip--warn">⏳ ON — pending operator approval</span>'
-            : '<span class="chip chip--paper">PAPER</span>'}
-          ${c.pending ? '<span class="chip">applying…</span>' : ''}
+          ${liveEff ? `<span class="chip chip--live">● ${esc(T('ctl.live_on', 'LIVE ON'))}</span>`
+            : c.live_enabled ? `<span class="chip chip--warn">⏳ ${esc(T('ctl.pending_approval', 'ON — pending operator approval'))}</span>`
+            : `<span class="chip chip--paper">${esc(T('ctl.paper', 'PAPER'))}</span>`}
+          ${c.pending ? `<span class="chip">${esc(T('ctl.applying', 'applying…'))}</span>` : ''}
         </div>
         <div class="stack">
-          <label class="switch"><input type="checkbox" id="ctlLive" ${c.live_enabled ? 'checked' : ''}><span class="track"></span>Live trading <span class="muted small">(also needs operator approval)</span></label>
-          <label class="switch"><input type="checkbox" id="ctlPause" ${c.paused ? 'checked' : ''}><span class="track"></span>Pause — route everything to paper</label>
-          <div class="field" style="max-width:220px"><label for="ctlMargin">Max margin per trade ($, 0 = no cap)</label>
+          <label class="switch"><input type="checkbox" id="ctlLive" ${c.live_enabled ? 'checked' : ''}><span class="track"></span>${esc(T('ctl.live_trading', 'Live trading'))} <span class="muted small">${esc(T('ctl.needs_approval', '(also needs operator approval)'))}</span></label>
+          <label class="switch"><input type="checkbox" id="ctlPause" ${c.paused ? 'checked' : ''}><span class="track"></span>${esc(T('ctl.pause', 'Pause — route everything to paper'))}</label>
+          <div class="field" style="max-width:220px"><label for="ctlMargin">${esc(T('ctl.max_margin', 'Max margin per trade ($, 0 = no cap)'))}</label>
             <input class="input input--num" id="ctlMargin" type="number" min="0" step="1" value="${c.max_margin != null ? c.max_margin : ''}"></div>
           <div class="row">
-            <button class="btn btn--primary btn--sm" id="ctlSave">Apply</button>
-            <button class="btn btn--danger btn--sm" id="ctlStop">Emergency stop</button>
+            <button class="btn btn--primary btn--sm" id="ctlSave">${esc(T('ctl.apply', 'Apply'))}</button>
+            <button class="btn btn--danger btn--sm" id="ctlStop">${esc(T('ctl.emergency_stop', 'Emergency stop'))}</button>
             <span id="ctlMsg" class="small muted" aria-live="polite"></span>
           </div>
-          <p class="muted small">Emergency stop disables live, pauses, and closes your open positions.</p>
+          <p class="muted small">${esc(T('ctl.stop_note', 'Emergency stop disables live, pauses, and closes your open positions.'))}</p>
         </div>`;
-    }, { empty: { text: 'Controls unavailable.' } });
+    }, { empty: { text: T('ctl.unavailable', 'Controls unavailable.') } });
     onView('click', async (e) => {
       if (e.target.id === 'ctlSave') {
         const msg = document.getElementById('ctlMsg');
-        msg.textContent = 'Applying…';
+        msg.textContent = T('ctl.applying', 'applying…');
         const body = {
           live_enabled: document.getElementById('ctlLive').checked,
           paused: document.getElementById('ctlPause').checked,
@@ -4446,12 +4446,14 @@
         const m = document.getElementById('ctlMargin').value.trim();
         if (m !== '') body.max_margin = Number(m);
         const r = await RC.postWithStepUp('/api/controls', body);
-        msg.textContent = r.ok ? 'Queued — the bot applies it within a minute.' : (r.data?.detail || r.data?.error || 'Failed.');
+        msg.textContent = r.ok ? T('venue.queued', 'Queued — the bot applies it within a minute.')
+          : (r.data?.detail || r.data?.error || T('venue.failed', 'Failed.'));
       }
       if (e.target.id === 'ctlStop') {
-        if (!confirm('Emergency stop: disable live, pause, and close your open positions. Continue?')) return;
+        if (!confirm(T('ctl.stop_confirm', 'Emergency stop: disable live, pause, and close your open positions. Continue?'))) return;
         const r = await fetchJSON('/api/controls/stop', { method: 'POST' }).catch(() => ({ ok: false }));
-        toast(r.ok ? 'Emergency stop queued — closing positions.' : 'Emergency stop failed.', r.ok ? 'warn' : 'down');
+        toast(r.ok ? T('ctl.stop_queued', 'Emergency stop queued — closing positions.')
+          : T('ctl.stop_failed', 'Emergency stop failed.'), r.ok ? 'warn' : 'down');
       }
     });
   }
