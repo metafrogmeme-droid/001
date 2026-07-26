@@ -368,7 +368,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=76"></script>
+<script src="/js/i18n.js?v=77"></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
@@ -700,7 +700,9 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         + '<button class="chartbtn" data-histchart="' + t.id + '" type="button" aria-expanded="'
         + (histOpen[t.id] ? 'true' : 'false') + '" title="How it played out">📈</button> '
         + esc(t.symbol)
-        + (t.seal && t.trade_key ? ' <a href="/call/' + encodeURIComponent(t.trade_key) + '" target="_blank" rel="noopener" title="Provable receipt — sealed at open, before the outcome">🔏</a>' : '') + '</td>'
+        + (t.seal && t.trade_key ? ' <a href="/call/' + encodeURIComponent(t.trade_key) + '" target="_blank" rel="noopener" title="Provable receipt — sealed at open, before the outcome">🔏</a>'
+          + ' <button class="chartbtn" data-share-key="' + esc(t.trade_key) + '" type="button" title="'
+          + esc(T('arena.share_t', 'Share the RECEIPT itself — a link that verifies in anyone’s browser, never a screenshot. No amounts ride in it.')) + '">📤</button>' : '') + '</td>'
         + '<td class="' + (t.direction === 'LONG' ? 'up-c' : 'down-c') + '">' + esc(t.direction) + '</td>'
         + '<td>' + fmtP(t.entry) + '</td><td>' + fmtP(t.exit_price) + '</td>'
         + '<td class="' + pnlCls(t.pnl) + '">' + (t.pnl > 0 ? '+' : '') + fmt2(t.pnl) + '</td>'
@@ -1380,6 +1382,20 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     // Post-mortem expander on closed trades — same delegated pattern as the
     // positions table; state survives every tbody rebuild.
     $('histBody').addEventListener('click', function (e) {
+      var sh = e.target.closest('[data-share-key]');
+      if (sh) {
+        // Receipt-first: what travels is the receipt URL — it verifies in
+        // anyone's browser. Nothing about money or outcomes rides in the text.
+        var rurl = location.origin + '/call/' + encodeURIComponent(sh.getAttribute('data-share-key'));
+        var rtxt = T('cp.share_txt', 'A cryptographically sealed AI trading call — open it and your browser re-derives the hash itself.');
+        if (navigator.share) {
+          navigator.share({ url: rurl, text: rtxt }).catch(function () { /* user closed the sheet */ });
+        } else {
+          window.open('https://warpcast.com/~/compose?text=' + encodeURIComponent(rtxt)
+            + '&embeds[]=' + encodeURIComponent(rurl), '_blank', 'noopener');
+        }
+        return;
+      }
       var hbtn = e.target.closest('[data-histchart]');
       if (!hbtn) return;
       var hid = Number(hbtn.getAttribute('data-histchart'));

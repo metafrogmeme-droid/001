@@ -4604,6 +4604,7 @@
         <div class="row mt-3" style="gap:var(--s2);flex-wrap:wrap">
           <a class="btn btn--sm" href="https://t.me/share/url?url=${share}&text=${text}" target="_blank" rel="noopener">Share on Telegram</a>
           <a class="btn btn--sm" href="https://twitter.com/intent/tweet?url=${share}&text=${text}" target="_blank" rel="noopener">Share on X</a>
+          <a class="btn btn--sm" href="https://warpcast.com/~/compose?text=${text}&embeds[]=${share}" target="_blank" rel="noopener">Share on Warpcast</a>
         </div>
         ${tierBlock}`;
     }, { empty: { text: 'Your invite link will appear here shortly.' } });
