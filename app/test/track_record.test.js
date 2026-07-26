@@ -45,11 +45,11 @@ test('empty account reports nulls — never invented numbers', async () => {
   const r = await get('/api/public/track-record');
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.data.stats.trades, 0);
-  assert.strictEqual(r.data.stats.net_pnl_usd, null);
+  assert.strictEqual(r.data.stats.return_pct, null);
   assert.strictEqual(r.data.stats.profit_factor, null);
   assert.strictEqual(r.data.stats.max_drawdown_pct, null);
   assert.strictEqual(r.data.mode, null);            // no scan cache -> unknown
-  assert.deepStrictEqual(r.data.equity_curve, []);
+  assert.deepStrictEqual(r.data.equity_curve_idx, []);
 });
 
 test('aggregates PF, win rate, monthly buckets, drawdown from synced data', async () => {
@@ -84,14 +84,25 @@ test('aggregates PF, win rate, monthly buckets, drawdown from synced data', asyn
   const s = r.data.stats;
   assert.strictEqual(s.trades, 3);
   assert.strictEqual(s.wins, 2);
-  assert.strictEqual(s.net_pnl_usd, 40);
+  // §4, decided (matching the public letter's model): the PUBLIC record is
+  // percent / ratio / count only. No dollar field may exist on this payload.
+  for (const banned of ['net_pnl_usd', 'fees_usd', 'avg_win_usd', 'avg_loss_usd', 'current_equity_usd']) {
+    assert.ok(!(banned in s), `${banned} is back on the public payload`);
+  }
   assert.strictEqual(s.profit_factor, 5);                 // 50 gross win / 10 gross loss
+  assert.strictEqual(s.payoff_ratio, 2.5);                // avg win 25 / avg loss 10
+  // Return over the current capital segment: 100 -> 141.
+  assert.strictEqual(s.return_pct, 41);
   assert.strictEqual(r.data.mode, 'LIVE');                // from scan cache, not guessed
-  // Monthly buckets by close month (UTC).
-  assert.strictEqual(r.data.monthly_pnl_usd['2026-06'], 30);
-  assert.strictEqual(r.data.monthly_pnl_usd['2026-07'], 10);
+  // Monthly buckets: counts and the month's sign, never an amount.
+  assert.deepStrictEqual(r.data.monthly['2026-06'], { trades: 1, wins: 1, losses: 0, result: 'green' });
+  assert.deepStrictEqual(r.data.monthly['2026-07'], { trades: 2, wins: 1, losses: 1, result: 'green' });
   // Drawdown: peak 140 -> trough 120 = 14.29%.
   assert.ok(Math.abs(s.max_drawdown_pct - 14.29) < 0.01);
-  assert.strictEqual(s.current_equity_usd, 141);
   assert.strictEqual(r.data.recent_trades[0].symbol, 'SOL/USDT'); // newest first
+  assert.strictEqual(r.data.recent_trades[0].result, 'win');      // +20, no dollar shown
+  // The curve is indexed to 100 at the segment start — shape without size.
+  const idx = r.data.equity_curve_idx.map(pt => pt.idx);
+  assert.strictEqual(idx[0], 100);
+  assert.strictEqual(idx[idx.length - 1], 141);
 });

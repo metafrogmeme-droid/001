@@ -92,6 +92,39 @@ router.get('/track-record', async (req, res) => {
     const segments = segmentByCapitalEvents(curve, trades);
     const currentSegment = segments.length ? segments[segments.length - 1] : [];
 
+    // §4, decided: the PUBLIC track record is percent / ratio / count only —
+    // the same privacy model the public letter shipped with. Dollar PnL
+    // without a capital basis is spin anyway; percent on the recorded equity
+    // basis is checkable. The operator's own dashboard keeps every dollar.
+    //
+    // Return % is measured over the CURRENT capital segment (same methodology
+    // as drawdown): a deposit or paper→live switch never reads as a gain.
+    const segStart = currentSegment.length ? currentSegment[0].equity : null;
+    const segEnd = currentSegment.length ? currentSegment[currentSegment.length - 1].equity : null;
+    const returnPct = segStart > 0 && currentSegment.length >= 2
+      ? round2((segEnd / segStart - 1) * 100) : null;
+
+    // Monthly: counts and the sign of the month, never an amount.
+    const monthlyOut = {};
+    for (const t of trades) {
+      const d = new Date(t.closed_at);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const m = monthlyOut[key] || (monthlyOut[key] = { trades: 0, wins: 0, losses: 0 });
+      m.trades += 1;
+      const p = parseFloat(t.pnl) || 0;
+      if (p > 0) m.wins += 1; else if (p < 0) m.losses += 1;
+    }
+    for (const key of Object.keys(monthlyOut)) {
+      const net = monthly[key] || 0;
+      monthlyOut[key].result = net > 0 ? 'green' : net < 0 ? 'red' : 'flat';
+    }
+
+    // The curve keeps its SHAPE but not the account size: indexed to 100 at
+    // the segment start.
+    const curveIdx = segStart > 0
+      ? downsample(currentSegment, 400).map(p => ({ t: p.t, idx: round2(p.equity / segStart * 100) }))
+      : [];
+
     const payload = {
       generated_at: new Date().toISOString(),
       mode,                                       // 'LIVE' | 'PAPER' | null
@@ -101,23 +134,23 @@ router.get('/track-record', async (req, res) => {
         wins: wins.length,
         losses: losses.length,
         win_rate_pct: trades.length ? round2(wins.length / trades.length * 100) : null,
-        net_pnl_usd: trades.length ? netPnl : null,
-        fees_usd: trades.length ? fees : null,
+        return_pct: returnPct,
         profit_factor: grossLoss > 0 ? round2(grossWin / grossLoss) : null,
-        avg_win_usd: wins.length ? round2(grossWin / wins.length) : null,
-        avg_loss_usd: losses.length ? round2(-grossLoss / losses.length) : null,
+        // avg win over avg loss — the payoff shape of the system, as a ratio.
+        payoff_ratio: wins.length && losses.length
+          ? round2((grossWin / wins.length) / (grossLoss / losses.length)) : null,
         max_drawdown_pct: curve.length >= 2 ? segmentedMaxDrawdownPct(curve, trades) : null,
-        current_equity_usd: curve.length ? round2(curve[curve.length - 1].equity) : null,
         first_trade_at: trades.length ? trades[0].closed_at : null,
         last_trade_at: trades.length ? trades[trades.length - 1].closed_at : null,
       },
-      monthly_pnl_usd: monthly,
-      equity_curve: downsample(currentSegment, 400),
+      monthly: monthlyOut,
+      equity_curve_idx: curveIdx,
       capital_events: Math.max(0, segments.length - 1),
-      recent_trades: trades.slice(-20).reverse().map(t => ({
-        symbol: t.symbol, direction: t.direction,
-        pnl: round2(parseFloat(t.pnl) || 0), closed_at: t.closed_at,
-      })),
+      recent_trades: trades.slice(-20).reverse().map(t => {
+        const p = parseFloat(t.pnl) || 0;
+        return { symbol: t.symbol, direction: t.direction,
+          result: p > 0 ? 'win' : p < 0 ? 'loss' : 'flat', closed_at: t.closed_at };
+      }),
     };
     cache = { at: Date.now(), payload };
     res.setHeader('Cache-Control', 'public, max-age=120');
@@ -159,14 +192,17 @@ router.get('/replay-trade', async (req, res) => {
         Math.abs(parseFloat(b.pnl)) > Math.abs(parseFloat(a.pnl)) ? b : a);
     }
     const payload = {
+      // §4: prices are public market facts; the sizes and dollar PnL are not.
+      // pnl_pct is return-on-size — checkable against entry/exit for anyone
+      // who cares to verify the arithmetic.
       trade: pick ? {
         symbol: String(pick.symbol || ''),
         direction: String(pick.direction || '').toUpperCase(),
         entry_price: parseFloat(pick.entry_price),
         exit_price: parseFloat(pick.exit_price),
-        size_usd: parseFloat(pick.size_usd) || null,
-        pnl: round2(parseFloat(pick.pnl)),
-        fees: round2(parseFloat(pick.fees) || 0),
+        pnl_pct: (parseFloat(pick.size_usd) || 0) > 0
+          ? round2(parseFloat(pick.pnl) / parseFloat(pick.size_usd) * 100) : null,
+        result: (parseFloat(pick.pnl) || 0) >= 0 ? 'win' : 'loss',
         opened_at: pick.opened_at,
         closed_at: pick.closed_at,
       } : null,

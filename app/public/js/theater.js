@@ -52,8 +52,11 @@
     return (n < 0 ? '−' : '+') + Math.abs(n).toFixed(2) + '%';
   }
   function retPct(trade) {
+    // The public payload ships pnl_pct directly now (§4: no sizes, no dollar
+    // PnL); older cached payloads still carry size/pnl, so derive as before.
+    if (trade.pnl_pct != null) return Number(trade.pnl_pct);
     const size = Number(trade.size_usd) || 0;
-    const pnl = Number(trade.pnl) || 0;
+    const pnl = Number(trade.pnl) || 0;                 // legacy payloads only
     return size > 0 ? (pnl / size) * 100 : null;
   }
 
@@ -120,7 +123,7 @@
     const x = t => PAD.l + (t - t0) / (t1 - t0 || 1) * (W - PAD.l - PAD.r);
     const y = v => PAD.t + (max - v) / span * (H - PAD.t - PAD.b);
     const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.c).toFixed(1)}`).join('');
-    const win = (Number(trade.pnl) || 0) >= 0;
+    const win = trade.result ? trade.result === 'win' : (Number(trade.pnl) || 0) >= 0;
     const col = win ? 'var(--up)' : 'var(--down)';
     const dirUp = trade.direction === 'LONG';
 
@@ -154,10 +157,10 @@
 
   function animate(trade, parts) {
     const token = ++animToken;
-    const pnl = Number(trade.pnl) || 0;
+    const pnl = Number(trade.pnl) || 0;                 // legacy payloads only
     const pct = retPct(trade);
     // No size on record -> no percent derivable -> outcome word, never dollars.
-    const finalTxt = pct != null ? fmtRet(pct) : (pnl >= 0 ? 'WIN' : 'LOSS');
+    const finalTxt = pct != null ? fmtRet(pct) : ((trade.result ? trade.result === 'win' : pnl >= 0) ? 'WIN' : 'LOSS');
     const DUR = 4200;
     pnlEl.textContent = pct != null ? '+0.00%' : '';
     pnlEl.className = 'num';

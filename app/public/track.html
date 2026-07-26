@@ -87,7 +87,7 @@
     </section>
     <section class="panel">
       <h2 data-i18n="tk.recent_h">Recent closed trades</h2>
-      <table><thead><tr><th data-i18n="arena.f_symbol">Symbol</th><th data-i18n="arena.th_side">Side</th><th class="num" data-i18n="tk.th_pnl">PnL</th><th data-i18n="tk.th_closed">Closed</th></tr></thead><tbody id="recent"></tbody></table>
+      <table><thead><tr><th data-i18n="arena.f_symbol">Symbol</th><th data-i18n="arena.th_side">Side</th><th class="num" data-i18n="tk.th_result">Result</th><th data-i18n="tk.th_closed">Closed</th></tr></thead><tbody id="recent"></tbody></table>
       <div class="empty" id="recentEmpty" hidden data-i18n="tk.empty">No closed trades yet.</div>
     </section>
   </div>
@@ -104,7 +104,12 @@
 (async () => {
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const usd = v => (v == null ? '—' : (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+  // No dollar formatter on this page any more — §4, and by decision: the
+  // public record is percent / ratio / count, like the public letter.
+  const T = (k, en) => {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
   const cls = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
   let d;
   try {
@@ -122,19 +127,22 @@
   $('genAt').textContent = 'updated ' + new Date(d.generated_at).toLocaleString();
   if (d.venue) $('venue').textContent = d.venue;
 
+  // §4: percent / ratio / count only on this PUBLIC page — the same privacy
+  // model as the public letter. Dollars live on the operator's own dashboard.
+  const pctv = (v) => v == null ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
   const tiles = [
-    ['Net PnL', usd(s.net_pnl_usd), cls(s.net_pnl_usd)],
-    ['Profit factor', s.profit_factor == null ? '—' : s.profit_factor.toFixed(2), cls((s.profit_factor || 1) - 1)],
-    ['Win rate', s.win_rate_pct == null ? '—' : s.win_rate_pct.toFixed(1) + '%', ''],
-    ['Closed trades', s.trades ?? '—', ''],
-    ['Max drawdown', s.max_drawdown_pct == null ? '—' : s.max_drawdown_pct.toFixed(1) + '%', s.max_drawdown_pct > 0 ? 'neg' : ''],
-    ['Equity', usd(s.current_equity_usd), ''],
+    [T('tk.t_return', 'Return (current period)'), pctv(s.return_pct), cls(s.return_pct)],
+    [T('tk.t_pf', 'Profit factor'), s.profit_factor == null ? '—' : s.profit_factor.toFixed(2), cls((s.profit_factor || 1) - 1)],
+    [T('tk.t_wr', 'Win rate'), s.win_rate_pct == null ? '—' : s.win_rate_pct.toFixed(1) + '%', ''],
+    [T('tk.t_trades', 'Closed trades'), s.trades ?? '—', ''],
+    [T('tk.t_dd', 'Max drawdown'), s.max_drawdown_pct == null ? '—' : s.max_drawdown_pct.toFixed(1) + '%', s.max_drawdown_pct > 0 ? 'neg' : ''],
+    [T('tk.t_payoff', 'Payoff ratio'), s.payoff_ratio == null ? '—' : s.payoff_ratio.toFixed(2), cls((s.payoff_ratio || 1) - 1)],
   ];
   $('tiles').innerHTML = tiles.map(([k, v, c]) =>
     `<div class="tile"><div class="k">${esc(k)}</div><div class="v ${c}">${esc(String(v))}</div></div>`).join('');
 
   // Equity curve — simple scaled polyline, no external libs.
-  const curve = d.equity_curve || [];
+  const curve = (d.equity_curve_idx || []).map(function (p) { return { t: p.t, equity: p.idx }; });
   if (curve.length >= 2) {
     const W = 1000, H = 260, PAD = 8;
     const xs = curve.map(p => p.t), ys = curve.map(p => p.equity);
@@ -159,10 +167,13 @@
       + 'max drawdown is measured within consistent-capital periods only — capital events are never counted as trading losses.';
   }
 
-  const months = Object.entries(d.monthly_pnl_usd || {}).sort((a, b) => b[0].localeCompare(a[0]));
+  const months = Object.entries(d.monthly || {}).sort((a, b) => b[0].localeCompare(a[0]));
   if (months.length) {
-    $('monthly').innerHTML = months.map(([m, v]) =>
-      `<tr><td>${esc(m)}</td><td class="num ${cls(v)}">${usd(v)}</td></tr>`).join('');
+    $('monthly').innerHTML = months.map(([m, v]) => {
+      const c = v.result === 'green' ? 'pos' : v.result === 'red' ? 'neg' : '';
+      const word = v.result === 'green' ? T('tk.m_green', 'green') : v.result === 'red' ? T('tk.m_red', 'red') : T('tk.m_flat', 'flat');
+      return `<tr><td>${esc(m)}</td><td class="num ${c}">${esc(word)} · ${v.trades} (${v.wins}W/${v.losses}L)</td></tr>`;
+    }).join('');
   } else { $('monthlyEmpty').hidden = false; }
 
   const recent = d.recent_trades || [];
@@ -170,11 +181,11 @@
     $('recent').innerHTML = recent.map(t =>
       `<tr><td>${esc(String(t.symbol).replace(/[:/]?USDT.*/, ''))}</td>
        <td>${esc(String(t.direction || '').toUpperCase())}</td>
-       <td class="num ${cls(t.pnl)}">${usd(t.pnl)}</td>
+       <td class="num ${t.result === 'win' ? 'pos' : t.result === 'loss' ? 'neg' : ''}">${esc(t.result === 'win' ? T('tk.r_win', '✓ win') : t.result === 'loss' ? T('tk.r_loss', '✗ loss') : T('tk.r_flat', 'flat'))}</td>
        <td class="muted small">${esc(new Date(t.closed_at).toLocaleDateString())}</td></tr>`).join('');
   } else { $('recentEmpty').hidden = false; }
 })();
 </script>
-<script src="/js/i18n.js?v=59"></script>
+<script src="/js/i18n.js?v=60"></script>
 </body>
 </html>

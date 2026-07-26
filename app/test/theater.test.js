@@ -76,7 +76,12 @@ test('replay-trade: picks the biggest |PnL| close of the last 14 days — loss i
   assert.ok(r.trade, 'expected a showcase trade');
   // SOL's -$75 beats BTC's +$40 in |PnL|; the 30-day-old +$500 is out of window.
   assert.equal(r.trade.symbol, 'SOL/USDT');
-  assert.equal(r.trade.pnl, -75);
+  // §4, decided: the public payload carries return-on-size and the result,
+  // never the dollar PnL or the size. -75 on 900 size = -8.33%.
+  assert.ok(!('pnl' in r.trade) && !('size_usd' in r.trade) && !('fees' in r.trade),
+    'dollar fields are back on the public replay payload');
+  assert.equal(r.trade.result, 'loss');
+  assert.ok(Math.abs(r.trade.pnl_pct - (-8.33)) < 0.01);
   assert.equal(r.trade.direction, 'LONG');
   assert.equal(r.trade.entry_price, 200);
   assert.equal(r.trade.exit_price, 185);

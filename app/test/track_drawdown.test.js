@@ -117,11 +117,12 @@ test('GET /track-record: drawdown ignores the capital switch; curve is the curre
   assert.ok(s.max_drawdown_pct != null && s.max_drawdown_pct < 5,
     `expected honest dd, got ${s.max_drawdown_pct}%`);
   assert.equal(r.data.capital_events, 1);
-  // The rendered curve is the CURRENT capital basis only — no cliff.
-  const eq = r.data.equity_curve.map(p => p.equity);
-  assert.equal(Math.min(...eq) > 500 && Math.max(...eq) < 600, true,
-    'curve must not include the paper-era points');
-  assert.equal(s.current_equity_usd, 578);
+  // The rendered curve is the CURRENT capital basis only — no cliff — and it
+  // is INDEXED to 100 at the segment start (§4: shape without account size).
+  const idx = r.data.equity_curve_idx.map(p => p.idx);
+  assert.equal(Math.min(...idx) > 90 && Math.max(...idx) < 110, true,
+    'an indexed live-era curve sits near 100 — dollar values leaked or the paper era is included');
+  assert.ok(!('current_equity_usd' in s), 'account size is back on the public payload');
 });
 
 test('GET /api/trades/equity-curve: per-user curve is the current basis only', async () => {
