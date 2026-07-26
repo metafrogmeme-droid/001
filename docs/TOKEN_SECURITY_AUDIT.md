@@ -60,11 +60,14 @@ broader. Both withdraw paths in the tooling are **V1-only instructions**, and
 - **No depositor refund exists at any cap.** Once a deposit lands it cannot be
   returned by any instruction in the program — not merely "the soft-cap refund is
   unenforceable". Published sale terms must not promise a refund of any kind.
-- **No unsold-token recovery exists.** On a partial raise the unsold share of the
-  presale allocation stays in the bucket. The plausible V2 mechanism is a
-  `BaseTokenRollover` end behavior routing the remainder to another bucket — the
-  behavior exists in the SDK — but it is not implemented here and not tested, so
-  unsold supply should be treated as stranded until it is.
+- **No unsold-token recovery exists — SOLVED 2026-07-26.** This read: on a
+  partial raise the unsold share stays in the bucket, the plausible V2 mechanism
+  is a `BaseTokenRollover` end behavior, but it is not implemented or tested, so
+  unsold supply should be treated as stranded. It is now implemented and
+  executed. See *Unsold supply is no longer stranded* below.
+
+  The depositor-refund half of F-12 is **unchanged and unsolvable in code**: once
+  a deposit lands, no V2 instruction returns it.
 
 Both commands now refuse up front with this explanation rather than failing with
 an opaque on-chain error, because the moment either is reached is the moment
@@ -155,6 +158,58 @@ against the very constant used to build it, so flipping `cancelableBySender` to
 The flag-coverage canary had the same defect. Only mutating the source exposed
 either. They now assert against literals restated in the test file and against
 the SDK's own type, which is external and cannot move in sympathy.
+
+### Unsold supply is no longer stranded (2026-07-26)
+
+`BaseTokenRollover` is attached to the presale bucket at creation and executed by
+the same permissionless `presale:trigger` that moves the quote split. Proven on a
+validator, with a deliberately tiny raise so almost the whole allocation was
+unsold:
+
+    unsold rollover: presale bucket 150000000000000000 -> 294000000000
+    149999706000000000 base units of unsold supply rolled over and are now
+    claimable from "reserve".
+
+The 294 tokens left behind are exactly what the 0.0098 SOL deposit bought at
+30,000 tokens/SOL, which is the arithmetic check that the behavior moved the
+*unsold* remainder rather than an arbitrary amount.
+
+**Why `reserve` and not somewhere else** — this was the decision, not the wiring:
+
+- **Not treasury, team, advisors or partnerships.** Unsold supply routed to an
+  insider bucket raises their share above the published §4 table, silently, in
+  exactly the scenario where the sale underperformed.
+- **Not the liquidity bucket.** Adding base tokens against an unchanged SOL side
+  pushes the pool's opening price *down* — the precise underwater outcome the LP
+  sizing decision was taken to prevent. A weak raise would have been punished
+  twice.
+- **Not a Streamflow bucket.** `amountPerPeriod` is derived from the original
+  allocation, so rolled-in tokens would never be released: stranded again, one
+  level down. `deriveUnsoldRollover` refuses a stream destination for this
+  reason.
+
+`reserve` is governance-gated behind a long cliff, so nothing reaches the market
+on its own, and it is already earmarked for post-TGE liquidity — which is what a
+weak raise actually needs.
+
+**It had the invisible-remaining-accounts defect too**, for the third time in
+this integration. `triggerBehaviorsV2` declares only `genesisAccount`,
+`primaryBucket` and `baseMint`; every behavior destination must be appended by
+hand, and the program requires them **in pairs**:
+
+    InvalidRemainingAccountsLength: Remaining accounts must be provided in pairs
+    (bucket, quote_token_account)
+
+So a `BaseTokenRollover`, which moves no quote tokens at all, still has to carry
+a quote token account — and that account has to exist. Nothing in the SDK's type
+surface says any of this; the error did. The same shape as `finalizeV2` needing
+every bucket, and as the trigger needing the liquidity bucket's signer ATA.
+
+`presale:trigger` now reads `bucket.baseTokenBalance` on both sides of the
+transaction and **fails** if the numbers do not balance, or if the behavior moved
+nothing while unsold tokens remain. A behavior that silently does nothing
+produces the same transaction result as one that worked — which is how the quote
+split shipped with no working execution path in the first place.
 
 ### New (2026-07-26): every deposit and every claim ran through a third-party upgradeable program
 

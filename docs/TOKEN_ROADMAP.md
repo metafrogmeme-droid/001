@@ -514,6 +514,34 @@ and the BUSL-1.1 license.
   not change that disclaimer.
 - **Not an offer.** This document is directional design, not a solicitation.
 
+### Unsold presale tokens
+
+A partial raise leaves `presaleAllocation - sold` in the presale bucket, and no
+V2 instruction can move it out — `withdrawUnsoldPresaleV1` rejects a V2 genesis
+account. Without a mechanism attached **at creation** (end behaviors cannot be
+added after finalize) that supply is stranded permanently; at a soft-cap raise
+that is roughly 120,000,000 tokens, 12% of supply, frozen in an account no key
+can reach.
+
+`sale.unsoldRollover` attaches a `BaseTokenRollover` behavior routing **100% of
+unsold presale tokens to the `reserve` bucket**, executed by the permissionless
+`presale:trigger`. Reserve is governance-gated behind a long cliff, so nothing
+reaches the market on its own, and it is already earmarked for post-TGE
+liquidity — which is what a weak raise needs.
+
+The destination is the decision, and the alternatives were rejected for
+concrete reasons: an insider bucket (team, advisors, partnerships, treasury)
+would raise their share above the §4 table precisely when the sale
+underperformed; the liquidity bucket would add base tokens against an unchanged
+SOL side and push the opening price *down*, punishing a weak raise twice; a
+Streamflow bucket would never release the rolled-in tokens, because
+`amountPerPeriod` was derived from the original allocation.
+
+Proven on a validator: 149,999,706 unsold tokens moved to reserve, with exactly
+the 294 tokens the deposit bought left behind. `presale:trigger` reads
+`baseTokenBalance` either side and fails if the numbers do not balance or if the
+behavior moved nothing while unsold tokens remain.
+
 ### Mandatory sale-terms disclosures
 
 Three facts about *this* sale are not visible from its marketing surface and are
@@ -786,7 +814,7 @@ disclosed.
 | `rclaw_staking` program | **Executed in-process** (`solana-program-test`): 4 unit + 4 integration tests, pinned and unpinned; attack rejected, balances asserted | **No audit**; no SBF/BPF runtime (compute budget, serialization limits); never on devnet/mainnet |
 | `PINNED_MINT` | Enforcement observed at runtime (`UnexpectedMint` 6005); malformed pin fails closed | No real mint exists to pin yet |
 | Tier gate (`tier_gate.py`) | 17 tests incl. mint-filter and byte-layout locks | Never read a real on-chain stake account |
-| Genesis presale scripts | **Executed on devnet and on a local validator** (2026-07-26): `create` → `liquidity` → `allocate` → `finalize` → `deposit` → `trigger` → `claim` all land. `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `withdraw`/`withdraw-unsold` are V1-only and **cannot run at all** against the V2 presale this tooling creates (see §14, no-refund note) |
+| Genesis presale scripts | **Executed on devnet and on a local validator** (2026-07-26): `create` → `liquidity` → `allocate` → `finalize` → `deposit` → `trigger` → `claim` all land. `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `withdraw`/`withdraw-unsold` are V1-only and **cannot run at all** against the V2 presale this tooling creates. Unsold supply is handled instead by a `BaseTokenRollover` behavior (executed and verified); the **depositor refund has no mechanism at all** and cannot be built (see §10) |
 | e2e harness | **Full lifecycle green** against a local validator, and previously against devnet | Never run against a public cluster with more than one depositor; no concurrency coverage |
 | Wormhole bridge | Script resolves + typechecks | No NTT deployment, no transfer |
 | Anchor TS spec | `npm run typecheck` passes | **Never executed** — needs the Anchor/Solana CLIs |

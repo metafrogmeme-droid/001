@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { generateSigner, publicKey, lamports } from '@metaplex-foundation/umi';
+import { generateSigner, publicKey, lamports, transactionBuilder } from '@metaplex-foundation/umi';
 import { transferSol, syncNative } from '@metaplex-foundation/mpl-toolbox';
 import {
   initializeV2,
@@ -56,6 +56,7 @@ import {
   proofToPublicKeys,
   deriveLiquidityParams,
   deriveAllocationBuckets,
+  deriveUnsoldRollover,
   REQUIRED_STREAM_FLAGS,
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
@@ -518,6 +519,41 @@ async function cmdCreate() {
         }),
       ]
     : [];
+
+  // Where presale tokens NOBODY BOUGHT go. Attached here because end behaviors
+  // are set at creation and cannot be added after finalize.
+  //
+  // Without this the unsold remainder is stranded permanently: a partial raise
+  // leaves `presaleAllocation - sold` in the presale bucket, and the only
+  // instructions that could move it out — withdrawUnsoldPresaleV1 and
+  // withdrawPresaleV1 — are V1-only and reject a V2 genesis account (0x2f).
+  // At a soft-cap raise that is ~120,000,000 tokens frozen in an account no key
+  // can reach.
+  const rollover = deriveUnsoldRollover(cfg);
+  if (rollover) {
+    const destination = findUnlockedBucketV2Pda(umi, {
+      genesisAccount: genesisAccount[0],
+      bucketIndex: rollover.bucketIndex,
+    });
+    endBehaviors.push(
+      behavior('BaseTokenRollover', {
+        processed: false,
+        percentageBps: rollover.percentageBps,
+        padding: [0, 0, 0, 0],
+        destinationBucket: destination[0],
+      })
+    );
+    console.log(
+      `    unsold rollover: ${rollover.percentageBps / 100}% of unsold presale tokens -> ` +
+      `"${rollover.name}" bucket [${rollover.bucketIndex}] ${destination[0]}`
+    );
+  } else {
+    console.warn(
+      '    WARNING: no sale.unsoldRollover configured. Any presale token nobody buys is ' +
+      'STRANDED PERMANENTLY — there is no V2 withdraw-unsold instruction. This is only ' +
+      'acceptable if the sale is certain to sell out.'
+    );
+  }
 
   // A single addPresaleBucketV2 does not fit in a Solana transaction.
   //
@@ -1001,6 +1037,45 @@ async function cmdTrigger() {
   });
   console.log(`  destination bucket signer: ${destinationOwner}`);
   console.log(`  passing destination bucket ${destination} as a remaining account`);
+
+  // Unsold presale tokens. An unlocked bucket tracks base tokens in its own
+  // `bucket.baseTokenBalance` field rather than a separate ATA, so the bucket
+  // account itself is what has to be writable here.
+  const rollover = deriveUnsoldRollover(triggerCfg);
+  let rolloverAccounts = [];
+  let rolloverDestination = null;
+  let rolloverQuoteAta = null;
+  if (rollover) {
+    rolloverDestination = findUnlockedBucketV2Pda(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      bucketIndex: rollover.bucketIndex,
+    })[0];
+    // PAIRS, not single accounts. The program rejects an odd count with
+    //
+    //   InvalidRemainingAccountsLength: Remaining accounts must be provided in
+    //   pairs (bucket, quote_token_account)
+    //
+    // — so every behavior destination contributes two entries, even a
+    // BaseTokenRollover that moves no quote tokens at all. The pairing is the
+    // program's calling convention, not a statement about what each behavior
+    // uses. Nothing in the SDK's type surface says this; the error did.
+    rolloverQuoteAta = findAssociatedTokenPda(umi, {
+      mint: WRAPPED_SOL_MINT,
+      owner: rolloverDestination,
+    })[0];
+    rolloverAccounts = [
+      { pubkey: rolloverDestination, isSigner: false, isWritable: true },
+      { pubkey: rolloverQuoteAta, isSigner: false, isWritable: true },
+    ];
+    console.log(
+      `  unsold rollover: ${rollover.percentageBps / 100}% -> "${rollover.name}" ${rolloverDestination}`
+    );
+  }
+
+  // Read the balances BEFORE, so what actually moved can be reported rather
+  // than assumed. A behavior that silently does nothing looks identical to one
+  // that worked, and this is the only chance to tell the difference.
+  const before = await readBucketBalances(umi, a.bucket, rolloverDestination);
   // The destination bucket's wSOL account has to exist before the quote share
   // can be moved into it, and nothing creates it earlier: the liquidity bucket
   // is created with a base-token allocation and no quote side. The bucket is a
@@ -1010,6 +1085,13 @@ async function cmdTrigger() {
       mint: WRAPPED_SOL_MINT,
       owner: destinationOwner,
     }).add(
+    // The rollover destination's quote account has to exist too — it is passed
+    // as the second half of its remaining-accounts pair whether or not the
+    // behavior writes to it.
+    rolloverQuoteAta
+      ? createAtaIdempotent(umi, { mint: WRAPPED_SOL_MINT, owner: rolloverDestination })
+      : transactionBuilder()
+    ).add(
     triggerBehaviorsV2(umi, {
       genesisAccount: publicKey(a.genesisAccount),
       primaryBucket: publicKey(a.bucket),
@@ -1017,11 +1099,18 @@ async function cmdTrigger() {
     }).addRemainingAccounts([
       { pubkey: destination, isSigner: false, isWritable: true },
       { pubkey: destinationQuoteAta[0], isSigner: false, isWritable: true },
+      // The BaseTokenRollover behavior's destination, if one is configured.
+      // Same invisible-requirement shape as the quote side: the instruction's
+      // declared accounts name only genesisAccount, primaryBucket and baseMint,
+      // so every behavior's destination has to be appended by hand or the
+      // program cannot resolve where it points.
+      ...rolloverAccounts,
     ])),
     umi,
     'triggerBehaviorsV2'
   );
   console.log('Behaviors executed. tx:', sig);
+  await reportRollover(umi, a.bucket, rolloverDestination, before, rollover);
   console.log('Verify the liquidity bucket received the quote share before announcing the pool.');
 }
 
@@ -1044,6 +1133,56 @@ async function cmdTrigger() {
  * artifact, so a silent change is detectable by anyone before the irreversible
  * steps run.
  */
+/**
+ * Base-token balances of the presale bucket and the rollover destination.
+ *
+ * `BucketBase.baseTokenBalance` is the bucket's own accounting of what it holds,
+ * so this is the number a rollover moves — read it either side of the trigger
+ * rather than trusting that the behavior ran. A behavior that silently does
+ * nothing produces the same transaction result as one that worked, which is
+ * exactly the failure mode that let the quote split ship with no execution path.
+ */
+async function readBucketBalances(umi, presaleBucket, rolloverDestination) {
+  const { fetchPresaleBucketV2, fetchUnlockedBucketV2 } = await import('@metaplex-foundation/genesis');
+  const presale = await fetchPresaleBucketV2(umi, publicKey(presaleBucket));
+  const out = { presale: BigInt(presale.bucket.baseTokenBalance) };
+  if (rolloverDestination) {
+    const dest = await fetchUnlockedBucketV2(umi, rolloverDestination);
+    out.destination = BigInt(dest.bucket.baseTokenBalance);
+  }
+  return out;
+}
+
+/** Report what the rollover actually moved, and fail loudly if it moved nothing. */
+async function reportRollover(umi, presaleBucket, rolloverDestination, before, rollover) {
+  if (!rollover || !rolloverDestination) {
+    console.log('  no unsold rollover configured — any unsold presale tokens stay in the bucket,');
+    console.log('  and no V2 instruction can move them out. See sale._unsoldRolloverNote.');
+    return;
+  }
+  const after = await readBucketBalances(umi, presaleBucket, rolloverDestination);
+  const movedOut = before.presale - after.presale;
+  const movedIn = after.destination - before.destination;
+
+  console.log(`  unsold rollover: presale bucket ${before.presale} -> ${after.presale}`);
+  console.log(`                   "${rollover.name}" ${before.destination} -> ${after.destination}`);
+
+  if (movedIn !== movedOut) {
+    throw new Error(
+      `Rollover accounting does not balance: ${movedOut} left the presale bucket but ${movedIn} ` +
+      `arrived in "${rollover.name}". The difference is unaccounted supply.`
+    );
+  }
+  if (movedOut === 0n && before.presale > 0n) {
+    throw new Error(
+      `The BaseTokenRollover behavior moved NOTHING while ${before.presale} base units of unsold ` +
+      'presale tokens remain in the bucket. Those tokens have no other exit — there is no V2 ' +
+      'withdraw-unsold instruction. Do not announce the sale as complete; investigate first.'
+    );
+  }
+  console.log(`  ${movedOut} base units of unsold supply rolled over and are now claimable from "${rollover.name}".`);
+}
+
 /**
  * Refuse to open the pool below the presale price without a deliberate override.
  *

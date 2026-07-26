@@ -320,6 +320,21 @@ export async function awaitAccount(umi, address, label, { tries = 30, delayMs = 
  * irreversible LP lock already exist. Checking the arithmetic offline turns that
  * into a config error nobody pays for.
  */
+/**
+ * The bucket index layout, in one place.
+ *
+ * 0 is the presale, 1 is liquidity, and the allocation buckets follow in config
+ * order. This used to be a loop counter inside cmdAllocate, which was fine while
+ * only that command needed it — but `presale:create` must derive the unsold
+ * ROLLOVER destination's PDA before any allocation bucket exists, and
+ * `presale:trigger` must derive the same address again to pass it as a remaining
+ * account. Three commands deriving one layout from three copies of the rule is
+ * how they end up pointing at different accounts.
+ */
+export const PRESALE_BUCKET_INDEX = 0;
+export const LIQUIDITY_BUCKET_INDEX = 1;
+export const ALLOCATION_BUCKET_START = LIQUIDITY_BUCKET_INDEX + 1;
+
 /** A "month" for vesting arithmetic. Declared, not assumed. */
 export const VESTING_DAYS_PER_MONTH = 30n;
 const SECONDS_PER_DAY = 86_400n;
@@ -459,6 +474,53 @@ function encodeStreamName(name) {
   return buf;
 }
 
+/**
+ * Resolve the unsold-token rollover destination to a concrete bucket.
+ *
+ * Returns null when the config declares none — which is a decision, not a
+ * default, and `presale:create` says so out loud rather than silently omitting
+ * the behavior. Without a rollover, presale tokens nobody bought are stranded in
+ * the presale bucket forever: `withdrawUnsoldPresaleV1` is V1-only and rejects a
+ * V2 genesis account (0x2f), and the SDK has no V2 equivalent.
+ *
+ * The destination is named by BUCKET NAME rather than address, because the
+ * address is a PDA that does not exist yet at create time and the name is what a
+ * human can check against §4.
+ */
+export function deriveUnsoldRollover(cfg) {
+  const r = cfg.sale?.unsoldRollover;
+  if (!r || !r.destination) return null;
+
+  const bps = Number(r.percentageBps ?? 0);
+  if (!Number.isInteger(bps) || bps <= 0 || bps > 10_000) {
+    throw new Error(
+      `sale.unsoldRollover.percentageBps must be 1-10000 (got ${r.percentageBps}). ` +
+      'Anything not rolled over is stranded in the presale bucket permanently.'
+    );
+  }
+
+  const { buckets } = deriveAllocationBuckets(cfg);
+  const target = buckets.find((b) => b.name === r.destination);
+  if (!target) {
+    throw new Error(
+      `sale.unsoldRollover.destination "${r.destination}" is not an allocation bucket. ` +
+      `Known: ${buckets.map((b) => b.name).join(', ')}.`
+    );
+  }
+  if (target.kind !== 'cliff') {
+    // A Streamflow destination would fold unsold supply into a vesting stream
+    // whose amountPerPeriod was computed for a different total, so the schedule
+    // would no longer release what it holds — the conservation property the
+    // vesting work exists to guarantee.
+    throw new Error(
+      `sale.unsoldRollover.destination "${r.destination}" is a ${target.kind} (Streamflow) bucket. ` +
+      'Rolling unsold tokens into a stream breaks its release schedule: amountPerPeriod was derived ' +
+      'from the original allocation, so the extra tokens would never be released. Pick a cliff bucket.'
+    );
+  }
+  return { name: target.name, bucketIndex: target.bucketIndex, percentageBps: bps, kind: target.kind };
+}
+
 export function deriveAllocationBuckets(cfg) {
   const decimals = BigInt(cfg.token.decimals);
   const scale = 10n ** decimals;
@@ -487,6 +549,7 @@ export function deriveAllocationBuckets(cfg) {
     return {
       name: b.name,
       kind,
+      bucketIndex: ALLOCATION_BUCKET_START + i,
       recipient: b.recipient || null,
       baseTokenAllocation,
       claimStartCondition: createTimeAbsoluteCondition(unlockAt),
