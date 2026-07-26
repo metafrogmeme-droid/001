@@ -44,6 +44,9 @@ npm run presale:plan             # OFFLINE preview: every derived param + whitel
 npm run presale:whitelist        # build the Merkle allowlist from config.whitelist
 npm run presale:create           # initializeV2 (genesis account) + addPresaleBucketV2 (+ allowlist)
 npm run presale:liquidity        # addRaydiumCpmmBucketV2 with a permanent LP lock
+npm run presale:allocate         # REQUIRED: buckets for the other 75% of supply. finalizeV2
+                                 # refuses while ANY supply is unallocated. Refuses to run
+                                 # unless every allocations.buckets[].recipient is set.
 npm run presale:finalize         # REQUIRED before any deposit (deposits fail 0x2c without it).
                                  # PERMANENTLY LOCKS bucket configuration — the LP token
                                  # allocation can never be changed after this point.

@@ -13,6 +13,7 @@
     "presale:whitelist": "node presale/genesis_presale.mjs whitelist",
     "presale:create": "node presale/genesis_presale.mjs create",
     "presale:liquidity": "node presale/genesis_presale.mjs liquidity",
+    "presale:allocate": "node presale/genesis_presale.mjs allocate",
     "presale:finalize": "node presale/genesis_presale.mjs finalize",
     "presale:deposit": "node presale/genesis_presale.mjs deposit",
     "presale:claim": "node presale/genesis_presale.mjs claim",

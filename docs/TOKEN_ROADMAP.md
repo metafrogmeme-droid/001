@@ -663,7 +663,20 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    transfer is the entire exposure.
 6. Ratify every remaining §13 parameter. `LOCKUP_SECONDS` in
    `programs/rclaw_staking/src/lib.rs` is **settled: 30 days** (2026-07-26).
-7. **Claim the IDL account in the same session as the deploy — it is
+7. **Set a recipient for every allocation bucket, and make `treasury` a multisig.**
+   `token/presale/metaplex-genesis.config.json` ships all six `allocations.buckets`
+   with an empty `recipient` on purpose — `presale:allocate` **refuses** rather than
+   defaulting to the signing key, because the default would put 750,000,000 tokens
+   under one hot wallet. `presale:plan` flags each unset one. The `treasury` bucket
+   must be the Squads vault PDA.
+
+   **Vesting limitation, stated plainly.** These are `addUnlockedBucketV2` buckets:
+   `unlockAt` is a **hard cliff for the full amount**, and they do **not** implement
+   the linear tails §4 specifies for team (24mo), advisors (18mo) or community
+   (36mo). Delivering those needs Streamflow buckets (`addStreamflowBucketV2`),
+   which is not built. Until it is, **the published vesting terms must describe
+   cliffs, not linear vesting**, or they are false.
+8. **Claim the IDL account in the same session as the deploy — it is
    first-come-first-served.** `programs/rclaw_staking/Cargo.toml` has
    `default = []` with `no-idl` disabled, so `anchor build` emits an IDL, and
    Anchor 0.30.1 stores it in a program-owned PDA whose authority belongs to
@@ -686,7 +699,7 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    audit (`docs/TOKEN_SECURITY_AUDIT.md`, *Coverage & Limitations*, deferred area
    1) and is a checklist item rather than a code change because there is no
    program deployed to claim an IDL for.
-8. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
+9. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
    it; as of 2026-07-26 it is 1 critical and 15 high, baselined in
    `token/.audit-baseline.json`. The ratchet stops it *growing*; it does not make
    the existing advisories acceptable in code that signs transactions.

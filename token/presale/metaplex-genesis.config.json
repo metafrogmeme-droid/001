@@ -1,5 +1,5 @@
 {
-  "_comment": "PROPOSED BASELINE for the RECOMMENDED primary venue (Metaplex Genesis, @metaplex-foundation/genesis). Devnet/draft. Ratify every value before launch — see docs/TOKEN_ROADMAP.md §5-6, §13. Consumed by token/presale/genesis_presale.mjs.",
+  "_comment": "PROPOSED BASELINE for the RECOMMENDED primary venue (Metaplex Genesis, @metaplex-foundation/genesis). Devnet/draft. Ratify every value before launch \u2014 see docs/TOKEN_ROADMAP.md \u00a75-6, \u00a713. Consumed by token/presale/genesis_presale.mjs.",
   "venue": "metaplex-genesis",
   "cluster": "devnet",
   "token": {
@@ -26,10 +26,10 @@
     "minContributionSol": 0.25,
     "maxContributionSol": 25,
     "refundIfSoftCapMissed": false,
-    "_softCapNote": "MUST stay false until a refund is actually implemented. Genesis fixed-price presale is 'buy at fixed price until the cap'; allocationQuoteTokenCap == hardCapSol, and there is NO native soft-cap or refund field. softCapSol above is therefore DESCRIPTIVE ONLY — it reaches no on-chain account and nothing enforces it. derivePresaleParams() throws if this is set to true, so the promise cannot ship unimplemented: to enable it, first wire a min-raise endBehaviour on the presale bucket (or publish a signed, timelocked operational cancel-and-refund procedure naming the key holders and the deadline), then flip this flag."
+    "_softCapNote": "MUST stay false until a refund is actually implemented. Genesis fixed-price presale is 'buy at fixed price until the cap'; allocationQuoteTokenCap == hardCapSol, and there is NO native soft-cap or refund field. softCapSol above is therefore DESCRIPTIVE ONLY \u2014 it reaches no on-chain account and nothing enforces it. derivePresaleParams() throws if this is set to true, so the promise cannot ship unimplemented: to enable it, first wire a min-raise endBehaviour on the presale bucket (or publish a signed, timelocked operational cancel-and-refund procedure naming the key holders and the deadline), then flip this flag."
   },
   "timeline": {
-    "_comment": "RFC3339 UTC. Placeholders — set at launch. Converted to unix-second TimeAbsolute conditions by the script.",
+    "_comment": "RFC3339 UTC. Placeholders \u2014 set at launch. Converted to unix-second TimeAbsolute conditions by the script.",
     "whitelistStart": "2026-09-01T15:00:00Z",
     "publicStart": "2026-09-03T15:00:00Z",
     "depositEnd": "2026-09-06T15:00:00Z",
@@ -47,23 +47,71 @@
     "raisedSolToLiquidityBps": 6667,
     "_quoteSplit_comment": "raisedSolToLiquidityBps is encoded on-chain: presale:create attaches a SendQuoteTokenPercentage end behavior to the presale bucket naming the liquidity bucket PDA as the destination, and presale:trigger executes it. triggerBehaviorsV2 is PERMISSIONLESS (payer, no authority), so any participant can run it. CORRECTION 2026-07-26: an earlier version of this note claimed the percentage is fixed at creation and that the operator 'can neither change the share nor decline to send it'. That was WRONG. setPresaleBucketV2Behaviors takes the genesis authority and replaces endBehaviors wholesale, so the authority can lower, repoint or delete the split at any time before it is triggered; the permissionless trigger only means a participant can win that race. What this actually gives is PUBLIC VERIFIABILITY, not immutability -- presale:liquidity and presale:trigger both re-read the live bucket and refuse on any mismatch with this config, so a silent change is detectable before the irreversible steps. Genuine immutability requires treasury.authority to be a multisig. Changing this value locally after presale:create has no on-chain effect: the bucket wins, and the on-chain check refuses on the mismatch.",
     "tokenAllocation": "100000000",
-    "_liquidityPricing_comment": "tokenAllocation is the published 10% supply bucket (docs/TOKEN_ROADMAP.md §4) and is the CEILING, not the amount always used: `npm run presale:rebalance-lp` scales it DOWN to the realised raise after the deposit window closes (updateRaydiumCpmmBucketV2 takes an optional baseTokenAllocation), which is what makes the pool open at the presale price on a weak raise instead of ~5x below it. This value is still the cap and is never exceeded. raisedSolToLiquidityBps was 6000, which opened the pool BELOW the presale price even on a full raise — every buyer underwater at listing, against a PERMANENT LP lock. 6667 is the parity value: tokenAllocation / sale.presaleAllocation, so the pool receives the same proportion of tokens as of SOL and opens at the presale price at the hard cap. The roadmap already listed the 60% split as an assumption to ratify (§13), which is why this is the number that moved. deriveLiquidityParams() enforces the floor and warns that the soft-cap case stays underwater while the 5x cap spread remains.",
+    "_liquidityPricing_comment": "tokenAllocation is the published 10% supply bucket (docs/TOKEN_ROADMAP.md \u00a74) and is the CEILING, not the amount always used: `npm run presale:rebalance-lp` scales it DOWN to the realised raise after the deposit window closes (updateRaydiumCpmmBucketV2 takes an optional baseTokenAllocation), which is what makes the pool open at the presale price on a weak raise instead of ~5x below it. This value is still the cap and is never exceeded. raisedSolToLiquidityBps was 6000, which opened the pool BELOW the presale price even on a full raise \u2014 every buyer underwater at listing, against a PERMANENT LP lock. 6667 is the parity value: tokenAllocation / sale.presaleAllocation, so the pool receives the same proportion of tokens as of SOL and opens at the presale price at the hard cap. The roadmap already listed the 60% split as an assumption to ratify (\u00a713), which is why this is the number that moved. deriveLiquidityParams() enforces the floor and warns that the soft-cap case stays underwater while the 5x cap spread remains.",
     "dex": "raydium",
     "lpLock": "never-claim (permanent)",
     "_note": "Add via addRaydiumCpmmBucketV2 with createNeverClaimSchedule() for a permanent LP lock. Wired as an optional step in the runbook."
   },
   "treasury": {
-    "_comment": "authority controls the sale, the proceeds and the unsold-token withdrawal, and is IMMUTABLE once initializeV2 runs — set it to a Squads multisig vault PDA before any real sale. recipient is where withdraw-unsold sends leftover supply; --recipient overrides it. Both empty means 'the signing hot key', which presale:create and presale:withdraw-unsold warn about.",
+    "_comment": "authority controls the sale, the proceeds and the unsold-token withdrawal, and is IMMUTABLE once initializeV2 runs \u2014 set it to a Squads multisig vault PDA before any real sale. recipient is where withdraw-unsold sends leftover supply; --recipient overrides it. Both empty means 'the signing hot key', which presale:create and presale:withdraw-unsold warn about.",
     "authority": "",
     "recipient": ""
   },
   "antiAbuse": {
-    "_comment": "DESCRIPTIVE INDEX ONLY — no code reads this block. These were booleans, which read as switches you could toggle; they never were. Changing anything here has NO effect. Edit sale.* and whitelist instead.",
-    "perWalletMax": "wired — sale.maxContributionSol becomes depositLimit",
-    "perWalletMin": "wired — sale.minContributionSol becomes minimumDepositAmount",
-    "whitelist": "wired — the whitelist array becomes a Merkle allowlist on the presale bucket",
-    "backendSigner": "NOT IMPLEMENTED — no Sybil or identity binding exists anywhere. The per-wallet cap is per WALLET, not per person, so it is bypassable by generating more wallets. See docs/TOKEN_ROADMAP.md §11."
+    "_comment": "DESCRIPTIVE INDEX ONLY \u2014 no code reads this block. These were booleans, which read as switches you could toggle; they never were. Changing anything here has NO effect. Edit sale.* and whitelist instead.",
+    "perWalletMax": "wired \u2014 sale.maxContributionSol becomes depositLimit",
+    "perWalletMin": "wired \u2014 sale.minContributionSol becomes minimumDepositAmount",
+    "whitelist": "wired \u2014 the whitelist array becomes a Merkle allowlist on the presale bucket",
+    "backendSigner": "NOT IMPLEMENTED \u2014 no Sybil or identity binding exists anywhere. The per-wallet cap is per WALLET, not per person, so it is bypassable by generating more wallets. See docs/TOKEN_ROADMAP.md \u00a711."
   },
   "whitelist": [],
-  "_whitelistNote": "Base58 wallet addresses for the OG round. Run `npm run presale:whitelist` to build the Merkle tree + proofs (token/.artifacts/allowlist.devnet.json); the root is applied on presale:create and each wallet's proof is presented automatically on presale:deposit during the whitelist window (which ends at timeline.publicStart)."
+  "_whitelistNote": "Base58 wallet addresses for the OG round. Run `npm run presale:whitelist` to build the Merkle tree + proofs (token/.artifacts/allowlist.devnet.json); the root is applied on presale:create and each wallet's proof is presented automatically on presale:deposit during the whitelist window (which ends at timeline.publicStart).",
+  "allocations": {
+    "_comment": "The buckets for the rest of the supply. finalizeV2 REFUSES unless every base token is allocated across buckets \u2014 'Total supply must be fully allocated before finalize' \u2014 so without these the presale can be built but never opened. Percentages mirror the \u00a74 table in docs/TOKEN_ROADMAP.md; presale (15%) and liquidity (10%) are their own buckets above, and these six cover the remaining 75%. Every `recipient` must be set before a real sale: an empty recipient falls back to the signing key, which is exactly the single-hot-key custody the roadmap \u00a711 forbids.",
+    "_vestingLimitation": "These are UNLOCKED buckets (addUnlockedBucketV2). They support a CLIFF via unlockAt \u2014 nothing is claimable before it \u2014 but NOT linear vesting. The \u00a74 table specifies linear tails for team (24mo), advisors (18mo) and community (36mo); delivering those needs Streamflow buckets (addStreamflowBucketV2), which is NOT implemented here. Until it is, unlockAt is a hard cliff for the FULL amount and the published vesting terms must say so.",
+    "buckets": [
+      {
+        "name": "community",
+        "tokens": "250000000",
+        "unlockAt": "2026-09-08T15:00:00Z",
+        "recipient": "",
+        "_note": "\u00a74: 25%, released over 36 months. Cliff-only here \u2014 see _vestingLimitation."
+      },
+      {
+        "name": "team",
+        "tokens": "150000000",
+        "unlockAt": "2027-09-08T15:00:00Z",
+        "recipient": "",
+        "_note": "\u00a74: 15%, 12-month cliff then 24-month linear. Cliff encoded; linear tail is not."
+      },
+      {
+        "name": "treasury",
+        "tokens": "200000000",
+        "unlockAt": "2026-09-08T15:00:00Z",
+        "recipient": "",
+        "_note": "\u00a74: 20%, DAO-controlled multisig, time-locked. recipient MUST be the Squads vault PDA."
+      },
+      {
+        "name": "partnerships",
+        "tokens": "80000000",
+        "unlockAt": "2027-03-08T15:00:00Z",
+        "recipient": "",
+        "_note": "\u00a74: 8%, deal-by-deal over 6-12 months."
+      },
+      {
+        "name": "advisors",
+        "tokens": "20000000",
+        "unlockAt": "2027-03-08T15:00:00Z",
+        "recipient": "",
+        "_note": "\u00a74: 2%, 6-month cliff then 18-month linear. Cliff encoded; linear tail is not."
+      },
+      {
+        "name": "reserve",
+        "tokens": "50000000",
+        "unlockAt": "2027-09-08T15:00:00Z",
+        "recipient": "",
+        "_note": "\u00a74: 5%, locked, governance-unlockable only."
+      }
+    ]
+  }
 }

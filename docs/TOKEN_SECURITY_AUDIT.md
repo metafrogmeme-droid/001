@@ -27,10 +27,23 @@ true of the current tree. What changed, and when:
 
 | 2026-07-26 | Genesis SDK read directly (`token/node_modules`, unavailable during the audit) | Corrects an overstatement and closes **F-25**. See below. |
 
-Unchanged and still open: no live devnet deployment or SBF build has happened
-(blocked on faucet funding, not on code), no third-party audit exists, the
-program upgrade authority is still a single key, and the Anchor IDL account
-lifecycle noted below remains unowned.
+**The presale now runs end to end on devnet (2026-07-26).** This retires the
+report's largest standing caveat — "No transaction was ever sent by any script in
+`token/`" — and it did so by finding seven blocking defects the offline analysis
+could not see, starting with a missing Umi plugin that made `presale:create`
+throw on its first instruction. The full 1,000,000,000 config now creates eight
+buckets, finalizes, accepts a deposit and pays a claim. Details in the roadmap's
+§14 and in PRs #850 and later.
+
+Two of those defects were requirements invisible from the SDK's type surface and
+absent from this repository entirely: `finalizeV2` is mandatory before any
+deposit, and it refuses unless the **whole supply** is allocated across buckets.
+The audit's scope did not reach them because nothing had ever been executed.
+
+Unchanged and still open: no SBF build, no third-party audit, the program upgrade
+authority is still a single key, the Anchor IDL account lifecycle remains
+unowned, and linear vesting for team/advisors/community is specified in §4 but
+not implemented (the allocation buckets encode cliffs only).
 
 ### Correction to the F-11 remediation, and a new authority finding
 

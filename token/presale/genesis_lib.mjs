@@ -177,6 +177,69 @@ export async function awaitAccount(umi, address, label, { tries = 30, delayMs = 
   );
 }
 
+
+/**
+ * Derive the non-presale, non-liquidity allocation buckets, and prove the whole
+ * supply is accounted for BEFORE anything is sent.
+ *
+ * `finalizeV2` refuses unless every base token is allocated across buckets:
+ *
+ *     Program log: Total supply must be fully allocated before finalize
+ *
+ * and finalize is the step that opens deposits, so a launch that is short by one
+ * token is fully built and permanently unopenable. Worse, it fails at the END of
+ * the sequence, after the genesis account, the presale bucket and the
+ * irreversible LP lock already exist. Checking the arithmetic offline turns that
+ * into a config error nobody pays for.
+ */
+export function deriveAllocationBuckets(cfg) {
+  const decimals = BigInt(cfg.token.decimals);
+  const scale = 10n ** decimals;
+  const totalSupply = BigInt(cfg.token.totalSupply) * scale;
+  const presale = BigInt(cfg.sale.presaleAllocation) * scale;
+  const liquidity = BigInt(cfg.liquidity.tokenAllocation) * scale;
+
+  const raw = (cfg.allocations && cfg.allocations.buckets) || [];
+  const buckets = raw.map((b, i) => {
+    if (!b.name) throw new Error(`allocations.buckets[${i}] has no name`);
+    const tokens = BigInt(b.tokens);
+    if (tokens <= 0n) {
+      throw new Error(`allocation "${b.name}" must be a positive token amount (got ${b.tokens})`);
+    }
+    const unlockAt = unix(b.unlockAt);
+    return {
+      name: b.name,
+      recipient: b.recipient || null,
+      baseTokenAllocation: tokens * scale,
+      claimStartCondition: createTimeAbsoluteCondition(unlockAt),
+      // Open-ended: an unlocked bucket with a claim window that closes would
+      // strand its allocation if nobody claimed in time. 100 years out is
+      // "never" for this purpose and keeps the condition type uniform.
+      claimEndCondition: createTimeAbsoluteCondition(unlockAt + 100n * 365n * 24n * 3600n),
+      _unlockAt: unlockAt,
+      _tokens: tokens,
+    };
+  });
+
+  const allocated = buckets.reduce((a, b) => a + b.baseTokenAllocation, presale + liquidity);
+  if (allocated !== totalSupply) {
+    const short = totalSupply - allocated;
+    const asTokens = (v) => (v / scale).toLocaleString();
+    throw new Error(
+      `Supply is not fully allocated: presale ${asTokens(presale)} + liquidity ` +
+      `${asTokens(liquidity)} + ${buckets.length} allocation bucket(s) ` +
+      `${asTokens(allocated - presale - liquidity)} = ${asTokens(allocated)}, but token.totalSupply ` +
+      `is ${asTokens(totalSupply)} (${short > 0n ? 'short by' : 'over by'} ` +
+      `${asTokens(short > 0n ? short : -short)}).\n` +
+      'finalizeV2 rejects this with "Total supply must be fully allocated before finalize", and ' +
+      'it fails AFTER the genesis account, the presale bucket and the permanent LP lock already ' +
+      'exist. Fix allocations.buckets in the config before creating anything.'
+    );
+  }
+
+  return { buckets, totalSupply, presale, liquidity, allocated };
+}
+
 // ── Derivations: human config → exact on-chain params ───────────────────────
 
 const LAMPORTS_PER_SOL = 1_000_000_000n;
@@ -499,17 +562,6 @@ export function deriveLiquidityParams(cfg) {
       `updateRaydiumCpmmBucketV2 is rejected once the genesis account is finalized (error 0x2b), ` +
       `and deposits are impossible before finalize (0x2c) — so by the time the raise is known, the ` +
       `number is already immutable. Verified on devnet 2026-07-26.\n`
-    );
-    console.warn(
-      `NOTE: at the SOFT cap a FIXED ${Number(cfg.liquidity.tokenAllocation).toLocaleString()}-token ` +
-      `allocation would open the pool at ${worstCasePoolPrice.toExponential(6)} SOL/token — ` +
-      `${ratio}x below the presale price ${presalePrice.toExponential(6)}, with a permanent LP ` +
-      `lock. That is inherent to a fixed allocation across a ` +
-      `${(Number(cfg.sale.hardCapSol) / Number(cfg.sale.softCapSol)).toFixed(1)}x cap spread.\n` +
-      `      This is now CORRECTABLE: run \`npm run presale:rebalance-lp\` after the deposit ` +
-      `window closes and before the pool is created. It scales the token side to the realised ` +
-      `raise so the pool opens AT the presale price for any raise between the caps. The figures ` +
-      `above are the un-rebalanced worst case, i.e. what happens if that step is skipped.`
     );
   }
 

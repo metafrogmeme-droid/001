@@ -22,6 +22,8 @@ import {
   initializeV2,
   finalizeV2,
   WRAPPED_SOL_MINT,
+  addUnlockedBucketV2,
+  findUnlockedBucketV2Pda,
   addPresaleBucketV2Base,
   addPresaleBucketV2Extensions,
   setPresaleBucketV2Behaviors,
@@ -51,6 +53,7 @@ import {
   buildAllowlist,
   proofToPublicKeys,
   deriveLiquidityParams,
+  deriveAllocationBuckets,
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
   TOKEN_ROOT,
@@ -190,6 +193,24 @@ function cmdPlan() {
     'the encoded split is publicly VERIFIABLE, not immutable: setPresaleBucketV2Behaviors lets the ' +
     'genesis authority replace it until it is triggered, so presale:liquidity and presale:trigger ' +
     're-read the live bucket and refuse on a mismatch. A multisig authority is the real mitigation.');
+
+  // Supply allocation. This runs in the PREVIEW, not only in tests, because it
+  // is the check that decides whether the launch can ever be opened —
+  // finalizeV2 refuses on an unallocated supply, and it refuses at the END of
+  // the sequence, after the irreversible LP lock exists. Catching it here costs
+  // nothing; catching it on chain costs the whole launch.
+  const alloc = deriveAllocationBuckets(cfg);
+  const scale = 10n ** BigInt(cfg.token.decimals);
+  console.log('Allocation      :', `${alloc.buckets.length} bucket(s) + presale + liquidity =`,
+    `${(alloc.allocated / scale).toLocaleString()} / ${(alloc.totalSupply / scale).toLocaleString()}`,
+    cfg.token.symbol, '(fully allocated ✓ — finalizeV2 requires this)');
+  for (const b of alloc.buckets) {
+    console.log('                 ',
+      `${b.name.padEnd(13)} ${(b._tokens).toLocaleString().padStart(13)}  cliff ` +
+      `${new Date(Number(b._unlockAt) * 1000).toISOString().slice(0, 10)}` +
+      `${b.recipient ? '' : '  RECIPIENT UNSET — presale:allocate will refuse'}`);
+  }
+
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
   console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:finalize → presale:deposit → (window closes) → presale:trigger → presale:claim.');
   console.log('       presale:finalize is REQUIRED before any deposit and PERMANENTLY locks bucket configuration.');
@@ -912,6 +933,88 @@ async function assertEncodedSplitOnChain(umi, artifact, cfg) {
   return split;
 }
 
+// ── allocate: create the buckets for the rest of the supply ─────────────────
+//
+// Without this the launch CANNOT be opened. `finalizeV2` refuses while any base
+// token is unallocated — "Total supply must be fully allocated before finalize" —
+// and finalize is what enables deposits. The presale and liquidity buckets cover
+// 25% of a 1,000,000,000 supply, so the other 75% needs buckets or the whole
+// thing is built and permanently unopenable.
+//
+// These are UNLOCKED buckets: an allocation to a recipient, claimable after a
+// cliff. They do NOT implement the linear vesting tails the §4 table specifies
+// for team, advisors and community — that needs Streamflow buckets, which are
+// not built here. `unlockAt` is a hard cliff for the FULL amount, and the
+// published vesting terms must match that or they are false.
+async function cmdAllocate() {
+  const cfg = loadConfig();
+  const env = loadEnv();
+  const umi = makeUmi(env);
+  await assertDevnet(umi);
+  const a = requirePresale();
+
+  // Throws offline if the supply does not add up — before a single send.
+  const { buckets, totalSupply } = deriveAllocationBuckets(cfg);
+  const scale = 10n ** BigInt(cfg.token.decimals);
+
+  console.log('=== Allocation buckets (DEVNET / DRAFT) ===');
+  console.log('Total supply    :', (totalSupply / scale).toLocaleString(), cfg.token.symbol);
+  console.log('Buckets to add  :', buckets.length);
+
+  const written = { ...(a.allocationBuckets || {}) };
+  // Indices 0 and 1 are the presale and liquidity buckets.
+  let index = LIQUIDITY_BUCKET_INDEX + 1;
+  for (const b of buckets) {
+    const bucketIndex = index;
+    index += 1;
+    if (written[b.name]) {
+      console.log(`  [skip] ${b.name} already created at ${written[b.name].address}`);
+      continue;
+    }
+    // An unset recipient silently defaults to the signing key — the exact
+    // single-hot-key custody roadmap §11 forbids. Refuse rather than default.
+    if (!b.recipient) {
+      throw new Error(
+        `allocation "${b.name}" has no recipient. It would default to the signing key ` +
+        `(${umi.identity.publicKey}), putting ${(b._tokens).toLocaleString()} tokens under one ` +
+        'hot key. Set allocations.buckets[].recipient — the treasury bucket in particular MUST ' +
+        'be the Squads vault PDA (docs/TOKEN_ROADMAP.md §11).'
+      );
+    }
+    const pda = findUnlockedBucketV2Pda(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      bucketIndex,
+    });
+    console.log(
+      `  [${bucketIndex}] ${b.name}: ${(b._tokens).toLocaleString()} -> ${b.recipient} ` +
+      `(cliff ${new Date(Number(b._unlockAt) * 1000).toISOString().slice(0, 10)})`
+    );
+    const sig = await sendChecked(
+      addUnlockedBucketV2(umi, {
+        genesisAccount: publicKey(a.genesisAccount),
+        baseMint: publicKey(a.baseMint),
+        bucketIndex,
+        recipient: publicKey(b.recipient),
+        baseTokenAllocation: b.baseTokenAllocation,
+        claimStartCondition: b.claimStartCondition,
+        claimEndCondition: b.claimEndCondition,
+      }),
+      umi,
+      `addUnlockedBucketV2(${b.name})`
+    );
+    console.log('     tx:', sig);
+    await awaitAccount(umi, pda[0], `${b.name} bucket`);
+    written[b.name] = { address: pda[0].toString(), bucketIndex, tokens: b._tokens.toString(), tx: sig };
+    // Checkpoint after EVERY bucket: this is a multi-transaction sequence with
+    // no atomicity, and a partial run must be resumable rather than repeated
+    // (a repeat would try to reuse an index that already exists).
+    saveArtifact(PRESALE_ARTIFACT, { ...a, allocationBuckets: written });
+  }
+
+  console.log('\nAll allocation buckets created. Supply is fully allocated —');
+  console.log('`npm run presale:finalize` can now run.');
+}
+
 // ── finalize: lock the launch configuration and open it for deposits ─────────
 //
 // REQUIRED, and discovered only by running it. `depositPresaleV2` fails with
@@ -942,7 +1045,8 @@ async function cmdFinalize() {
   // invisible from the SDK's type surface — the program reports it as:
   //   Program log: Missing bucket accounts for finalize
   // and it is checked in addition to the supply-fully-allocated rule.
-  const buckets = [publicKey(a.bucket), publicKey(a.liquidityBucket)].filter(Boolean);
+  const allocationBuckets = Object.values(a.allocationBuckets || {}).map((b) => publicKey(b.address));
+  const buckets = [publicKey(a.bucket), publicKey(a.liquidityBucket), ...allocationBuckets].filter(Boolean);
   console.log(`  passing ${buckets.length} bucket account(s) as remaining accounts`);
   // Every one of them must be readable, or the allocation sum silently comes up
   // short and finalize rejects with a message about supply rather than lag.
@@ -1038,6 +1142,7 @@ const table = {
   whitelist: cmdWhitelist,
   create: cmdCreate,
   liquidity: cmdLiquidity,
+  allocate: cmdAllocate,
   finalize: cmdFinalize,
   trigger: cmdTrigger,
   deposit: cmdDeposit,
@@ -1057,7 +1162,7 @@ if (invokedDirectly) {
   if (!table[cmd]) {
     console.error(
       'Usage: node genesis_presale.mjs ' +
-        '<plan|whitelist|create|liquidity|finalize|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
+        '<plan|whitelist|create|liquidity|allocate|finalize|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
     );
     process.exit(2);
   }
