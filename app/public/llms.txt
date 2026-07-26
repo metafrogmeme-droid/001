@@ -1,0 +1,71 @@
+# RUNECLAW
+
+> An autonomous AI trading platform by HUMANOID TRADERS that proves what it
+> does instead of asking to be believed. Every engine call and paper trade is
+> cryptographically sealed at decision time; daily Merkle roots publish the
+> whole stream and can be anchored on Base; anyone — human or agent — can
+> re-derive every hash. Not investment advice, ever.
+
+## The honesty doctrine (applies to every endpoint below)
+
+- No fabricated numbers: unreadable data is omitted, never invented, and an
+  unknown state is stated as unknown — never as a verdict.
+- Safety reads are heuristic flags with reasons, never verdicts. A clean
+  result is not a guarantee.
+- No trading advice, price predictions or buy/sell recommendations anywhere.
+- Public surfaces show percent, ratio and count — never account amounts.
+- Past performance never predicts future results.
+
+## Verify us (quickstart)
+
+Every sealed call: seal = sha256(utf8(seal_payload)). Daily roots: leaves
+are the day's seals deduped + sorted ascending; parent = sha256(utf8(leftHex
++ rightHex)). Base anchor calldata = hex(utf8("RCROOT1:<day>:<root>")) in a
+zero-value transaction. Full third-party contract with copy-paste snippets:
+https://pmvc58g2.mule.page/provable
+
+## Agent-to-agent (machine surfaces)
+
+- MCP server (JSON-RPC 2.0, Streamable HTTP, read-only tools):
+  https://pmvc58g2.mule.page/mcp
+- ERC-8257 tool manifest (families split machine-readably into
+  published-data vs caller-input tools):
+  https://pmvc58g2.mule.page/.well-known/ai-tool/runeclaw-intel.json
+- ERC-8004 public agent directory: GET https://pmvc58g2.mule.page/api/public/agent/<address>
+  (any registered agent's identity card by address — ours included)
+- Proof-of-PnL statement (re-derivable hashes): GET https://pmvc58g2.mule.page/api/proofofpnl
+- Single-endpoint tool dispatcher: POST https://pmvc58g2.mule.page/api/tool/invoke
+
+## Public APIs (no key, no account, rate-limited)
+
+- GET /api/gas — live gas per chain (Ethereum, Base, Arbitrum, Optimism,
+  BNB, Avalanche, Polygon) with native prices and a FLOOR transfer cost;
+  indicative market facts, unreadable chains omitted.
+- GET /api/call/<key> — a sealed call with its payload, Merkle proof and
+  (when anchored) the Base transaction. Human page: /call/<key>.
+- GET /api/roots — the daily seal-roots feed anyone can mirror.
+- GET /api/market/sentinel — market-wide crowding read (heuristic flags).
+- GET /api/arena/leaderboard — paper-trading board: percent and counts only,
+  anonymous opt-in handles.
+- GET /api/arena/trader/<handle> — one public trader record (percent,
+  counts, badges). Human page: /trader/<handle>; feed card:
+  /api/frame/trader/<handle>/image.
+- GET /api/learn/lessons — the Study Room lesson shelf (education, English
+  content, education-not-advice by construction).
+- GET /api/nft/stats — the soulbound Rune of Entry collection count.
+- GET /api/frame/call/<key>/image — a sealed call as a 800x418 PNG frame
+  card (server-recomputed check stated ON the image).
+
+## Pages worth reading
+
+- /provable — how to verify everything with your own tools
+- /proof — the Proof-of-PnL statement (re-derivable hashes)
+- /arena — the paper-trading arena (virtual stake, live prices)
+- /learn — the Study Room (diary, lessons, AI tutor)
+- /escape, /stress, /firewall, /intent, /guardian — the agent-safety suite
+
+## What no endpoint here will ever do
+
+See an account, place an order, move funds, hold a key, or tell you what to
+buy. The AI proposes; deterministic controls authorize; the wallet enforces;
+the recorder proves.
