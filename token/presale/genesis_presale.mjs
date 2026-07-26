@@ -850,12 +850,52 @@ async function cmdTrigger() {
   console.log('Note: this only succeeds once the deposit window has closed.');
   await assertEncodedSplitOnChain(umi, a, loadConfig());
 
+  // The DESTINATION bucket must be passed as a remaining account, and its quote
+  // token account with it. Neither appears in the instruction's declared
+  // accounts — the SDK lists only genesisAccount, primaryBucket and baseMint —
+  // so this is invisible from the type surface. Without them the program cannot
+  // resolve where the behavior points and rejects with:
+  //
+  //   Program log: TriggerBehaviorsV2
+  //   Program log: The destination bucket was not found
+  //
+  // Same shape as finalizeV2's bucket accounts. Found on devnet: this command
+  // could never have executed, which means the raise-to-liquidity split — the
+  // entire F-11 remediation — had no working execution path.
+  const destination = publicKey(a.liquidityBucket);
+  // The quote tokens land in the bucket's SIGNER PDA, not in the bucket account
+  // itself — RaydiumCpmmBucketV2.bucketSigner is documented as "holds quote
+  // tokens from transition, LP tokens, lamports". Deriving the ATA against the
+  // bucket address instead produces an account the program rejects with "The
+  // Token Account's owner does not match the recipient". Read the signer from
+  // chain rather than re-deriving it, so a seed change upstream cannot silently
+  // point this at the wrong account.
+  const { fetchRaydiumCpmmBucketV2 } = await import('@metaplex-foundation/genesis');
+  const lpBucket = await fetchRaydiumCpmmBucketV2(umi, destination);
+  const destinationOwner = lpBucket.bucketSigner;
+  const destinationQuoteAta = findAssociatedTokenPda(umi, {
+    mint: WRAPPED_SOL_MINT,
+    owner: destinationOwner,
+  });
+  console.log(`  destination bucket signer: ${destinationOwner}`);
+  console.log(`  passing destination bucket ${destination} as a remaining account`);
+  // The destination bucket's wSOL account has to exist before the quote share
+  // can be moved into it, and nothing creates it earlier: the liquidity bucket
+  // is created with a base-token allocation and no quote side. The bucket is a
+  // PDA, so this is an off-curve ATA — legal, but it will not appear by itself.
   const sig = await sendChecked(
+    createTokenIfMissing(umi, {
+      mint: WRAPPED_SOL_MINT,
+      owner: destinationOwner,
+    }).add(
     triggerBehaviorsV2(umi, {
       genesisAccount: publicKey(a.genesisAccount),
       primaryBucket: publicKey(a.bucket),
       baseMint: publicKey(a.baseMint),
-    }),
+    }).addRemainingAccounts([
+      { pubkey: destination, isSigner: false, isWritable: true },
+      { pubkey: destinationQuoteAta[0], isSigner: false, isWritable: true },
+    ])),
     umi,
     'triggerBehaviorsV2'
   );

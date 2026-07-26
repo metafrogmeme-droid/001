@@ -247,6 +247,14 @@ async function main() {
   const depositSol = String(2 * (cfgBase.sale?.minContributionSol ?? 0.25));
   step('deposit', ['presale/genesis_presale.mjs', 'deposit', '--amount', depositSol]);
 
+  // The deposit window is closed by now (depositEnd < tge), so the presale
+  // bucket's end behaviors are executable. This is the step that ACTUALLY moves
+  // the raise-to-liquidity share on chain — the whole F-11 remediation rests on
+  // it, and until now it had never been executed against any cluster. It is
+  // permissionless: triggerBehaviorsV2 takes a payer and no authority.
+  await sleepUntil(depositEnd);
+  step('trigger', ['presale/genesis_presale.mjs', 'trigger']);
+
   await sleepUntil(tge);
   step('claim', ['presale/genesis_presale.mjs', 'claim']);
 
