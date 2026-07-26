@@ -98,6 +98,30 @@ jobs:
       - name: Build — release profile
         run: cargo build -p rclaw_staking --release
 
+      # The artifact that actually gets DEPLOYED, built for the first time.
+      #
+      # `cargo test` builds for the host. Solana runs SBF bytecode, and nothing
+      # in this repo had ever produced any — the audit listed "no SBF build" as
+      # an open caveat. When it was finally attempted it did not work, for a
+      # reason no host build could surface: the toolchain pinned in Anchor.toml
+      # (Solana 1.18.26) bundles cargo 1.75, and the dependency tree had drifted
+      # into crates requiring `edition2024` and rustc 1.85+. The program could
+      # not be built for deployment at all.
+      #
+      # Fixing that needed Cargo.lock pinned to lockfile v3 (cargo 1.75 cannot
+      # parse v4) plus 19 transitive downgrades. Both are load-bearing and both
+      # are easy to undo by accident — a single `cargo update` re-breaks
+      # deployability while every host check stays green. Hence this gate.
+      - name: Install the SBF toolchain (pinned to Anchor.toml's solana_version)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Build — SBF bytecode (deployable artifact)
+        run: |
+          cargo-build-sbf --manifest-path programs/rclaw_staking/Cargo.toml
+          ls -l target/deploy/rclaw_staking.so
+
       # SCA for the Rust side. Same reasoning as the npm gate in token-tooling:
       # Cargo.lock carries 8 RustSec advisories today, all inside the Solana 1.18
       # stack that rust-toolchain.toml and Anchor.toml pin ON PURPOSE so the

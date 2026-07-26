@@ -70,7 +70,57 @@ Both commands now refuse up front with this explanation rather than failing with
 an opaque on-chain error, because the moment either is reached is the moment
 somebody is trying to get value back.
 
-Unchanged and still open: no SBF build, no third-party audit, the program upgrade
+**The SBF build now exists, and getting there was itself a finding
+(2026-07-26).** The report listed "no SBF build" as an open caveat. Attempting it
+showed the program **could not be built for deployment at all**: the toolchain
+pinned in `Anchor.toml` (Solana 1.18.26) bundles cargo 1.75, while the dependency
+tree had drifted into crates requiring `edition2024` and rustc 1.85+. Both
+`cargo build-sbf` and `anchor build` failed before producing anything. So F-23's
+remediation — pin the toolchain so the deployed bytecode is reproducible — was
+hollow in a way no host build could reveal: there was no bytecode to reproduce.
+
+It builds now (`target/deploy/rclaw_staking.so`, ~300 KB), at the cost of pinning
+`Cargo.lock` to lockfile v3 and holding 19 transitive crates back. CI builds the
+SBF artifact on every run so a stray `cargo update` cannot silently un-deploy the
+program while every host check stays green. The durable fix is a Solana
+platform-tools bump — the same decision the RustSec backlog needs.
+
+The bytecode has now also been **deployed and executed** — to a local validator,
+which needs no faucet — and that answers two more of the report's open questions
+while turning a third finding much sharper.
+
+**Compute budget is comfortable.** Measured on real SBF, not inferred:
+
+| Path | Compute units | Of 200,000 |
+|---|---:|---:|
+| First `stake` (creates the stake record *and* the vault ATA) | 57,124 | 29% |
+| Subsequent `stake` (steady state) | 28,172 | 14% |
+
+The worst case includes the `init_if_needed` on two accounts, the TLV extension
+walk in `reject_hazardous_extensions`, and the `transfer_checked` CPI. There is
+no budget risk at the default limit.
+
+**The `StakeAccount` layout is confirmed against real bytecode.** Reading the
+deployed account at the offsets `bot/token/tier_gate.py` uses returns exactly
+what the Borsh unit test asserts in-process: 162 bytes total, `version = 1` at 8,
+`amount` at 73, `unlock_at` at 89 set 30 days out. The cross-language contract
+now rests on execution rather than on a serializer test.
+
+**F-22 is a hard functional blocker, not an identifiability problem.** The report
+treated the placeholder `declare_id!` as a verifiability and squatting concern.
+Deploying showed it is worse: Anchor refuses to run at all when the deployed
+address differs from the declared one —
+
+    AnchorError: DeclaredProgramIdMismatch. Error Number: 4100.
+
+— so the program as committed cannot execute a single instruction at any address
+whose keypair the project holds. `anchor keys sync` is not hygiene; nothing works
+without it.
+
+Still not established: the program has never been deployed to a *public* cluster,
+and no third-party audit exists.
+
+Unchanged and still open: no third-party audit, the program upgrade
 authority is still a single key, the Anchor IDL account lifecycle remains
 unowned, and linear vesting for team/advisors/community is specified in §4 but
 not implemented (the allocation buckets encode cliffs only).

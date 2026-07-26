@@ -654,9 +654,24 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    found-and-fixed is not an audit.
 2. Run `cargo test -p rclaw_staking`, `anchor build && anchor test`, and
    `npm run e2e:dryrun` from a network-capable machine.
-3. Run `anchor keys sync` and confirm the placeholder program id
-   `Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS` appears nowhere in the tree. CI
-   fails the build if it does, but the sync itself is a manual step.
+3. **Run `anchor keys sync`. This is a hard blocker, not hygiene.** Confirm the
+   placeholder id `Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS` appears nowhere
+   in the tree. CI fails a value-bearing build if it does, but the sync itself is
+   manual.
+
+   Proven by deploying the real bytecode to a local validator on 2026-07-26:
+   Anchor **refuses to execute** when the deployed address differs from
+   `declare_id!` —
+
+   ```
+   AnchorError: DeclaredProgramIdMismatch. Error Number: 4100.
+   The declared program id does not match the actual program id.
+   ```
+
+   So the program as committed can only run if deployed at an address whose
+   keypair nobody holds. It is not "identifiable but deployable" as the audit
+   framed it — **every instruction fails**. The first stake attempt against a
+   freshly deployed .so burned 4,071 CU and reverted.
 4. Set `RCLAW_PINNED_MINT` (program) and `RCLAW_MINT` (bot gate) to the real mint.
 5. **Transfer the program upgrade authority off the deploy key — before the vault
    accepts its first deposit, not after.** See §11; the window between deploy and
@@ -699,7 +714,21 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    audit (`docs/TOKEN_SECURITY_AUDIT.md`, *Coverage & Limitations*, deferred area
    1) and is a checklist item rather than a code change because there is no
    program deployed to claim an IDL for.
-9. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
+9. **Do not run a bare `cargo update`.** The program is only buildable for
+   deployment because `Cargo.lock` is pinned to **lockfile v3** and 19 transitive
+   crates are held at older versions. The SBF toolchain pinned in `Anchor.toml`
+   (Solana 1.18.26) bundles **cargo 1.75**, and the current ecosystem has moved
+   to crates requiring `edition2024` and rustc 1.85+ — which that cargo cannot
+   parse or compile. Before this was fixed, `cargo build-sbf` and `anchor build`
+   **could not run at all**, so no deployable artifact existed.
+
+   Every host check stays green if you undo it, which is exactly what makes it
+   dangerous. CI now builds the SBF bytecode on every run to catch that.
+
+   The long-term fix is a **Solana/platform-tools bump** to a release whose cargo
+   supports modern crates — the same decision the RustSec backlog needs. Until
+   then the pins are load-bearing.
+10. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
    it; as of 2026-07-26 it is 1 critical and 15 high, baselined in
    `token/.audit-baseline.json`. The ratchet stops it *growing*; it does not make
    the existing advisories acceptable in code that signs transactions.
