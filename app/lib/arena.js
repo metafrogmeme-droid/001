@@ -75,19 +75,19 @@ function validateOpen(input, balance, openCount) {
   const direction = String(b.direction || '').trim().toUpperCase();
   const margin = Number(b.margin);
   const leverage = Math.round(Number(b.leverage));
-  if (!SYMBOL_RE.test(symbol)) return { ok: false, error: 'Invalid symbol' };
+  if (!SYMBOL_RE.test(symbol)) return { ok: false, code: 'bad_symbol', error: 'Invalid symbol' };
   if (direction !== 'LONG' && direction !== 'SHORT') {
-    return { ok: false, error: 'direction must be LONG or SHORT' };
+    return { ok: false, code: 'bad_direction', error: 'direction must be LONG or SHORT' };
   }
   if (!Number.isFinite(margin) || margin < MIN_MARGIN) {
-    return { ok: false, error: `margin must be at least ${MIN_MARGIN} vUSDT` };
+    return { ok: false, code: 'min_margin', error: `margin must be at least ${MIN_MARGIN} vUSDT` };
   }
-  if (margin > (Number(balance) || 0)) return { ok: false, error: 'Insufficient balance' };
+  if (margin > (Number(balance) || 0)) return { ok: false, code: 'balance', error: 'Insufficient balance' };
   if (!Number.isFinite(leverage) || leverage < 1 || leverage > MAX_LEVERAGE) {
-    return { ok: false, error: `leverage must be 1–${MAX_LEVERAGE}` };
+    return { ok: false, code: 'leverage', error: `leverage must be 1–${MAX_LEVERAGE}` };
   }
   if ((openCount || 0) >= MAX_OPEN) {
-    return { ok: false, error: `Max ${MAX_OPEN} open positions — close one first` };
+    return { ok: false, code: 'max_open', error: `Max ${MAX_OPEN} open positions — close one first` };
   }
   return { ok: true, data: { symbol, direction, margin, leverage } };
 }
@@ -101,14 +101,16 @@ function validateOpen(input, balance, openCount) {
 function validateTpSl(direction, entry, tpIn, slIn) {
   const tp = tpIn == null || tpIn === '' ? null : Number(tpIn);
   const sl = slIn == null || slIn === '' ? null : Number(slIn);
-  if (tp != null && !(tp > 0)) return { ok: false, error: 'take-profit must be a positive price' };
-  if (sl != null && !(sl > 0)) return { ok: false, error: 'stop-loss must be a positive price' };
+  if (tp != null && !(tp > 0)) return { ok: false, code: 'tp_positive', error: 'take-profit must be a positive price' };
+  if (sl != null && !(sl > 0)) return { ok: false, code: 'sl_positive', error: 'stop-loss must be a positive price' };
   const long = dirSign(direction) > 0;
   if (tp != null && (long ? tp <= entry : tp >= entry)) {
-    return { ok: false, error: long ? 'take-profit must sit above the entry' : 'take-profit must sit below the entry' };
+    return { ok: false, code: long ? 'tp_above' : 'tp_below',
+      error: long ? 'take-profit must sit above the current price' : 'take-profit must sit below the current price' };
   }
   if (sl != null && (long ? sl >= entry : sl <= entry)) {
-    return { ok: false, error: long ? 'stop-loss must sit below the entry' : 'stop-loss must sit above the entry' };
+    return { ok: false, code: long ? 'sl_below' : 'sl_above',
+      error: long ? 'stop-loss must sit below the current price' : 'stop-loss must sit above the current price' };
   }
   return { ok: true, data: { tp, sl } };
 }
@@ -168,7 +170,7 @@ function validateTrail(input) {
   if (input == null || input === '') return { ok: true, data: { trail_pct: null } };
   const d = Number(input);
   if (!Number.isFinite(d) || d < TRAIL_MIN_PCT || d > TRAIL_MAX_PCT) {
-    return { ok: false, error: `trailing distance must be ${TRAIL_MIN_PCT}–${TRAIL_MAX_PCT}%` };
+    return { ok: false, code: 'trail_range', error: `trailing distance must be ${TRAIL_MIN_PCT}–${TRAIL_MAX_PCT}%` };
   }
   return { ok: true, data: { trail_pct: Math.round(d * 100) / 100 } };
 }

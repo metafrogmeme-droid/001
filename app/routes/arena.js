@@ -282,7 +282,7 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
     let positions = await loadPositions(userId);
     positions = await settleLiquidations(userId, positions, marks);
     const v = arena.validateOpen(req.body, acct.balance, positions.length);
-    if (!v.ok) return res.status(400).json({ error: v.error });
+    if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
     // Season rule variants: a LIVE season may constrain opens (e.g. "max 5×,
     // majors only"). Enforced server-side; the refusal names the season.
     try {
@@ -295,7 +295,7 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
     if (!(price > 0)) return res.status(400).json({ error: 'Unknown symbol — use a listed USDT-M pair like BTCUSDT' });
     // Optional TP/SL — validated against the actual fill price.
     const ts = arena.validateTpSl(v.data.direction, price, (req.body || {}).tp, (req.body || {}).sl);
-    if (!ts.ok) return res.status(400).json({ error: ts.error });
+    if (!ts.ok) return res.status(400).json({ error: ts.error, code: ts.code });
     const openedAt = new Date();
     const rc = sealedOpen(await handleFor(userId), {
       symbol: v.data.symbol, direction: v.data.direction, entry: price,
@@ -451,7 +451,7 @@ router.post('/exits', authMiddleware, tradeLimit, async (req, res) => {
     const mark = marks[p.symbol] && Number(marks[p.symbol].price);
     if (!(mark > 0)) return res.status(503).json({ error: 'No live mark for this symbol — try again shortly' });
     const tv = arena.validateTrail((req.body || {}).trail_pct);
-    if (!tv.ok) return res.status(400).json({ error: tv.error });
+    if (!tv.ok) return res.status(400).json({ error: tv.error, code: tv.code });
     const trailPct = tv.data.trail_pct;
     let slIn = (req.body || {}).sl;
     // A trail with no explicit stop seeds from the live mark at the trailing
@@ -460,7 +460,7 @@ router.post('/exits', authMiddleware, tradeLimit, async (req, res) => {
       slIn = p.direction === 'LONG' ? mark * (1 - trailPct / 100) : mark * (1 + trailPct / 100);
     }
     const ts = arena.validateTpSl(p.direction, mark, (req.body || {}).tp, slIn);
-    if (!ts.ok) return res.status(400).json({ error: ts.error });
+    if (!ts.ok) return res.status(400).json({ error: ts.error, code: ts.code });
     if (trailPct != null && ts.data.sl == null) {
       return res.status(400).json({ error: 'a trailing stop needs a stop level to trail' });
     }
@@ -615,7 +615,7 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
   try {
     const userId = req.user.user_id;
     const v = followLib.validateFollow(req.body);
-    if (!v.ok) return res.status(400).json({ error: v.error });
+    if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
     await loadAccount(userId);   // ensure the paper account exists
     // Start strictly from now: the newest existing signal id.
     let lastId = 0;
@@ -742,7 +742,7 @@ router.post('/season', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'admin_required', detail: 'Only the operator can author a season.' });
     }
     const v = seasons.validateSeason(req.body);
-    if (!v.ok) return res.status(400).json({ error: v.error });
+    if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
     await pool.execute(
       'INSERT INTO arena_seasons (name, starts_at, ends_at, rules, created_at) VALUES (?, ?, ?, ?, ?)',
       [v.data.name, v.data.starts_at, v.data.ends_at,
