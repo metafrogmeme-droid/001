@@ -71,21 +71,34 @@
   "_whitelistNote": "Base58 wallet addresses for the OG round. Run `npm run presale:whitelist` to build the Merkle tree + proofs (token/.artifacts/allowlist.devnet.json); the root is applied on presale:create and each wallet's proof is presented automatically on presale:deposit during the whitelist window (which ends at timeline.publicStart).",
   "allocations": {
     "_comment": "The buckets for the rest of the supply. finalizeV2 REFUSES unless every base token is allocated across buckets — 'Total supply must be fully allocated before finalize' — so without these the presale can be built but never opened. Percentages mirror the §4 table in docs/TOKEN_ROADMAP.md; presale (15%) and liquidity (10%) are their own buckets above, and these six cover the remaining 75%. Every `recipient` must be set before a real sale: an empty recipient falls back to the signing key, which is exactly the single-hot-key custody the roadmap §11 forbids.",
-    "_vestingLimitation": "These are UNLOCKED buckets (addUnlockedBucketV2). They support a CLIFF via unlockAt — nothing is claimable before it — but NOT linear vesting. The §4 table specifies linear tails for team (24mo), advisors (18mo) and community (36mo); delivering those needs Streamflow buckets (addStreamflowBucketV2), which is NOT implemented here. Until it is, unlockAt is a hard cliff for the FULL amount and the published vesting terms must say so.",
     "buckets": [
       {
         "name": "community",
         "tokens": "250000000",
         "unlockAt": "2026-09-08T15:00:00Z",
         "recipient": "",
-        "_note": "§4: 25%, released over 36 months. Cliff-only here — see _vestingLimitation."
+        "_note": "§4: 25%, released over 36 months. LINEAR — addStreamflowBucketV2, daily periods from TGE, no cliff.",
+        "vesting": {
+          "type": "linear",
+          "cliffMonths": 0,
+          "linearMonths": 36,
+          "cliffPercent": 0,
+          "_note": "§4: \"Released over 36 months\". No cliff — emissions start at TGE."
+        }
       },
       {
         "name": "team",
         "tokens": "150000000",
         "unlockAt": "2027-09-08T15:00:00Z",
         "recipient": "",
-        "_note": "§4: 15%, 12-month cliff then 24-month linear. Cliff encoded; linear tail is not."
+        "_note": "§4: 15%, 12-month cliff then 24-month linear. LINEAR — addStreamflowBucketV2. Nothing releases at the cliff itself.",
+        "vesting": {
+          "type": "linear",
+          "cliffMonths": 12,
+          "linearMonths": 24,
+          "cliffPercent": 0,
+          "_note": "§4: 12-month cliff, then 24-month linear. Nothing at the cliff itself."
+        }
       },
       {
         "name": "treasury",
@@ -106,7 +119,14 @@
         "tokens": "20000000",
         "unlockAt": "2027-03-08T15:00:00Z",
         "recipient": "",
-        "_note": "§4: 2%, 6-month cliff then 18-month linear. Cliff encoded; linear tail is not."
+        "_note": "§4: 2%, 6-month cliff then 18-month linear. LINEAR — addStreamflowBucketV2.",
+        "vesting": {
+          "type": "linear",
+          "cliffMonths": 6,
+          "linearMonths": 18,
+          "cliffPercent": 0,
+          "_note": "§4: 6-month cliff, then 18-month linear."
+        }
       },
       {
         "name": "reserve",
@@ -115,7 +135,8 @@
         "recipient": "",
         "_note": "§4: was 5% locked/governance-unlockable. Raised to 12.9999% on 2026-07-26 to absorb the 79,999,000 freed by sizing the LP for the soft cap (liquidity._liquidityPricing_comment). That portion is earmarked for POST-TGE LIQUIDITY PROVISIONING and is what makes the thin-pool side of the sizing decision recoverable — it is not general treasury. Deploying it is a governance action; the cliff below gates it either way."
       }
-    ]
+    ],
+    "_vestingNote": "Buckets with a `vesting` block of type 'linear' are created with addStreamflowBucketV2 — a real Streamflow stream with a cliff and a per-period release. Buckets WITHOUT one are addUnlockedBucketV2: a hard cliff for the FULL amount at unlockAt. That distinction is the whole point of this block. Until 2026-07-26 every bucket was unlocked-only, so team, advisors and community were described in docs/TOKEN_ROADMAP.md §4 as linear while the chain would have released 100% of each in a single instant. Treasury, partnerships and reserve stay cliff-shaped on purpose: §4 describes them as governance-gated rather than time-vested. Streams are created with cancel/pause/transfer/update-rate ALL DISABLED (see REQUIRED_STREAM_FLAGS in genesis_lib.mjs) — a stream the sender can cancel is not vesting, it is a revocable IOU, and nothing in the phrase '12-month cliff' tells a reader which one they are getting."
   },
   "disclosures": {
     "_comment": "Facts about THIS sale that the marketing surface does not otherwise state, each established by execution rather than inference. presale:plan prints them in full, so the sale cannot be run without them being seen, and they must appear in the published sale terms. Do not delete an entry because it is unflattering — that is the entire point of the block.",

@@ -121,9 +121,40 @@ Still not established: the program has never been deployed to a *public* cluster
 and no third-party audit exists.
 
 Unchanged and still open: no third-party audit, the program upgrade
-authority is still a single key, the Anchor IDL account lifecycle remains
-unowned, and linear vesting for team/advisors/community is specified in §4 but
-not implemented (the allocation buckets encode cliffs only).
+authority is still a single key, and the Anchor IDL account lifecycle remains
+unowned.
+
+**Linear vesting is now implemented (2026-07-26).** This list previously carried
+"linear vesting for team/advisors/community is specified in §4 but not
+implemented (the allocation buckets encode cliffs only)", and the size of that
+gap was worth naming: every bucket was `addUnlockedBucketV2`, a hard cliff for
+the FULL amount, so on one day the chain would have released 150,000,000 team
+tokens while the published tokenomics described a 24-month taper. Those three
+buckets are now `addStreamflowBucketV2` with the §4 schedules, and the two
+things that decide whether that means anything are both verified against the
+chain rather than against the object this repo builds:
+
+- **Conservation.** A stream pays `cliffAmount + amountPerPeriod x periods`;
+  integer division makes that short of the allocation unless the remainder is
+  absorbed, and the shortfall is stranded in the stream with no instruction to
+  recover it. Read back from a validator: community releases exactly
+  250,000,000,000,000,000 base units over 1,080 daily periods with the 520-unit
+  remainder at the cliff — and `presale:allocate` now refuses to continue if a
+  stored schedule does not release its whole allocation.
+- **The permissions.** Streamflow streams can be cancelable, pausable,
+  transferable or rate-editable; any of those makes the schedule revocable by
+  whoever holds the genesis authority, which is the difference between vesting
+  and a promise. All eight booleans are false, confirmed on chain at creation —
+  the last moment it can be checked, since `finalizeV2` locks bucket
+  configuration permanently.
+
+The tests for this were **wrong twice before they were right**, and both failures
+were the same shape. The safety-flag assertions compared the on-chain config
+against the very constant used to build it, so flipping `cancelableBySender` to
+`true` in the source left the suite green — a test comparing a value to itself.
+The flag-coverage canary had the same defect. Only mutating the source exposed
+either. They now assert against literals restated in the test file and against
+the SDK's own type, which is external and cannot move in sympathy.
 
 ### New (2026-07-26): every deposit and every claim ran through a third-party upgradeable program
 

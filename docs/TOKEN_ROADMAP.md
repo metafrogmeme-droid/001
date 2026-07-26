@@ -133,11 +133,11 @@ tune before launch, not a fixed parameter:
 |---|---:|---:|---|
 | Public presale | 15% | 150,000,000 | 33% at TGE, then linear over 2 months |
 | DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL; LP locked forever (never-claim) |
-| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | Released over 36 months |
-| Team & contributors | 15% | 150,000,000 | 12-month cliff, then 24-month linear |
+| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | Released over 36 months — **Streamflow stream**, daily periods from TGE |
+| Team & contributors | 15% | 150,000,000 | 12-month cliff, then 24-month linear — **Streamflow stream** |
 | Treasury / DAO | 20% | 200,000,000 | DAO-controlled multisig, time-locked |
 | Partnerships & market makers | 8% | 80,000,000 | Deal-by-deal, 6–12 months |
-| Advisors | 2% | 20,000,000 | 6-month cliff, then 18-month linear |
+| Advisors | 2% | 20,000,000 | 6-month cliff, then 18-month linear — **Streamflow stream** |
 | Reserve / insurance fund **+ post-TGE liquidity** | 12.9999% | 129,999,000 | Locked; governance-unlockable only |
 | **Total** | **100%** | **1,000,000,000** | — |
 
@@ -847,12 +847,32 @@ turned out to be.
    under one hot wallet. `presale:plan` flags each unset one. The `treasury` bucket
    must be the Squads vault PDA.
 
-   **Vesting limitation, stated plainly.** These are `addUnlockedBucketV2` buckets:
-   `unlockAt` is a **hard cliff for the full amount**, and they do **not** implement
-   the linear tails §4 specifies for team (24mo), advisors (18mo) or community
-   (36mo). Delivering those needs Streamflow buckets (`addStreamflowBucketV2`),
-   which is not built. Until it is, **the published vesting terms must describe
-   cliffs, not linear vesting**, or they are false.
+   **Vesting — resolved 2026-07-26.** This used to read: these are
+   `addUnlockedBucketV2` buckets, `unlockAt` is a hard cliff for the *full*
+   amount, and the linear tails §4 specifies are not implemented, so the
+   published terms must describe cliffs or they are false. That gap is now
+   closed. Team, advisors and community are created with
+   `addStreamflowBucketV2` — real Streamflow streams with the §4 schedules
+   (12mo cliff + 24mo linear, 6mo + 18mo, 36mo from TGE), verified on chain.
+   Treasury, partnerships and reserve stay `addUnlockedBucketV2` deliberately:
+   §4 describes them as governance-gated, which a cliff models correctly.
+
+   Two properties carry it, and neither is visible from the phrase "12-month
+   cliff":
+
+   - **Conservation.** A stream releases `cliffAmount + amountPerPeriod x
+     periods`. Integer division makes that *less* than the allocation unless
+     something absorbs the remainder, and whatever is not released is stranded
+     in the stream forever. The remainder goes to the cliff, so the end date
+     stays exactly what §4 publishes, and `presale:allocate` reads each stream
+     back off the chain and refuses to continue if the stored schedule does not
+     release the whole allocation.
+   - **The permissions.** A Streamflow stream can be cancelable, pausable,
+     transferable or rate-editable. Any of those makes the schedule revocable —
+     a promise, not a commitment — and the genesis authority would hold the
+     revocation. All are set false, pinned in `REQUIRED_STREAM_FLAGS`, and
+     re-read from the chain at creation. This is the last moment it can be
+     checked: `finalizeV2` locks bucket configuration permanently.
 8. **Claim the IDL account in the same session as the deploy — it is
    first-come-first-served.** `programs/rclaw_staking/Cargo.toml` has
    `default = []` with `no-idl` disabled, so `anchor build` emits an IDL, and

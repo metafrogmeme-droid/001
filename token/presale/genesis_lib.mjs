@@ -320,6 +320,145 @@ export async function awaitAccount(umi, address, label, { tries = 30, delayMs = 
  * irreversible LP lock already exist. Checking the arithmetic offline turns that
  * into a config error nobody pays for.
  */
+/** A "month" for vesting arithmetic. Declared, not assumed. */
+export const VESTING_DAYS_PER_MONTH = 30n;
+const SECONDS_PER_DAY = 86_400n;
+
+/**
+ * Flags that must be false on every $RCLAW vesting stream.
+ *
+ * Streamflow streams are configurable in ways that quietly undo the promise the
+ * schedule makes. A stream the sender can cancel is not a vesting commitment —
+ * it is a revocable IOU, and the holder of the genesis authority could empty a
+ * team or advisor stream at will. `canUpdateRate` is the same defect wearing a
+ * different hat, and `pausable` lets the clock be stopped indefinitely.
+ * `transferableBySender` would let the stream be reassigned away from the
+ * person it was promised to.
+ *
+ * These are exactly the properties a buyer reading "12-month cliff, then
+ * 24-month linear" believes they are getting, and none of them is visible from
+ * that sentence. So they are pinned here, asserted in tests, and printed by
+ * `presale:plan` rather than left to whoever fills in the config.
+ *
+ * `automaticWithdrawal` is false for a different, non-safety reason: it makes
+ * the stream pay out on a schedule using a crank the recipient does not control,
+ * which costs fees and is not needed when the recipient can withdraw on demand.
+ */
+export const REQUIRED_STREAM_FLAGS = Object.freeze({
+  cancelableBySender: false,
+  cancelableByRecipient: false,
+  transferableBySender: false,
+  transferableByRecipient: false,
+  canTopup: false,
+  pausable: false,
+  canUpdateRate: false,
+  automaticWithdrawal: false,
+});
+
+/**
+ * Turn "12-month cliff, then 24-month linear" into an exact Streamflow config.
+ *
+ * The whole difficulty is CONSERVATION. A stream releases `cliffAmount` at the
+ * cliff and then `amountPerPeriod` every `period` — so the schedule pays out
+ * `cliffAmount + amountPerPeriod * periods`, and integer division guarantees
+ * that will not equal the allocation unless something absorbs the remainder.
+ * Anything it fails to release is stranded in the stream permanently.
+ *
+ * So the remainder is added to `cliffAmount` and the identity
+ *
+ *     cliffAmount + amountPerPeriod * periods === baseTokenAllocation
+ *
+ * is enforced here and asserted in the tests. Putting it at the cliff rather
+ * than in a ragged final period keeps the END DATE exactly what §4 promises,
+ * which is the number people actually check. The remainder is at most
+ * `periods - 1` base units — sub-microtoken at 9 decimals — but "small" is not
+ * a reason to let supply go missing.
+ *
+ * @param {object} cfg   the presale config
+ * @param {object} b     one entry from cfg.allocations.buckets
+ * @param {bigint} baseTokenAllocation  the bucket's allocation in base units
+ */
+export function deriveStreamConfig(cfg, b, baseTokenAllocation) {
+  const v = b.vesting || {};
+  const cliffMonths = BigInt(v.cliffMonths ?? 0);
+  const linearMonths = BigInt(v.linearMonths ?? 0);
+  if (linearMonths <= 0n) {
+    throw new Error(
+      `allocation "${b.name}" declares vesting.type "linear" but linearMonths is ` +
+      `${v.linearMonths}. A linear stream with no duration is a cliff — use an unlocked ` +
+      'bucket instead, and say so in the published terms.'
+    );
+  }
+
+  // The stream starts at TGE; the cliff is measured from there.
+  const tge = unix(cfg.timeline.tge);
+  const cliffTime = tge + cliffMonths * VESTING_DAYS_PER_MONTH * SECONDS_PER_DAY;
+  const period = SECONDS_PER_DAY; // daily releases
+  const periods = linearMonths * VESTING_DAYS_PER_MONTH;
+  const endTime = cliffTime + periods * period;
+
+  // A percentage released AT the cliff, before the linear tail begins.
+  const cliffBps = BigInt(v.cliffPercent ?? 0) * 100n;
+  if (cliffBps < 0n || cliffBps > 10_000n) {
+    throw new Error(`allocation "${b.name}": vesting.cliffPercent must be 0-100 (got ${v.cliffPercent}).`);
+  }
+  const atCliff = (baseTokenAllocation * cliffBps) / 10_000n;
+  const streamed = baseTokenAllocation - atCliff;
+
+  const amountPerPeriod = streamed / periods;
+  const remainder = streamed - amountPerPeriod * periods;
+  const cliffAmount = atCliff + remainder;
+
+  // The invariant this function exists to guarantee. Checked here rather than
+  // only in tests, because a config change is what would break it and a config
+  // change does not run the tests.
+  if (cliffAmount + amountPerPeriod * periods !== baseTokenAllocation) {
+    throw new Error(
+      `internal: stream for "${b.name}" does not conserve supply ` +
+      `(${cliffAmount} + ${amountPerPeriod} * ${periods} !== ${baseTokenAllocation})`
+    );
+  }
+  if (amountPerPeriod <= 0n) {
+    throw new Error(
+      `allocation "${b.name}": ${linearMonths} months of daily periods over ${streamed} base ` +
+      'units rounds to zero per period. Shorten the schedule or raise the allocation.'
+    );
+  }
+
+  return {
+    config: {
+      startTime: tge,
+      period,
+      amountPerPeriod,
+      cliff: cliffTime,
+      cliffAmount,
+      streamName: encodeStreamName(`RCLAW ${b.name}`),
+      withdrawFrequency: period,
+      ...REQUIRED_STREAM_FLAGS,
+    },
+    // Surfaced for `presale:plan` and the tests; not part of the instruction.
+    _schedule: {
+      cliffTime,
+      endTime,
+      periods,
+      amountPerPeriod,
+      cliffAmount,
+      cliffMonths,
+      linearMonths,
+      remainder,
+    },
+  };
+}
+
+/** Streamflow stores the name in a fixed 64-byte field. */
+function encodeStreamName(name) {
+  const buf = new Uint8Array(64);
+  const bytes = new TextEncoder().encode(name);
+  if (bytes.length > 64) throw new Error(`stream name too long (${bytes.length} > 64): ${name}`);
+  buf.set(bytes);
+  return buf;
+}
+
 export function deriveAllocationBuckets(cfg) {
   const decimals = BigInt(cfg.token.decimals);
   const scale = 10n ** decimals;
@@ -335,15 +474,32 @@ export function deriveAllocationBuckets(cfg) {
       throw new Error(`allocation "${b.name}" must be a positive token amount (got ${b.tokens})`);
     }
     const unlockAt = unix(b.unlockAt);
+    const baseTokenAllocation = tokens * scale;
+
+    // Two bucket KINDS, and the difference is the difference between what §4
+    // promises and what the chain used to do. `addUnlockedBucketV2` is a hard
+    // cliff for the FULL amount — correct for treasury/reserve, which are
+    // governance-gated, and a misrepresentation for team/advisors/community,
+    // which §4 describes as linear. Those now get a Streamflow stream.
+    const kind = b.vesting?.type === 'linear' ? 'linear' : 'cliff';
+    const stream = kind === 'linear' ? deriveStreamConfig(cfg, b, baseTokenAllocation) : null;
+
     return {
       name: b.name,
+      kind,
       recipient: b.recipient || null,
-      baseTokenAllocation: tokens * scale,
+      baseTokenAllocation,
       claimStartCondition: createTimeAbsoluteCondition(unlockAt),
       // Open-ended: an unlocked bucket with a claim window that closes would
       // strand its allocation if nobody claimed in time. 100 years out is
       // "never" for this purpose and keeps the condition type uniform.
       claimEndCondition: createTimeAbsoluteCondition(unlockAt + 100n * 365n * 24n * 3600n),
+      // A stream's lock window is its own schedule, not the bucket's unlockAt:
+      // the stream starts at TGE and runs to the end of the linear tail.
+      lockStartCondition: stream ? createTimeAbsoluteCondition(stream.config.startTime) : null,
+      lockEndCondition: stream ? createTimeAbsoluteCondition(stream._schedule.endTime) : null,
+      streamConfig: stream ? stream.config : null,
+      _schedule: stream ? stream._schedule : null,
       _unlockAt: unlockAt,
       _tokens: tokens,
     };

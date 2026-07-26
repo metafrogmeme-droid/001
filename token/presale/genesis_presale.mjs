@@ -24,6 +24,8 @@ import {
   WRAPPED_SOL_MINT,
   addUnlockedBucketV2,
   findUnlockedBucketV2Pda,
+  addStreamflowBucketV2,
+  findStreamflowBucketV2Pda,
   addPresaleBucketV2Base,
   addPresaleBucketV2Extensions,
   setPresaleBucketV2Behaviors,
@@ -54,6 +56,7 @@ import {
   proofToPublicKeys,
   deriveLiquidityParams,
   deriveAllocationBuckets,
+  REQUIRED_STREAM_FLAGS,
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
   createAtaIdempotent,
@@ -222,10 +225,16 @@ function cmdPlan() {
     `${(alloc.allocated / scale).toLocaleString()} / ${(alloc.totalSupply / scale).toLocaleString()}`,
     cfg.token.symbol, '(fully allocated ✓ — finalizeV2 requires this)');
   for (const b of alloc.buckets) {
+    // Say which SHAPE each bucket is. Printing "cliff <date>" for a bucket that
+    // is actually a 24-month stream describes the wrong thing entirely, and this
+    // line is the summary an operator reads before committing.
+    const day = (t) => new Date(Number(t) * 1000).toISOString().slice(0, 10);
+    const shape = b.kind === 'linear'
+      ? `stream ${b._schedule.cliffMonths}mo cliff + ${b._schedule.linearMonths}mo -> ${day(b._schedule.endTime)}`
+      : `cliff ${day(b._unlockAt)} (FULL amount)`;
     console.log('                 ',
-      `${b.name.padEnd(13)} ${(b._tokens).toLocaleString().padStart(13)}  cliff ` +
-      `${new Date(Number(b._unlockAt) * 1000).toISOString().slice(0, 10)}` +
-      `${b.recipient ? '' : '  RECIPIENT UNSET — presale:allocate will refuse'}`);
+      `${b.name.padEnd(13)} ${(b._tokens).toLocaleString().padStart(13)}  ${shape.padEnd(44)}` +
+      `${b.recipient ? '' : ' RECIPIENT UNSET — presale:allocate will refuse'}`);
   }
 
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
@@ -1061,6 +1070,66 @@ async function cmdTrigger() {
  * another. `--accept-below-presale` makes the choice explicit and logged
  * instead of silent.
  */
+/**
+ * Read a freshly created stream back off the chain and check it says what we
+ * asked for.
+ *
+ * Everything else about vesting is asserted client-side, against the object this
+ * repo builds. That proves the derivation and nothing about what was STORED — a
+ * serializer that drops a field, a program that defaults one, or an argument
+ * that silently does not reach the account would all leave those tests green.
+ * The distinction is not hypothetical here: the same "verified the input, never
+ * the result" gap is what let a non-idempotent ATA instruction and a dead
+ * command-line flag both ship.
+ *
+ * Two things are worth the round trip, and only these two:
+ *
+ *   CONSERVATION - cliffAmount + amountPerPeriod * periods must equal the
+ *     allocation exactly. Anything the schedule fails to release is stranded in
+ *     the stream with no instruction to recover it.
+ *   THE FLAGS - cancelable / pausable / transferable / rate-editable must all be
+ *     false. Any one of them true means the schedule can be revoked or rewritten
+ *     later, which is the difference between vesting and a promise.
+ *
+ * This runs at bucket creation, which is the last moment anything can be done
+ * about it: finalizeV2 locks bucket configuration permanently.
+ */
+async function assertStreamOnChain(umi, address, b) {
+  const { fetchStreamflowBucketV2 } = await import('@metaplex-foundation/genesis');
+  const acct = await fetchStreamflowBucketV2(umi, address);
+  const c = acct.config;
+
+  const allocation = BigInt(acct.bucket.baseTokenAllocation);
+  const cliffAmount = BigInt(c.cliffAmount);
+  const perPeriod = BigInt(c.amountPerPeriod);
+  if (perPeriod <= 0n) {
+    throw new Error(`${b.name}: on-chain amountPerPeriod is ${perPeriod} — the stream would never pay out.`);
+  }
+  const periods = (allocation - cliffAmount) / perPeriod;
+  const released = cliffAmount + perPeriod * periods;
+  if (released !== allocation) {
+    throw new Error(
+      `${b.name}: the stream ON CHAIN does not release its whole allocation — ` +
+      `${released} of ${allocation}, stranding ${allocation - released} base units permanently. ` +
+      'finalizeV2 would lock this in.'
+    );
+  }
+
+  const wrong = Object.entries(REQUIRED_STREAM_FLAGS).filter(([f, want]) => c[f] !== want);
+  if (wrong.length) {
+    throw new Error(
+      `${b.name}: stream flags ON CHAIN are not what was configured — ` +
+      wrong.map(([f, want]) => `${f}=${c[f]} (expected ${want})`).join(', ') + '.\n' +
+      'A cancelable, pausable, transferable or rate-editable stream is not a vesting commitment. ' +
+      'Do NOT finalize; the configuration is locked permanently once you do.'
+    );
+  }
+  if (acct.recipient.toString() !== b.recipient) {
+    throw new Error(`${b.name}: on-chain recipient ${acct.recipient} != configured ${b.recipient}.`);
+  }
+  console.log(`     verified on chain: releases exactly ${allocation} over ${periods} periods; all permissions off`);
+}
+
 async function assertPoolOpensAtOrAbovePresale(umi, artifact, cfg) {
   const floorSol = Number(cfg.liquidity?.sizedForRaiseSol ?? 0);
   if (!(floorSol > 0)) return null; // not configured — nothing claimed, nothing to check
@@ -1219,30 +1288,68 @@ async function cmdAllocate() {
         'be the Squads vault PDA (docs/TOKEN_ROADMAP.md §11).'
       );
     }
-    const pda = findUnlockedBucketV2Pda(umi, {
-      genesisAccount: publicKey(a.genesisAccount),
-      bucketIndex,
-    });
-    console.log(
-      `  [${bucketIndex}] ${b.name}: ${(b._tokens).toLocaleString()} -> ${b.recipient} ` +
-      `(cliff ${new Date(Number(b._unlockAt) * 1000).toISOString().slice(0, 10)})`
-    );
+    // Two bucket kinds. `cliff` is addUnlockedBucketV2 — the whole allocation
+    // released at once, correct for the governance-gated buckets. `linear` is a
+    // real Streamflow stream, which is what §4 promises for team, advisors and
+    // community and what this repo did not implement until now.
+    const isStream = b.kind === 'linear';
+    const pda = isStream
+      ? findStreamflowBucketV2Pda(umi, { genesisAccount: publicKey(a.genesisAccount), bucketIndex })
+      : findUnlockedBucketV2Pda(umi, { genesisAccount: publicKey(a.genesisAccount), bucketIndex });
+
+    const day = (t) => new Date(Number(t) * 1000).toISOString().slice(0, 10);
+    if (isStream) {
+      const s = b._schedule;
+      console.log(
+        `  [${bucketIndex}] ${b.name}: ${(b._tokens).toLocaleString()} -> ${b.recipient}
+` +
+        `        STREAM: cliff ${day(s.cliffTime)} (${s.cliffMonths}mo), then ${s.linearMonths}mo ` +
+        `linear to ${day(s.endTime)} — ${s.periods} daily periods`
+      );
+    } else {
+      console.log(
+        `  [${bucketIndex}] ${b.name}: ${(b._tokens).toLocaleString()} -> ${b.recipient} ` +
+        `(cliff ${day(b._unlockAt)} — FULL amount at once)`
+      );
+    }
+
+    const builder = isStream
+      ? addStreamflowBucketV2(umi, {
+          genesisAccount: publicKey(a.genesisAccount),
+          baseMint: publicKey(a.baseMint),
+          bucketIndex,
+          recipient: publicKey(b.recipient),
+          baseTokenAllocation: b.baseTokenAllocation,
+          config: b.streamConfig,
+          lockStartCondition: b.lockStartCondition,
+          lockEndCondition: b.lockEndCondition,
+          // No backend signer and no separate Streamflow authority: both are
+          // extra parties able to act on the stream, and a vesting schedule that
+          // a third key can touch is not the thing §4 describes.
+          backendSigner: null,
+          streamflowAuthority: null,
+        })
+      : addUnlockedBucketV2(umi, {
+          genesisAccount: publicKey(a.genesisAccount),
+          baseMint: publicKey(a.baseMint),
+          bucketIndex,
+          recipient: publicKey(b.recipient),
+          baseTokenAllocation: b.baseTokenAllocation,
+          claimStartCondition: b.claimStartCondition,
+          claimEndCondition: b.claimEndCondition,
+        });
+
     const sig = await sendChecked(
-      addUnlockedBucketV2(umi, {
-        genesisAccount: publicKey(a.genesisAccount),
-        baseMint: publicKey(a.baseMint),
-        bucketIndex,
-        recipient: publicKey(b.recipient),
-        baseTokenAllocation: b.baseTokenAllocation,
-        claimStartCondition: b.claimStartCondition,
-        claimEndCondition: b.claimEndCondition,
-      }),
-      umi,
-      `addUnlockedBucketV2(${b.name})`
+      builder, umi, `${isStream ? 'addStreamflowBucketV2' : 'addUnlockedBucketV2'}(${b.name})`
     );
     console.log('     tx:', sig);
     await awaitAccount(umi, pda[0], `${b.name} bucket`);
-    written[b.name] = { address: pda[0].toString(), bucketIndex, tokens: b._tokens.toString(), tx: sig };
+    if (isStream) await assertStreamOnChain(umi, pda[0], b);
+    written[b.name] = {
+      address: pda[0].toString(), bucketIndex, tokens: b._tokens.toString(), tx: sig,
+      kind: b.kind,
+      ...(isStream ? { schedule: { cliff: day(b._schedule.cliffTime), end: day(b._schedule.endTime) } } : {}),
+    };
     // Checkpoint after EVERY bucket: this is a multi-transaction sequence with
     // no atomicity, and a partial run must be resumable rather than repeated
     // (a repeat would try to reuse an index that already exists).
