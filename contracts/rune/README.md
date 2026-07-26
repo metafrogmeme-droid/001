@@ -22,7 +22,7 @@ server, no link that can die.
 
 ## How the voucher works
 
-The server (next stage — `/api/nft/mint-plan`) signs an EIP-712
+The server (`GET /api/nft/mint-plan`, authed) signs an EIP-712
 `MintVoucher(address to)` over the domain
 `{name: "RUNECLAW Rune of Entry", chainId, verifyingContract}` for a
 signed-up, wallet-linked user. The contract recovers the signer and mints

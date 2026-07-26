@@ -4088,10 +4088,34 @@
           const addrHtml = /^0x[0-9a-fA-F]{40}$/.test(d.address)
             ? `<a href="https://etherscan.io/address/${esc(d.address)}" target="_blank" rel="noopener" class="num">${esc(short)} ↗</a>`
             : `<b class="num">${esc(short)}</b>`;
+          // Rune of Entry — rendered only when the contract is live and the
+          // plan is ready; silence beats teasing a mint that cannot happen.
+          let runeBlock = '';
+          try {
+            const mp = await fetchJSON('/api/nft/mint-plan').catch(() => null);
+            const p = mp?.ok && mp.data;
+            if (p && p.ready) {
+              runeBlock = p.minted_token_id > 0
+                ? `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
+                    <p class="small" style="color:var(--text-2)">⚔ ${esc(TF('dd.r_minted',
+                      'Rune of Entry #{id} — soulbound, yours forever.', { id: p.minted_token_id }))}</p>
+                    ${p.minted_image ? `<img src="${esc(p.minted_image)}" alt="Rune of Entry #${esc(String(p.minted_token_id))}" width="120" height="120" style="border-radius:8px;border:1px solid var(--line)">` : ''}</div>`
+                : `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
+                    <p class="small" style="color:var(--text-2)">⚔ ${esc(T('dd.r_pitch',
+                      'Your Rune of Entry is waiting: a unique sigil generated and stored fully on-chain. '
+                      + 'Free — the only cost is Base gas (well under a cent). Soulbound: a badge, not an investment.'))}</p>
+                    <button class="btn btn--primary btn--sm" id="runeMint" type="button"
+                      data-linked="${esc(d.address)}" data-contract="${esc(p.contract)}"
+                      data-calldata="${esc(p.calldata)}" data-chain="${esc(String(p.chain_id))}">⚔ ${esc(
+                        T('dd.r_btn', 'Mint your Rune — free, gas only'))}</button>
+                    <p class="small muted" id="runeStep" hidden></p></div>`;
+            }
+          } catch (e) { /* the wallet panel stands alone */ }
           return `<p class="small" style="color:var(--text-2)">✅ Wallet ${addrHtml} is linked —
               its balances mirror into Portfolio, net worth and exposure across the tracked chains.
               RUNECLAW can read them, never move them.</p>
             <button class="btn btn--sm" id="walletUnlink" type="button">Unlink wallet</button>
+            ${runeBlock}
             ${solBlock}`;
         }
         // The PRIMARY button is whichever action can actually succeed here.
@@ -4248,6 +4272,52 @@
         await fetchJSON('/api/auth/wallet/solana/unlink', { method: 'POST', body: {} }).catch(() => {});
         toast(T('dd.t_sol_removed', 'Solana watch removed.'));
         drawWalletLink(); return;
+      }
+      if (e.target.closest('#runeMint')) {
+        // The app's one transaction-sending flow — and it is the USER's
+        // transaction: their wallet, their signature, their gas, value 0.
+        // The server only supplied a voucher inside the calldata.
+        const btn = e.target.closest('#runeMint');
+        const rstep = (txt, colour) => {
+          const el = document.getElementById('runeStep');
+          if (el) { el.hidden = false; el.textContent = txt; el.style.color = colour || 'var(--text-3)'; }
+        };
+        btn.disabled = true;
+        try {
+          const eth = window.RCWalletPicker ? await RCWalletPicker.pick() : window.ethereum;
+          if (!eth) { toast(T('dd.t_no_evm_wallet', 'No browser wallet detected — install MetaMask, or use Link with phone.')); return; }
+          const accounts = await eth.request({ method: 'eth_requestAccounts' });
+          const from = (accounts && accounts[0] || '').trim();
+          if (from.toLowerCase() !== String(btn.getAttribute('data-linked') || '').toLowerCase()) {
+            // The voucher binds to the LINKED address — minting from another
+            // account would just burn their gas on a "bad voucher" revert.
+            rstep(T('dd.r_wrong_acct', 'That wallet account is not your linked address — the voucher only mints for the linked wallet. Switch accounts and try again.'), 'var(--down)');
+            return;
+          }
+          const chainHex = '0x' + Number(btn.getAttribute('data-chain')).toString(16);
+          rstep(T('dd.r_chain', 'Switching your wallet to Base…'));
+          try {
+            await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainHex }] });
+          } catch (sw) {
+            if (sw && sw.code === 4902) {
+              await eth.request({ method: 'wallet_addEthereumChain', params: [{
+                chainId: chainHex, chainName: 'Base',
+                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'],
+              }] });
+            } else { throw sw; }
+          }
+          rstep(T('dd.r_confirm', 'Confirm the mint in your wallet — free, you pay only network gas.'));
+          const tx = await eth.request({ method: 'eth_sendTransaction', params: [{
+            from, to: btn.getAttribute('data-contract'), data: btn.getAttribute('data-calldata'),
+          }] });
+          rstep('✓ ' + TF('dd.r_sent', 'Mint submitted: {tx} — your rune appears here once Base confirms.',
+            { tx: String(tx).slice(0, 10) + '…' }), 'var(--up)');
+          toast(T('dd.t_rune_sent', 'Rune mint submitted to Base.'));
+        } catch (err) {
+          rstep(T('dd.r_cancelled', 'Mint not sent — nothing was changed.'), 'var(--down)');
+        } finally { btn.disabled = false; }
+        return;
       }
       const link = e.target.closest('#walletLink'), unlink = e.target.closest('#walletUnlink');
       if (!link && !unlink) return;
