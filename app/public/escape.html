@@ -65,6 +65,7 @@
 </style>
 </head>
 <body>
+<canvas id="rc-constellation" data-viewport data-hue="45" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
 <div class="es-wrap" role="main">
   <nav class="topnav">
     <a href="/">← RUNECLAW</a>
@@ -81,7 +82,7 @@
   the Escape Agent sequences a <b>dependency-aware</b> exit and flags what's <b>locked</b>. Planning only — it
   never executes anything.</p>
 
-  <section class="panel">
+  <section class="panel reveal-on-scroll">
     <h2 data-i18n="es.pos_h">Your positions</h2>
     <div class="rowh"><span data-i18n="es.f_type">Type</span><span data-i18n="sx.f_asset">Asset</span><span data-i18n="es.f_where">Where</span><span data-i18n="nav.status">Status</span><span></span></div>
     <div id="rows"></div>
@@ -97,8 +98,8 @@
 
   <div class="summary panel" id="summary" style="border-radius:var(--radius)"></div>
 
-  <section class="panel"><h2 data-i18n="es.plan_h">Escape plan — in order</h2><div id="steps"></div></section>
-  <section class="panel" id="blkPanel" hidden><h2 data-i18n="es.locked_h">Locked — can't exit yet</h2><div id="blockers"></div></section>
+  <section class="panel reveal-on-scroll"><h2 data-i18n="es.plan_h">Escape plan — in order</h2><div id="steps"></div></section>
+  <section class="panel reveal-on-scroll" id="blkPanel" hidden><h2 data-i18n="es.locked_h">Locked — can't exit yet</h2><div id="blockers"></div></section>
 
   <p class="disc" data-i18n-html="es.disc">This is a <b>planner</b>: it sequences an unwind and explains the dependencies, but it does not
   move funds, place orders or sign anything — you execute each step yourself. Cooldowns, exit fees, slippage,
@@ -109,6 +110,7 @@
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
 <script src="/js/i18n.js?v=79"></script>
+<script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
 (function () {
@@ -339,5 +341,6 @@
   }).catch(function () { /* no gas chips — the plan stands alone */ });
 })();
 </script>
+<script src="/js/ambient.js?v=3" defer></script>
 </body>
 </html>

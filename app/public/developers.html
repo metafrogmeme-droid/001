@@ -55,7 +55,7 @@
   live radars with explicit safety reads, and the flight-recorder ledger behind every decision.
   No tool can see an account. No tool can trade.</p>
 
-  <div class="panel">
+  <div class="panel reveal-on-scroll">
     <h2 data-i18n="dv.guardian_h">Guardian — safety checks for YOUR agent</h2>
     <p style="color:var(--text-2);line-height:1.7;max-width:76ch" data-i18n-html="dv.guardian_p">Every tool below answers <i>“what has RUNECLAW done?”</i>. Four of them answer
       <i>“is what your agent is about to do safe?”</i> — the same models the Guardian pages run, on input
@@ -68,7 +68,7 @@
       never a verdict, and never a signature.</p>
   </div>
 
-  <div class="panel">
+  <div class="panel reveal-on-scroll">
     <h2 data-i18n="dv.mcp_h">MCP server</h2>
     <p style="color:var(--text-2);line-height:1.7;margin-bottom:var(--s3)" data-i18n-html="dv.mcp_p">
       A Model Context Protocol server (Streamable HTTP, stateless JSON) lives at
@@ -79,12 +79,12 @@
       every tool annotated <code>readOnlyHint</code>.</p>
   </div>
 
-  <div class="panel">
+  <div class="panel reveal-on-scroll">
     <h2><span data-i18n="dv.tools_h">Tools</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n-html="dv.tools_sub">— listed live from the server's own <code>tools/list</code>, so this page can never drift from reality</span></h2>
     <div id="tools"><div class="empty" data-i18n="dv.tools_loading">Asking the server for its tool list…</div></div>
   </div>
 
-  <div class="panel">
+  <div class="panel reveal-on-scroll">
     <h2 data-i18n="dv.rest_h">Public REST endpoints</h2>
     <div class="rest">
       <div class="row"><code>GET /api/public/proofofpnl</code><span data-i18n="dv.r1">the sealed Proof-of-PnL statement + re-derivation recipe</span></div>
@@ -97,7 +97,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel reveal-on-scroll">
     <h2 data-i18n="dv.reg_h">ERC-8257 Agent Tool Registry</h2>
     <p style="color:var(--text-2);line-height:1.7;margin-bottom:var(--s3)" data-i18n-html="dv.reg_p">
       RUNECLAW's read-only intelligence is packaged as an on-chain-discoverable tool
@@ -111,7 +111,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel reveal-on-scroll">
     <h2 data-i18n="dv.ethos_h">The verification ethos</h2>
     <p style="color:var(--text-2);line-height:1.7;max-width:76ch" data-i18n-html="dv.ethos_p">
       Don't trust the dashboard — <b>verify the fills</b>. The Proof-of-PnL bundle canonicalizes as
@@ -154,5 +154,6 @@
 })();
 </script>
 <script src="/js/i18n.js?v=79"></script>
+<script src="/js/reveal.js?v=1" defer></script>
 </body>
 </html>

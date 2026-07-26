@@ -69,6 +69,7 @@
 </style>
 </head>
 <body>
+<canvas id="rc-constellation" data-viewport data-hue="195" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
 <div class="sn-wrap" role="main">
   <nav class="topnav">
     <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
@@ -124,7 +125,7 @@
       return items.length ? items.map(function (c) { return coinRow(c, kind); }).join('') : '<div class="muted small" style="padding:6px 0">' + emptyTxt + '</div>';
     }
     root.innerHTML =
-      '<section class="panel"><h2>Systemic stress</h2>'
+      '<section class="panel reveal-on-scroll"><h2>Systemic stress</h2>'
       + '<div class="gauge"><div><div class="score lvl-' + esc(lvl) + '">' + d.gauge.score + '<span class="of">/100</span></div>'
       + '<div class="lvl lvl-' + esc(lvl) + '">' + esc(lvl) + '</div></div>'
       + '<div class="track"><div class="gbar"><div class="mk" style="left:calc(' + mk + '% - 2px)"></div></div>'
@@ -136,12 +137,12 @@
       + '<div class="tile"><div class="k">Herding</div><div class="v">' + d.herding.same_dir_pct + '% ' + esc(d.herding.direction) + '</div></div>'
       + '<div class="tile"><div class="k">Avg funding</div><div class="v ' + (d.funding.avg_bps >= 0 ? 'up' : 'down') + '">' + (d.funding.avg_bps >= 0 ? '+' : '') + d.funding.avg_bps + ' bps</div></div>'
       + '</div></section>'
-      + '<section class="panel"><h2>What the Sentinel sees</h2>' + flags + '</section>'
-      + '<section class="panel"><h2>Crowded books</h2><div class="cols">'
+      + '<section class="panel reveal-on-scroll"><h2>What the Sentinel sees</h2>' + flags + '</section>'
+      + '<section class="panel reveal-on-scroll"><h2>Crowded books</h2><div class="cols">'
       + '<div class="col"><h3>▲ Crowded long — funding hot (squeeze-down risk)</h3>' + list(cl, 'long', 'None — no crowded-long funding.') + '</div>'
       + '<div class="col"><h3>▼ Crowded short — funding hot (squeeze-up risk)</h3>' + list(cs, 'short', 'None — no crowded-short funding.') + '</div>'
       + '</div></section>'
-      + '<section class="panel"><h2>Leverage piling in — open-interest surges</h2>' + list(sg, 'surge', 'No notable OI surges right now.') + '</section>'
+      + '<section class="panel reveal-on-scroll"><h2>Leverage piling in — open-interest surges</h2>' + list(sg, 'surge', 'No notable OI surges right now.') + '</section>'
       + '<p class="muted small">Updated ' + (d.generated_at ? new Date(d.generated_at).toLocaleTimeString() : '') + ' · refreshes live.</p>';
   }
 
@@ -156,5 +157,7 @@
 })();
 </script>
 <script src="/js/i18n.js?v=79"></script>
+<script src="/js/reveal.js?v=1" defer></script>
+<script src="/js/ambient.js?v=3" defer></script>
 </body>
 </html>

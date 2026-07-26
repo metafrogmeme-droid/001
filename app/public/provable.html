@@ -33,7 +33,7 @@
   the same record later and mathematically cannot move the seal. A call that was edited, backdated, or invented after
   the fact cannot produce a matching hash.</p>
 
-  <div class="contract"><div class="t" data-i18n="pv.c_v1_t">Canonical payload · v1 · engine signal</div>
+  <div class="contract reveal-on-scroll"><div class="t" data-i18n="pv.c_v1_t">Canonical payload · v1 · engine signal</div>
 <pre>{"v":1,"signal_key":&lt;string&gt;,"symbol":&lt;string&gt;,"direction":&lt;string&gt;,
  "entry_price":&lt;number&gt;,"stop_loss":&lt;number&gt;,"take_profit":&lt;number&gt;,
  "confidence":&lt;number&gt;,"pattern":&lt;string|null&gt;,"regime":&lt;string|null&gt;,
@@ -41,7 +41,7 @@
   <p data-i18n-html="pv.c_v1_p">Key order is the contract. The served <code>seal_payload</code> is the exact sealed string — hash it verbatim,
   never re-serialize it.</p></div>
 
-  <div class="contract"><div class="t" data-i18n="pv.c_v2_t">Canonical payload · v2 · arena paper trade</div>
+  <div class="contract reveal-on-scroll"><div class="t" data-i18n="pv.c_v2_t">Canonical payload · v2 · arena paper trade</div>
 <pre>{"v":2,"kind":"arena_trade","trade_key":&lt;string&gt;,"handle":&lt;string|null&gt;,
  "symbol":&lt;string&gt;,"direction":&lt;string&gt;,"entry":&lt;number&gt;,"leverage":&lt;number&gt;,
  "tp":&lt;number|null&gt;,"sl":&lt;number|null&gt;,"opened_at":&lt;ISO-8601 UTC&gt;}</pre>
@@ -94,5 +94,6 @@ print("anchored in", d["anchor"]["day"], "✔")</pre>
   </div>
 </div>
 <script src="/js/i18n.js?v=79"></script>
+<script src="/js/reveal.js?v=1" defer></script>
 </body>
 </html>

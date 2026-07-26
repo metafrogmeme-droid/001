@@ -10,14 +10,24 @@
   if (!c || !c.getContext) return;
   var ctx = c.getContext('2d');
   var host = c.parentElement || document.body;
+  // Per-page identity: data-hue tints the field (default matches the landing
+  // blues), data-viewport pins the canvas to the whole viewport instead of
+  // the host element — the mode the Guardian-suite backdrops use.
+  var fixed = c.hasAttribute('data-viewport');
+  var hue = parseFloat(c.getAttribute('data-hue'));
+  if (!isFinite(hue)) hue = 202;
+  var NODE_FILL = 'hsla(' + hue + ',80%,78%,0.72)';
   var dpr = Math.min(window.devicePixelRatio || 1, 2);
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var nodes = [], W = 1, H = 1, raf = 0, onscreen = true;
   var LINK = 132, LINK2 = LINK * LINK;
 
   function size() {
-    var r = host.getBoundingClientRect();
-    W = Math.max(1, r.width); H = Math.max(1, r.height);
+    if (fixed) { W = Math.max(1, window.innerWidth); H = Math.max(1, window.innerHeight); }
+    else {
+      var r = host.getBoundingClientRect();
+      W = Math.max(1, r.width); H = Math.max(1, r.height);
+    }
     c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
     c.style.width = W + 'px'; c.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -54,7 +64,7 @@
         var b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
         if (d2 < LINK2) {
           var al = (1 - Math.sqrt(d2) / LINK) * 0.22;
-          ctx.strokeStyle = 'rgba(63,182,255,' + al.toFixed(3) + ')';
+          ctx.strokeStyle = 'hsla(' + hue + ',85%,62%,' + al.toFixed(3) + ')';
           ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
         }
@@ -63,7 +73,7 @@
     for (i = 0; i < nodes.length; i++) {
       var p = nodes[i];
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832);
-      ctx.fillStyle = 'rgba(143,217,255,0.72)'; ctx.fill();
+      ctx.fillStyle = NODE_FILL; ctx.fill();
     }
     ctx.restore();
   }
@@ -75,12 +85,13 @@
   if (reduce) { draw(false); return; } // one static frame, no loop
   start();
 
-  host.addEventListener('pointermove', function (e) {
-    var r = host.getBoundingClientRect();
+  var pt = fixed ? window : host;
+  pt.addEventListener('pointermove', function (e) {
+    var r = fixed ? { left: 0, top: 0, width: W, height: H } : host.getBoundingClientRect();
     tx = ((e.clientX - r.left) / Math.max(1, r.width) - 0.5) * 14;
     ty = ((e.clientY - r.top) / Math.max(1, r.height) - 0.5) * 10;
   });
-  host.addEventListener('pointerleave', function () { tx = 0; ty = 0; });
+  pt.addEventListener('pointerleave', function () { tx = 0; ty = 0; });
 
   var rt;
   window.addEventListener('resize', function () {

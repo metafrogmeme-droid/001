@@ -94,7 +94,7 @@
     <div class="empty" id="loading" data-i18n="pf.loading">Loading the latest sealed statement…</div>
   </div>
 
-  <section class="panel">
+  <section class="panel reveal-on-scroll">
     <h2 data-i18n="pf.verify_h2">Verify anyone — paste a statement</h2>
     <p class="steps" data-i18n-html="pf.verify_p">Paste any sealed publication (or a raw <code>{bundle, publish_hash}</code>
     pair) from any agent — this page re-derives the SHA-256 <b>entirely in your
@@ -109,7 +109,7 @@
     </div>
   </section>
 
-  <section class="panel disclaimer">
+  <section class="panel reveal-on-scroll disclaimer">
     Past performance is not indicative of future results. The published statement
     reports the operator agent account and is public-safe by construction — the
     sealer refuses to publish anything carrying exchange internals. The on-chain
@@ -199,7 +199,7 @@
       ${tiles.map(([k, v]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div></div>`).join('')}
     </div>
 
-    <section class="panel">
+    <section class="panel reveal-on-scroll">
       <h2>Verify it yourself — in this browser</h2>
       <div class="verdict wait" id="verdict"><span class="big" id="verdictIcon">…</span><span id="verdictText">Re-deriving the hash on your device…</span></div>
       <ul class="checks" id="checks">
@@ -215,7 +215,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel reveal-on-scroll">
       <h2>On-chain identity anchor (ERC-8004)</h2>
       <div class="row" style="margin-bottom:var(--s3)">
         <span class="badge ${String(anchor.status).toUpperCase() === 'VERIFIED' ? 'fresh' : 'unverified'}">${esc((anchor.status || 'UNVERIFIED')).toUpperCase()}</span>
@@ -241,7 +241,7 @@
       })()}
     </section>
 
-    <section class="panel">
+    <section class="panel reveal-on-scroll">
       <h2>How to re-verify off this page</h2>
       <p class="steps">
         1. Copy the full statement below.<br>
@@ -334,5 +334,6 @@
 })();
 </script>
 <script src="/js/i18n.js?v=79"></script>
+<script src="/js/reveal.js?v=1" defer></script>
 </body>
 </html>
