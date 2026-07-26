@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Study Room</title>
+<link rel="canonical" href="https://pmvc58g2.mule.page/learn">
+<meta name="description" content="Your trading study room: a private daily trade diary that attaches each day's closed paper trades for reflection. Write why you traded, what you followed, what you learned — one entry per day, edits marked, streak counted. Private, always.">
+<meta property="og:title" content="RUNECLAW — Study Room">
+<meta property="og:description" content="A private daily trade diary: your closed paper trades attached to your own words, one entry per day, edits marked. The reflective layer of the Arena.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pmvc58g2.mule.page/learn">
+<meta property="og:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Study Room">
+<meta name="twitter:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=18">
+<style>
+  .ln-wrap { max-width: 900px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .ln-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .lede b { color: var(--text-1); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  textarea { width: 100%; min-height: 150px; resize: vertical; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: var(--s3); font: inherit; font-size: var(--fs-sm); line-height: 1.6; }
+  .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s3); }
+  .streak { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--s4); }
+  .trade { display: flex; gap: var(--s3); align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); font-size: var(--fs-sm); flex-wrap: wrap; }
+  .trade:first-child { border-top: 0; }
+  .trade .sym { font-weight: 600; }
+  .up-c { color: var(--up); } .down-c { color: var(--down); }
+  .hist { padding: 10px 0; border-top: 1px solid var(--line); }
+  .hist:first-child { border-top: 0; }
+  .hist .d { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-3); }
+  .hist .b { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.55; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+  .muted { color: var(--text-3); }
+  .note { font-size: var(--fs-xs); color: var(--text-3); }
+  .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<div class="ln-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/arena" data-i18n="nav.arena">Arena</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="ln-hero"><h1 data-i18n="ln.h">📖 Study Room</h1></div>
+  <p class="lede" data-i18n-html="ln.lede">The records prove what happened; this room is where <b>you</b> say why. One diary entry per day,
+  with that day's closed paper trades attached for reflection. <b>Private, always</b> — nothing here is ever
+  published, and edits are allowed but marked. A trader who writes daily learns twice from every trade.</p>
+
+  <p class="streak" id="streak" hidden></p>
+
+  <section class="panel">
+    <h2 id="todayH" data-i18n="ln.today_h">Today's entry</h2>
+    <textarea id="body" maxlength="4000" data-i18n-attr="placeholder:ln.ph"
+      placeholder="Why did you take today's trades? Did you follow your plan — and if not, what pulled you off it? What would you repeat, and what would you never do again?"></textarea>
+    <div class="row">
+      <button class="btn btn--primary btn--sm" id="save" type="button" data-i18n="ln.save">Save entry</button>
+      <span class="note" id="saveNote" aria-live="polite"></span>
+    </div>
+    <div id="trades" style="margin-top:var(--s3)"></div>
+  </section>
+
+  <section class="panel" id="histPanel" hidden>
+    <h2 data-i18n="ln.hist_h">Past entries</h2>
+    <div id="hist"></div>
+  </section>
+
+  <p class="disc" data-i18n="ln.disc">The diary is private and stays private. Attached trades are read live from your own Arena history —
+  never copied, so they can never drift from the sealed record. Editing a past day is allowed and always marked.
+  This is a study aid, not investment advice.</p>
+</div>
+
+<script src="/js/i18n.js?v=72"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var fill = function (tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (m, n) { return map[n] == null ? m : map[n]; });
+  };
+  var tok = null;
+  try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+  var today = new Date().toISOString().slice(0, 10);
+  var hadEntry = false;
+
+  function note(txt, mood) {
+    var el = $('saveNote');
+    el.textContent = txt;
+    el.style.color = mood === 'bad' ? 'var(--down)' : mood === 'ok' ? 'var(--up)' : 'var(--text-3)';
+  }
+
+  function api(p, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ Authorization: 'Bearer ' + tok }, opts.headers || {});
+    return fetch('/api/learn' + p, opts).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, data: j }; });
+    });
+  }
+
+  function renderTrades(list) {
+    if (!list.length) {
+      $('trades').innerHTML = '<p class="note">' + esc(T('ln.no_trades',
+        'No paper trades closed today — a no-trade day is worth a line too: what kept you out?')) + '</p>';
+      return;
+    }
+    $('trades').innerHTML = '<p class="note" style="margin-bottom:4px">'
+      + esc(fill(T('ln.trades_h', '{n} paper trade(s) closed today — attached live from your Arena history:'), { n: list.length })) + '</p>'
+      + list.map(function (t) {
+        return '<div class="trade"><span class="sym">' + esc(t.symbol) + '</span>'
+          + '<span class="' + (t.direction === 'LONG' ? 'up-c' : 'down-c') + '">' + esc(t.direction) + '</span>'
+          + '<span class="' + (t.pnl > 0 ? 'up-c' : t.pnl < 0 ? 'down-c' : 'muted') + '">'
+          + (t.pnl > 0 ? '+' : '') + t.pnl + ' vUSDT</span>'
+          + '<span class="muted">' + esc(t.reason) + '</span>'
+          + (t.trade_key ? '<a href="/call/' + encodeURIComponent(t.trade_key) + '" target="_blank" rel="noopener">🔏</a>' : '')
+          + '</div>';
+      }).join('');
+  }
+
+  function renderHist(entries) {
+    var past = entries.filter(function (e) { return e.day !== today; });
+    $('histPanel').hidden = past.length === 0;
+    $('hist').innerHTML = past.map(function (e) {
+      return '<div class="hist"><div class="d">' + esc(e.day)
+        + (e.edited ? ' <span title="' + esc(T('ln.edited_t', 'This entry was edited after the day it describes.')) + '">✎ '
+          + esc(T('ln.edited', 'edited')) + '</span>' : '') + '</div>'
+        + '<div class="b">' + esc(e.body) + '</div></div>';
+    }).join('');
+  }
+
+  async function load() {
+    if (!tok) {
+      note(T('ln.signed_out', 'Sign in to open your study room — the diary is private to your account.'), 'bad');
+      $('save').disabled = true;
+      $('body').disabled = true;
+      return;
+    }
+    try {
+      var list = await api('/diary');
+      if (list.ok && list.data && list.data.entries) {
+        if (list.data.streak > 0 || list.data.total > 0) {
+          $('streak').hidden = false;
+          $('streak').innerHTML = '🔥 ' + esc(fill(T('ln.streak',
+            '{n}-day journaling streak · {t} entries kept'), { n: list.data.streak, t: list.data.total }));
+        }
+        renderHist(list.data.entries);
+      }
+      var d = await api('/diary/' + today);
+      if (d.ok && d.data) {
+        if (d.data.entry) {
+          hadEntry = true;
+          $('body').value = d.data.entry.body;
+          if (d.data.entry.edited) note('✎ ' + T('ln.edited', 'edited'));
+        }
+        renderTrades(d.data.trades || []);
+      }
+    } catch (e) {
+      note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');
+    }
+  }
+
+  $('save').addEventListener('click', async function () {
+    var body = $('body').value.trim();
+    if (!body) { note(T('ln.empty', 'Write something first — even one honest line counts.'), 'bad'); return; }
+    $('save').disabled = true;
+    try {
+      var r = await api('/diary/' + today, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body }),
+      });
+      if (r.ok && r.data && r.data.saved) {
+        note(r.data.edited
+          ? '✓ ' + T('ln.saved_edit', 'Saved — this day now wears its ✎ edited mark.')
+          : '✓ ' + T('ln.saved', 'Saved. Same time tomorrow.'), 'ok');
+        hadEntry = true;
+        load();
+      } else {
+        note((r.data && r.data.error) || T('ln.save_fail', 'Could not save — nothing was changed.'), 'bad');
+      }
+    } catch (e) {
+      note(T('ln.save_fail', 'Could not save — nothing was changed.'), 'bad');
+    } finally { $('save').disabled = false; }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

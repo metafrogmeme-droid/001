@@ -50,6 +50,7 @@ class MemoryDB {
     this.userStrategies = []; // user-authored marketplace strategies (config only)
     this._nextStrategyId = 1;
     this.agentLetters = [];   // weekly agent letters (UPSERT-free; one per week_key)
+    this.learnDiary = [];     // study-room diary: one entry per (user_id, day)
     this.copySubs = [];       // strategy-agent follows (UNIQUE user_id+agent_id)
     this._nextCopySubId = 1;
     this.arenaAccounts = {};  // user_id -> { balance, created_at } (paper arena)
@@ -176,6 +177,39 @@ class MemoryDB {
     }
 
     // -- AGENT LETTERS (weekly fund-style letter; one row per ISO week) --
+    // -- LEARN DIARY (study room; one entry per user per UTC day) --
+    if (cmd.includes('INSERT INTO LEARN_DIARY')) {
+      // params: user_id, day, body, created_at. Unique (user_id, day) is
+      // enforced exactly as MySQL enforces it: with ON DUPLICATE the second
+      // write upserts (body replaced, edited_at set — a race loser IS a
+      // second write); without it, ER_DUP_ENTRY throws.
+      const existing = this.learnDiary.find(e => e.user_id === params[0] && e.day === params[1]);
+      if (existing) {
+        if (!cmd.includes('ON DUPLICATE KEY UPDATE')) {
+          const err = new Error(`Duplicate entry '${params[0]}-${params[1]}' for key 'uq_learn_user_day'`);
+          err.code = 'ER_DUP_ENTRY';
+          throw err;
+        }
+        existing.body = params[2];
+        existing.edited_at = params[3];
+        return [{ affectedRows: 2 }, []];
+      }
+      this.learnDiary.push({ user_id: params[0], day: params[1], body: params[2],
+        created_at: params[3], edited_at: null });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM LEARN_DIARY')) {
+      if (cmd.includes('AND DAY = ?')) {
+        const rows = this.learnDiary.filter(x => x.user_id === params[0] && x.day === params[1]);
+        return [rows.map(r => ({ ...r })), []];
+      }
+      // list: WHERE user_id = ? ORDER BY day DESC LIMIT 60 (inline limit)
+      const rows = this.learnDiary.filter(x => x.user_id === params[0])
+        .sort((a, b) => String(b.day).localeCompare(String(a.day)))
+        .slice(0, 60);
+      return [rows.map(r => ({ ...r })), []];
+    }
+
     if (cmd.includes('INSERT INTO AGENT_LETTERS')) {
       // params: week_key, generated_at, letter_json
       if (!this.agentLetters.some(l => l.week_key === params[0])) {
@@ -508,6 +542,17 @@ class MemoryDB {
         const n = this.arenaTrades.filter(
           t => new Date(t.closed_at).getTime() >= lo).length;
         return [[{ n }], []];
+      }
+      if (cmd.includes('USER_ID = ?') && cmd.includes('CLOSED_AT >=') && cmd.includes('CLOSED_AT <')) {
+        // learn diary: the caller's closes inside ONE UTC day window. Must be
+        // matched BEFORE the single-cutoff branch below — falling through
+        // there would silently ignore the upper bound and attach every close
+        // since `lo` to the diary day.
+        const lo = new Date(params[1]).getTime(), hi = new Date(params[2]).getTime();
+        const rows = this.arenaTrades.filter(t => t.user_id === params[0]
+          && new Date(t.closed_at).getTime() >= lo
+          && new Date(t.closed_at).getTime() < hi);
+        return [rows.map(r => ({ ...r })), []];
       }
       if (cmd.includes('USER_ID = ?') && cmd.includes('CLOSED_AT >=')) {
         // welcome-back digest: the caller's own closes since a cutoff
@@ -1784,6 +1829,18 @@ async function migrate() {
         closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_arena_tr_user (user_id),
         INDEX idx_arena_tr_key (trade_key)
+      )
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS learn_diary (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        day CHAR(10) NOT NULL,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP NULL,
+        edited_at TIMESTAMP NULL,
+        UNIQUE KEY uq_learn_user_day (user_id, day),
+        INDEX idx_learn_user (user_id)
       )
     `);
     // Provable Calls v2 — the seal rides the position onto the closed trade.
