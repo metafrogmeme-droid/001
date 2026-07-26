@@ -86,6 +86,15 @@
     <h2><span data-i18n="ln.lessons_h">Lessons</span> <span class="note" id="lessonProg"></span></h2>
     <p class="note" data-i18n="ln.lessons_note">Lessons are written in English for now — the room's controls speak your language.</p>
     <div id="lessons" style="margin-top:var(--s2)"></div>
+    <div id="tutorBox" hidden style="border-top:1px solid var(--line);margin-top:var(--s3);padding-top:var(--s3)">
+      <p class="note" style="margin-bottom:6px">🤖 <span data-i18n="ln.tutor_h">Ask the tutor — answers come only from the lessons above.</span></p>
+      <div class="row" style="margin-top:0">
+        <input id="tutorQ" maxlength="500" data-i18n-attr="placeholder:ln.tutor_ph" placeholder="e.g. why does a stop beyond liquidation cap at margin?" autocomplete="off"
+          style="flex:1;min-width:220px;background:var(--bg);border:1px solid var(--line);color:var(--text-1);border-radius:var(--radius-sm);padding:8px 10px;font:inherit;font-size:var(--fs-sm)">
+        <button class="btn btn--sm" id="tutorAsk" type="button" data-i18n="ln.ask">Ask</button>
+      </div>
+      <div id="tutorA" class="lesson-body" style="margin-top:var(--s2)" aria-live="polite"></div>
+    </div>
   </section>
 
   <section class="panel" id="histPanel" hidden>
@@ -98,7 +107,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=73"></script>
+<script src="/js/i18n.js?v=74"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -241,11 +250,47 @@
       if (tok) {
         var p = await api('/progress');
         ((p.ok && p.data && p.data.done) || []).forEach(function (s) { DONE[s] = true; });
+        // The tutor appears only when the AI channel actually answers —
+        // silence beats teasing a box that cannot reply.
+        var st = await api('/tutor/status');
+        if (st.ok && st.data && st.data.ready) $('tutorBox').hidden = false;
       }
       lessonList();
     } catch (e) { /* the diary stands alone */ }
   }
   loadLessons();
+
+  async function askTutor() {
+    var q = $('tutorQ').value.trim();
+    if (!q) return;
+    $('tutorAsk').disabled = true;
+    $('tutorA').innerHTML = '<p class="note">…</p>';
+    try {
+      var r = await api('/tutor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q }),
+      });
+      if (r.ok && r.data && r.data.refused) {
+        $('tutorA').innerHTML = '<p class="note">' + esc(T('ln.tutor_refuse',
+          'The tutor teaches what the lessons teach — it never says what to buy, sell or predict. Ask about stops, exits, risk or bridges instead.')) + '</p>';
+      } else if (r.ok && r.data && r.data.answer) {
+        // The answer is model output relayed as text — escaped here, labeled
+        // as AI, with the source lessons named.
+        $('tutorA').innerHTML = '<p>' + esc(String(r.data.answer)).replace(/\n/g, '<br>') + '</p>'
+          + '<p class="note">🤖 ' + esc(T('ln.tutor_ai', 'AI-generated from the lesson texts — check the source lesson. Study help, never trading advice.'))
+          + (r.data.sources && r.data.sources.length ? ' · ' + esc(r.data.sources.join(', ')) : '') + '</p>';
+      } else {
+        $('tutorA').innerHTML = '<p class="note">' + esc((r.data && r.data.error)
+          || T('ln.tutor_fail', 'The tutor could not answer just now — the lessons above still can.')) + '</p>';
+      }
+    } catch (e) {
+      $('tutorA').innerHTML = '<p class="note">' + esc(T('ln.tutor_fail',
+        'The tutor could not answer just now — the lessons above still can.')) + '</p>';
+    } finally { $('tutorAsk').disabled = false; }
+  }
+  $('tutorAsk').addEventListener('click', askTutor);
+  $('tutorQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') askTutor(); });
 
   $('save').addEventListener('click', async function () {
     var body = $('body').value.trim();

@@ -83,7 +83,7 @@ function listLessons() {
     const src = fs.readFileSync(path.join(LESSONS_DIR, f), 'utf8');
     const slug = f.replace(/^\d+-/, '').replace(/\.md$/, '');
     const title = (src.match(/^#\s+(.*)$/m) || [null, slug])[1];
-    return { slug, file: f, title, html: renderMd(src) };
+    return { slug, file: f, title, html: renderMd(src), text: src };
   });
   return cache;
 }

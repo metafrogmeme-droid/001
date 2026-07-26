@@ -69,8 +69,54 @@ router.post('/lessons/:slug/done', authMiddleware, async (req, res) => {
   }
 });
 
-// ── Diary: PRIVATE, all routes below authed.
+// ── Diary + tutor: PRIVATE, all routes below authed.
 router.use(authMiddleware);
+
+// ── Tutor: a grounded ask through the bot gateway's LLM channel. The
+// server never holds a model key (they live in the bot's encrypted store);
+// this route only builds the grounded prompt and relays.
+const tutor = require('../lib/learn_tutor');
+const gateway = require('../lib/gateway');
+const { resolveBotIdentity } = require('../lib/identity');
+const { rateLimit, userKey } = require('../lib/rate_limit');
+
+router.get('/tutor/status', (req, res) => {
+  res.json({ ready: gateway.isConfigured() });
+});
+
+router.post('/tutor', rateLimit({ windowMs: 60000, max: 10, key: userKey }), async (req, res) => {
+  try {
+    const question = String((req.body && req.body.question) || '').trim();
+    const slug = String((req.body && req.body.slug) || '') || null;
+    if (!question) return res.status(400).json({ error: 'Ask something first' });
+    if (question.length > 500) return res.status(400).json({ error: 'Too long (max 500 characters)' });
+    // Advice questions are refused deterministically, before any model runs.
+    if (tutor.adviceAsked(question)) {
+      return res.json({ refused: true, code: 'advice', ai: false });
+    }
+    if (!gateway.isConfigured()) {
+      return res.status(503).json({ error: 'Tutor unavailable — the AI channel is not configured' });
+    }
+    const { prompt, sources } = tutor.buildPrompt(question, slug);
+    const ident = await resolveBotIdentity(req);
+    const r = await gateway.postGateway('/chat', {
+      telegram_id: ident.id,
+      name: String(ident.email || '').split('@')[0],
+      text: prompt,
+    }, 25000);
+    const body = (r && r.data) || {};
+    const answer = body.reply_html || body.reply || body.text || null;
+    if (!answer) return res.status(502).json({ error: 'The tutor did not answer — try again' });
+    res.json({
+      answer, ai: true, grounded: true, sources,
+      note: 'AI-generated from the lesson texts — check the source lesson. '
+        + 'Study help only, never trading advice.',
+    });
+  } catch (err) {
+    console.error('Tutor error:', err.stack || err.message);
+    res.status(502).json({ error: 'Tutor unavailable right now' });
+  }
+});
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_BODY = 4000;
