@@ -153,21 +153,8 @@ function dayWindow(day) {
   return { lo, hi: new Date(lo.getTime() + 86_400_000) };
 }
 
-/** Consecutive journaled days ending today or yesterday (today may simply
- *  not be written yet — that does not break a streak; a missed day does). */
-function streakOf(daysDesc) {
-  const have = new Set(daysDesc);
-  let cursor = todayUtc();
-  if (!have.has(cursor)) {
-    cursor = new Date(Date.parse(cursor) - 86_400_000).toISOString().slice(0, 10);
-  }
-  let n = 0;
-  while (have.has(cursor)) {
-    n++;
-    cursor = new Date(Date.parse(cursor) - 86_400_000).toISOString().slice(0, 10);
-  }
-  return n;
-}
+// Single-source streak: the same helper the Command Deck reads.
+const { diaryStreak: streakOf } = require('../lib/achievements');
 
 async function tradesOfDay(userId, day) {
   const { lo, hi } = dayWindow(day);

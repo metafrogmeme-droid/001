@@ -243,6 +243,7 @@ app.get('/api/version', (req, res) => {
 });
 app.use('/api/nft', require('./routes/nft'));
 app.use('/api/learn', require('./routes/learn'));
+app.use('/api/command', require('./routes/command'));
 app.use('/api/spot', require('./routes/spot'));
 app.use('/api/tax', require('./routes/tax'));
 app.use('/api/reputation', require('./routes/reputation'));
@@ -274,6 +275,7 @@ app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache');
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'learn.html')); });
+app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
 app.get('/call/:key', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'call.html')); });

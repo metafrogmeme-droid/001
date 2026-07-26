@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Command Deck</title>
+<link rel="canonical" href="https://pmvc58g2.mule.page/command">
+<meta name="description" content="Your whole recorded state on one screen: arena streak, weekly quests, exit discipline, diary streak, lessons progress, your soulbound rune, and achievement glyphs — all counts and facts, recomputed from records, granted by arithmetic, never by grant tables.">
+<meta property="og:title" content="RUNECLAW — Command Deck">
+<meta property="og:description" content="Streaks, quests, discipline, lessons, the rune, achievements — one deck, all facts.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pmvc58g2.mule.page/command">
+<meta property="og:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Command Deck">
+<meta name="twitter:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=18">
+<style>
+  .cd-wrap { max-width: 940px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .cd-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3); }
+  .stat { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); }
+  .stat .k { font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .stat .v { font-family: var(--font-data); font-size: 22px; color: var(--gold-bright); margin-top: 4px; }
+  .stat .d { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; }
+  .quest { display: grid; grid-template-columns: 28px 1fr 90px; gap: var(--s2); align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+  .quest:first-child { border-top: 0; }
+  .qbar { height: 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+  .qbar span { display: block; height: 100%; background: var(--gold-bright); transition: width .6s ease; }
+  @media (prefers-reduced-motion: reduce) { .qbar span { transition: none; } }
+  .quest.done .qbar span { background: var(--up); }
+  .ach { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s2); }
+  .tile { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); background: var(--surface-2); }
+  .tile .ic { font-size: 22px; }
+  .tile .t { font-size: var(--fs-sm); color: var(--text-1); line-height: 1.4; }
+  .tile.locked { opacity: .38; filter: grayscale(1); }
+  .tile.locked .t { color: var(--text-3); }
+  .muted { color: var(--text-3); } .note { font-size: var(--fs-xs); color: var(--text-3); }
+  .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<div class="cd-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/arena" data-i18n="nav.arena">Arena</a>
+    <a href="/learn" data-i18n="nav.learn">Study Room</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="cd-hero" style="position:relative;min-height:130px;display:flex;align-items:flex-end">
+    <canvas id="rc-hall" aria-hidden="true" style="position:absolute;inset:0;z-index:0;pointer-events:none"></canvas>
+    <h1 data-i18n="cd.h" style="position:relative;z-index:1">🎮 Command Deck</h1>
+  </div>
+  <p class="lede" data-i18n="cd.lede">Your whole recorded state on one screen — streaks, quests, discipline, lessons, your rune, and the
+  achievement glyphs. Every number recomputes from records; every unlock is granted by arithmetic, never by a
+  grant table. Counts and facts only.</p>
+
+  <p class="note" id="signedOut" hidden data-i18n="cd.signed_out">Sign in to open your deck — it is private to your account.</p>
+
+  <section class="panel" id="statsPanel" hidden>
+    <div class="statrow" id="stats"></div>
+  </section>
+
+  <section class="panel" id="questPanel" hidden>
+    <h2 data-i18n="cd.q_h">Weekly quests · same three for everyone, rotated by week</h2>
+    <div id="quests"></div>
+  </section>
+
+  <section class="panel" id="runePanel" hidden>
+    <h2 data-i18n="cd.r_h">Your rune</h2>
+    <div id="runeSlot"></div>
+  </section>
+
+  <section class="panel" id="achPanel" hidden>
+    <h2 data-i18n="cd.a_h">Achievements · granted by arithmetic</h2>
+    <div class="ach" id="ach"></div>
+  </section>
+
+  <p class="disc" data-i18n="cd.disc">The deck is private and carries no balances — counts and facts only, recomputed from your own records
+  on every read. Locked simply means the records don't show it yet. Education and practice, not investment advice.</p>
+</div>
+
+<script src="/js/i18n.js?v=76"></script>
+<script src="/js/learn-hall.js?v=1" defer></script>
+<script src="/js/rune-card.js?v=1" defer></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var fill = function (tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (m, n) { return map[n] == null ? m : map[n]; });
+  };
+  var tok = null;
+  try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+  if (!tok) { $('signedOut').hidden = false; return; }
+
+  function stat(k, v, d) {
+    return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(String(v))
+      + '</div>' + (d ? '<div class="d">' + esc(d) + '</div>' : '') + '</div>';
+  }
+
+  fetch('/api/command', { headers: { Authorization: 'Bearer ' + tok } })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); })
+    .then(function (r) {
+      if (!r.ok || !r.d || !r.d.achievements) {
+        $('signedOut').hidden = false;
+        $('signedOut').textContent = T('cd.fail', 'The deck could not load just now — your records are unchanged.');
+        return;
+      }
+      var d = r.d;
+      $('stats').innerHTML =
+        stat(T('cd.s_streak', 'Arena streak'), '🔥 ' + d.arena.streak.current,
+          fill(T('cd.s_best', 'best {b}'), { b: d.arena.streak.best }))
+        + stat(T('cd.s_closes', 'Paper closes'), d.arena.closes,
+          d.arena.discipline_level ? T('arena.disc_' + d.arena.discipline_level, d.arena.discipline_level) : '')
+        + stat(T('cd.s_diary', 'Diary streak'), '📖 ' + d.study.diary_streak,
+          fill(T('cd.s_entries', '{t} entries'), { t: d.study.diary_total }))
+        + stat(T('cd.s_lessons', 'Lessons'), d.study.lessons_done + ' / ' + d.study.lessons_total, '');
+      $('statsPanel').hidden = false;
+
+      $('quests').innerHTML = (d.arena.quests || []).map(function (q) {
+        var pct = Math.round(q.have / q.target * 100);
+        return '<div class="quest' + (q.done ? ' done' : '') + '"><span>' + esc(q.icon) + '</span>'
+          + '<span>' + esc(T('qn.' + q.key, q.name)) + ' <span class="muted">' + q.have + '/' + q.target + '</span></span>'
+          + '<span class="qbar"><span style="width:' + pct + '%"></span></span></div>';
+      }).join('');
+      $('questPanel').hidden = (d.arena.quests || []).length === 0;
+
+      if (d.rune && d.rune.minted_token_id > 0 && d.rune.image) {
+        $('runeSlot').innerHTML = '<div id="runeCard"></div>';
+        if (window.RCRuneCard) RCRuneCard.mount($('runeCard'), d.rune.image, { size: 140 });
+        $('runePanel').hidden = false;
+      } else if (d.rune && d.rune.minted_token_id === 0) {
+        $('runeSlot').innerHTML = '<p class="note">' + esc(T('cd.r_none',
+          'No rune yet — mint yours from the dashboard wallet panel: free, gas only, soulbound.')) + '</p>';
+        $('runePanel').hidden = false;
+      } // null = chain unreadable or not deployed: the panel stays honest-absent
+
+      $('ach').innerHTML = d.achievements.map(function (a) {
+        return '<div class="tile' + (a.unlocked ? '' : ' locked') + '"><span class="ic">' + esc(a.icon)
+          + '</span><span class="t">' + esc(T('ach.' + a.id, a.en)) + '</span></div>';
+      }).join('');
+      $('achPanel').hidden = false;
+    })
+    .catch(function () {
+      $('signedOut').hidden = false;
+      $('signedOut').textContent = T('cd.fail', 'The deck could not load just now — your records are unchanged.');
+    });
+})();
+</script>
+</body>
+</html>
