@@ -169,11 +169,17 @@ function cmdPlan() {
     `presale ${pr.presalePrice.toExponential(4)} | pool at hard cap ${pr.bestCasePoolPrice.toExponential(4)} ` +
     `| pool at soft cap ${pr.worstCasePoolPrice.toExponential(4)} SOL/token`);
   console.log('                 ',
-    `a weak raise opens the pool BELOW the presale price — the LP lock is permanent, so this cannot be corrected after the fact.`);
+    `those pool prices assume the LP token side stays FIXED. presale:rebalance-lp scales it to the ` +
+    `realised raise, which holds the opening price at the presale price for any raise between the ` +
+    `caps — skip that step and a weak raise opens the pool below it, permanently.`);
   console.log('                 ',
-    `quote split: ${lp.raisedSolToLiquidityBps / 100}% of the raise is ENCODED ON CHAIN as a ` +
+    `quote split: ${lp.raisedSolToLiquidityBps / 100}% of the raise is encoded on chain as a ` +
     `SendQuoteTokenPercentage end behavior on the presale bucket (${lp.raisedSolToLiquidityBps} bps), ` +
     'executed by the permissionless presale:trigger after the deposit window closes.');
+  console.log('                 ',
+    'the encoded split is publicly VERIFIABLE, not immutable: setPresaleBucketV2Behaviors lets the ' +
+    'genesis authority replace it until it is triggered, so presale:liquidity and presale:trigger ' +
+    're-read the live bucket and refuse on a mismatch. A multisig authority is the real mitigation.');
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
   console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → (window closes) → presale:rebalance-lp → presale:trigger → presale:claim.');
   console.log('       rebalance-lp scales the LP token side to the REALISED raise so the pool opens at the presale');

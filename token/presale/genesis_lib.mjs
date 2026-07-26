@@ -434,12 +434,15 @@ export function deriveLiquidityParams(cfg) {
   if (worstCasePoolPrice < presalePrice) {
     const ratio = (presalePrice / worstCasePoolPrice).toFixed(1);
     console.warn(
-      `WARNING: at the SOFT cap the pool opens at ${worstCasePoolPrice.toExponential(6)} ` +
-      `SOL/token — ${ratio}x below the presale price ${presalePrice.toExponential(6)}. ` +
-      `Presale buyers would be underwater at listing on a weak raise, and the LP lock is ` +
-      `permanent. This is inherent to a fixed tokenAllocation across a ` +
-      `${(Number(cfg.sale.hardCapSol) / Number(cfg.sale.softCapSol)).toFixed(1)}x cap spread; ` +
-      `narrowing the spread or scaling the allocation with the raise is the only real fix.`
+      `NOTE: at the SOFT cap a FIXED ${Number(cfg.liquidity.tokenAllocation).toLocaleString()}-token ` +
+      `allocation would open the pool at ${worstCasePoolPrice.toExponential(6)} SOL/token — ` +
+      `${ratio}x below the presale price ${presalePrice.toExponential(6)}, with a permanent LP ` +
+      `lock. That is inherent to a fixed allocation across a ` +
+      `${(Number(cfg.sale.hardCapSol) / Number(cfg.sale.softCapSol)).toFixed(1)}x cap spread.\n` +
+      `      This is now CORRECTABLE: run \`npm run presale:rebalance-lp\` after the deposit ` +
+      `window closes and before the pool is created. It scales the token side to the realised ` +
+      `raise so the pool opens AT the presale price for any raise between the caps. The figures ` +
+      `above are the un-rebalanced worst case, i.e. what happens if that step is skipped.`
     );
   }
 
