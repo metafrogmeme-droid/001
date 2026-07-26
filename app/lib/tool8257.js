@@ -190,12 +190,27 @@ function buildRegistrationPlan({ tools }) {
     recommended_chain_id: 8453,
     metadata_uri: metadataURI,
     manifest_hash: hash,
+    // creatorAddress lives INSIDE the hashed manifest. While the env var is
+    // unset it hashes as the zero address — so a registration sent from this
+    // plan stops verifying the moment TOOL_CREATOR_ADDRESS is set. Say so
+    // next to the hash, where the wallet-holder is actually reading.
+    ...(creator ? {} : {
+      hash_warning: 'creatorAddress is part of the hashed manifest and is '
+        + 'currently the zero address. Setting TOOL_CREATOR_ADDRESS later '
+        + 'will CHANGE manifest_hash and break verification of a '
+        + 'registration sent with this calldata. Set the env var first, '
+        + 'redeploy, then register from the refreshed plan.',
+    }),
     access_predicate: ZERO_ADDRESS,
     access_note: 'zero address = open access. No NFT gate, no per-call charge '
       + '— pricing/x402 stays design-only behind the four gates in '
       + 'docs/INTEROP.md §4.',
     calldata,
     instructions: [
+      ...(creator ? [] : [
+        'Do not register this calldata yet: set TOOL_CREATOR_ADDRESS first '
+          + '(see hash_warning), then use the refreshed plan.',
+      ]),
       `Send from your own wallet (ideally the creator address ${creator || '<unset>'}) `
         + `to the ToolRegistry ${TOOL_REGISTRY_ADDRESS} on Base — value 0, `
         + 'data = the calldata field above.',

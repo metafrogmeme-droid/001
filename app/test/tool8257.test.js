@@ -73,6 +73,33 @@ test('registration plan: dry-run calldata for the canonical registry, zero-addre
   assert.equal(predicate.toLowerCase(), t8257.ZERO_ADDRESS);
 });
 
+test('unset creator: the plan warns the hash will move BEFORE a wallet can send stale calldata', () => {
+  // creatorAddress is hashed into the manifest. A plan built while the env is
+  // unset carries a hash that dies the moment TOOL_CREATOR_ADDRESS is set —
+  // the plan must say so next to the calldata, not just report ready:false.
+  const TOOLS = require('../routes/mcp').TOOLS;
+  const saved = process.env.TOOL_CREATOR_ADDRESS;
+  const savedAlt = process.env.PROOFOFPNL_AGENT_ADDRESS;
+  delete process.env.TOOL_CREATOR_ADDRESS;
+  delete process.env.PROOFOFPNL_AGENT_ADDRESS;
+  try {
+    const plan = t8257.buildRegistrationPlan({ tools: TOOLS });
+    assert.equal(plan.ready, false);
+    assert.match(plan.hash_warning, /CHANGE manifest_hash/);
+    assert.match(plan.instructions[0], /Do not register this calldata yet/);
+    // The warning is honest: the hash really does move when the env lands.
+    process.env.TOOL_CREATOR_ADDRESS = saved;
+    const after = t8257.buildRegistrationPlan({ tools: TOOLS });
+    assert.notEqual(plan.manifest_hash, after.manifest_hash,
+      'creatorAddress must be part of the hashed bytes');
+    assert.ok(!('hash_warning' in after), 'a ready plan carries no warning');
+    assert.doesNotMatch(after.instructions[0], /Do not register/);
+  } finally {
+    process.env.TOOL_CREATOR_ADDRESS = saved;
+    if (savedAlt !== undefined) process.env.PROOFOFPNL_AGENT_ADDRESS = savedAlt;
+  }
+});
+
 test('non-custodial pin: no signing/broadcast primitive in the module', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'tool8257.js'), 'utf8')
     + fs.readFileSync(path.join(__dirname, '..', 'routes', 'tool8257.js'), 'utf8');
