@@ -244,6 +244,7 @@ app.get('/api/version', (req, res) => {
 app.use('/api/nft', require('./routes/nft'));
 app.use('/api/learn', require('./routes/learn'));
 app.use('/api/command', require('./routes/command'));
+app.use('/api/frame', require('./routes/frame'));
 app.use('/api/spot', require('./routes/spot'));
 app.use('/api/tax', require('./routes/tax'));
 app.use('/api/reputation', require('./routes/reputation'));
@@ -278,7 +279,18 @@ app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); re
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
-app.get('/call/:key', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'call.html')); });
+app.get('/call/:key', (req, res) => {
+  // Frame/OG meta rides per-key so feeds show the pixel receipt card; a
+  // malformed key or missing public origin serves the page untouched.
+  res.setHeader('Cache-Control', 'no-cache');
+  try {
+    const html = require('fs').readFileSync(path.join(__dirname, 'public', 'call.html'), 'utf8');
+    const origin = require('./lib/public_origin').configured();
+    res.type('html').send(require('./lib/frame_meta').injectCallMeta(html, req.params.key, origin));
+  } catch (e) {
+    res.sendFile(path.join(__dirname, 'public', 'call.html'));
+  }
+});
 // The daily Merkle roots, human-readable — the page people mirror from.
 app.get('/roots', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'roots.html')); });
 // The complete third-party verification contract (payload formats, root
