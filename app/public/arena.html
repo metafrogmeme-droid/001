@@ -221,6 +221,7 @@
     <div class="badges" id="badges"></div>
     <div id="quests" hidden></div>
     <div id="discipline" hidden></div>
+    <div id="aweek" hidden></div>
     <div id="starter" hidden></div>
     <div id="cheer" class="cheer" hidden role="status" aria-live="polite"></div>
   </section>
@@ -359,7 +360,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=63"></script>
+<script src="/js/i18n.js?v=64"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -1106,6 +1107,37 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     });
     loadAccount();
     setInterval(loadAccount, 20000);
+    // "Your Arena week" — the private weekly recap, parts-rendered so it
+    // reads in the reader's language; stored English is the fallback.
+    (async function () {
+      var r = await RC.fetchJSON('/api/arena/letter', { timeoutMs: 12000 }).catch(function () { return null; });
+      var el = $('aweek');
+      if (!el || !(r && r.ok && r.data && r.data.letter)) return;
+      var L = r.data.letter;
+      var lt = function (part) {
+        var tpl = T('aw.' + part.tid, '');
+        if (!tpl) return null;
+        return tpl.replace(/\{(\w+)\}/g, function (m, k) {
+          return part.params && part.params[k] != null ? String(part.params[k]) : m;
+        });
+      };
+      var sec = function (s2) {
+        if (s2.parts && s2.parts.length) {
+          var done = s2.parts.map(lt);
+          if (done.every(function (x) { return x != null; })) return done.join(s2.sep || ' ');
+        }
+        return s2.html;
+      };
+      var head = L.headline_part ? (lt(L.headline_part) || L.headline) : L.headline;
+      el.hidden = false;
+      el.innerHTML = '<div class="starter"><div class="t">'
+        + esc(T('aw.h', 'Your Arena week')) + ' <span class="muted" style="text-transform:none;letter-spacing:0">' + esc(L.week_key) + '</span></div>'
+        + '<div class="step" style="font-weight:600">' + esc(head) + '</div>'
+        + L.sections.map(function (s2) {
+          return '<div class="step"><b>' + esc(T('aw.t.' + s2.title_tid, s2.title)) + ':</b> ' + esc(sec(s2)) + '</div>';
+        }).join('')
+        + '<div class="step muted" style="font-size:var(--fs-xs)">' + esc(L.footer_tid ? T('aw.' + L.footer_tid, L.footer) : L.footer) + '</div></div>';
+    })();
 
     $('dirLong').addEventListener('click', function () {
       direction = 'LONG';

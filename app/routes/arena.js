@@ -420,6 +420,30 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
   }
 });
 
+// GET /api/arena/letter — "Your Arena week": the PRIVATE weekly recap,
+// composed on demand from the owner's recorded closes for the last completed
+// week. Deterministic (append-only inputs), so nothing is stored.
+router.get('/letter', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const { lastCompletedWeek } = require('../lib/letter');
+    const week = lastCompletedWeek();
+    const [trades] = await pool.execute(
+      'SELECT symbol, pnl, reason, closed_at FROM arena_trades WHERE user_id = ?', [userId]);
+    const inWeek = trades.filter((t) => {
+      const at = new Date(t.closed_at).getTime();
+      return at >= week.start.getTime() && at < week.end.getTime();
+    });
+    const positions = await loadPositions(userId);
+    const letter = require('../lib/arena_letter').composeArenaLetter(week,
+      { trades: inWeek, openCount: positions.length });
+    res.json({ letter });
+  } catch (err) {
+    console.error('Arena letter error:', err.stack || err.message);
+    res.status(500).json({ error: 'Letter unavailable', reason: safeReason(err) });
+  }
+});
+
 // POST /api/arena/exits { position_id, tp, sl } — move an open position's
 // exits. Managing the exit is half of trading, and the Arena teaches trading;
 // locking the levels at open taught the wrong lesson.
