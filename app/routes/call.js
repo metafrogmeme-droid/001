@@ -39,14 +39,17 @@ async function findArena(key) {
   return null;
 }
 
-router.get('/:key', async (req, res) => {
-  try {
-    const key = String(req.params.key || '');
-    if (!KEY_RE.test(key)) return res.status(400).json({ error: 'Invalid call id' });
+/**
+ * The one lookup both the public route and the MCP verify_call tool share:
+ * → { code: 200, body } | { code: 400|404, body: { error } }
+ */
+async function lookupCall(key) {
+  {
+    if (!KEY_RE.test(key)) return { code: 400, body: { error: 'Invalid call id' } };
     if (key.startsWith('arena:')) {
       const found = await findArena(key);
       if (!found) {
-        return res.status(404).json({ error: 'No sealed trade with that id — receipts exist for paper trades opened after Provable Calls v2 shipped.' });
+        return { code: 404, body: { error: 'No sealed trade with that id — receipts exist for paper trades opened after Provable Calls v2 shipped.' } };
       }
       const t = found.row;
       // Closed-trade rows carry no tp/sl columns — omit those keys entirely
@@ -62,8 +65,7 @@ router.get('/:key', async (req, res) => {
         current.tp = t.tp == null ? null : Number(t.tp);
         current.sl = t.sl == null ? null : Number(t.sl);
       }
-      res.set('Cache-Control', 'public, max-age=15');
-      return res.json({
+      return { code: 200, body: {
         kind: 'arena_trade',
         seal: t.seal,
         seal_payload: t.seal_payload,
@@ -76,17 +78,16 @@ router.get('/:key', async (req, res) => {
               pct: Number(t.margin) > 0 ? round2((Number(t.pnl) / Number(t.margin)) * 100) : 0,
               closed_at: t.closed_at }
           : { status: 'OPEN' },
-      });
+      } };
     }
     const [rows] = await pool.execute(
       'SELECT signal_key, symbol, direction, confidence, pattern, regime, entry_price, stop_loss, take_profit, status, pnl, created_at, resolved_at, seal, seal_payload, sealed_at FROM signals WHERE signal_key = ?',
       [key]);
     const s = rows[0];
     if (!s || !s.seal) {
-      return res.status(404).json({ error: 'No sealed call with that id — receipts exist for calls made after Provable Calls shipped.' });
+      return { code: 404, body: { error: 'No sealed call with that id — receipts exist for calls made after Provable Calls shipped.' } };
     }
-    res.set('Cache-Control', 'public, max-age=15');
-    res.json({
+    return { code: 200, body: {
       kind: 'signal',
       seal: s.seal,
       seal_payload: s.seal_payload,
@@ -102,7 +103,15 @@ router.get('/:key', async (req, res) => {
         created_at: s.created_at,
       },
       outcome: { status: s.status, pnl: s.pnl == null ? null : Number(s.pnl), resolved_at: s.resolved_at },
-    });
+    } };
+  }
+}
+
+router.get('/:key', async (req, res) => {
+  try {
+    const r = await lookupCall(String(req.params.key || ''));
+    if (r.code === 200) res.set('Cache-Control', 'public, max-age=15');
+    res.status(r.code).json(r.body);
   } catch (err) {
     console.error('Call verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Verify feed unavailable' });
@@ -110,3 +119,4 @@ router.get('/:key', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.lookupCall = lookupCall;

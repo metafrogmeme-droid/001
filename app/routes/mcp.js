@@ -238,6 +238,63 @@ const TOOLS = {
   // it is a market-wide read of PUBLIC venue data, the same payload
   // /api/market/sentinel already serves, so it belongs to the published-data
   // family and adds no new exposure.
+  verify_call: {
+    description: 'Verify a sealed RUNECLAW call by its public id (a signal_key '
+      + 'or an arena:… trade key). Returns the decision-time seal and its '
+      + 'payload, a server-side recomputation check (seal_matches_payload), '
+      + 'the Merkle proof into the day\u2019s published root, and — when the '
+      + 'operator has anchored that day on Base — the anchor transaction whose '
+      + 'block time bounds the seal. Everything needed to re-verify '
+      + 'independently rides in the response: sha256 the payload yourself, '
+      + 'replay the proof, and compare the anchor calldata on Basescan. Trust '
+      + 'nothing here you can recompute.',
+    inputSchema: {
+      type: 'object',
+      properties: { key: { type: 'string', minLength: 4, maxLength: 128,
+        description: 'signal_key or arena:… trade key from any public feed' } },
+      required: ['key'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const { lookupCall } = require('./call');
+      const r = await lookupCall(String((args && args.key) || ''));
+      if (r.code !== 200) return { found: false, error: r.body.error };
+      const crypto = require('crypto');
+      // The one check the server can honestly perform FOR the caller — and
+      // the caller can (and should) repeat it from the same two fields.
+      const recomputed = crypto.createHash('sha256')
+        .update(String(r.body.seal_payload || ''), 'utf8').digest('hex');
+      return { found: true, ...r.body,
+        seal_matches_payload: recomputed === String(r.body.seal),
+        verify_yourself: 'seal = sha256(utf8(seal_payload)). Merkle: parent = '
+          + 'sha256(utf8(leftHex+rightHex)), leaves deduped + sorted asc. '
+          + 'Anchor calldata = hex(utf8("RCROOT1:<day>:<root>")) on Base.' };
+    },
+  },
+
+  get_seal_roots: {
+    description: 'The daily seal roots feed: one Merkle root per completed UTC '
+      + 'day, committing to every seal minted that day (engine calls + arena '
+      + 'paper trades), with the Base anchor transaction where the operator '
+      + 'has anchored the day. Mirror a root anywhere and no call can be '
+      + 'back-inserted into that day without changing it; an anchored day\u2019s '
+      + 'block time bounds every seal in it with a fact no one at RUNECLAW '
+      + 'controls. Days with zero seals are omitted, never invented.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const { listRoots } = require('../lib/seal_roots');
+      const roots = await listRoots(30);
+      return {
+        construction: 'leaves = day seals (64-hex) deduped + sorted asc; '
+          + 'parent = sha256(utf8(leftHex+rightHex)); odd node promoted; '
+          + 'single leaf = root',
+        anchor_payload_format: 'hex(utf8("RCROOT1:<day>:<root>")) as calldata '
+          + 'of a zero-value Base transaction',
+        roots,
+      };
+    },
+  },
+
   get_systemic_risk: {
     description: 'Systemic Risk Sentinel: a market-wide crowding and herding '
       + 'read over the whole USDT-perp universe from public venue data — where '
