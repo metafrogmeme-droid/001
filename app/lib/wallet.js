@@ -29,7 +29,11 @@ const CACHE_MS = 60_000;
 const CHAINS = [
   {
     key: 'ethereum', label: 'Ethereum', chainId: 1,
-    rpcEnv: 'WEB3_RPC_URL', rpcDefault: 'https://cloudflare-eth.com',
+    // cloudflare-eth.com now answers -32046 "Cannot fulfill request" to
+    // ordinary callers — reproduced from two unrelated networks, so it is the
+    // endpoint refusing rather than any one deployment being blocked.
+    rpcEnv: 'WEB3_RPC_URL', rpcDefault: 'https://ethereum-rpc.publicnode.com',
+    rpcFallbacks: ['https://eth.drpc.org', 'https://cloudflare-eth.com'],
     native: { symbol: 'ETH', ticker: 'ETHUSDT' },
     tokens: [
       { symbol: 'USDT', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6, stable: true },
@@ -45,6 +49,7 @@ const CHAINS = [
   {
     key: 'base', label: 'Base', chainId: 8453,
     rpcEnv: 'WEB3_RPC_URL_BASE', rpcDefault: 'https://mainnet.base.org',
+    rpcFallbacks: ['https://base-rpc.publicnode.com'],
     native: { symbol: 'ETH', ticker: 'ETHUSDT' },
     tokens: [
       { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6, stable: true },
@@ -56,6 +61,7 @@ const CHAINS = [
   {
     key: 'arbitrum', label: 'Arbitrum', chainId: 42161,
     rpcEnv: 'WEB3_RPC_URL_ARBITRUM', rpcDefault: 'https://arb1.arbitrum.io/rpc',
+    rpcFallbacks: ['https://arbitrum-one-rpc.publicnode.com'],
     native: { symbol: 'ETH', ticker: 'ETHUSDT' },
     tokens: [
       { symbol: 'USDC', address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', decimals: 6, stable: true },
@@ -69,6 +75,7 @@ const CHAINS = [
   {
     key: 'optimism', label: 'Optimism', chainId: 10,
     rpcEnv: 'WEB3_RPC_URL_OPTIMISM', rpcDefault: 'https://mainnet.optimism.io',
+    rpcFallbacks: ['https://optimism-rpc.publicnode.com'],
     native: { symbol: 'ETH', ticker: 'ETHUSDT' },
     tokens: [
       { symbol: 'USDC', address: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', decimals: 6, stable: true },
@@ -81,6 +88,7 @@ const CHAINS = [
   {
     key: 'bnb', label: 'BNB Chain', chainId: 56,
     rpcEnv: 'WEB3_RPC_URL_BNB', rpcDefault: 'https://bsc-dataseed.binance.org',
+    rpcFallbacks: ['https://bsc-rpc.publicnode.com'],
     native: { symbol: 'BNB', ticker: 'BNBUSDT' },
     tokens: [
       { symbol: 'USDT', address: '0x55d398326f99059fF775485246999027B3197955', decimals: 18, stable: true },
@@ -92,7 +100,9 @@ const CHAINS = [
   },
   {
     key: 'polygon', label: 'Polygon', chainId: 137,
-    rpcEnv: 'WEB3_RPC_URL_POLYGON', rpcDefault: 'https://polygon-rpc.com',
+    // polygon-rpc.com answers -32051 "API key disabled, tenant disabled".
+    rpcEnv: 'WEB3_RPC_URL_POLYGON', rpcDefault: 'https://polygon-bor-rpc.publicnode.com',
+    rpcFallbacks: ['https://polygon.drpc.org', 'https://polygon-rpc.com'],
     native: { symbol: 'POL', ticker: 'POLUSDT' },
     tokens: [
       { symbol: 'USDC', address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', decimals: 6, stable: true },
@@ -134,8 +144,14 @@ function defaultProviderFactory(chain) {
     // their own list without a code change, and a dead first entry no longer
     // blanks the chain on its own.
     const configured = String(process.env[chain.rpcEnv] || '').trim();
-    const urls = (configured ? configured.split(',') : [chain.rpcDefault])
-      .map((u) => u.trim()).filter(Boolean);
+    // An operator's own list wins outright. Otherwise: the default, then the
+    // verified keyless fallbacks — so one endpoint deciding to refuse (which is
+    // exactly what Cloudflare and polygon-rpc.com now do) no longer blanks a
+    // chain with no recourse but a redeploy.
+    const urls = (configured
+      ? configured.split(',')
+      : [chain.rpcDefault, ...(chain.rpcFallbacks || [])]
+    ).map((u) => u.trim()).filter(Boolean);
     p = { _urls: urls, _i: 0, _mk: (u) => new ethers.JsonRpcProvider(u) };
     p.current = p._mk(urls[0]);
     // rotate() moves to the next endpoint; returns false once they are exhausted.

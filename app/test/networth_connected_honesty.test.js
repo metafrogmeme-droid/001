@@ -114,3 +114,40 @@ test('an injected test provider still works unchanged', () => {
   assert.match(walletLib, /const active = \(\) => \(provider && provider\.current\) \? provider\.current : provider;/,
     'the plain provider shape used by tests would break');
 });
+
+// ── RPC defaults that actually answer ───────────────────────────────────────
+// Reported from production: Ethereum refused with -32046 "Cannot fulfill
+// request" (cloudflare-eth.com) and Polygon with -32051 "API key disabled,
+// tenant disabled" (polygon-rpc.com). Both reproduce from an unrelated network,
+// so the endpoints are refusing generally rather than blocking one deployment.
+// Both replacements were verified answering eth_blockNumber before shipping.
+
+test('the two endpoints that refuse are no longer the primary', () => {
+  const eth = walletLib.slice(walletLib.indexOf("rpcEnv: 'WEB3_RPC_URL'"), walletLib.indexOf("rpcEnv: 'WEB3_RPC_URL_BASE'"));
+  assert.doesNotMatch(eth, /rpcDefault: 'https:\/\/cloudflare-eth\.com'/,
+    'Ethereum still leads with the endpoint that answers -32046');
+  const poly = walletLib.slice(walletLib.indexOf("rpcEnv: 'WEB3_RPC_URL_POLYGON'"));
+  assert.doesNotMatch(poly, /rpcDefault: 'https:\/\/polygon-rpc\.com'/,
+    'Polygon still leads with the endpoint that answers -32051');
+});
+
+test('every chain has at least one fallback', () => {
+  // A single endpoint per chain is what made this a redeploy-to-fix problem.
+  const envs = walletLib.match(/rpcEnv: '[A-Z0-9_]+'/g) || [];   // WEB3_ has a digit
+  const falls = walletLib.match(/rpcFallbacks: \[/g) || [];
+  assert.ok(envs.length >= 6, `expected the full chain set, found ${envs.length}`);
+  assert.equal(falls.length, envs.length, 'a chain is left with no fallback');
+});
+
+test('the refusing endpoints are kept as LAST resort, not deleted', () => {
+  // They may recover, and a third option is strictly better than two.
+  assert.match(walletLib, /'https:\/\/cloudflare-eth\.com'\]/);
+  assert.match(walletLib, /'https:\/\/polygon-rpc\.com'\]/);
+});
+
+test('an operator’s own list still wins outright', () => {
+  // Authenticated endpoints must override the defaults completely — not be
+  // appended to them, which would leak requests to public RPCs.
+  assert.match(walletLib, /const urls = \(configured\s*\n\s*\? configured\.split\(','\)/,
+    'a configured list no longer takes precedence');
+});
