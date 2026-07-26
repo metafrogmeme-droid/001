@@ -21,6 +21,13 @@ const express = require('express');
 const { pool } = require('../db');
 const { getLatestFlight } = require('./sync');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
+// The Guardian safety models. Pure functions of caller-supplied input — they
+// touch no account, read no database, move nothing, and are the same code the
+// browser pages run, so a tool answer and the website always agree.
+const firewall = require('../public/js/firewall-model.js');
+const intent = require('../public/js/intent-model.js');
+const escape = require('../public/js/escape-model.js');
+const stress = require('../public/js/stress-model.js');
 
 const router = express.Router();
 
@@ -52,6 +59,161 @@ router.use((req, res, next) => {
 // paths, no new exposure.
 
 const TOOLS = {
+  // ── Guardian: the safety layer, callable by ANY agent ──────────────────
+  // Every tool below this block answers "what has RUNECLAW done?". These four
+  // answer "is what YOUR agent is about to do safe?" — the same models the
+  // Guardian pages run, on input the caller supplies. They still act on
+  // nothing: no account is read, no funds move, no signature is produced.
+  // Every result is a heuristic read with reasons, never a verdict.
+  scan_transaction: {
+    description: 'Pre-signature safety scan for an autonomous agent. Paste '
+      + 'anything the agent is about to act on — a message, a token name or '
+      + 'metadata, a URL, an address, a signing request — and get back flagged '
+      + 'attack patterns with reasons: prompt-injection instructions, '
+      + 'seed-phrase lures, drain and unlimited-approval language, hidden or '
+      + 'look-alike characters, phishing URLs and address poisoning. Runs '
+      + 'locally on the text you send; nothing is stored. A clean result is '
+      + 'NOT a guarantee and a flag is not a verdict — always verify the '
+      + 'destination address, amount and approval scope yourself.',
+    inputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'The message, metadata, URL, address or signing request to scan.' } },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    handler: async ({ text }) => {
+      const t = String(text == null ? '' : text).slice(0, 20000);
+      if (!t.trim()) throw new Error('text is required');
+      const r = firewall.scanText(t);
+      return {
+        level: r.level, score: r.score, flags: r.flags,
+        heuristic: true,
+        note: 'Heuristic pre-sign scan. A clean result is not a guarantee and '
+          + 'a flag is not a verdict. Nothing was stored.',
+      };
+    },
+  },
+  compile_intent: {
+    description: 'Turn a plain-language mandate into a deterministic, '
+      + 'revocable Authority Envelope: typed rules, each tagged with WHO '
+      + 'enforces it (the wallet, a risk gate, or a human approval). Example '
+      + 'input: "only majors, max 5% per trade, no shorts, stop if down 8%". '
+      + 'This is a compiler preview — it binds nothing, signs nothing and '
+      + 'moves no funds. Percent and ratio only; it never emits a dollar '
+      + 'figure.',
+    inputSchema: {
+      type: 'object',
+      properties: { mandate: { type: 'string', description: 'The limits, in plain words.' } },
+      required: ['mandate'],
+      additionalProperties: false,
+    },
+    handler: async ({ mandate }) => {
+      const m = String(mandate == null ? '' : mandate).slice(0, 4000);
+      if (!m.trim()) throw new Error('mandate is required');
+      const c = intent.compile(m);
+      return { ...c, binds_nothing: true,
+        note: 'Compiler preview. Nothing is bound, signed or moved; a real '
+          + 'envelope is tighten-only and revocable at any time.' };
+    },
+  },
+  stress_portfolio: {
+    description: 'Run a hypothetical book through the same scenarios the '
+      + 'Portfolio Stress Lab uses — a majors −30% drop, an alt crash, a '
+      + 'stablecoin depeg, a liquidation cascade and a black swan — and get '
+      + 'back the drawdown, which leveraged legs liquidate, and what breaks '
+      + 'first. Percent-only on a book you supply: never a real balance, '
+      + 'never a dollar figure, and not a prediction.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        book: {
+          type: 'array',
+          description: 'Positions as percent weights of the book.',
+          items: {
+            type: 'object',
+            properties: {
+              asset: { type: 'string' },
+              weight: { type: 'number', description: 'Percent of the book.' },
+              leverage: { type: 'number', description: 'Multiplier, 1 = spot.' },
+              dir: { type: 'string', description: 'long or short; defaults to long.' },
+            },
+            required: ['asset', 'weight'],
+          },
+        },
+      },
+      required: ['book'],
+      additionalProperties: false,
+    },
+    handler: async ({ book }) => {
+      if (!Array.isArray(book) || !book.length) throw new Error('book must be a non-empty array');
+      if (book.length > 60) throw new Error('book is capped at 60 positions');
+      const clean = book.map((p) => ({
+        asset: String(p.asset || '').slice(0, 24),
+        weight: Number(p.weight) || 0,
+        leverage: Number(p.leverage) || 1,
+        dir: p.dir === 'short' ? 'short' : 'long',
+      }));
+      return {
+        scenarios: stress.runAll(clean),
+        percent_only: true,
+        note: 'Deterministic simulation of a HYPOTHETICAL book. Not a '
+          + 'prediction, not a real account, and not investment advice — real '
+          + 'liquidations depend on your venue\'s maintenance margin, funding '
+          + 'and slippage.',
+      };
+    },
+  },
+  plan_escape: {
+    description: 'Sequence a dependency-aware emergency exit for a complex '
+      + 'book: close leverage before it liquidates, repay debt to unlock '
+      + 'collateral, exit LPs and staking to reclaim the underlying, then '
+      + 'convert and bridge home — flagging what is locked and cannot be '
+      + 'exited yet. Planning only: it never executes, places or signs '
+      + 'anything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        positions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['perp', 'borrow', 'lp', 'staked', 'collateral', 'spot', 'bridged'],
+                description: 'One of the supported position kinds. An unrecognised kind is treated as spot, which would silently reorder the plan — so this is enumerated rather than free text.' },
+              asset: { type: 'string' },
+              where: { type: 'string', description: 'Venue or chain.' },
+              size: { type: 'number', description: 'Percent of the book.' },
+            },
+            required: ['type', 'asset'],
+          },
+        },
+      },
+      required: ['positions'],
+      additionalProperties: false,
+    },
+    handler: async ({ positions }) => {
+      if (!Array.isArray(positions) || !positions.length) throw new Error('positions must be a non-empty array');
+      if (positions.length > 60) throw new Error('positions is capped at 60 entries');
+      const VALID = new Set(escape.TYPES);
+      const bad = positions.map((p) => String(p.type || '')).filter((t) => !VALID.has(t));
+      if (bad.length) {
+        throw new Error(`unsupported position type(s): ${[...new Set(bad)].join(', ')}. `
+          + `Supported: ${escape.TYPES.join(', ')}`);
+      }
+      const clean = positions.map((p) => ({
+        type: String(p.type).slice(0, 24),
+        asset: String(p.asset || '').slice(0, 24),
+        where: String(p.where || '').slice(0, 40),
+        size: Number(p.size) || 0,
+      }));
+      const plan = escape.buildPlan(clean);
+      return { ...plan, executes_nothing: true,
+        note: 'A plan, not an action. It moves no funds, places no orders and '
+          + 'signs nothing — you execute each step yourself. Cooldowns, exit '
+          + 'fees, slippage, gas and bridge risk are real and not modelled.' };
+    },
+  },
+
   get_track_record: {
     description: "RUNECLAW's public verifiable track record: closed-trade "
       + 'stats (win rate, profit factor, net PnL, drawdown), monthly PnL, '
