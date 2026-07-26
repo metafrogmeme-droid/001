@@ -55,6 +55,32 @@ async function buildHoldings(ident, userId) {
     }
   }
 
+  // Same correction as lib/networth: whether a venue is CONNECTED is the web's
+  // own fact (exchange_status), not the gateway's. A gateway that answered with
+  // an empty list, or could not answer at all, must not render as "none
+  // connected — connect keys here" while the venues panel two cards up says
+  // BITGET connected and the keys are sitting in the database.
+  if (!venues.length) {
+    try {
+      const { pool } = require('../db');
+      const [rows] = await pool.execute(
+        'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1', [userId]);
+      for (const r of (rows || [])) {
+        venues.push({
+          venue: String(r.exchange || 'bitget'),
+          active: false,
+          ok: false,
+          equity_usd: null,
+          currency: null,
+          detail: venuesAvailable
+            ? 'connected — the bot reported no balance for it'
+            : 'connected — balance unreadable, the bot did not answer',
+        });
+      }
+      if (venues.length) venuesAvailable = true;
+    } catch (e) { /* leave the gateway's answer as-is */ }
+  }
+
   // ── Wallet: per-chain balances behind the SIWE-linked address. ──
   try {
     const address = await wallet.walletAddressOf(userId);
@@ -72,7 +98,10 @@ async function buildHoldings(ident, userId) {
             total_usd: c.error ? null : Number(c.total_usd || 0),
             assets: c.assets.length,
             unpriced: c.unpriced || 0,
-            detail: c.error || null,
+            // Carry WHY, not just THAT. "rpc unreadable" alone leaves an
+            // operator unable to tell blocked VPC egress from a 429 from a
+            // bad URL — all three look identical on the page.
+            detail: c.error ? (c.error_detail ? `${c.error} — ${c.error_detail}` : c.error) : null,
           });
         }
       }

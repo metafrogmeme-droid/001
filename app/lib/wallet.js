@@ -128,8 +128,23 @@ function defaultProviderFactory(chain) {
   const { ethers } = require('ethers');
   let p = providerCache.get(chain.key);
   if (!p) {
-    const url = process.env[chain.rpcEnv] || chain.rpcDefault;
-    p = new ethers.JsonRpcProvider(url);
+    // A chain may be given SEVERAL endpoints, comma-separated. One hardcoded
+    // public RPC is fragile: datacentre IPs get rate-limited, and a VPC without
+    // egress fails every one of them identically. An operator can now supply
+    // their own list without a code change, and a dead first entry no longer
+    // blanks the chain on its own.
+    const configured = String(process.env[chain.rpcEnv] || '').trim();
+    const urls = (configured ? configured.split(',') : [chain.rpcDefault])
+      .map((u) => u.trim()).filter(Boolean);
+    p = { _urls: urls, _i: 0, _mk: (u) => new ethers.JsonRpcProvider(u) };
+    p.current = p._mk(urls[0]);
+    // rotate() moves to the next endpoint; returns false once they are exhausted.
+    p.rotate = function () {
+      if (this._i + 1 >= this._urls.length) return false;
+      this._i += 1;
+      this.current = this._mk(this._urls[this._i]);
+      return true;
+    };
     providerCache.set(chain.key, p);
   }
   return p;
@@ -161,10 +176,31 @@ async function readChain(chain, address, tickers) {
     return { chain: chain.key, label: chain.label, assets: [], total_usd: 0, unpriced: 0, error: 'rpc unavailable' };
   }
   let sawError = false;
+  let errorDetail = null;   // WHY, not just THAT — see the return below.
+  // A test factory hands back a plain provider; the default hands back a
+  // rotating wrapper. Accept both.
+  const active = () => (provider && provider.current) ? provider.current : provider;
+  const note = (e) => {
+    if (errorDetail) return;
+    const m = String((e && (e.shortMessage || e.code || e.message)) || e || '').slice(0, 90);
+    if (m) errorDetail = m;
+  };
+  // Try the current endpoint; on failure move to the next configured one and
+  // try once more. Without this a single rate-limited public RPC blanks the
+  // whole chain even when the operator supplied a working alternative.
+  const attempt = async (fn) => {
+    try { return await fn(active()); } catch (e) {
+      note(e);
+      if (provider && typeof provider.rotate === 'function' && provider.rotate()) {
+        return await fn(active());
+      }
+      throw e;
+    }
+  };
 
   // Native coin.
   try {
-    const wei = await provider.getBalance(address);
+    const wei = await attempt((pr) => pr.getBalance(address));
     const amount = parseFloat(ethers.formatEther(wei));
     if (amount > 0) {
       const tk = tickers[chain.native.ticker];
@@ -172,19 +208,19 @@ async function readChain(chain, address, tickers) {
       assets.push({ symbol: chain.native.symbol, chain: chain.key, amount,
         price_usd: p, usd: p !== null ? round2(amount * p) : null });
     }
-  } catch (e) { sawError = true; }
+  } catch (e) { sawError = true; note(e); }
 
   // Curated tokens — each read fails soft; a flaky token never sinks the view.
   for (const t of chain.tokens) {
     try {
-      const c = new ethers.Contract(t.address, ERC20_ABI, provider);
-      const raw = await c.balanceOf(address);
+      const raw = await attempt((pr) =>
+        new ethers.Contract(t.address, ERC20_ABI, pr).balanceOf(address));
       const amount = parseFloat(ethers.formatUnits(raw, t.decimals));
       if (amount <= 0) continue;
       const p = priceOf(t);
       assets.push({ symbol: t.symbol, chain: chain.key, amount,
         price_usd: p, usd: p !== null ? round2(amount * p) : null });
-    } catch (e) { sawError = true; }
+    } catch (e) { sawError = true; note(e); }
   }
 
   assets.sort((a, b) => (b.usd || 0) - (a.usd || 0));
@@ -195,7 +231,11 @@ async function readChain(chain, address, tickers) {
     assets,
     total_usd: round2(priced.reduce((a, x) => a + x.usd, 0)),
     unpriced: assets.length - priced.length,
-    ...(sawError && !assets.length ? { error: 'rpc unreadable' } : {}),
+    // "rpc unreadable" alone is unactionable: an operator cannot tell a
+    // blocked VPC egress from a 429 from a bad URL. Carry the reason.
+    ...(sawError && !assets.length
+      ? { error: 'rpc unreadable', ...(errorDetail ? { error_detail: errorDetail } : {}) }
+      : {}),
   };
 }
 
