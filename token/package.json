@@ -21,7 +21,11 @@
     "e2e:dryrun": "node e2e/devnet_dryrun.mjs",
     "bridge:plan": "node bridge/ntt_bridge.mjs plan",
     "bridge:transfer": "node bridge/ntt_bridge.mjs transfer",
-    "presale:trigger": "node presale/genesis_presale.mjs trigger"
+    "presale:trigger": "node presale/genesis_presale.mjs trigger",
+    "test": "node --test presale/*.test.mjs scripts/*.test.mjs",
+    "test:network": "RUN_NETWORK_TESTS=1 node --test presale/*.test.mjs scripts/*.test.mjs",
+    "audit:gate": "node scripts/audit_gate.mjs",
+    "audit:baseline": "node scripts/audit_gate.mjs --update"
   },
   "engines": {
     "node": ">=18"

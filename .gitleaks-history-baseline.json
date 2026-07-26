@@ -1,0 +1,22 @@
+[
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 17,
+  "EndLine": 17,
+  "StartColumn": 4,
+  "EndColumn": 99,
+  "Match": "process.env.BOT_SYNC_SECRET = 'REDACTED'",
+  "Secret": "REDACTED",
+  "File": "app/server.js",
+  "SymlinkFile": "",
+  "Commit": "94356028dd9097053c4222beb198aafdbe568a8e",
+  "Entropy": 5.167434,
+  "Author": "Humanoid-Traders",
+  "Email": "bot@humanoid-traders.com",
+  "Date": "2026-06-18T05:45:14Z",
+  "Message": "Live exchange data pipeline + persist scan data + remaining security fixes\n\n- Add _fetch_live_exchange_data() to scan_skill.py: fetches real Bitget\n  balance/positions via ccxt sync with UTA mode, reads closed_trades.json\n- Persist scan data to DB (scan_cache table) so dashboard survives cold starts\n- Portfolio-summary endpoint prefers live circuit_breaker data over stale DB\n- Fix JavaScript falsy bug: 0 || cachedValue replaced with != null ternary\n- JWT auto-generate only in non-production/ephemeral mode (clustered deploy safe)\n- Gate /portfolio and /risk/status behind Bearer token (F-08/F-09)\n- Disable FastAPI docs/redoc/openapi endpoints (schema exposure)\n- Document two-auth-stack boundary in docs/SECURITY_BOUNDARIES.md",
+  "Tags": [],
+  "Fingerprint": "94356028dd9097053c4222beb198aafdbe568a8e:app/server.js:generic-api-key:17"
+ }
+]

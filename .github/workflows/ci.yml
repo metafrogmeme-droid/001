@@ -98,6 +98,27 @@ jobs:
       - name: Build — release profile
         run: cargo build -p rclaw_staking --release
 
+      # SCA for the Rust side. Same reasoning as the npm gate in token-tooling:
+      # Cargo.lock carries 8 RustSec advisories today, all inside the Solana 1.18
+      # stack that rust-toolchain.toml and Anchor.toml pin ON PURPOSE so the
+      # deployed bytecode is reproducible. Clearing them means a Solana major
+      # bump, which is a deploy-gating decision — not something an unrelated PR
+      # should be blocked on. So this ratchets: known advisories are recorded in
+      # .cargo-audit-baseline.json and only NEW ones fail.
+      #
+      # The baseline also records whether each advisory is reachable through
+      # non-dev dependencies. Six of the eight are test-harness only
+      # (solana-program-test, RPC client); two are in the shipped tree.
+      #
+      # cargo-audit is installed rather than pulled from an action so the gate
+      # logic lives in this repo and is testable locally. rust-cache keeps
+      # ~/.cargo/bin across runs, so the compile cost is paid once.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: SCA — RustSec advisory ratchet
+        run: python3 scripts/cargo_audit_gate.py
+
       - name: Check for the Anchor placeholder program id
         # `anchor keys sync` is mentioned only in a README snippet, so a build
         # can otherwise ship with a program id the project does not control.
@@ -138,22 +159,54 @@ jobs:
       #
       # SCOPE: on a pull_request event this action scans only the PR's own
       # commits (it overrides the range to <head>^..<head>), NOT full history.
-      # That is the right gate for "this PR introduces no secret", and it is all
-      # this job claims to be.
-      #
-      # A full-history scan is deliberately NOT wired up yet: as of 2026-07-26 it
-      # reports one REAL credential still reachable in history —
-      # BOT_SYNC_SECRET, hardcoded in app/server.js in commit 9435602 and
-      # removed in f79518a (#3), live in the tree for about a week. That secret
-      # authenticates the bot↔web sync API (app/routes/sync.js). Removing a line
-      # does not remove it from git, so it must be ROTATED, not re-deleted.
-      # Enabling a history scan before that is done would only paint a
-      # pre-existing incident red on every unrelated PR.
+      # That is the right gate for "this PR introduces no secret". The
+      # full-history scan below answers a different question and runs separately.
       - name: gitleaks (pull-request scope)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
+
+      # A PR-scope scan answers "does this diff add a secret". It cannot answer
+      # "is anything still reachable in this repository's history", which is the
+      # question that actually matters for a public repo: a secret deleted in a
+      # later commit is still fully readable to anyone who clones.
+      #
+      # This was deliberately not wired up until 2026-07-26. Before then a
+      # history scan reported one REAL, unrotated credential (BOT_SYNC_SECRET,
+      # hardcoded in app/server.js in commit 9435602, removed in f79518a), so
+      # enabling it would have painted a live unremediated incident red on every
+      # unrelated PR — which teaches everyone to click past the scanner. That
+      # credential has since been rotated on both the bot and web sides and the
+      # historical value is dead. Full note in .gitleaks.toml.
+      #
+      # The single triaged historical finding is suppressed by FINGERPRINT via
+      # --baseline-path, not by a config allowlist, and that distinction is load
+      # bearing: a fingerprint is commit:file:rule:line, so re-committing the
+      # same dead value anywhere else still fails this step. A config allowlist
+      # could not express that — it was tried, mutation-tested, and rejected.
+      # The baseline is stored redacted, so it holds no secret itself.
+      #
+      # The binary is pinned and checksum-verified rather than installed from a
+      # floating tag: this step is a supply-chain control, so it must not itself
+      # execute an unverified download.
+      - name: gitleaks (full history)
+        env:
+          GITLEAKS_VERSION: 8.28.0
+          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSLo "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar xzf "$tarball" gitleaks
+          ./gitleaks git \
+            --config .gitleaks.toml \
+            --baseline-path .gitleaks-history-baseline.json \
+            --redact \
+            --no-banner \
+            .
 
   token-tooling:
     name: Token tooling (node)
@@ -183,12 +236,34 @@ jobs:
 
       # Glob rather than `--test presale/`: directory mode treats the directory
       # itself as a failing test unit on this Node version.
+      #
+      # scripts/*.test.mjs holds the cluster-identity guards. Its network cases
+      # self-skip unless RUN_NETWORK_TESTS=1, so CI stays hermetic and does not
+      # go red when a public RPC is rate-limiting; the offline case (a config
+      # naming mainnet is refused before any network call) always runs.
       - name: Tests — offline unit tests
         working-directory: token
-        run: node --test presale/*.test.mjs
+        run: node --test presale/*.test.mjs scripts/*.test.mjs
 
       # Fully offline: derives every on-chain parameter from config with no RPC
       # and no keypair, so a config that cannot produce a sane sale fails here.
       - name: Presale plan (offline derivation)
         working-directory: token
         run: npm run presale:plan
+
+      # SCA — deliberately a RATCHET, not `npm audit --audit-level=high`.
+      #
+      # This tree carries 1 critical and 15 high advisories today, nearly all
+      # transitive through the Wormhole SDK. A plain --audit-level=high gate
+      # would be red on its first run and stay red on every unrelated PR, which
+      # trains people to merge past a red check rather than fixing anything.
+      # The known set is committed to token/.audit-baseline.json; this fails only
+      # on an advisory id that is not in it, or a severity count above it — so a
+      # newly-introduced vulnerable dependency blocks, and the pre-existing
+      # backlog stays visible without gating.
+      #
+      # The backlog is real and unfixed. See docs/TOKEN_ROADMAP.md — it must be
+      # cleared before any deployment that holds value, not merely baselined.
+      - name: SCA — npm advisory ratchet
+        working-directory: token
+        run: node scripts/audit_gate.mjs

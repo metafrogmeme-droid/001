@@ -69,8 +69,32 @@ stopwords = [
   "AKEY123456789",
 ]
 
-# NOTE: a full-history scan is NOT clean as of 2026-07-26. One real credential
-# remains reachable in history and is deliberately NOT allowlisted here — see
-# the "Secret scan" step in .github/workflows/ci.yml. Allowlisting it would hide
-# a live exposure behind a green check, which is the exact failure mode this
-# file exists to prevent. It stays detectable until the credential is rotated.
+# ── The one closed incident is suppressed by FINGERPRINT, not by this file ──
+#
+# `BOT_SYNC_SECRET` was hardcoded as a fallback default in app/server.js in
+# commit 9435602 (2026-06-18) and removed in f79518a (#3) — roughly a week live
+# in a public tree. Deleting a line does not remove it from git, so the only real
+# remediation was rotation, and rotation is what happened: the credential was
+# rotated on both the bot and web sides on 2026-07-26, and app/server.js now
+# FATAL-exits when BOT_SYNC_SECRET is unset rather than falling back to anything.
+# The historical value is dead.
+#
+# It is suppressed via `--baseline-path .gitleaks-history-baseline.json`, NOT via
+# an allowlist here, and the difference is the whole point:
+#
+#   A baseline matches on the finding's FINGERPRINT — commit:file:rule:line — so
+#   it suppresses exactly one occurrence at one point in history. Re-committing
+#   the same value anywhere, at any later commit, produces a different
+#   fingerprint and still fails the scan.
+#
+#   A config allowlist cannot express that. This was written first as an
+#   `[[allowlists]]` block scoped by commit + path + exact value with
+#   `matchCondition = "AND"`, which reads as maximally precise. It was then
+#   mutation-tested by committing the same dead value to a DIFFERENT file in a
+#   DIFFERENT commit: gitleaks reported no leaks. The value-regex leg matched on
+#   its own, so the "AND" scoping did not hold and the entry silently became
+#   "this string is never a secret, anywhere, forever". That is a guard that
+#   looks correct and is not, which is exactly the class of defect this repo's
+#   audit exists to catch — so it was replaced rather than shipped.
+#
+# Do not add the dead value to the allowlists below to "clean up" a report.

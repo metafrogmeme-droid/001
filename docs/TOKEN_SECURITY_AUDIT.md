@@ -6,6 +6,30 @@ The audit request assumed EVM/Solidity with ERC-20 and ERC-2612 permit semantics
 
 Deployment status is stated honestly in the manifests and should stay that way until four things change: `Anchor.toml:1,16` declares DRAFT / DEVNET-ONLY on devnet, both `declare_id!` (`lib.rs:41`) and `Anchor.toml:10` still carry the well-known Anchor placeholder id `Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS`, `token/package.json:3` is `0.1.0-draft`, `ntt.config.json:5` is `Testnet`, `lib.rs:3` says do not deploy to any cluster holding real value, and no mint exists (`PINNED_MINT` is an `option_env!` at `lib.rs:63`, unset by default). **Key custody:** one plaintext, world-readable keypair at `token/.keys/mint-payer.json` (`token/scripts/keygen.mjs:11-19`) holds mint, metadata, metadata-pointer, presale and unsold-token authority plus the entire supply, and the program upgrade authority — the trust root for every vault — is addressed in no checklist; without a multisig, a single file read is total compromise of both supply and staked funds. **Cluster identification:** the only mainnet guard in the repository is a case-sensitive substring test (`token/scripts/lib.mjs:30`, `bot/token/tier_gate.py:100`) and the `cluster` field at `token.config.json:17` is dead text, so "devnet-only" is currently enforced by a string match that `https://rpc.helius.xyz/...` or `MAINNET` defeats. **The gate must fail closed and require a signed challenge**, or the tier is decorative. **Reproducibility:** `[toolchain]` at `Anchor.toml:3` is empty, there is no `rust-toolchain.toml`, and `.github/workflows/ci.yml` runs only Python (ruff/mypy/bandit/pip-audit) — so no Rust, Anchor or Node code here is checked by any automation, and deployed bytecode cannot be verified against this source. These conclusions come from six parallel specialist lenses producing 55 raw findings, semantically triaged to 43 canonical, adversarially verified with three independent refuters per Critical/High candidate (majority refutation kills the finding) which retired 8, then a completeness critic and five targeted gap sweeps, leaving 41.
 
+## Status since publication
+
+This report is an as-of record, audited at commit `1fb55d4` on 2026-07-25, and
+the body below is deliberately left as written. Remediation has since landed, so
+several statements in it — including in *Coverage & Limitations* — are no longer
+true of the current tree. What changed, and when:
+
+| Date | Change | Effect on this report |
+|---|---|---|
+| 2026-07-26 | 16 Medium findings fixed (#825) | See each finding's remediation. |
+| 2026-07-26 | 22 Low + 3 Info findings fixed (#828) | ” |
+| 2026-07-26 | ATA-decoy tests committed (#834) | Retires the *Coverage & Limitations* note that the decoy test "is **not committed to the repository**" and that "the single most important guard … has no permanent regression coverage". It is now covered in both directions, and the pinned CI run exercises it. |
+| 2026-07-26 | Quote split encoded on-chain (#836) | Closes the enforcement half of F-11. |
+| 2026-07-26 | Lock-up ratified at 30 days (#839) | Resolves the §13 open decision behind F-18; supersedes the 7-day default suggested here. |
+| 2026-07-26 | `BOT_SYNC_SECRET` rotated on both the bot and web sides | Closes the live-credential incident described in the CI notes. The historical value in commit `9435602` is dead, and full-history secret scanning is now enforced in CI (it was previously blocked precisely *because* the credential was live). |
+| 2026-07-26 | Vault invariants mechanically checked (`tests/solvency.rs`) | Narrows "**No fuzzing and no formal verification** were performed … no invariant (including vault solvency) was mechanically proven." Solvency, conservation, lock-up and lock-monotonicity are now checked after every operation across a deterministic randomised sequence, and each invariant is mutation-tested. It remains sampling, not proof: no fuzzer and no formal verification. |
+| 2026-07-26 | Cluster guards verified against live chains (`scripts/cluster_guard.test.mjs`) | The audit environment returned 403 for `api.devnet.solana.com`, so the three genesis-hash constants were asserted from memory rather than observed. Devnet is now reachable and all three were confirmed against the live chains, including that real mainnet-beta is refused. |
+| 2026-07-26 | npm advisory ratchet in CI (`token/scripts/audit_gate.mjs`) | Narrows "**Dependency advisories are current only as of the audit date** … a new advisory landing tomorrow will not surface anywhere." New advisories now fail CI. The 37 recorded here (1 critical, 15 high) are baselined, still outstanding, and still block a value-bearing deployment. |
+
+Unchanged and still open: no live devnet deployment or SBF build has happened
+(blocked on faucet funding, not on code), no third-party audit exists, the
+program upgrade authority is still a single key, and the Anchor IDL account
+lifecycle noted below remains unowned.
+
 ## Scope
 
 Audited at commit `1fb55d4` with a clean working tree. **Chain and standards:** Solana; SPL Token-2022 (`create_token.mjs` uses the Token-2022 program with the MetadataPointer and TokenMetadata extensions); Anchor 0.30.1 (`programs/rclaw_staking/Cargo.toml:21-22`, confirmed resolved in `Cargo.lock:223-224`); Metaplex Genesis `^0.40.0` for the fixed-price presale; Wormhole NTT `@wormhole-foundation/sdk` 5.2.0 with `sdk-solana-ntt` / `sdk-evm-ntt` 7.2.0 for the Solana↔Base bridge (`token/package.json:29-39`). Every file below was read in full.

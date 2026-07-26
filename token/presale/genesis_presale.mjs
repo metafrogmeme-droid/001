@@ -14,6 +14,7 @@
 // schedule. All values come from metaplex-genesis.config.json.
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { generateSigner, publicKey } from '@metaplex-foundation/umi';
 import {
@@ -69,9 +70,68 @@ function readArtifact(name) {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
 }
 
+/**
+ * Persist an ephemeral base-mint keypair before it is used to sign anything.
+ *
+ * In `mint` mode the base mint is a signer generated in memory. It signs
+ * initializeV2 and is then never needed again — but its PUBLIC key is what every
+ * PDA in this presale derives from, so losing the process before the artifact is
+ * written loses the address of a genesis account that now exists on-chain. This
+ * writes the secret to .keys/ (0600, the same handling as the payer key) so a
+ * crashed run is recoverable rather than a permanent orphan.
+ */
+function persistBaseMintKeypair(signer) {
+  const dir = path.join(TOKEN_ROOT, '.keys');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    /* best effort on filesystems without POSIX modes */
+  }
+  const file = path.join(dir, `basemint-${signer.publicKey.toString()}.json`);
+  fs.writeFileSync(file, JSON.stringify(Array.from(signer.secretKey)), { mode: 0o600 });
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* best effort */
+  }
+  return file;
+}
+
 function arg(flag) {
   const i = process.argv.indexOf(flag);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/**
+ * Load the presale artifact for a command that acts on a LIVE sale.
+ *
+ * `presale:create` writes this file incrementally, so its mere existence no
+ * longer means the sale was configured — a run that created the genesis account
+ * and then failed leaves a populated record with `status: "pending"`. Depositing
+ * into, triggering or claiming from that presale would be acting on a bucket
+ * that does not exist. Recovery needs those addresses; transacting must not use
+ * them.
+ */
+function requirePresale() {
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  if (a.status === undefined) {
+    // Written by a build that predates incremental checkpointing. It was only
+    // ever written after both sends confirmed, so it is complete by construction.
+    console.warn(`NOTE: ${PRESALE_ARTIFACT} predates status tracking; treating it as complete.`);
+    return a;
+  }
+  if (a.status !== 'complete') {
+    throw new Error(
+      `${PRESALE_ARTIFACT} records an INCOMPLETE presale (status: ${a.status}; steps: ` +
+      `${(a.completedSteps || []).join(', ') || 'none'}).\n` +
+      `  genesis account: ${a.genesisAccount}\n  base mint      : ${a.baseMint}\n` +
+      'The presale bucket was never configured, so there is nothing to act on. Those ' +
+      'addresses are kept for recovery — do not delete the artifact.'
+    );
+  }
+  return a;
 }
 
 // ── plan: fully offline preview (pure SDK derivation, no RPC / keypair) ──────
@@ -153,6 +213,28 @@ async function cmdCreate() {
       'sell the existing mint, or clear token.mint.'
     );
   }
+  // Refuse to clobber a presale that already exists. `presale:create` mints a
+  // BRAND NEW base mint in mint mode, so a second run does not "retry" the first
+  // one — it creates an unrelated presale and overwrites the only on-disk record
+  // of the original, whose genesis account, bucket and escrowed tokens then
+  // become unreachable by every other command here.
+  const existing = readArtifact(PRESALE_ARTIFACT);
+  if (existing && existing.status !== 'pending' && !process.argv.includes('--force')) {
+    throw new Error(
+      `${PRESALE_ARTIFACT} already records a presale (genesis ${existing.genesisAccount}). ` +
+      'Creating another would overwrite the only record of it and strand its tokens. ' +
+      'Move the artifact aside deliberately, or pass --force if you are certain.'
+    );
+  }
+  if (existing && existing.status === 'pending') {
+    console.warn(
+      `NOTE: ${PRESALE_ARTIFACT} holds an INCOMPLETE run (steps: ` +
+      `${(existing.completedSteps || []).join(', ') || 'none'}, base mint ${existing.baseMint}).\n` +
+      '      See the recovery note printed by that run. Continuing creates a NEW presale;\n' +
+      '      the incomplete one is not resumed and its genesis account stays on-chain.'
+    );
+  }
+
   const baseMint = transferMode ? publicKey(cfg.token.mint) : generateSigner(umi);
   const baseMintPk = transferMode ? baseMint : baseMint.publicKey;
 
@@ -221,24 +303,78 @@ async function cmdCreate() {
     );
   }
 
-  const sigInit = await sendChecked(
-    initializeV2(umi, {
-      baseMint,
-      authority,
-      fundingMode: fundingModeValue(cfg),
-      decimals: cfg.token.decimals,
-      totalSupplyBaseToken: BigInt(cfg.token.totalSupply) * 10n ** BigInt(cfg.token.decimals),
-      name: cfg.token.name,
-      symbol: cfg.token.symbol,
-      uri: cfg.token.metadataUri,
-    }),
-    umi,
-    'initializeV2'
-  );
-  console.log('  tx:', sigInit);
-
+  // Every address this presale will ever have is derived from the base mint, so
+  // all of it is known BEFORE the first signature. Deriving here rather than
+  // after tx1 is what makes the checkpoint below possible.
   const genesisAccount = findGenesisAccountV2Pda(umi, { baseMint: baseMintPk, genesisIndex: 0 });
   const bucket = findPresaleBucketV2Pda(umi, { genesisAccount: genesisAccount[0], bucketIndex: BUCKET_INDEX });
+  const liquidityBucket = findRaydiumCpmmBucketV2Pda(umi, {
+    genesisAccount: genesisAccount[0],
+    bucketIndex: LIQUIDITY_BUCKET_INDEX,
+  });
+
+  // This is TWO transactions and nothing makes them atomic. The failure that
+  // matters is the second one: initializeV2 lands, addPresaleBucketV2 fails, and
+  // the process exits. On-chain there is now a genesis account. In memory there
+  // WAS the only copy of the base-mint identity every one of its PDAs derives
+  // from — and in mint mode that identity is an ephemeral signer generated
+  // seconds earlier. Nothing else on disk records it (.artifacts/ is gitignored
+  // and used to be written only after both sends), so the presale became
+  // unreachable by withdraw-unsold, withdraw and claim alike.
+  //
+  // So the identity is persisted before anything is signed, and the artifact is
+  // written incrementally with an explicit status. A crashed run leaves a record
+  // naming exactly which step it reached.
+  let keyFile = null;
+  if (!transferMode) {
+    keyFile = persistBaseMintKeypair(baseMint);
+    console.log('  base-mint keypair saved (0600):', path.relative(TOKEN_ROOT, keyFile));
+  }
+  const progress = {
+    status: 'pending',
+    note: 'INCOMPLETE RUN — see status/completedSteps. DRAFT / DEVNET artifact.',
+    cluster: env.CLUSTER || 'devnet',
+    program: GENESIS_PROGRAM_ID,
+    baseMint: baseMintPk.toString(),
+    baseMintKeyfile: keyFile ? path.relative(TOKEN_ROOT, keyFile) : null,
+    genesisAccount: genesisAccount[0].toString(),
+    bucket: bucket[0].toString(),
+    liquidityBucket: liquidityBucket[0].toString(),
+    completedSteps: [],
+    txs: {},
+  };
+  const checkpoint = (step, sig) => {
+    progress.completedSteps.push(step);
+    if (sig) progress.txs[step] = sig;
+    saveArtifact(PRESALE_ARTIFACT, progress);
+  };
+  saveArtifact(PRESALE_ARTIFACT, progress);
+
+  let sigInit;
+  try {
+    sigInit = await sendChecked(
+      initializeV2(umi, {
+        baseMint,
+        authority,
+        fundingMode: fundingModeValue(cfg),
+        decimals: cfg.token.decimals,
+        totalSupplyBaseToken: BigInt(cfg.token.totalSupply) * 10n ** BigInt(cfg.token.decimals),
+        name: cfg.token.name,
+        symbol: cfg.token.symbol,
+        uri: cfg.token.metadataUri,
+      }),
+      umi,
+      'initializeV2'
+    );
+  } catch (err) {
+    console.error(
+      `\ninitializeV2 FAILED. No genesis account was created for base mint ${baseMintPk}.` +
+      (keyFile ? `\nThe unused base-mint keypair is at ${path.relative(TOKEN_ROOT, keyFile)} and can be deleted.` : '')
+    );
+    throw err;
+  }
+  console.log('  tx:', sigInit);
+  checkpoint('initializeV2', sigInit);
 
   const presaleInput = {
     genesisAccount: genesisAccount[0],
@@ -267,13 +403,10 @@ async function cmdCreate() {
   // can execute it and the operator cannot quietly decline to.
   //
   // destinationBucket is a PDA derived from (genesisAccount, bucketIndex), so it
-  // is addressable before the liquidity bucket exists. That creates a real
-  // ordering requirement, enforced in cmdLiquidity: the liquidity bucket must be
-  // created before the deposit window closes, or the behavior points at nothing.
-  const liquidityBucket = findRaydiumCpmmBucketV2Pda(umi, {
-    genesisAccount: genesisAccount[0],
-    bucketIndex: LIQUIDITY_BUCKET_INDEX,
-  });
+  // is addressable before the liquidity bucket exists (derived above, alongside
+  // the other PDAs). That creates a real ordering requirement, enforced in
+  // cmdLiquidity: the liquidity bucket must be created before the deposit window
+  // closes, or the behavior points at nothing.
   const bps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
   if (bps > 0) {
     presaleInput.endBehaviors = [
@@ -297,25 +430,44 @@ async function cmdCreate() {
     console.log('    whitelist: NONE — this round is open to any wallet.');
   }
   console.log('[2/2] addPresaleBucketV2 — configuring the fixed-price presale…');
-  const sigBucket = await sendChecked(
-    addPresaleBucketV2(umi, presaleInput), umi, 'addPresaleBucketV2'
-  );
+  let sigBucket;
+  try {
+    sigBucket = await sendChecked(
+      addPresaleBucketV2(umi, presaleInput), umi, 'addPresaleBucketV2'
+    );
+  } catch (err) {
+    // The dangerous half-state. Say precisely what exists and how to reach it,
+    // because none of it is derivable from anything else on disk.
+    console.error(
+      '\n=== INCOMPLETE PRESALE — RECOVERY INFORMATION ===\n' +
+      'initializeV2 SUCCEEDED and addPresaleBucketV2 FAILED, so a genesis account\n' +
+      'exists on-chain with no presale bucket configured.\n' +
+      `  genesis account : ${genesisAccount[0]}\n` +
+      `  base mint       : ${baseMintPk}\n` +
+      (keyFile ? `  base-mint key   : ${path.relative(TOKEN_ROOT, keyFile)} (0600)\n` : '') +
+      `  artifact        : .artifacts/${PRESALE_ARTIFACT} (status: pending)\n` +
+      'These addresses are NOT recoverable from anything else — .artifacts/ is\n' +
+      'gitignored and the base mint was generated in this process. Do not delete\n' +
+      'them. Re-running `presale:create` creates a DIFFERENT presale; it does not\n' +
+      'retry this one.'
+    );
+    throw err;
+  }
   console.log('  tx:', sigBucket);
 
-  // Written only after BOTH sends confirmed error-free — every downstream
-  // command treats this artifact as proof the sale exists.
+  // Only now is the sale real. Every downstream command treats a "complete"
+  // artifact as proof of that, so the flip happens after BOTH sends confirmed
+  // error-free — sendChecked throws on a non-null result.value.err, so a
+  // transaction that landed and failed does not reach this line.
   const artifact = {
-    cluster: env.CLUSTER || 'devnet',
-    program: GENESIS_PROGRAM_ID,
-    baseMint: baseMintPk.toString(),
-    genesisAccount: genesisAccount[0].toString(),
-    bucket: bucket[0].toString(),
+    ...progress,
+    status: 'complete',
+    note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
+    completedSteps: [...progress.completedSteps, 'addPresaleBucketV2'],
     hardCapSol: cfg.sale.hardCapSol,
     allowlisted: Boolean(allowlistArgs),
-    liquidityBucket: liquidityBucket[0].toString(),
     quoteSplitBps: bps,
-    txs: { initialize: sigInit, addPresaleBucket: sigBucket },
-    note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
+    txs: { ...progress.txs, initialize: sigInit, addPresaleBucket: sigBucket },
   };
   const out = saveArtifact(PRESALE_ARTIFACT, artifact);
   console.log('\n=== DONE ===');
@@ -330,8 +482,7 @@ async function cmdDeposit() {
   const cfg = loadConfig();
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact(PRESALE_ARTIFACT);
-  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  const a = requirePresale();
   const amountSol = Number(arg('--amount') || '0');
   if (!(amountSol > 0)) throw new Error('Provide --amount <SOL> greater than 0.');
   const amountQuoteToken = BigInt(Math.round(amountSol * 1e9));
@@ -398,8 +549,7 @@ async function cmdLiquidity() {
   const cfg = loadConfig();
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact(PRESALE_ARTIFACT);
-  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  const a = requirePresale();
   const lp = deriveLiquidityParams(cfg);
 
   // The split is now encoded on-chain by presale:create, so this no longer
@@ -465,8 +615,7 @@ async function cmdLiquidity() {
 async function cmdWithdraw() {
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact(PRESALE_ARTIFACT);
-  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  const a = requirePresale();
   const bucket = publicKey(a.bucket);
   const mint = publicKey(a.baseMint);
   const me = umi.identity.publicKey;
@@ -492,8 +641,7 @@ async function cmdWithdraw() {
 async function cmdWithdrawUnsold() {
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact(PRESALE_ARTIFACT);
-  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  const a = requirePresale();
   const bucket = publicKey(a.bucket);
   const mint = publicKey(a.baseMint);
   // Destination is explicit and reviewable rather than implicitly "whoever
@@ -543,8 +691,7 @@ async function cmdTrigger() {
   const env = loadEnv();
   const umi = makeUmi(env);
   await assertDevnet(umi);
-  const a = readArtifact(PRESALE_ARTIFACT);
-  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  const a = requirePresale();
 
   if (!a.quoteSplitBps) {
     console.log('This presale encodes no end behaviors — nothing to trigger.');
@@ -573,8 +720,7 @@ async function cmdTrigger() {
 async function cmdClaim() {
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact(PRESALE_ARTIFACT);
-  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+  const a = requirePresale();
   console.log(`Claiming vested tokens from bucket ${a.bucket}…`);
   const sig = await sendChecked(
     claimPresaleV2(umi, {
@@ -588,7 +734,12 @@ async function cmdClaim() {
   console.log('Claim confirmed. tx:', sig);
 }
 
-const cmd = process.argv[2];
+// Exported for offline tests. The artifact lifecycle below is a safety control —
+// it decides whether a half-created presale can be transacted against — so it
+// needs regression coverage, and coverage needs the module to be importable
+// without executing a command.
+export { requirePresale, persistBaseMintKeypair, readArtifact, saveArtifact, PRESALE_ARTIFACT };
+
 const table = {
   plan: cmdPlan,
   whitelist: cmdWhitelist,
@@ -600,11 +751,21 @@ const table = {
   withdraw: cmdWithdraw,
   'withdraw-unsold': cmdWithdrawUnsold,
 };
-if (!table[cmd]) {
-  console.error(
-    'Usage: node genesis_presale.mjs ' +
-      '<plan|whitelist|create|liquidity|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
-  );
-  process.exit(2);
+
+// Dispatch only when run as a script. Without this guard, importing the module
+// runs whatever happens to be in argv[2] — under `node --test` that is a test
+// file path, which falls through to the usage message and exits 2, taking the
+// whole test run with it.
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  const cmd = process.argv[2];
+  if (!table[cmd]) {
+    console.error(
+      'Usage: node genesis_presale.mjs ' +
+        '<plan|whitelist|create|liquidity|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
+    );
+    process.exit(2);
+  }
+  await table[cmd]();
 }
-await table[cmd]();

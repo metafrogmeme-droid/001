@@ -595,3 +595,30 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    transfer is the entire exposure.
 6. Ratify every remaining §13 parameter. `LOCKUP_SECONDS` in
    `programs/rclaw_staking/src/lib.rs` is **settled: 30 days** (2026-07-26).
+7. **Claim the IDL account in the same session as the deploy — it is
+   first-come-first-served.** `programs/rclaw_staking/Cargo.toml` has
+   `default = []` with `no-idl` disabled, so `anchor build` emits an IDL, and
+   Anchor 0.30.1 stores it in a program-owned PDA whose authority belongs to
+   **whoever calls `anchor idl init` first**. Nothing in this repository ever
+   initializes, versions or assigns it: `deploy.sh` contains no Solana commands,
+   the `Makefile` and root `package.json` invoke no anchor, and CI has no anchor
+   step. Left unclaimed after deploy, anyone may publish an IDL for our program
+   id — explorers and wallets render account and instruction names from it, so a
+   hostile IDL mislabels what a user is signing without touching the bytecode.
+   Immediately after `anchor deploy`:
+
+   ```bash
+   anchor idl init  --filepath target/idl/rclaw_staking.json <PROGRAM_ID>
+   anchor idl authority <PROGRAM_ID>          # verify it is ours
+   anchor idl set-authority --new-authority <MULTISIG> --program-id <PROGRAM_ID>
+   ```
+
+   Then re-run `anchor idl upgrade` on every subsequent deploy, or the published
+   IDL silently describes an older program. This was flagged as unexamined in the
+   audit (`docs/TOKEN_SECURITY_AUDIT.md`, *Coverage & Limitations*, deferred area
+   1) and is a checklist item rather than a code change because there is no
+   program deployed to claim an IDL for.
+8. **Clear the npm advisory backlog** — `cd token && npm run audit:gate` reports
+   it; as of 2026-07-26 it is 1 critical and 15 high, baselined in
+   `token/.audit-baseline.json`. The ratchet stops it *growing*; it does not make
+   the existing advisories acceptable in code that signs transactions.

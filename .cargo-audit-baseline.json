@@ -1,0 +1,54 @@
+{
+  "_comment": "Known RustSec advisories in Cargo.lock, recorded deliberately. This is a RATCHET floor, not an approval: every entry is an outstanding advisory. 'shipped' means the crate is reachable through non-dev dependencies of the program and therefore belongs to its real supply chain; the rest are test-harness only. Regenerate with `python3 scripts/cargo_audit_gate.py --update` only after reviewing the delta.",
+  "recorded": "2026-07-26",
+  "advisories": {
+    "RUSTSEC-2022-0093": {
+      "crate": "ed25519-dalek",
+      "version": "1.0.1",
+      "title": "Double Public Key Signing Function Oracle Attack on `ed25519-dalek`",
+      "shipped": true
+    },
+    "RUSTSEC-2024-0344": {
+      "crate": "curve25519-dalek",
+      "version": "3.2.1",
+      "title": "Timing variability in `curve25519-dalek`'s `Scalar29::sub`/`Scalar52::sub`",
+      "shipped": true
+    },
+    "RUSTSEC-2025-0009": {
+      "crate": "ring",
+      "version": "0.16.20",
+      "title": "Some AES functions may panic when overflow checking is enabled.",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0037": {
+      "crate": "quinn-proto",
+      "version": "0.10.6",
+      "title": "Denial of service in Quinn endpoints",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0098": {
+      "crate": "rustls-webpki",
+      "version": "0.101.7",
+      "title": "Name constraints for URI names were incorrectly accepted",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0099": {
+      "crate": "rustls-webpki",
+      "version": "0.101.7",
+      "title": "Name constraints were accepted for certificates asserting a wildcard name",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0104": {
+      "crate": "rustls-webpki",
+      "version": "0.101.7",
+      "title": "Reachable panic in certificate revocation list parsing",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0185": {
+      "crate": "quinn-proto",
+      "version": "0.10.6",
+      "title": "Remote memory exhaustion in quinn-proto from unbounded out-of-order stream reassembly",
+      "shipped": false
+    }
+  }
+}
