@@ -75,10 +75,11 @@ test('a new caller-input tool moves families without touching the manifest', () 
   assert.ok(!m.toolFamilies.publishedData.includes('judge_my_thing'));
 });
 
-test('the four Guardian tools are the caller-input family', () => {
+test('the five Guardian tools are the caller-input family', () => {
   assert.deepEqual(
     computed().sort(),
-    ['compile_intent', 'plan_escape', 'scan_transaction', 'stress_portfolio'],
+    ['compile_intent', 'plan_escape', 'scan_transaction', 'stress_portfolio',
+      'xray_transaction'],
     'a Guardian tool shipped without computesOnInput — the manifest would then '
       + 'advertise it as serving data the public site publishes, which is false');
 });

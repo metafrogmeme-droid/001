@@ -101,6 +101,41 @@ const TOOLS = {
       };
     },
   },
+  xray_transaction: {
+    // Evaluates caller-supplied input rather than serving data the public
+    // site publishes. The ERC-8257 manifest derives its tool-family split
+    // from this marker, so the on-chain record cannot claim otherwise.
+    computesOnInput: true,
+    description: 'Decode what a transaction actually DOES before signing it. '
+      + 'Send calldata (plus optional to/value) and get back the exact '
+      + 'decoded actions for the known selector set — approve (with the '
+      + 'unlimited line at 2^128 raw units), increaseAllowance, transfer, '
+      + 'transferFrom, EIP-2612 permit (an approval moved by signature), '
+      + 'setApprovalForAll (the classic drain primitive), ERC-721/1155 '
+      + 'safeTransferFrom, and multicall batches unwrapped call by call — '
+      + 'with heuristic flags, never verdicts. Amounts are RAW token units '
+      + '(decimals are a chain read this tool deliberately does not do). '
+      + 'Anything outside the known set answers UNKNOWN — unknown is not the '
+      + 'same as safe. Pure decode: nothing sent here is stored, no chain is '
+      + 'read, no account is seen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        data: { type: 'string', maxLength: 100000, description: 'The transaction calldata, 0x-hex.' },
+        to: { type: 'string', description: 'Optional destination address (echoed for context only).' },
+        value: { type: 'string', description: 'Optional native value in wei (decimal or 0x-hex string).' },
+      },
+      required: ['data'],
+      additionalProperties: false,
+    },
+    handler: async ({ data, to, value }) => {
+      const r = require('../public/js/txray-model.js')
+        .decodeTx({ data: String(data || ''), value: value == null ? '0' : String(value) });
+      return { ...(to ? { to: String(to).slice(0, 64) } : {}), ...r,
+        note: 'Heuristic decode of the known selector set. A flag is not a '
+          + 'verdict and unknown is not safe. Nothing sent here is stored.' };
+    },
+  },
   compile_intent: {
     // Evaluates caller-supplied input rather than serving data the public
     // site publishes. The ERC-8257 manifest derives its tool-family split

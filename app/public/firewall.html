@@ -86,6 +86,28 @@
 
   <div id="out"></div>
 
+  <div class="fw-hero" style="margin-top:var(--s6)"><h1 style="font-size:clamp(20px,3vw,28px)" data-i18n="fw.x_h">🩻 Transaction X-ray</h1></div>
+  <p class="lede" data-i18n-html="fw.x_lede">The firewall reads <b>text</b>; the X-ray reads the <b>transaction itself</b>. Paste raw calldata
+  and see exactly what it does before anything signs it: approvals (and whether they are effectively
+  <b>unlimited</b>), transfers, gasless <b>permit</b>s, <b>setApprovalForAll</b> — the classic drain primitive —
+  and multicall batches unwrapped call by call. Decoding is exact for the known set; everything else says
+  <b>unknown</b>, because unknown is not the same as safe. Entirely in your browser.</p>
+
+  <section class="panel">
+    <textarea id="xdata" style="min-height:84px" placeholder="0x… transaction calldata" data-i18n-attr="placeholder:fw.x_ph_data" spellcheck="false" autocomplete="off"></textarea>
+    <div class="row" style="margin-top:var(--s2)">
+      <input id="xval" placeholder="value in wei (optional)" data-i18n-attr="placeholder:fw.x_ph_val" autocomplete="off" spellcheck="false"
+        style="background:var(--bg);border:1px solid var(--line);color:var(--text-1);border-radius:var(--radius-sm);padding:7px 10px;font:inherit;font-family:var(--font-data);font-size:var(--fs-sm);max-width:240px">
+      <button class="btn btn--primary btn--sm" id="xgo" type="button" data-i18n="fw.x_btn">X-ray</button>
+      <span class="ex" data-i18n="fw.try">or try:</span>
+      <button class="chip-btn" data-xex="unl" type="button" data-i18n="fw.x_ex_unl">unlimited approve</button>
+      <button class="chip-btn" data-xex="forall" type="button" data-i18n="fw.x_ex_forall">setApprovalForAll</button>
+      <button class="chip-btn" data-xex="unknown" type="button" data-i18n="fw.x_ex_unknown">unknown call</button>
+    </div>
+  </section>
+
+  <div id="xout"></div>
+
   <p class="disc" data-i18n-html="fw.disc">The firewall is a <b>heuristic</b> pre-sign scan — it flags known attack patterns and explains
   why, but a clean result is <b>not</b> a guarantee and a flag is not a verdict. Always verify the destination
   address, the amount and the approval scope yourself. Nothing you paste is sent anywhere; the scan is local.
@@ -93,6 +115,7 @@
 </div>
 
 <script src="/js/firewall-model.js?v=1"></script>
+<script src="/js/txray-model.js?v=1"></script>
 <script>
 (function () {
   var F = window.FirewallModel;
@@ -143,8 +166,77 @@
     b.addEventListener('click', function () { $('in').value = EX[b.getAttribute('data-ex')] || ''; scan(); $('in').focus(); });
   });
   if (!F) $('out').innerHTML = '<div class="panel">The firewall model failed to load.</div>';
+
+  // ── Transaction X-ray — decode calldata via the shared model ──────────────
+  var XR = window.RCTxRay;
+  var XT = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var fill = function (tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (m, n) { return map[n] == null ? m : map[n]; });
+  };
+  var FLAG_EN = {
+    unlimited_approval: 'Effectively unlimited approval — 2^128 raw units or more. Whoever holds it can move everything this token ever holds here.',
+    approval_for_all: 'setApprovalForAll(true) — the operator gains control of EVERY token in the collection. The classic drain primitive.',
+    gasless_permit: 'A permit moves an allowance by SIGNATURE — the approval happened when something signed, not when this transaction lands.',
+    unknown_function: 'Selector not in the known set — undecoded here. Unknown is not the same as safe.',
+    sends_native: 'This transaction sends native coin along with the call.',
+    undecodable: 'The calldata did not decode cleanly against the matched signature.',
+  };
+  var XEX = {
+    unl: '0x095ea7b3000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+    forall: '0xa22cb465000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000001',
+    unknown: '0xdeadbeef00000000000000000000000000000000000000000000000000000000',
+  };
+  var SEVCLS = { high: 'danger', medium: 'caution', info: 'info' };
+
+  function xrender(r) {
+    if (!r) { $('xout').innerHTML = ''; return; }
+    if (r.invalid) {
+      $('xout').innerHTML = '<section class="panel"><p class="s" style="color:var(--down)">'
+        + esc(XT('fw.x_invalid', 'That is not decodable input — calldata must be 0x-hex and value a number.')) + '</p></section>';
+      return;
+    }
+    if (r.empty || !r.actions.length) {
+      $('xout').innerHTML = '<section class="panel"><p class="s" style="color:var(--text-3)">'
+        + esc(XT('fw.x_none', 'Nothing to decode yet — paste calldata above.')) + '</p></section>';
+      return;
+    }
+    var acts = r.actions.map(function (a) {
+      var p = {};
+      for (var k in a.params) p[k] = a.params[k];
+      if (a.params.unlimited) p.amount = XT('txr.unl', 'UNLIMITED');
+      // Whole-line translation by the model's stable tid, English fallback —
+      // an unknown tid falls back entirely, never to a mixed sentence.
+      return '<div class="flag sev-none"><span class="dot"></span><div><div class="wy">'
+        + esc(fill(XT(a.tid, a.en), p)) + '</div></div></div>';
+    }).join('');
+    var flags = r.flags.map(function (f) {
+      return '<div class="flag sev-' + esc(SEVCLS[f.sev] || 'info') + '"><span class="dot"></span><div>'
+        + '<div class="ti">' + esc(XT('txr.f_' + f.id, (FLAG_EN[f.id] || f.id).split(' — ')[0]))
+        + '<span class="sev">' + esc(f.sev) + '</span></div>'
+        + '<div class="wy">' + esc(XT('txr.fw_' + f.id, FLAG_EN[f.id] || '')) + '</div></div></div>';
+    }).join('');
+    $('xout').innerHTML = '<section class="panel">' + acts + flags
+      + '<p class="s" style="color:var(--text-3);margin-top:var(--s2)">'
+      + esc(XT('fw.x_note', 'Exact decode for the known selector set; heuristic flags, never verdicts. Amounts are raw token units — decimals live on the token contract, and inventing them would be lying. Nothing leaves your browser.'))
+      + '</p></section>';
+  }
+
+  function xray() {
+    if (!XR) return;
+    xrender(XR.decodeTx({ data: $('xdata').value, value: $('xval').value || '0' }));
+  }
+  var xt = null;
+  $('xdata').addEventListener('input', function () { clearTimeout(xt); xt = setTimeout(xray, 250); });
+  $('xval').addEventListener('input', function () { clearTimeout(xt); xt = setTimeout(xray, 250); });
+  $('xgo').addEventListener('click', xray);
+  document.querySelectorAll('[data-xex]').forEach(function (b) {
+    b.addEventListener('click', function () { $('xdata').value = XEX[b.getAttribute('data-xex')] || ''; xray(); });
+  });
 })();
 </script>
-<script src="/js/i18n.js?v=69"></script>
+<script src="/js/i18n.js?v=70"></script>
 </body>
 </html>
