@@ -255,7 +255,12 @@ def test_staked_of_parses_getprogramaccounts(monkeypatch):
         if method == "getAccountInfo":
             return {"value": {"data": {"parsed": {"info": {"decimals": 9}}}}}
         assert method == "getProgramAccounts"
-        assert params[1]["filters"][0]["memcmp"]["offset"] == mod.STAKE_OWNER_OFFSET
+        # By content, not by position: the filter list grew a discriminator
+        # entry and a positional assertion would have to be edited every time
+        # the order changes, which makes it a maintenance tax rather than a
+        # check on anything.
+        offsets = [f["memcmp"]["offset"] for f in params[1]["filters"] if "memcmp" in f]
+        assert mod.STAKE_OWNER_OFFSET in offsets
         return [
             {"account": {"data": [_stake_account_b64(10_000 * 10**9), "base64"]}},
             {"account": {"data": [_stake_account_b64(15_000 * 10**9), "base64"]}},
@@ -606,3 +611,95 @@ def test_a_present_account_is_probed_once_not_on_every_read(monkeypatch):
         mod.staked_of(WALLET)
     probes = [c for c in calls if c == ("getAccountInfo", PROGRAM)]
     assert len(probes) == 1, f"probed the staking program {len(probes)} times, expected 1"
+
+
+# ---------------------------------------------------------------------------
+# Remediation plan (C)(5): discriminator filter, and saying out loud when the
+# gate is grading on holdings rather than on stake.
+# ---------------------------------------------------------------------------
+
+def test_staked_of_filters_on_the_anchor_discriminator(monkeypatch):
+    """Only genuine StakeAccounts should be summed.
+
+    Without this, any 162-byte account this program owns with the wallet's
+    pubkey at offset 9 is counted as stake — type confusion, not an attack.
+    """
+    seen = {}
+    mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM=PROGRAM, RCLAW_DECIMALS="9")
+
+    def fake_rpc(method, params):
+        if method == "getAccountInfo":
+            return {"value": {"data": {"parsed": {"info": {"decimals": 9}}}}}
+        seen["filters"] = params[1]["filters"]
+        return []
+
+    monkeypatch.setattr(mod, "_rpc", fake_rpc)
+    mod.staked_of(WALLET)
+
+    disc = [f for f in seen["filters"] if f.get("memcmp", {}).get("offset") == 0]
+    assert disc, "no discriminator filter — arbitrary same-sized accounts count as stake"
+    import base64 as _b64
+    assert _b64.b64decode(disc[0]["memcmp"]["bytes"]) == mod.STAKE_ACCOUNT_DISCRIMINATOR
+    # base58 is memcmp's default and these are raw bytes, not a pubkey. Sending
+    # them without saying so would silently filter on the wrong thing.
+    assert disc[0]["memcmp"]["encoding"] == "base64"
+
+
+def test_the_discriminator_is_derived_not_pasted(monkeypatch):
+    """Pinned against the value read off a real account on a validator.
+
+    A hand-copied constant drifts silently the moment the account type is
+    renamed; deriving it from the type name is what keeps it honest, and this
+    asserts the derivation still lands on the bytes the chain actually holds.
+    """
+    mod = _reload_clean(monkeypatch)
+    assert mod.STAKE_ACCOUNT_DISCRIMINATOR.hex() == "509e437c32bdc0ff"
+
+
+def _capture_errors(monkeypatch, mod):
+    """Collect system_log.error messages.
+
+    caplog does not see these: system_log is a dedicated channel that does not
+    propagate to the root logger, so a caplog-based assertion passes or fails on
+    logging configuration rather than on whether the gate said anything.
+    """
+    msgs = []
+    real = mod.system_log.error
+    monkeypatch.setattr(mod.system_log, "error",
+                        lambda m, *a, **k: (msgs.append(m % a if a else m), real(m, *a, **k))[0])
+    return msgs
+
+
+def test_wallet_balance_fallback_is_announced_once(monkeypatch):
+    """Grading on holdings instead of stake drops the lock. Say so.
+
+    Without the lock a tier is a live spot balance: the same tokens forwarded
+    from wallet to wallet confer it again each time, so one position serves
+    unlimited users for the cost of a transfer. That is reachable in total
+    silence otherwise — the fallback is documented only in a docstring.
+    """
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    msgs = _capture_errors(monkeypatch, mod)
+    monkeypatch.setattr(mod, "balance_of", lambda w: 50_000.0)
+
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    hits = [m for m in msgs if "RCLAW_STAKING_PROGRAM is unset" in m]
+    assert hits, "the fallback to wallet balance was silent"
+    assert "lock" in hits[0].lower(), "the message does not say what is actually lost"
+
+    # Hot path: repeated on every scan it becomes noise an operator filters out.
+    for _ in range(4):
+        mod.allows_user(_Users(WALLET), 1, "premium_scan")
+    assert len([m for m in msgs if "RCLAW_STAKING_PROGRAM is unset" in m]) == 1
+
+
+def test_no_fallback_warning_when_the_staking_program_is_set(monkeypatch):
+    """The correct configuration must not cry wolf, or the warning gets ignored."""
+    mod = _reload_clean(
+        monkeypatch, TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT=MINT, RCLAW_STAKING_PROGRAM=PROGRAM,
+    )
+    msgs = _capture_errors(monkeypatch, mod)
+    monkeypatch.setattr(mod, "staked_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    assert not [m for m in msgs if "RCLAW_STAKING_PROGRAM is unset" in m]

@@ -36,6 +36,7 @@ key — it only *reads* balances.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import time
@@ -91,6 +92,21 @@ STAKE_ACCOUNT_MIN_LEN = 8 + STAKE_ACCOUNT_SPACE
 # accounts from a misconfigured program id are rejected before parsing.
 STAKE_ACCOUNT_TOTAL_LEN = STAKE_ACCOUNT_MIN_LEN + STAKE_ACCOUNT_RESERVED
 STAKE_ACCOUNT_VERSION = 1
+
+# Anchor's account discriminator: the first 8 bytes of
+# sha256("account:StakeAccount"), written at offset 0 of every account the
+# program creates. Computed rather than pasted, so it cannot drift from the
+# type name; checked against a live account on a validator (509e437c32bdc0ff).
+#
+# What filtering on it buys, stated precisely, because the obvious reading is
+# wrong: it does NOT defend against `RCLAW_STAKING_PROGRAM` being pointed at a
+# hostile program. A hostile program controls its own account bytes and can
+# write these eight as easily as any other. What it does defend against is
+# *accidental type confusion within this program* — a future account type that
+# happens to be 162 bytes with a pubkey at offset 9 would otherwise be summed
+# as though it were stake. That is a smaller claim than the audit's phrasing
+# suggested, and it is the true one.
+STAKE_ACCOUNT_DISCRIMINATOR = hashlib.sha256(b"account:StakeAccount").digest()[:8]
 
 
 class GateMisconfigured(RuntimeError):
@@ -339,10 +355,20 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
     # of denying everyone on evidence that does not exist.
     if _account_exists(program, "staking program") is False:
         return None
-    # Filter on the discriminator-adjacent version byte and owner, and — when a
-    # mint is configured — ALSO on mint, so a stake of some worthless token can
-    # never be counted as $RCLAW tier.
+    # Filter on the Anchor discriminator and owner, and — when a mint is
+    # configured — ALSO on mint, so a stake of some worthless token can never be
+    # counted as $RCLAW tier.
+    #
+    # The discriminator is sent base64-encoded because memcmp's default is
+    # base58 and these are raw bytes, not a pubkey. Verified against a live RPC
+    # rather than assumed: with the correct discriminator the filter returns
+    # every stake account, with a wrong one it returns none.
     filters = [
+        {"memcmp": {
+            "offset": 0,
+            "bytes": base64.b64encode(STAKE_ACCOUNT_DISCRIMINATOR).decode(),
+            "encoding": "base64",
+        }},
         {"memcmp": {"offset": STAKE_OWNER_OFFSET, "bytes": wallet}},
         {"dataSize": STAKE_ACCOUNT_TOTAL_LEN},
     ]
@@ -490,6 +516,44 @@ def _cached_balance(wallet: str) -> Optional[float]:
     return bal
 
 
+_WARNED_WALLET_FALLBACK = False
+
+
+def _warn_wallet_balance_fallback() -> None:
+    """Say out loud that the gate is grading on holdings, not on stake.
+
+    With ``RCLAW_STAKING_PROGRAM`` unset the gate falls back to raw wallet
+    balance. That is a documented fallback, but it silently removes the one
+    control the staking program exists to provide: **the 30-day lock**.
+
+    The lock is what makes a tier cost something to hold. Without it a tier is a
+    live spot balance — user A proves ownership of a wallet, receives the
+    tokens, qualifies, forwards them to user B's wallet, and B qualifies too.
+    Both wallets are genuinely verified, so no ownership proof is violated; the
+    tokens simply move. One position serves an unlimited number of users, and
+    the only cost is one transfer per rotation. With the lock, the same rotation
+    costs 30 days per user.
+
+    So this is not a stylistic downgrade from a better balance source. It is the
+    difference between a paywall and a queue. It was reachable in complete
+    silence: the fallback is documented in the module docstring and nowhere in
+    the running system. Logged once per process rather than per call — this sits
+    on a hot path, and a message repeated on every scan is one an operator
+    filters out.
+    """
+    global _WARNED_WALLET_FALLBACK
+    if _WARNED_WALLET_FALLBACK:
+        return
+    _WARNED_WALLET_FALLBACK = True
+    system_log.error(
+        "tier_gate: RCLAW_STAKING_PROGRAM is unset while the gate is ENABLED, so "
+        "tiers are being graded on raw wallet balance. There is no lock-up: the "
+        "same tokens can be forwarded from wallet to wallet and confer the tier "
+        "again each time, so one position serves unlimited users for the cost of "
+        "a transfer. Set RCLAW_STAKING_PROGRAM to grade on staked balance."
+    )
+
+
 def check_user(users, uid, feature: str) -> tuple[bool, str]:
     """Whether ``uid`` may use ``feature``, and WHY if not.
 
@@ -534,7 +598,11 @@ def check_user(users, uid, feature: str) -> tuple[bool, str]:
     # Prefer on-chain STAKED balance when a staking program is configured;
     # otherwise fall back to raw wallet balance.
     try:
-        bal = staked_of(wallet) if staking_program() else balance_of(wallet)
+        if staking_program():
+            bal = staked_of(wallet)
+        else:
+            _warn_wallet_balance_fallback()
+            bal = balance_of(wallet)
     except GateMisconfigured as exc:
         system_log.error("tier_gate: enabled but misconfigured; denying access (%s)", exc)
         return False, "misconfigured"  # fail CLOSED on a permanent configuration fault
