@@ -83,6 +83,10 @@
     <div class="btn-row">
       <button class="btn btn--sm" id="addRow" type="button" data-i18n="sx.add_row">＋ Add position</button>
       <button class="btn btn--ghost btn--sm" id="reset" type="button" data-i18n="sx.reset">Reset sample</button>
+      <button class="btn btn--ghost btn--sm" id="loadWallet" type="button" data-i18n="sx.load_wallet">📥 Load my wallet</button>
+    </div>
+    <p class="muted" id="walletNote" style="font-size:var(--fs-xs);min-height:1.2em;margin-top:6px" aria-live="polite"></p>
+    <div class="btn-row" hidden>
     </div>
   </section>
 
@@ -99,7 +103,7 @@
 <!-- Ahead of the page script, not after it. The plan renders synchronously at
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
-<script src="/js/i18n.js?v=65"></script>
+<script src="/js/i18n.js?v=66"></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
 (function () {
@@ -221,7 +225,58 @@
     positions.splice(Number(rm.getAttribute('data-rm')), 1); renderRows(); render();
   });
   $('addRow').addEventListener('click', function () { positions.push({ type: 'spot', asset: '', chain: '', status: '' }); renderRows(); render(); });
-  $('reset').addEventListener('click', function () { positions = SAMPLE.map(function (p) { return Object.assign({}, p); }); renderRows(); render(); });
+  $('reset').addEventListener('click', function () { positions = SAMPLE.map(function (p) { return Object.assign({}, p); }); renderRows(); render(); walletNote(''); });
+
+  // ── Load the user's OWN multi-chain book from the read-only wallet mirror ──
+  // Same honesty pattern the Stress Lab uses. Escape-specific twist: the
+  // mirror tags every asset with its chain, so the plan can be REAL —
+  // the chain holding the most value is guessed as home (stated as a guess),
+  // everything elsewhere enters as a bridged asset the plan will sequence
+  // home LAST. Spot only: the mirror sees no perps, loans, LPs or staking —
+  // add those rows yourself, the plan is only as complete as its inputs.
+  var MAX_ROWS = 20;
+  function walletNote(txt, mood) {
+    var el = $('walletNote');
+    if (!el) return;
+    el.textContent = txt;
+    el.style.color = mood === 'bad' ? 'var(--down)' : mood === 'ok' ? 'var(--up)' : 'var(--text-3)';
+  }
+  $('loadWallet').addEventListener('click', async function () {
+    var btn = $('loadWallet');
+    btn.disabled = true;
+    walletNote(T('sx.w_loading', 'Reading your linked wallet…'));
+    try {
+      var tok = null;
+      try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+      if (!tok) { walletNote(T('sx.w_signed_out', 'Sign in and link a wallet to load your real book. The sample below still works.'), 'bad'); return; }
+      var r = await fetch('/api/wallet/portfolio', { headers: { Authorization: 'Bearer ' + tok } });
+      var d = await r.json().catch(function () { return null; });
+      if (!r.ok || !d || !d.linked) { walletNote(T('sx.w_none', 'No linked wallet found. Link one in Account, then come back.'), 'bad'); return; }
+      var assets = (d.assets || []).filter(function (a) { return Number(a.usd) > 0 && a.symbol && a.chain; });
+      if (!assets.length) { walletNote(T('sx.w_empty', 'The linked wallet mirrors no priced balances, so there is no book to build.'), 'bad'); return; }
+      // Home = the chain holding the most value. A guess, said as one.
+      var byChain = {};
+      assets.forEach(function (a) { byChain[a.chain] = (byChain[a.chain] || 0) + Number(a.usd || 0); });
+      var home = Object.keys(byChain).sort(function (x, y) { return byChain[y] - byChain[x]; })[0];
+      var sorted = assets.slice().sort(function (x, y) { return Number(y.usd) - Number(x.usd); });
+      var kept = sorted.slice(0, MAX_ROWS);
+      var droppedN = sorted.length - kept.length;
+      positions = kept.map(function (a) {
+        return { type: a.chain === home ? 'spot' : 'bridged',
+          asset: String(a.symbol).slice(0, 20), chain: String(a.chain).slice(0, 20), status: '' };
+      });
+      renderRows(); render();
+      var msg = TF('es.w_loaded',
+        '{n} holdings loaded across your chains. {home} looks like your home chain (largest balance) — everything elsewhere entered as bridged, which the plan sequences home LAST. A guess: flip any row. The mirror sees spot only — add perps, loans, LPs and staking yourself; the plan is only as complete as its inputs.',
+        { n: positions.length, home: home });
+      if (droppedN > 0) {
+        msg += ' ' + TF('sx.w_dropped', '{d} smallest holdings were left out (the book caps at {max}).', { d: droppedN, max: MAX_ROWS });
+      }
+      walletNote(msg, 'ok');
+    } catch (e) {
+      walletNote(T('sx.w_failed', 'Could not read the wallet mirror just now — nothing was changed.'), 'bad');
+    } finally { btn.disabled = false; }
+  });
 
   if (!E) { $('steps').innerHTML = '<p class="muted">The Escape Agent model failed to load.</p>'; return; }
   renderRows(); render();

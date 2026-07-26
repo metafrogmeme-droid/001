@@ -295,3 +295,24 @@ test('the position editor no longer hard-codes English option labels', () => {
   assert.doesNotMatch(escPage, /st\('nearLiq', '⚡ Near liquidation'\)/,
     'the status dropdown is back to printing its English literals');
 });
+
+// ── the Escape Agent loads the real multi-chain book ────────────────────────
+
+test('escape: the wallet loader marks away-chain assets as bridged, honestly', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'escape.html'), 'utf8');
+  assert.match(page, /type: a\.chain === home \? 'spot' : 'bridged'/,
+    'the plan must sequence away-chain assets home LAST — that is the point');
+  assert.match(page, /byChain\[y\] - byChain\[x\]/,
+    'home is the largest-balance chain — and the note must call it a guess');
+  const e = i18nMod.STRINGS['es.w_loaded'];
+  assert.ok(e, 'es.w_loaded missing');
+  assert.match(e.en, /A guess/, 'the home-chain inference must be stated as a guess');
+  assert.match(e.en, /spot only/i, 'the mirror sees no leverage — the plan must say its inputs are partial');
+  for (const c of langCodes) {
+    assert.ok(String(e[c] || '').includes('{n}') && String(e[c]).includes('{home}'),
+      `es.w_loaded:${c} dropped a slot`);
+  }
+  // The shared sx.w_* notes are reused verbatim — no duplicate dictionary rows.
+  assert.match(page, /T\('sx\.w_loading'/);
+  assert.match(page, /TF\('sx\.w_dropped'/);
+});
