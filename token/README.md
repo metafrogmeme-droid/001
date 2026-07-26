@@ -11,13 +11,14 @@ specified in [`docs/TOKEN_ROADMAP.md`](../docs/TOKEN_ROADMAP.md): 1,000,000,000 
 ## Prerequisites
 
 - Node.js ≥ 18
-- `npm install` (installs `@solana/web3.js`, `@solana/spl-token`, `@solana/spl-token-metadata`)
+- `npm ci` (installs `@solana/web3.js`, `@solana/spl-token`, `@solana/spl-token-metadata` at the
+  versions in `package-lock.json`)
 
 ## Usage
 
 ```bash
 cd token
-npm install
+npm ci
 cp .env.example .env          # defaults to devnet; never add a mainnet key
 
 npm run keygen                # make a throwaway devnet payer + request an airdrop

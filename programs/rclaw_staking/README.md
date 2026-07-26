@@ -138,7 +138,7 @@ carry value.
 cargo check -p rclaw_staking     # host type-check
 cargo test  -p rclaw_staking     # unit + in-process integration tests (no toolchain needed)
 
-npm install                      # root package.json — Anchor TS test toolchain
+npm ci                           # root package.json — Anchor TS test toolchain
 npm run typecheck                # tsc over programs/*/tests/*.ts
 anchor build                     # needs the Anchor + Solana CLIs
 anchor keys sync                 # keeps declare_id! and Anchor.toml in step

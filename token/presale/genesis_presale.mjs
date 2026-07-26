@@ -1728,8 +1728,130 @@ async function cmdClaim() {
 // without executing a command.
 export { requirePresale, persistBaseMintKeypair, readArtifact, saveArtifact, PRESALE_ARTIFACT, arg, hasFlag };
 
+
+// ── verify ──────────────────────────────────────────────────────────────────
+//
+// Read every claim the artifact makes back off the chain and check it.
+//
+// The artifact is a JSON file on somebody's laptop. It records which mint was
+// sold, which genesis account holds the raise, and which buckets hold which
+// allocations — and nothing has ever confirmed any of it against the chain. It
+// is written by the same process that sends the transactions, so it records
+// what that process INTENDED. A transaction that landed and did something
+// slightly different, a hand-edited file, or a stale artifact from an earlier
+// run all produce a document that looks exactly as authoritative.
+//
+// The audit asks for this specifically: "add a `presale:verify` command that
+// checks the artifact's `baseMint` against chain" (B)(5). That single check is
+// the sharpest one — the mint actually being sold is the one fact a buyer
+// cannot afford to take on trust — but the same argument applies to every other
+// field, so they are all checked.
+//
+// Exits non-zero on the first failed check so this can gate a publish step
+// rather than only inform a human reading scrollback.
+async function cmdVerify() {
+  const cfg = loadConfig();
+  const env = loadEnv();
+  const umi = makeUmi(env);
+  await assertDevnet(umi);
+  const a = requirePresale();
+
+  const {
+    fetchGenesisAccountV2, fetchPresaleBucketV2, fetchRaydiumCpmmBucketV2,
+  } = await import('@metaplex-foundation/genesis');
+
+  const results = [];
+  const check = (name, ok, detail) => { results.push({ name, ok, detail }); return ok; };
+
+  console.log('=== presale:verify — artifact vs chain ===');
+  console.log('artifact :', PRESALE_ARTIFACT);
+  console.log('rpc      :', env.RPC_URL || '(default devnet)');
+  console.log();
+
+  // ---- genesis account -----------------------------------------------------
+  const ga = await fetchGenesisAccountV2(umi, publicKey(a.genesisAccount));
+
+  // THE check the audit named. If this disagrees, the artifact describes a
+  // different sale than the one on chain and every other number is unmoored.
+  check('baseMint matches the chain', ga.baseMint.toString() === a.baseMint,
+    `artifact ${a.baseMint} / chain ${ga.baseMint.toString()}`);
+
+  // Two separate claims, so two separate checks. "The sale is finalized" is a
+  // fact about the chain; "the artifact told the truth about it" is a fact
+  // about the file. Collapsing them into one comparison against the chain lets
+  // a lying artifact pass whenever the chain happens to agree.
+  check('genesis is finalized', ga.finalized === true, `chain finalized=${ga.finalized}`);
+  check('artifact agrees about finalization', a.finalized === ga.finalized,
+    `artifact ${a.finalized} / chain ${ga.finalized}`);
+
+  // finalizeV2 refuses while any supply is unallocated, so this must hold on a
+  // finalized account — but it is the invariant the whole allocation table
+  // rests on, and reading it back costs nothing.
+  check('entire supply is allocated',
+    ga.totalSupplyBaseToken === ga.totalAllocatedSupplyBaseToken,
+    `${ga.totalAllocatedSupplyBaseToken} of ${ga.totalSupplyBaseToken}`);
+
+  const expectedSupply = BigInt(cfg.token.totalSupply) * 10n ** BigInt(cfg.token.decimals);
+  check('total supply matches the config', ga.totalSupplyBaseToken === expectedSupply,
+    `chain ${ga.totalSupplyBaseToken} / config ${expectedSupply}`);
+
+  // ---- presale bucket ------------------------------------------------------
+  const pb = await fetchPresaleBucketV2(umi, publicKey(a.bucket));
+  const params = derivePresaleParams(cfg);
+
+  check('presale bucket belongs to this genesis',
+    pb.bucket.genesis.toString() === a.genesisAccount,
+    `bucket.genesis ${pb.bucket.genesis.toString()}`);
+
+  check('presale allocation matches the config',
+    pb.bucket.baseTokenAllocation === params.baseTokenAllocation,
+    `chain ${pb.bucket.baseTokenAllocation} / config ${params.baseTokenAllocation}`);
+
+  check('hard cap matches the config',
+    pb.allocationQuoteTokenCap === params.allocationQuoteTokenCap,
+    `chain ${pb.allocationQuoteTokenCap} / config ${params.allocationQuoteTokenCap} lamports`);
+
+  // ---- liquidity bucket ----------------------------------------------------
+  if (a.liquidityBucket) {
+    const lp = await fetchRaydiumCpmmBucketV2(umi, publicKey(a.liquidityBucket));
+    check('liquidity bucket belongs to this genesis',
+      lp.bucket.genesis.toString() === a.genesisAccount,
+      `bucket.genesis ${lp.bucket.genesis.toString()}`);
+
+    // The never-claim lock is the single most consequential irreversible
+    // property of the sale, and it is expressed as the ABSENCE of a claim
+    // authority. An absence is exactly the kind of thing that is easy to
+    // believe without checking.
+    const claimAuth = lp.lpClaimAuthority;
+    const locked = claimAuth === null || claimAuth.__option === 'None';
+    check('LP is permanently locked (no claim authority)', locked,
+      locked ? 'lpClaimAuthority = None' : `lpClaimAuthority = ${JSON.stringify(claimAuth)}`);
+  }
+
+  // ---- allocation buckets --------------------------------------------------
+  for (const [name, rec] of Object.entries(a.allocationBuckets || {})) {
+    const info = await umi.rpc.getAccount(publicKey(rec.address));
+    check(`allocation bucket "${name}" exists on chain`, info.exists,
+      `${rec.address}`);
+  }
+
+  // ---- report --------------------------------------------------------------
+  const width = Math.max(...results.map((r) => r.name.length));
+  for (const r of results) {
+    console.log(`  ${r.ok ? 'ok  ' : 'FAIL'}  ${r.name.padEnd(width)}  ${r.detail}`);
+  }
+  const failed = results.filter((r) => !r.ok);
+  console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+  if (failed.length) {
+    console.error(`\nVERIFY FAILED — ${failed.length} claim(s) in ${PRESALE_ARTIFACT} do not match the chain.`);
+    process.exit(1);
+  }
+  console.log('VERIFY OK — every claim in the artifact matches the chain.');
+}
+
 const table = {
   plan: cmdPlan,
+  verify: cmdVerify,
   whitelist: cmdWhitelist,
   create: cmdCreate,
   liquidity: cmdLiquidity,

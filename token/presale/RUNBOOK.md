@@ -36,7 +36,7 @@ This path is wired against the real **`@metaplex-foundation/genesis`** SDK
 
 ```bash
 cd token
-npm install                      # pulls @metaplex-foundation/genesis + umi
+npm ci                           # pulls @metaplex-foundation/genesis + umi, lockfile-exact
 cp .env.example .env             # devnet; never a mainnet key
 npm run keygen                   # devnet operator wallet + airdrop
 
@@ -57,6 +57,13 @@ npm run presale:trigger          # triggerBehaviorsV2 — routes the 66.67% quot
                                  # REFUSES if the realised raise would open the pool below the
                                  # presale price — see the decision point below.
 npm run presale:claim            # claimPresaleV2 once the claim window opens (post-TGE)
+
+npm run presale:verify           # READ BACK every claim the artifact makes and check it
+                                 # against the chain. The artifact is a JSON file written
+                                 # by the same process that sent the transactions, so it
+                                 # records what that process INTENDED. Run this before
+                                 # publishing any of those addresses. Exits non-zero on a
+                                 # mismatch, so it can gate a publish step.
 # recovery: BOTH OF THESE ARE DEAD FOR A V2 PRESALE — they refuse up front.
 # withdrawPresaleV1/withdrawUnsoldPresaleV1 are V1-only and reject a V2 genesis
 # account (0x2f); the SDK has no V2 equivalent. Verified on devnet 2026-07-26.

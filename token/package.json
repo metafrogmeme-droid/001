@@ -30,7 +30,8 @@
     "audit:baseline": "node scripts/audit_gate.mjs --update",
     "programs:inventory": "node scripts/program_inventory.mjs",
     "programs:baseline": "node scripts/program_inventory.mjs --update",
-    "e2e:whitelist": "node e2e/whitelist_e2e.mjs"
+    "e2e:whitelist": "node e2e/whitelist_e2e.mjs",
+    "presale:verify": "node presale/genesis_presale.mjs verify"
   },
   "engines": {
     "node": ">=18"

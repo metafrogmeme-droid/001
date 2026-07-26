@@ -10,7 +10,7 @@ override — no presale logic is duplicated.
 
 ```bash
 cd token
-npm install
+npm ci
 cp .env.example .env          # devnet; never a mainnet key
 
 npm run e2e:plan              # OFFLINE: generate the near-now config + run presale:plan

@@ -21,7 +21,7 @@ NTT supports two modes:
 
 ```bash
 cd token
-npm install
+npm ci
 npm run bridge:plan        # OFFLINE: validate config, resolve chains, print deploy steps
 ```
 
