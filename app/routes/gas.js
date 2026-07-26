@@ -9,27 +9,18 @@
 
 const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
-const { readGas, withXferCosts } = require('../lib/gas_read');
-const { getTickersWithin } = require('../lib/tickers');
+const { readGasCached } = require('../lib/gas_read');
 
 const router = express.Router();
 router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
 
-let cache = null;
 router.get('/', async (req, res) => {
   try {
-    if (cache && Date.now() - cache.at < 60000) {
-      res.set('Cache-Control', 'public, max-age=30');
-      return res.json(cache.body);
-    }
-    const body = await readGas();
-    // Dollar cost of a transaction on each chain — gas price × native price,
-    // both public market facts. Display path: a bounded ticker read that
-    // falls back to a recent mark or to nothing; a chain without a fresh
-    // native price simply carries no cost field.
-    const { map } = await getTickersWithin(2500);
-    withXferCosts(body, map);
-    if (Object.keys(body.chains).length) cache = { at: Date.now(), body };
+    // The 60s cache, price enrichment (bounded ticker read) and the
+    // never-cache-an-empty-read rule all live in readGasCached — one cache
+    // shared with the get_gas MCP tool, so two surfaces never mean two
+    // RPC sweeps.
+    const body = await readGasCached();
     res.set('Cache-Control', 'public, max-age=30');
     res.json(body);
   } catch (err) {

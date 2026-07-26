@@ -3,12 +3,16 @@
 // the verified keyless RPCs. Unreadable chains are OMITTED, never invented;
 // the number is labeled indicative; and an empty read is never cached.
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
+delete process.env.DATABASE_URL;
+
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { readGas, withXferCosts, XFER_GAS_UNITS } = require('../lib/gas_read.js');
+const { readGas, readGasCached, setGasFetcher, withXferCosts, XFER_GAS_UNITS }
+  = require('../lib/gas_read.js');
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 
 const rpcOk = (weiHexByHost) => async (url) => ({
@@ -72,12 +76,58 @@ test('xfer cost: no fresh native mark → gwei stays, cost fields are absent', a
   assert.equal(withXferCosts(g2, null), g2);
 });
 
-test('the route prices costs through the BOUNDED ticker read — a page load never waits on a cold fetch', () => {
-  const src = read('routes', 'gas.js');
+test('the shared cache prices through the BOUNDED ticker read — nothing here waits on a cold fetch', () => {
+  const src = read('lib', 'gas_read.js');
   assert.match(src, /getTickersWithin\(/, 'display path: bounded, with stale fallback');
   assert.doesNotMatch(src, /getTickers\(\)/,
     'the unbounded fetch can spend 10s — that budget belongs to order paths only');
-  assert.match(src, /withXferCosts\(body, map\)/);
+  assert.match(read('routes', 'gas.js'), /readGasCached\(\)/,
+    'the route and the MCP tool share ONE cache — two surfaces, one RPC sweep');
+});
+
+test('readGasCached: an empty read is never cached; a good read is', async () => {
+  require('../lib/tickers').setTickerFetcher(async () => ({ ETHUSDT: { price: 2500 } }));
+  try {
+    setGasFetcher(async () => { throw new Error('ECONNREFUSED'); });
+    const empty = await readGasCached();
+    assert.deepEqual(empty.chains, {});
+    // The outage must not freeze into "no data" for a minute: swapping in a
+    // working fetcher resets the cache (test seam) AND the empty body was
+    // never stored — either way the next caller gets a real read.
+    let calls = 0;
+    const ok = rpcOk({ 'publicnode.com': '0x4a817c800' });
+    setGasFetcher(async (url, opts) => { calls++; return ok(url, opts); });
+    const fresh = await readGasCached();
+    assert.equal(fresh.chains.ethereum.gwei, 20);
+    assert.equal(fresh.chains.ethereum.xfer_cost_usd, 5, 'priced through the shared path');
+    const before = calls;
+    const again = await readGasCached();
+    assert.equal(calls, before, 'a good read IS cached — the second call is free');
+    assert.deepEqual(again.chains, fresh.chains);
+  } finally {
+    setGasFetcher(null);
+    require('../lib/tickers').setTickerFetcher(null);
+  }
+});
+
+test('get_gas MCP tool: published-data family, the same honest read, floor stated as a floor', async () => {
+  const { TOOLS } = require('../routes/mcp.js');
+  assert.ok(TOOLS.get_gas, 'the gas read is agent-consumable');
+  assert.ok(!TOOLS.get_gas.computesOnInput,
+    'public market facts — the manifest family split must say published-data');
+  assert.match(TOOLS.get_gas.description, /omitted, never invented/);
+  require('../lib/tickers').setTickerFetcher(async () => ({ ETHUSDT: { price: 2000 } }));
+  try {
+    setGasFetcher(rpcOk({ 'base.org': '0xb71b00' }));
+    const out = await TOOLS.get_gas.handler({});
+    assert.equal(out.indicative, true);
+    assert.equal(out.chains.base.gwei, 0.012);
+    assert.equal(out.chains.base.native_usd, 2000);
+    assert.match(out.note, /floor that can understate/);
+  } finally {
+    setGasFetcher(null);
+    require('../lib/tickers').setTickerFetcher(null);
+  }
 });
 
 test('the dust flag: bridged steps only, wallet-loaded values only, floor stated as a floor', () => {
@@ -102,7 +152,7 @@ test('the dust flag: bridged steps only, wallet-loaded values only, floor stated
 test('the route is public, and an empty read is never cached', () => {
   const src = read('routes', 'gas.js');
   assert.doesNotMatch(src, /authMiddleware/, 'gwei is a market fact — no login gate');
-  assert.match(src, /if \(Object\.keys\(body\.chains\)\.length\) cache =/,
+  assert.match(read('lib', 'gas_read.js'), /if \(Object\.keys\(body\.chains\)\.length\) cached =/,
     'caching an empty answer freezes a transient outage into "no data"');
   assert.match(read('server.js'), /app\.use\('\/api\/gas', require\('\.\/routes\/gas'\)\)/);
 });

@@ -295,6 +295,27 @@ const TOOLS = {
     },
   },
 
+  get_gas: {
+    description: 'Live gas across the EVM chains RUNECLAW mirrors (Ethereum, '
+      + 'Base, Arbitrum, Optimism, BNB Chain, Polygon): current gas price in '
+      + 'gwei per chain, the live native-coin price, and xfer_cost_usd — a '
+      + 'FLOOR for one bridge-ish transaction (gas × 100k gas units × native '
+      + 'price; bridge fees, relayers, L1 data fees and destination gas all '
+      + 'come on top). Public market facts read over keyless public RPCs, '
+      + 'indicative only — the node’s current suggestion, not a quote for '
+      + 'any transaction. A chain that could not be read is omitted, never '
+      + 'invented; a chain without a fresh native mark carries gwei but no '
+      + 'cost fields. Cached ~60s.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const body = await require('../lib/gas_read').readGasCached();
+      return { ...body,
+        note: 'Indicative market facts, not advice and not a quote. '
+          + 'xfer_cost_usd is a floor that can understate the true cost of '
+          + 'moving an asset, never overstate it.' };
+    },
+  },
+
   get_systemic_risk: {
     description: 'Systemic Risk Sentinel: a market-wide crowding and herding '
       + 'read over the whole USDT-perp universe from public venue data — where '

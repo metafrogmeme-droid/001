@@ -84,4 +84,31 @@ function withXferCosts(body, tickers) {
   return body;
 }
 
-module.exports = { readGas, withXferCosts, PER_CHAIN_TIMEOUT_MS, XFER_GAS_UNITS };
+// Injectable fetch for tests (the same pattern lib/tickers uses). Null
+// restores the default; setting it also drops the cache so a test never
+// reads a body some earlier test priced.
+let gasFetchImpl = null;
+function setGasFetcher(fn) { gasFetchImpl = fn || null; cached = null; }
+
+/**
+ * The shared 60s-cached, price-enriched gas read — one cache for every
+ * consumer (the public /api/gas route and the get_gas MCP tool), so N
+ * surfaces never multiply into N RPC sweeps. An EMPTY read is never cached:
+ * that would freeze a transient outage into "no data" for a minute. The
+ * native-price read is bounded (display path) — nothing here may wait on a
+ * cold 10s ticker fetch.
+ */
+let cached = null;
+async function readGasCached() {
+  if (cached && Date.now() - cached.at < 60_000) return cached.body;
+  const body = await readGas(gasFetchImpl || undefined);
+  const { map } = await require('./tickers').getTickersWithin(2500);
+  withXferCosts(body, map);
+  if (Object.keys(body.chains).length) cached = { at: Date.now(), body };
+  return body;
+}
+
+module.exports = {
+  readGas, readGasCached, setGasFetcher, withXferCosts,
+  PER_CHAIN_TIMEOUT_MS, XFER_GAS_UNITS,
+};
