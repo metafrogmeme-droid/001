@@ -57,13 +57,17 @@
   function recognize(text) {
     const t = ' ' + text.toLowerCase().replace(/\s+/g, ' ') + ' ';
     const rules = [];
-    const add = (axis, tier, label, human, value) =>
-      rules.push({ axis, tier, label, human, value: value == null ? null : value });
+    // `id` is the stable per-VARIANT key a renderer can translate by. `axis`
+    // cannot do that job: daily-loss and drawdown share 'loss', long-only and
+    // short-only share 'direction'. English label/human stay authoritative —
+    // they are also the compile_intent MCP payload.
+    const add = (id, axis, tier, label, human, value) =>
+      rules.push({ id, axis, tier, label, human, value: value == null ? null : value });
 
     // ---- Size: max per position ------------------------------------------
     var m = t.match(/(?:max|no more than|up to|cap(?:ped)?(?: at)?|limit(?:ed)? to)\s*\$?(\d{1,3}(?:\.\d+)?)\s*%\s*(?:per|a|each|in (?:one|a single|any))?\s*(?:trade|position|coin|token|asset|name|bet)/);
     if (!m) m = t.match(/(\d{1,3}(?:\.\d+)?)\s*%\s*(?:max )?(?:per|a|each)\s*(?:trade|position|coin|token|asset|name)/);
-    if (m) add('size', 'wallet', 'Max size per position',
+    if (m) add('size_max', 'size', 'wallet', 'Max size per position',
       'No single position may exceed ' + clampPct(m[1], 1, 100) + '% of the book.', clampPct(m[1], 1, 100));
 
     // ---- Exposure: total invested / keep cash ----------------------------
@@ -74,26 +78,26 @@
       var isCash = /cash|stable|dry/.test(m[0]);
       var pct = clampPct(m[1], 1, 100);
       var invested = isCash ? (100 - pct) : pct;
-      add('exposure', 'wallet', 'Max total exposure',
+      add(isCash ? 'exposure_cash' : 'exposure_max', 'exposure', 'wallet', 'Max total exposure',
         'Total deployed capital stays at or below ' + invested + '%' + (isCash ? ' (keep ' + pct + '% in reserve).' : '.'), invested);
     }
 
     // ---- Leverage --------------------------------------------------------
     if (/\bno leverage\b|\bunlevered\b|\bspot only\b|\bno margin\b/.test(t)) {
-      add('leverage', 'wallet', 'No leverage', 'Leverage is disabled — spot / 1× only.', 1);
+      add('lev_none', 'leverage', 'wallet', 'No leverage', 'Leverage is disabled — spot / 1× only.', 1);
     } else {
       m = t.match(/(?:max|up to|no more than|cap(?:ped)?(?: at)?)\s*(\d{1,2}(?:\.\d)?)\s*x\b/) || t.match(/\b(\d{1,2})\s*x\s*(?:leverage|lev|max)/);
       if (m) {
         var lev = Math.min(100, Math.max(1, Number(m[1])));
-        add('leverage', 'wallet', 'Max leverage', 'Leverage is capped at ' + lev + '×.', lev);
+        add('lev_max', 'leverage', 'wallet', 'Max leverage', 'Leverage is capped at ' + lev + '×.', lev);
       }
     }
 
     // ---- Direction -------------------------------------------------------
     if (/\bno shorts?\b|\blong[ -]only\b|\bnever short\b|\bno shorting\b/.test(t)) {
-      add('direction', 'gate', 'Long-only', 'Short positions are not allowed.', 'long_only');
+      add('dir_long', 'direction', 'gate', 'Long-only', 'Short positions are not allowed.', 'long_only');
     } else if (/\bno longs?\b|\bshort[ -]only\b/.test(t)) {
-      add('direction', 'gate', 'Short-only', 'Long positions are not allowed.', 'short_only');
+      add('dir_short', 'direction', 'gate', 'Short-only', 'Long positions are not allowed.', 'short_only');
     }
 
     // ---- Loss controls: drawdown + daily loss ----------------------------
@@ -101,53 +105,53 @@
       || t.match(/(\d{1,2})\s*%\s*(?:draw ?down|dd|max loss|stop[- ]?loss)/);
     if (m && /(stop|halt|flatten|exit|kill|pause|draw ?down|dd|loss)/.test(m[0])) {
       var isDaily = /\b(day|daily|per day|a day|today)\b/.test(t) && /\b(day|daily|per day|a day|today)\b/.test(t.slice(Math.max(0, t.indexOf(m[0]) - 24), t.indexOf(m[0]) + m[0].length + 24));
-      add(isDaily ? 'loss' : 'loss', 'gate', isDaily ? 'Daily loss stop' : 'Drawdown stop',
+      add(isDaily ? 'loss_daily' : 'loss_dd', 'loss', 'gate', isDaily ? 'Daily loss stop' : 'Drawdown stop',
         (isDaily ? 'Trading halts for the day' : 'The book flattens / trading halts') + ' at ' + clampPct(m[1], 1, 100) + '% ' + (isDaily ? 'daily loss.' : 'drawdown.'),
         clampPct(m[1], 1, 100));
     }
 
     // ---- Min confidence --------------------------------------------------
     m = t.match(/(?:min(?:imum)?\s*)?confidence\s*(?:of|>=?|at least|above)?\s*(\d{1,3})\s*%/) || t.match(/(\d{1,3})\s*%\s*(?:min(?:imum)?\s*)?confidence/);
-    if (m) add('gate_conf', 'gate', 'Minimum confidence',
+    if (m) add('conf_min', 'gate_conf', 'gate', 'Minimum confidence',
       'Only act on signals at or above ' + clampPct(m[1], 1, 100) + '% confidence.', clampPct(m[1], 1, 100));
     else if (/\bhigh[- ]confidence\b|\bhigh conviction\b|\bstrong signals? only\b/.test(t))
-      add('gate_conf', 'gate', 'High-confidence only', 'Only act on high-confidence signals.', 'high');
+      add('conf_high', 'gate_conf', 'gate', 'High-confidence only', 'Only act on high-confidence signals.', 'high');
 
     // ---- Scope: asset universe -------------------------------------------
     if (/\bmajors? only\b|\bonly majors?\b|\bno alts?\b|\bno altcoins?\b|\bno memes?\b|\bblue[- ]?chips? only\b/.test(t)) {
-      add('scope', 'gate', 'Majors only',
+      add('scope_majors', 'scope', 'gate', 'Majors only',
         'Trade only major assets (' + MAJORS.join(', ') + ') — no alts / memecoins.', MAJORS.slice());
     } else {
       // "only BTC and ETH", "trade only sol, avax"
       m = t.match(/\bonly\s+((?:[a-z]{2,6})(?:[ ,/&]+(?:and\s+)?[a-z]{2,6}){0,6})\b/);
       if (m && !/majors?|alts?|longs?|shorts?|high|the|cash|stable/.test(m[1])) {
         var syms = m[1].toUpperCase().split(/[ ,/&]+|and/i).map(function (s) { return s.trim(); }).filter(function (s) { return s.length >= 2 && s.length <= 6; });
-        if (syms.length) add('scope', 'gate', 'Allow-list', 'Trade only: ' + syms.join(', ') + '.', syms);
+        if (syms.length) add('scope_list', 'scope', 'gate', 'Allow-list', 'Trade only: ' + syms.join(', ') + '.', syms);
       }
     }
 
     // ---- Protocol / venue restrictions -----------------------------------
     if (/\bno bridges?\b|\bnever bridge\b|\bno bridging\b|\bno cross[- ]?chain\b/.test(t))
-      add('scope_venue', 'gate', 'No bridges', 'Bridging / cross-chain moves are not allowed.', 'no_bridge');
+      add('venue_nobridge', 'scope_venue', 'gate', 'No bridges', 'Bridging / cross-chain moves are not allowed.', 'no_bridge');
 
     // ---- Approval threshold (dollar → dollar-free rule, §4) --------------
     if (/\$\s?\d|\bover\b.*\b(usd|dollars?)\b|\babove\b.*\b(usd|dollars?)\b|\bapprov(?:e|al)\b|\bconfirm(?:ation)?\b.*\b(large|big)\b/.test(t)
         && /\bapprov|confirm|sign off|manual|over \$|above \$/.test(t)) {
-      add('approval', 'approval', 'Approval over a limit',
+      add('approval_limit', 'approval', 'approval', 'Approval over a limit',
         'Orders above your set size need manual approval before they proceed. Set the exact limit privately in the app.', 'dollar_limit_private');
     }
 
     // ---- Rate / cooldown -------------------------------------------------
     m = t.match(/(?:max|no more than|up to)\s*(\d{1,3})\s*(?:trades?|orders?)\s*(?:per|a)\s*(day|hour|week)/);
-    if (m) add('rate', 'gate', 'Trade-rate cap',
+    if (m) add('rate_cap', 'rate', 'gate', 'Trade-rate cap',
       'At most ' + m[1] + ' trades per ' + m[2] + '.', { n: Number(m[1]), per: m[2] });
 
     // ---- Emergency / kill trigger ----------------------------------------
     if (/\b(unwind|exit everything|flatten everything|kill switch|emergency|panic|de-?risk everything)\b/.test(t))
-      add('emergency', 'monitor', 'Emergency unwind trigger',
+      add('emg_escape', 'emergency', 'monitor', 'Emergency unwind trigger',
         'On the named trigger, hand off to the Escape Agent to unwind in dependency order.', 'escape');
     else if (/\bdepeg\b|\boracle fail|\bbridge halt|\bhack\b|\bexploit\b/.test(t))
-      add('emergency', 'monitor', 'Systemic trigger',
+      add('emg_systemic', 'emergency', 'monitor', 'Systemic trigger',
         'Watch for the named systemic event and alert / begin an orderly unwind.', 'systemic');
 
     return rules;
@@ -160,7 +164,8 @@
   function compile(input) {
     const text = String(input == null ? '' : input).slice(0, 2000).trim();
     if (!text) {
-      return { rules: [], coverage: coverageOf([]), warnings: [], recognized: 0,
+      return { rules: [], coverage: coverageOf([]), warnings: [], warning_ids: [], recognized: 0,
+        summaryParts: { kind: 'empty', count: 0, covered: 0, total: AXES.length, strongestId: null, strongestTier: null },
         summary: 'Describe your limits in plain words and the compiler turns them into a deterministic, revocable Authority Envelope.' };
     }
 
@@ -178,10 +183,14 @@
     rules.forEach((r) => { delete r._i; });
 
     const coverage = coverageOf(rules);
+    // warning_ids parallels warnings — same order, one id per sentence — so a
+    // renderer can translate without parsing English back apart.
     const warnings = [];
-    if (rules.length && !coverage.axes.loss) warnings.push('No loss stop set — a drawdown or daily-loss limit is the single most important guard.');
-    if (rules.length && !coverage.axes.size && !coverage.axes.exposure) warnings.push('No size cap — add a max per-position or total-exposure limit so one trade can’t dominate.');
-    if (!rules.length) warnings.push('Nothing recognized yet — try phrasing like “max 5% per trade, no shorts, stop if down 8%”.');
+    const warning_ids = [];
+    const warn = (id, text) => { warning_ids.push(id); warnings.push(text); };
+    if (rules.length && !coverage.axes.loss) warn('no_loss', 'No loss stop set — a drawdown or daily-loss limit is the single most important guard.');
+    if (rules.length && !coverage.axes.size && !coverage.axes.exposure) warn('no_size', 'No size cap — add a max per-position or total-exposure limit so one trade can’t dominate.');
+    if (!rules.length) warn('nothing', 'Nothing recognized yet — try phrasing like “max 5% per trade, no shorts, stop if down 8%”.');
 
     const strongest = rules[0];
     const summary = rules.length
@@ -190,7 +199,15 @@
         + (strongest ? 'Tightest guard: ' + strongest.label.toLowerCase() + ' (' + strongest.tier_label + ').' : ''))
       : 'No rules recognized — rephrase your limits and re-compile.';
 
-    return { rules, coverage, warnings, recognized: rules.length, summary, tiers: TIER };
+    // The same summary, taken apart: `summary` is an assembled English
+    // sentence and stays one (the MCP payload); a UI rebuilds its own from
+    // these parts because word order differs per language.
+    const summaryParts = {
+      kind: rules.length ? 'plan' : 'none', count: rules.length, covered: coverage.covered, total: AXES.length,
+      strongestId: strongest ? strongest.id : null,
+      strongestTier: strongest ? strongest.tier : null,
+    };
+    return { rules, coverage, warnings, warning_ids, recognized: rules.length, summary, summaryParts, tiers: TIER };
   }
 
   function coverageOf(rules) {

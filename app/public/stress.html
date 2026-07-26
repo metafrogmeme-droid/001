@@ -101,7 +101,7 @@
     <div class="alloc">
       <span><span data-i18n="sx.allocated">Allocated</span> <b id="allocPct" class="val">0%</b></span>
       <span class="meter"><i id="allocBar" style="width:0"></i></span>
-      <span id="cashNote" class="muted" data-i18n="sx.cash_note">15% in stablecoin cash</span>
+      <span id="cashNote" class="muted"></span>
     </div>
     <div class="btn-row">
       <button class="btn btn--sm" id="addRow" type="button" data-i18n="sx.add_row">＋ Add position</button>
@@ -137,6 +137,10 @@
   safety envelope in the <a href="/dashboard#agents">app</a>.</p>
 </div>
 
+<!-- Ahead of the page script: renderRows()/recompute() run at parse time,
+     so an i18n.js loaded at the bottom arrives after every T() has already
+     fallen back to English. Same boot-order bug the escape page had. -->
+<script src="/js/i18n.js?v=55"></script>
 <script src="/js/stress-model.js?v=2"></script>
 <script>
 (function () {
@@ -163,8 +167,8 @@
       + '<input data-k="asset" value="' + esc(p.asset) + '" maxlength="12" placeholder="BTC" autocomplete="off">'
       + '<input data-k="weight" type="number" min="0" max="100" step="1" value="' + esc(p.weight) + '">'
       + '<input data-k="leverage" type="number" min="1" max="125" step="1" value="' + esc(p.leverage) + '">'
-      + '<select data-k="dir"><option value="long"' + (p.dir !== 'short' ? ' selected' : '') + '>▲ Long</option>'
-      + '<option value="short"' + (p.dir === 'short' ? ' selected' : '') + '>▼ Short</option></select>'
+      + '<select data-k="dir"><option value="long"' + (p.dir !== 'short' ? ' selected' : '') + '>' + esc(T('sx.dir_long', '▲ Long')) + '</option>'
+      + '<option value="short"' + (p.dir === 'short' ? ' selected' : '') + '>' + esc(T('sx.dir_short', '▼ Short')) + '</option></select>'
       + '<button class="rm" data-rm="' + i + '" type="button" aria-label="Remove" data-i18n-attr="aria-label:a11y.remove">×</button></div>';
   }
   function renderRows() {
@@ -250,25 +254,26 @@
     var sev = sevOf(r);
     var w = Math.min(100, Math.abs(r.drawdownPct));
     var legs = r.legs.map(function (l) {
-      return '<div class="leg"><span>' + esc(l.asset) + ' · ' + l.leverage + 'x ' + esc(l.dir)
+      return '<div class="leg"><span>' + esc(l.asset) + ' · ' + l.leverage + 'x ' + esc(T('sx.d_' + l.dir, l.dir))
         + '</span><span>' + pctTxt(l.contributionPct) + '</span>'
-        + '<span class="' + (l.liquidated ? 'liq' : '') + '">' + (l.liquidated ? 'liquidated' : 'survives') + '</span></div>';
+        + '<span class="' + (l.liquidated ? 'liq' : '') + '">' + esc(l.liquidated ? T('sx.liq', 'liquidated') : T('sx.survives', 'survives')) + '</span></div>';
     }).join('');
     var liq = r.liquidatedCount > 0
-      ? '<span class="liqchip on">☠ ' + r.liquidatedCount + ' liquidated</span>'
-      : '<span class="liqchip off">no liquidations</span>';
+      ? '<span class="liqchip on">☠ ' + esc(fill(T('sx.n_liq', '{n} liquidated'), { n: r.liquidatedCount })) + '</span>'
+      : '<span class="liqchip off">' + esc(T('sx.no_liq', 'no liquidations')) + '</span>';
     return '<div class="top"><span class="emo">' + (emoji || '') + '</span><span class="nm">' + esc(name) + '</span>'
       + '<span class="dd sev-' + sev + '">' + pctTxt(r.drawdownPct) + '</span></div>'
       + '<div class="bar"><i class="sev-' + sev + '" style="width:' + w + '%"></i></div>'
-      + '<div class="meta">' + liq + '<span>worst: ' + (r.worst ? esc(r.worst.asset) : '—') + '</span>'
-      + '<span>cash ' + r.cashPct.toFixed(0) + '%</span></div>'
-      + (legs ? '<details><summary>Per-leg breakdown</summary>' + legs + '</details>' : '');
+      + '<div class="meta">' + liq + '<span>' + esc(fill(T('sx.worst', 'worst: {a}'), { a: r.worst ? r.worst.asset : '—' })) + '</span>'
+      + '<span>' + esc(fill(T('sx.cash', 'cash {p}%'), { p: r.cashPct.toFixed(0) })) + '</span></div>'
+      + (legs ? '<details><summary>' + esc(T('sx.legs_h', 'Per-leg breakdown')) + '</summary>' + legs + '</details>' : '');
   }
 
   function renderGrid() {
     var runs = M.runAll(positions);
+    // Named by the scenario's stable id; the model's English is the fallback.
     $('grid').innerHTML = runs.map(function (x) {
-      return '<div class="sc">' + scenarioCard(x.scenario.name, x.scenario.emoji, x.result) + '</div>';
+      return '<div class="sc">' + scenarioCard(T('sx.sc.' + x.scenario.id, x.scenario.name), x.scenario.emoji, x.result) + '</div>';
     }).join('');
 
     // "What breaks you" verdict — harshest scenario + first liquidation.
@@ -281,18 +286,25 @@
         }
       });
     });
-    var v = '<b>What breaks you:</b> ';
+    var v = '<b>' + esc(T('sx.v_prefix', 'What breaks you:')) + '</b> ';
     if (worstRun) {
-      v += 'a <b>' + esc(worstRun.scenario.name) + '</b> takes this book to <b class="sev-' + worstRun.result.severity + '">'
-        + pctTxt(worstRun.result.drawdownPct) + '</b>';
-      v += worstRun.result.liquidatedCount ? ', liquidating ' + worstRun.result.liquidatedCount + ' leg'
-        + (worstRun.result.liquidatedCount > 1 ? 's' : '') + '.' : ' with no forced liquidations.';
+      // The name and pct are re-wrapped in <b> AFTER translation, so the
+      // emphasis survives any word order a language chooses.
+      var takes = fill(T('sx.v_takes', 'a {name} takes this book to {pct}'), {
+        name: '\u0000N\u0000', pct: '\u0000P\u0000' });
+      v += esc(takes)
+        .replace('\u0000N\u0000', '<b>' + esc(T('sx.sc.' + worstRun.scenario.id, worstRun.scenario.name)) + '</b>')
+        .replace('\u0000P\u0000', '<b class="sev-' + esc(worstRun.result.severity) + '">' + esc(pctTxt(worstRun.result.drawdownPct)) + '</b>');
+      v += esc(worstRun.result.liquidatedCount
+        ? fill(T('sx.v_liqn', ', liquidating {n} leg(s).'), { n: worstRun.result.liquidatedCount })
+        : T('sx.v_noliq', ' with no forced liquidations.'));
     }
     if (firstLiq) {
-      v += ' Your first leg to blow up is <b>' + esc(firstLiq.asset) + ' at ' + firstLiq.leverage + 'x</b> — '
-        + 'it liquidates around a ' + Math.round(Math.abs(firstLiq.shockPct)) + '% move against it.';
+      var first = fill(T('sx.v_first', 'Your first leg to blow up is {asset} at {x}x — it liquidates around a {p}% move against it.'),
+        { asset: '\u0000A\u0000', x: firstLiq.leverage, p: Math.round(Math.abs(firstLiq.shockPct)) });
+      v += ' ' + esc(first).replace('\u0000A\u0000', '<b>' + esc(firstLiq.asset) + '</b>');
     } else {
-      v += ' No leg liquidates in any built-in scenario — this book is resilient (or lightly leveraged).';
+      v += ' ' + esc(T('sx.v_resilient', 'No leg liquidates in any built-in scenario — this book is resilient (or lightly leveraged).'));
     }
     $('verdict').innerHTML = v;
   }
@@ -303,7 +315,8 @@
     $('allocPct').className = 'val' + (sum > 100 ? ' over' : '');
     $('allocBar').style.width = Math.min(100, sum) + '%';
     var cash = Math.max(0, 100 - sum);
-    $('cashNote').textContent = sum > 100 ? 'over-allocated — trim a weight' : cash.toFixed(0) + '% in stablecoin cash';
+    $('cashNote').textContent = sum > 100 ? T('sx.over_alloc', 'over-allocated — trim a weight')
+      : fill(T('sx.cash_note', '{p}% in stablecoin cash'), { p: cash.toFixed(0) });
     $('cashNote').className = sum > 100 ? 'over' : 'muted';
   }
 
@@ -313,7 +326,7 @@
     var m = Number($('cm').value), a = Number($('ca').value), s = Number($('cs').value);
     $('cmV').textContent = pctTxt(m); $('caV').textContent = pctTxt(a); $('csV').textContent = pctTxt(s);
     var r = M.simulate(positions, { major: m, alt: a, stable: s });
-    $('customCard').innerHTML = scenarioCard('Custom', '🎛️', r);
+    $('customCard').innerHTML = scenarioCard(T('sx.sc.custom', 'Custom'), '🎛️', r);
   }
 
   // Events
@@ -341,23 +354,25 @@
   });
   $('sharePf').addEventListener('click', function () {
     var enc = M.encodePortfolio(positions);
-    if (!enc) { $('shareMsg').textContent = 'Add a position first.'; return; }
+    if (!enc) { $('shareMsg').textContent = T('sx.sh_addfirst', 'Add a position first.'); return; }
     var url = location.origin + location.pathname + '?p=' + encodeURIComponent(enc);
     try { history.replaceState(null, '', '?p=' + encodeURIComponent(enc)); } catch (e) {}
     var worst = M.runAll(positions).slice().sort(function (a, b) { return a.result.drawdownPct - b.result.drawdownPct; })[0];
-    var text = worst ? ('My book takes ' + worst.result.drawdownPct.toFixed(0) + '% in a ' + worst.scenario.name + ' — stress-test yours:') : 'Stress-test your crypto book:';
+    var text = worst
+      ? fill(T('sx.sh_text', 'My book takes {p}% in a {name} — stress-test yours:'),
+        { p: worst.result.drawdownPct.toFixed(0), name: T('sx.sc.' + worst.scenario.id, worst.scenario.name) })
+      : T('sx.sh_text2', 'Stress-test your crypto book:');
     if (navigator.share) { navigator.share({ title: 'RUNECLAW — Portfolio Stress Lab', text: text, url: url }).catch(function () {}); }
     else if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function () {
-      $('shareMsg').textContent = 'Link copied — it reopens with this exact book.'; setTimeout(function () { $('shareMsg').textContent = ''; }, 2500);
+      $('shareMsg').textContent = T('sx.sh_copied', 'Link copied — it reopens with this exact book.'); setTimeout(function () { $('shareMsg').textContent = ''; }, 2500);
     }).catch(function () { $('shareMsg').textContent = url; }); }
     else { $('shareMsg').textContent = url; }
   });
   ['cm', 'ca', 'cs'].forEach(function (id) { $(id).addEventListener('input', renderCustom); });
 
-  if (!M) { document.getElementById('grid').innerHTML = '<div class="muted">The simulation model failed to load.</div>'; return; }
+  if (!M) { document.getElementById('grid').innerHTML = '<div class="muted">' + esc(T('sx.p_fail', 'The simulation model failed to load.')) + '</div>'; return; }
   renderRows(); recompute(); renderCustom();
 })();
 </script>
-<script src="/js/i18n.js?v=54"></script>
 </body>
 </html>
