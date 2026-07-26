@@ -55,6 +55,13 @@ function stakeData(amount) {
   return buf;
 }
 
+function unstakeData(amount) {
+  const buf = Buffer.alloc(16);
+  discriminator('unstake').copy(buf, 0);
+  buf.writeBigUInt64LE(BigInt(amount), 8);
+  return buf;
+}
+
 const conn = new Connection(RPC, 'confirmed');
 const payer = Keypair.generate();
 
@@ -144,7 +151,70 @@ async function main() {
   console.log('amount    @73  :', amount.toString(), '(expect 500000000)');
   console.log('unlock_at @89  :', unlockAt.toString(), '->', new Date(Number(unlockAt) * 1000).toISOString());
 
-  const ok = amount === 500_000_000n && d.length === 162 && d.readUInt8(8) === 1;
+  // === unstake, rejected while locked =====================================
+  //
+  // The lock is the entire reason a tier costs anything to hold: without it a
+  // position is a live spot balance that can be unstaked and re-staked to a
+  // second wallet in the same slot, serving unlimited users by rotation.
+  // `require!(Clock::get()? >= unlock_at, StillLocked)` is what prevents that,
+  // and until now it had only ever executed NATIVELY, in-process, under
+  // solana-program-test.
+  //
+  // That is not the same claim. Native execution cannot surface a wrong
+  // instruction discriminator, an account list the SBF loader rejects, or a
+  // Clock syscall that behaves differently under the runtime — and every path
+  // in this audit that had never been executed for real turned out to contain
+  // something. So: drive `unstake` against the deployed bytecode and require it
+  // to fail, with the RIGHT error.
+  //
+  // Checking the specific code matters more than checking that it failed. Every
+  // account-resolution mistake in this file would also produce "a failure", and
+  // a test that accepts any failure would call a broken harness a working lock.
+  // 6007 is StillLocked's position in StakeError (Anchor numbers custom errors
+  // from 6000).
+  const STILL_LOCKED = 6007;
+  const unstakeKeys = [
+    { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: mint.publicKey, isSigner: false, isWritable: false },
+    { pubkey: stakePda, isSigner: false, isWritable: true },
+    { pubkey: vaultAuthority, isSigner: false, isWritable: false },
+    { pubkey: vault, isSigner: false, isWritable: true },
+    { pubkey: userAta, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+
+  console.log('\n=== unstake while locked (must be REFUSED) ===');
+  let lockHeld = false;
+  let lockDetail = '';
+  try {
+    await sendAndConfirmTransaction(conn, new Transaction().add({
+      keys: unstakeKeys, programId: PROGRAM_ID, data: unstakeData(1),
+    }), [payer]);
+    lockDetail = 'the transaction SUCCEEDED — the lock does not hold under SBF';
+  } catch (err) {
+    const code = err?.transactionLogs?.join('\n') || err?.message || String(err);
+    const custom = code.match(/custom program error: 0x([0-9a-f]+)/i);
+    const num = custom ? parseInt(custom[1], 16) : null;
+    if (num === STILL_LOCKED) {
+      lockHeld = true;
+      lockDetail = `rejected with StillLocked (${STILL_LOCKED})`;
+    } else {
+      lockDetail = `rejected, but with ${num ?? 'no custom code'} — expected ` +
+        `StillLocked (${STILL_LOCKED}). The refusal may not be the lock at all:\n${code}`;
+    }
+  }
+  console.log('result         :', lockDetail);
+
+  // The vault must still hold every token. A partial transfer followed by a
+  // revert would leave the balance intact anyway, but a lock that "fails" AFTER
+  // moving tokens is a different bug than one that fails before, and the
+  // balance is what distinguishes them.
+  const vaultAcct = await conn.getTokenAccountBalance(vault);
+  const vaultIntact = vaultAcct.value.amount === '500000000';
+  console.log('vault balance  :', vaultAcct.value.amount, vaultIntact ? '(intact)' : '(DRAINED)');
+
+  const ok = amount === 500_000_000n && d.length === 162 && d.readUInt8(8) === 1
+    && lockHeld && vaultIntact;
   console.log(ok ? '\nBPF SMOKE PASSED' : '\nBPF SMOKE FAILED');
   process.exit(ok ? 0 : 1);
 }

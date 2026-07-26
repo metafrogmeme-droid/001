@@ -73,11 +73,22 @@ round-trip (with real balance assertions) and over-withdrawal (rejected with
 `InsufficientStake`), and both negative cases fail for the *correct* reason rather than
 incidentally.
 
-**What this still does NOT prove:** it is not an audit, it does not exercise the SBF/BPF
-runtime (compute budget, serialization limits), and it has never run against devnet or
-mainnet. `release.anza.xyz` and GitHub are blocked by this environment's egress policy, so
-the Solana/Anchor CLIs cannot be installed here — `anchor build`, `anchor test`, and any
-devnet run must happen in an environment with network access.
+**What this still does NOT prove:** it is not an audit, and the program has never run
+against devnet or mainnet.
+
+It no longer excuses itself for skipping the SBF runtime. That paragraph used to read
+"it does not exercise the SBF/BPF runtime … `release.anza.xyz` and GitHub are blocked
+by this environment's egress policy, so the Solana/Anchor CLIs cannot be installed
+here." The Solana CLI **is** installed (1.18.26) and the SBF runtime **is** exercised —
+see `tests/bpf_smoke.mjs` below, which deploys the real `.so` to a local validator and
+reports measured compute. Only the **Anchor** CLI is still missing, which is why
+`anchor build`, `anchor test` and `anchor idl init` remain undone; it needs a source
+build this container has no disk for.
+
+The correction is left visible rather than quietly overwritten, because a stale "we
+cannot check that here" is worse than no note at all: it reads as a reason to stop
+looking, and in this audit every gap excused as environmental turned out to be hiding
+a real defect.
 
 ## Setting `PINNED_MINT`
 
@@ -130,9 +141,52 @@ cargo test  -p rclaw_staking     # unit + in-process integration tests (no toolc
 npm install                      # root package.json — Anchor TS test toolchain
 npm run typecheck                # tsc over programs/*/tests/*.ts
 anchor build                     # needs the Anchor + Solana CLIs
-anchor keys sync                 # replace the placeholder declare_id!
+anchor keys sync                 # keeps declare_id! and Anchor.toml in step
 anchor test                      # runs the TS spec via ts-mocha
 ```
+
+### What runs as real SBF bytecode: `tests/bpf_smoke.mjs`
+
+`cargo test` executes this program **natively and in-process** via
+`solana-program-test`. That proves the logic and it is how the vault-drain fix and
+the solvency invariants are pinned — but it is a different claim from "the deployed
+artifact works". Native execution cannot surface a wrong instruction discriminator,
+an account list the SBF loader rejects, a syscall that behaves differently under the
+runtime, or whether the `.so` even loads. In this audit, *every* path that had never
+been executed for real turned out to contain something.
+
+So `tests/bpf_smoke.mjs` deploys `target/deploy/rclaw_staking.so` to a local
+validator and drives it:
+
+```bash
+solana-test-validator --ledger /tmp/ledger --reset --quiet &
+solana program deploy target/deploy/rclaw_staking.so
+node programs/rclaw_staking/tests/bpf_smoke.mjs <PROGRAM_ID>
+```
+
+Verified 2026-07-26 against `6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW`:
+
+| Check | Result |
+|---|---|
+| First `stake` (creates stake record + vault ATA) | 57,124 CU of 200,000 |
+| Second `stake` (steady state) | 28,172 CU |
+| `StakeAccount` at the tier-gate offsets | 162 bytes, version 1, `amount@73` correct |
+| `unstake` inside the lock window | refused, `StillLocked` (6007) |
+| Vault balance after the refused `unstake` | unchanged |
+
+The `unstake` row is the one worth reading twice. The lock is the entire reason a
+tier costs something to hold — without it a position is a live spot balance that can
+be unstaked and re-staked to another wallet in the same slot, serving unlimited users
+by rotation. Until this ran, that guard had only ever executed natively.
+
+The check requires the **specific** error code, not merely a failure. Every
+account-resolution mistake in the harness also produces "a failure", and a test that
+accepts any failure would report a broken harness as a working lock. Both directions
+are mutation-tested: dropping `token_program` from the account list yields
+`AccountNotEnoughKeys` (3005) and the run **fails** rather than passing; and a
+deliberately lockless build, deployed under its own program id, unstakes successfully
+and drains the vault by exactly the requested amount — the run fails on both the
+error-code check and the balance check independently.
 
 **`anchor test` tooling is now committed.** The root `package.json` + `tsconfig.json`
 supply `@coral-xyz/anchor`, `@solana/spl-token`, `ts-mocha`, `mocha`, `chai`, and
@@ -161,7 +215,11 @@ between deploy and transfer is the entire exposure. See `docs/TOKEN_ROADMAP.md` 
 - `unstake` enforces a `LOCKUP_SECONDS` lock (**30 days**, ratified 2026-07-26) so a tier
   costs something to hold. It is a tokenomics parameter, not a security constant.
 - No reward accrual — this is an access-tier vault, not a yield product.
-- `declare_id!` is a placeholder until `anchor keys sync` runs; CI rejects the placeholder.
+- `declare_id!` now carries the real program id
+  `6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW` (`Anchor.toml` synced to match); the
+  keypair is not in git. CI still rejects the Anchor placeholder. Proven by execution:
+  a mismatch is not "deployable but misnamed" — Anchor aborts with
+  `DeclaredProgramIdMismatch` (4100) and *every* instruction fails.
 - No migration or rescue instruction. `StakeAccount` carries a `version` byte and 64
   reserved bytes so a future field can be added in place, but nothing can yet rewrite an
   existing record — a layout change still requires landing before value is at stake.
