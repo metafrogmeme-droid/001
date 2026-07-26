@@ -437,9 +437,21 @@ async function getLetter(week) {
              letter: JSON.parse(rows[0].letter_json) };
   }
   const letter = composeLetter(week, await loadWeekData(week.start, week.end));
+  // week_key is UNIQUE, and this is a SELECT-then-INSERT: the dashboard's
+  // letter panel and /letter can both miss for a newly-complete week and both
+  // compose it, and the loser would duplicate-key. The no-op update keeps the
+  // row that won — the letter is composed from recorded facts for a finished
+  // week, so both callers produced the same text.
   await pool.execute(
-    'INSERT INTO agent_letters (week_key, generated_at, letter_json) VALUES (?, ?, ?)',
+    `INSERT INTO agent_letters (week_key, generated_at, letter_json) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE week_key = week_key`,
     [week.key, new Date(), JSON.stringify(letter)]);
+  const [stored] = await pool.execute(
+    'SELECT generated_at, letter_json FROM agent_letters WHERE week_key = ?', [week.key]);
+  if (stored[0]) {
+    return { generated_at: stored[0].generated_at, created: true,
+             letter: JSON.parse(stored[0].letter_json) };
+  }
   return { generated_at: new Date().toISOString(), created: true, letter };
 }
 

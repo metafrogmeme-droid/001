@@ -67,7 +67,7 @@ test('the Arena follow toggle upserts — a PRIMARY KEY makes a bare INSERT a 50
     'and must never reset the balance of an account that already exists');
 });
 
-test('no other route bare-INSERTs a full primary key', () => {
+test('no writer anywhere bare-INSERTs a full primary key or unique', () => {
   // The class, not the instance: an INSERT that supplies a whole PK or UNIQUE
   // and has no ON DUPLICATE / IGNORE is a duplicate-key 500 waiting for a
   // second call or a concurrent one.
@@ -79,17 +79,41 @@ test('no other route bare-INSERTs a full primary key', () => {
       .map((c) => c.trim().split(/\s+/)[0]);
     const uniq = [...m[2].matchAll(/UNIQUE(?: KEY)?\s*\w*\s*\(([^)]+)\)/g)]
       .map((u) => u[1].replace(/\s/g, '').split(','));
+    // Inline form: `week_key VARCHAR(10) NOT NULL UNIQUE`. Missing this is how
+    // the letter-generation race got past the first version of this guard.
+    for (const c of cols) {
+      const t = c.trim();
+      if (/\bUNIQUE\b/.test(t) && !/^UNIQUE/i.test(t) && !/\(/.test(t.split(/\s+/)[0])) {
+        uniq.push([t.split(/\s+/)[0]]);
+      }
+    }
     if (pk.length || uniq.length) keys[m[1].toLowerCase()] = { pk, uniq };
   }
-  const dir = path.join(__dirname, '..', 'routes');
+  // Everywhere that writes — the first version scanned only routes/, and the
+  // letter race lives in lib/.
+  const roots = ['routes', 'lib'];
+  const files = [];
+  for (const r of roots) {
+    const d = path.join(__dirname, '..', r);
+    for (const f of fs.readdirSync(d).filter((x) => x.endsWith('.js'))) files.push(path.join(r, f));
+  }
+  for (const f of ['auth.js', 'server.js']) {
+    if (fs.existsSync(path.join(__dirname, '..', f))) files.push(f);
+  }
   const offenders = [];
-  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.js'))) {
-    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
     for (const m of src.matchAll(/INSERT(\s+IGNORE)?\s+INTO\s+(\w+)\s*\(([^)]*)\)/gi)) {
       if (m[1]) continue;                                   // INSERT IGNORE is deliberate
       const t = keys[m[2].toLowerCase()];
       if (!t) continue;
       if (/ON DUPLICATE KEY UPDATE/i.test(src.slice(m.index, m.index + 600))) continue;
+      // A duplicate-key that is deliberately CAUGHT is fine, and sometimes it
+      // is the only correct answer: /auth/register must let the insert fail
+      // and return a uniform error, because a pre-check would leak whether an
+      // email is registered. Accept an insert whose file handles ER_DUP_ENTRY.
+      if (/catch \(e\) \{ \/\* concurrent/.test(src.slice(m.index, m.index + 700))) continue;
+      if (/ER_DUP_ENTRY/.test(src)) continue;
       const cols = m[3].split(',').map((c) => c.trim());
       const full = (t.pk.length && t.pk.every((k) => cols.includes(k)))
         || t.uniq.some((u) => u.every((c) => cols.includes(c)));

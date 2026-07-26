@@ -618,10 +618,26 @@ async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl })
   const phUser = provider === 'telegram' ? 'tg' : provider;
   const phDomain = provider === 'telegram' ? 'telegram' : provider;
   const finalEmail = email || `${phUser}-${providerId}@${phDomain}.runeclaw.local`;
-  const [result] = await pool.execute(
-    `INSERT INTO users (email, ${idCol}, avatar_url, telegram_linked) VALUES (?, ?, ?, ?)`,
-    [finalEmail, providerId, avatarUrl || null, provider === 'telegram']);
-  return { id: result.insertId, email: finalEmail, plan: 'free' };
+  // SELECT-then-INSERT: two concurrent logins with the same provider account
+  // both miss above and both insert, and email / the provider id column are
+  // UNIQUE — the loser would 500 on a login that should simply succeed. On a
+  // duplicate, re-read: the winner already created exactly the row we wanted.
+  //
+  // Deliberately a catch rather than an upsert. An upsert here would let a
+  // second provider account overwrite an existing user's row.
+  try {
+    const [result] = await pool.execute(
+      `INSERT INTO users (email, ${idCol}, avatar_url, telegram_linked) VALUES (?, ?, ?, ?)`,
+      [finalEmail, providerId, avatarUrl || null, provider === 'telegram']);
+    return { id: result.insertId, email: finalEmail, plan: 'free' };
+  } catch (err) {
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      const [again] = await pool.execute(
+        `SELECT id, email, plan FROM users WHERE ${idCol} = ? LIMIT 1`, [providerId]);
+      if (again.length) return again[0];
+    }
+    throw err;
+  }
 }
 
 // -- Public provider config (no secrets) so the login page knows what to show --
