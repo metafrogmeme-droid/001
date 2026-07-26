@@ -45,6 +45,34 @@ async function buildNetWorth(ident, userId) {
     sections.cex = { available: false, error: 'not_configured' };
   }
 
+  // The gateway is the only source of exchange EQUITY, but not of whether an
+  // exchange is connected — the web stores that itself in exchange_status, and
+  // the venues panel reads it. When the gateway cannot answer, saying "none
+  // connected" contradicts the panel directly above it and sends a user who
+  // already linked Bitget off to re-enter keys that are sitting right there.
+  //
+  // "I cannot reach the bot" and "you have no exchange" are different answers.
+  if (sections.cex && !sections.cex.connected) {
+    try {
+      const { pool } = require('../db');
+      const [rows] = await pool.execute(
+        'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1 LIMIT 1',
+        [userId]);
+      if (rows && rows.length) {
+        sections.cex = {
+          ...sections.cex,
+          connected: true,
+          ok: false,
+          venue: rows[0].exchange || 'bitget',
+          // Read by the UI instead of the misleading "none connected" line.
+          detail: sections.cex.error === 'not_configured'
+            ? 'equity unreadable — the bot link is not configured here'
+            : 'equity unreadable — the bot did not answer just now',
+        };
+      }
+    } catch (e) { /* leave the gateway's answer as-is */ }
+  }
+
   // SIWE wallet (web-side chain reads).
   try {
     const address = await wallet.walletAddressOf(userId);

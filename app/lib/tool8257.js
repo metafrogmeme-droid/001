@@ -72,7 +72,10 @@ function manifestHash(manifest) {
 }
 
 function baseUrl() {
-  return (process.env.APP_BASE_URL || process.env.WEBSITE_URL || '')
+  // Same single source as every other public URL. The metadataURI here is
+  // hashed and registered ON-CHAIN, so an internal hostname would be baked into
+  // a registration that can never resolve.
+  return require('./public_origin').configured()
     .trim().replace(/\/+$/, '');
 }
 

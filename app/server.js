@@ -381,13 +381,11 @@ app.get('/strengthmap', (req, res) => { res.setHeader('Cache-Control', 'no-cache
 // agent (best-effort from the gateway — the static pages ship even if it's down).
 // Both are generated (no physical files), so these routes win over express.static.
 const { buildSitemap, buildRobots } = require('./lib/sitemap');
-const originFrom = (req) => {
-  const base = (process.env.APP_BASE_URL || process.env.WEBSITE_URL || '').trim();
-  if (base) return base.replace(/\/+$/, '');
-  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
-  const host = req.headers['x-forwarded-host'] || req.get('host') || '';
-  return host ? `${proto}://${host}` : '';
-};
+// One resolver for every externally-consumed URL (see lib/public_origin).
+// A crawler following a sitemap entry is as outside-the-server as a phone
+// scanning a QR, so an internal hostname is just as useless here.
+const _origin = require('./lib/public_origin');
+const originFrom = (req) => _origin.originOr(req, '');
 app.get('/robots.txt', (req, res) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=3600');

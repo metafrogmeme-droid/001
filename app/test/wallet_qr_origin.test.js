@@ -21,13 +21,10 @@ const path = require('node:path');
 const auth = fs.readFileSync(path.join(__dirname, '..', 'auth.js'), 'utf8');
 const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
 
-// Re-create the resolver against the source, so the test exercises the real
-// regex and branching rather than a paraphrase of it.
-function makeResolver(env) {
-  const src = auth.slice(auth.indexOf('const _PRIVATE_HOST'), auth.indexOf('router.post(\'/wallet/link-code\''));
-  const fn = new Function('process', `${src}; return publicOrigin;`);
-  return fn({ env });
-}
+// Exercise the REAL shared module rather than a copy sliced out of auth.js —
+// the resolver now lives in lib/public_origin and four surfaces depend on it.
+const publicOrigin = require('../lib/public_origin');
+const makeResolver = (env) => (req) => publicOrigin.resolve(req, env);
 const reqWith = (headers, protocol = 'http') => ({
   get: (h) => headers[h.toLowerCase()],
   protocol,
@@ -91,4 +88,50 @@ test('the panel shows the URL the QR encodes', () => {
   // nothing said where it pointed. Printing the URL makes it self-diagnosing.
   assert.match(dash, /\$\{esc\(r\.data\.url \|\| ''\)\}/,
     'the QR still hides the address it encodes');
+});
+
+// ── One question, one answer ────────────────────────────────────────────────
+// Four surfaces need the public URL and three env vars used to supply it:
+// PUBLIC_ORIGIN (phone QR), APP_BASE_URL (email links, OAuth redirect, the
+// ERC-8257 manifest) and WEBSITE_URL (sitemap/robots). An operator who set one
+// fixed one surface and left the rest silently wrong — and every one of these is
+// consumed OUTSIDE the server, where we cannot see it fail.
+
+test('all three historical env names resolve, so no surface is left behind', () => {
+  assert.equal(publicOrigin.configured({ PUBLIC_ORIGIN: 'https://a.example/' }), 'https://a.example');
+  assert.equal(publicOrigin.configured({ APP_BASE_URL: 'https://b.example' }), 'https://b.example');
+  assert.equal(publicOrigin.configured({ WEBSITE_URL: 'https://c.example' }), 'https://c.example');
+  // Precedence is explicit, not accidental.
+  assert.equal(publicOrigin.configured({
+    PUBLIC_ORIGIN: 'https://a.example', APP_BASE_URL: 'https://b.example',
+  }), 'https://a.example');
+  assert.equal(publicOrigin.configured({}), '');
+});
+
+test('every consumer of a public URL goes through the one resolver', () => {
+  // The bug shipped because each surface answered this question for itself.
+  const src = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
+  for (const f of ['auth.js', 'server.js', 'lib/tool8257.js', 'lib/mailer.js']) {
+    assert.match(src(f), /public_origin/, `${f} still resolves its own public URL`);
+  }
+  // And none of them reconstructs one from the request host by hand.
+  for (const f of ['server.js', 'lib/tool8257.js', 'lib/mailer.js']) {
+    assert.doesNotMatch(src(f), /process\.env\.APP_BASE_URL \|\| process\.env\.WEBSITE_URL/,
+      `${f} still reads the env vars directly instead of asking the resolver`);
+  }
+});
+
+test('a caller with no request still gets an honest answer', () => {
+  // The manifest and boot-time checks have no req in hand. Unknown must be an
+  // error, never a plausible-looking guess.
+  assert.equal(publicOrigin.resolve(null, { PUBLIC_ORIGIN: 'https://x.example' }).origin,
+    'https://x.example');
+  assert.match(publicOrigin.resolve(null, {}).error, /PUBLIC_ORIGIN/);
+});
+
+test('reachability is judged on the host, not the scheme', () => {
+  assert.equal(publicOrigin.isPubliclyReachable('pmvc58g2.mule.page'), true);
+  assert.equal(publicOrigin.isPubliclyReachable('localhost:3000'), true);
+  assert.equal(publicOrigin.isPubliclyReachable('page-x.ap-southeast-1-vpc.fcapp.run'), false);
+  assert.equal(publicOrigin.isPubliclyReachable(''), false);
 });

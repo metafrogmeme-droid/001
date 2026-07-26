@@ -48,7 +48,9 @@ function isConfigured() {
 }
 
 function baseUrl() {
-  return (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+  // A verification link is clicked from an INBOX — the one place a wrong
+  // hostname is both invisible to us and unfixable by the user.
+  return require('./public_origin').configured();
 }
 
 // --- RFC 5322 message assembly (pure; exported for tests) ---
