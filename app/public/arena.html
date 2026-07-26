@@ -358,7 +358,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=60"></script>
+<script src="/js/i18n.js?v=61"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -617,6 +617,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         + '<td>' + fmtP(p.entry) + '</td><td>' + fmtP(p.mark) + '</td>'
         + '<td class="' + pnlCls(p.pnl) + pulseCls(p) + '">' + (p.pnl == null ? '—' : (p.pnl > 0 ? '+' : '') + fmt2(p.pnl) + ' (' + (p.pnl_pct > 0 ? '+' : '') + fmt2(p.pnl_pct) + '%)') + '</td>'
         + '<td><span class="up-c">' + (p.tp != null ? fmtP(p.tp) : '—') + '</span> / <span class="down-c">' + (p.sl != null ? fmtP(p.sl) : '—') + '</span>'
+        + (p.trail_pct ? ' <span class="read-chip" style="font-size:10px;padding:1px 6px" title="' + esc(T('arena.trail_t', 'Trailing stop — the level tightens as the mark improves, evaluated whenever the account is read with a live price. It never loosens, and unobserved highs never tighten it.')) + '">⟲ ' + p.trail_pct + '%</span>' : '')
         + (p.exits_edited ? ' <span class="muted" style="font-size:10px" title="' + esc(T('arena.x_edited_t', 'Exits moved after open — the sealed receipt records the ORIGINAL levels')) + '">✎' + esc(T('arena.x_edited', ' moved')) + '</span>' : '')
         + ' <button class="chartbtn" data-exits="' + p.id + '" type="button" title="' + esc(T('arena.x_edit_t', 'Move take-profit / stop-loss — validated against the live mark')) + '">✎</button></td>'
         + '<td class="muted">' + fmtP(p.liq_price) + '</td>'
@@ -963,6 +964,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     return r === 'tp' ? T('arena.d_reason_tp', '🎯 target')
       : r === 'sl' ? T('arena.d_reason_sl', '🛡 stop')
       : r === 'liquidated' ? T('arena.d_reason_liq', '💀 liquidated')
+      : r === 'trail' ? T('arena.d_reason_trail', '⟲ trailed out')
       : r === 'manual' ? T('arena.d_reason_closed', 'closed') : null;
   }
   function ago(iso) {
@@ -1223,9 +1225,12 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         if (ntp === null) return;                       // cancelled
         var nsl = window.prompt(T('arena.x_sl_q', 'Stop-loss price (empty = none):'), xpos.sl != null ? xpos.sl : '');
         if (nsl === null) return;
+        var ntr = window.prompt(T('arena.x_trail_q', 'Trailing distance % — the stop follows the price by this much (empty = fixed stop):'), xpos.trail_pct != null ? xpos.trail_pct : '');
+        if (ntr === null) return;
         xb.disabled = true;
         var xr = await RC.fetchJSON('/api/arena/exits', { method: 'POST', body: {
           position_id: xid, tp: ntp.trim() === '' ? null : Number(ntp), sl: nsl.trim() === '' ? null : Number(nsl),
+          trail_pct: ntr.trim() === '' ? null : Number(ntr),
         }, timeoutMs: 14000 }).catch(function () { return null; });
         xb.disabled = false;
         if (xr && xr.ok) {

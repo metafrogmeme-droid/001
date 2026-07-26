@@ -88,7 +88,7 @@ async function loadAccount(userId) {
 
 async function loadPositions(userId) {
   const [rows] = await pool.execute(
-    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, exits_edited, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
+    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, exits_edited, trail_pct, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
   return rows;
 }
 
@@ -161,6 +161,16 @@ async function settleLiquidations(userId, positions, marks) {
   let credit = 0;
   for (const p of positions) {
     const mark = marks[p.symbol] && Number(marks[p.symbol].price);
+    // Trailing ratchet first — the stop tightens on the observed mark, then
+    // that same mark is tested against the TIGHTENED level. Ratchets are
+    // mechanical consequences of the disclosed rule, so they never set the
+    // user-edit marker; only a human moving levels does.
+    const ratchet = mark > 0 ? arena.trailRatchet(p, mark) : null;
+    if (ratchet != null) {
+      p.sl = ratchet;
+      await pool.execute('UPDATE arena_positions SET sl = ? WHERE id = ? AND user_id = ?',
+        [ratchet, p.id, userId]);
+    }
     const exit = mark > 0 ? arena.exitCheck(p, mark) : null;
     if (!exit) { alive.push(p); continue; }
     const pnl = exit.reason === 'liquidated' ? -p.margin : arena.posPnl(p, exit.price);
@@ -238,6 +248,7 @@ router.get('/account', authMiddleware, async (req, res) => {
           // The open-time seal recorded the ORIGINAL exits — say when they
           // have been moved since, so the receipt cannot overstate discipline.
           exits_edited: !!Number(p.exits_edited || 0),
+          trail_pct: p.trail_pct == null ? null : Number(p.trail_pct),
           key: p.seal ? p.trade_key : null,   // Provable Calls receipt address
           opened_at: p.opened_at,
         };
@@ -439,13 +450,25 @@ router.post('/exits', authMiddleware, tradeLimit, async (req, res) => {
     }
     const mark = marks[p.symbol] && Number(marks[p.symbol].price);
     if (!(mark > 0)) return res.status(503).json({ error: 'No live mark for this symbol — try again shortly' });
-    const ts = arena.validateTpSl(p.direction, mark, (req.body || {}).tp, (req.body || {}).sl);
+    const tv = arena.validateTrail((req.body || {}).trail_pct);
+    if (!tv.ok) return res.status(400).json({ error: tv.error });
+    const trailPct = tv.data.trail_pct;
+    let slIn = (req.body || {}).sl;
+    // A trail with no explicit stop seeds from the live mark at the trailing
+    // distance — the ratchet only ever tightens from there.
+    if (trailPct != null && (slIn == null || slIn === '')) {
+      slIn = p.direction === 'LONG' ? mark * (1 - trailPct / 100) : mark * (1 + trailPct / 100);
+    }
+    const ts = arena.validateTpSl(p.direction, mark, (req.body || {}).tp, slIn);
     if (!ts.ok) return res.status(400).json({ error: ts.error });
+    if (trailPct != null && ts.data.sl == null) {
+      return res.status(400).json({ error: 'a trailing stop needs a stop level to trail' });
+    }
     await pool.execute(
-      'UPDATE arena_positions SET tp = ?, sl = ?, exits_edited = 1 WHERE id = ? AND user_id = ?',
-      [ts.data.tp, ts.data.sl, p.id, userId]);
+      'UPDATE arena_positions SET tp = ?, sl = ?, trail_pct = ?, exits_edited = 1 WHERE id = ? AND user_id = ?',
+      [ts.data.tp, ts.data.sl, trailPct, p.id, userId]);
     res.json({ ok: true, position_id: p.id, tp: ts.data.tp, sl: ts.data.sl,
-      exits_edited: true, mark, virtual: true });
+      trail_pct: trailPct, exits_edited: true, mark, virtual: true });
   } catch (err) {
     console.error('Arena exits error:', err.stack || err.message);
     res.status(500).json({ error: 'Arena unavailable', reason: safeReason(err) });

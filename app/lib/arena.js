@@ -124,13 +124,58 @@ function exitCheck(pos, mark) {
   const long = dirSign(pos.direction) > 0;
   const sl = pos.sl == null ? null : Number(pos.sl);
   const tp = pos.tp == null ? null : Number(pos.tp);
-  if (sl != null && (long ? mark <= sl : mark >= sl)) return { reason: 'sl', price: sl };
+  // A trailing position's stop lives in `sl` (ratcheted by trailRatchet);
+  // firing it is the same comparison, but the reason names the mechanism —
+  // "trailed out" and "stopped out" teach different lessons.
+  if (sl != null && (long ? mark <= sl : mark >= sl)) {
+    return { reason: Number(pos.trail_pct) > 0 ? 'trail' : 'sl', price: sl };
+  }
   if (tp != null && (long ? mark >= tp : mark <= tp)) return { reason: 'tp', price: tp };
   return null;
 }
 
+// Trailing-stop bounds: tighter than 0.2% sits inside ordinary spread noise
+// (instant, meaningless exits), wider than 50% is not a stop at all.
+const TRAIL_MIN_PCT = 0.2;
+const TRAIL_MAX_PCT = 50;
+
+/**
+ * Ratchet a trailing stop against an OBSERVED mark. Returns the new stop
+ * price, or null when nothing moves. The stop only ever TIGHTENS — a long's
+ * trail rises, a short's falls, neither ever retreats.
+ *
+ * Honesty note, load-bearing: the Arena has no background job — positions are
+ * evaluated lazily whenever the account is read with a fill-grade mark. This
+ * ratchet therefore sees a SAMPLED price path, not a continuous one, and a
+ * high the account never observed never tightens the stop. That makes the
+ * trail AT LEAST AS LOOSE as a continuously-watched one — never tighter, and
+ * never a fill manufactured from an unobserved extreme. Backfilling from
+ * candle highs is refused on principle: the intra-candle ordering of high and
+ * low is unknowable, so any fill derived from it would be invented.
+ */
+function trailRatchet(pos, mark) {
+  const d = Number(pos.trail_pct);
+  if (!(d > 0) || !(mark > 0)) return null;
+  const long = dirSign(pos.direction) > 0;
+  const candidate = long ? mark * (1 - d / 100) : mark * (1 + d / 100);
+  const cur = pos.sl == null ? null : Number(pos.sl);
+  if (cur == null || (long ? candidate > cur : candidate < cur)) return candidate;
+  return null;
+}
+
+/** Validate a trailing distance from the UI. */
+function validateTrail(input) {
+  if (input == null || input === '') return { ok: true, data: { trail_pct: null } };
+  const d = Number(input);
+  if (!Number.isFinite(d) || d < TRAIL_MIN_PCT || d > TRAIL_MAX_PCT) {
+    return { ok: false, error: `trailing distance must be ${TRAIL_MIN_PCT}–${TRAIL_MAX_PCT}%` };
+  }
+  return { ok: true, data: { trail_pct: Math.round(d * 100) / 100 } };
+}
+
 module.exports = {
   START_BALANCE, MMR, MIN_MARGIN, MAX_LEVERAGE, MAX_OPEN,
+  TRAIL_MIN_PCT, TRAIL_MAX_PCT,
   posPnl, liqPrice, isLiquidated, equity, returnPct, validateOpen,
-  validateTpSl, exitCheck,
+  validateTpSl, exitCheck, trailRatchet, validateTrail,
 };

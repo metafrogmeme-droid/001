@@ -28,7 +28,7 @@ test('the route validates against the LIVE mark with the shared validator', () =
 });
 
 test('an edit marks the position, and the payload carries the marker', () => {
-  assert.match(routeSrc, /SET tp = \?, sl = \?, exits_edited = 1 WHERE id = \? AND user_id = \?/);
+  assert.match(routeSrc, /SET tp = \?, sl = \?, trail_pct = \?, exits_edited = 1 WHERE id = \? AND user_id = \?/);
   assert.match(routeSrc, /exits_edited: !!Number\(p\.exits_edited \|\| 0\)/,
     'the account payload hides the edit — the receipt can overstate discipline');
   assert.match(db, /ADD COLUMN exits_edited TINYINT\(1\) NOT NULL DEFAULT 0/,

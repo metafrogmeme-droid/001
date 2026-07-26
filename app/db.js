@@ -396,7 +396,20 @@ class MemoryDB {
       return [f ? [{ ...f }] : [], []];
     }
     if (cmd.includes('UPDATE ARENA_POSITIONS')) {
-      // Exit edit: SET tp = ?, sl = ?, exits_edited = 1 WHERE id = ? AND user_id = ?
+      if (cmd.includes('TRAIL_PCT = ?')) {
+        // Exit edit with trail: SET tp = ?, sl = ?, trail_pct = ?, exits_edited = 1
+        //                       WHERE id = ? AND user_id = ?
+        const pos = this.arenaPositions.find(p => p.id === params[3] && p.user_id === params[4]);
+        if (pos) { pos.tp = params[0]; pos.sl = params[1]; pos.trail_pct = params[2]; pos.exits_edited = 1; }
+        return [{ affectedRows: pos ? 1 : 0 }, []];
+      }
+      if (cmd.includes('SET SL = ?')) {
+        // Trail ratchet (mechanical): SET sl = ? WHERE id = ? AND user_id = ?
+        const pos = this.arenaPositions.find(p => p.id === params[1] && p.user_id === params[2]);
+        if (pos) pos.sl = params[0];
+        return [{ affectedRows: pos ? 1 : 0 }, []];
+      }
+      // Legacy exit edit: SET tp = ?, sl = ?, exits_edited = 1 WHERE id = ? AND user_id = ?
       const pos = this.arenaPositions.find(p => p.id === params[2] && p.user_id === params[3]);
       if (pos) { pos.tp = params[0]; pos.sl = params[1]; pos.exits_edited = 1; }
       return [{ affectedRows: pos ? 1 : 0 }, []];
@@ -1716,6 +1729,7 @@ async function migrate() {
         tp DOUBLE NULL,
         sl DOUBLE NULL,
         exits_edited TINYINT(1) NOT NULL DEFAULT 0,
+        trail_pct DOUBLE NULL,
         trade_key VARCHAR(40) NULL,
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
@@ -1735,6 +1749,8 @@ async function migrate() {
     // Exit-edit marker: the open-time seal records the ORIGINAL exits, so a
     // later edit must be visible or the receipt overstates discipline.
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN exits_edited TINYINT(1) NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
+    // Trailing distance (percent). When set, `sl` holds the ratcheted level.
+    try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN trail_pct DOUBLE NULL'); } catch (e) { /* present */ }
     // Provable Calls v2 — arena receipts sealed at open time.
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN trade_key VARCHAR(40) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN seal VARCHAR(64) NULL'); } catch (e) { /* present */ }
