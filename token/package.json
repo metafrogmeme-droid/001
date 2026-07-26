@@ -43,5 +43,8 @@
     "@wormhole-foundation/sdk": "5.2.0",
     "@wormhole-foundation/sdk-evm-ntt": "7.2.0",
     "@wormhole-foundation/sdk-solana-ntt": "7.2.0"
+  },
+  "overrides": {
+    "protobufjs": "^7.6.3"
   }
 }

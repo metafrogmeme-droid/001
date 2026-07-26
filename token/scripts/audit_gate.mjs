@@ -144,17 +144,36 @@ if (!newIds.length && !grew.length) {
   process.exit(0);
 }
 
-console.error('\n=== NEW SUPPLY-CHAIN ADVISORIES ===');
+// Distinguish the two ways this fails, because they mean very different things
+// and the wrong headline sends someone hunting for a vulnerability that is not
+// there. A count can rise with no new advisory id when a fix RE-RATES existing
+// ones — dropping a package out of `high` moves its dependents into whatever
+// lower-severity advisory was previously masked, so `low` goes UP while the
+// advisory set shrinks. That is what an improvement looks like, and calling it
+// "NEW ADVISORIES" is simply wrong.
 if (newIds.length) {
+  console.error('\n=== NEW SUPPLY-CHAIN ADVISORIES ===');
   console.error(`${newIds.length} advisory id(s) not in the baseline:`);
   for (const line of describe(report, newIds)) console.error(line);
+  for (const s of grew) {
+    console.error(`  ${s} count rose ${baseline.counts?.[s] ?? 0} -> ${nowCounts[s]}`);
+  }
+  console.error(
+    '\nThese packages sign privileged transactions. Upgrade or replace the affected\n' +
+    'dependency. If the advisory is genuinely not applicable, say why in the commit\n' +
+    'message and re-record with `node scripts/audit_gate.mjs --update`.'
+  );
+} else {
+  console.error('\n=== SEVERITY COUNT ROSE, BUT NO NEW ADVISORY ===');
+  for (const s of grew) {
+    console.error(`  ${s}: ${baseline.counts?.[s] ?? 0} -> ${nowCounts[s]}`);
+  }
+  console.error(
+    `\nEvery advisory id is already in the baseline (${nowIds.length} now vs ` +
+    `${(baseline.advisoryIds || []).length} recorded), so nothing new was introduced — the\n` +
+    'severity mix was re-rated, which is what happens when a fix drops packages out of a\n' +
+    'higher band. Confirm that reading, then re-record with\n' +
+    '`node scripts/audit_gate.mjs --update`.'
+  );
 }
-for (const s of grew) {
-  console.error(`  ${s} count rose ${baseline.counts?.[s] ?? 0} -> ${nowCounts[s]}`);
-}
-console.error(
-  '\nThese packages sign privileged transactions. Upgrade or replace the affected\n' +
-  'dependency. If the advisory is genuinely not applicable, say why in the commit\n' +
-  'message and re-record with `node scripts/audit_gate.mjs --update`.'
-);
 process.exit(1);
