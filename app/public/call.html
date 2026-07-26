@@ -31,7 +31,7 @@
   <div class="explain" data-i18n-html="cl.explain">
     <b>What this proves:</b> the call’s decision facts (symbol, direction, entry, stop, target, confidence, time — for Arena paper trades: symbol, direction, entry, leverage, exits, open time) hash to the seal shown — if any had been edited after sealing, the hash your browser computes would not match, and any difference between the sealed payload and the live record is flagged in red. Outcomes attach to the same sealed record later; losers can’t be deleted without leaving a hole in the stream.<br>
     <b>Daily seal roots (live):</b> at the end of each UTC day, every seal minted that day is folded into one Merkle root, published on the <a href="/roots">daily roots page</a> (raw feed: <a href="/api/roots">/api/roots</a>). A receipt from a completed day shows its proof above — replayed in your browser. Anyone can mirror the roots feed (a repo, a tweet, a chain memo); whoever holds a day’s root holds an independent timestamp for every call in it.<br>
-    <b>What it doesn’t prove yet:</b> a day’s honesty to someone who mirrored nothing — until a third party holds the root, you’re trusting that the feed wasn’t rewritten wholesale. Mirroring solves that today; operator-published on-chain anchoring of the same roots is planned and will be stated here when live. Not investment advice.<br>
+    <b>On-chain anchoring (live):</b> completed days can be anchored on Base — the day’s root rides as calldata in a zero-value transaction, and the block timestamp bounds every seal in the day with a fact no one here controls. An anchored receipt shows the transaction above; an unanchored day says so plainly, and mirroring still covers it. Not investment advice.<br>
     <b>Verify with your own tools:</b> the complete contract — payload formats, root construction, copy-paste snippets — lives at <a href="/provable">/provable</a>.
   </div>
 </div>
@@ -69,6 +69,11 @@
         ? '<div class="big">🌳 Anchored in the ' + esc(d.anchor.day) + ' daily seal root</div>'
           + 'One of ' + (Number(d.anchor.seal_count) || 0) + ' seals folded into that day’s Merkle root — your browser just replayed the proof.'
           + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
+          + (d.anchor.anchor_tx
+            ? '<div style="margin-top:6px">⛓ <b>This root is anchored on Base.</b> The block timestamp is an independent upper bound on every seal in the day — '
+              + '<a href="https://basescan.org/tx/' + esc(d.anchor.anchor_tx) + '" target="_blank" rel="noopener">view the transaction</a> and compare its calldata to '
+              + '<code style="word-break:break-all">RCROOT1:' + esc(d.anchor.day) + ':' + esc(d.anchor.root) + '</code> (hex-encoded) yourself.</div>'
+            : '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">This day’s root is not yet anchored on-chain — until it is (or you mirror it), the day’s timestamp rests on the published feed.</div>')
           + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror it from the <a href="/roots">daily roots page</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
         : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
       out.appendChild(el);

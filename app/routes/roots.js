@@ -53,6 +53,38 @@ router.get('/anchor-plan/:day', async (req, res) => {
   }
 });
 
+// GET /api/roots/verify/:day — re-verify a recorded anchor against Base,
+// LIVE. Public and cached: this is the self-audit surface — anyone can ask
+// the server to re-check its own claim, and the server reports exactly what
+// the chain said, unknown included.
+const _verifyCache = new Map();          // day -> { at, body }
+router.get('/verify/:day', async (req, res) => {
+  try {
+    const day = String(req.params.day || '');
+    const row = await rootForDay(day);
+    if (!row) return res.status(404).json({ error: 'No root for that day' });
+    if (!row.anchor_tx) {
+      return res.json({ day: row.day, root: row.root, status: 'unanchored' });
+    }
+    const hit = _verifyCache.get(day);
+    if (hit && Date.now() - hit.at < 5 * 60000) {
+      res.set('Cache-Control', 'public, max-age=60');
+      return res.json(hit.body);
+    }
+    const v = await verifyAnchor(row.anchor_tx, row.day, row.root);
+    const body = { day: row.day, root: row.root, anchor_tx: row.anchor_tx,
+      status: v.status, block_time: v.block_time || null,
+      from: v.from || null, reason: v.reason || null };
+    // Cache verified results; an unknown answer is retried on the next ask.
+    if (v.status === 'verified') _verifyCache.set(day, { at: Date.now(), body });
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json(body);
+  } catch (err) {
+    console.error('Anchor verify error:', err.stack || err.message);
+    res.status(500).json({ error: 'Anchor verify unavailable' });
+  }
+});
+
 // POST /api/roots/anchor { day, tx_hash } — record an anchor AFTER verifying
 // it against Base. The chain is the gatekeeper: a hash whose calldata does
 // not equal the tagged root payload is refused, whoever submits it. On an

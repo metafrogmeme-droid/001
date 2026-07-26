@@ -95,6 +95,37 @@ test('the shim honours the anchor UPDATE with first-write-wins', () => {
   assert.match(db, /r\.day === params\[2\] && r\.anchor_tx == null/);
 });
 
+test('the verify endpoint is the public self-audit — cached only when verified', () => {
+  const src = read('routes', 'roots.js');
+  const at = src.indexOf("router.get('/verify/:day'");
+  assert.ok(at > -1);
+  const slice = src.slice(at, at + 1600);
+  assert.match(slice, /status: 'unanchored'/, 'an unanchored day answers honestly, not 404');
+  assert.match(slice, /verifyAnchor\(row\.anchor_tx, row\.day, row\.root\)/);
+  assert.match(slice, /if \(v\.status === 'verified'\) _verifyCache\.set/,
+    'caching an UNKNOWN answer would freeze a transient RPC failure into fact');
+});
+
+test('the call page states the on-chain leg — present or honestly absent', () => {
+  const page = read('public', 'call.html');
+  assert.match(page, /d\.anchor\.anchor_tx/);
+  assert.match(page, /basescan\.org\/tx\//);
+  assert.match(page, /RCROOT1:' \+ esc\(d\.anchor\.day\) \+ ':' \+ esc\(d\.anchor\.root\)/,
+    'the exact payload must be shown so a human can compare calldata themselves');
+  assert.match(page, /not yet anchored on-chain/,
+    'an unanchored day must say so plainly on the receipt');
+  // The old "planned and will be stated here when live" promise is retired.
+  assert.ok(!page.includes('is planned and will be stated here when live'),
+    'anchoring is live — the page must state what IS, not what was planned');
+  assert.match(page, /On-chain anchoring \(live\)/);
+});
+
+test('anchorFor carries the anchor leg to the receipt payload', () => {
+  const src = read('lib', 'seal_roots.js');
+  assert.match(src, /anchor_tx: rootRow\.anchor_tx \|\| null/);
+  assert.match(src, /anchored_at: rootRow\.anchored_at \|\| null/);
+});
+
 test('the roots feed and page carry the anchor honestly', () => {
   assert.match(read('lib', 'seal_roots.js'), /anchor_tx, anchored_at FROM seal_roots/);
   const page = read('public', 'roots.html');

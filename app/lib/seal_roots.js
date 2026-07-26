@@ -95,7 +95,11 @@ async function anchorFor(seal, sealedAt) {
   if (!Array.isArray(leaves) || !leaves.length) return null;
   const proof = merkleProof(leaves, String(seal));
   if (!proof) return null;
-  return { day, root: rootRow.root, seal_count: rootRow.seal_count, proof };
+  return { day, root: rootRow.root, seal_count: rootRow.seal_count, proof,
+    // The on-chain leg, when the operator has anchored the day: the Base
+    // transaction whose block time bounds every seal in the day.
+    anchor_tx: rootRow.anchor_tx || null,
+    anchored_at: rootRow.anchored_at || null };
 }
 
 module.exports = { sealsForDay, rootForDay, listRoots, anchorFor, dayOf };

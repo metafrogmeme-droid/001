@@ -124,8 +124,12 @@ test('unknown / unsealed calls 404 honestly; junk ids 400', async () => {
 test('wiring: page served, WebCrypto verify, honest explainer, signal-row links', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'call.html'), 'utf8');
   assert.match(page, /crypto\.subtle\.digest\('SHA-256'/);
-  assert.match(page, /What it doesn.t prove yet/);
-  assert.match(page, /on-chain/);
+  // The old "planned and will be stated here when live" promise retired when
+  // anchoring shipped — the explainer now states what IS, and the honest
+  // limitation (an unanchored day still rests on the feed/mirrors) moved
+  // into the same paragraph and onto the receipt itself.
+  assert.match(page, /On-chain anchoring \(live\)/);
+  assert.match(page, /unanchored day says so plainly/);
   assert.match(page, /HASH MISMATCH/);
   assert.match(page, /The live record DIFFERS from what was sealed/);
   const server_ = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
