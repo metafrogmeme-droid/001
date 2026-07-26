@@ -101,6 +101,11 @@ async function main() {
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
 
+  // The staker's address, printed because the cross-language check needs it:
+  // bot/token/tier_gate.py must be able to read THIS account off the chain, and
+  // a test that cannot tell you which wallet it staked from cannot be handed to
+  // the thing that reads it.
+  console.log('staker  :', payer.publicKey.toBase58());
   console.log('program :', PROGRAM_ID.toBase58());
   console.log('mint    :', mint.publicKey.toBase58());
 

@@ -140,6 +140,11 @@ def test_balance_of_parses_rpc_result(monkeypatch):
     mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
 
     def fake_rpc(method, params):
+        # balance_of first probes that the mint exists on this RPC (see the
+        # wrong-cluster tests at the bottom of this file); the balance read
+        # itself is still the only other call it is allowed to make.
+        if method == "getAccountInfo":
+            return {"value": {"data": {"parsed": {"info": {"decimals": 9}}}}}
         assert method == "getTokenAccountsByOwner"
         return {"value": [
             {"account": {"data": {"parsed": {"info": {"tokenAmount": {"uiAmount": 12.5}}}}}},
@@ -511,3 +516,93 @@ def test_the_two_messages_do_not_say_the_same_thing(monkeypatch):
     assert "stake" in upgrade.lower()
     assert "stake at least" not in unavailable.lower(), "outage message must not demand more stake"
     assert "try again" in unavailable.lower()
+
+
+# ---------------------------------------------------------------------------
+# Wrong-cluster reads. Found the hard way: a diagnostic run pointed tier_gate at
+# devnet (the RCLAW_RPC_URL default) while the stake account it was asked about
+# lived on a local validator. `staked_of` returned a clean 0.0 — not an error,
+# not a None, just a wrong answer stated with total confidence. Every user would
+# have been denied, `balance_of`/`staked_of` never returning None means the
+# bounded fail-open never engages, and the only symptom is that the whole user
+# base quietly lands on the free tier.
+# ---------------------------------------------------------------------------
+
+PROGRAM = "6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW"
+
+
+def _absent_rpc(missing, decimals=9, calls=None):
+    """An RPC where `missing` does not exist but everything else does."""
+    def fake(method, params):
+        if calls is not None:
+            calls.append((method, params[0] if params else None))
+        if method == "getAccountInfo":
+            if params[0] == missing:
+                return {"value": None}          # this is what a wrong cluster says
+            return {"value": {"data": {"parsed": {"info": {"decimals": decimals}}}}}
+        if method == "getProgramAccounts":
+            return []                            # ...and this
+        return {"value": []}
+    return fake
+
+
+def test_staked_of_refuses_to_report_zero_from_a_cluster_without_the_program(monkeypatch):
+    mod = _reload_clean(
+        monkeypatch, TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT=MINT, RCLAW_STAKING_PROGRAM=PROGRAM,
+    )
+    monkeypatch.setattr(mod, "_rpc", _absent_rpc(missing=PROGRAM))
+    assert mod.staked_of(WALLET) is None, (
+        "staked_of reported a number for a program that is not deployed on the "
+        "configured RPC — that is a wrong answer, not a zero stake"
+    )
+
+
+def test_balance_of_refuses_to_report_zero_from_a_cluster_without_the_mint(monkeypatch):
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    monkeypatch.setattr(mod, "_rpc", _absent_rpc(missing=MINT))
+    assert mod.balance_of(WALLET) is None
+
+
+def test_the_wrong_cluster_denial_is_reported_as_ours_not_the_users(monkeypatch):
+    """The user-visible consequence, which is the whole point of the guard.
+
+    'insufficient' tells the user to go stake more tokens. They may already have
+    staked; we are simply looking in the wrong place. That message has to be
+    'unavailable' instead, or we send people to buy tokens to fix our config.
+    """
+    mod = _reload_clean(
+        monkeypatch, TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT=MINT, RCLAW_STAKING_PROGRAM=PROGRAM,
+    )
+    monkeypatch.setattr(mod, "_rpc", _absent_rpc(missing=PROGRAM))
+    assert mod.check_user(_Users(WALLET), 1, "premium_scan") == (False, "unavailable")
+
+
+def test_an_rpc_outage_is_not_mistaken_for_a_missing_account(monkeypatch):
+    """`None` (transient) and `{"value": None}` (absent) must stay distinct.
+
+    If the probe collapsed them, every RPC blip would be logged as a permanent
+    misconfiguration and the operator would go looking for the wrong bug.
+    """
+    mod = _reload_clean(
+        monkeypatch, TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT=MINT, RCLAW_STAKING_PROGRAM=PROGRAM,
+    )
+    monkeypatch.setattr(mod, "_rpc", lambda m, p: None)
+    assert mod._account_exists(PROGRAM, "staking program") is None
+    assert PROGRAM not in mod._ACCOUNT_EXISTS_CACHE, "a transient failure poisoned the cache"
+
+
+def test_a_present_account_is_probed_once_not_on_every_read(monkeypatch):
+    """The guard sits on a hot path; it must not add an RPC call per call."""
+    calls = []
+    mod = _reload_clean(
+        monkeypatch, TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT=MINT, RCLAW_STAKING_PROGRAM=PROGRAM,
+    )
+    monkeypatch.setattr(mod, "_rpc", _absent_rpc(missing="none-of-them", calls=calls))
+    for _ in range(5):
+        mod.staked_of(WALLET)
+    probes = [c for c in calls if c == ("getAccountInfo", PROGRAM)]
+    assert len(probes) == 1, f"probed the staking program {len(probes)} times, expected 1"

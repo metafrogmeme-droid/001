@@ -50,7 +50,7 @@ use anchor_spl::{
     },
 };
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW");
 
 /// Compile-time pin for the canonical $RCLAW mint, set from the environment at
 /// build time:

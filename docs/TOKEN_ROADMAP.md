@@ -927,6 +927,37 @@ turned out to be.
    framed it — **every instruction fails**. The first stake attempt against a
    freshly deployed .so burned 4,071 CU and reverted.
 4. Set `RCLAW_PINNED_MINT` (program) and `RCLAW_MINT` (bot gate) to the real mint.
+
+   **`RCLAW_PINNED_MINT` is a build-time input that changes the deployed
+   bytecode, and it is recorded nowhere.** `lib.rs` reads it through
+   `option_env!`, so the same commit produces two different deployable
+   artifacts depending on a variable that appears in no config file, no CI log
+   and no on-chain account. The hazard is not that the wrong one ships — it is
+   that nobody can tell which one did. A verifier who rebuilds the tagged commit
+   and gets a hash that differs from the deployed program cannot distinguish
+   "the deployer set the pin" from "the deployer stripped the mint check".
+
+   This is not hypothetical: the first SBF build of this program was deployed to
+   a local validator on 2026-07-26 with the variable unset, and the smoke test
+   then staked a **randomly generated** mint successfully. Nothing recorded that,
+   and nothing would have.
+
+   Measured the same day, so the mitigation rests on evidence rather than on
+   how the build is assumed to behave:
+
+   - The build **is reproducible** — a full clean rebuild at a different
+     absolute path (`/tmp/reprocheck` vs the repo root) produced byte-identical
+     bytecode, so no path, timestamp or random seed is embedded. This is what
+     makes publishing a hash meaningful at all.
+   - The pin **is load-bearing** — pinned and unpinned builds differ
+     (`67296c4f…` vs `3467c133…`). And `option_env!` unset compiles to exactly
+     the same bytecode as a literal `None`, confirming what "unset" means.
+
+   So: **publish the artifact sha256 alongside the commit and the exact
+   `RCLAW_PINNED_MINT` used**, and state that verification means rebuilding with
+   that value. A deployer who misreports the pin cannot make the hashes agree.
+   `scripts/build_provenance_gate.py` re-checks both properties per commit (CI,
+   `staking` job) and prints a provenance record with `--record`.
 5. **Transfer the program upgrade authority off the deploy key — before the vault
    accepts its first deposit, not after.** See §11; the window between deploy and
    transfer is the entire exposure.

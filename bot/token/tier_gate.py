@@ -141,6 +141,50 @@ def staking_program() -> str:
 
 _DECIMALS_CACHE: dict[str, int] = {}
 
+# Accounts already proven to exist on the configured RPC. Only *positive*
+# results are cached: a missing account is a misconfiguration the operator is
+# expected to fix while the process runs, and re-probing it costs one RPC call
+# on a path that is already denying.
+_ACCOUNT_EXISTS_CACHE: set[str] = set()
+
+
+def _account_exists(address: str, what: str) -> Optional[bool]:
+    """Whether ``address`` exists on the RPC this gate is actually reading.
+
+    ``False`` here is not "the user has nothing" — it means the configured mint
+    or program is not deployed on the configured cluster, so every read against
+    it will come back empty no matter who is asking.
+
+    This exists because that failure is otherwise invisible. ``RCLAW_RPC_URL``
+    defaults to devnet, so a mint or program id from any other cluster (a local
+    validator, testnet) yields a *confident zero* — ``getProgramAccounts``
+    returns ``[]``, ``getTokenAccountsByOwner`` returns ``[]``, and the gate
+    hard-denies every user while reporting a perfectly ordinary balance of 0.
+    It never reaches the bounded fail-open path, because nothing failed. The
+    only signal is that everyone is suddenly on the free tier.
+
+    Returns ``None`` on a transient RPC failure so the caller keeps its existing
+    fail-open behavior rather than treating an outage as a misconfiguration.
+    """
+    if address in _ACCOUNT_EXISTS_CACHE:
+        return True
+    result = _rpc("getAccountInfo", [address, {"encoding": "base64", "commitment": "confirmed"}])
+    if result is None:
+        return None  # transient; do not poison the cache or claim a verdict
+    if (result or {}).get("value") is None:
+        system_log.error(
+            "tier_gate: %s %s does not exist on %s — every balance read will be "
+            "empty and every user will be denied. Check RCLAW_RPC_URL: it is "
+            "pointing at a different cluster than the one this %s was created on.",
+            what,
+            address,
+            _env("RCLAW_RPC_URL", _DEFAULT_RPC),
+            what,
+        )
+        return False
+    _ACCOUNT_EXISTS_CACHE.add(address)
+    return True
+
 
 def _env_decimals() -> Optional[int]:
     raw = _env("RCLAW_DECIMALS")
@@ -253,6 +297,10 @@ def balance_of(wallet: Optional[str]) -> Optional[float]:
     mint = mint_address()
     if not wallet or not mint:
         return None
+    # Same trap as staked_of: a mint that is not on this cluster makes every
+    # holder look like a non-holder.
+    if _account_exists(mint, "mint") is False:
+        return None
     result = _rpc(
         "getTokenAccountsByOwner",
         [wallet, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
@@ -285,6 +333,11 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
     """
     program = staking_program()
     if not wallet or not program:
+        return None
+    # A zero from a cluster that has never heard of this program is not a zero
+    # stake. Fail to `None` so the caller's bounded fail-open decides, instead
+    # of denying everyone on evidence that does not exist.
+    if _account_exists(program, "staking program") is False:
         return None
     # Filter on the discriminator-adjacent version byte and owner, and — when a
     # mint is configured — ALSO on mint, so a stake of some worthless token can

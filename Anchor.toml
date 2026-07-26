@@ -15,7 +15,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-rclaw_staking = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+rclaw_staking = "6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW"
 
 [registry]
 url = "https://api.apr.dev"

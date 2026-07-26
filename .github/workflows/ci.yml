@@ -122,6 +122,23 @@ jobs:
           cargo-build-sbf --manifest-path programs/rclaw_staking/Cargo.toml
           ls -l target/deploy/rclaw_staking.so
 
+      # PINNED_MINT is an option_env! read at lib.rs:75 — a build-time variable
+      # that changes the deployed bytecode and gates the check stopping a user
+      # staking a worthless token to buy a tier. Two ways that goes wrong
+      # silently, both checked here by rebuilding rather than by reading source:
+      #
+      #   - if the build stops being reproducible, a published artifact hash
+      #     becomes unverifiable, and an honest binary is indistinguishable from
+      #     a substituted one;
+      #   - if setting the variable stops changing the bytecode, the pin is not
+      #     compiled in and every release is unpinned while the source still
+      #     reads as though it works.
+      #
+      # ~15s on top of the build above, which has already installed the
+      # toolchain. Rationale in full in the script's docstring.
+      - name: Build provenance — reproducible, and the mint pin is compiled in
+        run: python3 scripts/build_provenance_gate.py
+
       # SCA for the Rust side. Same reasoning as the npm gate in token-tooling:
       # Cargo.lock carries 8 RustSec advisories today, all inside the Solana 1.18
       # stack that rust-toolchain.toml and Anchor.toml pin ON PURPOSE so the
