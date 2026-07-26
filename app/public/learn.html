@@ -42,6 +42,13 @@
   .hist:first-child { border-top: 0; }
   .hist .d { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-3); }
   .hist .b { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.55; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+  .hist a { color: var(--text-1); font-size: var(--fs-sm); } .hist a:hover { color: var(--gold-bright); }
+  .lesson-body { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.65; }
+  .lesson-body h2 { font-size: var(--fs-md); text-transform: none; letter-spacing: 0; color: var(--text-1); margin: var(--s2) 0; }
+  .lesson-body h3 { font-size: var(--fs-sm); text-transform: none; letter-spacing: 0; color: var(--text-1); margin: var(--s3) 0 var(--s2); }
+  .lesson-body p { margin-bottom: var(--s2); } .lesson-body b { color: var(--text-1); }
+  .lesson-body ul { margin: 0 0 var(--s2) 1.2em; } .lesson-body li { margin-bottom: 4px; }
+  .lesson-body pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s2) var(--s3); overflow-x: auto; font-size: var(--fs-xs); margin-bottom: var(--s2); }
   .muted { color: var(--text-3); }
   .note { font-size: var(--fs-xs); color: var(--text-3); }
   .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
@@ -75,6 +82,12 @@
     <div id="trades" style="margin-top:var(--s3)"></div>
   </section>
 
+  <section class="panel">
+    <h2><span data-i18n="ln.lessons_h">Lessons</span> <span class="note" id="lessonProg"></span></h2>
+    <p class="note" data-i18n="ln.lessons_note">Lessons are written in English for now — the room's controls speak your language.</p>
+    <div id="lessons" style="margin-top:var(--s2)"></div>
+  </section>
+
   <section class="panel" id="histPanel" hidden>
     <h2 data-i18n="ln.hist_h">Past entries</h2>
     <div id="hist"></div>
@@ -85,7 +98,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=72"></script>
+<script src="/js/i18n.js?v=73"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -177,6 +190,62 @@
       note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');
     }
   }
+
+  // ── Lessons: public reads; progress rides the account when signed in ─────
+  var DONE = {};
+  var LESSONS = [];
+
+  function lessonList() {
+    var doneN = LESSONS.filter(function (l) { return DONE[l.slug]; }).length;
+    $('lessonProg').textContent = LESSONS.length
+      ? '· ' + fill(T('ln.progress', '{d}/{t} read'), { d: doneN, t: LESSONS.length }) : '';
+    $('lessons').innerHTML = LESSONS.map(function (l) {
+      return '<div class="hist"><a href="#" data-lesson="' + esc(l.slug) + '">'
+        + (DONE[l.slug] ? '✓ ' : '') + esc(l.title) + '</a></div>';
+    }).join('');
+  }
+
+  async function openLesson(slug) {
+    var r = await fetch('/api/learn/lessons/' + encodeURIComponent(slug))
+      .then(function (x) { return x.json(); }).catch(function () { return null; });
+    if (!r || !r.html) return;
+    // The lesson html comes from the server's escape-first renderer over
+    // repo-shipped markdown — the only trusted-html surface on this page.
+    $('lessons').innerHTML = '<article class="lesson-body">' + r.html + '</article>'
+      + '<div class="row">'
+      + '<button class="btn btn--ghost btn--sm" id="lessonBack" type="button">← ' + esc(T('ln.back', 'All lessons')) + '</button>'
+      + (tok && !DONE[slug]
+        ? '<button class="btn btn--primary btn--sm" id="lessonDone" type="button" data-slug="' + esc(slug) + '">✓ ' + esc(T('ln.mark_read', 'Mark as read')) + '</button>'
+        : '')
+      + '</div>';
+    $('lessonProg').textContent = '';
+  }
+
+  $('lessons').addEventListener('click', async function (e) {
+    var a = e.target.closest('[data-lesson]');
+    if (a) { e.preventDefault(); openLesson(a.getAttribute('data-lesson')); return; }
+    if (e.target.closest('#lessonBack')) { lessonList(); return; }
+    var d = e.target.closest('#lessonDone');
+    if (d) {
+      d.disabled = true;
+      var r = await api('/lessons/' + encodeURIComponent(d.getAttribute('data-slug')) + '/done', { method: 'POST' });
+      if (r.ok && r.data && r.data.done) { DONE[r.data.slug] = true; lessonList(); }
+      else { d.disabled = false; }
+    }
+  });
+
+  async function loadLessons() {
+    try {
+      var r = await fetch('/api/learn/lessons').then(function (x) { return x.json(); });
+      LESSONS = (r && r.lessons) || [];
+      if (tok) {
+        var p = await api('/progress');
+        ((p.ok && p.data && p.data.done) || []).forEach(function (s) { DONE[s] = true; });
+      }
+      lessonList();
+    } catch (e) { /* the diary stands alone */ }
+  }
+  loadLessons();
 
   $('save').addEventListener('click', async function () {
     var body = $('body').value.trim();

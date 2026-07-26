@@ -19,8 +19,57 @@
 const express = require('express');
 const { authMiddleware } = require('../auth');
 const { pool } = require('../db');
+const lessons = require('../lib/learn_lessons');
 
 const router = express.Router();
+
+// ── Lessons: PUBLIC reads (teaching material is not a secret), progress is
+// per-account. English content by design for now — the payload says so.
+const LESSONS_NOTE = 'Lessons are written in English for now; the room’s '
+  + 'controls speak all supported languages.';
+
+router.get('/lessons', (req, res) => {
+  res.json({
+    lessons: lessons.listLessons().map(({ slug, title }) => ({ slug, title })),
+    note: LESSONS_NOTE,
+  });
+});
+
+router.get('/lessons/:slug', (req, res) => {
+  const l = lessons.getLesson(req.params.slug);
+  if (!l) return res.status(404).json({ error: 'No such lesson' });
+  res.json({ slug: l.slug, title: l.title, html: l.html, note: LESSONS_NOTE });
+});
+
+router.get('/progress', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT slug FROM learn_progress WHERE user_id = ?', [req.user.user_id]);
+    res.json({ done: (rows || []).map((r) => r.slug) });
+  } catch (err) {
+    console.error('Progress read error:', err.stack || err.message);
+    res.status(500).json({ error: 'Progress unavailable' });
+  }
+});
+
+router.post('/lessons/:slug/done', authMiddleware, async (req, res) => {
+  try {
+    const l = lessons.getLesson(req.params.slug);
+    if (!l) return res.status(404).json({ error: 'No such lesson' });
+    // Upsert: marking twice is a no-op, never a duplicate-key 500 — and the
+    // first done_at stands (re-reading does not rewrite history).
+    await pool.execute(
+      `INSERT INTO learn_progress (user_id, slug, done_at) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE user_id = user_id`,
+      [req.user.user_id, l.slug, new Date()]);
+    res.json({ done: true, slug: l.slug });
+  } catch (err) {
+    console.error('Progress write error:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not save progress' });
+  }
+});
+
+// ── Diary: PRIVATE, all routes below authed.
 router.use(authMiddleware);
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

@@ -51,6 +51,7 @@ class MemoryDB {
     this._nextStrategyId = 1;
     this.agentLetters = [];   // weekly agent letters (UPSERT-free; one per week_key)
     this.learnDiary = [];     // study-room diary: one entry per (user_id, day)
+    this.learnProgress = [];  // study-room lessons read: one row per (user_id, slug)
     this.copySubs = [];       // strategy-agent follows (UNIQUE user_id+agent_id)
     this._nextCopySubId = 1;
     this.arenaAccounts = {};  // user_id -> { balance, created_at } (paper arena)
@@ -177,6 +178,28 @@ class MemoryDB {
     }
 
     // -- AGENT LETTERS (weekly fund-style letter; one row per ISO week) --
+    // -- LEARN PROGRESS (study room lessons; one row per user per slug) --
+    if (cmd.includes('INSERT INTO LEARN_PROGRESS')) {
+      // params: user_id, slug, done_at. ON DUPLICATE keeps the FIRST done_at
+      // (re-reading never rewrites history); a bare insert throws like MySQL.
+      const existing = this.learnProgress.find(
+        (e) => e.user_id === params[0] && e.slug === params[1]);
+      if (existing) {
+        if (!cmd.includes('ON DUPLICATE KEY UPDATE')) {
+          const err = new Error(`Duplicate entry '${params[0]}-${params[1]}' for key 'uq_learn_prog'`);
+          err.code = 'ER_DUP_ENTRY';
+          throw err;
+        }
+        return [{ affectedRows: 0 }, []];
+      }
+      this.learnProgress.push({ user_id: params[0], slug: params[1], done_at: params[2] });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM LEARN_PROGRESS')) {
+      const rows = this.learnProgress.filter((e) => e.user_id === params[0]);
+      return [rows.map((r) => ({ ...r })), []];
+    }
+
     // -- LEARN DIARY (study room; one entry per user per UTC day) --
     if (cmd.includes('INSERT INTO LEARN_DIARY')) {
       // params: user_id, day, body, created_at. Unique (user_id, day) is
@@ -1841,6 +1864,16 @@ async function migrate() {
         edited_at TIMESTAMP NULL,
         UNIQUE KEY uq_learn_user_day (user_id, day),
         INDEX idx_learn_user (user_id)
+      )
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS learn_progress (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        slug VARCHAR(80) NOT NULL,
+        done_at TIMESTAMP NULL,
+        UNIQUE KEY uq_learn_prog (user_id, slug),
+        INDEX idx_learn_prog_user (user_id)
       )
     `);
     // Provable Calls v2 — the seal rides the position onto the closed trade.
