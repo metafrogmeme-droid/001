@@ -248,6 +248,82 @@ export function fixedPriceSolPerToken(cfg) {
   return Number(cfg.sale.hardCapSol) / Number(cfg.sale.presaleAllocation);
 }
 
+/**
+ * The LP base-token allocation that opens the pool at EXACTLY the presale price
+ * for a given realised raise. Returns base units.
+ *
+ * This is the answer to the soft-cap spread. The pool's opening price is
+ * (quote received) / (base allocated). The quote side scales with the raise
+ * automatically — `SendQuoteTokenPercentage` sends a percentage — while the base
+ * side is a constant fixed at bucket creation, so the pool price scales linearly
+ * with the raise while the presale price does not. At the 1,000 SOL soft cap
+ * that lands the pool ~5x below the price presale buyers paid.
+ *
+ * Scaling the base side by the same proportion cancels it exactly:
+ *
+ *     lpBaseUnits = (raised * bps/10000) / presalePricePerBaseUnit
+ *                 = raised * bps * presaleAllocationBaseUnits
+ *                   ------------------------------------------
+ *                        10000 * hardCapLamports
+ *
+ * which is independent of `raised` in the ratio, so the pool opens at the
+ * presale price for ANY raise between the soft and hard cap.
+ *
+ * All BigInt: these become an immutable on-chain allocation, and float rounding
+ * at 10^17 base units is not a rounding error, it is millions of tokens.
+ */
+export function parityLpBaseUnitsForRaise(cfg, raisedLamports) {
+  const raised = BigInt(raisedLamports);
+  if (raised < 0n) throw new Error(`raisedLamports must not be negative (got ${raised})`);
+  const bps = BigInt(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
+  if (bps <= 0n) {
+    throw new Error(
+      'liquidity.raisedSolToLiquidityBps is 0 — no quote is routed to the pool, so there is ' +
+      'no price to reach parity with.'
+    );
+  }
+  const decimals = BigInt(cfg.token.decimals);
+  const presaleAllocationBaseUnits = BigInt(cfg.sale.presaleAllocation) * 10n ** decimals;
+  const hardCapLamports = BigInt(cfg.sale.hardCapSol) * 1_000_000_000n;
+  if (hardCapLamports <= 0n) throw new Error('sale.hardCapSol must be positive');
+
+  // Derive from the quote that will ACTUALLY reach the pool, not from the raw
+  // raise. `SendQuoteTokenPercentage` moves floor(raised * bps / 10000), and
+  // computing the token side off the unfloored figure makes the two sides round
+  // in opposite directions: the pool would receive marginally less SOL than the
+  // allocation was priced for, which opens it BELOW the presale price. A test
+  // over small raises caught exactly that — at 1 lamport the quote share floors
+  // to 0 while the token side stayed positive, pricing the pool at zero.
+  const quoteToPool = (raised * bps) / 10_000n;
+
+  // Floor again: fewer tokens against the same quote opens the pool a hair
+  // ABOVE the presale price. Both roundings now favour the buyer, which is the
+  // only direction that is safe against a permanent LP lock.
+  return (quoteToPool * presaleAllocationBaseUnits) / hardCapLamports;
+}
+
+/**
+ * What to actually write on-chain for a realised raise, with the safety clamp.
+ *
+ * Never allocates MORE than the bucket was created with. Two reasons: the extra
+ * tokens may simply not be there, and "the operator raised the LP allocation" is
+ * not a parity fix — it is a different, unreviewed decision. Clamping down is
+ * always safe because fewer tokens against the same quote means a HIGHER opening
+ * price, never a lower one.
+ */
+export function rebalancedLpAllocation(cfg, raisedLamports) {
+  const decimals = BigInt(cfg.token.decimals);
+  const configured = BigInt(cfg.liquidity.tokenAllocation) * 10n ** decimals;
+  const parity = parityLpBaseUnitsForRaise(cfg, raisedLamports);
+  const clamped = parity > configured;
+  return {
+    allocation: clamped ? configured : parity,
+    parity,
+    configured,
+    clamped,
+  };
+}
+
 export function fundingModeValue(cfg) {
   const fm = cfg.fundingMode || {};
   return (fm.mode === 'transfer') ? (fm.transferValue ?? 1) : (fm.mintValue ?? 0);

@@ -203,14 +203,39 @@ buyers see it up front.
 liquidity allocation), remainder to audit, operations, and treasury. Exact split ratified in
 §13.
 
-> **Enforced on-chain (2026-07-26).** This split is no longer an operator promise.
-> `presale:create` attaches a `SendQuoteTokenPercentage` end behavior to the presale bucket,
-> which fixes the percentage at creation and names the liquidity bucket PDA as its
-> destination. `presale:trigger` executes it and is **permissionless** — the underlying
-> `triggerBehaviorsV2` instruction takes a payer but no authority — so any participant can
-> run it once the deposit window closes, and the operator can neither change the share nor
-> decline to send it. Editing the config afterwards has no on-chain effect; the bucket wins,
-> and `presale:liquidity` refuses on the mismatch.
+> **Encoded on-chain and publicly verifiable (2026-07-26).** `presale:create` attaches a
+> `SendQuoteTokenPercentage` end behavior to the presale bucket, naming the liquidity bucket
+> PDA as its destination. `presale:trigger` executes it and is **permissionless** — the
+> underlying `triggerBehaviorsV2` takes a payer but no authority — so any participant can run
+> it once the deposit window closes. Editing the config afterwards has no on-chain effect: the
+> bucket wins, and `presale:liquidity` / `presale:trigger` both re-read the **live account**
+> and refuse on any mismatch.
+>
+> **Correction (2026-07-26, same day).** This paragraph previously said the percentage is
+> "fixed at creation" and that "the operator can neither change the share nor decline to send
+> it". **That was wrong**, and it overstated the guarantee. The Genesis SDK exposes
+> `setPresaleBucketV2Behaviors` (discriminator 80), which takes the genesis authority and
+> replaces `endBehaviors` wholesale — so the authority can lower the percentage, repoint the
+> destination, or delete the behavior entirely at any point before it is triggered. The
+> permissionless trigger means a participant can win that *race*; it does not remove the
+> authority's power.
+>
+> The honest claim is **verifiable, not immutable**: the value lives in an account anyone can
+> read, and the tooling checks it against this config before every irreversible step, so a
+> silent change is detectable rather than prevented. Making it genuinely immutable requires
+> `treasury.authority` to be a Squads multisig — see §11, which already requires that for
+> other reasons. Two further authority powers were found in the same review and are recorded
+> in §11: `updateGenesisV2` can mint or burn base supply, and `updateRaydiumCpmmBucketV2` can
+> change the LP token allocation.
+
+**Pool opens at the presale price on any raise (2026-07-26).** The LP token side was a
+constant while the SOL side scaled with the raise, so a soft-cap raise opened the pool ~5x
+*below* what presale buyers paid, against a permanent LP lock (audit F-25 — previously judged
+unfixable without a product decision). `updateRaydiumCpmmBucketV2` accepts an optional
+`baseTokenAllocation`, so `npm run presale:rebalance-lp` scales the token side down to the
+realised raise once the deposit window closes, holding the opening price at parity for any
+raise between the caps. It only ever reduces the allocation, refuses before the window closes,
+refuses once the pool exists, and reads the result back. The 100M figure remains the ceiling.
 
 ---
 
@@ -427,6 +452,26 @@ and the BUSL-1.1 license.
 - [ ] **Freeze authority revoked** (no wallet freezes; credibly neutral).
 - [ ] **LP permanently locked** (never-claim) or burned, with public proof.
 - [ ] **Squads multisig** treasury + **time-lock** on privileged actions; no single signer.
+- [ ] **`treasury.authority` set to the Squads vault PDA *at `presale:create`*.** This is
+      immutable once `initializeV2` runs, and a review of the Genesis SDK on 2026-07-26 found
+      the genesis authority is considerably more powerful than this roadmap previously
+      assumed. It can:
+
+      | Instruction | Power |
+      |---|---|
+      | `setPresaleBucketV2Behaviors` | replace the presale bucket's `endBehaviors` wholesale — lower, repoint or delete the raise→liquidity split before it is triggered |
+      | `updateRaydiumCpmmBucketV2` | change the LP `baseTokenAllocation` and the pool start condition |
+      | `updateGenesisV2` | **mint or burn base supply** (`mintAmount` / `burnAmount`), and transfer the authority |
+      | `updatePresaleBucketV2` | change presale bucket parameters |
+      | `revokeV2` | revoke the base mint's mint/freeze authority |
+
+      Two consequences worth stating plainly. First, in `mint` funding mode the fixed-supply
+      guarantee is **not** established until `revokeV2` is called — until then the genesis
+      authority can mint more; add it to the post-sale runbook. Second, none of these powers
+      can be renounced: `revokeV2` revokes the *token's* authorities, not the genesis
+      account's, and there is no "renounce genesis authority" instruction. A multisig is the
+      only available mitigation, which is why this item is a hard gate rather than a
+      preference.
 - [ ] **Independent audit** of the presale/vesting contracts (and any custom program) before
       the sale; report published.
 - [ ] **Anti-snipe / anti-bot** at TGE; per-wallet caps enforced.

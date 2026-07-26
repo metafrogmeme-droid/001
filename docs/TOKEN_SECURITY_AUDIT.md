@@ -25,10 +25,47 @@ true of the current tree. What changed, and when:
 | 2026-07-26 | Cluster guards verified against live chains (`scripts/cluster_guard.test.mjs`) | The audit environment returned 403 for `api.devnet.solana.com`, so the three genesis-hash constants were asserted from memory rather than observed. Devnet is now reachable and all three were confirmed against the live chains, including that real mainnet-beta is refused. |
 | 2026-07-26 | npm advisory ratchet in CI (`token/scripts/audit_gate.mjs`) | Narrows "**Dependency advisories are current only as of the audit date** … a new advisory landing tomorrow will not surface anywhere." New advisories now fail CI. The 37 recorded here (1 critical, 15 high) are baselined, still outstanding, and still block a value-bearing deployment. |
 
+| 2026-07-26 | Genesis SDK read directly (`token/node_modules`, unavailable during the audit) | Corrects an overstatement and closes **F-25**. See below. |
+
 Unchanged and still open: no live devnet deployment or SBF build has happened
 (blocked on faucet funding, not on code), no third-party audit exists, the
 program upgrade authority is still a single key, and the Anchor IDL account
 lifecycle noted below remains unowned.
+
+### Correction to the F-11 remediation, and a new authority finding
+
+The audit could not read the Genesis SDK — `token/node_modules` was not
+installed — so every statement about that program was, in this report's own
+words, "an inference from the SDK surface, not an observation". The SDK has now
+been read, and it corrects a claim this repository shipped.
+
+**The raise→liquidity split is verifiable, not immutable.** PR #836 stated that
+encoding `SendQuoteTokenPercentage` as an end behavior meant "the operator can
+neither change the share nor decline to send it". That is false.
+`setPresaleBucketV2Behaviors` takes the genesis authority and replaces
+`endBehaviors` wholesale, so the share can be lowered, repointed or deleted at
+any time before it is triggered; `triggerBehaviorsV2` being permissionless only
+means a participant can win that race. The tooling now re-reads the live bucket
+before every irreversible step and refuses on a mismatch, so a silent change is
+*detectable*. It is not *prevented* — that needs the genesis authority to be a
+multisig.
+
+**The genesis authority is broader than the audit assumed.** F-02 and the
+`treasury.authority` warning covered the sale, proceeds and unsold-token
+withdrawal. The SDK shows it also reaches `updateGenesisV2`, which carries
+`mintAmount` and `burnAmount` — so in `mint` funding mode the fixed-supply
+property does not hold until `revokeV2` is called. There is no instruction to
+renounce the genesis authority itself. Recorded as a hard gate in
+`docs/TOKEN_ROADMAP.md` §11.
+
+**F-25 is now fixable and fixed.** The report concluded that the soft-cap spread
+needed a product decision because the LP token side is fixed while the SOL side
+scales. `updateRaydiumCpmmBucketV2` accepts an optional `baseTokenAllocation`,
+so the token side can be scaled to the realised raise once the deposit window
+closes — holding the pool's opening price at the presale price for any raise
+between the caps. Shipped as `presale:rebalance-lp`, with the arithmetic pinned
+in `token/presale/lp_parity.test.mjs`. It is an authority action, so it inherits
+the multisig requirement above.
 
 ## Scope
 

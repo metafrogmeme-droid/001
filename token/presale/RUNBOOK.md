@@ -45,6 +45,13 @@ npm run presale:whitelist        # build the Merkle allowlist from config.whitel
 npm run presale:create           # initializeV2 (genesis account) + addPresaleBucketV2 (+ allowlist)
 npm run presale:liquidity        # addRaydiumCpmmBucketV2 with a permanent LP lock
 npm run presale:deposit -- --amount 1   # depositPresaleV2 (auto-presents whitelist proof)
+# ---- deposit window closes; the raise is now FINAL ----
+npm run presale:rebalance-lp     # updateRaydiumCpmmBucketV2 — scales the LP TOKEN side down to
+                                 # the realised raise so the pool opens AT the presale price.
+                                 # Without it a soft-cap raise opens the pool ~5x below what
+                                 # buyers paid, and the LP lock is permanent. Only ever reduces
+                                 # the allocation; refuses before the window closes and once the
+                                 # pool exists. MUST run before presale:trigger.
 npm run presale:trigger          # triggerBehaviorsV2 — routes the 66.67% quote share to the
                                  # liquidity bucket. Permissionless: ANYONE may run it once
                                  # the deposit window closes. Required before the pool is real.

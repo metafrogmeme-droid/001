@@ -44,6 +44,7 @@ import {
   buildAllowlist,
   proofToPublicKeys,
   deriveLiquidityParams,
+  rebalancedLpAllocation,
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
   TOKEN_ROOT,
@@ -174,7 +175,9 @@ function cmdPlan() {
     `SendQuoteTokenPercentage end behavior on the presale bucket (${lp.raisedSolToLiquidityBps} bps), ` +
     'executed by the permissionless presale:trigger after the deposit window closes.');
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
-  console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → (window closes) → presale:trigger → presale:claim.');
+  console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → (window closes) → presale:rebalance-lp → presale:trigger → presale:claim.');
+  console.log('       rebalance-lp scales the LP token side to the REALISED raise so the pool opens at the presale');
+  console.log('       price rather than below it — run it after the window closes and before the pool is created.');
 }
 
 // ── create: initializeV2 + addPresaleBucketV2 ───────────────────────────────
@@ -398,9 +401,22 @@ async function cmdCreate() {
   // Previously `raisedSolToLiquidityBps` was config text that no instruction
   // read: the token side of the pool was locked irrevocably while the SOL side
   // stayed entirely at the operator's discretion. As an `endBehaviors` entry the
-  // program itself moves the quote tokens, the percentage is fixed at bucket
-  // creation, and `triggerBehaviorsV2` is permissionless — so any participant
-  // can execute it and the operator cannot quietly decline to.
+  // program itself moves the quote tokens, and `triggerBehaviorsV2` is
+  // permissionless, so any participant can execute it.
+  //
+  // CORRECTION (2026-07-26). An earlier revision of this comment, and PR #836,
+  // said the percentage is "fixed at bucket creation" and that the operator
+  // "can neither change the share nor decline to send it". That is FALSE.
+  // `setPresaleBucketV2Behaviors` takes the genesis authority and replaces
+  // `endBehaviors` wholesale, so the share can be lowered, repointed or deleted
+  // right up until someone triggers it. The permissionless trigger only means a
+  // participant can win that race.
+  //
+  // What this actually buys is PUBLIC VERIFIABILITY, not immutability: the value
+  // lives in an account anyone can read, and assertEncodedSplitOnChain() checks
+  // it before the irreversible steps. Making it truly immutable needs the
+  // genesis authority to be a multisig — which is the treasury.authority
+  // requirement already flagged below.
   //
   // destinationBucket is a PDA derived from (genesisAccount, bucketIndex), so it
   // is addressable before the liquidity bucket exists (derived above, alongside
@@ -588,6 +604,10 @@ async function cmdLiquidity() {
     }
   }
 
+  // The artifact records what was encoded at creation; the chain records what is
+  // encoded NOW. Only the second one executes, and the authority can change it.
+  await assertEncodedSplitOnChain(umi, a, cfg);
+
   console.log(`Adding Raydium CPMM liquidity bucket (${cfg.liquidity.tokenAllocation} ${cfg.token.symbol}, permanent LP lock)…`);
   if (lp.raisedSolToLiquidityBps > 0) {
     console.log(
@@ -702,6 +722,7 @@ async function cmdTrigger() {
     `${a.quoteSplitBps} bps (${a.quoteSplitBps / 100}%) of the raise -> ${a.liquidityBucket}`
   );
   console.log('Note: this only succeeds once the deposit window has closed.');
+  await assertEncodedSplitOnChain(umi, a, loadConfig());
 
   const sig = await sendChecked(
     triggerBehaviorsV2(umi, {
@@ -714,6 +735,185 @@ async function cmdTrigger() {
   );
   console.log('Behaviors executed. tx:', sig);
   console.log('Verify the liquidity bucket received the quote share before announcing the pool.');
+}
+
+/**
+ * Read the presale bucket's end behaviors FROM CHAIN and check the quote split
+ * is still what the config says.
+ *
+ * This exists because a claim shipped in #836 was wrong. That PR said the split
+ * was "fixed at bucket creation" and that "the operator can neither change the
+ * share nor decline to send it". The SDK has `setPresaleBucketV2Behaviors`
+ * (discriminator 80), which takes the genesis authority and REPLACES
+ * `endBehaviors` wholesale. So the authority can lower the percentage, repoint
+ * the destination, or delete the behavior entirely, at any time before someone
+ * triggers it. `triggerBehaviorsV2` being permissionless means a participant can
+ * win the race — it does not mean the authority cannot move first.
+ *
+ * What is actually true is weaker and worth stating plainly: the split is
+ * PUBLICLY VERIFIABLE rather than immutable. This function is what makes that
+ * real — it reads the live account instead of trusting the creation-time
+ * artifact, so a silent change is detectable by anyone before the irreversible
+ * steps run.
+ */
+async function assertEncodedSplitOnChain(umi, artifact, cfg) {
+  const { fetchPresaleBucketV2 } = await import('@metaplex-foundation/genesis');
+  const wantBps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
+  if (wantBps <= 0) return null;
+
+  const bucket = await fetchPresaleBucketV2(umi, publicKey(artifact.bucket));
+  const split = (bucket.endBehaviors || []).find(
+    (b) => b.__kind === 'SendQuoteTokenPercentage'
+  );
+  if (!split) {
+    throw new Error(
+      `The presale bucket on chain carries NO SendQuoteTokenPercentage behavior, but the config ` +
+      `expects ${wantBps} bps routed to the pool.\n` +
+      'The genesis authority can replace end behaviors with setPresaleBucketV2Behaviors, so this ' +
+      'is a state someone can produce deliberately. Do not proceed: the SOL side of the pool ' +
+      'would never arrive.'
+    );
+  }
+  if (Number(split.percentageBps) !== wantBps) {
+    throw new Error(
+      `On-chain quote split is ${split.percentageBps} bps but the config says ${wantBps} bps. ` +
+      'The on-chain value is what executes. Reconcile before proceeding.'
+    );
+  }
+  const wantDest = artifact.liquidityBucket;
+  if (String(split.destinationBucket) !== String(wantDest)) {
+    throw new Error(
+      `On-chain quote split points at ${split.destinationBucket}, not the liquidity bucket ` +
+      `${wantDest}. The raise would be routed somewhere else.`
+    );
+  }
+  console.log(
+    `  verified on chain: SendQuoteTokenPercentage ${split.percentageBps} bps -> ` +
+    `${split.destinationBucket}${split.processed ? ' (ALREADY PROCESSED)' : ''}`
+  );
+  return split;
+}
+
+// ── rebalance-lp: scale the LP token side to the realised raise ─────────────
+//
+// THE SOFT-CAP FIX. The audit (F-25) recorded that at the soft cap the pool
+// opens ~5x below the presale price, and `deriveLiquidityParams` says outright
+// that "scaling the allocation with the raise is the only real fix". This is
+// that fix: `updateRaydiumCpmmBucketV2` takes an optional `baseTokenAllocation`,
+// so once the deposit window closes and the raise is FINAL, the token side can
+// be set to the value that opens the pool exactly at the presale price.
+//
+// It is an authority action, not a protocol guarantee, and the same instruction
+// that fixes the problem could be used to open the pool at an absurd price. So
+// every guard below is load-bearing: the value is computed, never passed in; it
+// can only ever go DOWN; the raise must be final; and the pool must not exist.
+async function cmdRebalanceLp() {
+  const cfg = loadConfig();
+  const env = loadEnv();
+  const umi = makeUmi(env);
+  await assertDevnet(umi);
+  const a = requirePresale();
+
+  const { fetchPresaleBucketV2, fetchRaydiumCpmmBucketV2, updateRaydiumCpmmBucketV2 } =
+    await import('@metaplex-foundation/genesis');
+
+  const presaleBucket = await fetchPresaleBucketV2(umi, publicKey(a.bucket));
+  const lpBucket = await fetchRaydiumCpmmBucketV2(umi, publicKey(a.liquidityBucket));
+
+  // The raise must be FINAL. Rebalancing mid-window prices the pool off a
+  // partial raise, and every deposit after it re-breaks the parity it just set.
+  const depositEndSec = Math.floor(Date.parse(cfg.timeline.depositEnd) / 1000);
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!(nowSec >= depositEndSec) && !process.argv.includes('--force')) {
+    throw new Error(
+      `The deposit window has not closed (ends ${cfg.timeline.depositEnd}). The raise is not ` +
+      'final, so any allocation computed now is wrong the moment the next deposit lands. ' +
+      'Wait for the window to close.'
+    );
+  }
+
+  // A created pool cannot be repriced — the allocation is spent.
+  if (lpBucket.graduatedBaseTokenAmount > 0n) {
+    throw new Error(
+      `The pool has already been created (graduatedBaseTokenAmount = ` +
+      `${lpBucket.graduatedBaseTokenAmount}). Its price is set and the LP lock is permanent; ` +
+      'there is nothing left to rebalance.'
+    );
+  }
+
+  const raised = presaleBucket.quoteTokenDepositTotal;
+  const { allocation, parity, configured, clamped } = rebalancedLpAllocation(cfg, raised);
+  const current = lpBucket.bucket.baseTokenAllocation;
+
+  const dec = 10 ** cfg.token.decimals;
+  const asTokens = (n) => (Number(n) / dec).toLocaleString(undefined, { maximumFractionDigits: 3 });
+  const quoteToPool = (raised * BigInt(cfg.liquidity.raisedSolToLiquidityBps)) / 10_000n;
+  const priceOf = (base) => (base === 0n ? Infinity : Number(quoteToPool) / Number(base));
+
+  console.log('=== LP rebalance (DEVNET / DRAFT) ===');
+  console.log('Raise (final)   :', `${Number(raised) / 1e9} SOL`, `(${raised} lamports)`);
+  console.log('Quote to pool   :', `${Number(quoteToPool) / 1e9} SOL`,
+    `(${cfg.liquidity.raisedSolToLiquidityBps / 100}%)`);
+  console.log('Presale price   :', fixedPriceSolPerToken(cfg).toExponential(6), 'SOL/token');
+  console.log('Current alloc   :', asTokens(current), `-> pool opens at ${priceOf(current).toExponential(6)}`);
+  console.log('Parity alloc    :', asTokens(parity), `-> pool opens at ${priceOf(parity).toExponential(6)}`);
+  if (clamped) {
+    console.log('  (clamped to the configured allocation ' + asTokens(configured) +
+      ' — parity would need more tokens than the bucket was created with, so the pool ' +
+      'opens slightly ABOVE the presale price instead.)');
+  }
+
+  if (allocation === 0n) {
+    throw new Error('Computed allocation is 0 — nothing was raised. Refusing to zero the pool.');
+  }
+  // Only ever downward. An increase is not a parity correction, and the tokens
+  // to back it may not exist in the bucket.
+  if (allocation > current) {
+    throw new Error(
+      `Refusing to INCREASE the LP allocation (${asTokens(current)} -> ${asTokens(allocation)}). ` +
+      'This command only scales the token side down to meet the realised raise. An increase ' +
+      'is a different decision and needs the tokens to actually be in the bucket.'
+    );
+  }
+  if (allocation === current) {
+    console.log('\nAlready at the correct allocation — nothing to do.');
+    return;
+  }
+
+  const sig = await sendChecked(
+    updateRaydiumCpmmBucketV2(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      bucket: publicKey(a.liquidityBucket),
+      padding: [0, 0, 0, 0, 0, 0, 0],
+      baseTokenAllocation: allocation,
+      startCondition: null, // leave the pool-start timing exactly as configured
+    }),
+    umi,
+    'updateRaydiumCpmmBucketV2'
+  );
+  console.log('\nRebalanced. tx:', sig);
+
+  // Read back rather than trust the send. The whole point of this command is the
+  // number that ends up on-chain, and it becomes irreversible at pool creation.
+  const after = await fetchRaydiumCpmmBucketV2(umi, publicKey(a.liquidityBucket));
+  const wrote = after.bucket.baseTokenAllocation;
+  if (wrote !== allocation) {
+    throw new Error(
+      `VERIFICATION FAILED: wrote ${allocation} but the bucket reads ${wrote}. Do NOT let the ` +
+      'pool be created until this is understood.'
+    );
+  }
+  console.log('Verified on-chain:', asTokens(wrote), 'base tokens ->',
+    `pool opens at ${priceOf(wrote).toExponential(6)} SOL/token`);
+  saveArtifact(PRESALE_ARTIFACT, {
+    ...a,
+    lpRebalance: {
+      raisedLamports: raised.toString(),
+      baseTokenAllocation: wrote.toString(),
+      clamped,
+      tx: sig,
+    },
+  });
 }
 
 // ── claim: claimPresaleV2 ───────────────────────────────────────────────────
@@ -746,6 +946,7 @@ const table = {
   create: cmdCreate,
   liquidity: cmdLiquidity,
   trigger: cmdTrigger,
+  'rebalance-lp': cmdRebalanceLp,
   deposit: cmdDeposit,
   claim: cmdClaim,
   withdraw: cmdWithdraw,
@@ -763,7 +964,7 @@ if (invokedDirectly) {
   if (!table[cmd]) {
     console.error(
       'Usage: node genesis_presale.mjs ' +
-        '<plan|whitelist|create|liquidity|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
+        '<plan|whitelist|create|liquidity|rebalance-lp|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
     );
     process.exit(2);
   }

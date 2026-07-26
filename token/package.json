@@ -22,6 +22,7 @@
     "bridge:plan": "node bridge/ntt_bridge.mjs plan",
     "bridge:transfer": "node bridge/ntt_bridge.mjs transfer",
     "presale:trigger": "node presale/genesis_presale.mjs trigger",
+    "presale:rebalance-lp": "node presale/genesis_presale.mjs rebalance-lp",
     "test": "node --test presale/*.test.mjs scripts/*.test.mjs",
     "test:network": "RUN_NETWORK_TESTS=1 node --test presale/*.test.mjs scripts/*.test.mjs",
     "audit:gate": "node scripts/audit_gate.mjs",
