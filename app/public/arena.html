@@ -218,6 +218,7 @@
   <section class="panel" id="acctPanel" hidden>
     <h2><span data-i18n="arena.p_account">Your paper account</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_virtual">· virtual funds only</span></h2>
     <div class="stats" id="stats"></div>
+    <p class="muted" id="heatLine" hidden style="font-size:var(--fs-xs);margin-top:6px" aria-live="polite"></p>
     <div class="badges" id="badges"></div>
     <div id="quests" hidden></div>
     <div id="discipline" hidden></div>
@@ -360,7 +361,8 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=70"></script>
+<script src="/js/i18n.js?v=71"></script>
+<script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -606,6 +608,28 @@ window.addEventListener('unhandledrejection', rcReportPageError);
       + '<div class="stat"><div class="k">Equity</div><div class="v"><span id="vEq"></span> <span class="muted">vUSDT</span></div></div>'
       + '<div class="stat"><div class="k">Return</div><div class="v ' + pnlCls(r) + '"><span id="vRet"></span></div></div>'
       + '<div class="stat"><div class="k">Open positions</div><div class="v">' + d.positions.length + ' <span class="muted">/ ' + d.limits.max_open + '</span></div></div>';
+    // Portfolio heat — what the book loses if EVERY stop fills at its
+    // trigger, against current equity. A stopless position has no cap, so
+    // it is COUNTED as unbounded, never folded into a reassuring total.
+    (function () {
+      var el = $('heatLine');
+      if (!el) return;
+      var R = window.RCArenaRisk;
+      if (!R || !d.positions.length) { el.hidden = true; return; }
+      var h = R.heat(d.positions, d.equity);
+      var parts = [];
+      if (h.pct != null) {
+        parts.push('<span title="' + esc(T('arena.heat_t',
+          'Heat sums each stopped position’s loss-at-stop against current equity. Arithmetic, not a forecast: stops fill at their trigger price here, a gapping market can be worse, and fees are excluded.'))
+          + '">🔥 ' + esc(fill(T('arena.heat', 'Portfolio heat: if every stop filled, −{p}% of equity across {n} stopped position(s).'), { p: h.pct, n: h.stopped })) + '</span>');
+      }
+      if (h.unbounded > 0) {
+        parts.push('<span class="down-c">' + esc(fill(T('arena.heat_unb',
+          '{m} position(s) without a stop — risk unbounded until liquidation.'), { m: h.unbounded })) + '</span>');
+      }
+      el.innerHTML = parts.join(' ');
+      el.hidden = parts.length === 0;
+    })();
     // Purposeful motion: numbers travel from where they WERE to where they are
     // (first paint rises from zero). RC.countUp respects prefers-reduced-motion.
     var from = prevStats || { balance: 0, equity: 0, ret: 0 };
@@ -626,6 +650,15 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         + '<td>' + fmtP(p.entry) + '</td><td>' + fmtP(p.mark) + '</td>'
         + '<td class="' + pnlCls(p.pnl) + pulseCls(p) + '">' + (p.pnl == null ? '—' : (p.pnl > 0 ? '+' : '') + fmt2(p.pnl) + ' (' + (p.pnl_pct > 0 ? '+' : '') + fmt2(p.pnl_pct) + '%)') + '</td>'
         + '<td><span class="up-c">' + (p.tp != null ? fmtP(p.tp) : '—') + '</span> / <span class="down-c">' + (p.sl != null ? fmtP(p.sl) : '—') + '</span>'
+        + (function () {
+          // What this stop actually caps, as a share of current equity —
+          // same clamp as the engine's fill math, cross-pinned by test.
+          var rp = window.RCArenaRisk && d.equity > 0 ? RCArenaRisk.riskPct(p, d.equity) : null;
+          if (rp == null) return '';
+          return ' <span class="read-chip" style="font-size:10px;padding:1px 6px" title="'
+            + esc(T('arena.risk_chip_t', 'If this stop fills at its trigger price, the loss is this share of current equity. A gapping market can be worse; fees excluded.'))
+            + '">−' + rp + '%</span>';
+        })()
         + (p.trail_pct ? ' <span class="read-chip" style="font-size:10px;padding:1px 6px" title="' + esc(T('arena.trail_t', 'Trailing stop — the level tightens as the mark improves, evaluated whenever the account is read with a live price. It never loosens, and unobserved highs never tighten it.')) + '">⟲ ' + p.trail_pct + '%</span>' : '')
         + (p.exits_edited ? ' <span class="muted" style="font-size:10px" title="' + esc(T('arena.x_edited_t', 'Exits moved after open — the sealed receipt records the ORIGINAL levels')) + '">✎' + esc(T('arena.x_edited', ' moved')) + '</span>' : '')
         + ' <button class="chartbtn" data-exits="' + p.id + '" type="button" title="' + esc(T('arena.x_edit_t', 'Move take-profit / stop-loss — validated against the live mark')) + '">✎</button></td>'
@@ -1181,6 +1214,17 @@ window.addEventListener('unhandledrejection', rcReportPageError);
           html += '<span class="' + (rr >= 1.5 ? '' : 'hot') + '">R:R ' + rr.toFixed(1) + ' : 1</span>';
         } else if ((tp > 0 && reward <= 0) || (sl > 0 && risk <= 0)) {
           html += '<span class="hot">TP/SL on the wrong side of the mark</span>';
+        }
+        // The number the stop actually caps — loss-at-stop as a share of
+        // equity, using the live mark as the would-be entry. Same clamped
+        // math as the engine's fill; equity from the last account read.
+        if (sl > 0 && risk > 0 && window.RCArenaRisk && lastAccount && lastAccount.equity > 0) {
+          var stopPct = RCArenaRisk.riskPct(
+            { entry: liveMark, margin: m, leverage: lv, sl: sl, direction: direction }, lastAccount.equity);
+          if (stopPct != null) {
+            html += '<span class="' + (stopPct > 2 ? 'hot' : '') + '">'
+              + fill(T('arena.rp_stop', 'your stop caps this trade at −{p}% of equity'), { p: stopPct }) + '</span>';
+          }
         }
       }
       $('riskPreview').innerHTML = html;
