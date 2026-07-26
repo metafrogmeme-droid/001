@@ -842,9 +842,17 @@ class MemoryDB {
     }
 
     if (cmd.startsWith('UPDATE USERS SET SOL_ADDRESS')) {
-      // params: [sol_address|null, id] — Solana watch address (read-only mirror)
-      const user = this.users.find(u => u.id === params[1]);
-      if (user) user.sol_address = params[0];
+      // Two shapes, and the shim must honour BOTH — matching only the first
+      // silently no-ops the second, which is how a shim quietly diverges from
+      // the database it stands in for:
+      //   [sol_address|null, id]                → address only
+      //   [sol_address|null, sol_verified, id]  → address + ownership claim
+      const withVerified = params.length === 3;
+      const user = this.users.find(u => u.id === params[withVerified ? 2 : 1]);
+      if (user) {
+        user.sol_address = params[0];
+        if (withVerified) user.sol_verified = params[1];
+      }
       return [{ affectedRows: user ? 1 : 0 }, []];
     }
 
@@ -1284,6 +1292,15 @@ async function migrate() {
     // Solana WATCH address (base58, read-only mirror — no signing surface).
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN sol_address VARCHAR(48) DEFAULT NULL');
+    } catch (e) { /* exists */ }
+    // Was that address PROVEN by an ed25519 signature, or merely typed in?
+    // The server has always verified the signature correctly and returned the
+    // answer — then discarded it, so a proven address and a pasted one were
+    // stored identically and both rendered as "watch address". Defaults to 0,
+    // which is the honest reading of every row that existed before this column:
+    // unverified until someone signs.
+    try {
+      await pool.execute('ALTER TABLE users ADD COLUMN sol_verified TINYINT(1) NOT NULL DEFAULT 0');
     } catch (e) { /* exists */ }
     try {
       await pool.execute('CREATE UNIQUE INDEX idx_users_wallet_address ON users (wallet_address)');

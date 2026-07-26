@@ -4030,11 +4030,20 @@
         const solAddrHtml = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(d.sol_address || '')
           ? `<a href="https://solscan.io/account/${esc(d.sol_address)}" target="_blank" rel="noopener" class="num">${esc(solShort)} ↗</a>`
           : `<b class="num">${esc(solShort)}</b>`;
+        // A signed address and a pasted one are NOT the same claim, and the
+        // panel used to call both "watch address". Signing proves ownership;
+        // pasting proves only that someone can type. Say which one this is.
         const solBlock = d.sol_address
           ? `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
-              <p class="small" style="color:var(--text-2)">◎ Solana watch address ${solAddrHtml} —
-                SOL and major SPL balances mirror read-only into Portfolio.</p>
-              <button class="btn btn--sm" id="solUnwatch" type="button">Stop watching</button></div>`
+              <p class="small" style="color:var(--text-2)">◎ ${d.sol_verified
+                ? `<span style="color:var(--up)">✓ ${esc(T('dd.s_verified', 'Ownership verified by signature'))}</span>`
+                : `<span style="color:var(--text-3)">${esc(T('dd.s_watch_only', 'Watch-only — not verified'))}</span>`
+              } ${solAddrHtml} — ${esc(T('dd.s_mirror', 'SOL and major SPL balances mirror read-only into Portfolio.'))}</p>
+              ${d.sol_verified ? '' : `<p class="small muted">${esc(T('dd.s_watch_note',
+                'Anyone can paste any address here, so this one is not proof of ownership. '
+                + 'Connect and sign to prove it is yours.'))}</p>`}
+              <button class="btn btn--sm" id="solUnwatch" type="button">${esc(
+                T('dd.s_stop', 'Stop watching'))}</button></div>`
           : `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
               <p class="small muted">Also on Solana? Connect Phantom/Backpack to verify ownership, or paste an address to watch read-only. Either way it never signs a transaction.</p>
               <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s2)">

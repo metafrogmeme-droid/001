@@ -890,8 +890,12 @@ router.post('/wallet/solana', authMiddleware, async (req, res) => {
       await _linkStore.delNonce('sol:' + address); // single-use
       verified = true;
     }
-    await pool.execute('UPDATE users SET sol_address = ? WHERE id = ?',
-      [address, req.user.user_id]);
+    // Persist WHICH of the two this was. Storing only the address threw the
+    // ed25519 result away, so a proven wallet and a pasted string were
+    // indistinguishable on the next page load — and the UI called both a
+    // "watch address", understating one and overstating the other.
+    await pool.execute('UPDATE users SET sol_address = ?, sol_verified = ? WHERE id = ?',
+      [address, verified ? 1 : 0, req.user.user_id]);
     res.json({ ok: true, sol_address: address, verified });
   } catch (err) {
     console.error('Solana link error:', err.stack || err.message);
@@ -901,7 +905,7 @@ router.post('/wallet/solana', authMiddleware, async (req, res) => {
 
 router.post('/wallet/solana/unlink', authMiddleware, async (req, res) => {
   try {
-    await pool.execute('UPDATE users SET sol_address = ? WHERE id = ?',
+    await pool.execute('UPDATE users SET sol_address = ?, sol_verified = 0 WHERE id = ?',
       [null, req.user.user_id]);
     res.json({ ok: true });
   } catch (err) {

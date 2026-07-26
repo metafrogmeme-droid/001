@@ -25,6 +25,9 @@ router.get('/portfolio', async (req, res) => {
     const u = rows[0] || {};
     const address = u.wallet_address || null;
     const solAddress = u.sol_address || null;
+    // Proven by signature, or merely typed? The panel must not present the two
+    // as the same thing.
+    const solVerified = !!Number(u.sol_verified || 0);
     if (!address && !solAddress) return res.json({ address: null, linked: false });
 
     const p = address ? await wallet.getWalletPortfolio(address) : null;
@@ -44,6 +47,7 @@ router.get('/portfolio', async (req, res) => {
       read_only: true,
       address,
       sol_address: solAddress,
+      sol_verified: solVerified,
       chain: 'multi',
       chains,
       assets,
