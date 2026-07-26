@@ -60,10 +60,20 @@
         box.innerHTML = '<div class="root-row"><span class="muted">No completed day has sealed calls yet — the first root appears the day after the first seals are minted. Honest ledgers start empty.</span></div>';
         return;
       }
+      var T = function (k, en) {
+        try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+        catch (e) { return en; }
+      };
       box.innerHTML = roots.map(function (r) {
+        // Anchored: the block timestamp is the independent upper bound on
+        // every seal in the day. Unanchored says so plainly — never implied.
+        var anchor = r.anchor_tx
+          ? '<a class="n" style="color:var(--up)" href="https://basescan.org/tx/' + esc(r.anchor_tx) + '" target="_blank" rel="noopener">⛓ '
+            + esc(T('rt.anchored', 'anchored on Base')) + '</a>'
+          : '<span class="n">' + esc(T('rt.unanchored', 'not yet anchored on-chain')) + '</span>';
         return '<div class="root-row">'
           + '<div class="hd"><span class="day">' + esc(r.day) + '</span>'
-          + '<span class="n">' + (Number(r.seal_count) || 0) + ' seals committed</span></div>'
+          + '<span class="n">' + (Number(r.seal_count) || 0) + ' seals committed</span>' + anchor + '</div>'
           + '<div class="root-hash" data-root="' + esc(r.root) + '" title="Click to copy" role="button" tabindex="0">' + esc(r.root) + '</div>'
           + '</div>';
       }).join('');
@@ -84,6 +94,6 @@
   }
 })();
 </script>
-<script src="/js/i18n.js?v=64"></script>
+<script src="/js/i18n.js?v=65"></script>
 </body>
 </html>

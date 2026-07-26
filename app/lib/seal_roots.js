@@ -46,7 +46,7 @@ async function rootForDay(day) {
   if (!DAY_RE.test(String(day))) return null;
   if (String(day) >= dayOf(Date.now())) return null;   // the day is still open
   try {
-    const [rows] = await pool.execute('SELECT day, root, seal_count, leaves, computed_at FROM seal_roots WHERE day = ?', [day]);
+    const [rows] = await pool.execute('SELECT day, root, seal_count, leaves, computed_at, anchor_tx, anchored_at FROM seal_roots WHERE day = ?', [day]);
     if (rows[0]) return rows[0];
   } catch (e) { return null; }
   const leaves = await sealsForDay(day);
@@ -73,7 +73,7 @@ async function listRoots(limit = 30, scan = 7) {
   }
   try {
     const [rows] = await pool.execute(
-      `SELECT day, root, seal_count, computed_at FROM seal_roots ORDER BY day DESC LIMIT ${Math.min(Number(limit) || 30, 90)}`);
+      `SELECT day, root, seal_count, computed_at, anchor_tx, anchored_at FROM seal_roots ORDER BY day DESC LIMIT ${Math.min(Number(limit) || 30, 90)}`);
     return rows;
   } catch (e) { return []; }
 }

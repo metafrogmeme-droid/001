@@ -554,6 +554,13 @@ class MemoryDB {
     }
 
     // -- SEAL ROOTS (Provable Calls v3 — one immutable Merkle root per UTC day) --
+    if (cmd.includes('UPDATE SEAL_ROOTS')) {
+      // Anchor record: SET anchor_tx = ?, anchored_at = ? WHERE day = ? AND anchor_tx IS NULL
+      // First anchor wins — an anchored root is immutable like the root itself.
+      const row = this.sealRoots.find(r => r.day === params[2] && r.anchor_tx == null);
+      if (row) { row.anchor_tx = params[0]; row.anchored_at = params[1]; }
+      return [{ affectedRows: row ? 1 : 0 }, []];
+    }
     if (cmd.includes('INSERT INTO SEAL_ROOTS')) {
       // params: day, root, seal_count, leaves, computed_at — first write wins (immutable)
       if (!this.sealRoots.some(r => r.day === params[0])) {
@@ -1791,11 +1798,16 @@ async function migrate() {
         root VARCHAR(64) NOT NULL,
         seal_count INT NOT NULL,
         leaves MEDIUMTEXT NULL,
-        computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        anchor_tx VARCHAR(66) NULL,
+        anchored_at TIMESTAMP NULL
       )
     `);
+    // Anchor columns for pre-existing deployments.
+    try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchor_tx VARCHAR(66) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchored_at TIMESTAMP NULL'); } catch (e) { /* present */ }
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS arena_seasons (
+      CREATE TABLE IF NOT EXISTS arena_seasons
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(60) NOT NULL,
         starts_at TIMESTAMP NOT NULL,
