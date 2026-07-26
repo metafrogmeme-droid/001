@@ -879,7 +879,7 @@ disclosed.
 | `PINNED_MINT` | Enforcement observed at runtime (`UnexpectedMint` 6005); malformed pin fails closed | No real mint exists to pin yet |
 | Tier gate (`tier_gate.py`) | 17 tests incl. mint-filter and byte-layout locks | Never read a real on-chain stake account |
 | Genesis presale scripts | **Executed on devnet and on a local validator** (2026-07-26): `create` → `liquidity` → `allocate` → `finalize` → `deposit` → `trigger` → `claim` all land. `presale:plan` derives real params offline; allowlist args serialize with the real serializer | `withdraw`/`withdraw-unsold` are V1-only and **cannot run at all** against the V2 presale this tooling creates. Unsold supply is handled instead by a `BaseTokenRollover` behavior (executed and verified); the **depositor refund has no mechanism for this bucket type**; a LaunchPool bucket does have one (`refundLaunchPoolV2`), untested — see §5 |
-| e2e harness | **Full lifecycle green** against a local validator, and previously against devnet | Never run against a public cluster with more than one depositor; no concurrency coverage |
+| e2e harness | **Full lifecycle green** against a local validator, and previously against devnet. The **gated round is proven too** (`npm run e2e:whitelist`): invited wallet admitted, uninvited wallet refused, uninvited admitted after expiry — two wallets, on chain | Never run against a public cluster; no concurrency coverage beyond the two-wallet allowlist test |
 | Wormhole bridge | Script resolves + typechecks | No NTT deployment, no transfer |
 | Anchor TS spec | `npm run typecheck` passes | **Never executed** — needs the Anchor/Solana CLIs |
 

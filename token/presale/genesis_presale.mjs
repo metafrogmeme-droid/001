@@ -710,27 +710,37 @@ async function cmdDeposit() {
     baseMint: publicKey(a.baseMint),
     amountQuoteToken,
   };
-  // The allowlist applies only INSIDE the whitelist window. Gating on "does the
-  // artifact exist on disk" instead meant that once a run produced the file, every
-  // non-whitelisted wallet was refused forever — including throughout the public
-  // round the allowlist was supposed to have expired before.
+  // Whitelist proofs. Two decisions here, and the first one used to be made by
+  // the wrong clock.
+  //
+  // ALWAYS PRESENT A PROOF IF WE HAVE ONE. The client used to present it only
+  // when `Date.now()` said the gated round was still open, while the PROGRAM
+  // decides whether to require one from the on-chain Clock. Those disagree by
+  // however far the cluster lags — 14.8 seconds on the validator this was found
+  // on. Inside that window a wallet that IS whitelisted sends no proof, the
+  // program still wants one, and the deposit dies with
+  //
+  //     Program log: The merkle proof is invalid   (custom program error 0x4a)
+  //
+  // which reads like a corrupted allowlist and is really two clocks disagreeing.
+  // The wallets it hits are exactly the ones that were invited.
+  //
+  // A proof presented AFTER the allowlist expires is harmless — verified on a
+  // validator, deposit lands normally — so there is no reason to withhold it and
+  // every reason not to guess. This removes the client's dependence on clock
+  // agreement entirely.
   const wl = readArtifact(ALLOWLIST_ARTIFACT);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const publicStartSec = Math.floor(Date.parse(cfg.timeline.publicStart) / 1000);
-  const inWhitelistWindow = Number.isFinite(publicStartSec) && nowSec < publicStartSec;
-  if (wl && inWhitelistWindow) {
+  let allowlistContext = null;
+  if (wl) {
     const me = umi.identity.publicKey.toString();
     const hexProof = wl.proofByAddress?.[me];
-    if (!hexProof) {
-      throw new Error(
-        `Wallet ${me} is not on the whitelist (no proof). Add it and re-run ` +
-        `presale:whitelist, or wait for the public round (opens ${cfg.timeline.publicStart}).`
-      );
+    if (hexProof) {
+      input.proof = proofToPublicKeys(hexProof);
+      console.log(`  presenting whitelist proof (${hexProof.length} nodes) — sent regardless of round`);
+    } else {
+      allowlistContext = { me, publicStart: cfg.timeline.publicStart };
+      console.log('  no whitelist proof for this wallet — the program decides whether the gated round is still open.');
     }
-    input.proof = proofToPublicKeys(hexProof);
-    console.log(`  presenting whitelist proof (${hexProof.length} nodes)`);
-  } else if (wl) {
-    console.log('  public round — allowlist expired, no proof required.');
   }
   // The quote token is WRAPPED SOL, and depositPresaleV2 pulls it from the
   // depositor's wSOL token account — it does not take lamports directly. A
@@ -753,8 +763,68 @@ async function cmdDeposit() {
     .add(transferSol(umi, { destination: wsolAta[0], amount: lamports(amountQuoteToken) }))
     .add(syncNative(umi, { account: wsolAta[0] }))
     .add(depositPresaleV2(umi, input));
-  const sig = await sendChecked(builder, umi, 'depositPresaleV2');
+  let sig;
+  try {
+    sig = await sendChecked(builder, umi, 'depositPresaleV2');
+  } catch (err) {
+    // 0x4a is "The merkle proof is invalid", which is what the program returns
+    // when the gated round is still open and no valid proof was supplied. On its
+    // own it reads like a corrupted allowlist. Say what it actually means.
+    //
+    // This is where the boundary is arbitrated, and deliberately so. The client
+    // CANNOT predict it: the clock a transaction executes against is a moving
+    // target, and reads at finalized, confirmed and getBlockTime were measured
+    // up to 14.8 seconds apart on one validator. Every attempt to pre-judge it
+    // here produced either a false refusal or a confusing failure. The program
+    // is the authority; the client's job is to explain its answer.
+    if (allowlistContext && /merkle proof is invalid|0x4a/i.test(String(err?.message ?? err))) {
+      const chainNow = await onChainUnixTime(umi);
+      throw new Error(
+        `Deposit refused: wallet ${allowlistContext.me} is not on the whitelist, and the gated ` +
+        `round is still open on chain.\n` +
+        `  public round opens : ${allowlistContext.publicStart}\n` +
+        `  chain time now     : ${chainNow ? new Date(chainNow * 1000).toISOString() : 'unknown'}\n` +
+        `Add the wallet to config.whitelist and re-run presale:whitelist, or wait for the public ` +
+        `round. Note the chain's clock can trail wall-clock by tens of seconds, so "it is past the ` +
+        `time on my watch" is not the same as the round being open.\n` +
+        `(underlying: ${String(err?.message ?? err).split('\n')[0]})`
+      );
+    }
+    throw err;
+  }
   console.log('Deposit confirmed. tx:', sig);
+}
+
+/**
+ * The cluster's own clock, as the program sees it.
+ *
+ * Read from the Clock sysvar rather than `Date.now()`, because those are not the
+ * same number: a local validator was observed 14.8 seconds behind wall clock,
+ * and any comparison against a config timestamp has to use the one the program
+ * will use. Returns null if the sysvar cannot be read, so callers fall through
+ * to letting the program decide rather than refusing on a failed lookup.
+ *
+ * Clock layout: slot(8) epoch_start_timestamp(8) epoch(8) leader_schedule_epoch(8)
+ * unix_timestamp(8) — so the i64 we want starts at byte 32.
+ */
+async function onChainUnixTime(umi) {
+  try {
+    // CONFIRMED, not umi's default. Umi reads at `finalized`, which trails by
+    // ~32 slots — measured at 12 seconds against the same sysvar read at
+    // confirmed. A transaction executes against the current bank, so finalized
+    // is not the clock the program will apply, and using it here made this guard
+    // refuse deposits the program would have accepted. A false refusal is the
+    // same defect as a false acceptance, pointed the other way.
+    const acct = await umi.rpc.getAccount(
+      publicKey('SysvarC1ock11111111111111111111111111111111'),
+      { commitment: 'confirmed' }
+    );
+    if (!acct.exists || acct.data.length < 40) return null;
+    const view = new DataView(acct.data.buffer, acct.data.byteOffset, acct.data.byteLength);
+    return Number(view.getBigInt64(32, true));
+  } catch {
+    return null;
+  }
 }
 
 // ── whitelist: build a Merkle allowlist from config + persist proofs ─────────

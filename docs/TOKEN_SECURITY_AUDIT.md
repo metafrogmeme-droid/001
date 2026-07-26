@@ -215,6 +215,57 @@ carries, and it rewrites §5's published mechanics and §4's fixed-price
 arithmetic. The team decides; `sale._launchPoolAlternative` records the
 trade-off.
 
+### The allowlist path, executed — and three clocks that disagree (2026-07-26)
+
+The gated round had never run. `config.whitelist` was empty, no allowlist
+artifact had ever been written, and every harness run printed "Whitelist: none
+(open sale)" — so Merkle construction, the on-chain `Allowlist` extension, proof
+presentation at deposit and the program's verification of it were all
+unexercised. In this integration that has been a reliable predictor, and it held.
+
+`token/e2e/whitelist_e2e.mjs` now proves three things on a validator, and the
+middle one is the point:
+
+1. a whitelisted wallet **can** deposit during the gated round;
+2. a non-whitelisted wallet **cannot** — an allowlist that does not exclude is
+   not an allowlist, and a test that only admits the invited wallet passes just
+   as happily against an ungated sale;
+3. the same wallet **can** once the round opens — the expiry has to work, or the
+   public round never happens.
+
+**The defect: the client decided by wall clock, the program decides by its own.**
+`presale:deposit` presented a Merkle proof only when `Date.now()` said the gated
+round was still open. The program requires one based on the on-chain `Clock`. On
+the validator this was found on those differed by **14.8 seconds**, and inside
+that window a wallet that *was* whitelisted sent no proof and got
+
+    Program log: The merkle proof is invalid    (custom program error 0x4a)
+
+— which reads like a corrupted allowlist and is two clocks disagreeing. The
+wallets it hits are precisely the ones that were invited.
+
+**Three clocks, not two**, which is why the first two fixes did not work either:
+
+| Source | Observed |
+|---|---|
+| `Date.now()` | ahead of everything |
+| `getBlockTime(slot)` | ~12s ahead of the sysvar |
+| Clock sysvar @ `confirmed` | ~12s ahead of the same sysvar @ `finalized` |
+| Clock sysvar @ `finalized` | umi's default — ~15s behind wall clock |
+
+Reading the sysvar at umi's default made the client *falsely refuse* deposits the
+program would accept. Reading it at `confirmed` still lost, because a transaction
+executes against a bank the client cannot pin down at read time.
+
+**So the client stopped arbitrating the boundary.** It now (a) always presents a
+proof when the wallet has one — harmless after expiry, verified — and (b) lets
+the program decide otherwise, translating `0x4a` into an explanation naming both
+times. The program is the authority on its own clock; the client's job is to
+explain the answer, not predict it.
+
+The same bug was in the test harness, twice: it waited on wall clock, then on
+`getBlockTime`, before polling the sysvar the program actually reads.
+
 ### Unsold supply is no longer stranded (2026-07-26)
 
 `BaseTokenRollover` is attached to the presale bucket at creation and executed by
