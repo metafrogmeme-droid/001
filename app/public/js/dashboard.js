@@ -4405,17 +4405,23 @@
       if (linked) {
         return `<div class="section-note" style="border-style:solid;border-color:var(--up);color:var(--up)">
           <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
-          Telegram linked — exchange-key management and your live controls are unlocked (going live still needs operator approval).</div>`;
+          ${esc(T('dd.tg_linked', 'Telegram linked — exchange-key management and your live controls are unlocked (going live still needs operator approval).'))}</div>`;
       }
-      return `<p class="small" style="color:var(--text-2)">Paper trading and chat already work without Telegram. Linking unlocks <b>exchange-key management</b> and your <b>live-trading controls</b> (going live also needs operator approval), and sends the bot's alerts to your Telegram.</p>
+      // The bot handle and the /link command are IDENTIFIERS — they are typed
+      // verbatim into Telegram, so they interpolate rather than translate.
+      const botLink = `<a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a>`;
+      return `<p class="small" style="color:var(--text-2)">${T('dd.tg_intro',
+          'Paper trading and chat already work without Telegram. Linking unlocks '
+          + '<b>exchange-key management</b> and your <b>live-trading controls</b> '
+          + '(going live also needs operator approval), and sends the bot\u2019s alerts to your Telegram.')}</p>
         <ol class="steps-list mt-2">
-          <li>Open <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a> on Telegram</li>
-          <li>Generate your personal link token below</li>
-          <li>Send the bot <code>/link &lt;token&gt;</code></li>
+          <li>${TF('dd.tg_step1', 'Open {bot} on Telegram', { bot: botLink })}</li>
+          <li>${esc(T('dd.tg_step2', 'Generate your personal link token below'))}</li>
+          <li>${TF('dd.tg_step3', 'Send the bot {cmd}', { cmd: '<code>/link &lt;token&gt;</code>' })}</li>
         </ol>
         <div class="row mt-3" style="gap:8px;flex-wrap:wrap">
-          <button class="btn btn--primary btn--sm" id="tgGenTok" type="button">Generate link token</button>
-          <a class="btn btn--ghost btn--sm" href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">Open @HTRUNECLAW_bot ↗</a>
+          <button class="btn btn--primary btn--sm" id="tgGenTok" type="button">${esc(T('dd.tg_gen', 'Generate link token'))}</button>
+          <a class="btn btn--ghost btn--sm" href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">${esc(TF('dd.tg_open_bot', 'Open {bot}', { bot: '@HTRUNECLAW_bot' }))} ↗</a>
         </div>
         <div id="tgTokArea" class="mt-3" aria-live="polite"></div>`;
     }, { empty: { text: '' } });
@@ -4429,13 +4435,13 @@
         const r = await fetchJSON('/api/auth/link-token', { method: 'POST' }).catch(() => ({ ok: false }));
         e.target.disabled = false;
         if (!r.ok || !r.data?.token) {
-          area.innerHTML = `<span class="small" style="color:var(--down)">${esc(r.data?.error || 'Could not generate a token — try again.')}</span>`;
+          area.innerHTML = `<span class="small" style="color:var(--down)">${esc(r.data?.error || T('dd.tg_tok_fail', 'Could not generate a token — try again.'))}</span>`;
           return;
         }
         const tok = String(r.data.token);
-        area.innerHTML = `<p class="muted small mb-1">Your link token (valid 10 min) — tap to copy:</p>
+        area.innerHTML = `<p class="muted small mb-1">${esc(T('dd.tg_tok_label', 'Your link token (valid 10 min) — tap to copy:'))}</p>
           <div class="token-display" id="tgTok" role="button" tabindex="0" title="Copy">${esc(tok)}</div>
-          <p class="muted small mt-2">Send the bot: <code>/link ${esc(tok)}</code></p>`;
+          <p class="muted small mt-2">${esc(T('dd.tg_send', 'Send the bot:'))} <code>/link ${esc(tok)}</code></p>`;
       }
       const tokEl = e.target.id === 'tgTok' ? e.target : e.target.closest?.('#tgTok');
       if (tokEl) {

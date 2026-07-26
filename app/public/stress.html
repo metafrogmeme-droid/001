@@ -105,7 +105,9 @@
     </div>
     <div class="btn-row">
       <button class="btn btn--sm" id="addRow" type="button" data-i18n="sx.add_row">＋ Add position</button>
+      <button class="btn btn--sm" id="loadWallet" type="button" data-i18n="sx.load_wallet">👛 Load my wallet</button>
       <button class="btn btn--sm" id="sharePf" type="button" data-i18n="sx.share">🔗 Share this book</button>
+      <p class="small" id="walletNote" aria-live="polite" style="flex-basis:100%;margin:6px 0 0;color:var(--text-3)"></p>
       <button class="btn btn--ghost btn--sm" id="resetPf" type="button" data-i18n="sx.reset">Reset sample</button>
       <span id="shareMsg" class="small muted" aria-live="polite"></span>
     </div>
@@ -167,6 +169,80 @@
   }
   function renderRows() {
     $('rows').innerHTML = positions.map(rowHtml).join('');
+  }
+
+  // ── Load the user's OWN book from the read-only wallet mirror ─────────────
+  // The twin was always hypothetical: you typed a book and broke it. If a
+  // wallet is linked, the mirror already knows the real holdings, so the twin
+  // can be your book instead of an invented one — still percent-only, still
+  // read-only, and still a simulation.
+  //
+  // What it can and cannot see is stated on the page rather than assumed: these
+  // are SPOT balances on the tracked chains. The mirror has no leverage and no
+  // perp legs, so every row loads at 1x long. A user with leveraged positions
+  // elsewhere would otherwise read a far gentler drawdown than their real one.
+  function walletNote(txt, mood) {
+    var el = $('walletNote');
+    if (!el) return;
+    el.textContent = txt;
+    el.style.color = mood === 'bad' ? 'var(--down)' : mood === 'ok' ? 'var(--up)' : 'var(--text-3)';
+  }
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var fill = function (t, m) {
+    return String(t).replace(/\{(\w+)\}/g, function (w, k) { return m && m[k] != null ? String(m[k]) : w; });
+  };
+  var MAX_ROWS = 60;   // the model's own cap — never silently truncate past it
+  async function loadWallet() {
+    var btn = $('loadWallet');
+    if (btn) btn.disabled = true;
+    walletNote(T('sx.w_loading', 'Reading your linked wallet…'));
+    try {
+      var tok = null;
+      try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+      if (!tok) {
+        walletNote(T('sx.w_signed_out', 'Sign in and link a wallet to load your real book. The sample below still works.'), 'bad');
+        return;
+      }
+      var r = await fetch('/api/wallet/portfolio', { headers: { Authorization: 'Bearer ' + tok } });
+      var d = await r.json().catch(function () { return null; });
+      if (!r.ok || !d || !d.linked) {
+        walletNote(T('sx.w_none', 'No linked wallet found. Link one in Account, then come back.'), 'bad');
+        return;
+      }
+      var assets = (d.assets || []).filter(function (a) { return Number(a.usd) > 0 && a.symbol; });
+      var total = assets.reduce(function (n, a) { return n + Number(a.usd || 0); }, 0);
+      if (!assets.length || total <= 0) {
+        walletNote(T('sx.w_empty', 'The linked wallet mirrors no priced balances, so there is no book to build.'), 'bad');
+        return;
+      }
+      // Percent weights only — no dollar figure reaches this page.
+      var sorted = assets.slice().sort(function (x, y) { return Number(y.usd) - Number(x.usd); });
+      var kept = sorted.slice(0, MAX_ROWS);
+      var dropped = sorted.length - kept.length;
+      positions = kept.map(function (a) {
+        return { asset: String(a.symbol).slice(0, 12),
+          weight: Math.round((Number(a.usd) / total) * 1000) / 10,
+          leverage: 1, dir: 'long' };
+      });
+      renderRows(); recompute(); renderCustom();
+      var msg = fill(T('sx.w_loaded',
+        'Loaded {n} spot holdings from your linked wallet, as percent weights. '
+        + 'The mirror sees no leverage and no perp positions, so every row is 1x long — '
+        + 'if you hold leverage elsewhere, your real drawdown is worse than this.'),
+        { n: positions.length });
+      if (dropped > 0) {
+        msg += ' ' + fill(T('sx.w_dropped', '{d} smallest holdings were left out (the book caps at {max}).'),
+          { d: dropped, max: MAX_ROWS });
+      }
+      walletNote(msg, 'ok');
+    } catch (e) {
+      walletNote(T('sx.w_failed', 'Could not read the wallet mirror just now — nothing was changed.'), 'bad');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   function sevOf(r) { return r.severity; }
@@ -253,6 +329,7 @@
     positions.splice(Number(rm.getAttribute('data-rm')), 1);
     renderRows(); recompute(); renderCustom();
   });
+  $('loadWallet').addEventListener('click', loadWallet);
   $('addRow').addEventListener('click', function () {
     positions.push({ asset: '', weight: 10, leverage: 2, dir: 'long' });
     renderRows(); recompute(); renderCustom();
@@ -281,6 +358,6 @@
   renderRows(); recompute(); renderCustom();
 })();
 </script>
-<script src="/js/i18n.js?v=50"></script>
+<script src="/js/i18n.js?v=52"></script>
 </body>
 </html>
