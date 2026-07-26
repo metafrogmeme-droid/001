@@ -1097,3 +1097,10 @@ a.dapp-card:hover, a.lpos-item:hover, .nft-card:hover {
 .chat-chip--vision { border-color: var(--gold-dim); color: var(--gold-bright); }
 .chat-chip--vision:hover { background: var(--gold-dim); }
 .chat-vision-label { color: var(--text-2); font-size: var(--fs-sm); }
+
+/* Wallet-link QR — framed rather than a bare white square dropped into the
+   panel, and visibly dead once the single-use code has expired. */
+.wl-qr { display: inline-block; padding: 10px; background: #fff; border-radius: 12px;
+  border: 1px solid var(--line); line-height: 0; transition: opacity .2s ease, filter .2s ease; }
+.wl-qr svg { display: block; }
+.wl-qr.is-expired { opacity: .28; filter: grayscale(1); }

@@ -3973,6 +3973,49 @@
     // Wallet link: attach a browser wallet to THIS account so the read-only
     // multi-chain mirror (Portfolio, net worth, exposure) lights up. SIWE-style
     // proof: the wallet signs a login message — never a transaction.
+
+    // Which wallet is actually injected here. Naming it does two things a
+    // generic "Link wallet" cannot: it proves the page can SEE the wallet
+    // before the user commits to a click, and it tells someone running two
+    // extensions which one is about to open. Flags are each vendor's own
+    // documented marker on the EIP-1193 provider.
+    const WALLET_BRANDS = [
+      ['isRabby', 'Rabby'],
+      ['isBraveWallet', 'Brave Wallet'],
+      ['isCoinbaseWallet', 'Coinbase Wallet'],
+      ['isCoinbaseBrowser', 'Coinbase Wallet'],
+      ['isTrust', 'Trust Wallet'],
+      ['isTrustWallet', 'Trust Wallet'],
+      ['isOkxWallet', 'OKX Wallet'],
+      ['isBitKeep', 'Bitget Wallet'],
+      ['isPhantom', 'Phantom'],
+      ['isZerion', 'Zerion'],
+      ['isFrame', 'Frame'],
+      ['isRainbow', 'Rainbow'],
+      // MetaMask LAST: several wallets also set isMetaMask for compatibility,
+      // so a more specific flag must win or everything reads as MetaMask.
+      ['isMetaMask', 'MetaMask'],
+    ];
+    function detectWallet() {
+      const eth = window.ethereum;
+      if (!eth) return { present: false, name: null, multiple: false };
+      // EIP-1193 multi-provider: several extensions are installed side by side.
+      const list = Array.isArray(eth.providers) && eth.providers.length ? eth.providers : [eth];
+      const names = [];
+      for (const p of list) {
+        const hit = WALLET_BRANDS.find(([flag]) => p && p[flag]);
+        const n = hit ? hit[1] : null;
+        if (n && !names.includes(n)) names.push(n);
+      }
+      return {
+        present: true,
+        // Unknown-but-present is still present: never claim there is no wallet
+        // just because we do not recognise the brand.
+        name: names[0] || T('dd.w_generic', 'your browser wallet'),
+        multiple: names.length > 1,
+      };
+    }
+
     async function drawWalletLink() {
       renderPanel(C('awallet'), async () => {
         const r = await fetchJSON('/api/wallet/portfolio', { timeoutMs: 25000 }).catch(() => null);
@@ -4012,19 +4055,37 @@
             <button class="btn btn--sm" id="walletUnlink" type="button">Unlink wallet</button>
             ${solBlock}`;
         }
-        return `<p class="small" style="color:var(--text-2)">Link a browser wallet (MetaMask or compatible) to see your
-            on-chain balances inside RUNECLAW — strictly read-only: the wallet signs one login message, never a transaction.</p>
-          <div class="row" style="gap:var(--s2);flex-wrap:wrap">
-            ${/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') && !window.ethereum
-              ? `<button class="btn btn--primary btn--sm" id="walletQr" type="button">🔗 Open in your wallet app</button>
-                 <button class="btn btn--sm" id="walletLink" type="button">🔗 Link wallet</button>`
-              : `<button class="btn btn--primary btn--sm" id="walletLink" type="button">🔗 Link wallet</button>
-                 <button class="btn btn--sm" id="walletQr" type="button">📱 Link with phone</button>`}
-          </div>
+        // The PRIMARY button is whichever action can actually succeed here.
+        // It used to be "Link wallet" unconditionally — including on machines
+        // where the page had already detected no wallet and said so in the hint
+        // directly underneath. The most prominent control apologised instead of
+        // working; the one that worked was the grey one next to it.
+        const w = detectWallet();
+        const onMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+        const linkBtn = (primary) => `<button class="btn ${primary ? 'btn--primary' : ''} btn--sm" id="walletLink" type="button">🔗 ${esc(
+          w.present ? TF('dd.w_link_named', 'Link {wallet}', { wallet: w.name })
+            : T('dd.w_link_generic', 'Link wallet'))}</button>`;
+        const phoneBtn = (primary) => `<button class="btn ${primary ? 'btn--primary' : ''} btn--sm" id="walletQr" type="button">${
+          onMobile && !w.present ? '🔗 ' + esc(T('dd.w_open_in_app', 'Open in your wallet app'))
+            : '📱 ' + esc(T('dd.w_link_phone', 'Link with phone'))}</button>`;
+        // Detected → sign here. Not detected → the phone route is the one that
+        // can finish, so it leads.
+        const buttons = w.present
+          ? linkBtn(true) + phoneBtn(false)
+          : phoneBtn(true) + linkBtn(false);
+        const status = w.present
+          ? `<p class="small mt-2" style="color:var(--up)">✓ ${esc(w.multiple
+              ? TF('dd.w_detected_multi', '{wallet} detected (and others) — one signature links it.', { wallet: w.name })
+              : TF('dd.w_detected', '{wallet} detected — one signature links it.', { wallet: w.name }))}</p>`
+          : `<p class="small muted mt-2">${onMobile
+              ? esc(T('dd.w_hint_mobile', 'One tap — the wallet picker opens this page inside your wallet app, where one signature links it.'))
+              : esc(T('dd.w_hint_desktop', 'No wallet extension in this browser. Scan the QR with your phone and sign in your wallet app — or install MetaMask or Rabby and reload.'))}</p>`;
+        return `<p class="small" style="color:var(--text-2)">${esc(T('dd.w_intro',
+            'Link a wallet to see your on-chain balances inside RUNECLAW — strictly read-only: '
+            + 'the wallet signs one login message, never a transaction.'))}</p>
+          <div class="row" style="gap:var(--s2);flex-wrap:wrap">${buttons}</div>
+          ${status}
           <div id="walletQrBox" class="mt-3" hidden></div>
-          ${!window.ethereum ? (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')
-            ? '<p class="small muted mt-2">One tap — the wallet picker opens this page inside your wallet app, where one signature links it.</p>'
-            : '<p class="small muted mt-2">No browser wallet here? Use <b>Link with phone</b> — scan the QR with your phone and sign in your wallet app.</p>') : ''}
           ${solBlock}`;
       }, { timeoutMs: 27000, empty: { text: 'Wallet status unavailable.' } });
     }
@@ -4045,26 +4106,62 @@
         return;
       }
       if (onMobileNoWallet()) { location.href = r.data.url; return; }
+      const ttl = Math.max(30, Number(r.data.expires_in_sec) || 600);
       box.hidden = false;
-      box.innerHTML = `${r.data.svg || ''}
-        <p class="small muted mt-2" style="max-width:46ch">Scan with your phone and open the link
-          <b>inside your wallet app's browser</b> (MetaMask → Browser, Trust → Discover).
-          One signature links the wallet — this code works once and expires in ${Math.round((r.data.expires_in_sec || 600) / 60)} minutes.</p>`;
-      // Poll for the phone-side link completing (bounded: ~2 min).
+      box.innerHTML = `<div class="wl-qr">${r.data.svg || ''}</div>
+        <p class="small muted mt-2" style="max-width:46ch">${esc(T('dd.w_qr_help',
+          'Scan with your phone and open the link inside your wallet app’s browser '
+          + '(MetaMask → Browser, Trust → Discover). One signature links the wallet.'))}</p>
+        <p class="small mt-1" id="walletQrState" aria-live="polite" style="color:var(--text-3)"></p>
+        <button class="btn btn--sm mt-2 hidden" id="walletQrRenew" type="button">${esc(
+          T('dd.w_qr_renew', 'Get a fresh code'))}</button>`;
+      const stateEl = document.getElementById('walletQrState');
+      const renewBtn = document.getElementById('walletQrRenew');
+      const setState = (txt, colour) => {
+        if (!stateEl) return;
+        stateEl.textContent = txt;
+        stateEl.style.color = colour || 'var(--text-3)';
+      };
+
+      // The code really does expire. Counting it down beats a static sentence:
+      // a user who walks away comes back to "expired — get a fresh code"
+      // instead of a QR that silently stopped working.
       if (qrPollTimer) clearInterval(qrPollTimer);
-      let polls = 0;
-      qrPollTimer = setInterval(async () => {
-        if (++polls > 24) { clearInterval(qrPollTimer); return; }
+      const startedAt = Date.now();
+      const expiresAt = startedAt + ttl * 1000;
+      const tick = async () => {
+        const leftMs = expiresAt - Date.now();
+        if (leftMs <= 0) {
+          clearInterval(qrPollTimer);
+          const q = box.querySelector('.wl-qr');
+          if (q) q.classList.add('is-expired');
+          setState(T('dd.w_qr_expired', 'This code has expired — it was single-use.'), 'var(--down)');
+          if (renewBtn) renewBtn.classList.remove('hidden');
+          return;
+        }
+        const s = Math.ceil(leftMs / 1000);
+        setState(TF('dd.w_qr_waiting', 'Waiting for your phone to sign — code expires in {mmss}.',
+          { mmss: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }));
+        // Poll for the phone-side link completing. This used to stop after ~2
+        // minutes and say nothing, leaving a live-looking QR that no longer
+        // did anything. Now it runs for the code's real lifetime and, when it
+        // ends, says so.
         const me = await fetchJSON('/api/auth/me').catch(() => null);
         if (me?.ok && me.data?.wallet_address) {
           clearInterval(qrPollTimer);
+          setState(T('dd.w_qr_linked', '✓ Signed on your phone — linking…'), 'var(--up)');
           toast(T('dd.t_wallet_linked_phone', 'Wallet linked from your phone.'));
           drawWalletLink();
         }
-      }, 5000);
+      };
+      tick();
+      qrPollTimer = setInterval(tick, 3000);
       if (qrPollTimer.unref) qrPollTimer.unref();
     }
     C('awallet').addEventListener('click', async (e) => {
+      // Renew first: it lives INSIDE the QR box, and #walletQr would otherwise
+      // not match it — but an expired code needs a new one, not a re-render.
+      if (e.target.closest('#walletQrRenew')) { showWalletQr(); return; }
       if (e.target.closest('#walletQr')) { showWalletQr(); return; }
       if (e.target.closest('#solConnect')) {
         if (!window.RCSolanaWallet || !RCSolanaWallet.available()) {
