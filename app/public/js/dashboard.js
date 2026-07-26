@@ -718,13 +718,36 @@
       }, { timeoutMs: 14000, empty: { text: '' } });
 
       // The Agent Letter — weekly fund-style letter from recorded data.
+      //
+      // Sections carry `parts` (template id + raw params) alongside the
+      // assembled English `html`. Translation rebuilds each sentence from its
+      // parts; anything without parts — letters stored before parts existed,
+      // or a tid this dictionary doesn't know — renders its English. Omit,
+      // never invent. Templates are trusted repo HTML (<b>); params are DATA
+      // and always escaped.
+      const ltFill = (tpl, params) => tpl.replace(/\{(\w+)\}/g, (m, k) =>
+        params && params[k] != null ? esc(String(params[k])) : m);
+      const ltPart = (part) => {
+        const tpl = T('lt.' + part.tid, '');
+        return tpl ? ltFill(tpl, part.params) : null;
+      };
+      const ltSection = (s) => {
+        if (Array.isArray(s.parts) && s.parts.length) {
+          const done = s.parts.map(ltPart);
+          if (done.every((x) => x != null)) return done.join(s.sep || ' ') + (s.end || '');
+        }
+        return s.html;                        // stored English — the fallback
+      };
       const letterHtml = (letter) => {
         const secs = (letter.sections || []).map(s =>
-          `<h3 class="small" style="margin:var(--s3) 0 var(--s1);letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)">${esc(s.title)}</h3>
-           <p style="max-width:70ch">${s.html}</p>`).join('');
+          `<h3 class="small" style="margin:var(--s3) 0 var(--s1);letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)">${esc(s.title_tid ? T('lt.t.' + s.title_tid, s.title) : s.title)}</h3>
+           <p style="max-width:70ch">${ltSection(s)}</p>`).join('');
+        const headline = letter.headline_part
+          ? (ltPart(letter.headline_part) || esc(letter.headline)) : esc(letter.headline);
+        const footer = letter.footer_tid ? T('lt.' + letter.footer_tid, letter.footer) : letter.footer;
         return `<p class="muted small" style="margin-bottom:var(--s1)">${esc(letter.period.start)} → ${esc(letter.period.end)}</p>
-          <p style="font-weight:600">${esc(letter.headline)}</p>${secs}
-          <p class="small muted" style="margin-top:var(--s3)"><i>${esc(letter.footer)}</i></p>`;
+          <p style="font-weight:600">${headline}</p>${secs}
+          <p class="small muted" style="margin-top:var(--s3)"><i>${esc(footer)}</i></p>`;
       };
       async function loadLetter(week) {
         await renderPanel(C('letter'), async () => {

@@ -85,16 +85,44 @@
   var m = /^\/letter\/(\d{4}-W\d{2})$/.exec(location.pathname);
   var week = m ? m[1] : null;
 
+  // Rebuild sections from their parts in the reader's language; anything
+  // without parts (or with a tid this dictionary doesn't know) renders its
+  // stored English. Templates are trusted repo HTML; params are escaped.
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  function ltFill(tpl, params) {
+    return tpl.replace(/\{(\w+)\}/g, function (m, k) {
+      return params && params[k] != null ? esc(String(params[k])) : m;
+    });
+  }
+  function ltPart(part) {
+    var tpl = T('lt.' + part.tid, '');
+    return tpl ? ltFill(tpl, part.params) : null;
+  }
+  function ltSection(s) {
+    if (s.parts && s.parts.length) {
+      var done = s.parts.map(ltPart);
+      if (done.every(function (x) { return x != null; })) {
+        return done.join(s.sep || ' ') + (s.end || '');
+      }
+    }
+    return sane(s.html);
+  }
   function render(pub) {
     document.title = 'RUNECLAW — The Agent Letter ' + pub.week_key;
+    var headline = pub.headline_part
+      ? (ltPart(pub.headline_part) || esc(pub.headline)) : esc(pub.headline);
+    var footer = pub.footer_tid ? T('lt.' + pub.footer_tid, pub.footer) : pub.footer;
     letterEl.innerHTML =
-      '<div class="headline">' + esc(pub.headline) + '</div>'
+      '<div class="headline">' + headline + '</div>'
       + '<div class="period">' + esc(pub.week_key) + ' · ' + esc(pub.period.start)
       + ' → ' + esc(pub.period.end) + '</div>'
       + pub.sections.map(function (s) {
-          return '<div class="sec"><h2>' + esc(s.title) + '</h2><p>' + sane(s.html) + '</p></div>';
+          return '<div class="sec"><h2>' + esc(s.title_tid ? T('lt.t.' + s.title_tid, s.title) : s.title) + '</h2><p>' + ltSection(s) + '</p></div>';
         }).join('')
-      + '<div class="foot">' + esc(pub.footer) + '</div>';
+      + '<div class="foot">' + esc(footer) + '</div>';
   }
 
   fetch('/api/public/letter/' + (week || 'latest'), { headers: { Accept: 'application/json' } })
@@ -117,6 +145,6 @@
     .catch(function () { /* archive is optional */ });
 })();
 </script>
-<script src="/js/i18n.js?v=56"></script>
+<script src="/js/i18n.js?v=57"></script>
 </body>
 </html>

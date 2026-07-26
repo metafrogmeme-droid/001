@@ -135,7 +135,17 @@ function composeAlphaSection(trades) {
       ? `Cleanest edge: ${esc(a.best.symbol)} (+${a.best.alpha_pct}% vs holding).` : null,
     a.unpriced ? `${a.unpriced} close${a.unpriced === 1 ? '' : 's'} lacked recorded prices and sat out the comparison.` : null,
   ].filter(Boolean).join(' ');
-  return { title: 'Alpha vs holding', html: bits };
+  // `parts` mirrors `html`, unassembled: one {tid, params} per sentence, so a
+  // renderer can rebuild the section in another language. Additive — `html`
+  // stays the stored/English truth, and letters stored before parts existed
+  // simply render their English.
+  const parts = [
+    { tid: 'alpha_main', params: { a: sign + a.mean_alpha_pct, b: a.beat_market, p: a.priced } },
+    a.best && a.best.alpha_pct > 0
+      ? { tid: 'alpha_best', params: { sym: String(a.best.symbol), a: a.best.alpha_pct } } : null,
+    a.unpriced ? { tid: 'alpha_unpriced', params: { n: a.unpriced } } : null,
+  ].filter(Boolean);
+  return { title: 'Alpha vs holding', title_tid: 'alpha', html: bits, parts, sep: ' ' };
 }
 
 function composeLetter({ key, start, end }, data) {
@@ -161,21 +171,25 @@ function composeLetter({ key, start, end }, data) {
   const sections = [];
 
   // ── The week ──
-  let deskLine;
+  let deskLine, deskPart;
   if (!trades.length) {
     deskLine = 'The desk closed no positions this week — patience is a position too, '
       + 'and the risk gate saw nothing worth paying fees for.';
+    deskPart = { tid: 'week_flat', params: {} };
   } else if (net > 0 && (wr ?? 0) >= 60) {
     deskLine = `A clean week: ${trades.length} closed trades, ${wr}% winners, `
       + `<b>${money(net)}</b> net after fees.`;
+    deskPart = { tid: 'week_clean_priv', params: { n: trades.length, wr, net: money(net) } };
   } else if (net > 0) {
     deskLine = `A grinder's week: ${trades.length} closed trades and only ${wr}% winners, `
       + `but the winners paid for the losers — <b>${money(net)}</b> net.`;
+    deskPart = { tid: 'week_grind_priv', params: { n: trades.length, wr, net: money(net) } };
   } else {
     deskLine = `A losing week, plainly: ${trades.length} closed trades, ${wr}% winners, `
       + `<b>${money(net)}</b> net. The numbers below are the honest post-mortem.`;
+    deskPart = { tid: 'week_loss_priv', params: { n: trades.length, wr, net: money(net) } };
   }
-  sections.push({ title: 'The week', html: deskLine });
+  sections.push({ title: 'The week', title_tid: 'week', html: deskLine, parts: [deskPart], sep: ' ' });
 
   // ── Performance ──
   if (trades.length) {
@@ -185,15 +199,23 @@ function composeLetter({ key, start, end }, data) {
       best ? `best: ${esc(String(best.symbol).split('/')[0])} ${money(best.pnl)}` : null,
       worst && worst.pnl < 0 ? `worst: ${esc(String(worst.symbol).split('/')[0])} ${money(worst.pnl)}` : null,
     ].filter(Boolean).join(' · ');
-    sections.push({ title: 'Performance', html: bits });
+    sections.push({ title: 'Performance', title_tid: 'performance', html: bits, sep: ' · ', parts: [
+      { tid: 'perf_net_priv', params: { net: money(net), n: trades.length, w: wins, l: trades.length - wins } },
+      pf !== null ? { tid: 'perf_pf', params: { pf } } : null,
+      best ? { tid: 'perf_best_p', params: { sym: String(best.symbol).split('/')[0], pnl: money(best.pnl) } } : null,
+      worst && worst.pnl < 0 ? { tid: 'perf_worst_p', params: { sym: String(worst.symbol).split('/')[0], pnl: money(worst.pnl) } } : null,
+    ].filter(Boolean) });
   }
   if (equity.start !== null && equity.end !== null && equity.start > 0) {
     const delta = round2(equity.end - equity.start);
     const pct = round2(delta / equity.start * 100);
     sections.push({
-      title: 'Equity',
+      title: 'Equity', title_tid: 'equity',
       html: `${money(equity.start)} → <b>${money(equity.end)}</b> `
         + `(${delta >= 0 ? '+' : ''}${money(delta).replace('$', '$')} · ${pct >= 0 ? '+' : ''}${pct}%).`,
+      sep: ' ',
+      parts: [{ tid: 'eq_priv', params: { a: money(equity.start), b: money(equity.end),
+        d: (delta >= 0 ? '+' : '') + money(delta), pct: (pct >= 0 ? '+' : '') + pct } }],
     });
   }
 
@@ -212,55 +234,77 @@ function composeLetter({ key, start, end }, data) {
     }
     const topRegime = Object.entries(regimes).sort((a, b) => b[1] - a[1])[0];
     sections.push({
-      title: 'The tape',
+      title: 'The tape', title_tid: 'tape',
       html: `${signals.length} signals generated (${longs} long / ${signals.length - longs} short)`
         + (topRegime ? ` — the dominant read was <b>${esc(topRegime[0])}</b> `
           + `(${topRegime[1]} of ${signals.length}).` : '.'),
+      sep: '',
+      parts: [
+        { tid: 'tape_n', params: { n: signals.length, lo: longs, sh: signals.length - longs } },
+        topRegime ? { tid: 'tape_regime', params: { r: topRegime[0], c: topRegime[1], n: signals.length } }
+          : { tid: 'tape_dot', params: {} },
+      ],
     });
   } else {
     sections.push({
-      title: 'The tape',
+      title: 'The tape', title_tid: 'tape', sep: ' ',
       html: 'No signals recorded this week — either a quiet tape or the engine was resting.',
+      parts: [{ tid: 'tape_none', params: {} }],
     });
   }
 
   // ── Side desks (bot intelligence reports, if the bot pushed them) ──
   if (reports) {
     const bits = [];
+    const sideParts = [];
     try {
       const arb = reports.arb || {};
       if (arb.total_accrued_usd != null) {
         bits.push(`the funding-arb PAPER tracker has accrued ${money(arb.total_accrued_usd)} of hypothetical carry`);
+        sideParts.push({ tid: 'side_arb', params: { m: money(arb.total_accrued_usd) } });
       }
       const parity = reports.parity || {};
-      if (parity.verdict) bits.push(`live↔backtest parity reads <b>${esc(parity.verdict)}</b>`);
+      if (parity.verdict) {
+        bits.push(`live↔backtest parity reads <b>${esc(parity.verdict)}</b>`);
+        sideParts.push({ tid: 'side_parity', params: { v: parity.verdict } });
+      }
     } catch (e) { /* skip */ }
     if (bits.length) {
-      sections.push({ title: 'Side desks', html: bits.join('; ') + '.' });
+      sections.push({ title: 'Side desks', title_tid: 'side',
+        html: bits.join('; ') + '.', parts: sideParts, sep: '; ', end: '.' });
     }
   }
 
   // ── Looking ahead ──
   sections.push({
-    title: 'Looking ahead',
+    title: 'Looking ahead', title_tid: 'ahead', sep: ' ',
     html: (openCount
       ? `The desk carries <b>${openCount}</b> open position${openCount === 1 ? '' : 's'} into the new week, each with a hard stop working. `
       : 'The desk enters the week flat. ')
       + 'Same discipline as always: no trade without a stop, no size without conviction, '
       + 'and the risk gate has the final word.',
+    parts: [
+      openCount ? { tid: 'ahead_open', params: { n: openCount } } : { tid: 'ahead_flat', params: {} },
+      { tid: 'ahead_discipline', params: {} },
+    ],
   });
 
   const headline = !trades.length
     ? 'A flat week, by choice'
     : net >= 0 ? `${money(net)} net — ${wr}% winners` : `${money(net)} net — the honest post-mortem`;
+  const headline_part = !trades.length
+    ? { tid: 'h_flat', params: {} }
+    : net >= 0 ? { tid: 'h_net_win', params: { net: money(net), wr } }
+      : { tid: 'h_net_loss', params: { net: money(net) } };
 
   return {
     week_key: key,
     period: { start: fmtDay(start), end: fmtDay(endInclusive) },
-    headline,
+    headline, headline_part,
     sections,
     footer: 'Every figure above is derived from recorded trades and snapshots — nothing hand-written. '
       + 'Past performance does not predict future results.',
+    footer_tid: 'f_priv',
   };
 }
 
@@ -314,21 +358,25 @@ function composePublicLetter({ key, start, end }, data) {
 
   const sections = [];
 
-  let deskLine;
+  let deskLine, deskPart;
   if (!trades.length) {
     deskLine = 'The desk closed no positions this week — patience is a position too, '
       + 'and the risk gate saw nothing worth paying fees for.';
+    deskPart = { tid: 'week_flat', params: {} };
   } else if (net > 0 && (wr ?? 0) >= 60) {
     deskLine = `A clean week: ${trades.length} closed trades, <b>${wr}% winners</b>, `
       + 'finished green.';
+    deskPart = { tid: 'week_clean_pub', params: { n: trades.length, wr } };
   } else if (net > 0) {
     deskLine = `A grinder's week: ${trades.length} closed trades and only ${wr}% winners, `
       + 'but the winners paid for the losers — finished green.';
+    deskPart = { tid: 'week_grind_pub', params: { n: trades.length, wr } };
   } else {
     deskLine = `A losing week, plainly: ${trades.length} closed trades, ${wr}% winners, `
       + 'finished red. The reads below are the honest post-mortem.';
+    deskPart = { tid: 'week_loss_pub', params: { n: trades.length, wr } };
   }
-  sections.push({ title: 'The week', html: deskLine });
+  sections.push({ title: 'The week', title_tid: 'week', html: deskLine, parts: [deskPart], sep: ' ' });
 
   if (trades.length) {
     const bits = [
@@ -337,13 +385,19 @@ function composePublicLetter({ key, start, end }, data) {
       best ? `best: ${esc(String(best.symbol).split('/')[0])}` : null,
       worst && worst.pnl < 0 ? `worst: ${esc(String(worst.symbol).split('/')[0])}` : null,
     ].filter(Boolean).join(' · ');
-    sections.push({ title: 'Performance', html: bits });
+    sections.push({ title: 'Performance', title_tid: 'performance', html: bits, sep: ' · ', parts: [
+      { tid: 'perf_closes_pub', params: { n: trades.length, w: wins, l: trades.length - wins } },
+      pf !== null ? { tid: 'perf_pf', params: { pf } } : { tid: 'perf_noloss', params: {} },
+      best ? { tid: 'perf_best', params: { sym: String(best.symbol).split('/')[0] } } : null,
+      worst && worst.pnl < 0 ? { tid: 'perf_worst', params: { sym: String(worst.symbol).split('/')[0] } } : null,
+    ].filter(Boolean) });
   }
   if (equity.start !== null && equity.end !== null && equity.start > 0) {
     const pct = round2((equity.end - equity.start) / equity.start * 100);
     sections.push({
-      title: 'Equity',
+      title: 'Equity', title_tid: 'equity', sep: ' ',
       html: `Equity moved <b>${pct >= 0 ? '+' : ''}${pct}%</b> on the week.`,
+      parts: [{ tid: 'eq_pub', params: { pct: (pct >= 0 ? '+' : '') + pct } }],
     });
   }
 
@@ -360,15 +414,22 @@ function composePublicLetter({ key, start, end }, data) {
     }
     const topRegime = Object.entries(regimes).sort((a, b) => b[1] - a[1])[0];
     sections.push({
-      title: 'The tape',
+      title: 'The tape', title_tid: 'tape',
       html: `${signals.length} signals generated (${longs} long / ${signals.length - longs} short)`
         + (topRegime ? ` — the dominant read was <b>${esc(topRegime[0])}</b> `
           + `(${topRegime[1]} of ${signals.length}).` : '.'),
+      sep: '',
+      parts: [
+        { tid: 'tape_n', params: { n: signals.length, lo: longs, sh: signals.length - longs } },
+        topRegime ? { tid: 'tape_regime', params: { r: topRegime[0], c: topRegime[1], n: signals.length } }
+          : { tid: 'tape_dot', params: {} },
+      ],
     });
   } else {
     sections.push({
-      title: 'The tape',
+      title: 'The tape', title_tid: 'tape', sep: ' ',
       html: 'No signals recorded this week — either a quiet tape or the engine was resting.',
+      parts: [{ tid: 'tape_none', params: {} }],
     });
   }
 
@@ -376,33 +437,43 @@ function composePublicLetter({ key, start, end }, data) {
   // stays operator-private.
   if (reports && reports.parity && reports.parity.verdict) {
     sections.push({
-      title: 'Side desks',
+      title: 'Side desks', title_tid: 'side', sep: ' ',
       html: `Live↔backtest parity reads <b>${esc(reports.parity.verdict)}</b>.`,
+      parts: [{ tid: 'side_parity_pub', params: { v: reports.parity.verdict } }],
     });
   }
 
   sections.push({
-    title: 'Looking ahead',
+    title: 'Looking ahead', title_tid: 'ahead', sep: ' ',
     html: (openCount
       ? `The desk carries <b>${openCount}</b> open position${openCount === 1 ? '' : 's'} into the new week, each with a hard stop working. `
       : 'The desk enters the week flat. ')
       + 'Same discipline as always: no trade without a stop, no size without conviction, '
       + 'and the risk gate has the final word.',
+    parts: [
+      openCount ? { tid: 'ahead_open', params: { n: openCount } } : { tid: 'ahead_flat', params: {} },
+      { tid: 'ahead_discipline', params: {} },
+    ],
   });
 
   const headline = !trades.length
     ? 'A flat week, by choice'
     : `${wr}% winners over ${trades.length} trades — `
       + (net >= 0 ? 'a green week' : 'a red week, honestly told');
+  const headline_part = !trades.length
+    ? { tid: 'h_flat', params: {} }
+    : net >= 0 ? { tid: 'h_pub_win', params: { wr, n: trades.length } }
+      : { tid: 'h_pub_loss', params: { wr, n: trades.length } };
 
   return {
     week_key: key,
     period: { start: fmtDay(start), end: fmtDay(endInclusive) },
-    headline,
+    headline, headline_part,
     sections,
     footer: 'Every figure above is derived from recorded trades and snapshots — nothing '
       + 'hand-written. Percentages and counts only: account size is never published. '
       + 'Past performance does not predict future results.',
+    footer_tid: 'f_pub',
   };
 }
 
