@@ -8,10 +8,24 @@ fast-path no-op) and the gates only ever REMOVE entries, never add or reshape
 them.
 """
 import numpy as np
+import pytest
 
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.models import BacktestConfig
 from bot.utils.models import MarketSignal
+
+# These tests build an engine only to call a pure predicate, but constructing
+# one forces the learning flags OFF process-wide (see BacktestEngine.__init__).
+# Nothing here calls run(), so nothing here hands them back — which left every
+# later test in the process seeing CONFIDENCE_CALIBRATION_ENABLED reported OFF.
+_ENGINES: list[BacktestEngine] = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_engines():
+    yield
+    while _ENGINES:
+        _ENGINES.pop().cleanup()
 
 
 class _Idea:
@@ -25,7 +39,9 @@ class _Regime:
 
 
 def _engine(**cfg_kw):
-    return BacktestEngine(BacktestConfig(symbol="BTC/USDT", **cfg_kw))
+    eng = BacktestEngine(BacktestConfig(symbol="BTC/USDT", **cfg_kw))
+    _ENGINES.append(eng)
+    return eng
 
 
 def _sig(symbol="BTC/USDT", spike_ratio=0.0, spike=False):

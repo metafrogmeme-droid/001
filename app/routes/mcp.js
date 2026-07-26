@@ -5,10 +5,14 @@
  * stateless JSON responses) that lets ANY MCP-capable agent — Claude, agent
  * frameworks, other bots — consume RUNECLAW's intelligence as tools.
  *
- * Scope is deliberate: every tool is READ-ONLY and serves data this site
- * already publishes without auth (public track record, signal stream, agent
- * feed, RWA radar, DEX comparison, showcase trade, what-if replay over the
- * public history, the weekly letter derived from that same public data).
+ * Scope is deliberate. Every tool is READ-ONLY and falls in one of two
+ * families:
+ *   - intelligence — serves data this site already publishes without auth
+ *     (public track record, signal stream, agent feed, RWA radar, DEX
+ *     comparison, showcase trade, what-if replay over the public history, the
+ *     weekly letter derived from that same public data);
+ *   - Guardian safety — evaluates input the CALLER supplies (marked
+ *     `computesOnInput: true`), storing nothing and reading no account.
  * No tool can see a user's account, and no tool can act — trade-capable MCP
  * tools are a separate, gated decision for the operator.
  *
@@ -66,6 +70,10 @@ const TOOLS = {
   // nothing: no account is read, no funds move, no signature is produced.
   // Every result is a heuristic read with reasons, never a verdict.
   scan_transaction: {
+    // Evaluates caller-supplied input rather than serving data the public
+    // site publishes. The ERC-8257 manifest derives its tool-family split
+    // from this marker, so the on-chain record cannot claim otherwise.
+    computesOnInput: true,
     description: 'Pre-signature safety scan for an autonomous agent. Paste '
       + 'anything the agent is about to act on — a message, a token name or '
       + 'metadata, a URL, an address, a signing request — and get back flagged '
@@ -94,6 +102,10 @@ const TOOLS = {
     },
   },
   compile_intent: {
+    // Evaluates caller-supplied input rather than serving data the public
+    // site publishes. The ERC-8257 manifest derives its tool-family split
+    // from this marker, so the on-chain record cannot claim otherwise.
+    computesOnInput: true,
     description: 'Turn a plain-language mandate into a deterministic, '
       + 'revocable Authority Envelope: typed rules, each tagged with WHO '
       + 'enforces it (the wallet, a risk gate, or a human approval). Example '
@@ -117,6 +129,10 @@ const TOOLS = {
     },
   },
   stress_portfolio: {
+    // Evaluates caller-supplied input rather than serving data the public
+    // site publishes. The ERC-8257 manifest derives its tool-family split
+    // from this marker, so the on-chain record cannot claim otherwise.
+    computesOnInput: true,
     description: 'Run a hypothetical book through the same scenarios the '
       + 'Portfolio Stress Lab uses — a majors −30% drop, an alt crash, a '
       + 'stablecoin depeg, a liquidation cascade and a black swan — and get '
@@ -164,6 +180,10 @@ const TOOLS = {
     },
   },
   plan_escape: {
+    // Evaluates caller-supplied input rather than serving data the public
+    // site publishes. The ERC-8257 manifest derives its tool-family split
+    // from this marker, so the on-chain record cannot claim otherwise.
+    computesOnInput: true,
     description: 'Sequence a dependency-aware emergency exit for a complex '
       + 'book: close leverage before it liquidates, repay debt to unlock '
       + 'collateral, exit LPs and staking to reclaim the underlying, then '

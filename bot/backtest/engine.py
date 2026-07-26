@@ -254,15 +254,13 @@ class BacktestEngine:
 
         return False
 
-    def cleanup(self) -> None:
-        """Explicitly remove the temp state directory. Call after backtest completes.
+    def _restore_learning_flags(self) -> None:
+        """Give the operator's learning flags back. Idempotent — first call wins.
 
-        IDEMPOTENT: the saved flags are cleared after the restore. Without
-        this, __del__ (which also calls cleanup) re-restored the operator's
-        flags a SECOND time — and since GC of an engine often fires after the
-        NEXT engine's ctor has already forced the flags off, the late restore
-        silently re-enabled calibration/expectancy/external-sentiment in the
-        middle of the next run (first-run-vs-second-run nondeterminism).
+        The ctor forces confidence-calibration, setup-expectancy and external
+        sentiment OFF *process-wide* (they are lookahead relative to a replayed
+        bar). That override has to be given back on every path out, including a
+        backtest that raises, or the live bot keeps analysing without them.
         """
         try:
             _cal, _exp, _ext = getattr(self, "_saved_learning_flags", (None, None, None))
@@ -274,6 +272,30 @@ class BacktestEngine:
                 object.__setattr__(CONFIG.analyzer, "external_sentiment_enabled", _ext)
         except Exception:
             pass
+
+    def __enter__(self) -> "BacktestEngine":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        self.cleanup()
+        return False
+
+    def cleanup(self) -> None:
+        """Remove the temp state directory; back-stop the flag restore.
+
+        Prefer `with BacktestEngine(cfg) as eng:` — then this runs even if the
+        caller raises. run() already hands the learning flags back, so by the
+        time cleanup() runs the restore is usually a no-op; it still matters for
+        an engine that was constructed but never run.
+
+        IDEMPOTENT via _restore_learning_flags: the saved flags are cleared on
+        first restore. Without that, __del__ (which also calls cleanup) restored
+        a SECOND time — and since GC of an engine often fires after the NEXT
+        engine's ctor has already forced the flags off, the late restore
+        silently re-enabled calibration/expectancy/external-sentiment in the
+        middle of the next run (first-run-vs-second-run nondeterminism).
+        """
+        self._restore_learning_flags()
         import shutil
         try:
             shutil.rmtree(self._bt_state_dir, ignore_errors=True)
@@ -285,6 +307,23 @@ class BacktestEngine:
         self.cleanup()
 
     async def run(self, bars: list[BacktestBar]) -> BacktestResult:
+        """Execute a full backtest over the provided bar series.
+
+        The learning-flag override is handed back here rather than waiting for
+        cleanup(). It used to live until someone remembered to call cleanup()
+        (or until GC ran __del__), so a caller that forgot — or a run() that
+        raised before its caller's cleanup() line — left the whole process
+        analysing with calibration, setup-expectancy and external sentiment
+        silently OFF. In the long-lived Telegram process that is a live-trading
+        behaviour change caused by a failed /backtest command. Now the window is
+        exactly [ctor, end of run] and no caller can extend it.
+        """
+        try:
+            return await self._run(bars)
+        finally:
+            self._restore_learning_flags()
+
+    async def _run(self, bars: list[BacktestBar]) -> BacktestResult:
         """
         Execute a full backtest over the provided bar series.
         Returns a BacktestResult with all metrics and trade records.

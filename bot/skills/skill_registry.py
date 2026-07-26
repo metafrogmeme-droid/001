@@ -932,9 +932,14 @@ class RunBacktestSkill(BaseSkill):
         seed = int(kwargs.get("seed", 42))
         config = BacktestConfig(symbol="BTC/USDT", timeframe="1h")
         bars = DataLoader.generate_synthetic(bars=bars_count, seed=seed)
+        # This runs inside the long-lived Telegram process: a /backtest that
+        # raised used to leave the LIVE bot analysing with calibration,
+        # setup-expectancy and external sentiment silently off until restart.
         bt = BacktestEngine(config)
-        r = await bt.run(bars)
-        bt.cleanup()
+        try:
+            r = await bt.run(bars)
+        finally:
+            bt.cleanup()
 
         ret_icon = _status(r.total_return_pct)
 

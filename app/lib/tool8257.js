@@ -93,18 +93,35 @@ function buildManifest({ tools }) {
   return {
     type: MANIFEST_TYPE,
     name: TOOL_SLUG,
-    description: 'RUNECLAW read-only trading intelligence: cryptographically '
-      + 'verifiable track record (Proof-of-PnL with re-derivable hashes), '
-      + 'ERC-8004 agent identity cards, engine signals, tamper-evident flight '
-      + 'records, token research + deterministic safety reads, and sector '
-      + 'radars (RWA, meme, airdrops). Every tool serves data the public site '
-      + 'already publishes — no accounts, no orders, no funds. Free and open: '
-      + 'no pricing, no access gate. Past performance never predicts future '
+    description: 'RUNECLAW read-only trading intelligence and agent-safety '
+      + 'checks, in two families. INTELLIGENCE tools serve data the public '
+      + 'site already publishes: a cryptographically verifiable track record '
+      + '(Proof-of-PnL with re-derivable hashes), ERC-8004 agent identity '
+      + 'cards, engine signals, tamper-evident flight records, token research '
+      + 'and sector radars (RWA, meme, airdrops). SAFETY tools instead '
+      + 'evaluate input the caller supplies — a pre-signature scan for '
+      + 'prompt-injection and drain patterns, a plain-language mandate '
+      + 'compiled into typed revocable rules, a hypothetical book run through '
+      + 'stress scenarios, and a dependency-aware exit plan — storing nothing '
+      + 'that is sent and reading no account. Which tool is in which family is '
+      + 'machine-readable under `toolFamilies`. No tool sees an account, '
+      + 'places an order or moves funds, and every safety answer is a '
+      + 'heuristic read with reasons, never a verdict. Free and open: no '
+      + 'pricing, no access gate. Past performance never predicts future '
       + 'results.',
     version: '1.0.0',
     endpoint: `${base}/api/tool/invoke`,
     tags: ['trading', 'crypto', 'verifiable-track-record', 'proof-of-pnl',
-      'erc-8004', 'read-only', 'intelligence'],
+      'erc-8004', 'read-only', 'intelligence', 'agent-safety',
+      'prompt-injection', 'risk'],
+    // Derived from the registry, never hand-maintained: an agent can tell which
+    // tools answer from published data and which evaluate what IT sends,
+    // without parsing the prose above. This is what stops the manifest from
+    // silently over-claiming again the next time a tool family is added.
+    toolFamilies: {
+      publishedData: Object.keys(tools).filter((n) => !tools[n].computesOnInput).sort(),
+      callerInput: Object.keys(tools).filter((n) => tools[n].computesOnInput).sort(),
+    },
     inputs: {
       type: 'object',
       properties: {

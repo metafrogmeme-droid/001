@@ -454,7 +454,10 @@ async def run_backtest() -> None:
     print(f"  Price range: ${min(b.close for b in bars):,.2f} – ${max(b.close for b in bars):,.2f}\n")
 
     engine = BacktestEngine(config)
-    result = await engine.run(bars)
+    try:
+        result = await engine.run(bars)
+    finally:
+        engine.cleanup()
     print(_format_result_summary(result))
 
 

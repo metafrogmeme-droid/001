@@ -76,9 +76,13 @@ class PortfolioBacktester:
 
     # ── lifecycle ────────────────────────────────────────────────
 
-    def cleanup(self) -> None:
-        for eng in self._engines.values():
-            eng.cleanup()
+    def _restore_learning_flags(self) -> None:
+        """Give the operator's learning flags back. Idempotent — first call wins.
+
+        Same contract as BacktestEngine._restore_learning_flags: the override is
+        process-wide, so it has to come back on every path out — including a
+        fold that raises — or the live bot keeps analysing without them.
+        """
         try:
             _cal, _exp, _ext = self._saved_learning_flags
             # Idempotent (same reasoning as BacktestEngine.cleanup): never
@@ -92,12 +96,35 @@ class PortfolioBacktester:
         except Exception:
             pass
 
+    def __enter__(self) -> "PortfolioBacktester":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        self.cleanup()
+        return False
+
+    def cleanup(self) -> None:
+        for eng in self._engines.values():
+            eng.cleanup()
+        self._restore_learning_flags()
+
     # ── main loop ────────────────────────────────────────────────
 
     async def run(self, data: dict[str, list]) -> BacktestResult:
-        """Run the merged multi-symbol backtest. ``data`` maps each configured
-        symbol to its (ascending) BacktestBar list; symbols absent from the
-        map are skipped with a log line."""
+        """Run the merged multi-symbol backtest.
+
+        The learning-flag override is handed back here rather than waiting for
+        cleanup(), so a fold that raises cannot leave the process analysing with
+        calibration, setup-expectancy and external sentiment silently off.
+        """
+        try:
+            return await self._run(data)
+        finally:
+            self._restore_learning_flags()
+
+    async def _run(self, data: dict[str, list]) -> BacktestResult:
+        """``data`` maps each configured symbol to its (ascending) BacktestBar
+        list; symbols absent from the map are skipped with a log line."""
         start_time = time.time()
         streams = {s: bars for s, bars in data.items()
                    if s in self._engines and bars}
@@ -255,8 +282,10 @@ async def portfolio_walk_forward(
         if not fold_data:
             continue
         pb = PortfolioBacktester(config, symbols=list(fold_data))
-        res = await pb.run(fold_data)
-        pb.cleanup()
+        try:
+            res = await pb.run(fold_data)
+        finally:
+            pb.cleanup()
         out.append({
             "fold": k,
             "oos_start": str(t_start), "oos_end": str(t_end),

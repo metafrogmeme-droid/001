@@ -312,13 +312,15 @@ async def _run_backtest(args: argparse.Namespace) -> None:
     # Run backtest
     print("  Running backtest...")
     engine = BacktestEngine(config)
-    if config.use_recorded_order_flow:
-        n_of = len(engine._recorded_order_flow) if engine._recorded_order_flow is not None else 0
-        print(f"  Order-flow replay: {n_of} recorded snapshot(s) from "
-              f"{config.recorded_order_flow_path}"
-              + ("" if n_of else " — none found, running WITHOUT order flow (legacy path)"))
-    result = await engine.run(bars)
-    engine.cleanup()  # remove temp state dir
+    try:  # cleanup() must run even if run() raises — it hands back global flags
+        if config.use_recorded_order_flow:
+            n_of = len(engine._recorded_order_flow) if engine._recorded_order_flow is not None else 0
+            print(f"  Order-flow replay: {n_of} recorded snapshot(s) from "
+                  f"{config.recorded_order_flow_path}"
+                  + ("" if n_of else " — none found, running WITHOUT order flow (legacy path)"))
+        result = await engine.run(bars)
+    finally:
+        engine.cleanup()
 
     # Stamp data provenance so the saved result is self-describing.
     result.used_synthetic = used_synthetic
@@ -742,8 +744,10 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
         return
 
     pb = PortfolioBacktester(config, symbols=list(data))
-    result = await pb.run(data)
-    pb.cleanup()
+    try:  # cleanup() must run even if run() raises
+        result = await pb.run(data)
+    finally:
+        pb.cleanup()
     print(_format_result_summary(result))
     print("  Per-symbol breakdown:")
     for sym, row in sorted(pb.per_symbol.items()):
