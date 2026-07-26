@@ -55,9 +55,12 @@ npm run presale:trigger          # triggerBehaviorsV2 — routes the 66.67% quot
                                  # liquidity bucket. Permissionless: ANYONE may run it once
                                  # the deposit window closes. Required before the pool is real.
 npm run presale:claim            # claimPresaleV2 once the claim window opens (post-TGE)
-# recovery:
-npm run presale:withdraw          # depositor cancels/refunds their own deposit
-npm run presale:withdraw-unsold   # operator recovers unsold presale tokens
+# recovery: BOTH OF THESE ARE DEAD FOR A V2 PRESALE — they refuse up front.
+# withdrawPresaleV1/withdrawUnsoldPresaleV1 are V1-only and reject a V2 genesis
+# account (0x2f); the SDK has no V2 equivalent. Verified on devnet 2026-07-26.
+# There is NO depositor refund and NO unsold-token recovery. See the audit doc.
+npm run presale:withdraw          # refuses: no V2 refund instruction exists
+npm run presale:withdraw-unsold   # refuses: no V2 unsold-recovery instruction exists
 ```
 
 What the script does, mapped to the SDK:

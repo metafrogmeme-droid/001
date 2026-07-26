@@ -757,6 +757,51 @@ async function cmdLiquidity() {
   await awaitAccount(umi, expectedBucket, 'liquidity bucket');
 }
 
+/**
+ * Both withdraw paths are V1-only and CANNOT run against the V2 presale this
+ * tooling creates. Refuse up front instead of failing on chain.
+ *
+ * Proven on devnet, 2026-07-26. `presale:create` builds a V2 launch
+ * (initializeV2 + addPresaleBucketV2*), and both withdraw instructions reject
+ * it:
+ *
+ *   Program log: WithdrawPresaleV1
+ *   Program log: The Genesis Account is invalid      (custom program error 0x2f)
+ *
+ *   Program log: WithdrawUnsoldPresaleV1
+ *   Program log: The Genesis Account is invalid      (custom program error 0x2f)
+ *
+ * `withdrawPresaleV1` is explicitly bound to V1 — its generated code references
+ * GenesisAccountV1 and findPresaleBucketV1Pda — and the SDK ships no
+ * `withdrawPresaleV2` or `withdrawUnsoldPresaleV2` at all.
+ *
+ * The consequences are worth stating plainly rather than burying:
+ *
+ *   - There is NO depositor refund for a V2 presale. Once a deposit lands it
+ *     cannot be returned by any instruction in this program. This is strictly
+ *     worse than audit finding F-12, which observed only that the soft cap
+ *     reaches no instruction; the refund does not exist at any cap.
+ *   - There is NO unsold-token recovery. On a partial raise the unsold share of
+ *     the presale allocation stays in the bucket. The plausible V2 mechanism is
+ *     a `BaseTokenRollover` end behavior routing the remainder to another
+ *     bucket — the behavior exists in the SDK — but it is NOT implemented here
+ *     and NOT tested, so it must not be assumed to work.
+ *
+ * Failing loudly here matters more than usual: the moment either of these is
+ * reached is the moment somebody is trying to get value back.
+ */
+function refuseV1WithdrawPath(command, consequence) {
+  throw new Error(
+    `${command} cannot run against this presale.\n\n` +
+    'It uses a V1-only instruction, and `presale:create` builds a V2 launch. The program ' +
+    'rejects the combination with "The Genesis Account is invalid" (0x2f), and the SDK ships ' +
+    'no V2 equivalent — verified against devnet on 2026-07-26.\n\n' +
+    `${consequence}\n\n` +
+    'Do not work around this by re-running or by editing the artifact: the instruction does not ' +
+    'exist for V2, so there is nothing to point it at. See docs/TOKEN_SECURITY_AUDIT.md.'
+  );
+}
+
 // ── withdraw: depositor cancels their deposit (refund) ──────────────────────
 async function cmdWithdraw() {
   const env = loadEnv();
@@ -767,6 +812,11 @@ async function cmdWithdraw() {
   const me = umi.identity.publicKey;
   const depositPda = findPresaleDepositV2Pda(umi, { bucket, recipient: me });
   const recipientTokenAccount = findAssociatedTokenPda(umi, { mint, owner: me });
+  refuseV1WithdrawPath(
+    'presale:withdraw',
+    'CONSEQUENCE: there is no depositor refund for a V2 presale. A deposit, once made, cannot ' +
+    'be returned by any instruction. Published sale terms must not promise one.'
+  );
   console.log(`Withdrawing (refunding) this wallet's deposit from bucket ${a.bucket}…`);
   const sig = await sendChecked(
     withdrawPresaleV1(umi, {
@@ -807,6 +857,13 @@ async function cmdWithdrawUnsold() {
   }
   const bucketTokenAccount = findAssociatedTokenPda(umi, { mint, owner: bucket });
   const recipientTokenAccount = findAssociatedTokenPda(umi, { mint, owner: me });
+  refuseV1WithdrawPath(
+    'presale:withdraw-unsold',
+    'CONSEQUENCE: unsold presale tokens cannot be recovered this way. On a partial raise the ' +
+    'unsold share stays in the bucket. The likely V2 mechanism is a BaseTokenRollover end ' +
+    'behavior routing the remainder elsewhere — present in the SDK, NOT implemented or tested ' +
+    'here. Treat unsold supply as stranded until that is built and proven.'
+  );
   console.log(`Withdrawing unsold presale tokens from bucket ${a.bucket} to ${me}…`);
   const builder = withdrawUnsoldPresaleV1(umi, {
     genesisAccount: publicKey(a.genesisAccount),

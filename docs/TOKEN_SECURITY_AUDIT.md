@@ -40,6 +40,36 @@ absent from this repository entirely: `finalizeV2` is mandatory before any
 deposit, and it refuses unless the **whole supply** is allocated across buckets.
 The audit's scope did not reach them because nothing had ever been executed.
 
+### F-12 is worse than reported: there is no refund path at all
+
+F-12 observed that `softCapSol` reaches no instruction, so the
+`refundIfSoftCapMissed` promise was unenforceable. Execution shows the problem is
+broader. Both withdraw paths in the tooling are **V1-only instructions**, and
+`presale:create` builds a **V2** launch. Devnet rejects both:
+
+    Program log: WithdrawPresaleV1
+    Program log: The Genesis Account is invalid      (custom program error 0x2f)
+
+    Program log: WithdrawUnsoldPresaleV1
+    Program log: The Genesis Account is invalid      (custom program error 0x2f)
+
+`withdrawPresaleV1`'s generated code references `GenesisAccountV1` and
+`findPresaleBucketV1Pda`, and the SDK ships **no `withdrawPresaleV2` or
+`withdrawUnsoldPresaleV2`**. So for the presale this repository actually creates:
+
+- **No depositor refund exists at any cap.** Once a deposit lands it cannot be
+  returned by any instruction in the program — not merely "the soft-cap refund is
+  unenforceable". Published sale terms must not promise a refund of any kind.
+- **No unsold-token recovery exists.** On a partial raise the unsold share of the
+  presale allocation stays in the bucket. The plausible V2 mechanism is a
+  `BaseTokenRollover` end behavior routing the remainder to another bucket — the
+  behavior exists in the SDK — but it is not implemented here and not tested, so
+  unsold supply should be treated as stranded until it is.
+
+Both commands now refuse up front with this explanation rather than failing with
+an opaque on-chain error, because the moment either is reached is the moment
+somebody is trying to get value back.
+
 Unchanged and still open: no SBF build, no third-party audit, the program upgrade
 authority is still a single key, the Anchor IDL account lifecycle remains
 unowned, and linear vesting for team/advisors/community is specified in §4 but
