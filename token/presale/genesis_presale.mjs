@@ -115,6 +115,22 @@ function arg(flag) {
 }
 
 /**
+ * Presence of a valueless flag.
+ *
+ * Not the same thing as `arg()`, and the difference is a real bug rather than a
+ * style point: `arg()` returns argv[i+1], so for a boolean flag with nothing
+ * after it — the normal way one is passed — it returns `undefined`, which is
+ * indistinguishable from the flag being absent. `--accept-below-presale` was
+ * checked with `arg(...) !== undefined` and could therefore never fire; the
+ * override was dead on arrival and only running it showed that.
+ *
+ * Named rather than inlined so the distinction has somewhere to live.
+ */
+function hasFlag(flag) {
+  return process.argv.includes(flag);
+}
+
+/**
  * Load the presale artifact for a command that acts on a LIVE sale.
  *
  * `presale:create` writes this file incrementally, so its mere existence no
@@ -215,6 +231,43 @@ function cmdPlan() {
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
   console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:finalize → presale:deposit → (window closes) → presale:trigger → presale:claim.');
   console.log('       presale:finalize is REQUIRED before any deposit and PERMANENTLY locks bucket configuration.');
+
+  printDisclosures(cfg);
+}
+
+/**
+ * Print the things a buyer has to be told, every time the plan is run.
+ *
+ * These are not warnings about the config — they are properties of the sale
+ * that hold however it is configured, each one established by executing the
+ * thing rather than reading about it. They live in the config so there is one
+ * copy, and they print here so the sale cannot be planned without them being
+ * seen.
+ *
+ * It is deliberately noisy and deliberately not suppressible. The failure mode
+ * this guards against is not someone disagreeing with a disclosure; it is
+ * everyone forgetting it exists by the time the terms get written.
+ */
+function printDisclosures(cfg) {
+  const d = cfg.disclosures;
+  if (!d) {
+    console.log('\nNOTE: config has no `disclosures` block. It should — see metaplex-genesis.config.json.');
+    return;
+  }
+  const items = Object.entries(d).filter(([k]) => !k.startsWith('_'));
+  if (!items.length) return;
+
+  console.log(`\n${'='.repeat(78)}`);
+  console.log('REQUIRED DISCLOSURES — these must appear in the published sale terms');
+  console.log('='.repeat(78));
+  for (const [key, text] of items) {
+    console.log(`\n[${key}]`);
+    // Wrap to something readable in a terminal without mangling the source text.
+    for (const line of String(text).split(/(?<=\.) (?=[A-Z])/)) {
+      console.log(`  ${line.trim()}`);
+    }
+  }
+  console.log(`\n${'='.repeat(78)}`);
 }
 
 // ── create: initializeV2 + addPresaleBucketV2 ───────────────────────────────
@@ -259,7 +312,7 @@ async function cmdCreate() {
   // of the original, whose genesis account, bucket and escrowed tokens then
   // become unreachable by every other command here.
   const existing = readArtifact(PRESALE_ARTIFACT);
-  if (existing && existing.status !== 'pending' && !process.argv.includes('--force')) {
+  if (existing && existing.status !== 'pending' && !hasFlag('--force')) {
     throw new Error(
       `${PRESALE_ARTIFACT} already records a presale (genesis ${existing.genesisAccount}). ` +
       'Creating another would overwrite the only record of it and strand its tokens. ' +
@@ -906,7 +959,9 @@ async function cmdTrigger() {
     `${a.quoteSplitBps} bps (${a.quoteSplitBps / 100}%) of the raise -> ${a.liquidityBucket}`
   );
   console.log('Note: this only succeeds once the deposit window has closed.');
-  await assertEncodedSplitOnChain(umi, a, loadConfig());
+  const triggerCfg = loadConfig();
+  await assertEncodedSplitOnChain(umi, a, triggerCfg);
+  await assertPoolOpensAtOrAbovePresale(umi, a, triggerCfg);
 
   // The DESTINATION bucket must be passed as a remaining account, and its quote
   // token account with it. Neither appears in the instruction's declared
@@ -980,6 +1035,91 @@ async function cmdTrigger() {
  * artifact, so a silent change is detectable by anyone before the irreversible
  * steps run.
  */
+/**
+ * Refuse to open the pool below the presale price without a deliberate override.
+ *
+ * `liquidity.tokenAllocation` is fixed at bucket creation and prices the pool
+ * for a raise it cannot know: pool price = raise x split / tokenAllocation, so
+ * it is LINEAR in the realised raise. Sizing for the soft cap (the decision
+ * recorded in the config) means the pool opens at or above the presale price
+ * from `sizedForRaiseSol` upward — and below it under that.
+ *
+ * Nothing on chain prevents that. `sale.softCapSol` reaches no account, so the
+ * program happily ends a sale at any raise, and `triggerBehaviorsV2` is
+ * PERMISSIONLESS — any participant can fire it. No allocation can close the gap
+ * either, because the value required for parity falls to zero with the raise.
+ *
+ * So this is the last point at which a human is still in the loop, and it reads
+ * the realised raise from the bucket rather than assuming the soft cap held. It
+ * REFUSES rather than warns, because the pool it would create is permanent (the
+ * LP lock is never-claim) and no refund instruction exists for a V2 presale —
+ * the buyer would be underwater with no way out and no way back.
+ *
+ * It is an override, not a lock. Declining to trigger leaves the raise sitting
+ * in the presale bucket, and with no V2 withdraw path that is its own kind of
+ * stuck — so refusing outright would be trading one irreversible outcome for
+ * another. `--accept-below-presale` makes the choice explicit and logged
+ * instead of silent.
+ */
+async function assertPoolOpensAtOrAbovePresale(umi, artifact, cfg) {
+  const floorSol = Number(cfg.liquidity?.sizedForRaiseSol ?? 0);
+  if (!(floorSol > 0)) return null; // not configured — nothing claimed, nothing to check
+
+  const { fetchPresaleBucketV2 } = await import('@metaplex-foundation/genesis');
+  const bucket = await fetchPresaleBucketV2(umi, publicKey(artifact.bucket));
+  const raisedLamports = BigInt(bucket.quoteTokenDepositTotal);
+  const raisedSol = Number(raisedLamports) / 1e9;
+
+  const decimals = BigInt(cfg.token.decimals);
+  const lpBaseUnits = BigInt(cfg.liquidity.tokenAllocation) * 10n ** decimals;
+  const bps = BigInt(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
+  const quoteToPool = (raisedLamports * bps) / 10_000n;
+
+  // Exact BigInt cross-multiplication rather than floats: at the boundary the
+  // two prices differ by a lamport, and a float comparison decides it wrongly.
+  //   poolPrice   = quoteToPool / lpBaseUnits
+  //   presalePrice = hardCapLamports / presaleBaseUnits
+  const hardCapLamports = BigInt(Math.round(cfg.sale.hardCapSol * 1e9));
+  const presaleBaseUnits = BigInt(cfg.sale.presaleAllocation) * 10n ** decimals;
+  const atOrAbove = quoteToPool * presaleBaseUnits >= hardCapLamports * lpBaseUnits;
+
+  const ratio = lpBaseUnits === 0n ? 0
+    : (Number(quoteToPool) / Number(lpBaseUnits)) / (Number(hardCapLamports) / Number(presaleBaseUnits));
+
+  console.log(`  realised raise: ${raisedSol} SOL (read from the bucket, not assumed)`);
+  console.log(`  pool opens at ${ratio.toFixed(4)}x the presale price`);
+
+  if (atOrAbove) return { raisedSol, ratio, ok: true };
+
+  if (hasFlag('--accept-below-presale')) {
+    console.warn(
+      `PROCEEDING BELOW PRESALE PRICE ON AN EXPLICIT OVERRIDE.\n` +
+      `  The raise is ${raisedSol} SOL against a pool sized for ${floorSol} SOL, so the pool will ` +
+      `open at ${ratio.toFixed(4)}x the presale price.\n` +
+      `  Every presale buyer is underwater at listing, the LP lock is PERMANENT, and there is no ` +
+      `refund instruction. This is not undoable.`
+    );
+    return { raisedSol, ratio, ok: false, overridden: true };
+  }
+
+  throw new Error(
+    `Refusing to open the pool below the presale price.\n` +
+    `  realised raise      : ${raisedSol} SOL\n` +
+    `  pool was sized for  : ${floorSol} SOL (liquidity.sizedForRaiseSol)\n` +
+    `  pool opening price  : ${ratio.toFixed(4)}x the presale price\n` +
+    `\n` +
+    `Triggering now creates a PERMANENT pool (never-claim LP lock) in which every presale buyer is ` +
+    `underwater at listing, and no refund instruction exists for a V2 presale — there is no way back ` +
+    `for them and no way out for you.\n` +
+    `\n` +
+    `This is a decision, not a bug. Either the raise fell short of what the sale was priced for, or ` +
+    `liquidity.sizedForRaiseSol does not describe liquidity.tokenAllocation. Check which, then:\n` +
+    `  - re-run with --accept-below-presale to proceed deliberately (logged, still irreversible), or\n` +
+    `  - hold off and decide what to tell depositors first. Note that NOT triggering leaves the raise ` +
+    `in the presale bucket with no V2 withdraw path, so this is not a free option either.`
+  );
+}
+
 async function assertEncodedSplitOnChain(umi, artifact, cfg) {
   const { fetchPresaleBucketV2 } = await import('@metaplex-foundation/genesis');
   const wantBps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
@@ -1237,7 +1377,7 @@ async function cmdClaim() {
 // it decides whether a half-created presale can be transacted against — so it
 // needs regression coverage, and coverage needs the module to be importable
 // without executing a command.
-export { requirePresale, persistBaseMintKeypair, readArtifact, saveArtifact, PRESALE_ARTIFACT };
+export { requirePresale, persistBaseMintKeypair, readArtifact, saveArtifact, PRESALE_ARTIFACT, arg, hasFlag };
 
 const table = {
   plan: cmdPlan,

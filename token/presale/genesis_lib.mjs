@@ -635,6 +635,29 @@ export function proofToPublicKeys(hexNodes) {
  * permanent LP lock (never-claim schedule), and a start condition at the end
  * of the deposit window (pool created once the presale closes).
  */
+/**
+ * Does a pool of `lpBaseUnits` tokens, fed by `raisedLamports`, open at or above
+ * the presale price?
+ *
+ * Exact BigInt cross-multiplication, never floats. That is not fastidiousness:
+ * the interesting case is the boundary, and the two prices there differ by a
+ * lamport. A float comparison of `quoteToPool / lpBaseUnits` against
+ * `hardCap / presaleAlloc` gets the sign wrong at exactly the allocation that
+ * was CHOSEN for parity — which is how the plan output ended up warning that a
+ * pool sized for parity opened "1.0x BELOW" the presale price.
+ *
+ * One exported copy, used by the config-time warning, the trigger-time refusal
+ * and the tests alike. Three copies of one comparison is three chances for them
+ * to disagree about the case that matters.
+ */
+export function opensAtOrAbovePresale(cfg, raisedLamports, lpBaseUnits) {
+  const quoteToPool =
+    (BigInt(raisedLamports) * BigInt(cfg.liquidity.raisedSolToLiquidityBps ?? 0)) / 10_000n;
+  const presaleAlloc = BigInt(cfg.sale.presaleAllocation) * 10n ** BigInt(cfg.token.decimals);
+  const hardCapLamports = BigInt(Math.round(cfg.sale.hardCapSol * 1e9));
+  return quoteToPool * presaleAlloc >= hardCapLamports * BigInt(lpBaseUnits);
+}
+
 export function deriveLiquidityParams(cfg) {
   const decimals = cfg.token.decimals;
 
@@ -678,18 +701,44 @@ export function deriveLiquidityParams(cfg) {
   // inherent to a fixed token allocation paired with a soft/hard cap spread —
   // so it warns rather than blocks. An operator should see it before committing
   // to an irreversible lock.
-  if (worstCasePoolPrice < presalePrice) {
+  //
+  // Compared EXACTLY. The float form of this test misfires precisely at the
+  // allocation chosen for parity, which is the one configuration that must not
+  // produce a warning.
+  const lpBaseUnits = BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(decimals);
+  const softCapLamports = BigInt(Math.round(cfg.sale.softCapSol * 1e9));
+  if (!opensAtOrAbovePresale(cfg, softCapLamports, lpBaseUnits)) {
     const ratio = (presalePrice / worstCasePoolPrice).toFixed(1);
     console.warn(
       `\nWARNING: liquidity.tokenAllocation is ${Number(cfg.liquidity.tokenAllocation).toLocaleString()}, ` +
-      `which prices the pool for a FULL raise. At the soft cap the pool would open ${ratio}x BELOW ` +
-      `the presale price.\n` +
+      `which is priced for a raise ABOVE the soft cap. At the soft cap the pool would open ${ratio}x ` +
+      `BELOW the presale price — every buyer underwater at listing, against a PERMANENT LP lock and ` +
+      `with no refund instruction.\n` +
       `      Set liquidity.tokenAllocation <= ${softCapParityTokens.toLocaleString()} to be at or ` +
-      `above the presale price at EVERY raise between the caps.\n` +
+      `above the presale price at every raise from the soft cap up.\n` +
       `      This must be decided BEFORE presale:create. The allocation cannot be changed later: ` +
       `updateRaydiumCpmmBucketV2 is rejected once the genesis account is finalized (error 0x2b), ` +
       `and deposits are impossible before finalize (0x2c) — so by the time the raise is known, the ` +
       `number is already immutable. Verified on devnet 2026-07-26.\n`
+    );
+  }
+
+  // The mirror image, and it is not free money. Sizing below soft-cap parity
+  // opens the pool ABOVE the presale price, which sounds like a gift and means
+  // a pool that is thin next to the tokens presale buyers hold. Say so, so the
+  // choice is made with both sides visible rather than optimised in one
+  // direction until it breaks the other.
+  if (bestCasePoolPrice > presalePrice * 1.0001) {
+    const mult = (bestCasePoolPrice / presalePrice).toFixed(2);
+    const presaleTokens = Number(cfg.sale.presaleAllocation);
+    console.warn(
+      `\nNOTE: at a FULL raise the pool opens ${mult}x ABOVE the presale price, and holds ` +
+      `${Number(cfg.liquidity.tokenAllocation).toLocaleString()} tokens against ` +
+      `${presaleTokens.toLocaleString()} in presale hands.\n` +
+      `      That is the deliberate trade for never opening below the presale price (see ` +
+      `liquidity._liquidityPricing_comment): underwater-at-listing is unrecoverable, a thin pool is ` +
+      `not. Fund the remedy — keep the earmarked reserve available to deepen liquidity once the ` +
+      `raise is known.\n`
     );
   }
 

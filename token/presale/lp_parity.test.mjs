@@ -22,10 +22,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 import {
   parityLpBaseUnitsForRaise,
   rebalancedLpAllocation,
   fixedPriceSolPerToken,
+  opensAtOrAbovePresale,
+  PRESALE_DIR,
 } from './genesis_lib.mjs';
 
 function baseConfig() {
@@ -49,24 +54,18 @@ function poolPrice(cfg, raisedLamports, lpBaseUnits) {
 }
 
 /**
- * Exact `poolPrice >= presalePrice`, with no floating point anywhere.
+ * `opensAtOrAbovePresale` was a local copy here. It is now imported from
+ * genesis_lib, because the same comparison also drives the config-time warning
+ * in deriveLiquidityParams and the trigger-time refusal in genesis_presale —
+ * and three copies of one comparison is three chances to disagree about the
+ * boundary case, which is the only case that matters.
  *
- *   quoteToPool / lp  >=  hardCapLamports / presaleAllocationBaseUnits
- *   <=> quoteToPool * presaleAllocationBaseUnits >= hardCapLamports * lp
- *
- * The float form of this check reported a failure at a 999-lamport raise where
- * the two prices are exactly equal in rational arithmetic — a one-ULP artifact
- * of the comparison, not of the allocation. Cross-multiplying removes the
- * question entirely, which matters because "is the pool at or above the presale
- * price" is the single property this whole feature exists to guarantee.
+ * Why it is exact and not floating point, preserved from the original note: the
+ * float form reported a failure at a 999-lamport raise where the two prices are
+ * exactly equal in rational arithmetic, a one-ULP artifact of the comparison
+ * rather than of the allocation. It later did the same thing to the plan output
+ * at exactly the allocation chosen FOR parity.
  */
-function opensAtOrAbovePresale(cfg, raisedLamports, lpBaseUnits) {
-  const quoteToPool =
-    (BigInt(raisedLamports) * BigInt(cfg.liquidity.raisedSolToLiquidityBps)) / 10_000n;
-  const presaleAlloc = BigInt(cfg.sale.presaleAllocation) * 10n ** BigInt(cfg.token.decimals);
-  const hardCapLamports = BigInt(cfg.sale.hardCapSol) * 1_000_000_000n;
-  return quoteToPool * presaleAlloc >= hardCapLamports * BigInt(lpBaseUnits);
-}
 
 test('parity holds at EVERY raise between the soft and hard cap', () => {
   // This is the whole property. A fixed allocation makes the pool price a
@@ -209,4 +208,81 @@ test('the computation is exact BigInt against a hand-derived value', () => {
   // value does round-trip through Number by luck — it ends in enough zeros —
   // so that is asserted as a fact about the magnitude, not used as proof.
   assert.ok(exact > BigInt(Number.MAX_SAFE_INTEGER), 'the result exceeds a double’s exact range');
+});
+
+
+// ── the committed config, not a fixture ─────────────────────────────────────
+//
+// Everything above runs against baseConfig(), which is right for exercising the
+// arithmetic across raises but means NOTHING here was asserting anything about
+// the number this project actually ships. The sizing decision could have been
+// reverted in the config and this file would still have been green. These read
+// the committed config directly.
+
+function committedConfig() {
+  return JSON.parse(
+    fs.readFileSync(path.join(PRESALE_DIR, 'metaplex-genesis.config.json'), 'utf8')
+  );
+}
+
+test('DECISION: the committed LP allocation never opens below the presale price', () => {
+  const cfg = committedConfig();
+  const lp = BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(cfg.token.decimals);
+  // Every raise from the sized-for floor to the hard cap, inclusive of both.
+  const floor = Number(cfg.liquidity.sizedForRaiseSol);
+  for (const sol of [floor, floor + 1, 1500, 2500, 3500, 4999, cfg.sale.hardCapSol]) {
+    assert.ok(
+      opensAtOrAbovePresale(cfg, BigInt(sol) * SOL, lp),
+      `committed allocation opens BELOW the presale price at a ${sol} SOL raise`
+    );
+  }
+});
+
+test('DECISION: sizedForRaiseSol actually describes tokenAllocation', () => {
+  // The trigger-time guard refuses below sizedForRaiseSol. If that number does
+  // not match what tokenAllocation was priced for, the guard lies in whichever
+  // direction the mismatch runs — waving through an underwater pool, or blocking
+  // a sound one. Pin them to each other.
+  const cfg = committedConfig();
+  const lp = BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(cfg.token.decimals);
+  const floorLamports = BigInt(cfg.liquidity.sizedForRaiseSol) * SOL;
+
+  assert.ok(opensAtOrAbovePresale(cfg, floorLamports, lp), 'at the floor it must be at/above parity');
+  // And it must be the TIGHTEST such floor: one lamport less must fail. That is
+  // what makes it a description rather than a conservative guess.
+  assert.ok(
+    !opensAtOrAbovePresale(cfg, floorLamports - 1n, lp),
+    'sizedForRaiseSol is higher than tokenAllocation requires — the guard would block sound raises'
+  );
+});
+
+test('DECISION: below the sized-for floor it DOES open under presale, as disclosed', () => {
+  // Not a defect — the disclosed limit of the choice. sale.softCapSol reaches no
+  // on-chain account, so a raise under the floor is permitted and prices the
+  // pool below presale. If this ever passes, the disclosure has become false and
+  // config.disclosures.softCapNotEnforced needs rewriting.
+  const cfg = committedConfig();
+  const lp = BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(cfg.token.decimals);
+  const half = BigInt(Math.floor(cfg.liquidity.sizedForRaiseSol / 2)) * SOL;
+  assert.ok(!opensAtOrAbovePresale(cfg, half, lp));
+});
+
+test('DECISION: the freed supply is re-homed, not deleted', () => {
+  const cfg = committedConfig();
+  const buckets = cfg.allocations.buckets.reduce((n, b) => n + BigInt(b.tokens), 0n);
+  const total = buckets + BigInt(cfg.sale.presaleAllocation) + BigInt(cfg.liquidity.tokenAllocation);
+  assert.equal(total, BigInt(cfg.token.totalSupply), 'finalizeV2 refuses anything but an exact sum');
+});
+
+test('DECISION: the disclosures a buyer is owed are present and non-empty', () => {
+  // printDisclosures() renders whatever is here, so an empty or missing block
+  // degrades silently to printing nothing at all.
+  const cfg = committedConfig();
+  assert.ok(cfg.disclosures, 'config.disclosures is missing');
+  for (const key of ['noRefund', 'programIsUpgradeable', 'softCapNotEnforced']) {
+    assert.equal(typeof cfg.disclosures[key], 'string', `disclosures.${key} must be present`);
+    assert.ok(cfg.disclosures[key].length > 120, `disclosures.${key} is too short to be a disclosure`);
+  }
+  // The upgrade authority is the fact that makes that disclosure worth anything.
+  assert.match(cfg.disclosures.programIsUpgradeable, /bfQVv6niKVgEURYqQ1beJmiEQQN7MrvLRvk3mZGFubb/);
 });

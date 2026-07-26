@@ -132,17 +132,54 @@ tune before launch, not a fixed parameter:
 | Bucket | % | Tokens | Vesting |
 |---|---:|---:|---|
 | Public presale | 15% | 150,000,000 | 33% at TGE, then linear over 2 months |
-| DEX liquidity | 10% | 100,000,000 | Paired with raised SOL; LP burned/locked at TGE |
+| DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL; LP locked forever (never-claim) |
 | Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | Released over 36 months |
 | Team & contributors | 15% | 150,000,000 | 12-month cliff, then 24-month linear |
 | Treasury / DAO | 20% | 200,000,000 | DAO-controlled multisig, time-locked |
 | Partnerships & market makers | 8% | 80,000,000 | Deal-by-deal, 6–12 months |
 | Advisors | 2% | 20,000,000 | 6-month cliff, then 18-month linear |
-| Reserve / insurance fund | 5% | 50,000,000 | Locked; governance-unlockable only |
+| Reserve / insurance fund **+ post-TGE liquidity** | 12.9999% | 129,999,000 | Locked; governance-unlockable only |
 | **Total** | **100%** | **1,000,000,000** | — |
 
+**The DEX liquidity row moved from 10% to 2.0001% on 2026-07-26, and the 79,999,000
+difference is in the reserve row, earmarked.** This is the F-25 decision and it is
+not a tokenomics preference — it is forced by how the venue works.
+
+The LP token side is fixed when the bucket is created and can never be changed
+(`updateRaydiumCpmmBucketV2` is rejected once the genesis account is finalized,
+error `0x2b`; deposits are impossible before finalize, `0x2c`). The SOL side is
+whatever is raised. So the pool's opening price is **linear in the raise**:
+
+| LP allocation | Pool opens at a 1,000 SOL raise | at 5,000 SOL (hard cap) |
+|---|---|---|
+| 100,000,000 (the old 10%) | **5x BELOW** the presale price | at the presale price |
+| 20,001,000 (now) | at the presale price | 5x above it |
+
+At 10% the pool opened at what buyers paid **only on a full raise**, and
+proportionally under it on anything less. The two failure modes are not
+symmetric, and that asymmetry is the whole argument:
+
+- **Below the presale price** puts every buyer underwater the moment trading
+  opens — permanently, because the LP lock is never-claim and **no refund
+  instruction exists for a V2 presale** (proven, §14). Unrecoverable.
+- **Above the presale price** leaves a pool that is thin next to the
+  150,000,000 tokens in presale hands, so early price discovery is violent.
+  Bad — but recoverable, by adding liquidity once the raise is known.
+
+The irreversible bet is therefore taken on the side that can be corrected, and
+the correction is funded: the 79,999,000 sits in the reserve bucket earmarked for
+post-TGE liquidity provisioning. Deploying it is a governance action.
+
+**What this does not fix.** `softCapSol` reaches no on-chain account, so the
+program permits a raise below 1,000 SOL, and at that level this allocation still
+opens the pool under the presale price. No allocation closes that gap — the value
+required for parity falls to zero with the raise. `presale:trigger` therefore
+reads the realised raise from the bucket and **refuses** to open the pool below
+the presale price unless `--accept-below-presale` is passed, and
+`config.disclosures.softCapNotEnforced` says so publicly.
+
 **Circulating supply at TGE (approx):** presale unlock (33% of 150M ≈ 49.5M) + DEX liquidity
-(100M) + any airdrop TGE tranche. Team, treasury, advisors, and reserve are **fully locked at
+(20.001M) + any airdrop TGE tranche. Team, treasury, advisors, and reserve are **fully locked at
 TGE**, so initial float is a small fraction of supply — reducing early sell pressure. A full
 **emissions / circulating-supply-over-time chart** should be published before the presale.
 
@@ -255,12 +292,13 @@ than the hard cap, before `presale:create`. At the current parameters that is
 prints the number. Sized that way the pool opens at or above the presale price at
 every raise between the caps; sized at 100M it does not.
 
-That is a **tokenomics decision, not a code change**: 20M contradicts the
-published 10% supply bucket in §4, and a thinner pool is a real cost. The
-alternatives are to narrow the 5x soft/hard cap spread, or to accept that a weak
-raise lists below the presale price and say so in the published terms. **This
-must be settled before `presale:create` — it cannot be corrected afterwards.**
-Tracked in §13.
+**Settled 2026-07-26: 20,001,000.** It was a tokenomics decision rather than a
+code change, and the argument that decided it is the asymmetry between the two
+ways of being wrong — a pool below the presale price is unrecoverable (permanent
+lock, no refund), a thin pool is not. §4 carries the full reasoning, the §4 table
+now reads 2.0001%, and the 79,999,000 freed is earmarked in the reserve bucket to
+fund the correction. The remaining exposure — a raise below the sized-for floor —
+is guarded at trigger time and disclosed in §10 rather than papered over.
 
 ## 6. Launch venue comparison + recommendation
 
@@ -304,8 +342,17 @@ experiment) — **never** the utility-token TGE.
 
 - **Pool:** seed a `$RCLAW`/SOL pool on **Raydium** (or **Orca**), routable by **Jupiter** so
   every Solana aggregator picks it up.
-- **Depth:** 100,000,000 `$RCLAW` (the 10% liquidity allocation) paired with 66.67% of raised SOL
-  (§5). Worked FDV/price example carries over from §4–§5.
+- **Depth:** 20,001,000 `$RCLAW` (the 2.0001% liquidity allocation) paired with 66.67% of raised
+  SOL (§5). Worked FDV/price example carries over from §4–§5. **This is deliberately thin, and
+  the reason is in §4:** the token side is frozen at bucket creation while the SOL side is
+  whatever gets raised, so sizing it for a full raise guarantees an underwater pool on anything
+  less — permanently, with no refund. Sized for the soft cap instead, the pool opens at or above
+  the presale price from 1,000 SOL up.
+- **Post-TGE depth is a funded, deliberate follow-up, not an afterthought.** The 79,999,000
+  freed by that sizing sits in the reserve bucket earmarked for it. Once the raise is known the
+  right depth is knowable, and adding liquidity is a governance action that can be taken; the
+  opposite mistake cannot be undone. Publish the intent alongside the sale terms so a thin
+  opening pool is not read as a rug.
 - **LP safety:** LP **permanently locked** — the Genesis path adds the pool via
   `addRaydiumCpmmBucketV2` with `createNeverClaimSchedule()`, so the LP position can never be
   claimed at all. This supersedes the earlier *"burned or locked for at least 12 months"*
@@ -467,6 +514,43 @@ and the BUSL-1.1 license.
   not change that disclaimer.
 - **Not an offer.** This document is directional design, not a solicitation.
 
+### Mandatory sale-terms disclosures
+
+Three facts about *this* sale are not visible from its marketing surface and are
+not optional to publish. Each was established by executing the thing rather than
+reading about it, and each is held in one place —
+`token/presale/metaplex-genesis.config.json` → `disclosures` — which
+`presale:plan` prints in full on every run, so the sale cannot be planned without
+them being seen. `token/presale/lp_parity.test.mjs` fails if any is removed.
+
+1. **There is no refund, at any raise level.** Once a deposit lands, no
+   instruction in the Genesis program can return it: `withdrawPresaleV1` and
+   `withdrawUnsoldPresaleV1` are V1-only and reject a V2 genesis account
+   (`0x2f`), and the SDK ships no V2 equivalent. Published terms must not promise
+   a refund of any kind, including a soft-cap refund.
+
+2. **The program running the sale is upgradeable, by someone else.** Metaplex
+   Genesis (`GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B`) custodies the entire
+   raise, every vesting schedule and the never-claim LP lock. Its mainnet-beta
+   upgrade authority is `bfQVv6niKVgEURYqQ1beJmiEQQN7MrvLRvk3mZGFubb` — a third
+   party, not RUNECLAW — which can replace that bytecode at any time with no
+   change to this repository and no signal to holders. **Every immutability claim
+   in §11 holds within the current Genesis program, not against it.** The
+   authority is an off-curve address, so a PDA rather than a bare keypair
+   (consistent with a multisig vault); the threshold is not observable and is not
+   ours to set. The other four programs in the money path — SPL System, SPL
+   Token, SPL Associated Token, Metaplex Token Metadata — are all immutable on
+   mainnet-beta. Measured 2026-07-26; re-run `npm run programs:inventory` before
+   launch in case the authority or the deployed slot has moved.
+
+3. **The soft cap is descriptive, and the listing price depends on the raise.**
+   `softCapSol` reaches no on-chain account; nothing stops the sale ending below
+   it. The pool opens at or above the presale price only if the raise reaches
+   `liquidity.sizedForRaiseSol`. Terms must state that level rather than imply a
+   floor that does not exist.
+
+Counsel should review the wording. The facts are measured and not negotiable.
+
 ---
 
 ## 11. Security & rug-resistance checklist
@@ -563,7 +647,14 @@ Everything below is a **proposed default that the team must ratify** — nothing
 
 - **Final ticker** (`$RCLAW` assumed; confirm no Solana collision before mint).
 - **Total supply & decimals** (1B / 9 assumed).
-- **Allocation percentages and all vesting schedules** (§4).
+- **Allocation percentages and all vesting schedules** (§4) — except the two rows below,
+  which are now settled.
+- ~~**DEX liquidity allocation**~~ — **settled: 20,001,000 (2.0001%)**, ratified 2026-07-26,
+  with the 79,999,000 difference moved to the reserve bucket and earmarked for post-TGE
+  liquidity. This was F-25 and it had to be decided before `presale:create`, because the LP
+  token side is immutable from bucket creation and the raise is only known afterwards.
+  Reasoning and the two-failure-mode asymmetry in §4; the arithmetic is pinned in
+  `token/presale/lp_parity.test.mjs` and the number is enforced at trigger time.
 - **Soft/hard caps, min/max contribution, round durations, presale price** (§5).
 - **Liquidity split of raised SOL** (**66.67%**, ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled:**
   permanent never-claim lock (§7).
@@ -584,6 +675,20 @@ Everything below is a **proposed default that the team must ratify** — nothing
 
 - **Soft-cap enforcement mechanism.** Genesis has no native soft-cap/refund (§5). Choose an
   operational cancel-and-refund path or a min-raise extension, and disclose it before the sale.
+  **Partially addressed 2026-07-26:** there is still no on-chain enforcement and there cannot
+  be — but `presale:trigger` now reads the realised raise from the bucket and refuses to open
+  a pool below the presale price without an explicit `--accept-below-presale`, and
+  `config.disclosures.softCapNotEnforced` states publicly that no floor exists. That converts
+  a silent irreversible step into a deliberate one. It does not create a refund, and nothing
+  can: declining to trigger leaves the raise in the presale bucket with no V2 withdraw path,
+  so **the operational cancel-and-refund path is still an unanswered question and still
+  blocks any sale that promises one.**
+- **Disclosure of the Genesis upgrade authority — decided, needs legal sign-off on wording.**
+  `config.disclosures.programIsUpgradeable` states that Metaplex Genesis is upgradeable by
+  `bfQVv6niKVgEURYqQ1beJmiEQQN7MrvLRvk3mZGFubb`, a third party, and that every immutability
+  claim this project makes holds *within* that program rather than against it. `presale:plan`
+  prints it on every run so it cannot be shipped unseen. What remains is counsel reviewing the
+  wording for the published terms — the fact itself is measured and not negotiable.
 - **Presale funding mode** — `mint` (Genesis initializes and mints the supply itself) vs
   `transfer` (pre-mint with `token/` tooling and transfer from the treasury ATA). The config
   defaults to `mint` for a self-contained devnet demo; a real launch that pre-mints and

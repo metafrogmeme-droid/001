@@ -179,6 +179,11 @@ function saveReport(steps) {
       'allocation-bucket recipients defaulted to the devnet payer and their cliffs moved to ' +
       'near-now; a real launch sets each recipient explicitly (presale:allocate refuses a ' +
       'blank one) and uses the real unlock dates.',
+      'presale:trigger was run with --accept-below-presale. The run deposits a fraction of a SOL ' +
+      'against an LP allocation priced for liquidity.sizedForRaiseSol, so the pool opens far below ' +
+      'the presale price and the guard refuses without the override. On a real sale that override ' +
+      'means every buyer is underwater at listing, permanently, with no refund — it is never a ' +
+      'default.',
     ],
     generatedConfig: DERIVED_CONFIG,
     steps,
@@ -317,7 +322,15 @@ async function main() {
   // it, and until now it had never been executed against any cluster. It is
   // permissionless: triggerBehaviorsV2 takes a payer and no authority.
   await sleepUntil(depositEnd);
-  step('trigger', ['presale/genesis_presale.mjs', 'trigger']);
+  // --accept-below-presale is REQUIRED here and is a harness simplification, not
+  // a default anyone should copy. presale:trigger refuses to open a pool below
+  // the presale price, and this run deposits ~0.01 SOL against an allocation
+  // priced for `liquidity.sizedForRaiseSol` — so the guard fires, correctly, on
+  // every dry run. A real sale that needs this flag is a real sale where every
+  // buyer is underwater at listing against a permanent LP lock with no refund;
+  // it is a decision to be taken deliberately, which is exactly why the flag
+  // exists rather than the guard being a warning.
+  step('trigger', ['presale/genesis_presale.mjs', 'trigger', '--accept-below-presale']);
 
   await sleepUntil(tge);
   step('claim', ['presale/genesis_presale.mjs', 'claim']);

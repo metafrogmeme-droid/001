@@ -41,6 +41,12 @@ test('the buckets mirror the published §4 allocation table', () => {
   // If these drift from docs/TOKEN_ROADMAP.md §4, the published tokenomics and
   // the on-chain reality disagree — which is a disclosure problem, not just a
   // config one.
+  //
+  // UPDATED 2026-07-26 with the F-25 sizing decision. The LP side moved from
+  // 100,000,000 (parity at a FULL raise, underwater at anything less) to
+  // 20,001,000 (parity at the soft cap). The 79,999,000 freed did not vanish —
+  // it is in `reserve`, earmarked for post-TGE liquidity, which is what makes
+  // the thin-pool consequence of that choice recoverable.
   const cfg = committed();
   const byName = Object.fromEntries(
     (cfg.allocations.buckets || []).map((b) => [b.name, BigInt(b.tokens)])
@@ -51,18 +57,19 @@ test('the buckets mirror the published §4 allocation table', () => {
     treasury: 200_000_000n,
     partnerships: 80_000_000n,
     advisors: 20_000_000n,
-    reserve: 50_000_000n,
+    reserve: 129_999_000n,
   });
-  // Presale 15% + liquidity 10% + these 75% = 100%.
   assert.equal(BigInt(cfg.sale.presaleAllocation), 150_000_000n);
-  assert.equal(BigInt(cfg.liquidity.tokenAllocation), 100_000_000n);
+  assert.equal(BigInt(cfg.liquidity.tokenAllocation), 20_001_000n);
+  // The freed supply is accounted for, not merely absent from liquidity.
+  assert.equal(129_999_000n - 50_000_000n, 100_000_000n - 20_001_000n);
 });
 
 test('a supply that is SHORT is refused, naming the gap', () => {
   const cfg = clone(committed());
   cfg.allocations.buckets = cfg.allocations.buckets.filter((b) => b.name !== 'reserve');
   assert.throws(() => deriveAllocationBuckets(cfg), /not fully allocated/);
-  assert.throws(() => deriveAllocationBuckets(cfg), /short by 50,000,000/);
+  assert.throws(() => deriveAllocationBuckets(cfg), /short by 129,999,000/);
   // And it must say WHY this matters, because the on-chain failure is late and
   // expensive.
   assert.throws(() => deriveAllocationBuckets(cfg), /Total supply must be fully allocated/);

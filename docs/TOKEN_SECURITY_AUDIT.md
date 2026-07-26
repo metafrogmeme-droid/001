@@ -288,12 +288,58 @@ inference.
 
 What execution *did* add is the actionable number: sizing
 `liquidity.tokenAllocation` to the **soft cap** (20,001,000 at current
-parameters, versus the committed 100,000,000) makes the pool open at or above the
-presale price at every raise in range. `presale:plan` prints it and
-`token/presale/lp_parity.test.mjs` pins the arithmetic. It contradicts the
-published 10% supply bucket, so it remains a tokenomics decision — but it is now
-a decision with a specific number attached, and one that must be made before
-`presale:create`.
+parameters, versus the then-committed 100,000,000) makes the pool open at or
+above the presale price at every raise in range.
+
+### F-25 is now DECIDED (2026-07-26): 20,001,000, sized for the soft cap
+
+The config was changed. `liquidity.tokenAllocation` is 20,001,000 and the
+79,999,000 freed moved to `allocations.reserve` (50,000,000 → 129,999,000),
+earmarked for post-TGE liquidity provisioning. The supply still sums to exactly
+1,000,000,000, which `finalizeV2` requires.
+
+**The reasoning is an asymmetry, not a preference.** The pool's opening price is
+linear in the raise, and the allocation is frozen before the raise is known, so
+the choice is which way to be wrong:
+
+- A pool opening **below** the presale price puts every buyer underwater at
+  listing, permanently — never-claim LP lock, and no refund instruction exists
+  for a V2 presale (F-12, proven). **Unrecoverable.**
+- A pool opening **above** it is thin next to the 150,000,000 tokens in presale
+  hands, so early price discovery is violent. Bad, but **recoverable** by adding
+  liquidity after the raise is known.
+
+Take the irreversible bet on the side that can be corrected, then fund the
+correction. That is what the earmarked reserve is for; it is what makes this a
+decision rather than a coin flip.
+
+**What it does not fix, stated rather than glossed.** `sale.softCapSol` reaches
+no on-chain account, so the program permits a raise below the floor, and there
+this allocation still opens the pool under the presale price. **No allocation
+closes that** — the value required for parity falls to zero with the raise. So
+the guard moved to the last point where a human is still in the loop:
+`presale:trigger` reads `quoteTokenDepositTotal` from the bucket and **refuses**
+unless the pool would open at or above the presale price, with
+`--accept-below-presale` as a deliberate, logged override. It is an override and
+not a lock on purpose — declining to trigger strands the raise in the presale
+bucket with no V2 withdraw path, so refusing outright would trade one
+irreversible outcome for another.
+
+Three things make this hold rather than drift:
+
+- The parity comparison is **one exported function** (`opensAtOrAbovePresale`),
+  used by the config-time warning, the trigger-time refusal and the tests. It was
+  three copies; the float version of it misfired at exactly the allocation chosen
+  *for* parity, reporting that a parity-sized pool opened "1.0x BELOW" the presale
+  price. Exact BigInt cross-multiplication, one implementation.
+- The tests now read the **committed config**, not a fixture. They did not
+  before — every parity test ran against `baseConfig()`, so the shipped number
+  was asserted by nothing and could have been reverted silently. Mutation-tested
+  four ways, including a coherent revert of both the allocation and the reserve.
+- `liquidity.sizedForRaiseSol` is pinned to be the **tightest** floor the
+  allocation supports — one lamport below it must fail parity. Otherwise the
+  number the trigger guard enforces could drift from the number the allocation
+  was priced for, and the guard would lie in whichever direction the gap ran.
 
 ## Scope
 

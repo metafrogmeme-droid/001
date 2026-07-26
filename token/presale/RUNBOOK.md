@@ -54,6 +54,8 @@ npm run presale:deposit -- --amount 1   # depositPresaleV2 (auto-presents whitel
 npm run presale:trigger          # triggerBehaviorsV2 — routes the 66.67% quote share to the
                                  # liquidity bucket. Permissionless: ANYONE may run it once
                                  # the deposit window closes. Required before the pool is real.
+                                 # REFUSES if the realised raise would open the pool below the
+                                 # presale price — see the decision point below.
 npm run presale:claim            # claimPresaleV2 once the claim window opens (post-TGE)
 # recovery: BOTH OF THESE ARE DEAD FOR A V2 PRESALE — they refuse up front.
 # withdrawPresaleV1/withdrawUnsoldPresaleV1 are V1-only and reject a V2 genesis
@@ -77,8 +79,8 @@ What the script does, mapped to the SDK:
    `minimumDepositAmount` / `depositLimit` (per-wallet floor/ceiling), a `claimSchedule`
    (33% at TGE via `cliffAmountBps`, linear tail), and — if a whitelist artifact exists — the
    `allowlist` (Merkle root, ends at `publicStart`). Writes `token/.artifacts/presale.devnet.json`.
-4. **`presale:liquidity`** — `addRaydiumCpmmBucketV2` with `baseTokenAllocation` = the 100M
-   liquidity allocation, `lpLockSchedule` = `createNeverClaimSchedule()` (**LP locked forever**),
+4. **`presale:liquidity`** — `addRaydiumCpmmBucketV2` with `baseTokenAllocation` = the 20,001,000
+   liquidity allocation (soft-cap sized — see §4/§7 of the roadmap), `lpLockSchedule` = `createNeverClaimSchedule()` (**LP locked forever**),
    and a `startCondition` at the deposit-window close.
 5. **`presale:deposit` / `presale:claim`** — `depositPresaleV2` / `claimPresaleV2` against the
    bucket. During the whitelist window the depositor's Merkle `proof` is looked up and presented
@@ -108,6 +110,39 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
 3. Confirm the exact **% of sales** platform fee in-app (placeholder in config).
 4. Run the same devnet dry-run (contribute → finalize → auto-list → claim).
 5. Publish the same proof artifacts.
+
+## The one decision point: `presale:trigger` may refuse
+
+`presale:trigger` reads the realised raise from the bucket
+(`quoteTokenDepositTotal`) and compares the pool's opening price against the
+presale price. If the pool would open **below** it, the command stops:
+
+```
+Refusing to open the pool below the presale price.
+  realised raise      : 412 SOL
+  pool was sized for  : 1000 SOL (liquidity.sizedForRaiseSol)
+  pool opening price  : 0.4120x the presale price
+```
+
+This is not a bug and re-running will not clear it. The LP token side was fixed
+when the bucket was created, so a raise short of what it was priced for opens the
+pool under what buyers paid — permanently, because the LP lock is never-claim,
+and there is no refund instruction for a V2 presale.
+
+**There is no clean option at this point**, and the runbook should say so rather
+than imply one:
+
+- `npm run presale:trigger -- --accept-below-presale` proceeds. Every presale
+  buyer is underwater at listing, irreversibly. The override is logged.
+- Not triggering leaves the raise sitting in the presale bucket, and no V2
+  withdraw path exists to get it out. That is not a free wait — it is a
+  different irreversible position.
+
+So the real work is upstream: decide what you will tell depositors **before** the
+sale, publish the raise level the listing price depends on
+(`config.disclosures.softCapNotEnforced` states it), and hold an operational
+cancel-and-refund procedure ready if the terms promise one. This guard exists to
+make sure that conversation happens before the button, not after.
 
 ## Rehearse it for free, on a local validator
 
