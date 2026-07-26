@@ -33,8 +33,15 @@
       });
     }
   }
+  // Pointer parallax: the field leans a few pixels toward the cursor, eased.
+  // Pure decoration; reduced-motion never reaches here (static frame above).
+  var px = 0, py = 0, tx = 0, ty = 0;
+
   function draw(step) {
     ctx.clearRect(0, 0, W, H);
+    if (step) { px += (tx - px) * 0.06; py += (ty - py) * 0.06; }
+    ctx.save();
+    ctx.translate(px, py);
     var i, j;
     for (i = 0; i < nodes.length; i++) {
       var a = nodes[i];
@@ -58,6 +65,7 @@
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832);
       ctx.fillStyle = 'rgba(143,217,255,0.72)'; ctx.fill();
     }
+    ctx.restore();
   }
   function frame() { raf = 0; draw(true); if (onscreen && !document.hidden) raf = requestAnimationFrame(frame); }
   function start() { if (!raf && onscreen && !document.hidden) raf = requestAnimationFrame(frame); }
@@ -66,6 +74,13 @@
   size(); seed();
   if (reduce) { draw(false); return; } // one static frame, no loop
   start();
+
+  host.addEventListener('pointermove', function (e) {
+    var r = host.getBoundingClientRect();
+    tx = ((e.clientX - r.left) / Math.max(1, r.width) - 0.5) * 14;
+    ty = ((e.clientY - r.top) / Math.max(1, r.height) - 0.5) * 10;
+  });
+  host.addEventListener('pointerleave', function () { tx = 0; ty = 0; });
 
   var rt;
   window.addEventListener('resize', function () {
