@@ -439,6 +439,21 @@ and the BUSL-1.1 license.
       ```
 - [ ] **Immutability plan published**: either `--final` once the program is stable, or a
       standing multisig + timelock with the quorum and delay stated up front.
+- [ ] **IDL account initialized and its authority claimed, in the same session as the
+      deploy.** `no-idl` is not enabled, so `anchor build` emits an IDL and Anchor 0.30.1
+      stores it in a program-owned PDA whose authority goes to **whoever calls
+      `anchor idl init` first** — not necessarily the deployer. Nothing in this repository
+      initializes, versions, or assigns it today. Whoever holds it controls what every
+      explorer, wallet, and client-side decoder believes this program's instructions and
+      accounts are; it cannot change on-chain behaviour, but it can misrepresent it to
+      everyone reading. Claim it immediately after deploy, then transfer it alongside the
+      upgrade authority:
+      ```bash
+      anchor idl init --filepath target/idl/rclaw_staking.json <PROGRAM_ID>
+      anchor idl authority <PROGRAM_ID>                        # verify who holds it
+      anchor idl set-authority --new-authority <SQUADS_VAULT_PDA> --program-id <PROGRAM_ID>
+      ```
+      An unclaimed IDL account is a live squatting surface for as long as it stays unclaimed.
 - [ ] **Key custody**: the mint/metadata/presale/LP authority is one keypair at
       `token/.keys/mint-payer.json` (mode 0600, enforced at load). Move it to the multisig
       before any value-bearing run — a single file read is otherwise total compromise of

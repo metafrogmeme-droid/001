@@ -123,10 +123,36 @@ const initMetaIx = createInitializeMetadataInstruction({
   uri: metadata.uri,
 });
 
+// This is a FIVE-transaction sequence and nothing makes it atomic. The dangerous
+// failure is not the first step but a later one: if the supply is minted and the
+// mint-authority revoke then fails, a mint exists holding 1,000,000,000 tokens
+// WITH a live mint authority. Previously the process threw before any artifact
+// was written, so the mint's address was lost with it — and `npm run verify`
+// takes its address from that artifact, meaning the one command that would have
+// caught the live authority could not be pointed at the token.
+//
+// So the artifact is written incrementally, starting the moment the mint exists,
+// and only flipped to "complete" at the end. A crashed run leaves a record
+// saying exactly which step it reached.
+const progress = {
+  status: 'pending',
+  cluster: cfg.cluster || 'devnet',
+  mint: mint.publicKey.toBase58(),
+  note: 'INCOMPLETE RUN — see status/completedSteps. DRAFT / DEVNET artifact.',
+  completedSteps: [],
+  txs: {},
+};
+const checkpoint = (step, sig) => {
+  progress.completedSteps.push(step);
+  if (sig) progress.txs[step] = sig;
+  saveArtifact('token.devnet.json', progress);
+};
+
 console.log('\n[1/5] Creating mint + metadata…');
 const tx1 = new Transaction().add(createIx, pointerIx, initMintIx, initMetaIx);
 const sig1 = await sendAndConfirmTransaction(connection, tx1, [payer, mint]);
 console.log('  tx:', sig1);
+checkpoint('create', sig1);
 
 // Write the additionalMetadata fields.
 //
@@ -151,6 +177,7 @@ if (metadata.additionalMetadata.length) {
   );
   const sigFields = await sendAndConfirmTransaction(connection, fieldTx, [payer]);
   console.log('  tx:', sigFields);
+  checkpoint('additionalMetadata', sigFields);
 } else {
   console.log('\n[2/5] No additionalMetadata configured.');
 }
@@ -165,6 +192,10 @@ const tx2 = new Transaction().add(
 const sig2 = await sendAndConfirmTransaction(connection, tx2, [payer]);
 console.log('  tx:', sig2);
 console.log('  minted', cfg.totalSupply, cfg.symbol, `(${supplyBase} base units)`);
+// From here the mint holds the entire supply and STILL has a live mint
+// authority. If the next step fails, this checkpoint is what makes the token
+// findable and verifiable rather than silently orphaned.
+checkpoint('mintSupply', sig2);
 
 // Revoke mint authority so supply is permanently fixed.
 if (cfg.authorities.revokeMintAuthorityAfterMint) {
@@ -174,6 +205,7 @@ if (cfg.authorities.revokeMintAuthorityAfterMint) {
   );
   const sig3 = await sendAndConfirmTransaction(connection, tx3, [payer]);
   console.log('  tx:', sig3);
+  checkpoint('revokeMintAuthority', sig3);
 } else {
   console.log('\n[4/5] SKIPPED mint-authority revoke (config flag off).');
 }
@@ -214,6 +246,7 @@ if (metaRevokes.length) {
   console.log('\n[5/5] Renouncing metadata authorities (token identity becomes immutable)…');
   sig4 = await sendAndConfirmTransaction(connection, new Transaction().add(...metaRevokes), [payer]);
   console.log('  tx:', sig4);
+  checkpoint('renounceMetadataAuthorities', sig4);
   console.log(
     '  NOTE: name/symbol/uri can never be changed again. The uri must already point\n' +
     '        at immutable, content-addressed storage — a mutable URL is now frozen\n' +
@@ -233,6 +266,8 @@ const asAuthority = (v) => {
 };
 
 const artifact = {
+  status: 'complete',
+  completedSteps: progress.completedSteps,
   cluster: cfg.cluster || 'devnet',
   mint: mint.publicKey.toBase58(),
   ata: ata.toBase58(),
@@ -243,7 +278,7 @@ const artifact = {
   metadataUpdateAuthority: asAuthority(meta && meta.updateAuthority),
   metadataPointerAuthority: asAuthority(pointer && pointer.authority),
   metadata: meta ? { name: meta.name, symbol: meta.symbol, uri: meta.uri } : null,
-  txs: { create: sig1, mint: sig2, ...(sig4 ? { renounceMetadata: sig4 } : {}) },
+  txs: progress.txs,
   note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
 };
 const out = saveArtifact('token.devnet.json', artifact);

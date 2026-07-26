@@ -12,14 +12,17 @@
 use anchor_lang::{InstructionData, ToAccountMetas};
 use solana_program_test::{processor, ProgramTest, ProgramTestContext};
 use solana_sdk::{
+    account::Account,
     clock::Clock,
     instruction::Instruction,
+    program_option::COption,
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
 };
+use std::str::FromStr;
 
 const DECIMALS: u8 = 9;
 
@@ -36,13 +39,26 @@ fn pin_active() -> bool {
         .unwrap_or(false)
 }
 
+/// The pinned mint address, when the crate was built with one.
+fn pinned_mint() -> Option<Pubkey> {
+    rclaw_staking::PINNED_MINT
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| Pubkey::from_str(s).ok())
+}
+
+/// Skip only tests that are genuinely meaningless under a pin.
+///
+/// Most tests no longer need this: `canonical_mint` materialises a mint AT the
+/// pinned address, so the vault logic is exercised in BOTH configurations. That
+/// matters because a pinned build is the only one intended to hold value, and it
+/// previously ran none of it — ten of eleven integration tests self-skipped.
 macro_rules! skip_if_pinned {
     () => {
         if pin_active() {
             eprintln!(
-                "SKIPPED: built with RCLAW_PINNED_MINT={:?}; this test mints its own \
-                 token, which the pin correctly rejects. Re-run without the pin to \
-                 exercise the vault logic.",
+                "SKIPPED under RCLAW_PINNED_MINT={:?}: this case needs a mint the pin \
+                 rejects by design.",
                 rclaw_staking::PINNED_MINT
             );
             return;
@@ -109,6 +125,40 @@ async fn create_mint(ctx: &mut ProgramTestContext, authority: &Pubkey) -> Pubkey
     );
     ctx.banks_client.process_transaction(tx).await.unwrap();
     mint.pubkey()
+}
+
+/// The mint the program will actually accept.
+///
+/// Unpinned, this is just a fresh mint. Pinned, it writes a fully-formed SPL
+/// mint account directly AT the pinned address — the only way to obtain that
+/// specific pubkey without its keypair — so the same vault tests run unchanged
+/// under a pin instead of skipping.
+async fn canonical_mint(ctx: &mut ProgramTestContext, authority: &Pubkey) -> Pubkey {
+    let Some(pinned) = pinned_mint() else {
+        return create_mint(ctx, authority).await;
+    };
+    let rent = ctx.banks_client.get_rent().await.unwrap();
+    let mut data = vec![0u8; spl_token::state::Mint::LEN];
+    spl_token::state::Mint {
+        mint_authority: COption::Some(*authority),
+        supply: 0,
+        decimals: DECIMALS,
+        is_initialized: true,
+        freeze_authority: COption::None,
+    }
+    .pack_into_slice(&mut data);
+    ctx.set_account(
+        &pinned,
+        &Account {
+            lamports: rent.minimum_balance(spl_token::state::Mint::LEN),
+            data,
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: 0,
+        }
+        .into(),
+    );
+    pinned
 }
 
 /// Create an ATA for `owner` and mint `amount` into it.
@@ -226,10 +276,9 @@ async fn warp_past_lockup(ctx: &mut ProgramTestContext) {
 
 #[tokio::test]
 async fn stake_then_unstake_roundtrips() {
-    skip_if_pinned!();
     let mut ctx = setup().await;
     let payer = ctx.payer.pubkey();
-    let mint = create_mint(&mut ctx, &payer).await;
+    let mint = canonical_mint(&mut ctx, &payer).await;
     let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
 
     let tx = Transaction::new_signed_with_payer(
@@ -262,10 +311,9 @@ async fn stake_then_unstake_roundtrips() {
 /// dimension the tier is a live spot balance and costs nothing to hold.
 #[tokio::test]
 async fn unstake_is_rejected_while_locked() {
-    skip_if_pinned!();
     let mut ctx = setup().await;
     let payer = ctx.payer.pubkey();
-    let mint = create_mint(&mut ctx, &payer).await;
+    let mint = canonical_mint(&mut ctx, &payer).await;
     let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
 
     let tx = Transaction::new_signed_with_payer(
@@ -303,10 +351,9 @@ async fn unstake_is_rejected_while_locked() {
 /// A trivial top-up must not be able to pull an existing unlock time closer.
 #[tokio::test]
 async fn restake_extends_but_never_shortens_the_lock() {
-    skip_if_pinned!();
     let mut ctx = setup().await;
     let payer = ctx.payer.pubkey();
-    let mint = create_mint(&mut ctx, &payer).await;
+    let mint = canonical_mint(&mut ctx, &payer).await;
     let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
 
     let tx = Transaction::new_signed_with_payer(
@@ -348,10 +395,9 @@ async fn restake_extends_but_never_shortens_the_lock() {
 
 #[tokio::test]
 async fn cannot_unstake_more_than_staked() {
-    skip_if_pinned!();
     let mut ctx = setup().await;
     let payer = ctx.payer.pubkey();
-    let mint = create_mint(&mut ctx, &payer).await;
+    let mint = canonical_mint(&mut ctx, &payer).await;
     let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
 
     let tx = Transaction::new_signed_with_payer(
@@ -529,10 +575,9 @@ async fn mint_with_freeze_authority_is_rejected() {
 /// Rent must be reclaimable once a position is fully exited, and only then.
 #[tokio::test]
 async fn close_reclaims_rent_only_when_fully_exited() {
-    skip_if_pinned!();
     let mut ctx = setup().await;
     let payer = ctx.payer.pubkey();
-    let mint = create_mint(&mut ctx, &payer).await;
+    let mint = canonical_mint(&mut ctx, &payer).await;
     let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
 
     let tx = Transaction::new_signed_with_payer(
@@ -579,10 +624,9 @@ async fn close_reclaims_rent_only_when_fully_exited() {
 /// A small top-up must not erase a large position's accrued age.
 #[tokio::test]
 async fn staked_at_is_amount_weighted_not_reset() {
-    skip_if_pinned!();
     let mut ctx = setup().await;
     let payer = ctx.payer.pubkey();
-    let mint = create_mint(&mut ctx, &payer).await;
+    let mint = canonical_mint(&mut ctx, &payer).await;
     let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000_000).await;
 
     let tx = Transaction::new_signed_with_payer(
@@ -625,5 +669,222 @@ async fn staked_at_is_amount_weighted_not_reset() {
         staked_at_2 - staked_at_1 < 2_000,
         "a 0.1% top-up must barely move the weighted age (moved {})",
         staked_at_2 - staked_at_1
+    );
+}
+
+// ── The vault's canonical-ATA pin, under permanent regression coverage ──────
+//
+// This is the guard the audit called "the single most important" one in the
+// vault-drain remediation, and it had no committed test. The existing
+// mint-confusion case never reaches it: that attacker passes
+// stake_account = stake_pda(owner, EVIL) with mint = RCLAW, so Anchor's seeds
+// check on stake_account fails first and the `associated_token::*` constraints
+// on `vault` are never evaluated.
+//
+// So this constructs the decoy the seeds check CANNOT catch: a real token
+// account whose `owner` field is the genuine off-curve vault_authority(mint)
+// PDA, but which is NOT that mint's canonical ATA. Every field Anchor could
+// check by content is correct; only the ADDRESS is wrong. If the ATA pin were
+// ever removed, this account would be accepted and the vault could be drained
+// through a substitute the program itself funded.
+
+/// Create a token account at a caller-chosen address (NOT the ATA) whose token
+/// `owner` is `token_owner`.
+async fn create_token_account_at(
+    ctx: &mut ProgramTestContext,
+    mint: &Pubkey,
+    token_owner: &Pubkey,
+) -> Pubkey {
+    let acct = Keypair::new();
+    let rent = ctx.banks_client.get_rent().await.unwrap();
+    let ix = vec![
+        system_instruction::create_account(
+            &ctx.payer.pubkey(),
+            &acct.pubkey(),
+            rent.minimum_balance(spl_token::state::Account::LEN),
+            spl_token::state::Account::LEN as u64,
+            &spl_token::id(),
+        ),
+        spl_token::instruction::initialize_account(
+            &spl_token::id(),
+            &acct.pubkey(),
+            mint,
+            token_owner,
+        )
+        .unwrap(),
+    ];
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &ix,
+        Some(&ctx.payer.pubkey()),
+        &[&ctx.payer, &acct],
+        bh,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    acct.pubkey()
+}
+
+/// Mint `amount` into an already-created token account.
+async fn mint_into(ctx: &mut ProgramTestContext, mint: &Pubkey, account: &Pubkey, amount: u64) {
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[spl_token::instruction::mint_to(
+            &spl_token::id(),
+            mint,
+            account,
+            &ctx.payer.pubkey(),
+            &[],
+            amount,
+        )
+        .unwrap()],
+        Some(&ctx.payer.pubkey()),
+        &[&ctx.payer],
+        bh,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+}
+
+fn stake_ix_with_vault(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    user_ata: &Pubkey,
+    vault: &Pubkey,
+    amount: u64,
+) -> Instruction {
+    let accounts = rclaw_staking::accounts::Stake {
+        owner: *owner,
+        mint: *mint,
+        stake_account: stake_pda(owner, mint),
+        vault_authority: vault_authority(mint),
+        vault: *vault, // <- the decoy
+        user_token_account: *user_ata,
+        token_program: spl_token::id(),
+        associated_token_program: spl_associated_token_account::id(),
+        system_program: solana_sdk::system_program::id(),
+    };
+    Instruction {
+        program_id: program_id(),
+        accounts: accounts.to_account_metas(None),
+        data: rclaw_staking::instruction::Stake { amount }.data(),
+    }
+}
+
+fn unstake_ix_with_vault(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    user_ata: &Pubkey,
+    vault: &Pubkey,
+    amount: u64,
+) -> Instruction {
+    let accounts = rclaw_staking::accounts::Unstake {
+        owner: *owner,
+        mint: *mint,
+        stake_account: stake_pda(owner, mint),
+        vault_authority: vault_authority(mint),
+        vault: *vault, // <- the decoy
+        user_token_account: *user_ata,
+        token_program: spl_token::id(),
+    };
+    Instruction {
+        program_id: program_id(),
+        accounts: accounts.to_account_metas(None),
+        data: rclaw_staking::instruction::Unstake { amount }.data(),
+    }
+}
+
+/// A correctly-owned but non-canonical vault must be rejected on the way IN.
+#[tokio::test]
+async fn stake_rejects_a_non_canonical_vault_account() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    // Owned by the REAL vault authority PDA, but not the canonical ATA address.
+    let decoy = create_token_account_at(&mut ctx, &mint, &vault_authority(&mint)).await;
+    assert_ne!(decoy, vault_ata(&mint), "the decoy must not be the canonical ATA");
+
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix_with_vault(&payer, &mint, &ata, &decoy, 100)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    let err = ctx
+        .banks_client
+        .process_transaction(tx)
+        .await
+        .expect_err("stake must reject a vault account that is not the canonical ATA");
+    // 3014 = AccountNotAssociatedTokenAccount, raised by the `init_if_needed`
+    // associated-token constraint when the address is not the canonical ATA.
+    assert!(
+        format!("{err:?}").contains("3014") || format!("{err:?}").contains("2009"),
+        "expected an associated-token constraint error, got: {err:?}"
+    );
+    assert_eq!(
+        token_balance(&mut ctx, &decoy).await,
+        0,
+        "nothing may be escrowed into a substitute vault"
+    );
+}
+
+/// …and on the way OUT, which is the direction that would drain funds.
+#[tokio::test]
+async fn unstake_rejects_a_non_canonical_vault_account() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    // Fund the real vault normally.
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 500)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    assert_eq!(token_balance(&mut ctx, &vault_ata(&mint)).await, 500);
+
+    warp_past_lockup(&mut ctx).await;
+
+    // FUND the decoy. Without this the test would pass for the wrong reason —
+    // a transfer out of a zero-balance account fails regardless of the ATA pin,
+    // so an un-funded decoy proves nothing. Funded, the ONLY thing standing
+    // between the attacker and these tokens is the canonical-address check.
+    let decoy = create_token_account_at(&mut ctx, &mint, &vault_authority(&mint)).await;
+    assert_ne!(decoy, vault_ata(&mint));
+    mint_into(&mut ctx, &mint, &decoy, 400).await;
+    assert_eq!(token_balance(&mut ctx, &decoy).await, 400);
+
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[unstake_ix_with_vault(&payer, &mint, &ata, &decoy, 100)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    let err = ctx
+        .banks_client
+        .process_transaction(tx)
+        .await
+        .expect_err("unstake must reject a vault account that is not the canonical ATA");
+    // Assert the SPECIFIC guard fired. Anchor raises ConstraintAssociated (2009)
+    // for an `associated_token::*` mismatch; accepting any error would let this
+    // test keep passing if the rejection ever came from something incidental.
+    assert!(
+        format!("{err:?}").contains("2009"),
+        "expected ConstraintAssociated (2009) from the ATA pin, got: {err:?}"
+    );
+    assert_eq!(
+        token_balance(&mut ctx, &decoy).await,
+        400,
+        "not a lamport may leave the substitute vault"
+    );
+    assert_eq!(
+        token_balance(&mut ctx, &vault_ata(&mint)).await,
+        500,
+        "the real vault must be untouched"
     );
 }

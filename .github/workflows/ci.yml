@@ -80,6 +80,17 @@ jobs:
       - name: Tests — staking program (incl. vault-drain + layout regressions)
         run: cargo test -p rclaw_staking --all-targets
 
+      # A pinned build is the ONLY configuration intended to hold value, and it
+      # used to exercise none of the vault logic: ten of eleven integration tests
+      # self-skipped because they mint their own token, which the pin rejects.
+      # The suite now materialises a mint AT the pinned address, so this run
+      # covers the same vault paths. The address below is an arbitrary valid
+      # pubkey — the point is that a pin is SET, not which one.
+      - name: Tests — staking program under a PINNED build
+        env:
+          RCLAW_PINNED_MINT: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+        run: cargo test -p rclaw_staking --all-targets
+
       - name: Lint — clippy (deny warnings)
         run: cargo clippy -p rclaw_staking --all-targets -- -D warnings
 
