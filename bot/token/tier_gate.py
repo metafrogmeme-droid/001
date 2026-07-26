@@ -399,24 +399,71 @@ def wallet_verified(users, uid) -> bool:
         return False
 
 
-def allows_user(users, uid, feature: str) -> bool:
-    """Whether ``uid`` may use ``feature``.
+# ── Last-known-good stake readings, for RPC outages ─────────────────────────
+#
+# Keyed by wallet, because a tier is a property of the wallet rather than of the
+# Telegram user. Deliberately in-process and unpersisted: a restart should not
+# resurrect a stale entitlement, and losing the cache only means denying until
+# the next successful read, which is the safe direction.
+_BALANCE_CACHE: dict[str, tuple[float, float]] = {}
+
+
+def _grace_seconds() -> float:
+    """How long a successful stake reading stays usable during an outage.
+
+    Long enough to ride out a genuine blip, short enough that an induced outage
+    is not a standing bypass. Env-tunable because the right value depends on how
+    reliable the operator's RPC actually is.
+    """
+    return _env_float("RCLAW_TIER_GRACE_SECONDS", 900.0)
+
+
+def _remember_balance(wallet: str, bal: float) -> None:
+    _BALANCE_CACHE[wallet] = (float(bal), time.time())
+
+
+def _cached_balance(wallet: str) -> Optional[float]:
+    """The last successful reading for ``wallet``, if it is still fresh."""
+    entry = _BALANCE_CACHE.get(wallet)
+    if entry is None:
+        return None
+    bal, at = entry
+    age = time.time() - at
+    if age > _grace_seconds():
+        # Expire rather than keep serving it: an entitlement nobody has been able
+        # to confirm for this long is not one to keep honouring.
+        _BALANCE_CACHE.pop(wallet, None)
+        return None
+    return bal
+
+
+def check_user(users, uid, feature: str) -> tuple[bool, str]:
+    """Whether ``uid`` may use ``feature``, and WHY if not.
+
+    Returns ``(allowed, reason)``. The reason matters because "you have not
+    staked enough" and "we could not check your stake" are different messages to
+    show a user, and conflating them tells someone holding 100,000 $RCLAW to go
+    and stake more during an RPC outage.
+
+    Reasons: ``ok``, ``no_wallet``, ``unverified``, ``bad_wallet``,
+    ``misconfigured``, ``unavailable``, ``insufficient``.
 
     - Gate disabled       -> always True (no behavior change).
     - No wallet linked    -> False (must link a wallet holding $RCLAW).
     - Wallet unverified   -> False (an unproven address carries no tier).
     - Misconfigured gate  -> False (fail CLOSED; permanent operator fault).
-    - RPC/infra error     -> True (fail-open; never lock out on a hiccup).
+    - RPC/infra error     -> last known good tier if read recently, else False.
+                             (bounded grace, not an open gate; see _grace_seconds)
     - Otherwise, the stake-derived tier must meet the feature's minimum.
     """
     if not gate_enabled():
-        return True
+        return True, "ok"
     required = FEATURE_MIN_TIER.get(feature)
     if required is None:
-        return True  # ungated feature
+        return True, "ok"  # ungated feature
     wallet = _resolve_wallet(users, uid)
     if not wallet:
-        return False
+        return False, "no_wallet"
     # A stored address that is not a real pubkey makes the RPC return an error,
     # which `staked_of`/`balance_of` report as None — the same sentinel used for
     # a transient outage, which fails OPEN. Invalid input must never reach that
@@ -424,24 +471,78 @@ def allows_user(users, uid, feature: str) -> bool:
     # authorization bypass, not resilience.
     if not _is_solana_pubkey(wallet):
         system_log.warning("tier_gate: denying %s — stored wallet is not a valid pubkey", uid)
-        return False
+        return False, "bad_wallet"
     # An address nobody proved control of is just a string the user typed. Until
     # it carries a verified signature it must not confer a tier, or anyone can
     # paste a whale's address and inherit their access.
     if not wallet_verified(users, uid):
         system_log.info("tier_gate: denying %s — linked wallet is unverified", uid)
-        return False
+        return False, "unverified"
     # Prefer on-chain STAKED balance when a staking program is configured;
     # otherwise fall back to raw wallet balance.
     try:
         bal = staked_of(wallet) if staking_program() else balance_of(wallet)
     except GateMisconfigured as exc:
         system_log.error("tier_gate: enabled but misconfigured; denying access (%s)", exc)
-        return False  # fail CLOSED on a permanent configuration fault
-    if bal is None:
-        return True  # fail-open on transient infra error
-    have = tier_for_balance(bal)
-    return _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
+        return False, "misconfigured"  # fail CLOSED on a permanent configuration fault
+    if bal is not None:
+        _remember_balance(wallet, bal)
+        have = tier_for_balance(bal)
+        ok = _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
+        return ok, ("ok" if ok else "insufficient")
+
+    # The RPC could not answer. This used to `return True` unconditionally, and
+    # the intent was right — a paying user should not lose access to a blip —
+    # but the implementation granted far more than that:
+    #
+    #   * it PROMOTED users who were never entitled. Link a wallet, verify it,
+    #     hold zero $RCLAW, and any RPC error hands you elite. There is no
+    #     "don't lock out a paying user" argument for someone who never paid.
+    #   * it was UNBOUNDED. No cache, no window — an hour-long outage meant an
+    #     hour with every gate open.
+    #   * it was INDUCIBLE. Public Solana RPCs rate-limit aggressively; this
+    #     repo's own network tests self-skip because of it. Making the bot's
+    #     reads fail is cheap, and the reward was free premium access.
+    #   * it was SILENT. Nothing logged at the moment the gate opened, so an
+    #     operator could not tell "everyone is entitled" from "the gate has been
+    #     open all day".
+    #
+    # So the grace is now what it was meant to be: LAST KNOWN GOOD, bounded. A
+    # user whose stake we successfully read recently keeps that tier through the
+    # outage. A user we have never read, or have not read in a while, is denied
+    # — which is the honest answer, because we do not know.
+    cached = _cached_balance(wallet)
+    if cached is None:
+        system_log.warning(
+            "tier_gate: DENYING %s — RPC unavailable and no recent stake reading for this wallet", uid
+        )
+        return False, "unavailable"
+    have = tier_for_balance(cached)
+    system_log.warning(
+        "tier_gate: RPC unavailable — serving %s from cached stake reading (tier %s)", uid, have
+    )
+    ok = _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
+    return ok, ("ok" if ok else "insufficient")
+
+
+def allows_user(users, uid, feature: str) -> bool:
+    """Back-compatible boolean form of :func:`check_user`."""
+    return check_user(users, uid, feature)[0]
+
+
+def unavailable_message() -> str:
+    """Shown when the stake could not be READ — not when it is too small.
+
+    Telling someone who holds 100,000 $RCLAW to go and stake more because an RPC
+    timed out is both wrong and the kind of thing that gets reported as the token
+    being broken.
+    """
+    return (
+        "\U000023f3 <b>Can't verify your stake right now.</b>\n"
+        "The Solana RPC did not answer, so your tier could not be confirmed. "
+        "This is on our side, not yours — please try again in a minute.\n"
+        "<i>(Draft feature — $RCLAW is a gated Vision item.)</i>"
+    )
 
 
 def upgrade_message(mode: str = "premium") -> str:

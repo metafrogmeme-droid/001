@@ -8202,9 +8202,18 @@ class TelegramHandler:
         """
         try:
             from bot.token import tier_gate
-            if tier_gate.allows_user(self.users, self._get_tg_id(update), "premium_scan"):
+            allowed, reason = tier_gate.check_user(
+                self.users, self._get_tg_id(update), "premium_scan"
+            )
+            if allowed:
                 return False
-            await self._send(update, tier_gate.upgrade_message(mode))
+            # "we could not check" is not "you did not stake enough". Telling a
+            # user holding 100,000 $RCLAW to stake more because an RPC timed out
+            # reads as the token being broken, and it is our fault, not theirs.
+            if reason == "unavailable":
+                await self._send(update, tier_gate.unavailable_message())
+            else:
+                await self._send(update, tier_gate.upgrade_message(mode))
             return True
         except Exception as exc:
             system_log.debug("token gate check skipped: %s", exc)

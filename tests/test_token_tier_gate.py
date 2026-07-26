@@ -119,11 +119,16 @@ def test_insufficient_stake_blocks(monkeypatch):
     assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
 
 
-def test_rpc_error_fails_open(monkeypatch):
+def test_rpc_error_denies_without_a_recent_reading(monkeypatch):
+    """Renamed from test_rpc_error_fails_open, and the assertion is inverted.
+
+    It used to allow on ANY RPC error, which promoted users who had never held a
+    token and did so for as long as the outage lasted. Grace is now bounded and
+    conditional on a recent successful read — see the outage tests at the bottom.
+    """
     mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
-    # balance_of returns None on infra error → must fail OPEN (allow).
     monkeypatch.setattr(mod, "balance_of", lambda w: None)
-    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
 
 
 def test_ungated_feature_allowed(monkeypatch):
@@ -270,7 +275,8 @@ def test_gate_prefers_staked_when_program_set(monkeypatch):
     assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
 
 
-def test_staked_rpc_error_fails_open(monkeypatch):
+def test_staked_rpc_error_denies_without_a_recent_reading(monkeypatch):
+    """Same inversion as above, on the staking-program path."""
     mod = _reload_clean(
         monkeypatch,
         TOKEN_TIER_GATE_ENABLED="true",
@@ -278,6 +284,11 @@ def test_staked_rpc_error_fails_open(monkeypatch):
         RCLAW_STAKING_PROGRAM=WALLET,
     )
     monkeypatch.setattr(mod, "staked_of", lambda w: None)  # infra error
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
+    # And the grace path works here too, not just on the balance path.
+    monkeypatch.setattr(mod, "staked_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    monkeypatch.setattr(mod, "staked_of", lambda w: None)
     assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
 
 
@@ -400,10 +411,103 @@ def test_invalid_stored_wallet_denies_rather_than_failing_open(monkeypatch):
     monkeypatch.setattr(mod, "balance_of", lambda w: None)
     for bad in ("W", "not-base58-0OIl", "ARJrg3Ti675tnwWkiW84C1f2omYtz7Dx7", ""):
         assert mod.allows_user(_Users(bad), 1, "premium_scan") is False, bad
-    # A valid address with a genuine infra error still fails OPEN.
-    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    # A valid address with a genuine infra error is DENIED unless we have read
+    # its stake recently — see the bounded-grace tests below.
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
 
 
 def test_malformed_threshold_warns_and_uses_default(monkeypatch):
     mod = _reload_clean(monkeypatch, RCLAW_TIER_PRO_MIN="not-a-number")
     assert mod.tier_for_balance(10_000) == "pro"
+
+
+# ── RPC outages: bounded last-known-good, not an open gate ─────────────────
+#
+# `allows_user` used to `return True` on any RPC error. The intent — don't lock
+# a paying user out over a blip — was right; the implementation granted far more:
+# it PROMOTED users who had never held a token, it was UNBOUNDED in time, and it
+# was cheap to INDUCE, because public Solana RPCs rate-limit aggressively. The
+# reward for making the bot's reads fail was free premium access.
+
+def test_rpc_outage_denies_a_user_we_have_never_read(monkeypatch):
+    """Never entitled means never entitled. An outage is not a promotion."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    monkeypatch.setattr(mod, "balance_of", lambda w: None)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
+
+
+def test_rpc_outage_preserves_a_recently_confirmed_tier(monkeypatch):
+    """The case the fail-open existed for, and the only one it should cover."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    # One good read establishes the tier...
+    monkeypatch.setattr(mod, "balance_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    # ...and it survives the RPC going away.
+    monkeypatch.setattr(mod, "balance_of", lambda w: None)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+
+
+def test_the_grace_window_actually_expires(monkeypatch):
+    """Bounded. An entitlement nobody can confirm does not last forever."""
+    mod = _reload_clean(
+        monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT,
+        RCLAW_TIER_GRACE_SECONDS="60",
+    )
+    monkeypatch.setattr(mod, "balance_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+
+    monkeypatch.setattr(mod, "balance_of", lambda w: None)
+    real_time = mod.time.time
+    monkeypatch.setattr(mod.time, "time", lambda: real_time() + 61)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
+
+
+def test_a_cached_reading_does_not_confer_a_tier_it_never_had(monkeypatch):
+    """The cache preserves the tier that was read — it does not upgrade it."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    monkeypatch.setattr(mod, "balance_of", lambda w: 1.0)  # below every threshold
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
+    monkeypatch.setattr(mod, "balance_of", lambda w: None)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is False
+
+
+def test_the_cache_is_per_wallet_not_global(monkeypatch):
+    """One user's confirmed stake must not entitle a different wallet."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    other = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"
+    monkeypatch.setattr(mod, "balance_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+    monkeypatch.setattr(mod, "balance_of", lambda w: None)
+    assert mod.allows_user(_Users(other), 2, "premium_scan") is False
+
+
+def test_check_user_distinguishes_cannot_check_from_did_not_stake(monkeypatch):
+    """The reason drives which message the user sees, so it has to be right."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+
+    # Too small a stake -> "insufficient": tell them to stake more.
+    monkeypatch.setattr(mod, "balance_of", lambda w: 1.0)
+    assert mod.check_user(_Users(WALLET), 1, "premium_scan") == (False, "insufficient")
+
+    # RPC down with nothing cached -> "unavailable": our fault, not theirs.
+    other = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"
+    monkeypatch.setattr(mod, "balance_of", lambda w: None)
+    assert mod.check_user(_Users(other), 2, "premium_scan") == (False, "unavailable")
+
+    # No wallet, and an unverified one, stay distinct from both.
+    assert mod.check_user(_Users(None), 3, "premium_scan") == (False, "no_wallet")
+
+
+def test_allows_user_still_works_as_a_boolean(monkeypatch):
+    """The old entry point is kept so nothing that imports it silently changes."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
+    monkeypatch.setattr(mod, "balance_of", lambda w: 50_000.0)
+    assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
+
+
+def test_the_two_messages_do_not_say_the_same_thing(monkeypatch):
+    mod = _reload_clean(monkeypatch)
+    upgrade, unavailable = mod.upgrade_message(), mod.unavailable_message()
+    assert "stake" in upgrade.lower()
+    assert "stake at least" not in unavailable.lower(), "outage message must not demand more stake"
+    assert "try again" in unavailable.lower()
