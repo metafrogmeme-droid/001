@@ -961,6 +961,72 @@ turned out to be.
 5. **Transfer the program upgrade authority off the deploy key — before the vault
    accepts its first deposit, not after.** See §11; the window between deploy and
    transfer is the entire exposure.
+
+   **Rehearsed end to end on devnet, 2026-07-26.** This is a one-way operation
+   with no recovery, so it was executed against a real Squads v4 multisig before
+   anyone has to do it for real. Sequence, addresses from that rehearsal:
+
+   ```bash
+   # 1. CHECK FIRST — this is the step that prevents the irreversible mistake.
+   node programs/rclaw_staking/scripts/check_upgrade_authority.mjs <PROGRAM_ID> \
+     --rpc <URL> --new-authority <VAULT_PDA> --squads-multisig <MULTISIG>
+
+   # 2. Transfer. --keypair matters: the fee payer defaults to the CLI's
+   #    configured signer, not to --upgrade-authority.
+   solana program set-upgrade-authority <PROGRAM_ID> \
+     --keypair <AUTHORITY_KEY> --upgrade-authority <AUTHORITY_KEY> \
+     --new-upgrade-authority <VAULT_PDA> \
+     --skip-new-upgrade-authority-signer-check --url <URL>
+
+   # 3. The IDL authority moves too, or it stays on the old hot key.
+   node programs/rclaw_staking/scripts/claim_idl.mjs <PROGRAM_ID> \
+     --rpc <URL> --keypair <AUTHORITY_KEY> --set-authority <VAULT_PDA>
+   ```
+
+   **The mistake this prevents.** A Squads multisig has two addresses, and the
+   wrong one is the one you would naturally copy:
+
+   | | address (rehearsal) | can it sign? |
+   |---|---|---|
+   | multisig account | `5b3bw9qJx38MVWgz5qoxZGPsYQeMxwRjU5JVJPtg7BGZ` | **no** — a data account |
+   | vault PDA, index 0 | `BStC8ReWMGowGHZGnRMkRMP8sxhGEXE6LPpzdfUdEj5e` | yes, via CPI |
+
+   `set-upgrade-authority` accepts any 32 bytes and never asks whether anything
+   can sign for them. Hand it the multisig account and the transfer *succeeds*,
+   the CLI prints nothing alarming, and the upgrade authority is destroyed
+   permanently — on a program that signs for every `["vault", mint]` PDA. The
+   loss stays invisible until the first time an upgrade is needed. Hence step 1,
+   which re-derives the vault PDA from the multisig you name (seeds
+   `["multisig", multisigPda, "vault", u8(index)]`) and refuses on mismatch. It
+   also refuses any off-curve target with no multisig to check it against, and
+   warns — without blocking — when the target is an ordinary single key.
+
+   **Then it was proven that the multisig can still upgrade**, which is the step
+   that would otherwise discover a silent brick in production. A buffer was
+   written, its authority handed to the vault, and a Squads
+   `vaultTransactionCreate → proposalCreate → approve → execute` drove
+   `BPFLoaderUpgradeable::Upgrade` with the vault as signer. Result: the
+   program's deploy slot advanced `479095709 → 479104181`, the buffer was
+   consumed, and the bytecode still hashes to the recorded
+   `67296c4f…`. Both the upgrade authority and the IDL authority now sit behind
+   the multisig on devnet.
+
+   Two things that cost time and are not in any doc:
+
+   - `solana program set-upgrade-authority` fails with **"Attempt to debit an
+     account but found no record of a prior credit"** when the CLI's *default*
+     keypair has no SOL on the target cluster. The error names the authority,
+     which is misleading — the fee payer is the problem. Pass `--keypair`.
+   - The Squads SDK's `multisigCreateV2` returns before the account is readable
+     at `confirmed`; an immediate `Multisig.fromAccountAddress` throws "Unable
+     to find Multisig account" for a multisig that was created perfectly well.
+     Same commitment-race family as the deposit-window bug in §14.
+
+   Still to do for real: the multisig above is a 1-of-1 created for this
+   rehearsal and is **not** a governance setup. A production handoff needs a
+   real threshold and real members, and `--skip-new-upgrade-authority-signer-check`
+   means nothing verifies the destination on your behalf — step 1 is the only
+   check there is.
 6. Ratify every remaining §13 parameter. `LOCKUP_SECONDS` in
    `programs/rclaw_staking/src/lib.rs` is **settled: 30 days** (2026-07-26).
 7. **Set a recipient for every allocation bucket, and make `treasury` a multisig.**
