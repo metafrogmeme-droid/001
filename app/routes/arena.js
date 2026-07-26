@@ -88,7 +88,7 @@ async function loadAccount(userId) {
 
 async function loadPositions(userId) {
   const [rows] = await pool.execute(
-    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
+    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, exits_edited, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
   return rows;
 }
 
@@ -235,6 +235,9 @@ router.get('/account', authMiddleware, async (req, res) => {
           source: p.source || 'manual',
           tp: p.tp == null ? null : p.tp,
           sl: p.sl == null ? null : p.sl,
+          // The open-time seal recorded the ORIGINAL exits — say when they
+          // have been moved since, so the receipt cannot overstate discipline.
+          exits_edited: !!Number(p.exits_edited || 0),
           key: p.seal ? p.trade_key : null,   // Provable Calls receipt address
           opened_at: p.opened_at,
         };
@@ -399,6 +402,52 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     }, virtual: true });
   } catch (err) {
     console.error('Arena open-signal error:', err.stack || err.message);
+    res.status(500).json({ error: 'Arena unavailable', reason: safeReason(err) });
+  }
+});
+
+// POST /api/arena/exits { position_id, tp, sl } — move an open position's
+// exits. Managing the exit is half of trading, and the Arena teaches trading;
+// locking the levels at open taught the wrong lesson.
+//
+// Two honesty rules:
+//   1. Levels validate against the LIVE mark, not the entry — the same
+//      validator every other path uses. A stop above a long's current mark
+//      would fire the instant it lands; that is not "setting a stop", it is
+//      closing with extra steps, and the close button already exists.
+//   2. The open-time seal recorded the ORIGINAL exits, so the position is
+//      marked exits_edited and the payload says so. Without the marker a
+//      trader could open with a tight stop, widen it after, and let the
+//      receipt overstate their discipline.
+//
+// Sending null (or empty) for a level CLEARS it — a paper account may run
+// stopless, but it does so visibly, not by accident.
+router.post('/exits', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const posId = Number((req.body || {}).position_id);
+    if (!Number.isInteger(posId) || posId <= 0) {
+      return res.status(400).json({ error: 'Invalid position_id' });
+    }
+    const [rows] = await pool.execute(
+      'SELECT id, user_id, symbol, direction, entry, margin, leverage, tp, sl FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
+    const p = rows[0];
+    if (!p) return res.status(404).json({ error: 'Position not found' });
+    let marks;
+    try { marks = await getTickers(); } catch (e) {
+      return res.status(503).json({ error: 'Market data unavailable — try again shortly' });
+    }
+    const mark = marks[p.symbol] && Number(marks[p.symbol].price);
+    if (!(mark > 0)) return res.status(503).json({ error: 'No live mark for this symbol — try again shortly' });
+    const ts = arena.validateTpSl(p.direction, mark, (req.body || {}).tp, (req.body || {}).sl);
+    if (!ts.ok) return res.status(400).json({ error: ts.error });
+    await pool.execute(
+      'UPDATE arena_positions SET tp = ?, sl = ?, exits_edited = 1 WHERE id = ? AND user_id = ?',
+      [ts.data.tp, ts.data.sl, p.id, userId]);
+    res.json({ ok: true, position_id: p.id, tp: ts.data.tp, sl: ts.data.sl,
+      exits_edited: true, mark, virtual: true });
+  } catch (err) {
+    console.error('Arena exits error:', err.stack || err.message);
     res.status(500).json({ error: 'Arena unavailable', reason: safeReason(err) });
   }
 });

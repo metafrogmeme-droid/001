@@ -395,6 +395,12 @@ class MemoryDB {
       const f = this.arenaFollows[params[0]];
       return [f ? [{ ...f }] : [], []];
     }
+    if (cmd.includes('UPDATE ARENA_POSITIONS')) {
+      // Exit edit: SET tp = ?, sl = ?, exits_edited = 1 WHERE id = ? AND user_id = ?
+      const pos = this.arenaPositions.find(p => p.id === params[2] && p.user_id === params[3]);
+      if (pos) { pos.tp = params[0]; pos.sl = params[1]; pos.exits_edited = 1; }
+      return [{ affectedRows: pos ? 1 : 0 }, []];
+    }
     if (cmd.includes('DELETE FROM ARENA_POSITIONS')) {
       // params: id, user_id (own rows only)
       const before = this.arenaPositions.length;
@@ -1709,6 +1715,7 @@ async function migrate() {
         source VARCHAR(10) NOT NULL DEFAULT 'manual',
         tp DOUBLE NULL,
         sl DOUBLE NULL,
+        exits_edited TINYINT(1) NOT NULL DEFAULT 0,
         trade_key VARCHAR(40) NULL,
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
@@ -1725,6 +1732,9 @@ async function migrate() {
     } catch (e) { /* already present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN tp DOUBLE NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN sl DOUBLE NULL'); } catch (e) { /* present */ }
+    // Exit-edit marker: the open-time seal records the ORIGINAL exits, so a
+    // later edit must be visible or the receipt overstates discipline.
+    try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN exits_edited TINYINT(1) NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
     // Provable Calls v2 — arena receipts sealed at open time.
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN trade_key VARCHAR(40) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN seal VARCHAR(64) NULL'); } catch (e) { /* present */ }

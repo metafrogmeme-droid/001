@@ -123,10 +123,11 @@ test('order paths still refuse a stale price rather than degrade', () => {
   // A read may show a stale mark; a FILL may not be priced off one.
   const src = require('node:fs').readFileSync(require('node:path')
     .join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
-  // Three, not two, since /open-signal joined /open and /close: opening a
-  // signal is an order path and gets the same strict fetch, same refusal.
-  assert.equal((src.match(/try \{ marks = await getTickers\(\); \} catch \(e\) \{/g) || []).length, 3,
-    'exactly the three order paths still use the strict fetch');
+  // Four: /open, /close, /open-signal and /exits. Moving an exit is an
+  // order-shaped decision — a level validated against a stale mark could sit
+  // on the wrong side of the real price and fire instantly.
+  assert.equal((src.match(/try \{ marks = await getTickers\(\); \} catch \(e\) \{/g) || []).length, 4,
+    'exactly the four order paths still use the strict fetch');
   assert.match(src, /Market data unavailable/, 'and refuse the fill when it is missing');
 });
 
