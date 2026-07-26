@@ -4138,6 +4138,7 @@
         <p class="small muted mt-2" style="max-width:46ch">${esc(T('dd.w_qr_help',
           'Scan with your phone and open the link inside your wallet app’s browser '
           + '(MetaMask → Browser, Trust → Discover). One signature links the wallet.'))}</p>
+        <p class="small mt-1" style="color:var(--text-3);word-break:break-all">${esc(r.data.url || '')}</p>
         <p class="small mt-1" id="walletQrState" aria-live="polite" style="color:var(--text-3)"></p>
         <button class="btn btn--sm mt-2 hidden" id="walletQrRenew" type="button">${esc(
           T('dd.w_qr_renew', 'Get a fresh code'))}</button>`;

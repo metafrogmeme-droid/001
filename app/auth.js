@@ -769,14 +769,47 @@ router.post('/wallet/link', authMiddleware, async (req, res) => {
 // binding — the phone never needs the desktop's JWT.
 const LINK_CODE_TTL_MS = 10 * 60_000;
 
+// A phone-link QR is scanned by a DIFFERENT device on a DIFFERENT network, so
+// the URL inside it has to be the public one. req.get('host') is not: behind a
+// serverless/VPC front end it is whatever internal hop reached the app. In
+// production that produced
+//   http://page-…-vpc.fcapp.run/wallet-link?code=…
+// — an internal hostname over plain http. The phone showed "connection is not
+// secure" and the flow could never complete, while the desktop showed a QR that
+// looked perfectly fine. A QR pointing nowhere is worse than no QR, so this
+// refuses to issue one rather than hand out an unusable code.
+const _PRIVATE_HOST = /(^|\.)(local|internal|localdomain)$|\.vpc\.|(^|\.)fcapp\.run$|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./i;
+
+function publicOrigin(req) {
+  const configured = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
+  if (configured) return { origin: configured };
+  // Prefer what the edge proxy says it served, not what reached us internally.
+  const xfHost = String(req.get('x-forwarded-host') || '').split(',')[0].trim();
+  const host = xfHost || String(req.get('host') || '').trim();
+  const xfProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+  const bare = host.replace(/:\d+$/, '');
+  if (!host || (!isLocal && _PRIVATE_HOST.test(bare))) {
+    return { error: 'This deployment does not know its public URL, so a phone '
+      + 'link QR would point somewhere your phone cannot reach. Set PUBLIC_ORIGIN '
+      + '(e.g. https://your-domain) and try again.' };
+  }
+  // Anything not local is served over TLS at the edge; a QR must never carry
+  // http:// to a phone, which browsers now flag as insecure.
+  const proto = isLocal ? (xfProto || req.protocol || 'http') : 'https';
+  return { origin: `${proto}://${host}` };
+}
+
 router.post('/wallet/link-code', authMiddleware, async (req, res) => {
   try {
     if (!_ethers) return res.status(503).json({ error: 'Wallet linking is not available on this deployment.' });
+    // Work out the public URL BEFORE burning a code: a code issued against an
+    // origin the phone cannot reach is a code the user can never redeem.
+    const po = publicOrigin(req);
+    if (po.error) return res.status(503).json({ error: po.error });
     const code = crypto.randomBytes(16).toString('hex');
     await _linkStore.putCode(code, req.user.user_id, Date.now() + LINK_CODE_TTL_MS);
-    const origin = process.env.PUBLIC_ORIGIN
-      || `${req.protocol}://${req.get('host')}`;
-    const url = `${origin}/wallet-link?code=${code}`;
+    const url = `${po.origin}/wallet-link?code=${code}`;
     let svg = null;
     try {
       // margin:4 = the 4-module quiet zone the QR spec requires; a tighter zone
