@@ -68,6 +68,19 @@ class MemoryDB {
   async execute(sql, params = []) {
     const cmd = sql.trim().toUpperCase();
 
+    // Refuse a bound LIMIT exactly like production does. mysql2's execute()
+    // sends JS numbers as DOUBLE, and MySQL rejects a DOUBLE as a prepared
+    // LIMIT argument — ER_WRONG_ARGUMENTS. The shim used to accept `LIMIT ?`
+    // happily, which is how one placeholder in the follow sweep 500ed
+    // GET /api/arena/account for every follower in production while the whole
+    // suite stayed green. A shim that is more permissive than the database it
+    // stands in for is not a test double, it is a blindfold.
+    if (/LIMIT\s+\?/.test(cmd)) {
+      const err = new Error('Incorrect arguments to LIMIT');
+      err.code = 'ER_WRONG_ARGUMENTS';
+      throw err;
+    }
+
     if (cmd.startsWith('CREATE TABLE')) return [[], []];
 
     // -- SIGNALS -- (checked before TRADES: the stats query shares COUNT(*)/wins
@@ -125,18 +138,37 @@ class MemoryDB {
         s => s.resolved_at && new Date(s.resolved_at).getTime() >= lo);
       return [rows.map(r => ({ ...r })), []];
     }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('WHERE ID = ?')) {
+      // Open ONE named signal as a paper trade.
+      //
+      // Without this branch the catch-all below took over, and the catch-all
+      // ignores WHERE and reads the LAST PARAM as a LIMIT — so asking for
+      // signal 3 returned the three newest signals and the route opened
+      // srows[0], a different call than the user clicked. It would have looked
+      // perfectly fine in tests and traded the wrong symbol in production.
+      const id = Number(params[0]);
+      const rows = this.signals.filter(s => Number(s.id) === id);
+      return [rows.map(r => ({ ...r })), []];
+    }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('ID >')) {
-      // Practice-follow sweep: WHERE id > ? ORDER BY id ASC LIMIT ?
+      // Practice-follow sweep: WHERE id > ? ORDER BY id ASC LIMIT 5. The
+      // limit comes from the inline SQL — reading it from the last param
+      // would now misread the cursor id as a row count.
       const after = Number(params[0]) || 0;
-      const lim = parseInt(params[params.length - 1]) || 5;
+      const m = cmd.match(/LIMIT\s+(\d+)/);
+      const lim = m ? Number(m[1]) : 5;
       const rows = this.signals.filter(s => Number(s.id) > after)
         .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, lim);
       return [rows.map(r => ({ ...r })), []];
     }
 
     if (cmd.includes('FROM SIGNALS')) {
-      // Filters are ignored in the mock; newest-first up to the LIMIT (last param).
-      const limit = parseInt(params[params.length - 1]) || 50;
+      // Filters are ignored in the mock; newest-first up to the LIMIT. An
+      // INLINE `LIMIT 12` wins over the last param — reading the last param
+      // when the statement has none produced NaN and silently fell back to 50,
+      // so a query that asked for 12 rows got 50 here and 12 in MySQL.
+      const inline = cmd.match(/LIMIT\s+(\d+)/);
+      const limit = inline ? Number(inline[1]) : (parseInt(params[params.length - 1]) || 50);
       const rows = [...this.signals]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, limit);
@@ -274,10 +306,12 @@ class MemoryDB {
           s => s.slug === params[0] && s.visibility === 'public');
         return [rows.map(r => ({ ...r })), []];
       }
-      // public list: WHERE visibility = 'public'
+      // public list: WHERE visibility = 'public' ... LIMIT <n> (inline — a
+      // bound LIMIT is ER_WRONG_ARGUMENTS on real MySQL, and now here too)
+      const lm = cmd.match(/LIMIT\s+(\d+)/);
       const rows = this.userStrategies.filter(s => s.visibility === 'public')
         .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-        .slice(0, Number(params[0]) || 120);
+        .slice(0, lm ? Number(lm[1]) : 120);
       return [rows.map(r => ({ ...r })), []];
     }
 

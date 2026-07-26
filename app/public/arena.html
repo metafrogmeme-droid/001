@@ -120,6 +120,10 @@
      to the visible viewport with sticky so it never renders off-screen. */
   .chart-cell { position: sticky; left: 0; max-width: calc(100vw - 56px); min-width: 0; }
   .rc-chart { width: 100%; height: auto; max-height: 280px; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .sig-row { display: flex; gap: var(--s3); align-items: center; justify-content: space-between; padding: var(--s3) 0; border-top: 1px solid var(--line); }
+  .sig-row:first-child { border-top: 0; }
+  .sig-row > div:last-child { flex: none; }
+  @media (max-width: 520px) { .sig-row { flex-direction: column; align-items: stretch; } .sig-row > div:last-child { align-self: flex-start; } }
   .read-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .read-chip { font-size: var(--fs-xs); font-family: var(--font-data); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); }
   .read-chip.up-c { border-color: rgba(47,191,113,.5); }
@@ -252,6 +256,27 @@
     <div id="ticketChart" hidden style="margin-top:8px"></div>
   </section>
 
+  <!-- Per-signal paper trading. Practice-follow below is all-or-nothing and
+       forward-only; this is the other half: pick ONE call and put it on paper.
+       The fill is the live mark, never the signal's own entry — so the drift
+       since the call is shown BEFORE the button, not explained afterwards. -->
+  <section class="panel" id="sigPanel" hidden>
+    <h2><span data-i18n="arena.p_signals">Trade an engine signal on paper</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_paper_rev">· paper only · revocable any time</span></h2>
+    <p class="lede" style="margin-bottom:var(--s2);font-size:var(--fs-sm)" data-i18n-html="arena.sig_body">The engine's recent calls, each one openable as a paper position.
+    You are filled at the <b>live mark</b>, never the price the call was posted at — so you see how far the market has moved
+    since, before you commit. The signal's own stop and target come with it, and any level the market has already passed is
+    <b>dropped, not faked</b>.</p>
+    <div class="ticket">
+      <div><label for="sMargin" data-i18n="arena.f_margin_sig">Margin per signal (vUSDT)</label>
+        <input id="sMargin" type="number" min="10" step="10" value="200"></div>
+      <div><label for="sLev"><span data-i18n="arena.f_leverage">Leverage</span><span class="lev-val" id="sLevVal">2×</span></label>
+        <input id="sLev" type="range" min="1" max="20" step="1" value="2"></div>
+    </div>
+    <div id="sigRows" style="margin-top:var(--s3)"></div>
+    <div class="empty" id="sigEmpty" hidden data-i18n="arena.e_sig">No recent engine calls to trade — the stream is quiet right now.</div>
+    <div class="tmsg" id="sMsg" role="status" aria-live="polite"></div>
+  </section>
+
   <section class="panel" id="followPanel" hidden>
     <h2><span data-i18n="arena.p_follow">Practice-follow the engine</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_paper_rev">· paper only · revocable any time</span></h2>
     <p class="lede" style="margin-bottom:var(--s2);font-size:var(--fs-sm)" data-i18n-html="arena.follow_body">Mirror the engine's live signal stream into
@@ -333,7 +358,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=52"></script>
+<script src="/js/i18n.js?v=54"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
@@ -754,6 +779,11 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     // This message is built in JS, so it needs T() — for a long time it was the
     // one string on the page that stayed English in every locale, which is a
     // poor thing to discover mid-incident.
+    // Prefer the server's sanitised reason over the generic label. "Arena
+    // unavailable" reads the same whether a column is missing, a query timed
+    // out, or an upstream read failed — and a user reporting it cannot tell us
+    // which. The reason is trimmed and stripped server-side (F-15), so it can
+    // be shown without leaking configuration.
     var reason = r && r.data && (r.data.reason || r.data.error)
       ? esc(r.data.reason || r.data.error)
       : T('arena.d_net_error', 'network error');
@@ -779,6 +809,106 @@ window.addEventListener('unhandledrejection', rcReportPageError);
       if (e) { e.textContent = unknown; e.hidden = false; }
     });
   }
+
+  // ── Engine signals, openable one at a time ────────────────────────────────
+  // The panel's whole job is to be honest about the gap between the call and
+  // the fill. A signal posted an hour ago is not a price you can get now, so
+  // the drift is on the row, in colour, before the button — not in a toast
+  // after the position is already open.
+  // Named sigAgo, not ago: the tape panel below declares its own ago(iso)
+  // taking a TIMESTAMP, and function declarations hoist — the later one wins.
+  // Under the shared name, this duration was parsed as an epoch date and every
+  // row said "20660d ago", untranslated, in every language. Found in a
+  // browser; no source-reading test can see two hoisted declarations collide.
+  function sigAgo(ms) {
+    if (ms == null) return '';
+    var m = Math.round(ms / 60000);
+    if (m < 1) return T('arena.sig_now', 'just now');
+    if (m < 60) return fill(T('arena.sig_min', '{n}m ago'), { n: m });
+    return fill(T('arena.sig_hr', '{n}h ago'), { n: Math.round(m / 60) });
+  }
+  var SIG_BLOCK = {
+    stale: ['arena.sig_b_stale', 'Too old to open'],
+    already_open: ['arena.sig_b_open', 'Already open'],
+    direction: ['arena.sig_b_dir', 'No direction'],
+  };
+  function sigRowHtml(s) {
+    var dirCls = s.direction === 'LONG' ? 'up-c' : 'down-c';
+    var drift = s.drift_pct == null ? '' :
+      '<span class="read-chip ' + (s.drift_pct >= 0 ? 'up-c' : 'down-c') + '" title="'
+      + esc(T('arena.sig_drift_t', 'How far the market has moved since the call was posted. You are filled at the live mark, not this price.'))
+      + '">' + esc(fill(T('arena.sig_drift', 'moved {p}% since the call'),
+        { p: (s.drift_pct > 0 ? '+' : '') + s.drift_pct })) + '</span>';
+    var levels = ''
+      + (s.take_profit ? '<span class="read-chip">' + esc(T('arena.th_tp', 'TP')) + ' ' + esc(fmtP(s.take_profit)) + '</span>' : '')
+      + (s.stop_loss ? '<span class="read-chip">' + esc(T('arena.th_sl', 'SL')) + ' ' + esc(fmtP(s.stop_loss)) + '</span>' : '');
+    var conf = s.confidence == null ? '' :
+      '<span class="read-chip">' + esc(fill(T('arena.sig_conf', 'confidence {p}%'), { p: s.confidence })) + '</span>';
+    var blocked = s.blocked_reason && SIG_BLOCK[s.blocked_reason];
+    var action = s.tradeable
+      ? '<button class="btn btn--sm btn--primary" data-sig="' + s.id + '">'
+        + esc(T('arena.b_sig_open', 'Open on paper')) + '</button>'
+      : '<span class="read-chip">' + esc(blocked ? T(blocked[0], blocked[1]) : T('arena.sig_b_no', 'Not openable')) + '</span>';
+    return '<div class="sig-row">'
+      + '<div><b>' + esc(s.symbol) + '</b> <span class="' + dirCls + '">' + esc(s.direction) + '</span>'
+      + ' <span class="muted" style="font-size:var(--fs-xs)">' + esc(sigAgo(s.age_ms)) + '</span>'
+      + '<div class="read-chips">' + conf + levels + drift
+      + (s.pattern ? '<span class="read-chip">🕯 ' + esc(String(s.pattern).replace(/_/g, ' ')) + '</span>' : '')
+      + '</div></div>'
+      + '<div>' + action + '</div></div>';
+  }
+  async function loadSignals() {
+    var r = await RC.fetchJSON('/api/arena/signals', { timeoutMs: 12000 }).catch(function () { return null; });
+    var box = $('sigRows'), empty = $('sigEmpty');
+    if (!box) return;
+    if (!(r && r.ok && r.data)) {
+      // Same doctrine as the account panel: an empty list would claim the
+      // engine is quiet. It isn't — we just couldn't ask.
+      box.innerHTML = '';
+      empty.textContent = T('arena.sig_unknown',
+        'Couldn’t load the engine’s calls — this list is unknown, not empty.');
+      empty.hidden = false;
+      return;
+    }
+    var sigs = r.data.signals || [];
+    box.innerHTML = sigs.map(sigRowHtml).join('');
+    empty.textContent = T('arena.e_sig', 'No recent engine calls to trade — the stream is quiet right now.');
+    empty.hidden = sigs.length > 0;
+  }
+  document.addEventListener('click', async function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-sig]') : null;
+    if (!btn) return;
+    btn.disabled = true;
+    var r = await RC.fetchJSON('/api/arena/open-signal', { method: 'POST', body: {
+      signal_id: Number(btn.getAttribute('data-sig')),
+      margin: Number($('sMargin').value), leverage: Number($('sLev').value),
+    }, timeoutMs: 14000 }).catch(function () { return null; });
+    btn.disabled = false;
+    if (r && r.ok && r.data && r.data.filled) {
+      var f = r.data.filled;
+      haptic([12, 40, 12]);
+      // Report the fill AND what was left behind. A dropped exit is the kind
+      // of thing a user must not discover from a position that has no stop.
+      var parts = [fill(T('arena.sig_filled', 'Opened {s} {d} at {e} — the live mark.'),
+        { s: f.symbol, d: f.direction, e: fmtP(f.entry) })];
+      if (f.drift_pct != null && f.signal_entry != null) {
+        parts.push(fill(T('arena.sig_filled_drift', 'The call was posted at {p} ({m}%).'),
+          { p: fmtP(f.signal_entry), m: (f.drift_pct > 0 ? '+' : '') + f.drift_pct }));
+      }
+      if (f.dropped && f.dropped.length) {
+        parts.push(f.dropped.length === 2
+          ? T('arena.sig_dropped_both', 'Both of its exits were already behind the market, so neither was carried over — set your own.')
+          : f.dropped[0] === 'tp'
+            ? T('arena.sig_dropped_tp', 'Its take-profit was already behind the market and was not carried over.')
+            : T('arena.sig_dropped_sl', 'Its stop-loss was already behind the market and was not carried over.'));
+      }
+      $('sMsg').textContent = parts.join(' ');
+      loadAccount(); loadSignals();
+    } else {
+      $('sMsg').textContent = (r && r.data && r.data.error)
+        || T('arena.sig_failed', 'Could not open that call — try again.');
+    }
+  });
 
   // Rank-change chips: between board refreshes, a climb shows "▲n" and a
   // slip "▼n" beside the rank — motion that carries information (WHO is
@@ -913,6 +1043,10 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     $('acctPanel').hidden = false; $('ticketPanel').hidden = false;
     $('posPanel').hidden = false; $('histPanel').hidden = false;
     $('optin').hidden = false; $('followPanel').hidden = false;
+    $('sigPanel').hidden = false;
+    $('sLev').addEventListener('input', function () { $('sLevVal').textContent = $('sLev').value + '×'; });
+    loadSignals();
+    setInterval(loadSignals, 45000);
     var following = false;
     paintFollow = function (f) {
       following = !!(f && f.enabled);

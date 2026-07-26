@@ -109,10 +109,20 @@
 
   function render(r) {
     if (!r || r.level === 'empty') { $('out').innerHTML = ''; return; }
+    // Translate by the model's stable id, falling back to the model's own
+    // English. `kind` could not do this: three injections and four URL checks
+    // share one kind, so keying on it would collapse distinct flags into one
+    // message. The model stays English on purpose — it is also the MCP tool
+    // payload, where an agent expects a stable language.
+    var T = function (k, en) {
+      try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+      catch (e) { return en; }
+    };
     var flags = r.flags.map(function (f) {
       return '<div class="flag sev-' + esc(f.severity) + '"><span class="dot"></span><div>'
-        + '<div class="ti">' + esc(f.title) + '<span class="sev">' + esc(f.severity) + '</span></div>'
-        + '<div class="wy">' + esc(f.why) + '</div>'
+        + '<div class="ti">' + esc(f.id ? T('fw.t.' + f.id, f.title) : f.title)
+        + '<span class="sev">' + esc(f.severity) + '</span></div>'
+        + '<div class="wy">' + esc(f.id ? T('fw.w.' + f.id, f.why) : f.why) + '</div>'
         + (f.match ? '<div class="mt">matched: <code>' + esc(f.match) + '</code></div>' : '')
         + '</div></div>';
     }).join('');
@@ -135,6 +145,6 @@
   if (!F) $('out').innerHTML = '<div class="panel">The firewall model failed to load.</div>';
 })();
 </script>
-<script src="/js/i18n.js?v=52"></script>
+<script src="/js/i18n.js?v=54"></script>
 </body>
 </html>

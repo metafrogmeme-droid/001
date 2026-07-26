@@ -242,8 +242,10 @@ test('portfolio proxies gateway and write-throughs to DB', async () => {
   assert.strictEqual(open[0].symbol, 'SOL/USDT:USDT');
   // Second call must not duplicate the closed trade (upsert by key)
   await request('GET', '/api/portfolio', { token: signUnlinked });
+  // LIMIT inlined — the shim now refuses a bound LIMIT exactly like real
+  // MySQL does (ER_WRONG_ARGUMENTS), and that applies to test queries too.
   const [closed] = await pool.execute(
-    "SELECT symbol, closed_at, pnl FROM trades WHERE user_id = ? AND status = 'CLOSED' ORDER BY closed_at DESC LIMIT ?", [unlinkedId, 500]);
+    "SELECT symbol, closed_at, pnl FROM trades WHERE user_id = ? AND status = 'CLOSED' ORDER BY closed_at DESC LIMIT 500", [unlinkedId]);
   assert.strictEqual(closed.length, 1);
 });
 

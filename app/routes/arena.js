@@ -101,9 +101,15 @@ async function sweepFollows(userId, positions, marks) {
   const [fr] = await pool.execute('SELECT user_id, enabled, margin, leverage, last_signal_id FROM arena_follows WHERE user_id = ?', [userId]);
   const follow = fr[0];
   if (!follow || !Number(follow.enabled)) return { follow: follow || null, positions };
+  // LIMIT is inlined, not bound. mysql2's execute() sends JS numbers as
+  // DOUBLE, and MySQL refuses a DOUBLE as a prepared LIMIT argument —
+  // ER_WRONG_ARGUMENTS. Because this sweep runs inside GET /account, that one
+  // placeholder took the whole paper account down for every follower, while
+  // the in-memory shim accepted it and kept every test green. The shim now
+  // throws on `LIMIT ?` exactly like production does.
   const [sigs] = await pool.execute(
-    'SELECT id, symbol, direction, stop_loss, take_profit FROM signals WHERE id > ? ORDER BY id ASC LIMIT ?',
-    [Number(follow.last_signal_id) || 0, 5]);
+    'SELECT id, symbol, direction, stop_loss, take_profit FROM signals WHERE id > ? ORDER BY id ASC LIMIT 5',
+    [Number(follow.last_signal_id) || 0]);
   if (!sigs.length) return { follow, positions };
   const acct = await loadAccount(userId);
   const plan = followLib.planFollows({ signals: sigs, positions, balance: acct.balance,
@@ -293,6 +299,102 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
   }
 });
 
+// GET /api/arena/signals — the engine's recent calls, as a paper-tradeable
+// list. Practice-follow is all-or-nothing and forward-only; this is the other
+// half of the same idea: pick ONE call and put it on paper.
+//
+// §4: prices, levels, confidence and counts only. The signal's own entry, stop
+// and target are public market levels; no amount — real or virtual — appears.
+const signalTrade = require('../lib/arena_signal_trade');
+router.get('/signals', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const [sigs] = await pool.execute(
+      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, confidence, pattern, created_at FROM signals ORDER BY id DESC LIMIT 12');
+    // A mark is nice-to-have here, not required: the list must still render
+    // when upstream is slow, and the open route re-checks the price anyway.
+    let marks = {};
+    try { marks = (await getTickersWithin(4000)).map; } catch (e) { /* list without drift */ }
+    const positions = await loadPositions(userId);
+    res.json({
+      signals: signalTrade.decorateForPicker(sigs, { positions, marks }),
+      max_age_ms: signalTrade.MAX_SIGNAL_AGE_MS,
+      limits: { min_margin: arena.MIN_MARGIN, max_leverage: arena.MAX_LEVERAGE, max_open: arena.MAX_OPEN },
+      open_count: positions.length,
+      virtual: true,
+    });
+  } catch (err) {
+    console.error('Arena signals error:', err.stack || err.message);
+    res.status(500).json({ error: 'Signals unavailable', reason: safeReason(err) });
+  }
+});
+
+// POST /api/arena/open-signal { signal_id, margin, leverage } — open ONE named
+// engine signal as a paper position, at the LIVE mark and carrying the
+// signal's own exits where they still sit on the right side of that fill.
+router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const signalId = Number((req.body || {}).signal_id);
+    if (!Number.isInteger(signalId) || signalId <= 0) {
+      return res.status(400).json({ error: 'Invalid signal_id' });
+    }
+    const [srows] = await pool.execute(
+      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM signals WHERE id = ?', [signalId]);
+    const sig = srows[0];
+    if (!sig) return res.status(404).json({ error: 'That signal no longer exists' });
+
+    // A fill needs a fresh price, so this one uses getTickers() and fails
+    // loudly rather than the bounded read the display path can tolerate.
+    let marks;
+    try { marks = await getTickers(); } catch (e) {
+      return res.status(503).json({ error: 'Market data unavailable — try again shortly' });
+    }
+    const acct = await loadAccount(userId);
+    let positions = await loadPositions(userId);
+    positions = await settleLiquidations(userId, positions, marks);
+
+    const symbol = String(sig.symbol || '').toUpperCase();
+    const plan = signalTrade.planSignalOpen({
+      signal: sig, positions, balance: acct.balance,
+      margin: (req.body || {}).margin, leverage: (req.body || {}).leverage,
+      mark: marks[symbol] && Number(marks[symbol].price),
+    });
+    if (!plan.ok) return res.status(plan.code === 'no_mark' ? 503 : 400).json({ error: plan.error, code: plan.code });
+    const d = plan.data;
+
+    // A live season constrains a signal open exactly as it constrains a manual
+    // one — the engine's name on the call does not exempt it from the rules.
+    try {
+      const [seasons] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
+      const sr = require('../lib/arena_seasons').checkSeasonRules(seasons[0], d);
+      if (!sr.ok) return res.status(400).json({ error: sr.error });
+    } catch (e) { /* season read failure never blocks an open */ }
+
+    const openedAt = new Date();
+    const rc = sealedOpen(await handleFor(userId), {
+      symbol: d.symbol, direction: d.direction, entry: d.entry,
+      leverage: d.leverage, tp: d.tp, sl: d.sl, opened_at: openedAt });
+    await pool.execute(
+      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, d.symbol, d.direction, d.entry, d.margin, d.leverage, 'signal', d.tp, d.sl,
+        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
+    await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
+      [round2(acct.balance - d.margin), userId]);
+    res.json({ ok: true, filled: {
+      signal_id: d.signal_id, symbol: d.symbol, direction: d.direction,
+      entry: d.entry, margin: d.margin, leverage: d.leverage, tp: d.tp, sl: d.sl,
+      // The honesty payload: what the call said, what you actually got, and
+      // which of its exits the market had already passed.
+      signal_entry: d.signal_entry, drift_pct: d.drift_pct, dropped: d.dropped,
+      key: rc.trade_key,
+    }, virtual: true });
+  } catch (err) {
+    console.error('Arena open-signal error:', err.stack || err.message);
+    res.status(500).json({ error: 'Arena unavailable', reason: safeReason(err) });
+  }
+});
+
 // POST /api/arena/close { position_id } — close at the live mark.
 router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
   try {
@@ -439,7 +541,7 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
     let lastId = 0;
     try {
       const [latest] = await pool.execute(
-        'SELECT id, symbol, direction FROM signals ORDER BY created_at DESC LIMIT ?', [1]);
+        'SELECT id, symbol, direction FROM signals ORDER BY created_at DESC LIMIT 1');
       lastId = latest[0] ? Number(latest[0].id) || 0 : 0;
     } catch (e) { /* empty stream — start at 0 */ }
     // arena_follows.user_id is the PRIMARY KEY, so a bare INSERT fails with a

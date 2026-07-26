@@ -96,7 +96,11 @@
   gas and bridge risk are real and not modelled here. A safety aid, not investment advice.</p>
 </div>
 
-<script src="/js/escape-model.js?v=1"></script>
+<!-- Ahead of the page script, not after it. The plan renders synchronously at
+     parse time, so an i18n.js loaded below would arrive after every T() call
+     had already fallen back to English on a page nobody re-renders. -->
+<script src="/js/i18n.js?v=54"></script>
+<script src="/js/escape-model.js?v=2"></script>
 <script>
 (function () {
   var E = window.EscapeModel;
@@ -118,14 +122,35 @@
   var positions = SAMPLE.map(function (p) { return Object.assign({}, p); });
   var $ = function (id) { return document.getElementById(id); };
 
+  // Translate by position TYPE, with the model's English as the fallback. The
+  // model stays English on purpose: its output is also the plan_escape MCP
+  // payload, where an agent expects a stable language.
+  //
+  // Declared out here, not inside a renderer: render() calls it too, and a
+  // `var T` inside rowHtml() is scoped to rowHtml. That threw a ReferenceError
+  // on the very first render, which is why the whole plan came up empty.
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var TF = function (k, en, map) {
+    var s = T(k, en);
+    try { if (window.RCI18N && RCI18N.fill) return RCI18N.fill(s, map); } catch (e) { /* fall through */ }
+    return s.replace(/\{(\w+)\}/g, function (m, n) { return map[n] == null ? m : map[n]; });
+  };
+
   function rowHtml(p, i) {
-    var opts = TYPE_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (p.type === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
-    var st = function (v, l) { return '<option value="' + v + '"' + (p.status === v ? ' selected' : '') + '>' + l + '</option>'; };
+    // The option labels are the same nouns the plan steps use, so they share
+    // the esc.l.* keys rather than duplicating fourteen translations.
+    var opts = TYPE_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (p.type === o[0] ? ' selected' : '') + '>' + esc(T('esc.l.' + o[0], o[1])) + '</option>'; }).join('');
+    var st = function (v, l) { return '<option value="' + v + '"' + (p.status === v ? ' selected' : '') + '>' + esc(l) + '</option>'; };
     return '<div class="row" data-i="' + i + '">'
       + '<select data-k="type">' + opts + '</select>'
       + '<input data-k="asset" value="' + esc(p.asset || '') + '" maxlength="20" placeholder="ETH" autocomplete="off">'
       + '<input data-k="chain" value="' + esc(p.chain || '') + '" maxlength="20" placeholder="Aave / chain" autocomplete="off">'
-      + '<select data-k="status">' + st('', 'Normal') + st('nearLiq', '⚡ Near liquidation') + st('locked', '🔒 Locked / vesting') + '</select>'
+      + '<select data-k="status">' + st('', T('esc.st_normal', 'Normal'))
+      + st('nearLiq', '⚡ ' + T('esc.st_nearliq', 'Near liquidation'))
+      + st('locked', '🔒 ' + T('esc.st_locked', 'Locked / vesting')) + '</select>'
       + '<button class="rm" data-rm="' + i + '" type="button" aria-label="Remove" data-i18n-attr="aria-label:a11y.remove">×</button></div>';
   }
   function renderRows() { $('rows').innerHTML = positions.map(rowHtml).join(''); }
@@ -136,24 +161,50 @@
         nearLiq: p.status === 'nearLiq', locked: p.status === 'locked' };
     });
   }
+  // Rebuild the model's English summary sentence from its parts. Translating
+  // plan.summary is not possible — it is assembled, and every language wants
+  // the pieces in a different order.
+  function summaryText(plan) {
+    var sp = plan.summaryParts;
+    if (!sp) return plan.summary;                                  // older model, still readable
+    if (sp.kind === 'empty') return T('esc.s_empty', plan.summary);
+    if (sp.kind === 'allLocked') return T('esc.s_locked_all', plan.summary);
+    var label = T('esc.l.' + sp.firstType, sp.firstType);
+    var lead = sp.firstAsset
+      ? TF('esc.s_lead', 'Start with your {label} ({asset}).', { label: label, asset: sp.firstAsset })
+      : TF('esc.s_lead_na', 'Start with your {label}.', { label: label });
+    if (sp.urgent) lead += ' ' + T('esc.s_urgent', 'A leveraged leg is near liquidation — move now.');
+    if (sp.blocked) lead += ' ' + TF('esc.s_blocked', '{n} position(s) are locked and cannot exit yet.', { n: sp.blocked });
+    return lead;
+  }
+
   function render() {
     var plan = E.buildPlan(toModel());
-    $('summary').innerHTML = '<b>Escape plan:</b> ' + esc(plan.summary)
-      + ' <span class="muted">· ' + plan.counts.steps + ' steps' + (plan.counts.blocked ? ' · ' + plan.counts.blocked + ' locked' : '') + '</span>';
+    $('summary').innerHTML = '<b>' + esc(T('esc.s_title', 'Escape plan:')) + '</b> ' + esc(summaryText(plan))
+      + ' <span class="muted">· ' + esc(TF('esc.c_steps', '{n} steps', { n: plan.counts.steps }))
+      + (plan.counts.blocked ? ' · ' + esc(TF('esc.c_locked', '{n} locked', { n: plan.counts.blocked })) : '') + '</span>';
     $('steps').innerHTML = plan.steps.length ? plan.steps.map(function (s) {
       return '<div class="step risk-' + esc(s.risk) + '"><div class="n">' + s.n + '</div><div>'
-        + '<div class="act">' + esc(s.action) + ' <span class="as">' + esc(s.asset) + '</span> ' + esc(s.label)
+        + '<div class="act">' + esc(T('esc.a.' + s.type, s.action)) + ' <span class="as">' + esc(s.asset) + '</span> ' + esc(T('esc.l.' + s.type, s.label))
         + (s.chain ? '<span class="ch">' + esc(s.chain) + '</span>' : '')
-        + (s.urgent ? '<span class="urg">act now</span>' : '') + '</div>'
-        + '<div class="rz">' + esc(s.reason) + '</div>'
-        + (s.depends_on && s.depends_on.length ? '<div class="dep">↳ ' + s.depends_on.map(esc).join('; ') + '</div>' : '')
+        + (s.urgent ? '<span class="urg">' + esc(T('esc.badge_now', 'act now')) + '</span>' : '') + '</div>'
+        + '<div class="rz">' + esc(T('esc.r.' + s.type, s.reason)) + '</div>'
+        + (s.depends_on && s.depends_on.length ? '<div class="dep">↳ ' + s.depends_on.map(function (d, i) {
+          // Keyed by depends_on_ids where the model supplies them; the English
+          // string stays the fallback so an older model still renders.
+          var id = s.depends_on_ids && s.depends_on_ids[i];
+          return esc(id ? T('esc.dep.' + id, d) : d);
+        }).join('; ') + '</div>' : '')
         + '</div></div>';
-    }).join('') : '<p class="muted small">Add positions above to generate a plan.</p>';
+    }).join('') : '<p class="muted small">' + esc(T('esc.none', 'Add positions above to generate a plan.')) + '</p>';
     var bp = $('blkPanel');
     if (plan.blockers.length) {
       bp.hidden = false;
       $('blockers').innerHTML = plan.blockers.map(function (b) {
-        return '<div class="blk"><span class="l">🔒</span><span><b>' + esc(b.asset) + '</b> <span class="muted">(' + esc(b.type) + (b.chain ? ' · ' + esc(b.chain) : '') + ')</span> — ' + esc(b.reason) + '</span></div>';
+        var why = b.lockLabel
+          ? TF('esc.b_locked_named', 'Locked — {label}', { label: b.lockLabel })
+          : T('esc.b_locked', b.reason);
+        return '<div class="blk"><span class="l">🔒</span><span><b>' + esc(b.asset) + '</b> <span class="muted">(' + esc(T('esc.l.' + b.type, b.type)) + (b.chain ? ' · ' + esc(b.chain) : '') + ')</span> — ' + esc(why) + '</span></div>';
       }).join('');
     } else { bp.hidden = true; }
   }
@@ -176,6 +227,5 @@
   renderRows(); render();
 })();
 </script>
-<script src="/js/i18n.js?v=52"></script>
 </body>
 </html>

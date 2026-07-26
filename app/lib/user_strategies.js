@@ -204,9 +204,12 @@ async function setVisibility(userId, id, visibility) {
   return { ok: true, visibility: vis };
 }
 async function listPublic(limit) {
-  const n = Math.min(PUBLIC_LIST_LIMIT, Math.max(1, Number(limit) || PUBLIC_LIST_LIMIT));
+  const n = Math.min(PUBLIC_LIST_LIMIT, Math.max(1, Math.floor(Number(limit)) || PUBLIC_LIST_LIMIT));
+  // Inlined, not bound: a bound LIMIT is ER_WRONG_ARGUMENTS on real MySQL
+  // (mysql2 sends numbers as DOUBLE). Safe to interpolate — n is clamped to a
+  // small positive integer two lines up.
   const [rows] = await pool.execute(
-    "SELECT * FROM user_strategies WHERE visibility = 'public' ORDER BY updated_at DESC LIMIT ?", [n]);
+    `SELECT * FROM user_strategies WHERE visibility = 'public' ORDER BY updated_at DESC LIMIT ${n}`);
   return rows.map(toPublicCard);
 }
 async function getPublicBySlug(slug) {

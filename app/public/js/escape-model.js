@@ -64,6 +64,10 @@
     for (const p of positions) {
       if (p.locked) {
         blockers.push({ asset: p.asset, type: p.type, chain: p.chain,
+          // `reason` is the English sentence an MCP caller reads; `lockLabel`
+          // is the same fact unassembled, so a UI can say it in its own
+          // language instead of re-parsing a string it did not write.
+          lockLabel: p.lockLabel || '',
           reason: p.lockLabel ? ('Locked — ' + p.lockLabel) : 'Locked / vesting — cannot exit until it unlocks.' });
       } else {
         active.push(p);
@@ -86,8 +90,15 @@
     const steps = withIdx.map(function (x, idx) {
       const p = x.p, meta = PLAN[p.type];
       const deps = [];
-      if (p.type === 'collateral' && hasBorrow) deps.push('after the loan(s) it backs are repaid');
-      if (p.type === 'borrow' && hasSpotOrConvert) deps.push('may need liquid stables first — convert some spot if short');
+      const depIds = [];
+      if (p.type === 'collateral' && hasBorrow) {
+        deps.push('after the loan(s) it backs are repaid');
+        depIds.push('after_loans');
+      }
+      if (p.type === 'borrow' && hasSpotOrConvert) {
+        deps.push('may need liquid stables first — convert some spot if short');
+        depIds.push('needs_stables');
+      }
       const urgent = p.type === 'perp' && p.nearLiq;
       return {
         n: idx + 1,
@@ -100,6 +111,7 @@
         urgent,
         reason: meta.reason,
         depends_on: deps,
+        depends_on_ids: depIds,
       };
     });
 
@@ -112,8 +124,21 @@
           + (steps.some((s) => s.urgent) ? ' — a leveraged leg is near liquidation, move now.' : '.')
           + (blockers.length ? ' ' + blockers.length + ' position(s) are locked and cannot exit yet.' : ''));
 
+    // The same summary, taken apart. `summary` is an assembled English
+    // sentence and has to stay one — it is the plan_escape MCP payload, where
+    // an agent expects a stable language. But a UI cannot translate an
+    // assembled sentence; it can only rebuild one. So hand it the facts the
+    // sentence was built from and let it write its own.
+    const summaryParts = {
+      kind: !positions.length ? 'empty' : !steps.length ? 'allLocked' : 'plan',
+      firstType: first ? first.type : '',
+      firstAsset: first && first.asset !== '—' ? first.asset : '',
+      urgent: steps.some((s) => s.urgent),
+      blocked: blockers.length,
+    };
+
     return {
-      steps, blockers, summary,
+      steps, blockers, summary, summaryParts,
       counts: { positions: positions.length, steps: steps.length, blocked: blockers.length,
         urgent: steps.filter((s) => s.urgent).length },
     };
