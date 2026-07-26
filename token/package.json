@@ -20,7 +20,8 @@
     "e2e:plan": "node e2e/devnet_dryrun.mjs --dry",
     "e2e:dryrun": "node e2e/devnet_dryrun.mjs",
     "bridge:plan": "node bridge/ntt_bridge.mjs plan",
-    "bridge:transfer": "node bridge/ntt_bridge.mjs transfer"
+    "bridge:transfer": "node bridge/ntt_bridge.mjs transfer",
+    "presale:trigger": "node presale/genesis_presale.mjs trigger"
   },
   "engines": {
     "node": ">=18"

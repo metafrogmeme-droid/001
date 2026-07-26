@@ -128,3 +128,53 @@ test('parity allocation opens the pool exactly at the presale price', () => {
   );
   assert.ok(lp._pricing.worstCasePoolPrice < presale, 'soft cap still opens below parity');
 });
+
+// ── The on-chain quote split (F-11, now actually encoded) ───────────────────
+//
+// These pin the behavior's wire encoding rather than the config value. The
+// percentage becomes immutable at bucket creation, so a mistake here is not
+// correctable afterwards — and the whole point of moving it on-chain is that
+// nobody, including the operator, can change it later.
+
+import { behavior, getBehaviorSerializer, BehaviorTypes } from '@metaplex-foundation/genesis';
+
+test('the split serializes to the SendQuoteTokenPercentage variant', () => {
+  const cfg = baseConfig();
+  const b = behavior('SendQuoteTokenPercentage', {
+    processed: false,
+    percentageBps: cfg.liquidity.raisedSolToLiquidityBps,
+    padding: [0, 0, 0, 0],
+    destinationBucket: '11111111111111111111111111111111',
+  });
+  assert.equal(b.__kind, 'SendQuoteTokenPercentage');
+  assert.equal(BehaviorTypes.SendQuoteTokenPercentage, 1);
+
+  const ser = getBehaviorSerializer();
+  const [decoded] = ser.deserialize(ser.serialize(b));
+  assert.equal(decoded.__kind, 'SendQuoteTokenPercentage');
+  assert.equal(decoded.percentageBps, 6667, 'the encoded share must survive a round trip exactly');
+  assert.equal(decoded.processed, false, 'a fresh behavior must not be marked processed');
+});
+
+test('the encoded bps matches the pricing parity the liquidity check enforces', () => {
+  // Both derive from the same relationship, so they cannot drift apart without
+  // deriveLiquidityParams() rejecting the config outright.
+  const cfg = baseConfig();
+  const parityBps = Math.ceil(
+    (Number(cfg.liquidity.tokenAllocation) / Number(cfg.sale.presaleAllocation)) * 10_000
+  );
+  assert.equal(
+    cfg.liquidity.raisedSolToLiquidityBps,
+    parityBps,
+    'the on-chain split must equal the parity value, or the pool opens below the presale price'
+  );
+  assert.doesNotThrow(() => deriveLiquidityParams(cfg));
+});
+
+test('percentageBps fits the u16 the wire format uses', () => {
+  const cfg = baseConfig();
+  const bps = cfg.liquidity.raisedSolToLiquidityBps;
+  assert.ok(Number.isInteger(bps) && bps > 0 && bps <= 10_000,
+    `raisedSolToLiquidityBps ${bps} must be an integer in 1..10000`);
+  assert.ok(bps <= 0xffff, 'percentageBps is serialized as u16');
+});

@@ -203,6 +203,15 @@ buyers see it up front.
 liquidity allocation), remainder to audit, operations, and treasury. Exact split ratified in
 §13.
 
+> **Enforced on-chain (2026-07-26).** This split is no longer an operator promise.
+> `presale:create` attaches a `SendQuoteTokenPercentage` end behavior to the presale bucket,
+> which fixes the percentage at creation and names the liquidity bucket PDA as its
+> destination. `presale:trigger` executes it and is **permissionless** — the underlying
+> `triggerBehaviorsV2` instruction takes a payer but no authority — so any participant can
+> run it once the deposit window closes, and the operator can neither change the share nor
+> decline to send it. Editing the config afterwards has no on-chain effect; the bucket wins,
+> and `presale:liquidity` refuses on the mismatch.
+
 ---
 
 ## 6. Launch venue comparison + recommendation

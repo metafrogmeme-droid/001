@@ -45,6 +45,9 @@ npm run presale:whitelist        # build the Merkle allowlist from config.whitel
 npm run presale:create           # initializeV2 (genesis account) + addPresaleBucketV2 (+ allowlist)
 npm run presale:liquidity        # addRaydiumCpmmBucketV2 with a permanent LP lock
 npm run presale:deposit -- --amount 1   # depositPresaleV2 (auto-presents whitelist proof)
+npm run presale:trigger          # triggerBehaviorsV2 — routes the 66.67% quote share to the
+                                 # liquidity bucket. Permissionless: ANYONE may run it once
+                                 # the deposit window closes. Required before the pool is real.
 npm run presale:claim            # claimPresaleV2 once the claim window opens (post-TGE)
 # recovery:
 npm run presale:withdraw          # depositor cancels/refunds their own deposit

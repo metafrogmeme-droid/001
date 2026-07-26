@@ -24,8 +24,11 @@ import {
   claimPresaleV2,
   withdrawPresaleV1,
   withdrawUnsoldPresaleV1,
+  triggerBehaviorsV2,
+  behavior,
   findGenesisAccountV2Pda,
   findPresaleBucketV2Pda,
+  findRaydiumCpmmBucketV2Pda,
 } from '@metaplex-foundation/genesis';
 
 import {
@@ -106,9 +109,12 @@ function cmdPlan() {
     `| pool at soft cap ${pr.worstCasePoolPrice.toExponential(4)} SOL/token`);
   console.log('                 ',
     `a weak raise opens the pool BELOW the presale price — the LP lock is permanent, so this cannot be corrected after the fact.`);
-  console.log('                 ', `NOT WIRED: the ${lp.raisedSolToLiquidityBps / 100}% quote-token split is config-only — no instruction encodes it yet (needs an endBehaviors SendQuoteTokenPercentage on the presale bucket).`);
+  console.log('                 ',
+    `quote split: ${lp.raisedSolToLiquidityBps / 100}% of the raise is ENCODED ON CHAIN as a ` +
+    `SendQuoteTokenPercentage end behavior on the presale bucket (${lp.raisedSolToLiquidityBps} bps), ` +
+    'executed by the permissionless presale:trigger after the deposit window closes.');
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
-  console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → presale:claim.');
+  console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → (window closes) → presale:trigger → presale:claim.');
 }
 
 // ── create: initializeV2 + addPresaleBucketV2 ───────────────────────────────
@@ -250,6 +256,40 @@ async function cmdCreate() {
     // 33% at TGE, linear tail.
     claimSchedule: p.claimSchedule,
   };
+
+  // Encode the raise->liquidity split ON CHAIN rather than promising it.
+  //
+  // Previously `raisedSolToLiquidityBps` was config text that no instruction
+  // read: the token side of the pool was locked irrevocably while the SOL side
+  // stayed entirely at the operator's discretion. As an `endBehaviors` entry the
+  // program itself moves the quote tokens, the percentage is fixed at bucket
+  // creation, and `triggerBehaviorsV2` is permissionless — so any participant
+  // can execute it and the operator cannot quietly decline to.
+  //
+  // destinationBucket is a PDA derived from (genesisAccount, bucketIndex), so it
+  // is addressable before the liquidity bucket exists. That creates a real
+  // ordering requirement, enforced in cmdLiquidity: the liquidity bucket must be
+  // created before the deposit window closes, or the behavior points at nothing.
+  const liquidityBucket = findRaydiumCpmmBucketV2Pda(umi, {
+    genesisAccount: genesisAccount[0],
+    bucketIndex: LIQUIDITY_BUCKET_INDEX,
+  });
+  const bps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
+  if (bps > 0) {
+    presaleInput.endBehaviors = [
+      behavior('SendQuoteTokenPercentage', {
+        processed: false,
+        percentageBps: bps,
+        padding: [0, 0, 0, 0],
+        destinationBucket: liquidityBucket[0],
+      }),
+    ];
+    console.log(
+      `    endBehaviors: SendQuoteTokenPercentage ${bps} bps (${bps / 100}%) -> ${liquidityBucket[0]}`
+    );
+  } else {
+    console.log('    endBehaviors: none (raisedSolToLiquidityBps is 0)');
+  }
   if (allowlistArgs) {
     presaleInput.allowlist = allowlistArgs;
     console.log('    whitelist: applying Merkle root', wl.rootHex.slice(0, 16) + '… (ends at publicStart)');
@@ -272,6 +312,8 @@ async function cmdCreate() {
     bucket: bucket[0].toString(),
     hardCapSol: cfg.sale.hardCapSol,
     allowlisted: Boolean(allowlistArgs),
+    liquidityBucket: liquidityBucket[0].toString(),
+    quoteSplitBps: bps,
     txs: { initialize: sigInit, addPresaleBucket: sigBucket },
     note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
   };
@@ -360,31 +402,49 @@ async function cmdLiquidity() {
   if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
   const lp = deriveLiquidityParams(cfg);
 
-  // Fail closed on the half of the commitment that no instruction encodes.
+  // The split is now encoded on-chain by presale:create, so this no longer
+  // refuses outright — it checks that what was encoded actually points HERE.
   //
-  // The token side of this bucket is IRREVOCABLE (never-claim LP lock). The
-  // quote side — "N% of the raise goes to the pool" — is currently config text
-  // that nothing enforces. Creating the irrevocable half while the enforceable
-  // half is merely promised is the wrong order to fail in, so refuse until the
-  // routing is either wired up or explicitly acknowledged as manual.
-  if (lp.raisedSolToLiquidityBps > 0 && !cfg.liquidity.acknowledgeQuoteSplitIsManual) {
-    throw new Error(
-      `config.liquidity.raisedSolToLiquidityBps is ${lp.raisedSolToLiquidityBps} ` +
-      `(${lp.raisedSolToLiquidityBps / 100}% of the raise), but NO instruction encodes that split — ` +
-      'it is an unenforced promise. This command would create a permanent, ' +
-      'never-claim LP lock on the token side while the SOL side stays discretionary.\n\n' +
-      'Either wire an `endBehaviors: [SendQuoteTokenPercentage{...}]` onto the presale ' +
-      'bucket in presale:create, or set liquidity.acknowledgeQuoteSplitIsManual=true to ' +
-      'state on the record that the split is operator-executed and unenforceable on-chain.'
-    );
+  // The token side of this bucket is irrevocable (never-claim LP lock), so it
+  // must not be created against a presale whose quote-side routing is missing or
+  // aimed somewhere else. Both are silent failures otherwise: the lock would
+  // exist and the SOL would never arrive.
+  const expectedBucket = findRaydiumCpmmBucketV2Pda(umi, {
+    genesisAccount: publicKey(a.genesisAccount),
+    bucketIndex: LIQUIDITY_BUCKET_INDEX,
+  })[0].toString();
+
+  if (lp.raisedSolToLiquidityBps > 0) {
+    if (!a.quoteSplitBps) {
+      throw new Error(
+        `config.liquidity.raisedSolToLiquidityBps is ${lp.raisedSolToLiquidityBps}, but the ` +
+        'presale bucket was created WITHOUT a SendQuoteTokenPercentage end behavior ' +
+        `(artifact ${PRESALE_ARTIFACT} records no quoteSplitBps). The SOL side would never ` +
+        'be routed. Re-create the presale with the split configured.'
+      );
+    }
+    if (Number(a.quoteSplitBps) !== Number(lp.raisedSolToLiquidityBps)) {
+      throw new Error(
+        `Split mismatch: the presale bucket encodes ${a.quoteSplitBps} bps on-chain but the ` +
+        `config now says ${lp.raisedSolToLiquidityBps} bps. The on-chain value is fixed at ` +
+        'bucket creation and wins — reconcile the config or re-create the presale.'
+      );
+    }
+    if (a.liquidityBucket && a.liquidityBucket !== expectedBucket) {
+      throw new Error(
+        `Destination mismatch: the encoded behavior sends the quote share to ` +
+        `${a.liquidityBucket}, but this command would create the bucket at ${expectedBucket}.`
+      );
+    }
   }
 
   console.log(`Adding Raydium CPMM liquidity bucket (${cfg.liquidity.tokenAllocation} ${cfg.token.symbol}, permanent LP lock)…`);
   if (lp.raisedSolToLiquidityBps > 0) {
     console.log(
-      `  NOTE: the ${lp.raisedSolToLiquidityBps / 100}% raise->pool split is operator-executed, ` +
-      'NOT enforced on-chain (acknowledged in config).'
+      `  quote side: ${lp.raisedSolToLiquidityBps / 100}% of the raise is routed ON CHAIN to ` +
+      `${expectedBucket} by the presale bucket's SendQuoteTokenPercentage behavior.`
     );
+    console.log('  Run `npm run presale:trigger` after the deposit window closes to execute it.');
   }
   const sig = await sendChecked(
     addRaydiumCpmmBucketV2(umi, {
@@ -471,6 +531,44 @@ async function cmdWithdrawUnsold() {
   console.log('Unsold-token withdrawal confirmed. tx:', sig);
 }
 
+// ── trigger: execute the presale bucket's end behaviors ─────────────────────
+//
+// This is what actually moves the quote share to the liquidity bucket. It is
+// PERMISSIONLESS — triggerBehaviorsV2 takes a payer but no authority — which is
+// the whole point: the percentage is fixed on-chain at bucket creation, and any
+// participant can execute it, so the operator can neither change the share nor
+// quietly decline to send it. That is the difference between an enforced split
+// and a promise.
+async function cmdTrigger() {
+  const env = loadEnv();
+  const umi = makeUmi(env);
+  await assertDevnet(umi);
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
+
+  if (!a.quoteSplitBps) {
+    console.log('This presale encodes no end behaviors — nothing to trigger.');
+    return;
+  }
+  console.log(
+    `Triggering end behaviors on bucket ${a.bucket}: ` +
+    `${a.quoteSplitBps} bps (${a.quoteSplitBps / 100}%) of the raise -> ${a.liquidityBucket}`
+  );
+  console.log('Note: this only succeeds once the deposit window has closed.');
+
+  const sig = await sendChecked(
+    triggerBehaviorsV2(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      primaryBucket: publicKey(a.bucket),
+      baseMint: publicKey(a.baseMint),
+    }),
+    umi,
+    'triggerBehaviorsV2'
+  );
+  console.log('Behaviors executed. tx:', sig);
+  console.log('Verify the liquidity bucket received the quote share before announcing the pool.');
+}
+
 // ── claim: claimPresaleV2 ───────────────────────────────────────────────────
 async function cmdClaim() {
   const env = loadEnv();
@@ -496,6 +594,7 @@ const table = {
   whitelist: cmdWhitelist,
   create: cmdCreate,
   liquidity: cmdLiquidity,
+  trigger: cmdTrigger,
   deposit: cmdDeposit,
   claim: cmdClaim,
   withdraw: cmdWithdraw,
@@ -504,7 +603,7 @@ const table = {
 if (!table[cmd]) {
   console.error(
     'Usage: node genesis_presale.mjs ' +
-      '<plan|whitelist|create|liquidity|deposit --amount N|claim|withdraw|withdraw-unsold>'
+      '<plan|whitelist|create|liquidity|trigger|deposit --amount N|claim|withdraw|withdraw-unsold>'
   );
   process.exit(2);
 }
