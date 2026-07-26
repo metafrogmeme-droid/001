@@ -1,0 +1,13 @@
+# Pin the Rust toolchain so the staking program's bytecode is reproducible.
+#
+# Without this, `cargo build` uses whatever rustc happens to be installed, and
+# two builds of the same commit can differ — which makes "verify the deployed
+# program matches this source" an unanswerable question. Anchor's [toolchain]
+# block in Anchor.toml pins the Anchor/Solana side; this pins the Rust side.
+#
+# Bump deliberately, in its own commit, and re-run the full test suite: a
+# toolchain change is a change to the artifact even when no source line moves.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

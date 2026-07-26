@@ -8076,39 +8076,123 @@ class TelegramHandler:
             system_log.debug("strategy setups card render failed: %s", exc)
             return False
 
+    #: How long a wallet-link challenge stays valid.
+    WALLET_CHALLENGE_TTL_SECONDS = 300
+
+    def _wallet_challenges(self) -> dict:
+        """Pending wallet-link challenges, keyed by telegram id.
+
+        In-memory and deliberately not persisted: an unanswered challenge is
+        worthless, and a restart should invalidate every outstanding nonce.
+        """
+        existing = getattr(self, "_wallet_challenge_store", None)
+        if existing is None:
+            existing = {}
+            self._wallet_challenge_store = existing
+        return existing
+
     @guard("help")
     async def _cmd_linkwallet(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Link (or clear) the Solana wallet used by the $RCLAW tier gate.
 
-        Without this, nothing ever calls UserStore.set_sol_wallet, so the gate
-        could never resolve a wallet and would block every user once enabled.
-        Read-only: the address is used solely for public balance/stake reads.
+        Linking is a two-step challenge-response: an address alone proves
+        nothing, so `/linkwallet <address>` only issues a nonce and
+        `/linkwallet verify <signature>` commits it after checking an ed25519
+        signature. Without that, any user could paste any staker's address and
+        inherit their tier.
+
+        Read-only throughout: the address is used solely for public balance and
+        stake reads, and signing the challenge authorizes no transaction.
         """
+        from bot.token import solana_verify as sv
+
         args = (ctx.args if ctx and getattr(ctx, "args", None) else [])
         uid = self._get_tg_id(update)
+
         if args and args[0].lower() in ("clear", "none", "off"):
             self.users.set_sol_wallet(uid, None)
+            self._wallet_challenges().pop(uid, None)
             await self._send(update, "✅ Solana wallet unlinked.")
             return
+
         if not args:
             current = self.users.get_sol_wallet(uid)
+            verified = self.users.is_sol_wallet_verified(uid) if hasattr(
+                self.users, "is_sol_wallet_verified") else False
+            if current:
+                status = (
+                    "◎ <b>Linked Solana wallet:</b> <code>" + html.escape(current) + "</code>\n"
+                    + ("✅ <i>Ownership verified.</i>\n" if verified else
+                       "⚠️ <i>Unverified — this wallet grants no tier until you prove "
+                       "you control it.</i>\n")
+                )
+            else:
+                status = "◎ <b>No Solana wallet linked.</b>\n"
             await self._send(update,
-                ("◎ <b>Linked Solana wallet:</b> <code>" + html.escape(current) + "</code>\n"
-                 if current else "◎ <b>No Solana wallet linked.</b>\n")
-                + "Usage: <code>/linkwallet &lt;address&gt;</code> or <code>/linkwallet clear</code>\n"
+                status
+                + "Usage: <code>/linkwallet &lt;address&gt;</code>, then "
+                  "<code>/linkwallet verify &lt;signature&gt;</code>, or "
+                  "<code>/linkwallet clear</code>\n"
                   "<i>Read-only — used only to read your public $RCLAW balance/stake.</i>")
             return
+
+        # ── step 2: commit a pending challenge ────────────────────────────────
+        if args[0].lower() == "verify":
+            if len(args) < 2:
+                await self._send(update,
+                    "\U0001f534 Usage: <code>/linkwallet verify &lt;base64 signature&gt;</code>")
+                return
+            pending = self._wallet_challenges().get(uid)
+            if not pending or pending["expires_at"] < time.time():
+                self._wallet_challenges().pop(uid, None)
+                await self._send(update,
+                    "\U0001f534 No pending verification (or it expired). "
+                    "Start again with <code>/linkwallet &lt;address&gt;</code>.")
+                return
+            message = sv.challenge_message(pending["address"], pending["nonce"])
+            if not sv.verify_signed_message(message, args[1].strip(), pending["address"]):
+                # Burn the nonce: a failed attempt must not be retryable against
+                # the same challenge.
+                self._wallet_challenges().pop(uid, None)
+                await self._send(update,
+                    "\U0001f534 Signature did not verify for that address. "
+                    "Challenge discarded — run <code>/linkwallet &lt;address&gt;</code> to retry.")
+                return
+            self._wallet_challenges().pop(uid, None)
+            if not self.users.set_sol_wallet(uid, pending["address"], verified=True):
+                await self._send(update, "\U0001f534 Could not link that wallet (unknown user).")
+                return
+            await self._send(update,
+                f"✅ Solana wallet verified and linked: "
+                f"<code>{html.escape(pending['address'])}</code>\n"
+                "<i>Read-only. Used to read your public $RCLAW stake for tier access.</i>")
+            return
+
+        # ── step 1: issue a challenge ─────────────────────────────────────────
         addr = args[0].strip()
-        # Base58, 32-44 chars — same shape the web app validates.
-        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr):
-            await self._send(update, "\U0001f534 That doesn't look like a Solana address (base58, 32-44 chars).")
+        # Decode to exactly 32 bytes rather than shape-matching: a 32-44 char
+        # base58 string can decode to 23-33 bytes, so a regex alone admits values
+        # that are not public keys.
+        if not sv.is_valid_address(addr):
+            await self._send(update,
+                "\U0001f534 That is not a valid Solana address "
+                "(must be base58 decoding to 32 bytes).")
             return
-        if not self.users.set_sol_wallet(uid, addr):
-            await self._send(update, "\U0001f534 Could not link that wallet (unknown user).")
-            return
+        nonce = sv.new_nonce()
+        self._wallet_challenges()[uid] = {
+            "address": addr,
+            "nonce": nonce,
+            "expires_at": time.time() + self.WALLET_CHALLENGE_TTL_SECONDS,
+        }
+        message = sv.challenge_message(addr, nonce)
         await self._send(update,
-            f"✅ Solana wallet linked: <code>{html.escape(addr)}</code>\n"
-            "<i>Read-only. Used to read your public $RCLAW stake for tier access.</i>")
+            "◎ <b>Prove you control this wallet.</b>\n\n"
+            "Sign this exact message in your wallet "
+            "(Phantom/Backpack: Settings → Sign Message):\n\n"
+            f"<pre>{html.escape(message)}</pre>\n"
+            "Then send:\n<code>/linkwallet verify &lt;base64 signature&gt;</code>\n\n"
+            f"<i>Expires in {self.WALLET_CHALLENGE_TTL_SECONDS // 60} minutes. "
+            "Signing authorizes no transaction and moves no funds.</i>")
 
     async def _token_gate_blocks(self, update: Update, mode: str) -> bool:
         """True (and notify) if the $RCLAW token-tier gate blocks a premium scan.

@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { keypairIdentity, sol, lamports, publicKey } from '@metaplex-foundation/umi';
+import { base58, keypairIdentity, sol, lamports, publicKey } from '@metaplex-foundation/umi';
 import { findAssociatedTokenPda } from '@metaplex-foundation/mpl-toolbox';
 import {
   genesis,
@@ -28,6 +28,12 @@ export const PRESALE_DIR = __dirname;
 export const TOKEN_ROOT = path.resolve(__dirname, '..');
 
 const DEVNET_RPC = 'https://api.devnet.solana.com';
+
+// Cluster identity. A genesis hash cannot be spoofed by a URL that merely omits
+// the word "mainnet"; see assertDevnet below.
+export const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+export const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+export const TESTNET_GENESIS = '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY';
 
 export function loadConfig() {
   // GENESIS_CONFIG lets the e2e dry-run harness point the presale commands at a
@@ -80,6 +86,46 @@ export function makeUmi(env = loadEnv()) {
   const kp = loadKeypair(umi, env);
   umi.use(keypairIdentity(kp));
   return umi;
+}
+
+/**
+ * Prove which chain we are on before anything is signed.
+ *
+ * `rpcUrl`'s substring test is a textual heuristic that a rebranded or private
+ * mainnet endpoint defeats. The genesis hash is the chain's identity, so this is
+ * the check that actually holds — and it fails CLOSED on anything unrecognised.
+ */
+export async function assertDevnet(umi) {
+  const genesisHash = await umi.rpc.getGenesisHash();
+  if (genesisHash === MAINNET_GENESIS) {
+    throw new Error(
+      `Refusing to run against mainnet-beta (genesis ${genesisHash}). Draft/devnet tooling — ` +
+        'a real launch is gated behind legal review + audit (docs/TOKEN_ROADMAP.md §10-11).'
+    );
+  }
+  if (![DEVNET_GENESIS, TESTNET_GENESIS].includes(genesisHash)) {
+    throw new Error(`Refusing unrecognized cluster (genesis ${genesisHash}). Expected devnet.`);
+  }
+  return genesisHash;
+}
+
+/**
+ * Send a built transaction and fail loudly if it landed with an on-chain error.
+ *
+ * `sendAndConfirm` resolves for a transaction that was *included* — including
+ * one that reverted. Discarding its result and printing "confirmed" reports
+ * success for a sale that did not happen, which is exactly what every command
+ * here used to do.
+ */
+export async function sendChecked(builder, umi, label) {
+  const { signature, result } = await builder.sendAndConfirm(umi);
+  const sig = base58.deserialize(signature)[0];
+  if (result && result.value && result.value.err) {
+    throw new Error(
+      `${label} FAILED on-chain: ${JSON.stringify(result.value.err)} (sig ${sig})`
+    );
+  }
+  return sig;
 }
 
 // ── Derivations: human config → exact on-chain params ───────────────────────

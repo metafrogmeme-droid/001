@@ -32,11 +32,12 @@ import {
   loadConfig,
   loadEnv,
   makeUmi,
+  assertDevnet,
+  sendChecked,
   derivePresaleParams,
   fixedPriceSolPerToken,
   fundingModeValue,
   buildAllowlist,
-  allowlistInitArgsFromArtifact,
   proofToPublicKeys,
   deriveLiquidityParams,
   findAssociatedTokenPda,
@@ -111,30 +112,103 @@ async function cmdCreate() {
   // Base mint: mint-mode creates a fresh mint; transfer-mode reuses the one
   // produced by the token/ tooling.
   const transferMode = cfg.fundingMode.mode === 'transfer';
+  if (!['mint', 'transfer'].includes(cfg.fundingMode.mode)) {
+    throw new Error(
+      `Unknown fundingMode.mode ${JSON.stringify(cfg.fundingMode.mode)}. ` +
+      'Expected "mint" or "transfer".'
+    );
+  }
+  if (transferMode) {
+    // In transfer mode token.mint is load-bearing; the committed default is a
+    // placeholder string that would otherwise reach publicKey() as a real value.
+    const m = String(cfg.token.mint || '');
+    if (!m || m.includes('<') || m.includes('FILL')) {
+      throw new Error(
+        `fundingMode.mode is "transfer" but token.mint is unset (${JSON.stringify(m)}). ` +
+        'Copy the mint from token/.artifacts/token.devnet.json.'
+      );
+    }
+  } else if (cfg.token.mint && !String(cfg.token.mint).includes('<')) {
+    // Loud rather than silent: a configured mint that mint-mode ignores means
+    // the operator believes they are selling a token they are not selling.
+    throw new Error(
+      `fundingMode.mode is "mint" but token.mint is set to ${cfg.token.mint}. ` +
+      'Mint mode creates a BRAND NEW mint and ignores that value — the presale would ' +
+      'sell a different token than the one you configured. Set mode to "transfer" to ' +
+      'sell the existing mint, or clear token.mint.'
+    );
+  }
   const baseMint = transferMode ? publicKey(cfg.token.mint) : generateSigner(umi);
   const baseMintPk = transferMode ? baseMint : baseMint.publicKey;
 
   console.log('=== Genesis presale create (DEVNET / DRAFT) ===');
   console.log('Authority/payer :', umi.identity.publicKey);
   console.log('Base mint       :', baseMintPk, transferMode ? '(existing)' : '(new)');
+  if (!transferMode) {
+    console.log(
+      '  WARNING: mint mode creates a NEW mint whose authorities are set by the Genesis\n' +
+      '           program, not by token/scripts/create_token.mjs. verify_token.mjs does\n' +
+      '           NOT check this mint. For a real sale use fundingMode.mode="transfer"\n' +
+      '           with the audited, authority-revoked mint.'
+    );
+  }
+
+  await assertDevnet(umi);
+
+  // Decide the allowlist BEFORE anything is sent. Whether the OG round is gated
+  // must not depend on whether a gitignored artifact happens to exist on this
+  // machine: deposits open 48h before the public round, so a missing artifact
+  // silently turns a whitelisted sale into an open one for two days.
+  const wlAddrs = Array.isArray(cfg.whitelist) ? cfg.whitelist : [];
+  const wl = readArtifact(ALLOWLIST_ARTIFACT);
+  if (wlAddrs.length && !wl) {
+    throw new Error(
+      `config.whitelist has ${wlAddrs.length} members and deposits open at ` +
+      `${cfg.timeline.whitelistStart} (before publicStart), but ` +
+      `token/.artifacts/${ALLOWLIST_ARTIFACT} is missing on this machine. ` +
+      'Sending now would open an UNGATED presale early. Run `npm run presale:whitelist` first.'
+    );
+  }
+  if (wl && !wlAddrs.length) {
+    throw new Error(
+      'An allowlist artifact exists but config.whitelist is empty — refusing to ' +
+      'publish a Merkle root with no config backing it.'
+    );
+  }
+  // Re-derive from config rather than trusting the artifact: the artifact is a
+  // cache, and a stale one would gate the sale on the wrong member set.
+  let allowlistArgs = null;
+  if (wl) {
+    const fresh = buildAllowlist(cfg, wlAddrs);
+    if (fresh.rootHex !== wl.rootHex) {
+      throw new Error(
+        `Stale allowlist artifact: config derives root ${fresh.rootHex.slice(0, 16)}… ` +
+        `but the artifact holds ${wl.rootHex.slice(0, 16)}…. Re-run \`npm run presale:whitelist\`.`
+      );
+    }
+    allowlistArgs = fresh.initArgs;
+  }
 
   console.log('\n[1/2] initializeV2 — creating the genesis account…');
-  await initializeV2(umi, {
-    baseMint,
-    authority: umi.identity,
-    fundingMode: fundingModeValue(cfg),
-    decimals: cfg.token.decimals,
-    totalSupplyBaseToken: BigInt(cfg.token.totalSupply) * 10n ** BigInt(cfg.token.decimals),
-    name: cfg.token.name,
-    symbol: cfg.token.symbol,
-    uri: cfg.token.metadataUri,
-  }).sendAndConfirm(umi);
+  const sigInit = await sendChecked(
+    initializeV2(umi, {
+      baseMint,
+      authority: umi.identity,
+      fundingMode: fundingModeValue(cfg),
+      decimals: cfg.token.decimals,
+      totalSupplyBaseToken: BigInt(cfg.token.totalSupply) * 10n ** BigInt(cfg.token.decimals),
+      name: cfg.token.name,
+      symbol: cfg.token.symbol,
+      uri: cfg.token.metadataUri,
+    }),
+    umi,
+    'initializeV2'
+  );
+  console.log('  tx:', sigInit);
 
   const genesisAccount = findGenesisAccountV2Pda(umi, { baseMint: baseMintPk, genesisIndex: 0 });
   const bucket = findPresaleBucketV2Pda(umi, { genesisAccount: genesisAccount[0], bucketIndex: BUCKET_INDEX });
 
-  // Optional Merkle whitelist for the OG round (run `presale:whitelist` first).
-  const wl = readArtifact(ALLOWLIST_ARTIFACT);
   const presaleInput = {
     genesisAccount: genesisAccount[0],
     baseMint: baseMintPk,
@@ -151,13 +225,20 @@ async function cmdCreate() {
     // 33% at TGE, linear tail.
     claimSchedule: p.claimSchedule,
   };
-  if (wl) {
-    presaleInput.allowlist = allowlistInitArgsFromArtifact(cfg, wl);
+  if (allowlistArgs) {
+    presaleInput.allowlist = allowlistArgs;
     console.log('    whitelist: applying Merkle root', wl.rootHex.slice(0, 16) + '… (ends at publicStart)');
+  } else {
+    console.log('    whitelist: NONE — this round is open to any wallet.');
   }
   console.log('[2/2] addPresaleBucketV2 — configuring the fixed-price presale…');
-  await addPresaleBucketV2(umi, presaleInput).sendAndConfirm(umi);
+  const sigBucket = await sendChecked(
+    addPresaleBucketV2(umi, presaleInput), umi, 'addPresaleBucketV2'
+  );
+  console.log('  tx:', sigBucket);
 
+  // Written only after BOTH sends confirmed error-free — every downstream
+  // command treats this artifact as proof the sale exists.
   const artifact = {
     cluster: env.CLUSTER || 'devnet',
     program: GENESIS_PROGRAM_ID,
@@ -165,6 +246,8 @@ async function cmdCreate() {
     genesisAccount: genesisAccount[0].toString(),
     bucket: bucket[0].toString(),
     hardCapSol: cfg.sale.hardCapSol,
+    allowlisted: Boolean(allowlistArgs),
+    txs: { initialize: sigInit, addPresaleBucket: sigBucket },
     note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
   };
   const out = saveArtifact('presale.devnet.json', artifact);
@@ -204,8 +287,8 @@ async function cmdDeposit() {
     console.log(`  presenting whitelist proof (${hexProof.length} nodes)`);
   }
   console.log(`Depositing ${amountSol} SOL into presale bucket ${a.bucket}…`);
-  await depositPresaleV2(umi, input).sendAndConfirm(umi);
-  console.log('Deposit confirmed.');
+  const sig = await sendChecked(depositPresaleV2(umi, input), umi, 'depositPresaleV2');
+  console.log('Deposit confirmed. tx:', sig);
 }
 
 // ── whitelist: build a Merkle allowlist from config + persist proofs ─────────
@@ -240,18 +323,46 @@ async function cmdLiquidity() {
   const a = readArtifact('presale.devnet.json');
   if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
   const lp = deriveLiquidityParams(cfg);
+
+  // Fail closed on the half of the commitment that no instruction encodes.
+  //
+  // The token side of this bucket is IRREVOCABLE (never-claim LP lock). The
+  // quote side — "N% of the raise goes to the pool" — is currently config text
+  // that nothing enforces. Creating the irrevocable half while the enforceable
+  // half is merely promised is the wrong order to fail in, so refuse until the
+  // routing is either wired up or explicitly acknowledged as manual.
+  if (lp.raisedSolToLiquidityBps > 0 && !cfg.liquidity.acknowledgeQuoteSplitIsManual) {
+    throw new Error(
+      `config.liquidity.raisedSolToLiquidityBps is ${lp.raisedSolToLiquidityBps} ` +
+      `(${lp.raisedSolToLiquidityBps / 100}% of the raise), but NO instruction encodes that split — ` +
+      'it is an unenforced promise. This command would create a permanent, ' +
+      'never-claim LP lock on the token side while the SOL side stays discretionary.\n\n' +
+      'Either wire an `endBehaviors: [SendQuoteTokenPercentage{...}]` onto the presale ' +
+      'bucket in presale:create, or set liquidity.acknowledgeQuoteSplitIsManual=true to ' +
+      'state on the record that the split is operator-executed and unenforceable on-chain.'
+    );
+  }
+
   console.log(`Adding Raydium CPMM liquidity bucket (${cfg.liquidity.tokenAllocation} ${cfg.token.symbol}, permanent LP lock)…`);
-  await addRaydiumCpmmBucketV2(umi, {
-    genesisAccount: publicKey(a.genesisAccount),
-    baseMint: publicKey(a.baseMint),
-    bucketIndex: LIQUIDITY_BUCKET_INDEX,
-    baseTokenAllocation: lp.baseTokenAllocation,
-    lpLockSchedule: lp.lpLockSchedule, // never-claim => LP locked forever
-    startCondition: lp.startCondition, // pool created at deposit-window close
-  }).sendAndConfirm(umi);
-  console.log('Liquidity bucket added; LP is permanently locked (never-claim schedule).');
-  console.log(`WARNING: the ${lp.raisedSolToLiquidityBps / 100}% raise->pool split is NOT encoded on-chain by this command.`);
-  console.log('Wire it with an `endBehaviors: [SendQuoteTokenPercentage{...}]` on the presale bucket before relying on it.');
+  if (lp.raisedSolToLiquidityBps > 0) {
+    console.log(
+      `  NOTE: the ${lp.raisedSolToLiquidityBps / 100}% raise->pool split is operator-executed, ` +
+      'NOT enforced on-chain (acknowledged in config).'
+    );
+  }
+  const sig = await sendChecked(
+    addRaydiumCpmmBucketV2(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      baseMint: publicKey(a.baseMint),
+      bucketIndex: LIQUIDITY_BUCKET_INDEX,
+      baseTokenAllocation: lp.baseTokenAllocation,
+      lpLockSchedule: lp.lpLockSchedule, // never-claim => LP locked forever
+      startCondition: lp.startCondition, // pool created at deposit-window close
+    }),
+    umi,
+    'addRaydiumCpmmBucketV2'
+  );
+  console.log('Liquidity bucket added; LP is permanently locked (never-claim schedule). tx:', sig);
 }
 
 // ── withdraw: depositor cancels their deposit (refund) ──────────────────────
@@ -266,14 +377,19 @@ async function cmdWithdraw() {
   const depositPda = findPresaleDepositV2Pda(umi, { bucket, recipient: me });
   const recipientTokenAccount = findAssociatedTokenPda(umi, { mint, owner: me });
   console.log(`Withdrawing (refunding) this wallet's deposit from bucket ${a.bucket}…`);
-  await withdrawPresaleV1(umi, {
-    genesisAccount: publicKey(a.genesisAccount),
-    bucket,
-    mint,
-    depositPda: depositPda[0],
-    recipientTokenAccount: recipientTokenAccount[0],
-  }).sendAndConfirm(umi);
-  console.log('Withdraw/refund confirmed. (Soft-cap/refund is enforced operationally — see RUNBOOK.)');
+  const sig = await sendChecked(
+    withdrawPresaleV1(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      bucket,
+      mint,
+      depositPda: depositPda[0],
+      recipientTokenAccount: recipientTokenAccount[0],
+    }),
+    umi,
+    'withdrawPresaleV1'
+  );
+  console.log('Withdraw/refund confirmed. tx:', sig);
+  console.log('(Soft-cap/refund is enforced operationally — see RUNBOOK.)');
 }
 
 // ── withdraw-unsold: operator recovers unsold presale tokens ─────────────────
@@ -288,7 +404,7 @@ async function cmdWithdrawUnsold() {
   const bucketTokenAccount = findAssociatedTokenPda(umi, { mint, owner: bucket });
   const recipientTokenAccount = findAssociatedTokenPda(umi, { mint, owner: me });
   console.log(`Withdrawing unsold presale tokens from bucket ${a.bucket} to ${me}…`);
-  await withdrawUnsoldPresaleV1(umi, {
+  const builder = withdrawUnsoldPresaleV1(umi, {
     genesisAccount: publicKey(a.genesisAccount),
     bucket,
     mint,
@@ -300,8 +416,9 @@ async function cmdWithdrawUnsold() {
     // omitting them throws before a transaction is built.
     index: BUCKET_INDEX,
     padding: [0, 0, 0, 0, 0, 0],
-  }).sendAndConfirm(umi);
-  console.log('Unsold-token withdrawal confirmed.');
+  });
+  const sig = await sendChecked(builder, umi, 'withdrawUnsoldPresaleV1');
+  console.log('Unsold-token withdrawal confirmed. tx:', sig);
 }
 
 // ── claim: claimPresaleV2 ───────────────────────────────────────────────────
@@ -311,12 +428,16 @@ async function cmdClaim() {
   const a = readArtifact('presale.devnet.json');
   if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
   console.log(`Claiming vested tokens from bucket ${a.bucket}…`);
-  await claimPresaleV2(umi, {
-    genesisAccount: publicKey(a.genesisAccount),
-    bucket: publicKey(a.bucket),
-    baseMint: publicKey(a.baseMint),
-  }).sendAndConfirm(umi);
-  console.log('Claim confirmed.');
+  const sig = await sendChecked(
+    claimPresaleV2(umi, {
+      genesisAccount: publicKey(a.genesisAccount),
+      bucket: publicKey(a.bucket),
+      baseMint: publicKey(a.baseMint),
+    }),
+    umi,
+    'claimPresaleV2'
+  );
+  console.log('Claim confirmed. tx:', sig);
 }
 
 const cmd = process.argv[2];

@@ -406,6 +406,27 @@ and the BUSL-1.1 license.
       the sale; report published.
 - [ ] **Anti-snipe / anti-bot** at TGE; per-wallet caps enforced.
 - [ ] **Metadata immutability** or multisig-gated update authority, renounced post-launch.
+      Revoking `MintTokens` fixes the *supply*; the metadata **update authority** and the
+      **MetadataPointer authority** are separate and fix the *identity*. All four flags in
+      `token/config/token.config.json` must be true, and `npm run verify` checks all four
+      on-chain. Renounce only after the metadata URI points at immutable, content-addressed
+      storage — renouncing first permanently freezes the token's identity onto a mutable URL.
+- [ ] **Program upgrade authority** on `rclaw_staking` transferred to a **Squads multisig
+      \+ time-lock** immediately post-deploy; single-signer deploy keys never retained.
+      Whoever holds it can replace the bytecode and sign for every `["vault", mint]` PDA —
+      it is the trust root for every staked lamport. Verify and publish the result:
+      ```bash
+      solana program show <PROGRAM_ID>                          # inspect current state
+      solana program set-upgrade-authority <PROGRAM_ID> \       # do this FIRST
+        --new-upgrade-authority <SQUADS_VAULT_PDA>
+      solana program set-upgrade-authority <PROGRAM_ID> --final # only once audited — IRREVERSIBLE
+      ```
+- [ ] **Immutability plan published**: either `--final` once the program is stable, or a
+      standing multisig + timelock with the quorum and delay stated up front.
+- [ ] **Key custody**: the mint/metadata/presale/LP authority is one keypair at
+      `token/.keys/mint-payer.json` (mode 0600, enforced at load). Move it to the multisig
+      before any value-bearing run — a single file read is otherwise total compromise of
+      both the supply and the presale proceeds.
 - [ ] **Verifiable on-chain reserves** before any deposit/vault product (Phase 4–5).
 - [ ] Team/treasury/advisor allocations **on-chain-verifiable as locked** at TGE.
 
@@ -518,5 +539,13 @@ via `solana-program-test` was used because `index.crates.io` *is* reachable.
    found-and-fixed is not an audit.
 2. Run `cargo test -p rclaw_staking`, `anchor build && anchor test`, and
    `npm run e2e:dryrun` from a network-capable machine.
-3. Set `RCLAW_PINNED_MINT` (program) and `RCLAW_MINT` (bot gate) to the real mint.
-4. Ratify every §13 parameter.
+3. Run `anchor keys sync` and confirm the placeholder program id
+   `Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS` appears nowhere in the tree. CI
+   fails the build if it does, but the sync itself is a manual step.
+4. Set `RCLAW_PINNED_MINT` (program) and `RCLAW_MINT` (bot gate) to the real mint.
+5. **Transfer the program upgrade authority off the deploy key — before the vault
+   accepts its first deposit, not after.** See §11; the window between deploy and
+   transfer is the entire exposure.
+6. Ratify every §13 parameter, including `LOCKUP_SECONDS` in
+   `programs/rclaw_staking/src/lib.rs` (currently 7 days) — it is a tokenomics
+   choice, not a security constant.

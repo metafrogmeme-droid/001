@@ -12,6 +12,7 @@
 use anchor_lang::{InstructionData, ToAccountMetas};
 use solana_program_test::{processor, ProgramTest, ProgramTestContext};
 use solana_sdk::{
+    clock::Clock,
     instruction::Instruction,
     program_pack::Pack,
     pubkey::Pubkey,
@@ -212,6 +213,17 @@ async fn token_balance(ctx: &mut ProgramTestContext, ata: &Pubkey) -> u64 {
     spl_token::state::Account::unpack(&acc.data).unwrap().amount
 }
 
+/// Push the bank clock past `LOCKUP_SECONDS` so a stake becomes withdrawable.
+///
+/// `unstake` refuses while `unlock_at` is in the future, so every withdrawal
+/// test has to age the position first. Warping the sysvar is the only way to do
+/// that in-process — there is no wall-clock to wait on.
+async fn warp_past_lockup(ctx: &mut ProgramTestContext) {
+    let mut clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
+    clock.unix_timestamp += rclaw_staking::LOCKUP_SECONDS + 1;
+    ctx.set_sysvar(&clock);
+}
+
 #[tokio::test]
 async fn stake_then_unstake_roundtrips() {
     skip_if_pinned!();
@@ -230,6 +242,8 @@ async fn stake_then_unstake_roundtrips() {
     assert_eq!(token_balance(&mut ctx, &ata).await, 600, "400 should be escrowed");
     assert_eq!(token_balance(&mut ctx, &vault_ata(&mint)).await, 400);
 
+    warp_past_lockup(&mut ctx).await;
+
     // Unstake half of it back.
     let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
     let tx = Transaction::new_signed_with_payer(
@@ -241,6 +255,95 @@ async fn stake_then_unstake_roundtrips() {
     ctx.banks_client.process_transaction(tx).await.unwrap();
     assert_eq!(token_balance(&mut ctx, &ata).await, 800);
     assert_eq!(token_balance(&mut ctx, &vault_ata(&mint)).await, 200);
+}
+
+/// The lock-up is what stops one position serving unlimited users by rotation:
+/// stake, unstake, re-stake from a second wallet, repeat. Without a time
+/// dimension the tier is a live spot balance and costs nothing to hold.
+#[tokio::test]
+async fn unstake_is_rejected_while_locked() {
+    skip_if_pinned!();
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = create_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 400)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+
+    // Immediately withdrawing must fail — the position is still locked.
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[unstake_ix_crossed(&payer, &mint, &mint, &ata, 100)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "unstaking inside the lock-up window must fail"
+    );
+    assert_eq!(
+        token_balance(&mut ctx, &vault_ata(&mint)).await,
+        400,
+        "nothing may leave the vault while locked"
+    );
+    // The converse — that the same withdrawal succeeds once the lock expires —
+    // is covered by `stake_then_unstake_roundtrips`. It is deliberately not
+    // asserted here: a clock warp applied after a failed transaction does not
+    // survive into the next bank, so testing both halves in one bank would be
+    // testing the harness rather than the program.
+}
+
+/// A trivial top-up must not be able to pull an existing unlock time closer.
+#[tokio::test]
+async fn restake_extends_but_never_shortens_the_lock() {
+    skip_if_pinned!();
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = create_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 400)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+
+    // Roll the clock back toward the original stake so a naive
+    // `unlock_at = now + LOCKUP` would move the unlock EARLIER.
+    let mut clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
+    clock.unix_timestamp -= rclaw_staking::LOCKUP_SECONDS / 2;
+    ctx.set_sysvar(&clock);
+
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+
+    // Still locked: the 1-unit top-up did not shorten anything.
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[unstake_ix_crossed(&payer, &mint, &mint, &ata, 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "a 1-unit top-up must not be able to shorten an existing lock"
+    );
 }
 
 #[tokio::test]

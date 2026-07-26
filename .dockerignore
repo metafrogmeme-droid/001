@@ -1,6 +1,15 @@
 .env
 .env.*
 !.env.example
+# Unlike .gitignore, dockerignore patterns are anchored at the build context
+# root, so the bare `.env` above does NOT cover token/.env. Solana key material
+# must never reach an image layer — the mint/presale/LP authority lives here.
+**/.env
+!**/.env.example
+**/.keys/
+**/*keypair*.json
+**/id.json
+target/
 .git
 .github
 .gitignore

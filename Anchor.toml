@@ -1,6 +1,14 @@
 # Anchor workspace — DRAFT / DEVNET-ONLY. $RCLAW staking program.
 # Replace the program id after `anchor keys sync` on first build.
+
+# Pinned so the deployed bytecode is reproducible and can be verified against
+# this source. An empty [toolchain] resolves to whatever the builder happens to
+# have installed, which makes verification meaningless. The Rust compiler itself
+# is pinned separately in rust-toolchain.toml — all three inputs (anchor, solana,
+# rustc) must be fixed for a build to be reproducible.
 [toolchain]
+anchor_version = "0.30.1"
+solana_version = "1.18.26"
 
 [features]
 resolution = true

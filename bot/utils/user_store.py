@@ -452,21 +452,51 @@ class UserStore:
             return None
         return user.get("sol_wallet") or None
 
-    def set_sol_wallet(self, telegram_id: int | str, address: str | None) -> bool:
-        """Link (or clear, with None) a user's Solana wallet address."""
+    def set_sol_wallet(
+        self,
+        telegram_id: int | str,
+        address: str | None,
+        *,
+        verified: bool = False,
+    ) -> bool:
+        """Link (or clear, with None) a user's Solana wallet address.
+
+        ``verified`` records that the caller checked an ed25519 signature proving
+        control of ``address``. It defaults to False so that any existing call
+        site links an **unproven** address, which the tier gate refuses to honour
+        (bot/token/tier_gate.py). Linking a different address always clears a
+        previous proof — a proof is about one specific key, not about the user.
+        """
         key = str(telegram_id)
         with self._lock:
             if key not in self._users:
                 return False
             if address:
                 self._users[key]["sol_wallet"] = str(address)
+                if verified:
+                    self._users[key]["sol_wallet_verified_at"] = datetime.now(UTC).isoformat()
+                else:
+                    self._users[key].pop("sol_wallet_verified_at", None)
             else:
                 self._users[key].pop("sol_wallet", None)
+                self._users[key].pop("sol_wallet_verified_at", None)
             self._save()
             audit(system_log,
-                  f"User Solana wallet {'linked' if address else 'cleared'}: {key}",
+                  f"User Solana wallet {'linked' if address else 'cleared'}: {key}"
+                  f"{' (verified)' if address and verified else ''}",
                   action="sol_wallet_link", result="OK")
             return True
+
+    def is_sol_wallet_verified(self, telegram_id: int | str) -> bool:
+        """Whether the linked wallet has a recorded ownership proof.
+
+        A record written before wallet verification existed has no timestamp and
+        is therefore unverified, which is the intended fail-closed answer.
+        """
+        user = self.get(telegram_id)
+        if not user:
+            return False
+        return bool(user.get("sol_wallet") and user.get("sol_wallet_verified_at"))
 
     def tier_label(self, telegram_id: int | str) -> str:
         """Human-readable tier label with icon."""

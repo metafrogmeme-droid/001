@@ -60,3 +60,88 @@ jobs:
 
       - name: Tests — baseline-diff regression gate (+ coverage floor)
         run: python scripts/ci_test_gate.py
+
+  staking:
+    name: Staking program (cargo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Toolchain comes from rust-toolchain.toml so CI and a local build agree.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      # Runs tests/attack.rs in-process via solana-program-test. This is the
+      # step that blocks a revert of the mint-scoped seeds at src/lib.rs, and
+      # that pins the StakeAccount byte offsets bot/token/tier_gate.py reads.
+      - name: Tests — staking program (incl. vault-drain + layout regressions)
+        run: cargo test -p rclaw_staking --all-targets
+
+      - name: Lint — clippy (deny warnings)
+        run: cargo clippy -p rclaw_staking --all-targets -- -D warnings
+
+      # Compiles under [profile.release], where overflow-checks = true applies.
+      - name: Build — release profile
+        run: cargo build -p rclaw_staking --release
+
+      - name: Check for the Anchor placeholder program id
+        # `anchor keys sync` is mentioned only in a README snippet, so a build
+        # can otherwise ship with a program id the project does not control.
+        #
+        # This is a PRE-DEPLOY gate, not a per-commit one. The placeholder is
+        # expected on main today: no program has been deployed, so no real id
+        # exists to sync to. Hard-failing unconditionally would make CI red by
+        # construction until a deployment that cannot happen yet — so warn
+        # normally, and fail only for a build that claims to be value-bearing.
+        # RCLAW_PINNED_MINT is that claim: pinning a real mint while still
+        # carrying a program id nobody controls is the actually-dangerous state.
+        env:
+          RCLAW_PINNED_MINT: ${{ vars.RCLAW_PINNED_MINT }}
+        run: |
+          if grep -q 'Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS' \
+               programs/rclaw_staking/src/lib.rs Anchor.toml; then
+            if [ -n "${RCLAW_PINNED_MINT}" ]; then
+              echo "::error::Value-bearing build (RCLAW_PINNED_MINT is set) still carries the Anchor placeholder program id. Run 'anchor keys sync'."
+              exit 1
+            fi
+            echo "::warning::Anchor placeholder program id is still present. Run 'anchor keys sync' before any deployment (docs/TOKEN_ROADMAP.md, 'Before any deployment holding value')."
+          fi
+
+  token-tooling:
+    name: Token tooling (node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: token/package-lock.json
+
+      # `npm ci` honours the committed lockfile; `npm install` would silently
+      # resolve caret ranges to new versions of packages that sign privileged
+      # transactions.
+      - name: Install (locked)
+        working-directory: token
+        run: npm ci --no-audit --no-fund
+
+      - name: Parse — every script must at least compile
+        working-directory: token
+        run: |
+          for f in scripts/*.mjs presale/*.mjs bridge/*.mjs e2e/*.mjs; do
+            node --check "$f" || exit 1
+          done
+
+      - name: Tests — offline unit tests
+        working-directory: token
+        run: node --test presale/allowlist_serialize.test.mjs
+
+      # Fully offline: derives every on-chain parameter from config with no RPC
+      # and no keypair, so a config that cannot produce a sane sale fails here.
+      - name: Presale plan (offline derivation)
+        working-directory: token
+        run: npm run presale:plan

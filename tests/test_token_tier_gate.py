@@ -27,7 +27,25 @@ def _reload_clean(monkeypatch, **env):
 
 
 class _Users:
-    """Minimal UserStore stand-in exposing get_sol_wallet."""
+    """Minimal UserStore stand-in exposing get_sol_wallet.
+
+    ``verified`` defaults True so the pre-existing tier tests keep asserting the
+    behaviour they were written for; the verification gate has its own tests
+    below.
+    """
+    def __init__(self, wallet=None, verified=True):
+        self._w = wallet
+        self._v = verified
+
+    def get_sol_wallet(self, uid):
+        return self._w
+
+    def is_sol_wallet_verified(self, uid):
+        return bool(self._w) and self._v
+
+
+class _LegacyUsers:
+    """A store predating wallet verification — no is_sol_wallet_verified."""
     def __init__(self, wallet=None):
         self._w = wallet
 
@@ -114,26 +132,83 @@ def test_balance_of_none_without_wallet_or_mint(monkeypatch):
     assert mod2.balance_of("W") is None
 
 
-def test_mainnet_rpc_refused(monkeypatch):
+def test_non_devnet_rpc_raises_misconfigured(monkeypatch):
+    """A non-devnet host is a PERMANENT fault and must not reach the fail-open path."""
+    import pytest
     mod = _reload_clean(
         monkeypatch,
         TOKEN_TIER_GATE_ENABLED="true",
         RCLAW_MINT="Mint111",
         RCLAW_RPC_URL="https://api.mainnet-beta.solana.com",
     )
-    # _rpc refuses mainnet outright → None (treated as unconfigured / fail-open).
-    assert mod._rpc("getVersion", []) is None
+    with pytest.raises(mod.GateMisconfigured):
+        mod._rpc("getVersion", [])
+
+
+def test_mainnet_guard_is_not_a_substring_match(monkeypatch):
+    """The old guard was `"mainnet" in url`. These all bypassed it."""
+    import pytest
+    for url in (
+        "https://API.MAINNET-BETA.SOLANA.COM",      # uppercase
+        "https://rpc.helius.xyz/?api-key=x",         # rebranded mainnet
+        "https://alpha.quiknode.pro/abc/",           # rebranded mainnet
+        "http://10.0.0.5:8899",                      # private validator
+    ):
+        mod = _reload_clean(
+            monkeypatch, TOKEN_TIER_GATE_ENABLED="true",
+            RCLAW_MINT="Mint111", RCLAW_RPC_URL=url,
+        )
+        with pytest.raises(mod.GateMisconfigured):
+            mod._rpc("getVersion", [])
+
+
+def test_misconfigured_gate_fails_closed(monkeypatch):
+    """The whole point of F-03: misconfiguration must DENY, not allow everyone."""
+    mod = _reload_clean(
+        monkeypatch,
+        TOKEN_TIER_GATE_ENABLED="true",
+        RCLAW_MINT="Mint111",
+        RCLAW_RPC_URL="https://api.mainnet-beta.solana.com",
+    )
+    assert mod.allows_user(_Users("W"), 1, "premium_scan") is False
+
+
+# ── Wallet-ownership verification (F-01) ────────────────────────────────────
+
+def test_unverified_wallet_denied(monkeypatch):
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT="Mint111")
+    monkeypatch.setattr(mod, "balance_of", lambda w: 10_000_000.0)
+    # Plenty of balance, but the address was never proven → no tier.
+    assert mod.allows_user(_Users("W", verified=False), 1, "premium_scan") is False
+    # Same wallet, proof recorded → allowed.
+    assert mod.allows_user(_Users("W", verified=True), 1, "premium_scan") is True
+
+
+def test_legacy_store_without_verification_fails_closed(monkeypatch):
+    """A store predating verification must not grandfather unproven addresses."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT="Mint111")
+    monkeypatch.setattr(mod, "balance_of", lambda w: 10_000_000.0)
+    assert mod.allows_user(_LegacyUsers("W"), 1, "premium_scan") is False
 
 
 # ── Staking gate (programs/rclaw_staking) ───────────────────────────────────
 
-def _stake_account_b64(amount_base):
-    """Encode StakeAccount data — layout MUST match programs/rclaw_staking:
-    8 disc | owner @8 (32) | mint @40 (32) | amount @72 (u64 LE) | staked_at | bump
+def _stake_account_b64(amount_base, *, unlock_at=None, version=1, size=None):
+    """Encode StakeAccount data — layout MUST match programs/rclaw_staking.
+
+    8 disc | version @8 | owner @9 (32) | mint @41 (32) | amount @73 (u64 LE)
+          | staked_at @81 | unlock_at @89 | bump @97, then RESERVED zeros.
+    The Rust side asserts these same offsets against the Borsh encoding in
+    ``layout_tests::borsh_offsets_match_the_python_gate``.
     """
     import base64 as _b64
-    data = bytearray(89)  # 8 + 32 + 32 + 8 + 8 + 1
-    data[72:80] = int(amount_base).to_bytes(8, "little")
+    import time as _time
+    total = size if size is not None else 8 + 90 + 64
+    data = bytearray(total)
+    data[8] = version
+    data[73:81] = int(amount_base).to_bytes(8, "little")
+    unlock = int(_time.time()) + 86_400 if unlock_at is None else int(unlock_at)
+    data[89:97] = int(unlock).to_bytes(8, "little", signed=True)
     return _b64.b64encode(bytes(data)).decode()
 
 
@@ -148,7 +223,7 @@ def test_staked_of_parses_getprogramaccounts(monkeypatch):
     # 25,000 tokens @ 9 dp across two stake accounts (10k + 15k).
     def fake_rpc(method, params):
         assert method == "getProgramAccounts"
-        assert params[1]["filters"][0]["memcmp"]["offset"] == 8
+        assert params[1]["filters"][0]["memcmp"]["offset"] == mod.STAKE_OWNER_OFFSET
         return [
             {"account": {"data": [_stake_account_b64(10_000 * 10**9), "base64"]}},
             {"account": {"data": [_stake_account_b64(15_000 * 10**9), "base64"]}},
@@ -203,23 +278,55 @@ def test_staked_of_filters_on_mint(monkeypatch):
 
     monkeypatch.setattr(mod, "_rpc", fake_rpc)
     mod.staked_of("W")
-    offsets = [f["memcmp"]["offset"] for f in seen['filters']]
-    assert 8 in offsets, "must filter on owner @8"
-    assert 40 in offsets, "must ALSO filter on mint @40 so foreign-token stake is excluded"
-    mint_filter = [f for f in seen['filters'] if f["memcmp"]["offset"] == 40][0]
+    memcmps = [f for f in seen['filters'] if "memcmp" in f]
+    offsets = [f["memcmp"]["offset"] for f in memcmps]
+    assert mod.STAKE_OWNER_OFFSET in offsets, "must filter on owner"
+    assert mod.STAKE_MINT_OFFSET in offsets, \
+        "must ALSO filter on mint so foreign-token stake is excluded"
+    mint_filter = [f for f in memcmps if f["memcmp"]["offset"] == mod.STAKE_MINT_OFFSET][0]
     assert mint_filter["memcmp"]["bytes"] == "Mint111"
 
 
-def test_staked_of_reads_amount_at_offset_72(monkeypatch):
-    """Byte-layout lock: amount lives at offset 72 once StakeAccount carries a mint."""
+def test_staked_of_constrains_account_size(monkeypatch):
+    """A dataSize filter rejects arbitrarily-shaped accounts before parsing."""
+    mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_MINT="Mint111")
+    seen = {}
+    monkeypatch.setattr(mod, "_rpc", lambda m, p: (seen.update(f=p[1]["filters"]) or []))
+    mod.staked_of("W")
+    sizes = [f["dataSize"] for f in seen["f"] if "dataSize" in f]
+    assert sizes == [mod.STAKE_ACCOUNT_TOTAL_LEN]
+
+
+def test_staked_of_reads_amount_at_documented_offset(monkeypatch):
+    """Byte-layout lock, mirrored by a Rust test over the Borsh encoding."""
     mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_DECIMALS="9")
     monkeypatch.setattr(
         mod, "_rpc",
         lambda m, p: [{"account": {"data": [_stake_account_b64(7 * 10**9), "base64"]}}],
     )
     assert mod.staked_of("W") == 7.0
-    # An account too short to hold the new layout must be ignored, not misread.
+    # An account too short to hold the layout must be ignored, not misread.
     import base64 as _b64
-    short = _b64.b64encode(bytes(57)).decode()  # the OLD 57-byte layout
+    short = _b64.b64encode(bytes(57)).decode()
     monkeypatch.setattr(mod, "_rpc", lambda m, p: [{"account": {"data": [short, "base64"]}}])
+    assert mod.staked_of("W") == 0.0
+
+
+def test_expired_lock_does_not_count_toward_tier(monkeypatch):
+    """A withdrawable position is rotatable, so it must not carry a tier."""
+    mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_DECIMALS="9")
+    import time as _t
+    expired = _stake_account_b64(50_000 * 10**9, unlock_at=int(_t.time()) - 1)
+    monkeypatch.setattr(mod, "_rpc", lambda m, p: [{"account": {"data": [expired, "base64"]}}])
+    assert mod.staked_of("W") == 0.0
+    live = _stake_account_b64(50_000 * 10**9, unlock_at=int(_t.time()) + 3600)
+    monkeypatch.setattr(mod, "_rpc", lambda m, p: [{"account": {"data": [live, "base64"]}}])
+    assert mod.staked_of("W") == 50_000.0
+
+
+def test_unknown_account_version_is_skipped(monkeypatch):
+    """An unrecognised layout must be refused, not misparsed."""
+    mod = _reload_clean(monkeypatch, RCLAW_STAKING_PROGRAM="Stake111", RCLAW_DECIMALS="9")
+    future = _stake_account_b64(99_000 * 10**9, version=99)
+    monkeypatch.setattr(mod, "_rpc", lambda m, p: [{"account": {"data": [future, "base64"]}}])
     assert mod.staked_of("W") == 0.0

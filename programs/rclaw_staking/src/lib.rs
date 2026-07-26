@@ -21,15 +21,22 @@
 //! interface, so both work.
 //!
 //! `StakeAccount` layout (Anchor): 8-byte discriminator, then
-//!   owner: Pubkey (32) @ offset  8
-//!   mint:  Pubkey (32) @ offset 40
-//!   amount: u64    (8) @ offset 72
-//!   staked_at: i64 (8) @ offset 80
-//!   bump: u8       (1) @ offset 88
+//!   version: u8    (1) @ offset  8
+//!   owner: Pubkey (32) @ offset  9
+//!   mint:  Pubkey (32) @ offset 41
+//!   amount: u64    (8) @ offset 73
+//!   staked_at: i64 (8) @ offset 81
+//!   unlock_at: i64 (8) @ offset 89
+//!   bump: u8       (1) @ offset 97
+//! followed by `StakeAccount::RESERVED` bytes of zeroed headroom.
 //! The Python gate finds accounts via getProgramAccounts + a memcmp on `owner`
-//! at offset 8 (and optionally `mint` at offset 40) and reads `amount` at
-//! offset 72 — no PDA derivation needed. Keep these offsets in sync with
-//! `bot/token/tier_gate.py`.
+//! at offset 9 (and optionally `mint` at offset 41) and reads `amount` at
+//! offset 73 — no PDA derivation needed. Keep these offsets in sync with
+//! `bot/token/tier_gate.py`, which mirrors them as named constants.
+//!
+//! The leading `version` byte exists so a future layout change is detectable
+//! rather than silently misparsed: any reader that does not recognise the value
+//! must refuse to interpret the rest of the account.
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -62,6 +69,19 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 /// any deployment where tiers carry value.
 pub const PINNED_MINT: Option<&str> = option_env!("RCLAW_PINNED_MINT");
 
+/// Minimum time a deposit stays locked, in seconds.
+///
+/// Without a lock the tier is a *live spot balance*, so a single position can be
+/// unstaked and re-staked to a second wallet within the same slot and serve an
+/// unlimited number of users by rotation. The lock is what makes a tier cost
+/// something to hold.
+///
+/// **This is a tokenomics parameter, not a security constant** — the 7-day value
+/// is the audit's suggested default and should be ratified alongside the tier
+/// thresholds before any value-bearing deployment (docs/TOKEN_ROADMAP.md §13).
+/// Set to `0` to restore the previous always-liquid behaviour.
+pub const LOCKUP_SECONDS: i64 = 7 * 24 * 60 * 60;
+
 /// Parse + compare the pin. Kept separate so the logic is unit-testable without
 /// rebuilding under a different environment.
 fn enforce_pinned_mint(pinned: Option<&str>, mint: &Pubkey) -> Result<()> {
@@ -91,14 +111,26 @@ pub mod rclaw_staking {
         require!(amount > 0, StakeError::ZeroAmount);
         check_pinned_mint(&ctx.accounts.mint.key())?;
 
-        let sa = &mut ctx.accounts.stake_account;
-        // On re-stake, the record must already belong to this owner+mint.
-        // (`init_if_needed` leaves prior state intact, so assert rather than
-        // blindly overwrite — a mismatch means the PDA was crafted or reused.)
-        if sa.amount > 0 {
-            require_keys_eq!(sa.owner, ctx.accounts.owner.key(), StakeError::WrongOwner);
-            require_keys_eq!(sa.mint, ctx.accounts.mint.key(), StakeError::WrongMint);
+        {
+            let sa = &ctx.accounts.stake_account;
+            // On re-stake, the record must already belong to this owner+mint.
+            // (`init_if_needed` leaves prior state intact, so assert rather than
+            // blindly overwrite — a mismatch means the PDA was crafted or reused.)
+            if sa.amount > 0 {
+                require_keys_eq!(sa.owner, ctx.accounts.owner.key(), StakeError::WrongOwner);
+                require_keys_eq!(sa.mint, ctx.accounts.mint.key(), StakeError::WrongMint);
+                require!(
+                    sa.version == StakeAccount::CURRENT_VERSION,
+                    StakeError::UnsupportedAccountVersion
+                );
+            }
         }
+
+        // Balance the vault BEFORE the transfer so the credit can be derived from
+        // what the vault actually received. A Token-2022 transfer-fee mint moves
+        // less than `amount`, and crediting the requested figure would mint stake
+        // out of nothing and leave the vault unable to honour every withdrawal.
+        let before = ctx.accounts.vault.amount;
 
         token_interface::transfer_checked(
             CpiContext::new(
@@ -114,17 +146,38 @@ pub mod rclaw_staking {
             ctx.accounts.mint.decimals,
         )?;
 
+        ctx.accounts.vault.reload()?;
+        let credited = ctx
+            .accounts
+            .vault
+            .amount
+            .checked_sub(before)
+            .ok_or(StakeError::Overflow)?;
+        // A mint whose hooks route the whole transfer elsewhere must not yield a
+        // free stake record.
+        require!(credited > 0, StakeError::ZeroAmount);
+
+        let now = Clock::get()?.unix_timestamp;
+        let unlock = now
+            .checked_add(LOCKUP_SECONDS)
+            .ok_or(StakeError::Overflow)?;
+
         let sa = &mut ctx.accounts.stake_account;
+        sa.version = StakeAccount::CURRENT_VERSION;
         sa.owner = ctx.accounts.owner.key();
         sa.mint = ctx.accounts.mint.key();
-        sa.amount = sa.amount.checked_add(amount).ok_or(StakeError::Overflow)?;
-        sa.staked_at = Clock::get()?.unix_timestamp;
+        sa.amount = sa.amount.checked_add(credited).ok_or(StakeError::Overflow)?;
+        sa.staked_at = now;
+        // Extend, never shorten: taking `unlock` unconditionally would let a
+        // 1-base-unit top-up reset an existing lock and defeat the whole point.
+        sa.unlock_at = sa.unlock_at.max(unlock);
         sa.bump = ctx.bumps.stake_account;
         emit!(Staked {
             owner: sa.owner,
             mint: sa.mint,
-            amount,
+            amount: credited,
             total: sa.amount,
+            unlock_at: sa.unlock_at,
         });
         Ok(())
     }
@@ -135,6 +188,14 @@ pub mod rclaw_staking {
     /// authority is derived per-mint, so a stake of one token can never be
     /// redeemed out of another token's vault.
     pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
+        require!(
+            ctx.accounts.stake_account.version == StakeAccount::CURRENT_VERSION,
+            StakeError::UnsupportedAccountVersion
+        );
+        require!(
+            Clock::get()?.unix_timestamp >= ctx.accounts.stake_account.unlock_at,
+            StakeError::StillLocked
+        );
         let staked = ctx.accounts.stake_account.amount;
         require!(amount > 0 && amount <= staked, StakeError::InsufficientStake);
 
@@ -183,7 +244,7 @@ pub struct Stake<'info> {
     #[account(
         init_if_needed,
         payer = owner,
-        space = 8 + StakeAccount::SPACE,
+        space = 8 + StakeAccount::SPACE + StakeAccount::RESERVED,
         seeds = [b"stake", owner.key().as_ref(), mint.key().as_ref()],
         bump,
     )]
@@ -256,24 +317,38 @@ pub struct Unstake<'info> {
 
 #[account]
 pub struct StakeAccount {
+    /// Layout version. Bump on every field change; readers must refuse anything
+    /// they do not recognise rather than misparse it.
+    pub version: u8,
     pub owner: Pubkey,
     pub mint: Pubkey,
     pub amount: u64,
     pub staked_at: i64,
+    /// Unix timestamp before which `unstake` is rejected. Extended, never
+    /// shortened, by a re-stake.
+    pub unlock_at: i64,
     pub bump: u8,
 }
 
 impl StakeAccount {
-    // owner(32) + mint(32) + amount(8) + staked_at(8) + bump(1)
-    pub const SPACE: usize = 32 + 32 + 8 + 8 + 1;
+    pub const CURRENT_VERSION: u8 = 1;
+    // version(1) + owner(32) + mint(32) + amount(8) + staked_at(8)
+    //   + unlock_at(8) + bump(1)
+    pub const SPACE: usize = 1 + 32 + 32 + 8 + 8 + 8 + 1;
+    /// Zeroed headroom so a future field can be added in place. Without it, any
+    /// added field needs a realloc the program has no instruction to perform.
+    pub const RESERVED: usize = 64;
 }
 
 #[event]
 pub struct Staked {
     pub owner: Pubkey,
     pub mint: Pubkey,
+    /// Base units the vault actually received, which is not necessarily the
+    /// amount requested — see `stake`.
     pub amount: u64,
     pub total: u64,
+    pub unlock_at: i64,
 }
 
 #[event]
@@ -300,6 +375,86 @@ pub enum StakeError {
     UnexpectedMint,
     #[msg("RCLAW_PINNED_MINT was set to something that is not a valid base58 pubkey")]
     InvalidPinnedMint,
+    #[msg("Stake is still within its lock-up period")]
+    StillLocked,
+    #[msg("StakeAccount layout version is not supported by this program")]
+    UnsupportedAccountVersion,
+}
+
+/// The byte offsets `bot/token/tier_gate.py` uses to read `StakeAccount` straight
+/// out of `getProgramAccounts` without deserialising. They are part of the
+/// program's public contract; `layout_tests` below fails if they ever drift.
+pub mod layout {
+    /// Anchor discriminator width.
+    pub const DISCRIMINATOR: usize = 8;
+    pub const VERSION_OFFSET: usize = 8;
+    pub const OWNER_OFFSET: usize = 9;
+    pub const MINT_OFFSET: usize = 41;
+    pub const AMOUNT_OFFSET: usize = 73;
+    pub const STAKED_AT_OFFSET: usize = 81;
+    pub const UNLOCK_AT_OFFSET: usize = 89;
+    pub const BUMP_OFFSET: usize = 97;
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use anchor_lang::AccountSerialize;
+
+    /// Locks the wire layout against `bot/token/tier_gate.py`.
+    ///
+    /// This asserts against the **Borsh** encoding, not Rust's in-memory struct
+    /// layout — the compiler is free to reorder fields, so `offset_of!` would
+    /// prove nothing about what a client actually reads off the chain.
+    #[test]
+    fn borsh_offsets_match_the_python_gate() {
+        let owner = Pubkey::new_from_array([1u8; 32]);
+        let mint = Pubkey::new_from_array([2u8; 32]);
+        let sa = StakeAccount {
+            version: StakeAccount::CURRENT_VERSION,
+            owner,
+            mint,
+            amount: 0x1122_3344_5566_7788,
+            staked_at: 0x0102_0304_0506_0708,
+            unlock_at: 0x1112_1314_1516_1718,
+            bump: 254,
+        };
+
+        let mut buf: Vec<u8> = Vec::new();
+        sa.try_serialize(&mut buf).unwrap();
+
+        assert_eq!(
+            buf.len(),
+            layout::DISCRIMINATOR + StakeAccount::SPACE,
+            "SPACE must equal the serialized body; the gate's length check depends on it"
+        );
+        assert_eq!(buf[layout::VERSION_OFFSET], StakeAccount::CURRENT_VERSION);
+        assert_eq!(&buf[layout::OWNER_OFFSET..layout::OWNER_OFFSET + 32], owner.as_ref());
+        assert_eq!(&buf[layout::MINT_OFFSET..layout::MINT_OFFSET + 32], mint.as_ref());
+        assert_eq!(
+            u64::from_le_bytes(buf[layout::AMOUNT_OFFSET..layout::AMOUNT_OFFSET + 8].try_into().unwrap()),
+            0x1122_3344_5566_7788,
+            "tier_gate.py reads the staked amount here"
+        );
+        assert_eq!(
+            i64::from_le_bytes(buf[layout::STAKED_AT_OFFSET..layout::STAKED_AT_OFFSET + 8].try_into().unwrap()),
+            0x0102_0304_0506_0708,
+        );
+        assert_eq!(
+            i64::from_le_bytes(buf[layout::UNLOCK_AT_OFFSET..layout::UNLOCK_AT_OFFSET + 8].try_into().unwrap()),
+            0x1112_1314_1516_1718,
+            "tier_gate.py reads the lock expiry here"
+        );
+        assert_eq!(buf[layout::BUMP_OFFSET], 254);
+    }
+
+    /// A re-stake must never be able to shorten an existing lock.
+    #[test]
+    fn lock_extension_never_shortens() {
+        let existing: i64 = 5_000;
+        assert_eq!(existing.max(1_000), existing, "a later top-up must not pull the unlock in");
+        assert_eq!(existing.max(9_000), 9_000, "a longer lock does extend");
+    }
 }
 
 #[cfg(test)]

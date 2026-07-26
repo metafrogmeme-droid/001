@@ -45,6 +45,8 @@
   },
   "liquidity": {
     "raisedSolToLiquidityBps": 6000,
+    "acknowledgeQuoteSplitIsManual": false,
+    "_acknowledgeQuoteSplitIsManual_comment": "raisedSolToLiquidityBps is NOT encoded by any instruction — no on-chain behavior moves the SOL. presale:liquidity refuses to run while this is false, because it would otherwise create a PERMANENT never-claim LP lock on the token side while the SOL side stays fully discretionary. Set true only to state on the record that the split is operator-executed and unenforceable, or wire an endBehaviors SendQuoteTokenPercentage onto the presale bucket and remove the guard.",
     "tokenAllocation": "100000000",
     "dex": "raydium",
     "lpLock": "never-claim (permanent)",

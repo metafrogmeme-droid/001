@@ -44,6 +44,16 @@ coverage.xml
 .env.*
 !.env.example
 
+# -- Solana key material — deny by default, no exceptions --
+# token/.gitignore covers token/.keys/, but only for files under token/. A
+# keypair written anywhere else (an Anchor build's target/deploy/, a stray
+# id.json, an operator's scratch copy) was previously committable.
+.keys/
+**/.keys/
+*keypair*.json
+id.json
+target/deploy/*-keypair.json
+
 # -- Logs --
 logs/*.jsonl
 logs/*.jsonl.*

@@ -25,15 +25,82 @@ export function loadEnv() {
   return env;
 }
 
-export function getConnection(env) {
+// Genesis hashes identify a cluster authoritatively. A URL cannot: the previous
+// `url.includes('mainnet')` test passed `MAINNET` (case), every rebranded
+// provider endpoint (rpc.helius.xyz, *.quiknode.pro), and any private validator.
+export const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+export const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+export const TESTNET_GENESIS = '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY';
+
+/** Cluster name (as written in token.config.json) -> its genesis hash. */
+export const CLUSTER_GENESIS = {
+  devnet: DEVNET_GENESIS,
+  testnet: TESTNET_GENESIS,
+  'mainnet-beta': MAINNET_GENESIS,
+  mainnet: MAINNET_GENESIS,
+};
+
+/**
+ * Open a connection and prove which chain is on the other end.
+ *
+ * `expectCluster` makes the `cluster` field in token.config.json load-bearing
+ * instead of decorative — previously nothing read it, so the field a reviewer
+ * most naturally trusts had no effect on anything.
+ *
+ * Fails CLOSED: an unrecognised genesis hash throws rather than being waved
+ * through, so a new provider or a private validator cannot silently become the
+ * cluster this draft tooling signs against.
+ */
+export async function getConnection(env, { expectCluster = 'devnet' } = {}) {
   const url = env.RPC_URL || clusterApiUrl('devnet');
-  if (url.includes('mainnet')) {
+
+  if (!Object.prototype.hasOwnProperty.call(CLUSTER_GENESIS, expectCluster)) {
     throw new Error(
-      'Refusing to run against mainnet. This is draft/devnet tooling — mainnet is gated behind ' +
-        'legal review + audit (see docs/TOKEN_ROADMAP.md §10-11).'
+      `Unknown cluster ${JSON.stringify(expectCluster)} in config. ` +
+        `Expected one of: ${Object.keys(CLUSTER_GENESIS).join(', ')}.`
     );
   }
-  return new Connection(url, 'confirmed');
+  const expected = CLUSTER_GENESIS[expectCluster];
+  if (expected === MAINNET_GENESIS) {
+    throw new Error(
+      `Config declares cluster "${expectCluster}". This is draft/devnet tooling — mainnet ` +
+        'is gated behind legal review + audit (see docs/TOKEN_ROADMAP.md §10-11).'
+    );
+  }
+
+  const conn = new Connection(url, 'confirmed');
+  const genesis = await conn.getGenesisHash();
+  if (genesis === MAINNET_GENESIS) {
+    throw new Error(
+      `Refusing to run against mainnet-beta (genesis ${genesis}). This is draft/devnet ` +
+        'tooling — mainnet is gated behind legal review + audit (see docs/TOKEN_ROADMAP.md §10-11).'
+    );
+  }
+  if (genesis !== expected) {
+    throw new Error(
+      `Cluster mismatch: config says "${expectCluster}" (genesis ${expected}) but ${url} ` +
+        `reports genesis ${genesis}. Refusing to continue.`
+    );
+  }
+  return conn;
+}
+
+/**
+ * Reject a key file any other account on the box can read.
+ *
+ * This one file holds mint, metadata, presale and LP authority plus the entire
+ * supply, and KEYPAIR_PATH is operator-supplied, so the check belongs at the
+ * load site rather than only where the key is generated.
+ */
+export function assertKeyfilePermissions(abs) {
+  if (process.platform === 'win32') return; // POSIX mode bits are meaningless here
+  const mode = fs.statSync(abs).mode & 0o777;
+  if (mode & 0o077) {
+    throw new Error(
+      `Keypair ${abs} is group/world-readable (mode ${mode.toString(8)}). ` +
+        'Run `chmod 600` on it before using it.'
+    );
+  }
 }
 
 export function loadKeypair(env) {
@@ -42,6 +109,7 @@ export function loadKeypair(env) {
   if (!fs.existsSync(abs)) {
     throw new Error(`Keypair not found at ${abs}. Run \`npm run keygen\` or set KEYPAIR_PATH.`);
   }
+  assertKeyfilePermissions(abs);
   const secret = Uint8Array.from(JSON.parse(fs.readFileSync(abs, 'utf8')));
   return Keypair.fromSecretKey(secret);
 }

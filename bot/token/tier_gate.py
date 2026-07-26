@@ -29,6 +29,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
+import urllib.parse
 import urllib.request
 from typing import Optional
 
@@ -47,6 +49,49 @@ FEATURE_MIN_TIER: dict[str, str] = {
 }
 
 _TIER_RANK = {"basic": 0, "pro": 1, "elite": 2, "admin": 3}
+
+# Hosts this draft gate is allowed to read from. An *allowlist*, not a denylist:
+# an unrecognised host fails closed, so a private or rebranded mainnet endpoint
+# (rpc.helius.xyz, *.quiknode.pro, a bare IP) cannot slip through on URL text the
+# way the old ``"mainnet" in url`` substring test permitted.
+_ALLOWED_RPC_HOSTS = frozenset(
+    {
+        "api.devnet.solana.com",
+        "api.testnet.solana.com",
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+)
+
+# StakeAccount wire layout. Mirrors ``programs/rclaw_staking/src/lib.rs`` mod
+# ``layout``, which has a test asserting these exact values against the Borsh
+# encoding. Changing either side alone is a bug.
+STAKE_VERSION_OFFSET = 8
+STAKE_OWNER_OFFSET = 9
+STAKE_MINT_OFFSET = 41
+STAKE_AMOUNT_OFFSET = 73
+STAKE_UNLOCK_AT_OFFSET = 89
+# version(1)+owner(32)+mint(32)+amount(8)+staked_at(8)+unlock_at(8)+bump(1)
+STAKE_ACCOUNT_SPACE = 90
+# Zeroed growth headroom the program allocates (StakeAccount::RESERVED).
+STAKE_ACCOUNT_RESERVED = 64
+# Shortest buffer that can be parsed at all.
+STAKE_ACCOUNT_MIN_LEN = 8 + STAKE_ACCOUNT_SPACE
+# Exact on-chain account size, used as a dataSize filter so arbitrarily-shaped
+# accounts from a misconfigured program id are rejected before parsing.
+STAKE_ACCOUNT_TOTAL_LEN = STAKE_ACCOUNT_MIN_LEN + STAKE_ACCOUNT_RESERVED
+STAKE_ACCOUNT_VERSION = 1
+
+
+class GateMisconfigured(RuntimeError):
+    """Permanent, operator-caused gate misconfiguration.
+
+    Distinct from a transient RPC failure on purpose. A hiccup should fail
+    *open* so nobody is locked out by a blip; a deployment that is wired up
+    wrongly must fail *closed*, or the paid gate silently unlocks for everyone
+    at exactly the moment it is pointed at a real cluster.
+    """
 
 
 def _env(name: str, default: str = "") -> str:
@@ -95,13 +140,22 @@ def gate_enabled() -> bool:
 
 
 def _rpc(method: str, params: list) -> Optional[dict]:
-    """Minimal Solana JSON-RPC call. Returns the ``result`` dict or None on error."""
+    """Minimal Solana JSON-RPC call.
+
+    Returns the ``result`` on success and ``None`` on a *transient* failure
+    (network, timeout, parse) so callers can fail open. Raises
+    :class:`GateMisconfigured` for a permanent configuration fault, which callers
+    must translate into a denial rather than an allow.
+    """
     url = _env("RCLAW_RPC_URL", _DEFAULT_RPC)
-    if "mainnet" in url:
-        # Draft tooling is devnet-first; refuse mainnet reads to avoid implying
-        # a live deployment (see roadmap Guardrails).
-        system_log.warning("tier_gate: refusing mainnet RPC %s; treating as unconfigured", url)
-        return None
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if host not in _ALLOWED_RPC_HOSTS:
+        # Not a warn-and-continue: returning None here would land in the
+        # transient fail-open path and hand every user a premium tier.
+        raise GateMisconfigured(
+            f"tier_gate: refusing non-devnet RPC host {host!r}; this is draft "
+            "devnet-only tooling (see docs/TOKEN_ROADMAP.md §10-11)"
+        )
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
@@ -145,29 +199,36 @@ def balance_of(wallet: Optional[str]) -> Optional[float]:
 def staked_of(wallet: Optional[str]) -> Optional[float]:
     """On-chain *staked* $RCLAW for ``wallet`` in whole tokens.
 
-    Reads the rclaw_staking program's ``StakeAccount`` for this owner via
-    ``getProgramAccounts`` + a ``memcmp`` on the owner field (Anchor 8-byte
-    discriminator, then owner Pubkey at offset 8), summing ``amount`` (u64 LE)
-    at offset 40. No PDA derivation needed. Returns ``None`` when it cannot be
-    determined (unconfigured, no wallet, or an RPC error) so callers fail-open.
+    Reads the rclaw_staking program's ``StakeAccount`` records for this owner via
+    ``getProgramAccounts`` + ``memcmp`` filters, summing ``amount`` (u64 LE).
+    Offsets mirror the program's ``layout`` module, which tests them against the
+    Borsh encoding. Returns ``None`` when it cannot be determined (unconfigured,
+    no wallet, or an RPC error) so callers fail-open.
+
+    Only records whose lock has **not** expired count toward a tier. A position
+    whose lock has run out is freely withdrawable and can be rotated to another
+    wallet, so counting it would restore exactly the abuse the lock prevents.
     """
     program = staking_program()
     if not wallet or not program:
         return None
-    # StakeAccount layout (must match programs/rclaw_staking/src/lib.rs):
-    #   8 disc | owner @8 (32) | mint @40 (32) | amount @72 (u64 LE) | ...
-    # Filter on owner, and — when a mint is configured — ALSO on mint, so a
-    # stake of some worthless token can never be counted as $RCLAW tier.
-    filters = [{"memcmp": {"offset": 8, "bytes": wallet}}]
+    # Filter on the discriminator-adjacent version byte and owner, and — when a
+    # mint is configured — ALSO on mint, so a stake of some worthless token can
+    # never be counted as $RCLAW tier.
+    filters = [
+        {"memcmp": {"offset": STAKE_OWNER_OFFSET, "bytes": wallet}},
+        {"dataSize": STAKE_ACCOUNT_TOTAL_LEN},
+    ]
     mint = mint_address()
     if mint:
-        filters.append({"memcmp": {"offset": 40, "bytes": mint}})
+        filters.append({"memcmp": {"offset": STAKE_MINT_OFFSET, "bytes": mint}})
     result = _rpc(
         "getProgramAccounts",
         [program, {"encoding": "base64", "commitment": "confirmed", "filters": filters}],
     )
     if result is None:
         return None
+    now = int(time.time())
     total_base = 0
     try:
         # getProgramAccounts returns a list (not a {"value": ...} envelope).
@@ -175,8 +236,23 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
         for acc in entries:
             data_field = acc["account"]["data"]
             raw = base64.b64decode(data_field[0] if isinstance(data_field, list) else data_field)
-            if len(raw) >= 80:
-                total_base += int.from_bytes(raw[72:80], "little")
+            if len(raw) < STAKE_ACCOUNT_MIN_LEN:
+                continue
+            if raw[STAKE_VERSION_OFFSET] != STAKE_ACCOUNT_VERSION:
+                # Unknown layout: refuse to guess where `amount` lives.
+                system_log.warning(
+                    "tier_gate: skipping StakeAccount with unsupported version %d",
+                    raw[STAKE_VERSION_OFFSET],
+                )
+                continue
+            unlock_at = int.from_bytes(
+                raw[STAKE_UNLOCK_AT_OFFSET:STAKE_UNLOCK_AT_OFFSET + 8], "little", signed=True
+            )
+            if unlock_at <= now:
+                continue  # lock expired => liquid => not tier-bearing
+            total_base += int.from_bytes(
+                raw[STAKE_AMOUNT_OFFSET:STAKE_AMOUNT_OFFSET + 8], "little"
+            )
     except (KeyError, TypeError, ValueError, IndexError) as exc:
         system_log.debug("tier_gate staked parse failed: %s", exc)
         return None
@@ -211,12 +287,33 @@ def _resolve_wallet(users, uid) -> Optional[str]:
     return None
 
 
+def wallet_verified(users, uid) -> bool:
+    """Whether ``uid``'s linked wallet carries a recorded ownership proof.
+
+    Fails closed on purpose. A store that predates wallet verification, or a
+    record linked before verification existed, counts as **unverified** — the
+    alternative grandfathers in exactly the unproven addresses this check exists
+    to reject.
+    """
+    if users is None:
+        return False
+    checker = getattr(users, "is_sol_wallet_verified", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(uid))
+    except Exception:
+        return False
+
+
 def allows_user(users, uid, feature: str) -> bool:
     """Whether ``uid`` may use ``feature``.
 
-    - Gate disabled  -> always True (no behavior change).
-    - No wallet linked -> False (must link a wallet holding $RCLAW).
-    - RPC/infra error  -> True (fail-open; never lock out on a hiccup).
+    - Gate disabled       -> always True (no behavior change).
+    - No wallet linked    -> False (must link a wallet holding $RCLAW).
+    - Wallet unverified   -> False (an unproven address carries no tier).
+    - Misconfigured gate  -> False (fail CLOSED; permanent operator fault).
+    - RPC/infra error     -> True (fail-open; never lock out on a hiccup).
     - Otherwise, the stake-derived tier must meet the feature's minimum.
     """
     if not gate_enabled():
@@ -227,11 +324,21 @@ def allows_user(users, uid, feature: str) -> bool:
     wallet = _resolve_wallet(users, uid)
     if not wallet:
         return False
+    # An address nobody proved control of is just a string the user typed. Until
+    # it carries a verified signature it must not confer a tier, or anyone can
+    # paste a whale's address and inherit their access.
+    if not wallet_verified(users, uid):
+        system_log.info("tier_gate: denying %s — linked wallet is unverified", uid)
+        return False
     # Prefer on-chain STAKED balance when a staking program is configured;
-    # otherwise fall back to raw wallet balance. Both fail open on infra error.
-    bal = staked_of(wallet) if staking_program() else balance_of(wallet)
+    # otherwise fall back to raw wallet balance.
+    try:
+        bal = staked_of(wallet) if staking_program() else balance_of(wallet)
+    except GateMisconfigured as exc:
+        system_log.error("tier_gate: enabled but misconfigured; denying access (%s)", exc)
+        return False  # fail CLOSED on a permanent configuration fault
     if bal is None:
-        return True  # fail-open on infra error
+        return True  # fail-open on transient infra error
     have = tier_for_balance(bal)
     return _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
 
@@ -241,7 +348,8 @@ def upgrade_message(mode: str = "premium") -> str:
     pro_min = int(_env_float("RCLAW_TIER_PRO_MIN", 10_000.0))
     return (
         f"\U0001f512 <b>{mode.capitalize()} scan is a staked-tier feature.</b>\n"
-        f"Stake at least <b>{pro_min:,} $RCLAW</b>, then link your wallet with "
-        f"<code>/linkwallet &lt;address&gt;</code> to unlock premium scan modes.\n"
+        f"Stake at least <b>{pro_min:,} $RCLAW</b>, then link and verify your wallet:\n"
+        f"<code>/linkwallet &lt;address&gt;</code> → sign the message → "
+        f"<code>/linkwallet verify &lt;signature&gt;</code>\n"
         f"<i>(Draft feature — $RCLAW is a gated Vision item.)</i>"
     )

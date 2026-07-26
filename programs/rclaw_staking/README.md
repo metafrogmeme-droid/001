@@ -18,7 +18,7 @@
 
 | Before (vulnerable) | After |
 |---|---|
-| `StakeAccount { owner, amount, staked_at, bump }` — **no mint** | `StakeAccount { owner, mint, amount, staked_at, bump }` |
+| `StakeAccount { owner, amount, staked_at, bump }` — **no mint** | `StakeAccount { version, owner, mint, amount, staked_at, unlock_at, bump }` |
 | Stake PDA `["stake", owner]` — one balance across all mints | `["stake", owner, mint]` — **per-mint** accounting |
 | Vault authority `["vault"]` — **shared by every mint** | `["vault", mint]` — **mint-scoped**, isolated vaults |
 | `Unstake` checked only `has_one = owner` | also `has_one = mint` |
@@ -32,13 +32,18 @@ before any deployment where tiers carry value.
 ## Account layout (keep in sync with `bot/token/tier_gate.py`)
 
 ```
-8 disc | owner @8 (32) | mint @40 (32) | amount @72 (u64 LE) | staked_at @80 (i64) | bump @88
+8 disc | version @8 (u8) | owner @9 (32) | mint @41 (32) | amount @73 (u64 LE)
+       | staked_at @81 (i64) | unlock_at @89 (i64) | bump @97
+       | + StakeAccount::RESERVED (64) zeroed bytes of growth headroom
 ```
 
-The Python tier gate reads stake via `getProgramAccounts` with a `memcmp` on **owner @8**
-and — when `RCLAW_MINT` is set — **mint @40**, then reads `amount` at **offset 72**.
+The Python tier gate reads stake via `getProgramAccounts` with a `memcmp` on **owner @9**
+and — when `RCLAW_MINT` is set — **mint @41**, then reads `amount` at **offset 73**. It also
+checks `version @8` and skips any record whose `unlock_at @89` has already passed.
 Changing this layout without updating `tier_gate.py` silently breaks tier resolution;
-`tests/test_token_tier_gate.py` locks both the offsets and the mint filter.
+These offsets are machine-checked on both sides: `layout_tests::borsh_offsets_match_the_python_gate`
+asserts them against the real Borsh encoding, and `tests/test_token_tier_gate.py` asserts the
+gate reads the same positions. Changing one side alone fails CI.
 
 ## The fix is EXECUTED, not just reasoned about
 
@@ -142,9 +147,21 @@ Two things to know about the TS spec:
   at `target/types/rclaw_staking` only exists after `anchor build`. Once you have built,
   you can import `RclawStaking` from there and restore full typing.
 
+## Upgrade authority
+
+**Upgradeable by default.** Whoever holds the BPF upgrade authority can replace this
+bytecode and thereby sign for every `["vault", mint]` PDA — it is the trust root for
+every staked lamport, and it outranks every constraint in this source file. Move it to
+a Squads multisig **before the vault accepts its first deposit**, not after; the window
+between deploy and transfer is the entire exposure. See `docs/TOKEN_ROADMAP.md` §11.
+
 ## Known limitations
 
 - **Unaudited** (above) — the binding constraint.
-- No lock-up or cooldown: `unstake` is immediate by design (non-custodial).
+- `unstake` enforces a `LOCKUP_SECONDS` lock (7 days) so a tier costs something to hold.
+  That value is a tokenomics parameter awaiting ratification, not a security constant.
 - No reward accrual — this is an access-tier vault, not a yield product.
-- `declare_id!` is a placeholder until `anchor keys sync` runs.
+- `declare_id!` is a placeholder until `anchor keys sync` runs; CI rejects the placeholder.
+- No migration or rescue instruction. `StakeAccount` carries a `version` byte and 64
+  reserved bytes so a future field can be added in place, but nothing can yet rewrite an
+  existing record — a layout change still requires landing before value is at stake.
