@@ -24,7 +24,7 @@
   "transfer": {
     "defaultAmount": "1",
     "automatic": false,
-    "_automaticNote": "false = manual relaying: the script fetches the VAA and submits the redeem on the destination chain. true requires a relayer to be configured for the route."
+    "_automaticNote": "false = manual relaying, which in a COMPLETE implementation means fetching the VAA and submitting the redeem on the destination chain. This script does NEITHER — it only builds unsigned source-chain transactions and stops. There is no signer and no redeem path anywhere in token/bridge/; see bridge/README.md. true would require a relayer configured for the route, which is also not wired."
   },
   "limits": {
     "_comment": "NTT rate limits are set on-chain via the ntt CLI (outbound/inbound per 24h). Mirror the intended values here for review.",

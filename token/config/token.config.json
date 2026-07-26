@@ -5,6 +5,9 @@
   "decimals": 9,
   "totalSupply": "1000000000",
   "metadataUri": "https://raw.githubusercontent.com/Humanoid-Traders/RUNECLAW/main/token/config/rclaw-metadata.json",
+  "_metadataUri_comment": "MUTABLE — must be replaced before any real mint. This is a branch URL, so its bytes can change after the URI is permanently baked into the mint and the update authority is renounced. Replace with an Arweave/IPFS URI, or pin the full 40-char commit SHA in place of 'main'. The same applies to the image URL inside rclaw-metadata.json. create_token.mjs refuses to run against a branch URL unless acknowledgeMutableMetadataUri is true.",
+  "acknowledgeMutableMetadataUri": true,
+  "_acknowledgeMutableMetadataUri_comment": "true is correct ONLY for throwaway devnet runs. Set to false — and supply an immutable metadataUri — before any launch.",
   "additionalMetadata": [
     ["project", "RUNECLAW"],
     ["website", "https://github.com/Humanoid-Traders/RUNECLAW"],

@@ -110,6 +110,25 @@ jobs:
             echo "::warning::Anchor placeholder program id is still present. Run 'anchor keys sync' before any deployment (docs/TOKEN_ROADMAP.md, 'Before any deployment holding value')."
           fi
 
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans history, not just the tip
+
+      # .gitignore keeps key material out by pattern, but a pattern only helps
+      # for paths someone thought of. This catches the ones nobody did — most
+      # importantly a Solana keypair, which is a bare 64-byte JSON array and
+      # looks nothing like a conventional API token.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
   token-tooling:
     name: Token tooling (node)
     runs-on: ubuntu-latest
@@ -136,9 +155,11 @@ jobs:
             node --check "$f" || exit 1
           done
 
+      # Glob rather than `--test presale/`: directory mode treats the directory
+      # itself as a failing test unit on this Node version.
       - name: Tests — offline unit tests
         working-directory: token
-        run: node --test presale/allowlist_serialize.test.mjs
+        run: node --test presale/*.test.mjs
 
       # Fully offline: derives every on-chain parameter from config with no RPC
       # and no keypair, so a config that cannot produce a sane sale fails here.

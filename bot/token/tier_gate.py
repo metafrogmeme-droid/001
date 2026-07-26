@@ -16,9 +16,18 @@ Enable (operator, opt-in)::
 
     TOKEN_TIER_GATE_ENABLED=true
     RCLAW_MINT=<devnet mint address>
-    RCLAW_RPC_URL=https://api.devnet.solana.com   # optional, defaults to devnet
+    RCLAW_RPC_URL=https://api.devnet.solana.com   # optional, devnet/testnet hosts only
     RCLAW_TIER_PRO_MIN=10000                        # whole tokens for 'pro'
     RCLAW_TIER_ELITE_MIN=100000                     # whole tokens for 'elite'
+    RCLAW_STAKING_PROGRAM=<staking program id>      # REQUIRED for staked-tier gating.
+                                                    # If unset the gate falls back to raw
+                                                    # WALLET balance, so holders pass
+                                                    # without ever staking.
+    RCLAW_DECIMALS=9                                # OPTIONAL override. Decimals are read
+                                                    # from the mint; this only forces a
+                                                    # value and warns on divergence. A
+                                                    # mismatch mis-scales every threshold
+                                                    # by orders of magnitude.
 
 This is draft tooling: no mainnet is assumed and nothing here signs or holds a
 key — it only *reads* balances.
@@ -103,10 +112,17 @@ def _env_bool(name: str) -> bool:
 
 
 def _env_float(name: str, default: float) -> float:
+    raw = _env(name)
+    if not raw:
+        return default
     try:
-        raw = _env(name)
-        return float(raw) if raw else default
+        return float(raw)
     except (TypeError, ValueError):
+        # Audible, not silent: a typo'd threshold otherwise reverts to the
+        # default and the operator sees a gate that quietly ignores their config.
+        system_log.warning(
+            "tier_gate: %s=%r is not a number; falling back to %s", name, raw, default
+        )
         return default
 
 
@@ -123,11 +139,69 @@ def staking_program() -> str:
     return _env("RCLAW_STAKING_PROGRAM")
 
 
-def _decimals() -> int:
+_DECIMALS_CACHE: dict[str, int] = {}
+
+
+def _env_decimals() -> Optional[int]:
+    raw = _env("RCLAW_DECIMALS")
+    if not raw:
+        return None
     try:
-        return int(_env("RCLAW_DECIMALS", "9"))
+        return int(raw)
     except (TypeError, ValueError):
-        return 9
+        system_log.warning("tier_gate: RCLAW_DECIMALS=%r is not an integer; ignoring", raw)
+        return None
+
+
+def _mint_decimals() -> Optional[int]:
+    """Decimals as reported by the mint itself, cached per mint address.
+
+    Cached because this is on the path of every gate check and the value is
+    immutable for the life of a mint — decimals are fixed at initialization.
+    """
+    mint = mint_address()
+    if not mint:
+        return None
+    if mint in _DECIMALS_CACHE:
+        return _DECIMALS_CACHE[mint]
+    result = _rpc("getAccountInfo", [mint, {"encoding": "jsonParsed", "commitment": "confirmed"}])
+    if result is None:
+        return None  # transient; do not poison the cache
+    try:
+        value = (result or {}).get("value") or {}
+        dec = value["data"]["parsed"]["info"]["decimals"]
+        dec = int(dec)
+    except (KeyError, TypeError, ValueError) as exc:
+        system_log.debug("tier_gate: could not read decimals from mint: %s", exc)
+        return None
+    _DECIMALS_CACHE[mint] = dec
+    return dec
+
+
+def _decimals() -> int:
+    """Scale factor for converting base units to whole tokens.
+
+    Sourced from the **mint**, because that is the only authority on it. The
+    environment variable is an override for offline/testing use and warns loudly
+    when it disagrees — a wrong value here mis-scales every tier threshold by
+    orders of magnitude, in whichever direction happens to be wrong.
+    """
+    override = _env_decimals()
+    try:
+        on_chain = _mint_decimals()
+    except GateMisconfigured:
+        on_chain = None  # the caller's own _rpc will surface this
+    if on_chain is not None:
+        if override is not None and override != on_chain:
+            system_log.warning(
+                "tier_gate: RCLAW_DECIMALS=%d disagrees with the mint's %d; using the mint",
+                override,
+                on_chain,
+            )
+        return on_chain
+    if override is not None:
+        return override
+    return 9
 
 
 def gate_enabled() -> bool:
@@ -287,6 +361,25 @@ def _resolve_wallet(users, uid) -> Optional[str]:
     return None
 
 
+def _is_solana_pubkey(address: Optional[str]) -> bool:
+    """Whether ``address`` base58-decodes to exactly 32 bytes.
+
+    Delegates to :mod:`bot.token.solana_verify` so there is one definition of
+    "valid Solana address" in the bot. Falls back to a conservative shape check
+    only if that import is unavailable, and never raises.
+    """
+    if not address:
+        return False
+    try:
+        from bot.token.solana_verify import is_valid_address
+
+        return is_valid_address(address)
+    except Exception:  # pragma: no cover - solana_verify is a sibling module
+        import re as _re
+
+        return bool(_re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", address))
+
+
 def wallet_verified(users, uid) -> bool:
     """Whether ``uid``'s linked wallet carries a recorded ownership proof.
 
@@ -323,6 +416,14 @@ def allows_user(users, uid, feature: str) -> bool:
         return True  # ungated feature
     wallet = _resolve_wallet(users, uid)
     if not wallet:
+        return False
+    # A stored address that is not a real pubkey makes the RPC return an error,
+    # which `staked_of`/`balance_of` report as None — the same sentinel used for
+    # a transient outage, which fails OPEN. Invalid input must never reach that
+    # path: it is attacker-supplied, so treating it as an infra blip is an
+    # authorization bypass, not resilience.
+    if not _is_solana_pubkey(wallet):
+        system_log.warning("tier_gate: denying %s — stored wallet is not a valid pubkey", uid)
         return False
     # An address nobody proved control of is just a string the user typed. Until
     # it carries a verified signature it must not confer a tier, or anyone can

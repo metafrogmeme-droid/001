@@ -13,7 +13,12 @@
 //! A minimal non-custodial stake vault: users escrow tokens into a program-owned
 //! vault and a per-user, per-mint `StakeAccount` PDA tracks the staked amount.
 //! RUNECLAW's tier gate (`bot/token/tier_gate.py`) reads that staked amount to
-//! unlock premium features. Users can unstake at any time.
+//! unlock premium features. Deposits are locked for `LOCKUP_SECONDS`; once fully
+//! exited, the record can be closed to reclaim its rent.
+//!
+//! Mints are validated on the way **in** only (no freeze authority, no vault-
+//! hostile Token-2022 extension). Withdrawal is never made conditional on mint
+//! properties, so nothing a mint does later can strand funds already deposited.
 //!
 //! Token-2022 aware: uses `token_interface` + `transfer_checked`, so the real
 //! $RCLAW mint (an SPL **Token-2022** mint — see `token/scripts/create_token.mjs`)
@@ -101,6 +106,61 @@ fn check_pinned_mint(mint: &Pubkey) -> Result<()> {
     enforce_pinned_mint(PINNED_MINT, mint)
 }
 
+/// Reject Token-2022 mints whose extensions break a custodial vault's invariants.
+///
+/// Checked on the way **in** only. `unstake` deliberately does not call this: a
+/// mint's extension set is fixed at creation, but making withdrawal conditional
+/// on it would turn any future disagreement into a permanent freeze on funds
+/// users already deposited. Validate at entry, never at exit.
+///
+/// Legacy SPL Token mints carry no extensions and pass trivially.
+fn reject_hazardous_extensions(mint_ai: &AccountInfo) -> Result<()> {
+    use anchor_spl::token_2022::spl_token_2022::{
+        extension::{BaseStateWithExtensions, ExtensionType, StateWithExtensions},
+        state::Mint as SplMint,
+    };
+
+    // Only Token-2022 accounts have a TLV extension region.
+    if *mint_ai.owner != anchor_spl::token_2022::ID {
+        return Ok(());
+    }
+
+    let data = mint_ai.try_borrow_data()?;
+    let state = StateWithExtensions::<SplMint>::unpack(&data)
+        .map_err(|_| error!(StakeError::UnsupportedMintExtension))?;
+    let found = state
+        .get_extension_types()
+        .map_err(|_| error!(StakeError::UnsupportedMintExtension))?;
+
+    for ext in found {
+        match ext {
+            // A permanent delegate can move tokens out of the vault at will —
+            // every balance the program reports would be a claim it cannot honour.
+            ExtensionType::PermanentDelegate
+            // A transfer hook CPIs an arbitrary program on every transfer and
+            // needs extra accounts this program does not resolve, so `unstake`
+            // would fail permanently: deposits in, nothing out.
+            | ExtensionType::TransferHook
+            // The mint authority can make new accounts default-frozen, freezing
+            // the vault ATA the first time it is created.
+            | ExtensionType::DefaultAccountState
+            // Nothing could ever be withdrawn.
+            | ExtensionType::NonTransferable
+            // Vault balances stop being readable the way the gate assumes.
+            | ExtensionType::ConfidentialTransferMint
+            // A fee means the vault receives less than the ledger says was sent.
+            // `stake` already credits the observed delta, but the withdrawal leg
+            // would still short every depositor, so refuse the mint outright.
+            | ExtensionType::TransferFeeConfig => {
+                msg!("rejected mint extension: {:?}", ext);
+                return Err(error!(StakeError::UnsupportedMintExtension));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 #[program]
 pub mod rclaw_staking {
     use super::*;
@@ -110,6 +170,7 @@ pub mod rclaw_staking {
     pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
         require!(amount > 0, StakeError::ZeroAmount);
         check_pinned_mint(&ctx.accounts.mint.key())?;
+        reject_hazardous_extensions(&ctx.accounts.mint.to_account_info())?;
 
         {
             let sa = &ctx.accounts.stake_account;
@@ -166,8 +227,21 @@ pub mod rclaw_staking {
         sa.version = StakeAccount::CURRENT_VERSION;
         sa.owner = ctx.accounts.owner.key();
         sa.mint = ctx.accounts.mint.key();
+        // Amount-weighted stake age. Overwriting `staked_at` with `now` would let
+        // a 1-base-unit top-up erase a large position's entire accrual, which
+        // silently breaks any future duration-weighted reward or governance
+        // weight. Fixed now, while the field has no consumers and no live records
+        // would need migrating.
+        sa.staked_at = if sa.amount == 0 {
+            now
+        } else {
+            let prior = sa.amount as i128;
+            let added = credited as i128;
+            let weighted = ((sa.staked_at as i128) * prior + (now as i128) * added)
+                / (prior + added);
+            weighted as i64
+        };
         sa.amount = sa.amount.checked_add(credited).ok_or(StakeError::Overflow)?;
-        sa.staked_at = now;
         // Extend, never shorten: taking `unlock` unconditionally would let a
         // 1-base-unit top-up reset an existing lock and defeat the whole point.
         sa.unlock_at = sa.unlock_at.max(unlock);
@@ -221,11 +295,33 @@ pub mod rclaw_staking {
 
         let sa = &mut ctx.accounts.stake_account;
         sa.amount = sa.amount.checked_sub(amount).ok_or(StakeError::Overflow)?;
+        if sa.amount == 0 {
+            // Fully exited: the next deposit starts a fresh clock rather than
+            // inheriting age from a position that no longer exists.
+            sa.staked_at = 0;
+            sa.unlock_at = 0;
+        }
         emit!(Unstaked {
             owner: sa.owner,
             mint: sa.mint,
             amount,
             total: sa.amount,
+        });
+        Ok(())
+    }
+
+    /// Reclaim the rent held by a fully-exited stake record.
+    ///
+    /// Deliberately a separate instruction rather than an unconditional `close`
+    /// on `unstake`: closing inside `unstake` would delete the record on every
+    /// full withdrawal, and Anchor's `init_if_needed` would then happily revive
+    /// it, so an account could be closed and recreated repeatedly within one
+    /// transaction. Requiring `amount == 0` and an explicit call keeps the
+    /// close path boring.
+    pub fn close_stake_account(ctx: Context<CloseStake>) -> Result<()> {
+        emit!(StakeAccountClosed {
+            owner: ctx.accounts.stake_account.owner,
+            mint: ctx.accounts.stake_account.mint,
         });
         Ok(())
     }
@@ -238,6 +334,13 @@ pub struct Stake<'info> {
 
     /// The mint being staked. Each mint is fully isolated (own vault, own
     /// stake records). Pin it via `PINNED_MINT` for a value-bearing deployment.
+    ///
+    /// A live freeze authority can freeze the vault ATA and strand every
+    /// depositor, so it is rejected at entry. This constraint is intentionally
+    /// absent from `Unstake` — see `reject_hazardous_extensions`.
+    #[account(
+        constraint = mint.freeze_authority.is_none() @ StakeError::MintHasFreezeAuthority,
+    )]
     pub mint: InterfaceAccount<'info, Mint>,
 
     /// Per-user, PER-MINT stake record. Seeds: ["stake", owner, mint].
@@ -315,6 +418,26 @@ pub struct Unstake<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
+#[derive(Accounts)]
+pub struct CloseStake<'info> {
+    /// Receives the reclaimed rent.
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [b"stake", owner.key().as_ref(), mint.key().as_ref()],
+        bump = stake_account.bump,
+        has_one = owner @ StakeError::WrongOwner,
+        has_one = mint @ StakeError::WrongMint,
+        constraint = stake_account.amount == 0 @ StakeError::StakeNotEmpty,
+        close = owner,
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+}
+
 #[account]
 pub struct StakeAccount {
     /// Layout version. Bump on every field change; readers must refuse anything
@@ -359,6 +482,12 @@ pub struct Unstaked {
     pub total: u64,
 }
 
+#[event]
+pub struct StakeAccountClosed {
+    pub owner: Pubkey,
+    pub mint: Pubkey,
+}
+
 #[error_code]
 pub enum StakeError {
     #[msg("Amount must be greater than zero")]
@@ -379,6 +508,12 @@ pub enum StakeError {
     StillLocked,
     #[msg("StakeAccount layout version is not supported by this program")]
     UnsupportedAccountVersion,
+    #[msg("Mint has a live freeze authority; the vault could be frozen")]
+    MintHasFreezeAuthority,
+    #[msg("Mint carries a Token-2022 extension incompatible with a stake vault")]
+    UnsupportedMintExtension,
+    #[msg("Stake record still holds a balance; unstake it fully before closing")]
+    StakeNotEmpty,
 }
 
 /// The byte offsets `bot/token/tier_gate.py` uses to read `StakeAccount` straight

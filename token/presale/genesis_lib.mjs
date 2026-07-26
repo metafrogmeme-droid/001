@@ -171,6 +171,52 @@ export function derivePresaleParams(cfg) {
   // Linear tail: full unlock `linearMonthsAfterTge` after TGE (~30d/month).
   const vestingEnd = tge + BigInt(cfg.vesting.linearMonthsAfterTge) * 30n * 86400n;
 
+  // Ordering + economic invariants. Every value below becomes an IMMUTABLE
+  // on-chain condition, so a transposed date has to fail here — loudly and
+  // offline via `presale:plan` — rather than at addPresaleBucketV2 or, worse,
+  // silently in a sale that opens in the past and never closes.
+  const req = (ok, msg) => {
+    if (!ok) throw new Error(`Invalid presale config: ${msg}`);
+  };
+  req(depositStart < depositEnd,
+      `depositStart (${depositStart}) must precede depositEnd (${depositEnd})`);
+  req(depositEnd <= tge,
+      `depositEnd (${depositEnd}) must not follow tge (${tge}) — the claim schedule is ` +
+      'absolute-time and would unlock unevenly across depositors');
+  req(tge < claimEnd, `tge (${tge}) must precede claimEnd (${claimEnd})`);
+  req(vestingEnd <= claimEnd,
+      `vesting ends (${vestingEnd}) after claimEnd (${claimEnd}) — the tail would be unclaimable`);
+  if (hasWhitelist && t.whitelistStart) {
+    req(unix(t.whitelistStart) < unix(t.publicStart),
+        'whitelistStart must precede publicStart or the allowlist round is zero-length');
+  }
+
+  const softCap = solToLamports(cfg.sale.softCapSol);
+  const hardCap = solToLamports(cfg.sale.hardCapSol);
+  const perMin = solToLamports(cfg.sale.minContributionSol);
+  const perMax = solToLamports(cfg.sale.maxContributionSol);
+  req(hardCap > 0n, 'hardCapSol must be greater than zero (it sets the fixed price)');
+  req(softCap <= hardCap, `softCapSol (${softCap}) must not exceed hardCapSol (${hardCap})`);
+  req(perMin <= perMax,
+      `minContributionSol (${perMin}) must not exceed maxContributionSol (${perMax})`);
+  req(perMax <= hardCap, `maxContributionSol (${perMax}) must not exceed the hard cap (${hardCap})`);
+  req(BigInt(cfg.sale.presaleAllocation) > 0n, 'presaleAllocation must be greater than zero');
+  req(cfg.vesting.cliffAmountBps >= 0 && cfg.vesting.cliffAmountBps <= 10_000,
+      `cliffAmountBps (${cfg.vesting.cliffAmountBps}) must be within 0..10000`);
+
+  // A soft cap that no instruction enforces must not ship as if it were a
+  // guarantee. Nothing here reaches an on-chain account, so a config promising
+  // refunds is promising something the program cannot do.
+  if (cfg.sale.refundIfSoftCapMissed) {
+    throw new Error(
+      'Invalid presale config: refundIfSoftCapMissed=true, but no soft-cap or refund ' +
+      'instruction is wired — softCapLamports reaches no on-chain account, so the ' +
+      'refund is an unenforceable promise. Either implement it (a min-raise endBehaviour ' +
+      'on the presale bucket) or set refundIfSoftCapMissed=false and describe the ' +
+      'operational procedure in RUNBOOK.md.'
+    );
+  }
+
   return {
     decimals,
     baseTokenAllocation: baseUnits(cfg.sale.presaleAllocation, decimals),
@@ -275,11 +321,59 @@ export function proofToPublicKeys(hexNodes) {
  */
 export function deriveLiquidityParams(cfg) {
   const decimals = cfg.token.decimals;
+
+  // The LP token allocation is FIXED while the SOL side scales with whatever is
+  // actually raised, so the pool's opening price is a function of the raise.
+  // If the raise lands near the soft cap, the pool can open BELOW the presale
+  // price — every presale buyer is underwater the moment trading starts, and
+  // the LP lock is permanent so nothing can be corrected afterwards. Compute
+  // both ends of the range so the mismatch is visible rather than discovered.
+  const presalePrice = fixedPriceSolPerToken(cfg);
+  const bps = Number(cfg.liquidity.raisedSolToLiquidityBps);
+  const lpTokens = Number(cfg.liquidity.tokenAllocation);
+  const poolPriceAt = (raisedSol) => ((bps / 10_000) * Number(raisedSol)) / lpTokens;
+  const worstCasePoolPrice = poolPriceAt(cfg.sale.softCapSol);
+  const bestCasePoolPrice = poolPriceAt(cfg.sale.hardCapSol);
+
+  // Best case below the presale price is unambiguously broken: there is no
+  // outcome in which buyers are whole. Parity is reached when the pool receives
+  // the same PROPORTION of tokens as of SOL, i.e.
+  //   tokenAllocation <= (bps/10000) * presaleAllocation
+  if (bestCasePoolPrice < presalePrice) {
+    const parity = (bps / 10_000) * Number(cfg.sale.presaleAllocation);
+    throw new Error(
+      `Invalid liquidity config: even a FULL raise opens the pool at ` +
+      `${bestCasePoolPrice.toExponential(6)} SOL/token, below the presale price ` +
+      `${presalePrice.toExponential(6)}. Every buyer would be underwater at listing and the ` +
+      `LP lock is permanent. The pool must receive at most the same proportion of tokens as ` +
+      `of SOL: set liquidity.tokenAllocation <= ${parity.toLocaleString()} ` +
+      `(= ${bps / 100}% of sale.presaleAllocation), or raise liquidity.raisedSolToLiquidityBps.`
+    );
+  }
+
+  // Worst case below the presale price is a real risk rather than a bug — it is
+  // inherent to a fixed token allocation paired with a soft/hard cap spread —
+  // so it warns rather than blocks. An operator should see it before committing
+  // to an irreversible lock.
+  if (worstCasePoolPrice < presalePrice) {
+    const ratio = (presalePrice / worstCasePoolPrice).toFixed(1);
+    console.warn(
+      `WARNING: at the SOFT cap the pool opens at ${worstCasePoolPrice.toExponential(6)} ` +
+      `SOL/token — ${ratio}x below the presale price ${presalePrice.toExponential(6)}. ` +
+      `Presale buyers would be underwater at listing on a weak raise, and the LP lock is ` +
+      `permanent. This is inherent to a fixed tokenAllocation across a ` +
+      `${(Number(cfg.sale.hardCapSol) / Number(cfg.sale.softCapSol)).toFixed(1)}x cap spread; ` +
+      `narrowing the spread or scaling the allocation with the raise is the only real fix.`
+    );
+  }
+
   return {
     baseTokenAllocation: BigInt(cfg.liquidity.tokenAllocation) * 10n ** BigInt(decimals),
     lpLockSchedule: createNeverClaimSchedule(),
     startCondition: createTimeAbsoluteCondition(unix(cfg.timeline.depositEnd)),
     raisedSolToLiquidityBps: cfg.liquidity.raisedSolToLiquidityBps,
+    // Surfaced so `presale:plan` can show the range an operator is committing to.
+    _pricing: { presalePrice, worstCasePoolPrice, bestCasePoolPrice },
   };
 }
 

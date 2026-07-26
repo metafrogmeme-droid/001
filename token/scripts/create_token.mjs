@@ -33,12 +33,32 @@ import {
 import {
   createInitializeInstruction as createInitializeMetadataInstruction,
   createUpdateAuthorityInstruction,
+  createUpdateFieldInstruction,
   pack,
 } from '@solana/spl-token-metadata';
 import { loadConfig, loadEnv, getConnection, loadKeypair, saveArtifact } from './lib.mjs';
 
 const cfg = loadConfig();
 const env = loadEnv();
+
+// The metadata URI is written into the mint and — once the update authority is
+// renounced below — can never be changed. A branch URL is mutable content behind
+// an immutable pointer: whoever can push to that branch, or who registers the
+// org name if it is ever released, controls the token's displayed identity
+// forever. Content-address it, or at minimum pin a full commit SHA.
+const MUTABLE_REF = /\/(?:main|master|HEAD|refs\/heads\/)\//i;
+if (MUTABLE_REF.test(cfg.metadataUri) && !cfg.acknowledgeMutableMetadataUri) {
+  console.error(
+    `UNSAFE metadataUri: ${cfg.metadataUri}\n` +
+    '  This points at a MUTABLE branch. It is about to be baked permanently into the\n' +
+    '  mint, so the bytes it resolves to can change after the token is immutable.\n' +
+    '  Fix: upload to Arweave/IPFS and use that URI, or pin the full 40-char commit\n' +
+    '  SHA instead of the branch name. Set acknowledgeMutableMetadataUri=true only\n' +
+    '  for throwaway devnet runs.'
+  );
+  process.exit(1);
+}
+
 const connection = await getConnection(env, { expectCluster: cfg.cluster || 'devnet' });
 const payer = loadKeypair(env);
 
@@ -103,14 +123,41 @@ const initMetaIx = createInitializeMetadataInstruction({
   uri: metadata.uri,
 });
 
-console.log('\n[1/4] Creating mint + metadata…');
+console.log('\n[1/5] Creating mint + metadata…');
 const tx1 = new Transaction().add(createIx, pointerIx, initMintIx, initMetaIx);
 const sig1 = await sendAndConfirmTransaction(connection, tx1, [payer, mint]);
 console.log('  tx:', sig1);
 
+// Write the additionalMetadata fields.
+//
+// `pack(metadata)` at line 61 already sized — and paid rent for — these fields,
+// but InitializeMetadata only writes name/symbol/uri. Without this they were
+// funded and then never stored, so the verifier could not check them and wallets
+// never saw them. Each UpdateField reallocs the mint; the rent reserved above
+// covers it because the size was computed from the packed metadata including
+// these pairs.
+if (metadata.additionalMetadata.length) {
+  console.log(`\n[2/5] Writing ${metadata.additionalMetadata.length} additionalMetadata field(s)…`);
+  const fieldTx = new Transaction().add(
+    ...metadata.additionalMetadata.map(([field, value]) =>
+      createUpdateFieldInstruction({
+        programId: TOKEN_2022_PROGRAM_ID,
+        metadata: mint.publicKey,
+        updateAuthority: payer.publicKey,
+        field,
+        value,
+      })
+    )
+  );
+  const sigFields = await sendAndConfirmTransaction(connection, fieldTx, [payer]);
+  console.log('  tx:', sigFields);
+} else {
+  console.log('\n[2/5] No additionalMetadata configured.');
+}
+
 // Mint the full fixed supply to the payer's ATA.
 const ata = getAssociatedTokenAddressSync(mint.publicKey, payer.publicKey, false, TOKEN_2022_PROGRAM_ID);
-console.log('\n[2/4] Minting supply to ATA', ata.toBase58(), '…');
+console.log('\n[3/5] Minting supply to ATA', ata.toBase58(), '…');
 const tx2 = new Transaction().add(
   createAssociatedTokenAccountInstruction(payer.publicKey, ata, payer.publicKey, mint.publicKey, TOKEN_2022_PROGRAM_ID),
   createMintToInstruction(mint.publicKey, ata, payer.publicKey, supplyBase, [], TOKEN_2022_PROGRAM_ID)
@@ -121,14 +168,14 @@ console.log('  minted', cfg.totalSupply, cfg.symbol, `(${supplyBase} base units)
 
 // Revoke mint authority so supply is permanently fixed.
 if (cfg.authorities.revokeMintAuthorityAfterMint) {
-  console.log('\n[3/4] Revoking mint authority (supply becomes fixed)…');
+  console.log('\n[4/5] Revoking mint authority (supply becomes fixed)…');
   const tx3 = new Transaction().add(
     createSetAuthorityInstruction(mint.publicKey, payer.publicKey, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID)
   );
   const sig3 = await sendAndConfirmTransaction(connection, tx3, [payer]);
   console.log('  tx:', sig3);
 } else {
-  console.log('\n[3/4] SKIPPED mint-authority revoke (config flag off).');
+  console.log('\n[4/5] SKIPPED mint-authority revoke (config flag off).');
 }
 
 // Renounce the two authorities that otherwise survive creation.
@@ -164,7 +211,7 @@ if (cfg.authorities.revokeMetadataPointerAuthority) {
 }
 let sig4 = null;
 if (metaRevokes.length) {
-  console.log('\n[4/4] Renouncing metadata authorities (token identity becomes immutable)…');
+  console.log('\n[5/5] Renouncing metadata authorities (token identity becomes immutable)…');
   sig4 = await sendAndConfirmTransaction(connection, new Transaction().add(...metaRevokes), [payer]);
   console.log('  tx:', sig4);
   console.log(
@@ -173,7 +220,7 @@ if (metaRevokes.length) {
     '        in place pointing at content someone else can still edit.'
   );
 } else {
-  console.log('\n[4/4] SKIPPED metadata-authority renounce (config flags off).');
+  console.log('\n[5/5] SKIPPED metadata-authority renounce (config flags off).');
 }
 
 const onchain = await getMint(connection, mint.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);

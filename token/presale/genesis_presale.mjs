@@ -49,6 +49,9 @@ const GENESIS_PROGRAM_ID = 'GNS1S5J5AspKXgpjz6SvKL66kPaKWAhaGRhCqPRxii2B';
 const BUCKET_INDEX = 0;
 const LIQUIDITY_BUCKET_INDEX = 1;
 const ALLOWLIST_ARTIFACT = 'allowlist.devnet.json';
+// Overridable so the e2e dry-run harness cannot read or clobber a real presale
+// artifact — threaded exactly the way GENESIS_CONFIG already is.
+const PRESALE_ARTIFACT = process.env.PRESALE_ARTIFACT || 'presale.devnet.json';
 
 function saveArtifact(name, data) {
   const dir = path.join(TOKEN_ROOT, '.artifacts');
@@ -97,6 +100,12 @@ function cmdPlan() {
   // Liquidity bucket summary.
   const lp = deriveLiquidityParams(cfg);
   console.log('Liquidity       :', `${cfg.liquidity.tokenAllocation} ${cfg.token.symbol} to ${cfg.liquidity.dex}, LP locked forever (never-claim)`);
+  const pr = lp._pricing;
+  console.log('Listing price   :',
+    `presale ${pr.presalePrice.toExponential(4)} | pool at hard cap ${pr.bestCasePoolPrice.toExponential(4)} ` +
+    `| pool at soft cap ${pr.worstCasePoolPrice.toExponential(4)} SOL/token`);
+  console.log('                 ',
+    `a weak raise opens the pool BELOW the presale price — the LP lock is permanent, so this cannot be corrected after the fact.`);
   console.log('                 ', `NOT WIRED: the ${lp.raisedSolToLiquidityBps / 100}% quote-token split is config-only — no instruction encodes it yet (needs an endBehaviors SendQuoteTokenPercentage on the presale bucket).`);
   console.log('\nConditions/schedules via createTimeAbsoluteCondition / createClaimSchedule / createNeverClaimSchedule.');
   console.log('Flow: presale:whitelist → presale:create → presale:liquidity → presale:deposit → presale:claim.');
@@ -190,10 +199,26 @@ async function cmdCreate() {
   }
 
   console.log('\n[1/2] initializeV2 — creating the genesis account…');
+  // The authority controls the sale, the proceeds, and the unsold-token
+  // withdrawal. A single hot key holding all of that is what the roadmap's
+  // multisig requirement exists to prevent, and it cannot be changed after
+  // initializeV2 — so it has to be right here, not later.
+  const authority = cfg.treasury?.authority
+    ? publicKey(cfg.treasury.authority)
+    : umi.identity;
+  if (!cfg.treasury?.authority) {
+    console.warn(
+      'WARNING: presale authority is a single hot key (' + umi.identity.publicKey + ').\n' +
+      '         Set treasury.authority to a Squads multisig vault PDA before any real sale —\n' +
+      '         RUNBOOK.md and TOKEN_ROADMAP.md §11 both require it, and it is immutable\n' +
+      '         once the genesis account exists.'
+    );
+  }
+
   const sigInit = await sendChecked(
     initializeV2(umi, {
       baseMint,
-      authority: umi.identity,
+      authority,
       fundingMode: fundingModeValue(cfg),
       decimals: cfg.token.decimals,
       totalSupplyBaseToken: BigInt(cfg.token.totalSupply) * 10n ** BigInt(cfg.token.decimals),
@@ -250,7 +275,7 @@ async function cmdCreate() {
     txs: { initialize: sigInit, addPresaleBucket: sigBucket },
     note: 'DRAFT / DEVNET artifact — see docs/TOKEN_ROADMAP.md',
   };
-  const out = saveArtifact('presale.devnet.json', artifact);
+  const out = saveArtifact(PRESALE_ARTIFACT, artifact);
   console.log('\n=== DONE ===');
   console.log('Genesis account :', artifact.genesisAccount);
   console.log('Presale bucket  :', artifact.bucket);
@@ -263,8 +288,8 @@ async function cmdDeposit() {
   const cfg = loadConfig();
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact('presale.devnet.json');
-  if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
   const amountSol = Number(arg('--amount') || '0');
   if (!(amountSol > 0)) throw new Error('Provide --amount <SOL> greater than 0.');
   const amountQuoteToken = BigInt(Math.round(amountSol * 1e9));
@@ -275,16 +300,27 @@ async function cmdDeposit() {
     baseMint: publicKey(a.baseMint),
     amountQuoteToken,
   };
-  // During the whitelist window the depositor must present their Merkle proof.
+  // The allowlist applies only INSIDE the whitelist window. Gating on "does the
+  // artifact exist on disk" instead meant that once a run produced the file, every
+  // non-whitelisted wallet was refused forever — including throughout the public
+  // round the allowlist was supposed to have expired before.
   const wl = readArtifact(ALLOWLIST_ARTIFACT);
-  if (wl) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const publicStartSec = Math.floor(Date.parse(cfg.timeline.publicStart) / 1000);
+  const inWhitelistWindow = Number.isFinite(publicStartSec) && nowSec < publicStartSec;
+  if (wl && inWhitelistWindow) {
     const me = umi.identity.publicKey.toString();
     const hexProof = wl.proofByAddress?.[me];
     if (!hexProof) {
-      throw new Error(`Wallet ${me} is not on the whitelist (no proof). Add it and re-run presale:whitelist, or wait for the public round.`);
+      throw new Error(
+        `Wallet ${me} is not on the whitelist (no proof). Add it and re-run ` +
+        `presale:whitelist, or wait for the public round (opens ${cfg.timeline.publicStart}).`
+      );
     }
     input.proof = proofToPublicKeys(hexProof);
     console.log(`  presenting whitelist proof (${hexProof.length} nodes)`);
+  } else if (wl) {
+    console.log('  public round — allowlist expired, no proof required.');
   }
   console.log(`Depositing ${amountSol} SOL into presale bucket ${a.bucket}…`);
   const sig = await sendChecked(depositPresaleV2(umi, input), umi, 'depositPresaleV2');
@@ -320,8 +356,8 @@ async function cmdLiquidity() {
   const cfg = loadConfig();
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact('presale.devnet.json');
-  if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
   const lp = deriveLiquidityParams(cfg);
 
   // Fail closed on the half of the commitment that no instruction encodes.
@@ -369,8 +405,8 @@ async function cmdLiquidity() {
 async function cmdWithdraw() {
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact('presale.devnet.json');
-  if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
   const bucket = publicKey(a.bucket);
   const mint = publicKey(a.baseMint);
   const me = umi.identity.publicKey;
@@ -396,11 +432,25 @@ async function cmdWithdraw() {
 async function cmdWithdrawUnsold() {
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact('presale.devnet.json');
-  if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
   const bucket = publicKey(a.bucket);
   const mint = publicKey(a.baseMint);
-  const me = umi.identity.publicKey;
+  // Destination is explicit and reviewable rather than implicitly "whoever
+  // signed". Unsold supply is a large, silent transfer; --recipient makes it a
+  // decision, and treasury.recipient makes it a committed one.
+  const cfg = loadConfig();
+  const flagRecipient = arg('--recipient');
+  const configured = cfg.treasury?.recipient;
+  const me = flagRecipient
+    ? publicKey(flagRecipient)
+    : (configured ? publicKey(configured) : umi.identity.publicKey);
+  if (!flagRecipient && !configured) {
+    console.warn(
+      'WARNING: no --recipient and no treasury.recipient — sending unsold supply to the\n' +
+      '         signing key by default. Pass --recipient <address> or set treasury.recipient.'
+    );
+  }
   const bucketTokenAccount = findAssociatedTokenPda(umi, { mint, owner: bucket });
   const recipientTokenAccount = findAssociatedTokenPda(umi, { mint, owner: me });
   console.log(`Withdrawing unsold presale tokens from bucket ${a.bucket} to ${me}…`);
@@ -425,8 +475,8 @@ async function cmdWithdrawUnsold() {
 async function cmdClaim() {
   const env = loadEnv();
   const umi = makeUmi(env);
-  const a = readArtifact('presale.devnet.json');
-  if (!a) throw new Error('No presale.devnet.json — run `npm run presale:create` first.');
+  const a = readArtifact(PRESALE_ARTIFACT);
+  if (!a) throw new Error(`No ${PRESALE_ARTIFACT} — run \`npm run presale:create\` first.`);
   console.log(`Claiming vested tokens from bucket ${a.bucket}…`);
   const sig = await sendChecked(
     claimPresaleV2(umi, {

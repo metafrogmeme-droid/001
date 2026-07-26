@@ -25,8 +25,8 @@
     "hardCapSol": 5000,
     "minContributionSol": 0.25,
     "maxContributionSol": 25,
-    "refundIfSoftCapMissed": true,
-    "_softCapNote": "Genesis fixed-price presale is 'buy at fixed price until the cap'. allocationQuoteTokenCap == hardCapSol. Soft-cap/refund is NOT a native presale field — enforce it operationally (cancel + refund path) or via a min-raise extension; confirm before launch."
+    "refundIfSoftCapMissed": false,
+    "_softCapNote": "MUST stay false until a refund is actually implemented. Genesis fixed-price presale is 'buy at fixed price until the cap'; allocationQuoteTokenCap == hardCapSol, and there is NO native soft-cap or refund field. softCapSol above is therefore DESCRIPTIVE ONLY — it reaches no on-chain account and nothing enforces it. derivePresaleParams() throws if this is set to true, so the promise cannot ship unimplemented: to enable it, first wire a min-raise endBehaviour on the presale bucket (or publish a signed, timelocked operational cancel-and-refund procedure naming the key holders and the deadline), then flip this flag."
   },
   "timeline": {
     "_comment": "RFC3339 UTC. Placeholders — set at launch. Converted to unix-second TimeAbsolute conditions by the script.",
@@ -44,19 +44,26 @@
     "vestingPeriodSeconds": 86400
   },
   "liquidity": {
-    "raisedSolToLiquidityBps": 6000,
+    "raisedSolToLiquidityBps": 6667,
     "acknowledgeQuoteSplitIsManual": false,
     "_acknowledgeQuoteSplitIsManual_comment": "raisedSolToLiquidityBps is NOT encoded by any instruction — no on-chain behavior moves the SOL. presale:liquidity refuses to run while this is false, because it would otherwise create a PERMANENT never-claim LP lock on the token side while the SOL side stays fully discretionary. Set true only to state on the record that the split is operator-executed and unenforceable, or wire an endBehaviors SendQuoteTokenPercentage onto the presale bucket and remove the guard.",
     "tokenAllocation": "100000000",
+    "_liquidityPricing_comment": "tokenAllocation is the published 10% supply bucket (docs/TOKEN_ROADMAP.md §4) and is NOT the free variable. raisedSolToLiquidityBps was 6000, which opened the pool BELOW the presale price even on a full raise — every buyer underwater at listing, against a PERMANENT LP lock. 6667 is the parity value: tokenAllocation / sale.presaleAllocation, so the pool receives the same proportion of tokens as of SOL and opens at the presale price at the hard cap. The roadmap already listed the 60% split as an assumption to ratify (§13), which is why this is the number that moved. deriveLiquidityParams() enforces the floor and warns that the soft-cap case stays underwater while the 5x cap spread remains.",
     "dex": "raydium",
     "lpLock": "never-claim (permanent)",
     "_note": "Add via addRaydiumCpmmBucketV2 with createNeverClaimSchedule() for a permanent LP lock. Wired as an optional step in the runbook."
   },
+  "treasury": {
+    "_comment": "authority controls the sale, the proceeds and the unsold-token withdrawal, and is IMMUTABLE once initializeV2 runs — set it to a Squads multisig vault PDA before any real sale. recipient is where withdraw-unsold sends leftover supply; --recipient overrides it. Both empty means 'the signing hot key', which presale:create and presale:withdraw-unsold warn about.",
+    "authority": "",
+    "recipient": ""
+  },
   "antiAbuse": {
-    "perWalletMaxViaDepositLimit": true,
-    "perWalletMinViaMinimumDepositAmount": true,
-    "whitelistViaAllowlistMerkle": true,
-    "backendSignerOptional": true
+    "_comment": "DESCRIPTIVE INDEX ONLY — no code reads this block. These were booleans, which read as switches you could toggle; they never were. Changing anything here has NO effect. Edit sale.* and whitelist instead.",
+    "perWalletMax": "wired — sale.maxContributionSol becomes depositLimit",
+    "perWalletMin": "wired — sale.minContributionSol becomes minimumDepositAmount",
+    "whitelist": "wired — the whitelist array becomes a Merkle allowlist on the presale bucket",
+    "backendSigner": "NOT IMPLEMENTED — no Sybil or identity binding exists anywhere. The per-wallet cap is per WALLET, not per person, so it is bypassable by generating more wallets. See docs/TOKEN_ROADMAP.md §11."
   },
   "whitelist": [],
   "_whitelistNote": "Base58 wallet addresses for the OG round. Run `npm run presale:whitelist` to build the Merkle tree + proofs (token/.artifacts/allowlist.devnet.json); the root is applied on presale:create and each wallet's proof is presented automatically on presale:deposit during the whitelist window (which ends at timeline.publicStart)."

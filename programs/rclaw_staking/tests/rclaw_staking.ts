@@ -13,6 +13,8 @@ import * as anchor from "@coral-xyz/anchor";
 // `Program<any>` below for the generated `Program<RclawStaking>` for full typing.
 import {
   createMint,
+  getAccount,
+  getAssociatedTokenAddressSync,
   getOrCreateAssociatedTokenAccount,
   mintTo,
 } from "@solana/spl-token";
@@ -27,15 +29,14 @@ describe("rclaw_staking", () => {
 
   let mint: anchor.web3.PublicKey;
   let userAta: anchor.web3.PublicKey;
-
-  const [stakePda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("stake"), owner.publicKey.toBuffer()],
-    program.programId
-  );
-  const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("vault")],
-    program.programId
-  );
+  // Both PDAs are mint-scoped — that IS the vault-drain fix. Deriving them
+  // without the mint (as this spec previously did) reproduces the pre-fix
+  // addresses, so every account would mismatch and nothing could pass. They
+  // cannot stay at module scope because they now depend on `mint`, which only
+  // exists after before().
+  let stakePda: anchor.web3.PublicKey;
+  let vaultAuthority: anchor.web3.PublicKey;
+  let vault: anchor.web3.PublicKey;
 
   before(async () => {
     mint = await createMint(
@@ -45,6 +46,16 @@ describe("rclaw_staking", () => {
       null,
       9
     );
+    [stakePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("stake"), owner.publicKey.toBuffer(), mint.toBuffer()],
+      program.programId
+    );
+    [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), mint.toBuffer()],
+      program.programId
+    );
+    vault = getAssociatedTokenAddressSync(mint, vaultAuthority, true);
+
     const ata = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       owner.payer,
@@ -77,16 +88,30 @@ describe("rclaw_staking", () => {
     assert.ok(sa.owner.equals(owner.publicKey));
     assert.equal(sa.amount.toString(), amount.toString());
     assert.isAbove(sa.stakedAt.toNumber(), 0);
+    // The binding that closes the drain: the record names its mint.
+    assert.ok(sa.mint.equals(mint), "stake record must be bound to the mint");
+    // And the tokens are really escrowed in THIS mint's vault, not merely
+    // recorded as if they were.
+    const vaultAcct = await getAccount(provider.connection, vault);
+    assert.equal(vaultAcct.amount.toString(), amount.toString());
+    assert.ok(vaultAcct.owner.equals(vaultAuthority));
   });
 
-  it("unstakes part of the balance", async () => {
-    const amount = new anchor.BN(20_000_000_000); // 20 tokens
-    await program.methods
-      .unstake(amount)
-      .accounts({ owner: owner.publicKey, mint, userTokenAccount: userAta })
-      .rpc();
+  it("refuses to unstake inside the lock-up window", async () => {
+    // LOCKUP_SECONDS is 7 days and a validator clock cannot be warped from here,
+    // so this asserts the lock holds. The post-expiry path is covered in-process
+    // by tests/attack.rs, which can move the sysvar clock.
+    try {
+      await program.methods
+        .unstake(new anchor.BN(20_000_000_000))
+        .accounts({ owner: owner.publicKey, mint, userTokenAccount: userAta })
+        .rpc();
+      assert.fail("unstaking during the lock-up must fail");
+    } catch (e) {
+      assert.include(String(e), "StillLocked");
+    }
     const sa = await program.account.stakeAccount.fetch(stakePda);
-    assert.equal(sa.amount.toString(), "30000000000"); // 50 - 20
+    assert.equal(sa.amount.toString(), "50000000000", "balance must be untouched");
   });
 
   it("rejects unstaking more than staked", async () => {
@@ -97,7 +122,13 @@ describe("rclaw_staking", () => {
         .rpc();
       assert.fail("should have thrown");
     } catch (e) {
-      assert.include(String(e), "InsufficientStake");
+      // The lock is checked before the balance, so either guard refusing is a
+      // pass — what must never happen is the withdrawal succeeding.
+      const msg = String(e);
+      assert.ok(
+        msg.includes("InsufficientStake") || msg.includes("StillLocked"),
+        `expected InsufficientStake or StillLocked, got: ${msg}`
+      );
     }
   });
 });

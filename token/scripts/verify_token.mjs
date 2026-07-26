@@ -64,6 +64,17 @@ const checks = [
   ['metadata name', meta ? meta.name === cfg.name : false, meta ? meta.name : '(none)'],
   ['metadata symbol', meta ? meta.symbol === cfg.symbol : false, meta ? meta.symbol : '(none)'],
   ['metadata uri', meta ? meta.uri === cfg.metadataUri : false, meta ? meta.uri : '(none)'],
+  // Rent was paid for these at creation; assert they were actually written.
+  [
+    'additionalMetadata fields',
+    (() => {
+      const want = cfg.additionalMetadata || [];
+      if (!want.length) return true;
+      const got = new Map((meta && meta.additionalMetadata) || []);
+      return want.every(([k, v]) => got.get(k) === v);
+    })(),
+    `${((meta && meta.additionalMetadata) || []).length}/${(cfg.additionalMetadata || []).length} present`,
+  ],
   // The two authorities create_token.mjs leaves live unless told otherwise.
   // Whoever holds these can rewrite the token's displayed identity or redirect
   // where wallets look for it, so they belong in the verified set.

@@ -160,8 +160,8 @@ TGE**, so initial float is a small fraction of supply — reducing early sell pr
 | Presale allocation | 150,000,000 `$RCLAW` (15%) |
 | Min contribution | **0.25 SOL / wallet** |
 | Max contribution | **25 SOL / wallet** (anti-whale) |
-| Round 1 — Whitelist / OG | 48 hours, discounted price |
-| Round 2 — Public | 72 hours or until hard cap, standard price |
+| Round 1 — Whitelist / OG | 48 hours, **priority access at the same fixed price** |
+| Round 2 — Public | 72 hours or until hard cap, same fixed price |
 | Buyer vesting | **33% at TGE**, then linear over 2 months |
 | Deposit window | Automated start/end timestamps |
 | Claim window | Opens at TGE, automated |
@@ -169,10 +169,25 @@ TGE**, so initial float is a small fraction of supply — reducing early sell pr
 
 **Worked price example (illustrative).** At the **5,000 SOL hard cap** against the
 150,000,000-token presale allocation, the effective presale price is **≈ 0.0000333 SOL per
-`$RCLAW`** (≈ 30,000 `$RCLAW` per SOL). Whitelist Round 1 is priced below this; the public
-round at this level. At an assumed SOL reference price, this implies a small, transparent
+`$RCLAW`** (≈ 30,000 `$RCLAW` per SOL). **Both rounds transact at this price.** Round 1
+confers earlier access to a shared cap, not a lower price. At an assumed SOL reference price, this implies a small, transparent
 initial FDV — publish the exact SOL→USD assumption and resulting FDV alongside the sale so
 buyers see it up front.
+
+> **Correction (2026-07-26).** Two claims above previously described behaviour the
+> implementation does not have, and were rewritten rather than left to be discovered at
+> the sale:
+>
+> - **Round 1 was described as "discounted".** A Genesis presale prices a bucket by
+>   `baseTokenAllocation / allocationQuoteTokenCap`, so the price is a property of the
+>   **bucket**, not of the round. Both rounds draw on one bucket and one cap; the Merkle
+>   allowlist gates *who may deposit during the whitelist window*, not *at what price*. A
+>   genuine OG discount needs a second bucket with its own allocation and cap. Until that
+>   exists, Round 1 buys priority, not a better price.
+> - **"Refund if soft cap missed" was listed as a phase step.** Genesis has no native
+>   soft-cap or refund field, and `softCapSol` reaches no on-chain account.
+>   `refundIfSoftCapMissed` is now `false` and `derivePresaleParams()` throws if it is set
+>   to `true`, so the promise cannot ship unimplemented.
 
 **If the soft cap is not met**, the sale is cancelled and contributions are **refundable**.
 
@@ -184,7 +199,7 @@ buyers see it up front.
 > min-raise extension, and the chosen mechanism must be settled and disclosed *before* the
 > sale opens — not assumed. Tracked in §13.
 
-**Liquidity split of raised SOL:** **60% → DEX liquidity pool** (paired with the 100M
+**Liquidity split of raised SOL:** **66.67% → DEX liquidity pool** (paired with the 100M
 liquidity allocation), remainder to audit, operations, and treasury. Exact split ratified in
 §13.
 
@@ -232,7 +247,7 @@ experiment) — **never** the utility-token TGE.
 
 - **Pool:** seed a `$RCLAW`/SOL pool on **Raydium** (or **Orca**), routable by **Jupiter** so
   every Solana aggregator picks it up.
-- **Depth:** 100,000,000 `$RCLAW` (the 10% liquidity allocation) paired with 60% of raised SOL
+- **Depth:** 100,000,000 `$RCLAW` (the 10% liquidity allocation) paired with 66.67% of raised SOL
   (§5). Worked FDV/price example carries over from §4–§5.
 - **LP safety:** LP **permanently locked** — the Genesis path adds the pool via
   `addRaydiumCpmmBucketV2` with `createNeverClaimSchedule()`, so the LP position can never be
@@ -283,7 +298,8 @@ Clear the existing Guardrails gate before anything is minted.
   configured. Nothing on devnet counts toward this.
 
 ### Phase 2 — Presale & TGE
-- Whitelist Round 1 → Public Round 2 → finalize (refund if soft cap missed).
+- Whitelist Round 1 → Public Round 2 → finalize. (No automatic soft-cap refund exists —
+  see the correction below and `metaplex-genesis.config.json`.)
 - Seed DEX liquidity; **burn/lock LP**; open claim window.
 - **Exit:** liquidity live, LP locked, tokens claimable, contract addresses published.
 
@@ -457,7 +473,7 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Total supply & decimals** (1B / 9 assumed).
 - **Allocation percentages and all vesting schedules** (§4).
 - **Soft/hard caps, min/max contribution, round durations, presale price** (§5).
-- **Liquidity split of raised SOL** (60% assumed). ~~LP lock vs burn~~ — **settled:**
+- **Liquidity split of raised SOL** (**66.67%**, ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled:**
   permanent never-claim lock (§7).
 - ~~**Primary venue**~~ — **settled:** Metaplex Genesis, integrated in draft (§6). Smithii
   remains a documented fallback only.

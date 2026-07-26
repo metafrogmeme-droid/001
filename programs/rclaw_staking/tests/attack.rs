@@ -442,3 +442,188 @@ async fn vault_authority_is_mint_scoped() {
     );
     assert_ne!(stake_pda(&a, &a), stake_pda(&a, &b), "stake records must be per-mint");
 }
+
+// ── Mint validation, rent reclaim, and stake-age semantics ──────────────────
+
+/// Same as `create_mint` but retains a freeze authority.
+async fn create_mint_with_freeze_authority(
+    ctx: &mut ProgramTestContext,
+    authority: &Pubkey,
+) -> Pubkey {
+    let mint = Keypair::new();
+    let rent = ctx.banks_client.get_rent().await.unwrap();
+    let ix = vec![
+        system_instruction::create_account(
+            &ctx.payer.pubkey(),
+            &mint.pubkey(),
+            rent.minimum_balance(spl_token::state::Mint::LEN),
+            spl_token::state::Mint::LEN as u64,
+            &spl_token::id(),
+        ),
+        spl_token::instruction::initialize_mint(
+            &spl_token::id(),
+            &mint.pubkey(),
+            authority,
+            Some(authority), // <- the whole point
+            DECIMALS,
+        )
+        .unwrap(),
+    ];
+    let tx = Transaction::new_signed_with_payer(
+        &ix,
+        Some(&ctx.payer.pubkey()),
+        &[&ctx.payer, &mint],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    mint.pubkey()
+}
+
+fn close_stake_ix(owner: &Pubkey, mint: &Pubkey) -> Instruction {
+    let accounts = rclaw_staking::accounts::CloseStake {
+        owner: *owner,
+        mint: *mint,
+        stake_account: stake_pda(owner, mint),
+    };
+    Instruction {
+        program_id: program_id(),
+        accounts: accounts.to_account_metas(None),
+        data: rclaw_staking::instruction::CloseStakeAccount {}.data(),
+    }
+}
+
+async fn stake_record(ctx: &mut ProgramTestContext, owner: &Pubkey, mint: &Pubkey) -> Option<Vec<u8>> {
+    ctx.banks_client
+        .get_account(stake_pda(owner, mint))
+        .await
+        .unwrap()
+        .map(|a| a.data)
+}
+
+/// A freeze authority can freeze the vault ATA and strand every depositor, so
+/// the mint must be refused at entry rather than discovered later.
+#[tokio::test]
+async fn mint_with_freeze_authority_is_rejected() {
+    skip_if_pinned!();
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = create_mint_with_freeze_authority(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 100)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "a mint retaining a freeze authority must not be stakeable"
+    );
+    assert!(
+        stake_record(&mut ctx, &payer, &mint).await.is_none(),
+        "no stake record may be created for a rejected mint"
+    );
+}
+
+/// Rent must be reclaimable once a position is fully exited, and only then.
+#[tokio::test]
+async fn close_reclaims_rent_only_when_fully_exited() {
+    skip_if_pinned!();
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = create_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 400)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    assert!(stake_record(&mut ctx, &payer, &mint).await.is_some());
+
+    // Still holds a balance -> close must fail.
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[close_stake_ix(&payer, &mint)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "closing a record that still holds a balance must fail"
+    );
+
+    // Exit fully, then close.
+    warp_past_lockup(&mut ctx).await;
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[
+            unstake_ix_crossed(&payer, &mint, &mint, &ata, 400),
+            close_stake_ix(&payer, &mint),
+        ],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    assert!(
+        stake_record(&mut ctx, &payer, &mint).await.is_none(),
+        "a fully-exited record must be closed and its rent returned"
+    );
+}
+
+/// A small top-up must not erase a large position's accrued age.
+#[tokio::test]
+async fn staked_at_is_amount_weighted_not_reset() {
+    skip_if_pinned!();
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = create_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 1_000)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    let first = stake_record(&mut ctx, &payer, &mint).await.unwrap();
+    let staked_at_1 = i64::from_le_bytes(first[81..89].try_into().unwrap());
+
+    // Move the clock a long way forward, then add a single base unit.
+    let mut clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
+    let far_future = clock.unix_timestamp + 1_000_000;
+    clock.unix_timestamp = far_future;
+    ctx.set_sysvar(&clock);
+
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+
+    let second = stake_record(&mut ctx, &payer, &mint).await.unwrap();
+    let staked_at_2 = i64::from_le_bytes(second[81..89].try_into().unwrap());
+    assert!(
+        staked_at_2 < far_future,
+        "a 1-unit top-up must not reset staked_at to now ({staked_at_2} vs {far_future})"
+    );
+    assert!(
+        staked_at_2 >= staked_at_1,
+        "age may be diluted but never move backwards"
+    );
+    // 1 unit against 1000 moves the average by ~1/1001 of the elapsed gap.
+    assert!(
+        staked_at_2 - staked_at_1 < 2_000,
+        "a 0.1% top-up must barely move the weighted age (moved {})",
+        staked_at_2 - staked_at_1
+    );
+}

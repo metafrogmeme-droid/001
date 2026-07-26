@@ -17,7 +17,7 @@ Operational steps for standing up the `$RCLAW` presale. Recommended primary venu
 
 Both encode the same economics: 150M presale allocation, **1,000 SOL soft / 5,000 SOL hard
 cap**, 0.25–25 SOL per wallet, whitelist (48h) → public (72h), **33% TGE + 2-month linear**
-vesting, **60% of raise → Raydium liquidity**, LP locked 12 months.
+vesting, **66.67% of raise → Raydium liquidity**, LP locked permanently (never-claim).
 
 ## Prerequisites
 

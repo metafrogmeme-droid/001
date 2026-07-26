@@ -131,13 +131,37 @@ async function cmdTransfer() {
   if (!sender) {
     throw new Error('Pass --sender <address> (and configure a signer) to produce and send the transfer.');
   }
-  const xfer = srcNtt.transfer(sender, units, { chain: dstCtx.chain, address: arg('--recipient') || sender }, {
+  // A cross-chain recipient defaults to the SOURCE-chain sender otherwise, which
+  // on a Solana → EVM route is a base58 string offered as an EVM address: the one
+  // parameter that decides where tokens land should never be guessed.
+  const recipient = arg('--recipient');
+  if (!recipient) {
+    throw new Error(
+      `Pass --recipient <${dstCtx.chain} address>. Defaulting to the source-chain sender ` +
+      'would send funds to an address that does not exist on the destination chain.'
+    );
+  }
+
+  const xfer = srcNtt.transfer(sender, units, { chain: dstCtx.chain, address: recipient }, {
     queue: false,
     automatic: !!cfg.transfer.automatic,
   });
-  console.log('Transfer instruction stream built. Sign + send with signSendWait once a signer is wired.');
-  void signSendWait; // documented entry point for the operator's signing step
-  void xfer;
+
+  // `transfer` returns a LAZY async generator: previously it was voided without
+  // ever being iterated, so the body never ran, not one instruction was built,
+  // and the script still printed "instruction stream built". Draining it here
+  // means the count below is a fact rather than a claim.
+  const txs = [];
+  for await (const tx of xfer) txs.push(tx);
+
+  console.log(`Built ${txs.length} unsigned transaction(s). NOT SIGNED, NOT SENT.`);
+  console.log('This tool never holds a key. To actually bridge:');
+  console.log('  1. wire a Signer for the source chain and call');
+  console.log('     signSendWait(srcCtx, xfer, signer)   // imported above, unused by design');
+  console.log('  2. fetch the resulting VAA and submit the redeem on', dstCtx.chain);
+  console.log('     — NEITHER STEP IS IMPLEMENTED HERE. Nothing has moved.');
+  void signSendWait; // the documented entry point for step 1
+  return txs;
 }
 
 const cmd = process.argv[2];

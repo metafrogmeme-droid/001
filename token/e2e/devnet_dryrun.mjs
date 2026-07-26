@@ -72,8 +72,18 @@ function writeDerivedConfig() {
 }
 
 // Run a token/ command with the derived config active. Returns {ok, code, out}.
+// Per-run artifact name. Without this the harness reads and overwrites the same
+// presale.devnet.json a real run uses, so a dry run could adopt a real presale's
+// identity — or destroy it.
+const RUN_ID = process.env.E2E_RUN_ID || String(process.pid);
+const RUN_ARTIFACT = `presale.dryrun.${RUN_ID}.json`;
+
 function run(name, args, { capture = true } = {}) {
-  const env = { ...process.env, GENESIS_CONFIG: DERIVED_CONFIG };
+  const env = {
+    ...process.env,
+    GENESIS_CONFIG: DERIVED_CONFIG,
+    PRESALE_ARTIFACT: RUN_ARTIFACT,
+  };
   log(`→ ${name}: ${args.join(' ')}`);
   const res = spawnSync('node', args, {
     cwd: TOKEN_ROOT,
@@ -119,12 +129,42 @@ async function main() {
 
   if (DRY) {
     // Offline: just prove the config drives the plan derivation, print sequence.
-    steps.push(run('plan', ['presale/genesis_presale.mjs', 'plan']));
+    const planned = run('plan', ['presale/genesis_presale.mjs', 'plan']);
+    steps.push(planned);
+    // Exit 0 alone proves nothing — a plan that printed an empty derivation
+    // would also exit 0. Assert the numbers that matter actually appear.
+    const required = [
+      /Hard cap \(=QTC\)\s*:\s*\d/,
+      /Fixed price\s*:\s*[\d.]+/,
+      /Deposit window\s*:\s*\d+n?\s*→\s*\d+n?/,
+      /Claim \/ TGE\s*:\s*\d+n?\s*→\s*\d+n?/,
+      /Listing price\s*:/,
+    ];
+    const missing = required.filter((re) => !re.test(planned.out));
+    if (missing.length) {
+      log(`plan output is missing ${missing.length} expected derivation line(s) — treating as failure.`);
+      planned.ok = false;
+    }
     log('planned live sequence: keygen → create → liquidity → deposit → (wait) → claim');
     const out = saveReport(steps);
     log(`report: ${out}`);
     process.exit(steps.every((s) => s.ok) ? 0 : 1);
   }
+
+  // Abort on the first failure: every step after this one signs and sends real
+  // transactions, and continuing past a failure means doing that against a state
+  // the harness has already proven it does not understand.
+  const step = (name, args) => {
+    const r = run(name, args);
+    steps.push(r);
+    if (!r.ok) {
+      log(`step "${name}" failed (exit ${r.code}) — aborting before any further signed transactions.`);
+      const out = saveReport(steps);
+      log(`report: ${out}`);
+      process.exit(1);
+    }
+    return r;
+  };
 
   // Live devnet run.
   const keygen = run('keygen', ['scripts/keygen.mjs']);
@@ -135,18 +175,18 @@ async function main() {
     process.exit(keygen.ok ? 0 : 1);
   }
 
-  steps.push(run('plan', ['presale/genesis_presale.mjs', 'plan']));
-  steps.push(run('create', ['presale/genesis_presale.mjs', 'create']));
-  steps.push(run('liquidity', ['presale/genesis_presale.mjs', 'liquidity']));
+  step('plan', ['presale/genesis_presale.mjs', 'plan']);
+  step('create', ['presale/genesis_presale.mjs', 'create']);
+  step('liquidity', ['presale/genesis_presale.mjs', 'liquidity']);
 
   await sleepUntil(publicStart);
   // Deposit the configured MINIMUM, not 1 SOL: keygen airdrops exactly 1 SOL,
   // so depositing 1 SOL could never cover the deposit plus rent/fees.
   const depositSol = String(cfgBase.sale?.minContributionSol ?? 0.25);
-  steps.push(run('deposit', ['presale/genesis_presale.mjs', 'deposit', '--amount', depositSol]));
+  step('deposit', ['presale/genesis_presale.mjs', 'deposit', '--amount', depositSol]);
 
   await sleepUntil(tge);
-  steps.push(run('claim', ['presale/genesis_presale.mjs', 'claim']));
+  step('claim', ['presale/genesis_presale.mjs', 'claim']);
 
   const out = saveReport(steps);
   const ok = steps.every((s) => s.ok);
