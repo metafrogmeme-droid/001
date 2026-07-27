@@ -15,7 +15,9 @@
 'use strict';
 
 const CACHE_MS = 5 * 60_000; // ENS records change rarely.
-const RPC_DEFAULT = 'https://cloudflare-eth.com';
+// cloudflare-eth.com answers -32046 to ordinary callers (see lib/wallet.js
+// which moved off it for the same reason) — identity lookups silently died.
+const RPC_DEFAULT = 'https://ethereum-rpc.publicnode.com';
 
 let _providerFactory = null;
 function setEnsProviderFactory(fn) { _providerFactory = fn; _cache.clear(); }
@@ -73,4 +75,26 @@ async function resolveIdentity(address) {
   }
 }
 
-module.exports = { resolveIdentity, setEnsProviderFactory, shorten, isAddress };
+const NAME_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$/i;
+const _fwdCache = new Map();   // name(lower) -> { at, address }
+
+/**
+ * Forward resolution: name.eth -> checksummed address, or null. Null covers
+ * unset names, unresolvable names AND rpc failure — never a guessed or zero
+ * address. Uses the same provider seam as resolveIdentity.
+ */
+async function resolveEnsName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!NAME_RE.test(n)) return null;
+  const hit = _fwdCache.get(n);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.address;
+  try {
+    const address = await provider().resolveName(n);
+    const out = address || null;
+    // Cache only real answers — a null from a flaky rpc must retry next time.
+    if (out) _fwdCache.set(n, { at: Date.now(), address: out });
+    return out;
+  } catch (e) { return null; }
+}
+
+module.exports = { resolveIdentity, resolveEnsName, setEnsProviderFactory, shorten, isAddress, NAME_RE };

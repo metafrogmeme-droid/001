@@ -205,6 +205,10 @@
         + esc(XT('fw.x_none', 'Nothing to decode yet — paste calldata above.')) + '</p></section>';
       return;
     }
+    // Approval-family actions get the after-the-fact pointer: what you are
+    // about to grant is exactly what /approvals can later show and revoke.
+    var APPROVALISH = { 'txr.a_approve': 1, 'txr.a_increase': 1, 'txr.a_permit': 1, 'txr.a_forall_on': 1 };
+    var hasApproval = r.actions.some(function (a) { return APPROVALISH[a.tid]; });
     var acts = r.actions.map(function (a) {
       var p = {};
       for (var k in a.params) p[k] = a.params[k];
@@ -214,6 +218,11 @@
       return '<div class="flag sev-none"><span class="dot"></span><div><div class="wy">'
         + esc(fill(XT(a.tid, a.en), p)) + '</div></div></div>';
     }).join('');
+    if (hasApproval) {
+      acts += '<p class="small" style="margin-top:8px;color:var(--text-3)">\ud83e\ude7b '
+        + esc(XT('fw.x_approvals', 'This transaction grants spending power. See \u2014 and revoke \u2014 what this wallet has ALREADY granted:'))
+        + ' <a href="/approvals">' + esc(XT('nav.approvals', 'Allowance X-ray')) + '</a></p>';
+    }
     var flags = r.flags.map(function (f) {
       return '<div class="flag sev-' + esc(SEVCLS[f.sev] || 'info') + '"><span class="dot"></span><div>'
         + '<div class="ti">' + esc(XT('txr.f_' + f.id, (FLAG_EN[f.id] || f.id).split(' — ')[0]))
@@ -239,7 +248,7 @@
   });
 })();
 </script>
-<script src="/js/i18n.js?v=89"></script>
+<script src="/js/i18n.js?v=91"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/ambient.js?v=3" defer></script>
 </body>

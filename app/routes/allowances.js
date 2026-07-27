@@ -14,6 +14,22 @@ router.use(rateLimit({ windowMs: 60000, max: 20, key: ipKey }));
 const cache = new Map();   // `${chain}|${addr}` -> { at, body }
 const CACHE_MAX = 300;
 
+// ENS forward resolution for the X-ray input. Registered BEFORE the
+// /:chain/:address route — otherwise 'resolve' would parse as a chain.
+router.get('/resolve/:name', async (req, res) => {
+  try {
+    const { resolveEnsName, NAME_RE } = require('../lib/ens');
+    const name = String(req.params.name || '').trim().toLowerCase();
+    if (!NAME_RE.test(name)) return res.status(400).json({ error: 'Bad name' });
+    const address = await resolveEnsName(name);
+    // null covers unset AND rpc failure — unresolved, never zero.
+    res.set('Cache-Control', 'public, max-age=300').json({ name, address });
+  } catch (err) {
+    console.error('ENS resolve error:', err.stack || err.message);
+    res.status(500).json({ error: 'Resolution unavailable' });
+  }
+});
+
 router.get('/:chain/:address', async (req, res) => {
   try {
     const chain = String(req.params.chain || '').toLowerCase();
