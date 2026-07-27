@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Allowance X-ray</title>
+<link rel="canonical" href="https://pmvc58g2.mule.page/approvals">
+<meta name="description" content="What can spend your tokens right now? A read-only allowance check of curated tokens against well-known spenders — with the exact revoke calldata your own wallet can send. Bounded and honest: a clean result is not a guarantee.">
+<meta property="og:title" content="RUNECLAW — Allowance X-ray">
+<meta property="og:description" content="The after-the-fact half of the firewall: what your wallet has already granted, and the revoke plan your own wallet sends. Read-only, bounded, honest.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pmvc58g2.mule.page/approvals">
+<meta property="og:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Allowance X-ray">
+<meta name="twitter:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=18">
+<style>
+  .av-wrap { max-width: 860px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .av-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .lede b { color: var(--text-1); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+  input[type=text] { flex: 1; min-width: 260px; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: 10px 12px; font-family: var(--font-data); font-size: var(--fs-sm); }
+  select { background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: 10px 12px; font-size: var(--fs-sm); }
+  .grant { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); margin-top: var(--s3); }
+  .grant.unlim { border-color: var(--down); }
+  .grant .hd { display: flex; gap: var(--s3); align-items: baseline; flex-wrap: wrap; font-family: var(--font-data); }
+  .grant .tk { font-weight: 700; color: var(--text-1); }
+  .grant .amt { color: var(--text-2); font-size: var(--fs-sm); }
+  .grant .amt.unlim { color: var(--down); font-weight: 700; }
+  .grant .sp { color: var(--text-3); font-size: var(--fs-xs); }
+  .plan { margin-top: 8px; font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; word-break: break-all; }
+  .empty, .note { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.65; }
+  .empty { padding: var(--s3) 0; font-size: var(--fs-sm); }
+  .meta { color: var(--text-3); font-size: var(--fs-xs); margin-top: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s3); }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<canvas id="rc-constellation" data-viewport data-hue="350" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
+<div class="av-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/firewall" data-i18n="nav.firewall">Firewall</a>
+    <a href="/escape" data-i18n="nav.escape">Escape Agent</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="av-hero"><h1 data-i18n="av.h1">🩻 Allowance X-ray</h1></div>
+  <p class="lede" data-i18n-html="av.lede">The firewall's other half. The transaction X-ray warns you <b>before</b> a signature — this reads what your wallet has <b>already granted</b>: which contracts can spend your tokens right now, checked read-only against a short registry of well-known spenders. For every live grant it writes the exact <b>revoke calldata</b> — which <b>your own wallet</b> sends. This server never signs, never sends, never holds a key.</p>
+
+  <section class="panel reveal-on-scroll">
+    <h2 data-i18n="av.scan_h">Check an address</h2>
+    <div class="row">
+      <input type="text" id="addr" spellcheck="false" autocomplete="off" placeholder="0x…" data-i18n-attr="aria-label:av.addr_l" aria-label="Wallet address">
+      <select id="chain" data-i18n-attr="aria-label:av.chain_l" aria-label="Chain"></select>
+      <button class="btn btn--primary btn--sm" id="go" type="button" data-i18n="av.scan_b">X-ray</button>
+    </div>
+    <div id="out" style="margin-top:var(--s2)"></div>
+  </section>
+
+  <section class="panel reveal-on-scroll">
+    <h2 data-i18n="av.hon_h">What this is — and is not</h2>
+    <p class="note" data-i18n-html="av.hon_p"><b>Bounded by construction:</b> only the curated majors on each chain are checked, and only against well-known spenders (Permit2, 1inch, 0x, Seaport, and — where its bytecode really is the router — Uniswap's SwapRouter02). Approvals to anything outside this registry are <b>not scanned</b>, so a clean result is <b>never a guarantee</b>. A pair that can't be read is counted as unreadable, never shown as zero. UNLIMITED means the grant exceeds 2¹²⁸ — the same threshold the transaction X-ray uses, so both halves of the firewall agree.</p>
+  </section>
+</div>
+<script src="/js/i18n.js?v=86"></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/reveal.js?v=1" defer></script>
+<script>
+(function () {
+  'use strict';
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  function fill(tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return (map && k in map) ? map[k] : '{' + k + '}'; });
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var CHAINS = ['ethereum', 'base', 'arbitrum', 'optimism', 'bnb', 'avalanche', 'polygon'];
+  var sel = document.getElementById('chain');
+  CHAINS.forEach(function (c) {
+    var o = document.createElement('option');
+    o.value = c; o.textContent = c.charAt(0).toUpperCase() + c.slice(1);
+    sel.appendChild(o);
+  });
+  var out = document.getElementById('out');
+
+  // Human amount: raw / 10^decimals, capped display for giants.
+  function human(raw, decimals) {
+    try {
+      var s = BigInt(raw).toString();
+      if (s.length > decimals + 15) return null;   // effectively unlimited-scale
+      var whole = s.length > decimals ? s.slice(0, s.length - decimals) : '0';
+      var frac = s.padStart(decimals + 1, '0').slice(-decimals).slice(0, 4);
+      return whole + (Number(frac) ? '.' + frac : '');
+    } catch (e) { return null; }
+  }
+
+  function run() {
+    var a = document.getElementById('addr').value.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(a)) {
+      out.innerHTML = '<p class="empty">' + esc(T('av.bad_addr', 'That is not a 0x… address (42 characters).')) + '</p>';
+      return;
+    }
+    out.innerHTML = '<p class="empty">' + esc(T('av.reading', 'Reading the chain…')) + '</p>';
+    fetch('/api/allowances/' + sel.value + '/' + a)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || d.error) {
+          out.innerHTML = '<p class="empty">' + esc(T('av.unreadable', 'The chain would not answer just now — the grants are unknown, not zero. Try again shortly.')) + '</p>';
+          return;
+        }
+        var html = '';
+        if (!d.findings.length) {
+          html += '<p class="empty">✅ ' + esc(fill(T('av.clean', 'No live grants found among {n} checked pairs on {c} — within this registry only; approvals outside it are not scanned.'),
+            { n: d.zero_pairs + d.findings.length, c: d.label })) + '</p>';
+        }
+        d.findings.forEach(function (f) {
+          var h = human(f.allowance_raw, f.decimals);
+          var amt = f.unlimited
+            ? esc(T('av.unlimited', 'UNLIMITED'))
+            : esc(h !== null ? h : f.allowance_raw) + ' <span class="sp">' + esc(T('av.raw_note', '(token units)')) + '</span>';
+          html += '<div class="grant' + (f.unlimited ? ' unlim' : '') + '">'
+            + '<div class="hd"><span class="tk">' + esc(f.token) + '</span>'
+            + '<span class="amt' + (f.unlimited ? ' unlim' : '') + '">' + amt + '</span>'
+            + '<span class="sp">→ ' + esc(f.spender_label) + ' · ' + esc(f.spender) + '</span></div>'
+            + '<div class="plan"><b>' + esc(T('av.revoke_h', 'Revoke plan — your wallet sends it, we never do:')) + '</b><br>'
+            + esc(T('av.revoke_to', 'To (the token):')) + ' ' + esc(f.revoke_plan.to) + '<br>'
+            + esc(T('av.revoke_data', 'Data:')) + ' ' + esc(f.revoke_plan.data) + '<br>'
+            + esc(T('av.revoke_val', 'Value: 0 · Chain id:')) + ' ' + esc(String(f.revoke_plan.chain_id)) + '</div>'
+            + '</div>';
+        });
+        html += '<div class="meta">' + esc(fill(T('av.meta', 'Checked: {sp}. Zero pairs: {z}. Unreadable pairs (counted, never shown as zero): {u}.'),
+          { sp: d.spenders_checked.join(', '), z: d.zero_pairs, u: d.unreadable_pairs })) + '</div>';
+        out.innerHTML = html;
+      })
+      .catch(function () {
+        out.innerHTML = '<p class="empty">' + esc(T('av.unreadable', 'The chain would not answer just now — the grants are unknown, not zero. Try again shortly.')) + '</p>';
+      });
+  }
+  document.getElementById('go').addEventListener('click', run);
+  document.getElementById('addr').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+})();
+</script>
+</body>
+</html>

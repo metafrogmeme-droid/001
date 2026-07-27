@@ -38,6 +38,10 @@ https://pmvc58g2.mule.page/provable
 
 ## Public APIs (no key, no account, rate-limited)
 
+- GET /api/allowances/<chain>/<address> — read-only allowance check of
+  curated tokens against well-known spenders, with revoke calldata the
+  OWNER's wallet sends. Bounded and honest: approvals outside the
+  registry are not scanned; a clean result is never a guarantee.
 - GET /api/gas — live gas per chain (Ethereum, Base, Arbitrum, Optimism,
   BNB, Avalanche, Polygon) with native prices and a FLOOR transfer cost;
   indicative market facts, unreadable chains omitted.
@@ -67,7 +71,8 @@ https://pmvc58g2.mule.page/provable
 - /rune — the soulbound Rune of Entry collection (free, gas-only,
   one per wallet, never sellable — a badge, not an investment)
 - /gas — live per-chain gas with literal floor transfer costs
-- /escape, /stress, /firewall, /intent, /guardian — the agent-safety suite
+- /escape, /stress, /firewall, /intent, /guardian, /approvals — the
+  agent-safety suite
 
 ## What no endpoint here will ever do
 

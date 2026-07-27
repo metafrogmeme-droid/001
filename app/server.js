@@ -222,6 +222,7 @@ app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
 app.use('/api/call', require('./routes/call'));
 app.use('/api/roots', require('./routes/roots'));
+app.use('/api/allowances', require('./routes/allowances'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -281,6 +282,8 @@ app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); re
 app.get('/rune', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'rune.html')); });
 // /gas — live per-chain gas as a public utility page (market facts only).
 app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'gas.html')); });
+// /approvals — the Allowance X-ray (read-only; revoke plans the caller sends).
+app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
