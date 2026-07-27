@@ -47,6 +47,10 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
         "exposure", "networth", "research", "rwa",
+        # /mystrategy: a trader's own tighten-only confirm gate — it can only
+        # REFUSE that trader's confirms, touches nothing shared, so it belongs
+        # to exactly the role that can confirm trades.
+        "mystrategy",
     },
     "viewer": {
         "lang",

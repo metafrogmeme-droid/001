@@ -460,6 +460,7 @@ class TelegramHandler:
             ("networth", self._cmd_networth),
             ("anchor", self._cmd_anchor),
             ("leverage", self._cmd_leverage),
+            ("mystrategy", self._cmd_mystrategy),
             ("backup", self._cmd_backup),
             ("exposure", self._cmd_exposure),
             ("research", self._cmd_research),
@@ -3331,6 +3332,76 @@ class TelegramHandler:
             "Copy it OFF this host (a same-disk backup survives bad deploys, "
             "not dead disks). Restore: docs/DURABILITY.md")
         return
+
+    @guard("mystrategy")
+    async def _cmd_mystrategy(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/mystrategy — choose which strategy preset YOUR confirms run through.
+
+        ``/mystrategy`` shows the catalogue and your current selection;
+        ``/mystrategy <name>`` pins a preset (aliases work: dip, momentum,
+        scalp); ``/mystrategy off`` clears it. The selection is a TIGHTEN-ONLY
+        veto on trades you confirm: it can refuse an idea that breaks your
+        strategy's rules, it never creates trades and never touches the
+        operator's global stance. Confirm-time enforces the symbols list and
+        the confidence floor; RSI/regime/volume gates apply in the scan
+        (where those facts exist) — stated, never silently claimed.
+        """
+        from bot.core import user_strategy_store as _store
+        from bot.skills.skill_registry import RunStrategySkill as _RS
+        _tg_id = self._get_tg_id(update)
+        args = [a.lower() for a in (ctx.args or [])]
+        if args[:1] in (["off"], ["clear"], ["reset"]):
+            if _store.clear(_tg_id):
+                await self._reply(update,
+                    "\U0001f513 Strategy cleared — your confirms are ungated again.")
+            else:
+                await self._reply(update, "No strategy was set — nothing to clear.")
+            return
+        if args:
+            _raw = " ".join(args)
+            _key = _RS.ALIASES.get(_raw, _raw)
+            if _key not in _RS.PRESETS:
+                _names = " · ".join(sorted(_RS.PRESETS))
+                await self._reply(update,
+                    f"Unknown strategy \u2014 pick one of: {_names} (or /mystrategy off).")
+                return
+            _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
+            if _stored is None:
+                await self._reply(update,
+                    "Could not save the selection \u2014 nothing changed. Try again.")
+                return
+            _cfg = _RS.PRESETS[_key]
+            _enf = []
+            if isinstance(_cfg.get("symbols"), (list, tuple)) and _cfg.get("symbols"):
+                _enf.append("symbols")
+            if _cfg.get("confidence_threshold") is not None:
+                _enf.append(f"confidence \u2265 {_cfg['confidence_threshold'] * 100:.0f}%")
+            _scan = [g for g in ("rsi_threshold", "regime", "volume_spike_min")
+                     if _cfg.get(g) is not None]
+            _lines = [
+                f"{_cfg.get('icon', '')} <b>{html.escape(_cfg.get('label', _key))}</b> "
+                "is now YOUR strategy.",
+                "Trades you confirm that break its rules will be refused "
+                "(tighten-only \u2014 it never places trades).",
+                ("Enforced at confirm: " + ", ".join(_enf)) if _enf
+                else "This preset carries no confirm-time gate \u2014 it filters in the scan only.",
+            ]
+            if _scan:
+                _lines.append("Applied in the scan (not at confirm): " + ", ".join(_scan) + ".")
+            _lines.append("/mystrategy off clears it any time \u2014 revocable is the point.")
+            await self._reply(update, "\n".join(_lines))
+            return
+        _cur = _store.get(_tg_id)
+        _lines = ["\u2694\ufe0f <b>Your bot, your strategy</b>"]
+        for _k in sorted(_RS.PRESETS):
+            _c = _RS.PRESETS[_k]
+            _mark = " \u2b05 <b>yours</b>" if _k == _cur else ""
+            _lines.append(f"{_c.get('icon', '')} <code>/mystrategy {html.escape(_k)}</code> "
+                          f"\u2014 {html.escape(_c.get('desc', ''))}{_mark}")
+        _lines.append("" if _cur else "\nNone selected \u2014 your confirms run ungated.")
+        _lines.append("A selection is a tighten-only veto on YOUR confirms; "
+                      "the operator loop keeps its own stance. /mystrategy off clears.")
+        await self._reply(update, "\n".join(x for x in _lines if x))
 
     @guard("leverage")
     async def _cmd_leverage(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

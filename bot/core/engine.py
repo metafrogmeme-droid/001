@@ -3934,6 +3934,38 @@ class RuneClawEngine:
         if idea is None:
             return "Trade not found or expired."
 
+        # Per-user chosen strategy — a tighten-only veto on THIS user's
+        # confirms ("your bot, your strategy"). Applies only to explicit
+        # user confirms; the operator auto-loop stays governed by the global
+        # stance. An armed selection that cannot be evaluated fails CLOSED —
+        # unlike a missing preferences file, which simply means "no
+        # selection" (see user_strategy_store's header for the split).
+        if user_id and user_id != "auto":
+            try:
+                from bot.core import strategy_gate, user_strategy_store
+                _skey = user_strategy_store.get(user_id)
+            except Exception:
+                _skey = None
+            if _skey:
+                try:
+                    from bot.skills.skill_registry import RunStrategySkill
+                    _preset = RunStrategySkill.PRESETS.get(_skey)
+                    _g = strategy_gate.check_confirm(
+                        _skey, _preset, idea.asset, idea.confidence)
+                except Exception as _exc:
+                    _g = {"ok": False, "reason": (
+                        f"Your chosen strategy '{_skey}' could not be evaluated — "
+                        "confirms are refused until it can be (fail closed). "
+                        "/mystrategy off disarms it.")}
+                    logger.warning("strategy gate error for %s: %s", user_id, _exc)
+                if not _g.get("ok"):
+                    audit(trade_log,
+                          f"Strategy-gate REFUSED {idea.asset} for user {user_id}: "
+                          f"{_g.get('reason', '')}",
+                          action="user_strategy_gate", result="REFUSED",
+                          data={"trade_id": trade_id, "strategy": _skey})
+                    return f"\U0001f6e1 {_g.get('reason', 'Refused by your chosen strategy.')}"
+
         # Store for marketing forwarder access
         self._last_confirmed_idea = idea
 
