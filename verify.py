@@ -11,6 +11,12 @@ pure stdlib) + ``cryptography`` for the Ed25519 check — no RUNECLAW server, no
 exchange ``summary`` field. Exit 0 = PASS, non-zero = a precise diff.
 
 Coverage (v0):
+* IDENTITY (``anchor``): re-fetch the anchoring transaction from a public RPC and
+  confirm its calldata commits to *this statement's signing key*, with the agent
+  address taken from the transaction's own ``from`` field. Checks 1-7 prove the
+  arithmetic; only this says whose it is. Absent anchor -> PASS is printed as
+  ``ARITHMETIC ONLY / UNATTRIBUTED``, never as a bare PASS; a *wrong* anchor is a
+  hard failure. ``--require-identity`` makes absence an error too.
 * CEX (``cex_operator_signed``) fills: recompute fill hashes, Merkle root, metrics,
   commitment; re-run the completeness + balance-delta reconciliation; verify the
   Ed25519 signature over the commitment; enforce the trust-tier-minimum invariant.
@@ -34,6 +40,7 @@ from bot.proofofpnl import csf
 from bot.proofofpnl.ingest_onchain_evm import fetch_receipt_evm, fill_from_evm_receipt
 from bot.proofofpnl.reconcile import reconcile
 from bot.proofofpnl.statement import commitment_hash
+from bot.proofofpnl.anchor import identity_commitment
 
 
 def _fail(diffs: list[str]) -> None:
@@ -78,7 +85,7 @@ def _reverify_onchain(fill: dict, account_ids: list[str], fetch_receipt) -> tupl
     return False, f"UNVERIFIED {txh[:12]}…: chain re-derivation did not reproduce fill_hash"
 
 
-def verify_statement(stmt: dict, *, offline: bool = False, fetch_receipt=None) -> tuple[bool, list[str]]:
+def verify_statement_full(stmt: dict, *, offline: bool = False, fetch_receipt=None, anchor_rpc: str = "https://mainnet.base.org", require_identity: bool = False) -> tuple[bool, list[str]]:
     diffs: list[str] = []
     fetch_receipt = fetch_receipt or fetch_receipt_evm
 
@@ -89,7 +96,7 @@ def verify_statement(stmt: dict, *, offline: bool = False, fetch_receipt=None) -
     fills = stmt.get("fills") or []
     if not fills:
         diffs.append("statement has no fills")
-        return False, diffs
+        return False, diffs, "unattributed"
 
     # 1) Per-fill hash re-computation.
     for f in fills:
@@ -157,7 +164,149 @@ def verify_statement(stmt: dict, *, offline: bool = False, fetch_receipt=None) -
         if not ok:
             diffs.append(note)
 
-    return (len(diffs) == 0), diffs
+    # 8) Identity: whose key signed this?
+    #
+    # Checks 1-7 prove the arithmetic is honest. They do not say who did it —
+    # anyone can generate a keypair and sign a flawless statement of invented
+    # profits. The anchor is the only thing tying the signing key to a wallet,
+    # and it is re-derived from the chain rather than read from the statement's
+    # own `anchor.status`, which the operator produced from a local file.
+    att_pub = (stmt.get("attestation") or {}).get("pubkey", "")
+    anchor = stmt.get("anchor")
+    if anchor is None and isinstance(stmt.get("card"), dict):
+        anchor = stmt["card"].get("anchor")
+    #
+    # Two DIFFERENT claims live here, and collapsing them is how a verifier ends
+    # up overstating:
+    #
+    #   "the arithmetic is honest"   — checks 1-7, provable from a bare statement
+    #   "and this agent did it"      — needs an anchor, which exists one layer up
+    #                                  in the published card, not in build_epoch's
+    #                                  output
+    #
+    # So a missing anchor does not fail an otherwise-sound statement — it would
+    # be failing it for lacking something its own layer never carries. What it
+    # must never do is print an unqualified PASS, because a stranger reads that
+    # as attribution. `identity` is returned so the caller can say which claim it
+    # is actually making, and --require-identity turns absence into an error for
+    # anyone gating on attribution.
+    #
+    # A WRONG anchor is a different matter and always fails: that is a statement
+    # claiming an identity it cannot back.
+    identity = "unattributed"
+    if att_pub and isinstance(anchor, dict):
+        if offline:
+            identity = "unchecked-offline"
+        else:
+            ok_a, notes = _reverify_anchor(anchor, att_pub, anchor_rpc)
+            if ok_a:
+                identity = "confirmed"
+            else:
+                identity = "FAILED"
+                diffs.extend(notes)
+    if require_identity and identity != "confirmed":
+        diffs.append(f"identity not confirmed ({identity}) and --require-identity was set")
+
+    return (len(diffs) == 0), diffs, identity
+
+
+def verify_statement(stmt: dict, **kw) -> tuple[bool, list[str]]:
+    """``(ok, diffs)`` — the long-standing shape, preserved deliberately.
+
+    Adding identity to the return value would have broken every existing caller
+    for the sake of one new field. `verify_statement_full` carries the third
+    element for the CLI, which is the only place that needs to phrase the PASS
+    line differently depending on attribution.
+    """
+    ok, diffs, _identity = verify_statement_full(stmt, **kw)
+    return ok, diffs
+
+
+_ANCHOR_MAGIC = "52554e45434c4157"  # anchor.py's calldata prefix
+
+
+def _eth_rpc(url: str, method: str, params: list):
+    import json as _json
+    import urllib.request as _u
+    body = _json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    req = _u.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with _u.urlopen(req, timeout=15) as resp:  # noqa: S310 — public, caller-chosen RPC
+        out = _json.loads(resp.read().decode())
+    if "error" in out:
+        raise RuntimeError(f"RPC {method}: {out['error']}")
+    return out.get("result")
+
+
+def _reverify_anchor(anchor: dict, pubkey_hex: str, rpc_url: str) -> tuple[bool, list[str]]:
+    """Re-derive the identity anchor FROM THE CHAIN. Never from the statement.
+
+    Checks 1-7 prove the arithmetic: these fills produce this Merkle root, this
+    commitment, and this signature verifies under this key. What none of them
+    establish is WHOSE key it is. Without that, a valid statement says only
+    "somebody with some keypair computed these numbers" — anyone can generate a
+    keypair and produce a perfectly verifying record of imaginary profits.
+
+    The anchor closes it. The operator sent a transaction whose calldata carries
+    sha256({agent_address, ed25519_pubkey}), FROM the agent wallet itself. So:
+
+      fills -> merkle -> commitment -> signature -> pubkey
+                                                     |
+                                    on-chain calldata + sender
+
+    Two things make this worth doing rather than reading the statement's own
+    `anchor.status`:
+
+    * `anchor_for_card` builds that status from the OPERATOR'S LOCAL STATE file.
+      A published "VERIFIED" is the operator asserting their own anchor. This
+      re-fetches the transaction and re-derives everything.
+    * The agent address is taken from the transaction's `from` field, NOT from
+      the statement. A statement that names a prestigious address it does not
+      control cannot survive that, because the commitment would then be computed
+      over the real sender and would not match the calldata.
+    """
+    problems: list[str] = []
+    anchors = anchor.get("anchors") or []
+    if not anchors:
+        return False, ["UNVERIFIED: no on-chain anchor in this statement — the signing "
+                       "key is not bound to any identity, so the numbers are unattributed"]
+    confirmed = 0
+    for entry in anchors:
+        txh = str(entry.get("tx_hash") or "").strip().lower()
+        if not txh.startswith("0x") or len(txh) != 66:
+            problems.append(f"anchor tx_hash malformed: {entry.get('tx_hash')!r}")
+            continue
+        try:
+            tx = _eth_rpc(rpc_url, "eth_getTransactionByHash", [txh])
+            rcpt = _eth_rpc(rpc_url, "eth_getTransactionReceipt", [txh])
+        except Exception as exc:
+            problems.append(f"UNVERIFIED: anchor {txh} could not be re-fetched ({exc})")
+            continue
+        if not tx or not rcpt:
+            problems.append(f"anchor {txh} not found or not mined on this chain")
+            continue
+        if str(rcpt.get("status", "")).lower() != "0x1":
+            problems.append(f"anchor {txh} FAILED on-chain (status != 0x1)")
+            continue
+        sender = str(tx.get("from") or "").lower()
+        if not sender:
+            problems.append(f"anchor {txh} has no sender")
+            continue
+        # Derived from the CHAIN's sender, not from anything the statement says.
+        want = identity_commitment(sender, pubkey_hex)
+        calldata = str(tx.get("input") or "").lower()
+        if want not in calldata:
+            problems.append(
+                f"anchor {txh}: calldata does not commit to the signing key. The wallet "
+                f"{sender} anchored some identity, but not sha256({{{sender}, "
+                f"{pubkey_hex[:16]}...}}) — this statement's key is NOT the anchored one")
+            continue
+        if _ANCHOR_MAGIC not in calldata:
+            problems.append(f"anchor {txh}: calldata lacks the RUNECLAW anchor prefix")
+            continue
+        confirmed += 1
+    if confirmed == 0:
+        return False, problems or ["UNVERIFIED: no anchor could be confirmed on-chain"]
+    return True, problems
 
 
 def _contains_key(obj, key: str) -> bool:
@@ -171,16 +320,37 @@ def _contains_key(obj, key: str) -> bool:
 
 
 def main(argv: list[str]) -> int:
-    args = [a for a in argv[1:] if not a.startswith("-")]
+    _skip = set()
+    if "--anchor-rpc" in argv:
+        _skip.add(argv.index("--anchor-rpc") + 1)
+    args = [a for i, a in enumerate(argv) if i >= 1 and not a.startswith("-") and i not in _skip]
     offline = ("--offline" in argv) or (os.environ.get("POP_OFFLINE") == "1")
     if len(args) != 1:
-        print("usage: python verify.py [--offline] <statement.json>")
+        print("usage: python verify.py [--offline] [--anchor-rpc URL] "
+              "[--require-identity] <statement.json>")
         return 2
+    # The verifier picks its own RPC. Defaulting to a public Base endpoint and
+    # allowing an override is the point: a skeptic should be able to point this
+    # at an endpoint THEY trust rather than one the publisher chose.
+    anchor_rpc = os.environ.get("POP_ANCHOR_RPC", "https://mainnet.base.org")
+    if "--anchor-rpc" in argv:
+        anchor_rpc = argv[argv.index("--anchor-rpc") + 1]
     with open(args[0], "r", encoding="utf-8") as fh:
         stmt = json.load(fh)
-    ok, diffs = verify_statement(stmt, offline=offline)
+    ok, diffs, identity = verify_statement_full(
+        stmt, offline=offline, anchor_rpc=anchor_rpc,
+        require_identity=("--require-identity" in argv))
     if ok:
-        print("VERIFY: PASS")
+        # Never an unqualified "PASS". A stranger reads that as "this agent made
+        # this money", and for an unattributed statement only the arithmetic was
+        # checked — anyone can sign flawless numbers with a fresh keypair.
+        if identity == "confirmed":
+            print("VERIFY: PASS — arithmetic verified, identity confirmed on-chain")
+        elif identity == "unchecked-offline":
+            print("VERIFY: PASS (ARITHMETIC ONLY) — identity not checked (--offline)")
+        else:
+            print("VERIFY: PASS (ARITHMETIC ONLY) — UNATTRIBUTED: no on-chain anchor "
+                  "binds this signing key to an agent wallet")
         print(f"  tier={stmt.get('trust_tier')} status={stmt.get('status')} "
               f"root={stmt.get('merkle_root', '')[:16]}… "
               f"net_pnl={ (stmt.get('metrics') or {}).get('net_pnl') }")
