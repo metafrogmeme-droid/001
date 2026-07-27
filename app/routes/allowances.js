@@ -18,6 +18,23 @@ router.get('/:chain/:address', async (req, res) => {
   try {
     const chain = String(req.params.chain || '').toLowerCase();
     const address = String(req.params.address || '');
+    // Solana speaks base58, not 0x — the branch validates inside the lib.
+    if (chain === 'solana') {
+      const { readDelegates, isSolanaAddress } = require('../lib/solana');
+      if (!isSolanaAddress(address)) return res.status(400).json({ error: 'Bad address' });
+      const key = `solana|${address}`;
+      const hit = cache.get(key);
+      if (hit && Date.now() - hit.at < 60_000) {
+        return res.set('Cache-Control', 'public, max-age=60').json(hit.body);
+      }
+      const body = await readDelegates(address);
+      if (body.error) return res.status(400).json(body);
+      if (!body.unreadable_pairs) {
+        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+        cache.set(key, { at: Date.now(), body });
+      }
+      return res.set('Cache-Control', 'public, max-age=60').json(body);
+    }
     if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return res.status(400).json({ error: 'Bad address' });
     const key = `${chain}|${address.toLowerCase()}`;
     const hit = cache.get(key);

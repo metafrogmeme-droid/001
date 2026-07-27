@@ -158,10 +158,79 @@ async function getSolanaPortfolio(address) {
   return portfolio;
 }
 
+/**
+ * SPL delegate scan — Solana's version of an ERC-20 allowance. A token
+ * account with a delegate set lets that delegate spend up to
+ * delegatedAmount from it; approval drains on Solana work exactly this way.
+ * Same RPC read the portfolio uses, so no new exposure. Scans ALL token
+ * accounts (a delegate on an unknown mint matters just as much) — curated
+ * mints get their symbol, everything else shows its mint address honestly.
+ * The revoke plan is the SPL Revoke instruction, expressed as the
+ * spl-token CLI command the OWNER runs — this server never signs or sends.
+ */
+async function readDelegates(address) {
+  if (!isSolanaAddress(address)) return { error: 'bad address' };
+  const findings = [];
+  let scanned = 0;
+  try {
+    const res = await rpcCall('getTokenAccountsByOwner',
+      [address, { programId: TOKEN_PROGRAM }, { encoding: 'jsonParsed' }]);
+    const byMint = new Map(SPL_TOKENS.map(t => [t.mint, t]));
+    for (const acct of (res && res.value) || []) {
+      const info = acct?.account?.data?.parsed?.info;
+      if (!info) continue;
+      scanned++;
+      if (!info.delegate) continue;
+      const t = byMint.get(info.mint);
+      const raw = String(info.delegatedAmount?.amount ?? '0');
+      let unlimited = false;
+      try { unlimited = BigInt(raw) >= 2n ** 63n; } catch (e) { /* stays false */ }
+      findings.push({
+        token: t ? t.symbol : `${String(info.mint).slice(0, 4)}…${String(info.mint).slice(-4)}`,
+        mint: info.mint,
+        token_account: acct.pubkey,
+        spender: info.delegate,
+        spender_label: 'SPL delegate',
+        allowance_raw: raw,
+        decimals: Number(info.tokenAmount?.decimals ?? 0),
+        // u64-scale delegation is effectively unlimited for any real balance.
+        unlimited,
+        revoke_plan: {
+          command: `spl-token revoke ${acct.pubkey}`,
+          token_account: acct.pubkey,
+          chain: 'solana',
+        },
+      });
+    }
+  } catch (e) {
+    return { read_only: true, chain: 'solana', label: 'Solana',
+      spenders_checked: ['SPL delegates (all token accounts)'],
+      findings: [], zero_pairs: 0, unreadable_pairs: 1,
+      note: 'The chain would not answer — delegate state is unknown, not '
+        + 'clean. Try again shortly.' };
+  }
+  return {
+    read_only: true,
+    chain: 'solana',
+    label: 'Solana',
+    spenders_checked: ['SPL delegates (all token accounts)'],
+    findings,
+    zero_pairs: scanned - findings.length,
+    unreadable_pairs: 0,
+    note: 'Every SPL token account of this owner was scanned for a set '
+      + 'delegate — unlike the EVM check this is complete for token '
+      + 'delegates, but Solana programs can hold OTHER powers (PDAs, '
+      + 'program ownership) this scan does not see. The revoke plan is the '
+      + 'SPL Revoke instruction, run from YOUR wallet; this server never '
+      + 'signs and never sends transactions.',
+  };
+}
+
 module.exports = {
   SPL_TOKENS,
   isSolanaAddress,
   getSolanaPortfolio,
+  readDelegates,
   setRpcCall,
   setTickerFetcher,
 };

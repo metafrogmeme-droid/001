@@ -16,9 +16,12 @@ test('the deep link validates before it runs', () => {
   const page = read('approvals.html');
   const deep = page.slice(page.indexOf('Deep link:'));
   assert.match(deep, /URLSearchParams\(location\.search\)/);
-  assert.match(deep, /\/\^0x\[0-9a-fA-F\]\{40\}\$\/\.test\(qa\)/,
-    'the query address passes the same regex as manual input');
+  assert.match(deep, /validFor\(sel\.value, qa\)/,
+    'the query address passes the same per-chain validation as manual input');
   assert.match(deep, /CHAINS\.indexOf\(qc\) >= 0/, 'unknown chains are ignored');
+  // and validFor itself carries both dialects
+  assert.match(page, /0x\[0-9a-fA-F\]\{40\}/, 'EVM addresses validated');
+  assert.match(page, /\[1-9A-HJ-NP-Za-km-z\]\{32,44\}/, 'Solana addresses validated');
 });
 
 test('the dashboard wallet panel links the X-ray with its own address', () => {
