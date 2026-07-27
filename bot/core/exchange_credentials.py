@@ -24,6 +24,7 @@ separately (see PER_USER_LIVE_ENABLED and docs/LIVE_TRADING_ENABLEMENT.md).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -109,12 +110,26 @@ def _load_or_create_master_key(key_file: str = _KEY_FILE) -> bytes:
         os.chmod(str(p), 0o600)
     except OSError:
         pass
+    # The key is NOT logged. It decrypts data/exchange_creds.enc (every user's
+    # exchange key+secret+passphrase and agent private keys), data/secrets_vault.enc,
+    # and the llm_api_key column — secrets_vault.py and db/models.py share this
+    # loader. Logging it put all of that into stderr on the DEFAULT first boot,
+    # where two containments both fail: the repo configures no root logger, so the
+    # record falls through to logging.lastResort -> stderr -> the container log;
+    # and bot/utils/logger.py's redactor is attached only to the runeclaw.trade/
+    # risk/system/scan channels, not to this one. Anyone with `docker logs`, a log
+    # aggregator, a support bundle or CI output could read it.
+    #
+    # A fingerprint is enough to answer the only question an operator has here —
+    # "is the key I pinned the one being used?" — and answers it without the log
+    # line itself becoming the disclosure.
     log.warning(
         "RUNECLAW_SECRETS_KEY is not set — generated a new exchange-encryption "
-        "key and persisted it to %s (0600). For production, set "
-        "RUNECLAW_SECRETS_KEY=%s in the environment so the key is managed "
-        "explicitly and survives a wiped data dir.",
-        key_file, key.decode(),
+        "key and persisted it to %s (0600), fingerprint %s. For production, set "
+        "RUNECLAW_SECRETS_KEY explicitly so the key is managed outside the data "
+        "dir and survives it being wiped. Read the value from that file; it is "
+        "deliberately never logged.",
+        key_file, hashlib.sha256(key).hexdigest()[:12],
     )
     return key
 

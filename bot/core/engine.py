@@ -24,6 +24,7 @@ from bot.core.system_health import SystemHealthMonitor
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.live_executor import LiveExecutor, display_symbol, normalize_symbol
+from bot.core import live_executor as _live_executor_mod
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
@@ -197,6 +198,23 @@ class RuneClawEngine:
         self.live_executor.on_position_closed = lambda pos: self._on_live_position_closed(pos)
         # Wire risk engine for warning rate circuit breaker
         self.live_executor._risk_engine = self.risk
+
+        # Wire the KILL SWITCH into the executor module (once, not per instance —
+        # there are four LiveExecutor() sites and a fifth would miss a
+        # per-instance hook). Without this the drift market-fallback in
+        # live_executor opened NEW exposure on a halted account: /halt and every
+        # automatic breaker leave resting limit orders in place, and
+        # _check_open_positions keeps running while halted so that exits are
+        # still managed. Mirrors the last-mile check on the normal open path.
+        def _halted_now() -> bool:
+            try:
+                if self._halted or self.risk.circuit_breaker_active:
+                    return True
+            except Exception:
+                return True          # unknown halt state -> treat as halted
+            return False
+
+        _live_executor_mod.set_halt_check(_halted_now)
         # Wire the shared WS feed so degradation reads true price-staleness, not
         # the coarse per-tick shadow clock (avoids false "feed disconnected"
         # pauses during calm-market cycles where the scan tick > pause threshold).

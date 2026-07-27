@@ -387,6 +387,49 @@ class LivePosition:
     fill_source: Optional[str] = None
 
 
+# ── Kill-switch awareness ────────────────────────────────────────────────────
+#
+# This module had NONE. `grep -E "circuit_breaker|_halted|kill"` over it returned
+# nothing, while `_execute_drift_market_fallback` OPENS a live position with a
+# market order. The engine's last-mile check (engine.py, "halted before execute")
+# guards the normal open path; the drift fallback is reached from
+# `_check_open_positions`, which deliberately keeps running while halted so
+# existing positions are still managed — correct for exits, wrong for an open.
+#
+# Consequence, all defaults: a resting limit order placed before a `/halt` or an
+# automatic breaker trip would still convert to a market BUY on drift, opening
+# NEW exposure on a halted account. Neither /halt nor any breaker cancels resting
+# limits; only /emergency_stop does.
+#
+# Wired once, module-level, because there are four LiveExecutor() construction
+# sites. A per-instance callback would be forgotten at the fifth — the exact
+# defect class this is fixing. scripts/guard_lint.py enforces that any function
+# opening an order consults it.
+_HALT_CHECK: Optional[Callable[[], bool]] = None
+
+
+def set_halt_check(fn: Optional[Callable[[], bool]]) -> None:
+    """Engine calls this once so executors can see the kill switch."""
+    global _HALT_CHECK
+    _HALT_CHECK = fn
+
+
+def trading_halted() -> bool:
+    """True when the engine is halted or a circuit breaker is open.
+
+    Fails CLOSED on an exception: if the halt state cannot be read, treat
+    trading as halted. Refusing to open a position when the answer is unknown
+    costs an opportunity; opening one costs money on an account somebody has
+    already tried to stop.
+    """
+    if _HALT_CHECK is None:
+        return False          # unwired (tests, standalone use) — see guard_lint
+    try:
+        return bool(_HALT_CHECK())
+    except Exception:
+        return True
+
+
 class LiveExecutor:
     """Executes real trades on Bitget with micro-test safety limits.
 
@@ -6072,6 +6115,19 @@ class LiveExecutor:
                 # Fully filled during the cancel — the canceled-with-fill
                 # adoption path picks it up on the next sweep.
                 return None
+
+            # Opening NEW exposure — the kill switch applies here exactly as it
+            # does to a normal entry. Checked immediately before the order and
+            # not at the top of the function: the cancel above is a REDUCING
+            # action and must still happen while halted.
+            if trading_halted():
+                logger.warning(
+                    "Market fallback REFUSED for %s: engine halted or circuit "
+                    "breaker open. The resting limit has been cancelled, so no "
+                    "exposure was opened.", pos.symbol)
+                return (f"\u26d4 Limit order for {pos.symbol} cancelled on drift, but the "
+                        "market fallback was REFUSED — the engine is halted or a "
+                        "circuit breaker is open. No position was opened.")
 
             order = await exchange.create_order(
                 pos.symbol, "market", side, qty,

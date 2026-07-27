@@ -98,6 +98,41 @@ RULES: list[Rule] = [
              "check belongs at the load site."),
     ),
     Rule(
+        name="kill-switch",
+        files=["bot/core/live_executor.py"],
+        language="python",
+        trigger=r"await exchange\.create_order\(",
+        guard=r"trading_halted\(\)",
+        min_sites=1,
+        # EXCLUSIONS ARE THE LOAD-BEARING PART OF THIS RULE.
+        #
+        # The first draft flagged all seven order sites, including _place_sl_tp,
+        # _partial_close, _update_exchange_sl and _close_position_inner. Those
+        # REDUCE exposure, and "fixing" them to satisfy this linter would stop
+        # stop-losses from being placed during a halt — the exact opposite of
+        # what a kill switch is for, and strictly worse than the defect the rule
+        # exists to catch. A guard rule that pressures someone into a dangerous
+        # change is not a safety control.
+        #
+        # So: only OPENING paths must consult the switch. Anything that reduces
+        # or protects a position keeps working while halted, by design.
+        exclude_functions=[
+            "_place_sl_tp",           # places the protective stop — must run while halted
+            "_partial_close",         # reduces exposure
+            "_update_exchange_sl",    # tightens the stop
+            "_close_position_inner",  # exits
+            "_create_order_idempotent",  # transport helper; the normal open path is
+                                         # gated upstream at engine.py's last-mile check
+            "trading_halted",         # the guard itself, quoted in its own docstring
+        ],
+        why=("An order-opening path in the executor that does not consult the kill "
+             "switch. /halt and every automatic breaker leave resting limit orders in "
+             "place, and _check_open_positions keeps running while halted so exits are "
+             "still managed — so a drift fallback could open NEW exposure on an account "
+             "somebody had already stopped. If the new function REDUCES exposure, add it "
+             "to exclude_functions instead; do not gate it."),
+    ),
+    Rule(
         name="tier-gate",
         files=["bot/skills/telegram_handler.py"],
         language="python",
