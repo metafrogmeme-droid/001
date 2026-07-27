@@ -540,12 +540,13 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
   }
 });
 
-// GET /api/arena/leaderboard — PUBLIC. Opt-in handles + percent return only
-// (§4: no balances, no dollar figures — not even virtual ones).
-router.get('/leaderboard', async (req, res) => {
-  try {
-    const [accounts] = await pool.execute('SELECT user_id, balance FROM arena_accounts');
-    if (!accounts.length) return res.json({ rows: [], ranked_total: 0 });
+// The leaderboard computation — one source of truth shared by the JSON route
+// below and the frame card (routes/frame.js). §4 is enforced HERE: the
+// returned rows carry handle, percent and counts only — no balances, no
+// dollar figures (not even virtual ones).
+async function computeLeaderboard() {
+  const [accounts] = await pool.execute('SELECT user_id, balance FROM arena_accounts');
+  if (!accounts.length) return { rows: [], ranked_total: 0 };
     const [allPos] = await pool.execute(
       'SELECT id, user_id, symbol, direction, entry, margin, leverage FROM arena_positions');
     const [handles] = await pool.execute(
@@ -588,7 +589,12 @@ router.get('/leaderboard', async (req, res) => {
       .sort((x, y) => y.return_pct - x.return_pct)
       .slice(0, 50)
       .map((r, i) => ({ rank: i + 1, ...r }));
-    res.json({ rows, ranked_total: rows.length, virtual: true });
+  return { rows, ranked_total: rows.length, virtual: true };
+}
+
+router.get('/leaderboard', async (req, res) => {
+  try {
+    res.json(await computeLeaderboard());
   } catch (err) {
     console.error('Arena leaderboard error:', err.stack || err.message);
     res.status(500).json({ error: 'Leaderboard unavailable' });
@@ -801,3 +807,4 @@ router.post('/season', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.computeLeaderboard = computeLeaderboard;

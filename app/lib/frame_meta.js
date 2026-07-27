@@ -108,4 +108,38 @@ function traderRefreshFrame(handle, origin, bust) {
   ].join('\n');
 }
 
-module.exports = { injectCallMeta, injectTraderMeta, callVerifyFrame, traderRefreshFrame, KEY_RE };
+/** The arena leaderboard as a frame — no path param, just an origin. */
+function boardTags(base, bust) {
+  const img = `${base}/api/frame/leaderboard/image${bust ? `?t=${encodeURIComponent(bust)}` : ''}`;
+  const page = `${base}/arena`;
+  const post = `${base}/api/frame/leaderboard/refresh`;
+  return [
+    '<meta name="fc:frame" content="vNext">',
+    `<meta name="fc:frame:image" content="${escAttr(img)}">`,
+    `<meta name="fc:frame:post_url" content="${escAttr(post)}">`,
+    '<meta name="fc:frame:button:1" content="Enter the Arena">',
+    '<meta name="fc:frame:button:1:action" content="link">',
+    `<meta name="fc:frame:button:1:target" content="${escAttr(page)}">`,
+    '<meta name="fc:frame:button:2" content="Refresh the board">',
+    '<meta name="fc:frame:button:2:action" content="post">',
+    `<meta property="og:image" content="${escAttr(img)}">`,
+  ];
+}
+
+function injectBoardMeta(html, origin) {
+  const base = String(origin || '').trim().replace(/\/+$/, '');
+  if (!base) return html;
+  return html.replace('</head>', boardTags(base).join('\n') + '\n</head>');
+}
+
+function boardRefreshFrame(origin, bust) {
+  const base = String(origin || '').trim().replace(/\/+$/, '');
+  if (!base) return null;
+  return ['<!DOCTYPE html><html><head>']
+    .concat(boardTags(base, bust))
+    .concat([`</head><body>Board refreshed. Open ${escAttr(base)}/arena for the live floor.</body></html>`])
+    .join('\n');
+}
+
+module.exports = { injectCallMeta, injectTraderMeta, callVerifyFrame, traderRefreshFrame,
+  injectBoardMeta, boardRefreshFrame, KEY_RE };

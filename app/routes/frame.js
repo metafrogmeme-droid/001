@@ -119,6 +119,57 @@ router.post('/call/:key/verify', (req, res) => {
   res.type('html').set('Cache-Control', 'no-store').send(html);
 });
 
+// ── Leaderboard card — the whole board as a feed image ───────────────────────
+// One source of truth: the SAME computeLeaderboard the JSON route serves,
+// so the card can never disagree with the API. §4 drawn strictly: handles,
+// percent and counts only. An empty board answers an honest card.
+const boardCache = { at: 0, png: null };
+
+async function renderBoard() {
+  const { computeLeaderboard } = require('./arena');
+  const board = await computeLeaderboard();
+  const c = baseCard('PAPER ARENA - VIRTUAL STAKE');
+  if (!board.rows.length) {
+    c.center('NO RANKED TRADERS YET', 190, 3, COLORS.muted);
+    c.center('HANDLES ARE OPT-IN', 250, 2, COLORS.muted);
+    c.center('PERCENT AND COUNTS ONLY - NEVER AN AMOUNT', 330, 2, COLORS.muted);
+    return c.png();
+  }
+  c.center('LEADERBOARD - TOP ' + Math.min(5, board.rows.length)
+    + ' OF ' + board.ranked_total, 132, 2, COLORS.text);
+  board.rows.slice(0, 5).forEach((r, i) => {
+    const pct = Number(r.return_pct) || 0;
+    const line = '#' + r.rank + ' ' + String(r.handle).toUpperCase()
+      + ' ' + (pct >= 0 ? '+' : '-') + Math.abs(pct).toFixed(2) + ' PCT'
+      + '  SEALED:' + r.sealed + '/' + r.closes;
+    c.center(line, 168 + i * 30, 2, pct >= 0 ? COLORS.up : COLORS.down);
+  });
+  c.center('PERCENT AND COUNTS ONLY - NEVER AN AMOUNT', 330, 2, COLORS.muted);
+  c.center('EVERY SEALED CLOSE VERIFIES IN YOUR BROWSER', 360, 2, COLORS.muted);
+  return c.png();
+}
+
+router.get('/leaderboard/image', async (req, res) => {
+  try {
+    if (!boardCache.png || Date.now() - boardCache.at > 60_000) {
+      boardCache.png = await renderBoard();
+      boardCache.at = Date.now();
+    }
+    res.type('png').set('Cache-Control', 'public, max-age=60').send(boardCache.png);
+  } catch (err) {
+    console.error('Board frame error:', err.stack || err.message);
+    res.status(500).json({ error: 'Card unavailable' });
+  }
+});
+
+router.post('/leaderboard/refresh', (req, res) => {
+  const origin = publicOrigin.configured();
+  if (!origin) return res.status(400).json({ error: 'No public origin' });
+  const { boardRefreshFrame } = require('../lib/frame_meta');
+  res.type('html').set('Cache-Control', 'no-store')
+    .send(boardRefreshFrame(origin, Date.now().toString(36)));
+});
+
 router.post('/trader/:handle/refresh', (req, res) => {
   const handle = String(req.params.handle || '').trim();
   const origin = publicOrigin.configured();

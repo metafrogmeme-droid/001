@@ -296,7 +296,19 @@ app.get('/roots', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); re
 // The complete third-party verification contract (payload formats, root
 // construction, copy-paste verification snippets) — no account, no trust.
 app.get('/provable', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'provable.html')); });
-app.get('/leaderboard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'leaderboard.html')); });
+// /leaderboard — the board unfurls as a live frame card when the public
+// origin is known; injection failure serves the untouched page (and the
+// static og:image is stripped only when the live card really took over).
+app.get('/leaderboard', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  let html = require('fs').readFileSync(path.join(__dirname, 'public', 'leaderboard.html'), 'utf8');
+  const origin = require('./lib/public_origin').configured();
+  const withMeta = require('./lib/frame_meta').injectBoardMeta(html, origin);
+  if (withMeta !== html) {
+    html = withMeta.replace(/<meta property="og:image" content="[^"]*og_image_1200x630\.jpg">\n?/, '');
+  }
+  res.type('html').send(html);
+});
 // /arena — SSR unfurl: when a season exists, shared links carry its live
 // status ("RUNECLAW Arena · Genesis is LIVE"). §4: name + status + window
 // only; best-effort with the static pitch as fallback.
@@ -319,9 +331,16 @@ app.get('/arena', async (req, res) => {
     }
   } catch (e) { /* static pitch remains */ }
   const clean = (t) => t.replace(/[&<>"']/g, '');
-  const html = require('fs').readFileSync(path.join(__dirname, 'public', 'arena.html'), 'utf8')
+  let html = require('fs').readFileSync(path.join(__dirname, 'public', 'arena.html'), 'utf8')
     .replace(/__ARENATITLE__/g, clean(title))
     .replace(/__ARENAOG__/g, clean(og));
+  // The live board card takes over the unfurl when the origin is known —
+  // the static og:image is stripped only when injection really happened.
+  const withBoard = require('./lib/frame_meta').injectBoardMeta(
+    html, require('./lib/public_origin').configured());
+  if (withBoard !== html) {
+    html = withBoard.replace(/<meta property="og:image" content="[^"]*og_image_1200x630\.jpg">\n?/, '');
+  }
   res.type('html').send(html);
 });
 // Public Arena trader card — SSR unfurl: the handle AND the trader's live

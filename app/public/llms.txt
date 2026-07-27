@@ -55,6 +55,8 @@ https://pmvc58g2.mule.page/provable
 - GET /api/nft/stats — the soulbound Rune of Entry collection count.
 - GET /api/frame/call/<key>/image — a sealed call as a 800x418 PNG frame
   card (server-recomputed check stated ON the image).
+- GET /api/frame/leaderboard/image — the whole paper-trading board as a
+  frame card: handles, percent and counts only, refreshed each minute.
 
 ## Pages worth reading
 

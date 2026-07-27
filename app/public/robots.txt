@@ -3,3 +3,4 @@
 # honestly, with the verification quickstart.
 User-agent: *
 Allow: /
+Sitemap: https://pmvc58g2.mule.page/sitemap.xml
