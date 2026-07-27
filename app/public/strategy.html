@@ -91,13 +91,25 @@
     if (r.type === 'direction') return String(v).replace('_', ' ');
     return String(v);
   }
-  function rulesBlock(rules) {
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  function profileLine(p) {
+    if (!p || !p.facts || !p.facts.length) return '';
+    var fillT = function (tpl, map) { return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return map[k] != null ? map[k] : '{' + k + '}'; }); };
+    var facts = p.facts.map(function (f) { return fillT(T('sp.f_' + f.id, f.en), f.params || {}); }).join(' · ');
+    return '<div style="font-size:12px;color:var(--text-2);margin-bottom:8px" title="' + esc(T('sp.cv', 'a shape read of the config — not a safety verdict')) + '">'
+      + '<span class="chip">' + esc(T('sp.h', 'Declared constraints')) + ': <b>' + esc(T('sp.tier_' + p.tier, p.tier)) + '</b></span> ' + esc(facts) + '</div>';
+  }
+  function rulesBlock(rules, prof) {
     if (!rules || !rules.length) return '';
     var chips = rules.map(function (r) {
       return '<span class="chip"><span style="color:var(--text-3)">' + esc(RULE_LABEL[r.type] || r.type)
         + '</span>&nbsp;<b>' + esc(ruleVal(r)) + '</b></span>';
     }).join('');
     return '<div class="sc"><div class="k" style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);margin-bottom:8px">Strategy rules</div>'
+      + profileLine(prof)
       + '<div class="chips" style="margin:0">' + chips + '</div>'
       + '<p class="prov">A member-authored config — intent rules, not a verified backtest. No dollar figures, no performance claims.</p></div>';
   }
@@ -138,7 +150,7 @@
       + (a.tagline ? '<p class="tagline">' + esc(a.tagline) + '</p>' : '') + '</div></div>'
       + (a.how ? '<p class="how"><b>How it trades:</b> ' + esc(a.how) + '</p>' : '')
       + (chips ? '<div class="chips">' + chips + '</div>' : '')
-      + (a.community ? rulesBlock(a.rules) : scoreBlock(a.scorecard))
+      + (a.community ? rulesBlock(a.rules, a.risk_profile) : scoreBlock(a.scorecard))
       + '<div class="cta-row">'
       + (a.community
         // A member config — no frozen backtest to reproduce. Fork it into your
@@ -186,6 +198,24 @@
   // this slug is not there — earns notFound(); every other failure says so.
   // Someone opening a shared strategy link during an outage should not be told
   // their strategy does not exist.
+  // The two catalogues are INDEPENDENT sources: an engine-gateway outage is
+  // no reason to break a shared community link. So an engine-read failure
+  // still tries the community endpoint — but it forfeits the right to say
+  // notFound (the slug might live in the catalogue we could not read).
+  function tryCommunity(engineReadable) {
+    fetch('/api/public/user-strategies/' + encodeURIComponent(slug), { headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        if (r.status === 404) return null;              // genuinely not there
+        if (!r.ok) throw new Error('HTTP ' + r.status);  // we could not look
+        return r.json();
+      })
+      .then(function (cd) {
+        if (cd && cd.agent) render(cd.agent);
+        else if (engineReadable) notFound();             // both sources answered: absent
+        else unavailable();                              // engine unread — no absence claim
+      })
+      .catch(unavailable);
+  }
   fetch('/api/public/strategies', { headers: { Accept: 'application/json' } })
     .then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -195,19 +225,12 @@
       var agents = (d && d.agents) || [];
       var a = agents.filter(function (x) { return String(x.id).toLowerCase() === slug; })[0];
       if (a) { render(a); return; }
-      fetch('/api/public/user-strategies/' + encodeURIComponent(slug), { headers: { Accept: 'application/json' } })
-        .then(function (r) {
-          if (r.status === 404) return null;              // genuinely not there
-          if (!r.ok) throw new Error('HTTP ' + r.status);  // we could not look
-          return r.json();
-        })
-        .then(function (cd) { if (cd && cd.agent) render(cd.agent); else notFound(); })
-        .catch(unavailable);
+      tryCommunity(true);
     })
-    .catch(unavailable);
+    .catch(function () { tryCommunity(false); });
 })();
 </script>
-<script src="/js/i18n.js?v=96"></script>
+<script src="/js/i18n.js?v=97"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>

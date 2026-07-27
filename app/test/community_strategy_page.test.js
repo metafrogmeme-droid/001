@@ -42,7 +42,7 @@ test('strategy.html falls back to the community endpoint and renders rules, not 
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'strategy.html'), 'utf8');
   assert.match(html, /\/api\/public\/user-strategies\//);      // the fallback fetch
   assert.match(html, /function rulesBlock/);                   // renders rule chips
-  assert.match(html, /a\.community \? rulesBlock\(a\.rules\) : scoreBlock/);
+  assert.match(html, /a\.community \? rulesBlock\(a\.rules, a\.risk_profile\) : scoreBlock/);
   // §4: the community disclaimer states config-only, no performance claim.
   assert.match(html, /member-authored <b>config<\/b>|community strategy is a member-authored/i);
 });

@@ -109,6 +109,19 @@
     if (r.type === 'direction') return String(v).replace('_', ' ');
     return String(v);
   }
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  // Derived risk profile — computed server-side from the rules; shown with its
+  // facts so the tier can never read as more than what the config declares.
+  function profileLine(p) {
+    if (!p || !p.facts || !p.facts.length) return '';
+    var fillT = function (tpl, map) { return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return map[k] != null ? map[k] : '{' + k + '}'; }); };
+    var facts = p.facts.map(function (f) { return fillT(T('sp.f_' + f.id, f.en), f.params || {}); }).join(' · ');
+    return '<div class="prof" style="font-size:11px;color:var(--text-3);margin-top:6px" title="' + esc(T('sp.cv', 'a shape read of the config — not a safety verdict')) + '">'
+      + '<span class="tag">' + esc(T('sp.h', 'Declared constraints')) + ': <b>' + esc(T('sp.tier_' + p.tier, p.tier)) + '</b></span> ' + esc(facts) + '</div>';
+  }
   function ruleChips(rules) {
     return (rules || []).map(function (r) {
       return '<span class="rchip"><span class="rk">' + esc(RULE_LABEL[r.type] || r.type) + '</span> '
@@ -128,6 +141,7 @@
         + (a.how ? '<p class="how"><b>How it trades:</b> ' + esc(a.how) + '</p>' : '')
         + (chips ? '<div class="tags">' + chips + '</div>' : '')
         + '<div class="rules">' + ruleChips(a.rules) + '</div>'
+        + profileLine(a.risk_profile)
         + '<div class="go">View strategy → <span style="color:var(--text-3)">· config-only, no dollars</span></div></a>';
     }
     var sc = a.scorecard && a.scorecard.metrics;
@@ -226,7 +240,7 @@
     });
 })();
 </script>
-<script src="/js/i18n.js?v=96"></script>
+<script src="/js/i18n.js?v=97"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>

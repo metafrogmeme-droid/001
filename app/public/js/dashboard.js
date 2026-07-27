@@ -5815,6 +5815,15 @@
     }
     loadAgentPicks();
 
+    // Derived risk profile — server-computed restatement of the rules. A shape
+    // read, never a safety verdict; the tier is always shown WITH its facts.
+    function profileLine(p) {
+      if (!p || !p.facts || !p.facts.length) return '';
+      const fillT = (tpl, map) => String(tpl).replace(/\{(\w+)\}/g, (_, k) => map[k] != null ? map[k] : '{' + k + '}');
+      const facts = p.facts.map(f => fillT(T('sp.f_' + f.id, f.en), f.params || {})).join(' · ');
+      return `<div class="small muted" title="${esc(T('sp.cv', 'a shape read of the config — not a safety verdict'))}">`
+        + `<span class="chip" style="font-size:10px">${esc(T('sp.h', 'Declared constraints'))}: <b>${esc(T('sp.tier_' + p.tier, p.tier))}</b></span> ${esc(facts)}</div>`;
+    }
     // ── Community strategies (published, member-authored — config only) ──
     function commCard(a) {
       const chips = (a.rules || []).map(ruleChip).join('');
@@ -5827,6 +5836,7 @@
         ${a.how ? `<p class="small muted" style="margin:0"><b>How it trades:</b> ${esc(a.how)}</p>` : ''}
         ${tags ? `<div class="row" style="gap:5px;flex-wrap:wrap">${tags}</div>` : ''}
         <div class="row" style="gap:5px;flex-wrap:wrap">${chips}</div>
+        ${profileLine(a.risk_profile)}
         <div class="row" style="gap:var(--s2);align-items:center;margin-top:auto">
           <a class="small" href="/agents/${encodeURIComponent(a.slug || a.id)}">Open shareable page →</a>
           ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-sfork="${esc(a.slug || a.id)}" type="button" style="margin-left:auto">⑂ Fork</button>` : ''}
@@ -5851,6 +5861,11 @@
       if (!host) return;
       const opt = (v, l) => `<option value="${v}">${l}</option>`;
       host.innerHTML = `
+        <div id="tplGallery" style="margin-bottom:var(--s3)" hidden>
+          <div class="small" style="color:var(--text-2);margin-bottom:6px"><b data-i18n="dp.tpl_h">Start from an archetype</b>
+            <span class="muted" data-i18n="dp.tpl_note">— curated configs in the same rule vocabulary. Pick one, make it yours.</span></div>
+          <div class="row" style="gap:6px;flex-wrap:wrap" id="tplChips"></div>
+        </div>
         <form id="stratForm" class="stack" novalidate>
           <div class="form-row">
             <div class="field" style="max-width:70px"><label for="sIcon">Icon</label><input class="input" id="sIcon" maxlength="4" placeholder="🧠" autocomplete="off"></div>
@@ -5869,6 +5884,10 @@
             <div class="field"><label for="sSyms">Only these symbols</label><input class="input" id="sSyms" placeholder="BTC, ETH, SOL" autocomplete="off"></div>
           </div>
           <div class="form-row">
+            <div class="field"><label for="sDayLoss" data-i18n="dp.f_dayloss">Max daily loss %</label><input class="input input--num" id="sDayLoss" type="number" min="0.1" max="100" step="0.1" placeholder="e.g. 3"></div>
+            <div class="field"><label for="sDd" data-i18n="dp.f_dd">Max drawdown %</label><input class="input input--num" id="sDd" type="number" min="0.1" max="100" step="0.1" placeholder="e.g. 10"></div>
+          </div>
+          <div class="form-row">
             <div class="field"><label for="sReg">Regime</label><select class="input" id="sReg">${opt('', '—')}${opt('trend_up', 'Trend up')}${opt('trend_down', 'Trend down')}${opt('range', 'Range')}${opt('volatile', 'Volatile')}${opt('any', 'Any')}</select></div>
             <div class="field"><label for="sHor">Horizon</label><select class="input" id="sHor">${opt('', '—')}${opt('scalp', 'Scalp')}${opt('intraday', 'Intraday')}${opt('swing', 'Swing')}${opt('position', 'Position')}</select></div>
           </div>
@@ -5880,10 +5899,32 @@
           <p class="small muted" style="margin:0">A strategy is a <b>config</b> — your intent rules and description. No dollar figures, no performance claims; publish makes it visible on the community marketplace.</p>
         </form>
         <div id="myStratList" style="margin-top:var(--s3)"><div class="skel"></div></div>`;
+      loadTemplates();
       $('stratForm').addEventListener('submit', saveStrat);
       $('sReset').addEventListener('click', () => resetStratForm());
       document.getElementById('myStratList').addEventListener('click', onMyStratClick);
       refreshMyStrat();
+    }
+    let _TPLS = [];
+    async function loadTemplates() {
+      try {
+        const r = await fetchJSON('/api/public/strategy-templates', { auth: false, timeoutMs: 10000 });
+        _TPLS = (r.ok && r.data && r.data.templates) || [];
+      } catch (_) { _TPLS = []; }
+      const box = document.getElementById('tplGallery'), chips = document.getElementById('tplChips');
+      if (!box || !chips || !_TPLS.length) return;
+      chips.innerHTML = _TPLS.map((t, i) =>
+        `<button class="chip" type="button" data-tpl="${i}" title="${esc(t.tagline || '')}">${esc(t.icon)} ${esc(t.name)}</button>`).join('');
+      chips.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-tpl]');
+        const t = b && _TPLS[Number(b.getAttribute('data-tpl'))];
+        if (!t) return;
+        resetStratForm();
+        fillStratFields(t);
+        _stratEditId = null;
+        if ($('sMsg')) $('sMsg').innerHTML = `<span class="pos">${esc(T('dd.t_tpl', 'Archetype loaded — make it yours, then Save.'))}</span>`;
+      });
+      box.hidden = false;
     }
     function collectStrategy() {
       const num = (id) => { const v = parseFloat($(id).value); return isFinite(v) ? v : null; };
@@ -5893,6 +5934,8 @@
       if (num('sRr') != null) rules.push({ type: 'min_rr', value: num('sRr') });
       if (num('sSize') != null) rules.push({ type: 'max_position_pct', value: num('sSize') });
       if (num('sOpen') != null) rules.push({ type: 'max_open_positions', value: num('sOpen') });
+      if (num('sDayLoss') != null) rules.push({ type: 'max_daily_loss_pct', value: num('sDayLoss') });
+      if (num('sDd') != null) rules.push({ type: 'max_drawdown_pct', value: num('sDd') });
       const syms = ($('sSyms').value || '').trim();
       if (syms) rules.push({ type: 'allowed_symbols', value: syms });
       return {
@@ -5902,7 +5945,7 @@
     }
     function resetStratForm() {
       _stratEditId = null;
-      ['sIcon', 'sName', 'sTag', 'sHow', 'sConf', 'sRr', 'sSize', 'sOpen', 'sSyms'].forEach(id => { if ($(id)) $(id).value = ''; });
+      ['sIcon', 'sName', 'sTag', 'sHow', 'sConf', 'sRr', 'sSize', 'sOpen', 'sSyms', 'sDayLoss', 'sDd'].forEach(id => { if ($(id)) $(id).value = ''; });
       if ($('sDir')) $('sDir').value = 'both';
       if ($('sReg')) $('sReg').value = ''; if ($('sHor')) $('sHor').value = '';
       if ($('sSave')) $('sSave').textContent = 'Save draft';
@@ -5913,7 +5956,7 @@
     function fillStratFields(s) {
       $('sIcon').value = s.icon || ''; $('sName').value = s.name || ''; $('sTag').value = s.tagline || '';
       $('sHow').value = s.how || ''; $('sReg').value = s.regime || ''; $('sHor').value = s.horizon || '';
-      $('sDir').value = 'both'; ['sConf', 'sRr', 'sSize', 'sOpen', 'sSyms'].forEach(x => { if ($(x)) $(x).value = ''; });
+      $('sDir').value = 'both'; ['sConf', 'sRr', 'sSize', 'sOpen', 'sSyms', 'sDayLoss', 'sDd'].forEach(x => { if ($(x)) $(x).value = ''; });
       (s.rules || []).forEach(r => {
         if (r.type === 'direction') $('sDir').value = r.value;
         else if (r.type === 'min_confidence') $('sConf').value = Math.round(Number(r.value) * 100);
@@ -5921,6 +5964,8 @@
         else if (r.type === 'max_position_pct') $('sSize').value = r.value;
         else if (r.type === 'max_open_positions') $('sOpen').value = r.value;
         else if (r.type === 'allowed_symbols') $('sSyms').value = (r.value || []).join(', ');
+        else if (r.type === 'max_daily_loss_pct') $('sDayLoss').value = r.value;
+        else if (r.type === 'max_drawdown_pct') $('sDd').value = r.value;
       });
     }
     // Fork: load someone's strategy into the builder as a NEW draft (no edit id),

@@ -121,6 +121,57 @@ function validateStrategy(input) {
   return { ok: true, data: { name, tagline, how, icon, risk_label, regime, horizon, rules } };
 }
 
+// ── derived risk profile (computed, never authored) ──────────────────────────
+// A deterministic RESTATEMENT of what the rules literally say — computed
+// server-side so the public card carries a label no author can type. It is a
+// constraint-shape read, never a safety verdict: the tier is always paired
+// with the literal facts it was derived from, and free-text risk_label stays
+// the author's voice, visibly separate. Facts follow the envelope-violation
+// {id, en, params} pattern so the UI can whole-line translate them.
+const CONTAINMENT_AXES = {
+  loss: new Set(['max_daily_loss_pct', 'max_drawdown_pct']),
+  sizing: new Set(['max_position_pct', 'max_symbol_exposure_pct',
+    'max_portfolio_exposure_pct', 'min_free_margin_pct']),
+  count: new Set(['max_open_positions']),
+  scope: new Set(['allowed_symbols', 'blocked_symbols']),
+};
+const FACTS = {
+  max_position_pct: (v) => ({ id: 'pos', en: '≤{v}% per position', params: { v } }),
+  max_symbol_exposure_pct: (v) => ({ id: 'sym', en: 'symbol exposure ≤{v}%', params: { v } }),
+  max_portfolio_exposure_pct: (v) => ({ id: 'port', en: 'portfolio exposure ≤{v}%', params: { v } }),
+  max_daily_loss_pct: (v) => ({ id: 'daily', en: 'daily loss halt at {v}%', params: { v } }),
+  max_drawdown_pct: (v) => ({ id: 'dd', en: 'drawdown halt at {v}%', params: { v } }),
+  min_free_margin_pct: (v) => ({ id: 'margin', en: 'free margin ≥{v}%', params: { v } }),
+  max_open_positions: (v) => ({ id: 'open', en: '≤{v} open positions', params: { v } }),
+  min_confidence: (v) => ({ id: 'conf', en: 'confidence ≥{v}%', params: { v: Math.round(v * 100) } }),
+  min_rr: (v) => ({ id: 'rr', en: 'R:R ≥{v}', params: { v } }),
+};
+function deriveRiskProfile(rules) {
+  const rs = Array.isArray(rules) ? rules : [];
+  const facts = [];
+  const axes = new Set();
+  for (const r of rs) {
+    if (!r || !r.type) continue;
+    for (const [axis, types] of Object.entries(CONTAINMENT_AXES)) {
+      if (types.has(r.type)) axes.add(axis);
+    }
+    if (r.type === 'direction' && (r.value === 'long_only' || r.value === 'short_only')) {
+      axes.add('direction');
+      facts.push({ id: r.value === 'long_only' ? 'dir_long' : 'dir_short',
+        en: r.value === 'long_only' ? 'long only' : 'short only', params: {} });
+    } else if (r.type === 'allowed_symbols' && Array.isArray(r.value) && r.value.length) {
+      facts.push({ id: 'scope', en: '{n} symbols only', params: { n: r.value.length } });
+    } else if (FACTS[r.type]) {
+      facts.push(FACTS[r.type](r.value));
+    }
+  }
+  // Selectivity rules (confidence, R:R, strategy types) never count as
+  // containment — being picky about entries contains nothing once in.
+  const tier = (axes.has('loss') && axes.has('sizing') && axes.size >= 4) ? 'tight'
+    : axes.size >= 2 ? 'capped' : 'light';
+  return { tier, axes: [...axes].sort(), facts };
+}
+
 // ── public shape (marketplace card, §4-safe: config only, no stats) ──────────
 function toPublicCard(row) {
   let rules = [];
@@ -129,7 +180,8 @@ function toPublicCard(row) {
     id: row.slug, slug: row.slug, name: row.name, icon: row.icon || '🧠',
     tagline: row.tagline || '', how: row.how || '',
     risk_label: row.risk_label || '', regime: row.regime || '', horizon: row.horizon || '',
-    rules, community: true, updated_at: row.updated_at || row.created_at || null,
+    rules, risk_profile: deriveRiskProfile(rules), community: true,
+    updated_at: row.updated_at || row.created_at || null,
   };
 }
 function toMine(row) {
@@ -221,6 +273,6 @@ async function getPublicBySlug(slug) {
 module.exports = {
   MAX_PER_USER, MAX_PUBLIC_PER_USER,
   PCT_TYPES, LIST_TYPES, DIRECTIONS, REGIMES, HORIZONS,
-  slugify, validateRule, validateStrategy, toPublicCard,
+  slugify, validateRule, validateStrategy, toPublicCard, deriveRiskProfile,
   listMine, getMine, create, update, remove, setVisibility, listPublic, getPublicBySlug,
 };

@@ -331,6 +331,10 @@ RULES: list[Rule] = [
             "public_agent", "public_chat", "public_flight", "public_invite",
             "public_leaderboard", "public_letter", "public_proofofpnl",
             "public_status", "public_strategies", "public_user_strategies",
+            "strategy_templates",  # mounted under /api/public — a static, curated
+                                   # archetype catalogue (configs only, §4-tested:
+                                   # no dollars, no performance claims); nothing
+                                   # user-scoped is in reach.
             "sync",        # bot<->web channel; WEB_GATEWAY_SECRET, not a user session
             "track",       # mounted under /api/public
             "mcp",         # its header enumerates the public-data tools it exposes
