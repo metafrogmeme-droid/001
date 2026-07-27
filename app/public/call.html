@@ -11,6 +11,12 @@
   .call-wrap { max-width: 720px; margin: 0 auto; padding: var(--s5) var(--s4); }
   .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); }
   .verdict { border-radius: var(--radius); padding: var(--s4); margin: var(--s4) 0; font-family: var(--font-data); }
+  /* The stamp: each verdict presses in as it lands — the initial check, the
+     browser-computed verdict that replaces it, and the Merkle-anchor replay.
+     Decoration only; reduced motion sees every verdict instantly. */
+  .verdict { animation: stamp .45s cubic-bezier(.2,.8,.3,1) backwards; }
+  @keyframes stamp { from { opacity: 0; transform: scale(1.045); } }
+  @media (prefers-reduced-motion: reduce) { .verdict { animation: none; } }
   .verdict.ok { border: 1px solid var(--up); background: rgba(47,191,113,.06); }
   .verdict.bad { border: 1px solid var(--down); background: rgba(224,82,82,.08); }
   .verdict .big { font-size: var(--fs-lg); margin-bottom: 6px; }

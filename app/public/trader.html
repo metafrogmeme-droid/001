@@ -39,6 +39,10 @@
   /* Entrance: the card assembles itself instead of snapping into place. */
   .rise { opacity: 0; transform: translateY(10px); animation: rise .5s cubic-bezier(.2,.7,.3,1) forwards; }
   @keyframes rise { to { opacity: 1; transform: none; } }
+  /* Form bars grow out of the midline, oldest first — same data, just drawn
+     in the order it happened. Static under reduced motion. */
+  .spark-wrap svg rect { transform-box: fill-box; transform-origin: center; animation: barIn .35s ease-out backwards; }
+  @keyframes barIn { from { transform: scaleY(0); } }
   .tr-row { transition: background .18s ease, transform .18s ease; }
   .tr-row:hover { background: var(--surface-2); transform: translateX(2px); }
   .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin: var(--s3) 0; }
@@ -51,6 +55,7 @@
   .next-up b { color: var(--text-2); }
   @media (prefers-reduced-motion: reduce) {
     .rise { opacity: 1; transform: none; animation: none; }
+    .spark-wrap svg rect { animation: none; }
     .tr-row:hover { transform: none; }
   }
 </style>
@@ -172,8 +177,8 @@
         + (d.win_rate_pct != null ? '<span>' + f2(d.win_rate_pct) + '% win rate</span>' : '')
         + '</div>';
       if ((d.badges || []).length) {
-        html += '<div class="badges">' + d.badges.map(function (b) {
-          return '<span class="badge-chip" title="' + esc(b.name) + '">' + b.icon + ' ' + esc(b.name) + '</span>'; }).join('') + '</div>';
+        html += '<div class="badges">' + d.badges.map(function (b, i) {
+          return '<span class="badge-chip rise" style="animation-delay:' + (0.10 + i * 0.05).toFixed(2) + 's" title="' + esc(b.name) + '">' + b.icon + ' ' + esc(b.name) + '</span>'; }).join('') + '</div>';
       }
       // Form sparkline — the last closes as bars, oldest → newest, height ∝
       // |% on margin| (capped at 60%), green wins / red losses. §4: percent
@@ -188,7 +193,7 @@
           var up = t.ret_pct >= 0;
           return '<rect x="' + (i * (bw + gap)) + '" y="' + (up ? mid - mag : mid).toFixed(1)
             + '" width="' + bw + '" height="' + Math.max(1.5, mag).toFixed(1)
-            + '" rx="2" fill="' + (up ? '#2fbf71' : '#e05252') + '" opacity=".85"><title>'
+            + '" rx="2" style="animation-delay:' + (i * 0.035).toFixed(3) + 's" fill="' + (up ? '#2fbf71' : '#e05252') + '" opacity=".85"><title>'
             + esc(t.symbol) + ' ' + (t.ret_pct > 0 ? '+' : '') + f2(t.ret_pct) + '%</title></rect>';
         }).join('');
         html += '<div class="spark-wrap"><svg viewBox="0 0 ' + w + ' 76" role="img" '
