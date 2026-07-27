@@ -454,6 +454,8 @@ class TelegramHandler:
             ("sentinel", self._cmd_sentinel),
             ("escape", self._cmd_escape),
             ("guardian", self._cmd_guardian),
+            ("approvals", self._cmd_approvals),
+            ("xray", self._cmd_xray),
             # Web-parity views
             ("networth", self._cmd_networth),
             ("anchor", self._cmd_anchor),
@@ -5324,6 +5326,118 @@ class TelegramHandler:
         lines.append("\n<i>Execute with /closeall (flatten) or /emergency_stop (halt + flatten).</i>")
         sealed = bool(getattr(CONFIG.risk, "guardian_escape_enabled", False))
         lines.append(f"<i>{'🟢 plan sealed to the evidence chain' if sealed else '🟡 preview only (GUARDIAN_ESCAPE_ENABLED off)'} · this plans, it does not close</i>")
+        await self._send(update, "\n".join(lines))
+
+    @staticmethod
+    def _web_get_json(url: str, timeout: int = 20):
+        """Sync GET helper for the bot->web public API (run via to_thread).
+        Returns parsed JSON or None; never raises into the handler."""
+        import json as _json
+        import urllib.request as _rq
+        try:
+            with _rq.urlopen(_rq.Request(url, headers={"Accept": "application/json"}),
+                             timeout=timeout) as resp:
+                return _json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _web_post_json(url: str, body: dict, timeout: int = 20):
+        import json as _json
+        import urllib.request as _rq
+        try:
+            data = _json.dumps(body).encode("utf-8")
+            req = _rq.Request(url, data=data, headers={
+                "Accept": "application/json", "Content-Type": "application/json"})
+            with _rq.urlopen(req, timeout=timeout) as resp:
+                return _json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    async def _cmd_approvals(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/approvals <address-or-name.eth> [chain] — the Allowance X-ray in
+        chat: which contracts can spend the tokens of ANY address, read-only
+        via the website's public API (the same bounded, honest check the
+        /approvals page runs). Public chain data; nothing is signed or stored.
+        """
+        import asyncio as _aio
+        import re as _re
+        base = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+        args = list(ctx.args or [])
+        if not args:
+            await self._send(update,
+                "\U0001fa7b <b>Allowance X-ray</b>\n"
+                "Usage: <code>/approvals 0xADDRESS [chain]</code> or "
+                "<code>/approvals name.eth [chain]</code>\n"
+                "Chains: ethereum · base · arbitrum · optimism · bnb · avalanche · polygon · solana")
+            return
+        addr = args[0].strip()
+        chain = (args[1].strip().lower() if len(args) > 1 else "ethereum")
+        # name.eth resolves through the same endpoint the web page uses —
+        # an unresolvable name scans nothing (unresolved is never zero).
+        if _re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.eth", addr.lower()):
+            r = await _aio.to_thread(self._web_get_json,
+                                     f"{base}/api/allowances/resolve/{addr.lower()}")
+            if not r or not r.get("address"):
+                await self._send(update, "That name does not resolve \u2014 nothing was scanned.")
+                return
+            addr = r["address"]
+        if _re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr) and not addr.startswith("0x"):
+            chain = "solana"
+        d = await _aio.to_thread(self._web_get_json,
+                                 f"{base}/api/allowances/{chain}/{addr}")
+        if not d or d.get("error"):
+            await self._send(update,
+                "The chain would not answer just now \u2014 the grants are "
+                "unknown, not zero. Try again shortly.")
+            return
+        lines = [f"\U0001fa7b <b>Allowance X-ray</b> \u00b7 {html.escape(d.get('label', chain))}"]
+        finds = d.get("findings", [])
+        if not finds:
+            lines.append(f"\u2705 No live grants among {d.get('zero_pairs', 0)} checked pairs "
+                         "\u2014 within this registry only; approvals outside it are not scanned.")
+        for f in finds[:6]:
+            amt = "\u26a0 UNLIMITED" if f.get("unlimited") else f"{f.get('allowance_raw')} raw"
+            lines.append(f"\u2022 <b>{html.escape(str(f.get('token')))}</b> \u2192 "
+                         f"{html.escape(str(f.get('spender_label')))} \u00b7 {html.escape(amt)}")
+        if len(finds) > 6:
+            lines.append(f"\u2026 and {len(finds) - 6} more.")
+        if d.get("unreadable_pairs"):
+            lines.append(f"\u26a0 {d['unreadable_pairs']} pair(s) unreadable \u2014 counted, never shown as zero.")
+        lines.append(f"\nRevoke plans + full grid: {base}/approvals?a={addr}"
+                     "\n<i>A clean result is never a guarantee. Read-only \u2014 nothing was signed.</i>")
+        await self._send(update, "\n".join(lines))
+
+    async def _cmd_xray(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/xray <calldata> — decode what a transaction actually DOES before
+        signing it, through the website's public tool dispatcher (the same
+        xray_transaction tool any MCP agent calls). Pure decode: nothing sent
+        here is stored, no account is seen, amounts are RAW token units."""
+        import asyncio as _aio
+        base = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+        data = (ctx.args[0].strip() if ctx.args else "")
+        if not data.startswith("0x") or len(data) < 10:
+            await self._send(update,
+                "\U0001fa7b <b>Transaction X-ray</b>\n"
+                "Usage: <code>/xray 0xCALLDATA</code> \u2014 paste the transaction "
+                "data field from your wallet's confirmation screen.")
+            return
+        r = await _aio.to_thread(self._web_post_json, f"{base}/api/tool/invoke",
+                                 {"tool": "xray_transaction", "args": {"data": data}})
+        result = (r or {}).get("result")
+        if not result:
+            await self._send(update, "The decoder would not answer just now \u2014 try again shortly.")
+            return
+        lines = ["\U0001fa7b <b>Transaction X-ray</b>"]
+        for a in (result.get("actions") or [])[:8]:
+            en = str(a.get("en", ""))
+            for k, v in (a.get("params") or {}).items():
+                en = en.replace("{" + k + "}", str(v))
+            lines.append(f"\u2022 {html.escape(en)}")
+        for f in (result.get("flags") or [])[:4]:
+            lines.append(f"\u26a0 <b>{html.escape(str(f.get('id', '')))}</b> \u00b7 {html.escape(str(f.get('sev', '')))}")
+        lines.append("\n<i>Heuristic decode \u2014 a flag is not a verdict and unknown is not safe. "
+                     "Nothing sent here is stored.</i>")
         await self._send(update, "\n".join(lines))
 
     async def _cmd_guardian(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
