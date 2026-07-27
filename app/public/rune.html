@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — The Rune of Entry</title>
+<link rel="canonical" href="https://pmvc58g2.mule.page/rune">
+<meta name="description" content="A soulbound sigil minted free from your own wallet — gas only, one per wallet, art generated and stored fully on-chain on Base. A badge, not an investment: it promises nothing and can never be sold.">
+<meta property="og:title" content="RUNECLAW — The Rune of Entry">
+<meta property="og:description" content="Soulbound. Free — gas only. One per wallet. Fully on-chain art. It promises nothing and can never be sold; its only meaning is that you were here.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pmvc58g2.mule.page/rune">
+<meta property="og:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — The Rune of Entry">
+<meta name="twitter:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=18">
+<style>
+  .rn-wrap { max-width: 900px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .rn-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .lede b { color: var(--text-1); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .forge { font-size: var(--fs-lg); font-family: var(--font-data); }
+  .forge .muted-line { font-size: var(--fs-sm); color: var(--text-3); font-family: var(--font-body, inherit); margin-top: 6px; }
+  .contract { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2); word-break: break-all; margin-top: var(--s3); }
+  .fact { display: flex; gap: var(--s3); padding: 10px 0; border-top: 1px solid var(--line); font-size: var(--fs-sm); line-height: 1.6; color: var(--text-2); }
+  .fact:first-of-type { border-top: 0; }
+  .fact .g { font-size: 20px; line-height: 1.2; }
+  .fact b { color: var(--text-1); }
+  .step { display: flex; gap: var(--s3); padding: 8px 0; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.6; }
+  .step .n { font-family: var(--font-data); color: var(--gold-bright, #e6c34b); }
+  /* Keyboard focus visibility (a11y) */
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<canvas id="rc-constellation" data-viewport data-hue="42" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
+<div class="rn-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/learn" data-i18n="nav.learn">Study Room</a>
+    <a href="/command" data-i18n="nav.command">Command Deck</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="rn-hero" style="position:relative;min-height:150px;display:flex;align-items:flex-end">
+    <canvas id="rc-hall" aria-hidden="true" style="position:absolute;inset:0;z-index:0;pointer-events:none"></canvas>
+    <h1 data-i18n="rn.h1" style="position:relative;z-index:1">⚔️ The Rune of Entry</h1>
+  </div>
+  <p class="lede" data-i18n-html="rn.lede">A <b>soulbound sigil</b> for the people who showed up. Minted free from your own wallet — <b>gas only</b>, one per wallet, the art generated and stored <b>fully on-chain</b> on Base. It cannot be bought from anyone and cannot be sold to anyone; the only way to hold one is to have been here.</p>
+
+  <section class="panel reveal-on-scroll">
+    <h2 data-i18n="rn.st_h">The collection</h2>
+    <div class="forge" id="forge"><span class="muted" data-i18n="rn.s_loading">Reading the chain…</span></div>
+  </section>
+
+  <section class="panel reveal-on-scroll">
+    <h2 data-i18n="rn.is_h">What it is — and is not</h2>
+    <div class="fact"><span class="g">🔗</span><span data-i18n-html="rn.i1"><b>Soulbound.</b> It can never be sold or transferred — ERC-5192 locked, forever. Every transfer path in the contract reverts.</span></div>
+    <div class="fact"><span class="g">🕯️</span><span data-i18n-html="rn.i2"><b>Free.</b> Minting costs network gas only. Nothing in the contract is payable — there is no price to raise later.</span></div>
+    <div class="fact"><span class="g">☝️</span><span data-i18n-html="rn.i3"><b>One per wallet.</b> The contract enforces it — not a promise, an arithmetic fact.</span></div>
+    <div class="fact"><span class="g">⛓️</span><span data-i18n-html="rn.i4"><b>Fully on-chain art.</b> Your rune is generated from its own mint and drawn by the contract itself — no server, no IPFS, nothing that can rot or be swapped.</span></div>
+    <div class="fact"><span class="g">🪨</span><span data-i18n-html="rn.i5"><b>A badge, not an investment.</b> It promises nothing, earns nothing, and can never be resold. Its only meaning is that you were here.</span></div>
+  </section>
+
+  <section class="panel reveal-on-scroll">
+    <h2 data-i18n="rn.how_h">How to bear one</h2>
+    <div class="step"><span class="n">1</span><span data-i18n="rn.how_1">Create a free account and open the dashboard.</span></div>
+    <div class="step"><span class="n">2</span><span data-i18n="rn.how_2">Link your wallet address — a signature proves it's yours; no key ever leaves your wallet.</span></div>
+    <div class="step"><span class="n">3</span><span data-i18n="rn.how_3">When the forge is live, mint from your own wallet. The server never signs transactions, never sends them, never holds keys — it only writes you the invitation.</span></div>
+    <p style="margin-top:var(--s3)"><a class="btn btn--primary btn--sm" href="/dashboard" data-i18n="rn.cta_dash">Open the dashboard →</a></p>
+  </section>
+</div>
+<script src="/js/i18n.js?v=81"></script>
+<script src="/js/learn-hall.js?v=1" defer></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/reveal.js?v=1" defer></script>
+<script>
+(function () {
+  'use strict';
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  function fill(tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return (map && k in map) ? map[k] : '{' + k + '}'; });
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var el = document.getElementById('forge');
+  fetch('/api/nft/stats').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+    if (!d) { el.innerHTML = '<span class="muted">' + esc(T('rn.s_unknown', 'The chain would not answer just now — the count is unknown, not zero. Try again shortly.')) + '</span>'; return; }
+    if (!d.deployed) {
+      // Honest pre-launch state: not deployed is not an error and not zero.
+      el.innerHTML = '🕯️ ' + esc(T('rn.s_cold', 'The forge is cold — the collection is not deployed yet. When it lights, minting is free from your own wallet: gas only.'));
+      return;
+    }
+    if (d.minted_count == null) {
+      // Deployed but unreadable right now: unknown, never invented.
+      el.innerHTML = '⛓️ ' + esc(T('rn.s_unknown', 'The chain would not answer just now — the count is unknown, not zero. Try again shortly.'));
+    } else {
+      el.innerHTML = '🔥 ' + esc(fill(T('rn.s_count', '{n} runes borne — one per wallet, forever.'), { n: d.minted_count }));
+    }
+    if (d.contract) {
+      el.innerHTML += '<div class="contract">' + esc(T('rn.s_contract', 'Contract on Base:')) + ' '
+        + '<a href="https://basescan.org/address/' + esc(d.contract) + '" target="_blank" rel="noopener">' + esc(d.contract) + '</a></div>';
+    }
+  }).catch(function () {
+    el.innerHTML = '<span class="muted">' + esc(T('rn.s_unknown', 'The chain would not answer just now — the count is unknown, not zero. Try again shortly.')) + '</span>';
+  });
+})();
+</script>
+</body>
+</html>

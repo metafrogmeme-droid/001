@@ -64,6 +64,8 @@ https://pmvc58g2.mule.page/provable
 - /proof — the Proof-of-PnL statement (re-derivable hashes)
 - /arena — the paper-trading arena (virtual stake, live prices)
 - /learn — the Study Room (diary, lessons, AI tutor)
+- /rune — the soulbound Rune of Entry collection (free, gas-only,
+  one per wallet, never sellable — a badge, not an investment)
 - /escape, /stress, /firewall, /intent, /guardian — the agent-safety suite
 
 ## What no endpoint here will ever do
