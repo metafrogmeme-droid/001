@@ -274,6 +274,59 @@ router.get('/account', authMiddleware, async (req, res) => {
 
 // POST /api/arena/open { symbol, direction, margin, leverage } — market fill
 // at the live public ticker price.
+// \u2500\u2500 Authority Envelope: armed rules that GATE this paper account's opens.
+// Compiled SERVER-side from the user's own words (the same intent-model the
+// page and MCP run) so a client can never arm fabricated rules. \u00a74-safe:
+// rules are percents, caps and scopes \u2014 never amounts.
+router.get('/envelope', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT user_id, source_text, rules_json, enabled, created_at FROM arena_envelopes WHERE user_id = ?', [req.user.user_id]);
+    const e = rows && rows[0];
+    if (!e) return res.json({ armed: false });
+    let rules = [];
+    try { rules = JSON.parse(e.rules_json); } catch (x) { rules = []; }
+    const { ENFORCEABLE } = require('../lib/envelope_guard');
+    res.json({ armed: !!Number(e.enabled), source_text: e.source_text, rules,
+      enforced_here: rules.filter((r) => ENFORCEABLE.has(r.id)).map((r) => r.id),
+      not_enforced_here: rules.filter((r) => !ENFORCEABLE.has(r.id)).map((r) => r.id) });
+  } catch (err) {
+    console.error('Envelope read error:', err.stack || err.message);
+    res.status(500).json({ error: 'Envelope unavailable' });
+  }
+});
+
+router.put('/envelope', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 500);
+    if (!text) return res.status(400).json({ error: 'Describe your limits first' });
+    const compiled = require('../public/js/intent-model.js').compile(text);
+    const rules = (compiled && compiled.rules) || [];
+    if (!rules.length) return res.status(400).json({ error: 'No enforceable rules found in that text' });
+    await pool.execute(
+      `INSERT INTO arena_envelopes (user_id, source_text, rules_json, created_at) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE source_text = VALUES(source_text), rules_json = VALUES(rules_json), enabled = 1`,
+      [req.user.user_id, text, JSON.stringify(rules), new Date()]);
+    const { ENFORCEABLE } = require('../lib/envelope_guard');
+    res.json({ armed: true, rules,
+      enforced_here: rules.filter((r) => ENFORCEABLE.has(r.id)).map((r) => r.id),
+      not_enforced_here: rules.filter((r) => !ENFORCEABLE.has(r.id)).map((r) => r.id) });
+  } catch (err) {
+    console.error('Envelope arm error:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not arm the envelope' });
+  }
+});
+
+router.delete('/envelope', authMiddleware, async (req, res) => {
+  try {
+    await pool.execute('DELETE FROM arena_envelopes WHERE user_id = ?', [req.user.user_id]);
+    // Revocable is the whole point \u2014 disarming always succeeds.
+    res.json({ armed: false });
+  } catch (err) {
+    console.error('Envelope disarm error:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not disarm' });
+  }
+});
+
 router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -293,6 +346,28 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
       const sr = require('../lib/arena_seasons').checkSeasonRules(srows[0], v.data);
       if (!sr.ok) return res.status(400).json({ error: sr.error });
     } catch (e) { /* season read failure never blocks an open */ }
+    // The armed Authority Envelope, enforced deterministically. Unlike the
+    // season read, a FAILURE here also refuses: an armed envelope that
+    // cannot be read must fail CLOSED, or arming it means nothing.
+    try {
+      const [erows] = await pool.execute('SELECT user_id, source_text, rules_json, enabled, created_at FROM arena_envelopes WHERE user_id = ?', [userId]);
+      const env = erows && erows[0];
+      if (env && Number(env.enabled)) {
+        const rules = JSON.parse(env.rules_json);
+        const g = require('../lib/envelope_guard').checkOpen(rules, {
+          symbol: v.data.symbol, direction: v.data.direction,
+          margin: v.data.margin, leverage: v.data.leverage,
+          balance: acct.balance, startBalance: arena.START_BALANCE });
+        if (!g.ok) {
+          return res.status(400).json({ error: g.violations[0].en
+              .replace(/\{(\w+)\}/g, (m, k) => String(g.violations[0].params[k] ?? m)),
+            code: 'ENVELOPE', violations: g.violations });
+        }
+      }
+    } catch (e) {
+      console.error('Envelope check error:', e.stack || e.message);
+      return res.status(503).json({ error: 'Your armed envelope could not be read — opens are refused until it can be (fail closed).' });
+    }
     const t = marks[v.data.symbol];
     const price = t && Number(t.price);
     if (!(price > 0)) return res.status(400).json({ error: 'Unknown symbol — use a listed USDT-M pair like BTCUSDT' });

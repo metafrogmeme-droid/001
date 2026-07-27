@@ -51,6 +51,7 @@ class MemoryDB {
     this._nextStrategyId = 1;
     this.agentLetters = [];   // weekly agent letters (UPSERT-free; one per week_key)
     this.learnDiary = [];     // study-room diary: one entry per (user_id, day)
+    this.envelopes = [];      // armed authority envelopes: one per user_id
     this.learnProgress = [];  // study-room lessons read: one row per (user_id, slug)
     this.copySubs = [];       // strategy-agent follows (UNIQUE user_id+agent_id)
     this._nextCopySubId = 1;
@@ -198,6 +199,37 @@ class MemoryDB {
     if (cmd.includes('FROM LEARN_PROGRESS')) {
       const rows = this.learnProgress.filter((e) => e.user_id === params[0]);
       return [rows.map((r) => ({ ...r })), []];
+    }
+
+    // -- ARENA ENVELOPES (armed authority envelopes; one per user) --
+    if (cmd.includes('INSERT INTO ARENA_ENVELOPES')) {
+      // params: user_id, source_text, rules_json, created_at. PK(user_id):
+      // ON DUPLICATE upserts (re-arming replaces the envelope); a bare
+      // duplicate INSERT throws exactly as MySQL would.
+      const existing = this.envelopes.find(e => e.user_id === params[0]);
+      if (existing) {
+        if (!cmd.includes('ON DUPLICATE KEY UPDATE')) {
+          const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+          err.code = 'ER_DUP_ENTRY';
+          throw err;
+        }
+        existing.source_text = params[1];
+        existing.rules_json = params[2];
+        existing.enabled = 1;
+        return [{ affectedRows: 2 }, []];
+      }
+      this.envelopes.push({ user_id: params[0], source_text: params[1],
+        rules_json: params[2], enabled: 1, created_at: params[3] });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM ARENA_ENVELOPES') && !cmd.startsWith('DELETE')) {
+      const rows = this.envelopes.filter(x => x.user_id === params[0]);
+      return [rows.map(r => ({ ...r })), []];
+    }
+    if (cmd.includes('DELETE FROM ARENA_ENVELOPES')) {
+      const before = this.envelopes.length;
+      this.envelopes = this.envelopes.filter(x => x.user_id !== params[0]);
+      return [{ affectedRows: before - this.envelopes.length }, []];
     }
 
     // -- LEARN DIARY (study room; one entry per user per UTC day) --
@@ -1852,6 +1884,15 @@ async function migrate() {
         closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_arena_tr_user (user_id),
         INDEX idx_arena_tr_key (trade_key)
+      )
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS arena_envelopes (
+        user_id INT PRIMARY KEY,
+        source_text TEXT NOT NULL,
+        rules_json TEXT NOT NULL,
+        enabled TINYINT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     await pool.execute(`

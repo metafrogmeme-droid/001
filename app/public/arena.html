@@ -259,6 +259,7 @@
       <div><button class="btn btn--primary" id="openBtn" type="button" data-i18n="arena.b_open">Open paper position</button></div>
     </div>
     <div class="tmsg" id="tMsg" role="status" aria-live="polite"></div>
+    <div class="muted small" id="envChip" hidden></div>
     <div class="risk-preview" id="riskPreview" aria-live="polite"></div>
     <!-- Live ticket preview: the prospective trade drawn on the real chart —
          entry at the live mark, your TP/SL, and the liq line — BEFORE you
@@ -368,7 +369,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=6"></script>
-<script src="/js/i18n.js?v=95"></script>
+<script src="/js/i18n.js?v=96"></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
@@ -387,6 +388,12 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   // English as the fallback — an unknown code still reads, never blanks.
   function refusal(r, fallbackKey, fallbackEn) {
     var d = r && r.data;
+    // An envelope refusal names its rule; translate the whole line by the
+    // rule id and refill the numbers, with the server's English as fallback.
+    if (d && d.code === 'ENVELOPE' && d.violations && d.violations[0]) {
+      var v = d.violations[0];
+      return fill(T('ev.' + v.id, v.en), v.params || {});
+    }
     if (d && d.code) return T('arena.e_' + d.code, d.error || fallbackEn);
     return (d && (d.reason || d.error)) || T(fallbackKey, fallbackEn);
   }
@@ -1300,6 +1307,18 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     $('dirShort').addEventListener('click', riskPreview);
     $('tLev').addEventListener('input', function () { $('levVal').textContent = $('tLev').value + '×'; riskPreview(); });
     fetchMark();
+
+    (function loadEnvChip() {
+      RC.fetchJSON('/api/arena/envelope', { timeoutMs: 8000 }).then(function (r) {
+        var el = $('envChip');
+        if (r && r.ok && r.data && r.data.armed) {
+          var n = (r.data.enforced_here || []).length;
+          el.innerHTML = fill(T('arena.env_chip', '🛡 Envelope armed — {n} rules gate your opens.'), { n: n })
+            + ' <a href="/intent">' + T('arena.env_edit', 'manage') + '</a>';
+          el.hidden = false;
+        } else el.hidden = true;
+      }).catch(function () { /* chip is optional; opens still enforce server-side */ });
+    })();
 
     $('openBtn').addEventListener('click', async function () {
       $('openBtn').disabled = true; tmsg('Opening…');
