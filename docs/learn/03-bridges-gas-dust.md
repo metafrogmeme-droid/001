@@ -34,3 +34,20 @@ this for you — but the principle is worth knowing without the tool: the
 expensive mistake is usually doing the right things in the wrong order.
 
 *Education, not investment advice.*
+
+## Self-check
+
+1. A transfer-cost floor computed from live gas is:
+- [x] A minimum — real transactions add fees on top, so ≥ is literal
+- [ ] A quote for your transaction
+- [ ] The maximum you could pay
+
+2. "Dust" is a balance that:
+- [ ] Has zero market value
+- [x] Costs more to move than it is worth
+- [ ] Cannot be sold
+
+3. When a chain's gas cannot be read, an honest tool shows:
+- [ ] Zero
+- [ ] The last known value silently
+- [x] Nothing for that chain, and says it was omitted

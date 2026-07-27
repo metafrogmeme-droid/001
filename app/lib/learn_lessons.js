@@ -83,9 +83,54 @@ function listLessons() {
     const src = fs.readFileSync(path.join(LESSONS_DIR, f), 'utf8');
     const slug = f.replace(/^\d+-/, '').replace(/\.md$/, '');
     const title = (src.match(/^#\s+(.*)$/m) || [null, slug])[1];
-    return { slug, file: f, title, html: renderMd(src), text: src };
+    const { body, quiz } = splitQuiz(src);
+    return { slug, file: f, title, html: renderMd(body), text: src, quiz };
   });
   return cache;
+}
+
+/**
+ * Self-check quizzes ride INSIDE the lesson markdown, in an authoring
+ * convention the operator can follow when supplying docs:
+ *
+ *   ## Self-check
+ *   1. The question?
+ *   - [ ] a wrong option
+ *   - [x] the right option
+ *
+ * The section is stripped from the rendered lesson body and returned as
+ * structured data — the page grades it client-side by arithmetic, never by
+ * mercy. Self-check only: answers ship with the quiz (this is a mirror for
+ * the reader, not a certification), and a lesson without the section simply
+ * has quiz: [] — nothing is invented. A malformed question (no [x], or
+ * several) is DROPPED rather than guessed.
+ */
+function splitQuiz(src) {
+  const m = /^##\s+Self-check\s*$/m.exec(src);
+  if (!m) return { body: src, quiz: [] };
+  const body = src.slice(0, m.index).trimEnd() + '\n';
+  const section = src.slice(m.index + m[0].length);
+  const quiz = [];
+  let current = null;
+  for (const raw of section.split('\n')) {
+    const line = raw.trim();
+    const q = /^\d+\.\s+(.*)$/.exec(line);
+    const o = /^-\s+\[( |x)\]\s+(.*)$/.exec(line);
+    if (q) {
+      if (current) quiz.push(current);
+      current = { q: q[1], options: [], answer: -1, checks: 0 };
+    } else if (o && current) {
+      if (o[1] === 'x') { current.answer = current.options.length; current.checks++; }
+      current.options.push(o[2]);
+    }
+  }
+  if (current) quiz.push(current);
+  return {
+    body,
+    quiz: quiz
+      .filter((x) => x.options.length >= 2 && x.checks === 1)
+      .map(({ q, options, answer }) => ({ q, options, answer })),
+  };
 }
 
 function getLesson(slug) {

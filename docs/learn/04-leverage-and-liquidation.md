@@ -74,3 +74,20 @@ Run your real book's shape through it before the market does.
 *Education, not investment advice. Formulas describe isolated-margin perps
 and ignore fees, funding and maintenance margin — all of which make the
 real cliff slightly closer than the ideal one, never further.*
+
+## Self-check
+
+1. At 25× leverage, roughly what adverse move liquidates an isolated position?
+- [ ] 25%
+- [x] 4%
+- [ ] 1%
+
+2. If your stop sits beyond the liquidation price, the stop is:
+- [x] Fiction — the exchange closes the position first, at the worst price
+- [ ] Extra protection
+- [ ] Cheaper to execute
+
+3. A −50% loss needs what gain to recover?
+- [ ] 50%
+- [ ] 75%
+- [x] 100%

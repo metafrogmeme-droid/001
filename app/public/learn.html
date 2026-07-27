@@ -43,6 +43,8 @@
   .hist .d { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-3); }
   .hist .b { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.55; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
   .hist a { color: var(--text-1); font-size: var(--fs-sm); } .hist a:hover { color: var(--gold-bright); }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+  @media (prefers-reduced-motion: reduce) { #quizScore { animation: none !important; } }
   .lesson-body { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.65; }
   .lesson-body h2 { font-size: var(--fs-md); text-transform: none; letter-spacing: 0; color: var(--text-1); margin: var(--s2) 0; }
   .lesson-body h3 { font-size: var(--fs-sm); text-transform: none; letter-spacing: 0; color: var(--text-1); margin: var(--s3) 0 var(--s2); }
@@ -117,7 +119,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=92"></script>
+<script src="/js/i18n.js?v=93"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -213,6 +215,7 @@
 
   // ── Lessons: public reads; progress rides the account when signed in ─────
   var DONE = {};
+  var LESSON_QUIZ = null;
   var LESSONS = [];
 
   // Deep link: /learn#lesson=slug opens that lesson once the shelf has
@@ -238,7 +241,28 @@
     if (!r || !r.html) return;
     // The lesson html comes from the server's escape-first renderer over
     // repo-shipped markdown — the only trusted-html surface on this page.
-    $('lessons').innerHTML = '<article class="lesson-body">' + r.html + '</article>'
+    // Self-check quiz — rendered after the lesson, graded in the browser by
+    // arithmetic. Answers ship with the quiz: this is a mirror for the
+    // reader, not a certification, and the copy says so.
+    var quizHtml = '';
+    if (r.quiz && r.quiz.length) {
+      quizHtml = '<div id="quizBox" style="border-top:1px solid var(--line);margin-top:var(--s4);padding-top:var(--s3)">'
+        + '<h3 style="font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.1em;color:var(--text-3);margin-bottom:var(--s2)">'
+        + esc(T('ln.quiz_h', 'Self-check')) + '</h3>'
+        + r.quiz.map(function (qz, qi) {
+          return '<div class="quiz-q" data-q="' + qi + '" style="margin-bottom:var(--s3)">'
+            + '<p style="font-size:var(--fs-sm);color:var(--text-1);margin-bottom:6px">' + (qi + 1) + '. ' + esc(qz.q) + '</p>'
+            + qz.options.map(function (op, oi) {
+              return '<label style="display:block;font-size:var(--fs-sm);color:var(--text-2);margin:3px 0;cursor:pointer">'
+                + '<input type="radio" name="qz' + qi + '" value="' + oi + '"> ' + esc(op) + '</label>';
+            }).join('') + '<span class="quiz-mark" style="font-size:var(--fs-xs)"></span></div>';
+        }).join('')
+        + '<button class="btn btn--primary btn--sm" id="quizCheck" type="button">' + esc(T('ln.quiz_check', 'Check my answers')) + '</button>'
+        + '<span id="quizScore" class="muted" style="margin-left:10px;font-size:var(--fs-sm)"></span>'
+        + '</div>';
+      LESSON_QUIZ = r.quiz;
+    } else { LESSON_QUIZ = null; }
+    $('lessons').innerHTML = '<article class="lesson-body">' + r.html + '</article>' + quizHtml
       + '<div class="row">'
       + '<button class="btn btn--ghost btn--sm" id="lessonBack" type="button">← ' + esc(T('ln.back', 'All lessons')) + '</button>'
       + (tok && !DONE[slug]
@@ -251,6 +275,31 @@
   $('lessons').addEventListener('click', async function (e) {
     var a = e.target.closest('[data-lesson]');
     if (a) { e.preventDefault(); openLesson(a.getAttribute('data-lesson')); return; }
+    if (e.target.closest('#quizCheck') && LESSON_QUIZ) {
+      // Graded by arithmetic, never by mercy: each question marks itself and
+      // the score line states the fraction. Nothing is stored anywhere.
+      var right = 0;
+      LESSON_QUIZ.forEach(function (qz, qi) {
+        var box = document.querySelector('.quiz-q[data-q="' + qi + '"]');
+        var picked = box ? box.querySelector('input:checked') : null;
+        var mark = box ? box.querySelector('.quiz-mark') : null;
+        var ok = picked && Number(picked.value) === qz.answer;
+        if (ok) right++;
+        if (mark) {
+          mark.textContent = picked ? (ok ? '\u2713' : '\u2717 \u2192 ' + qz.options[qz.answer]) : '\u2014';
+          mark.style.color = ok ? 'var(--up)' : (picked ? 'var(--down)' : 'var(--text-3)');
+        }
+      });
+      var sc = document.getElementById('quizScore');
+      if (sc) {
+        sc.textContent = fill(T('ln.quiz_score', '{r}/{t} \u2014 graded by arithmetic, never by mercy.'),
+          { r: right, t: LESSON_QUIZ.length });
+        sc.style.animation = 'none';
+        void sc.offsetWidth;
+        sc.style.animation = 'rise .4s ease-out';
+      }
+      return;
+    }
     if (e.target.closest('#lessonBack')) {
       try { history.replaceState(null, '', location.pathname + location.search); } catch (x) { /* hash stays; shelf still shows */ }
       lessonList(); return;

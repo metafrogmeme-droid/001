@@ -39,3 +39,20 @@ That comparison is where the learning lives.
 
 *Education, not investment advice. Past performance never predicts future
 results.*
+
+## Self-check
+
+1. Which part of a trade do you fully control?
+- [ ] The fill price of your entry
+- [x] The most you are willing to lose, decided before the trade
+- [ ] The market's direction after entry
+
+2. For an isolated-margin perp, the loss when your stop fills at its trigger is:
+- [ ] margin × |entry − stop|
+- [x] margin × leverage × |entry − stop| / entry
+- [ ] leverage × |entry − stop|
+
+3. A stop that is never placed is best described as:
+- [ ] A flexible plan
+- [x] A decision you postponed until the worst moment to make it
+- [ ] A hedge

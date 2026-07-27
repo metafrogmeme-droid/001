@@ -38,7 +38,7 @@ router.get('/lessons', (req, res) => {
 router.get('/lessons/:slug', (req, res) => {
   const l = lessons.getLesson(req.params.slug);
   if (!l) return res.status(404).json({ error: 'No such lesson' });
-  res.json({ slug: l.slug, title: l.title, html: l.html, note: LESSONS_NOTE });
+  res.json({ slug: l.slug, title: l.title, html: l.html, quiz: l.quiz || [], note: LESSONS_NOTE });
 });
 
 router.get('/progress', authMiddleware, async (req, res) => {

@@ -34,3 +34,20 @@ If the answer is often "no", the fix is rarely a better plan — it is a
 smaller size, so the plan becomes bearable to follow.
 
 *Education, not investment advice.*
+
+## Self-check
+
+1. What separates a planned exit from an improvised one?
+- [x] The exit level existed before the position did
+- [ ] The exit was profitable
+- [ ] The exit used a market order
+
+2. Moving a stop further away after entry usually means:
+- [ ] The analysis improved
+- [x] The loss you accepted beforehand is being renegotiated under pressure
+- [ ] Volatility dropped
+
+3. The honest measure of exit discipline is:
+- [x] How often your real exits match the ones you planned
+- [ ] How often your exits made money
+- [ ] How fast you exit

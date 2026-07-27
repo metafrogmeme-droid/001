@@ -67,3 +67,20 @@ it is.
 *Education, not investment advice. Mechanisms described are ERC-20
 approvals, EIP-2612 permits and SPL delegates as specified — exploits
 vary, and a revoked approval cannot undo a drain that already happened.*
+
+## Self-check
+
+1. Disconnecting your wallet from a site does what to the approvals you granted it?
+- [x] Nothing — approvals live in the token contract until revoked
+- [ ] Revokes them after 24 hours
+- [ ] Revokes them immediately
+
+2. A permit signature deserves special respect because:
+- [ ] It costs more gas
+- [x] It can move an approval by signature alone, with no transaction from you
+- [ ] It only works on testnets
+
+3. A "clean" result from a bounded approval checker means:
+- [ ] The wallet is safe
+- [x] Nothing was found where the tool looked — and nowhere else
+- [ ] All approvals are revoked
