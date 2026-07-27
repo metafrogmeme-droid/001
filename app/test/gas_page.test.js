@@ -61,7 +61,8 @@ test('every gs key ships all 14 locales', () => {
 
 test('wired: route, sitemap, llms, and the landing funnel', () => {
   assert.match(read('server.js'), /app\.get\('\/gas'/);
-  assert.match(read('public', 'sitemap.xml'), /<loc>https:\/\/pmvc58g2\.mule\.page\/gas<\/loc>/);
+  assert.ok(require('../lib/sitemap').STATIC_PATHS.some((x) => x.path === '/gas'),
+    '/gas is in the dynamic sitemap');
   assert.match(read('public', 'llms.txt'), /\/gas — live per-chain gas/);
   // the landing's rune card sends visitors to the public explainer first
   assert.match(read('public', 'index.html'), /<a class="feature" href="\/rune"/);

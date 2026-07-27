@@ -10,6 +10,7 @@
 const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { getGateway, relay, isConfigured } = require('../lib/gateway');
+const { decorate } = require('../lib/follow_counts');
 
 const router = express.Router();
 router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
@@ -26,6 +27,11 @@ router.get('/', async (req, res) => {
   try {
     const r = await getGateway('/public/strategies', 15000);
     if (r.status >= 200 && r.status < 300) {
+      // Local follower counts ride the relayed cards (count-only, §4-safe).
+      // The catalogue itself is bot-authored; only `followers` is added here.
+      if (r.data && Array.isArray(r.data.agents)) {
+        try { await decorate(r.data.agents); } catch (e) { /* counts are optional */ }
+      }
       cache = { at: now, data: r.data };
     }
     relay(res, r);

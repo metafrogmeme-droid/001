@@ -54,7 +54,7 @@ test('F-15: no secret-shaped token leaks into the agent-facing file', () => {
 });
 
 test('robots.txt allows crawling and points agents at llms.txt', () => {
-  const robots = read('public', 'robots.txt');
+  const robots = require('../lib/sitemap').buildRobots('https://pmvc58g2.mule.page');
   assert.match(robots, /User-agent: \*/);
   assert.match(robots, /Allow: \//);
   assert.match(robots, /llms\.txt/);

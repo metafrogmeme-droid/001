@@ -68,8 +68,8 @@ test('every rn key ships all 14 locales, with the count slot everywhere', () => 
 test('the page is wired everywhere a page must be wired', () => {
   const srv = read('server.js');
   assert.match(srv, /app\.get\('\/rune'/, 'the route exists');
-  const sitemap = read('public', 'sitemap.xml');
-  assert.match(sitemap, /<loc>https:\/\/pmvc58g2\.mule\.page\/rune<\/loc>/);
+  const { STATIC_PATHS } = require('../lib/sitemap');
+  assert.ok(STATIC_PATHS.some((x) => x.path === '/rune'), '/rune is in the dynamic sitemap');
   const llms = read('public', 'llms.txt');
   assert.match(llms, /\/rune — the soulbound Rune of Entry collection/);
   // the house treatment loads with the classes it needs

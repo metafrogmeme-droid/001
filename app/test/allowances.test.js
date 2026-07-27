@@ -115,7 +115,8 @@ test('the page is wired everywhere and carries the honesty copy', () => {
   const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
   assert.match(read('server.js'), /app\.get\('\/approvals'/);
   assert.match(read('server.js'), /'\/api\/allowances'/);
-  assert.match(read('public', 'sitemap.xml'), /\/approvals<\/loc>/);
+  assert.ok(require('../lib/sitemap').STATIC_PATHS.some((x) => x.path === '/approvals'),
+    '/approvals is in the dynamic sitemap');
   assert.match(read('public', 'llms.txt'), /\/api\/allowances\/<chain>\/<address>/);
   const page = read('public', 'approvals.html');
   assert.match(page, /never a guarantee/);

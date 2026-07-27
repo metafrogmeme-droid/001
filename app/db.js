@@ -346,7 +346,7 @@ class MemoryDB {
         id: this._nextStrategyId++, user_id: params[0], slug: params[1], name: params[2],
         tagline: params[3], how: params[4], icon: params[5], rules: params[6],
         risk_label: params[7], regime: params[8], horizon: params[9],
-        visibility: 'draft', created_at: params[10], updated_at: params[11],
+        visibility: 'draft', published_at: null, created_at: params[10], updated_at: params[11],
       });
       return [{ affectedRows: 1, insertId: this._nextStrategyId - 1 }, []];
     }
@@ -358,7 +358,17 @@ class MemoryDB {
     }
     if (cmd.includes('UPDATE USER_STRATEGIES')) {
       if (cmd.includes('SET VISIBILITY')) {
-        // params: visibility, updated_at, id, user_id
+        if (cmd.includes('PUBLISHED_AT')) {
+          // publish — params: updated_at, published_at, id, user_id.
+          // COALESCE semantics: the FIRST publish date sticks forever, so no
+          // publish/unpublish cycle can ever buy a fresher position.
+          const s = this.userStrategies.find(x => x.id === params[2] && x.user_id === params[3]);
+          if (!s) return [{ affectedRows: 0 }, []];
+          s.visibility = 'public'; s.updated_at = params[0];
+          if (!s.published_at) s.published_at = params[1];
+          return [{ affectedRows: 1 }, []];
+        }
+        // unpublish — params: visibility, updated_at, id, user_id
         const s = this.userStrategies.find(x => x.id === params[2] && x.user_id === params[3]);
         if (!s) return [{ affectedRows: 0 }, []];
         s.visibility = params[0]; s.updated_at = params[1];
@@ -399,7 +409,7 @@ class MemoryDB {
       // bound LIMIT is ER_WRONG_ARGUMENTS on real MySQL, and now here too)
       const lm = cmd.match(/LIMIT\s+(\d+)/);
       const rows = this.userStrategies.filter(s => s.visibility === 'public')
-        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+        .sort((a, b) => new Date(b.published_at || b.created_at) - new Date(a.published_at || a.created_at))
         .slice(0, lm ? Number(lm[1]) : 120);
       return [rows.map(r => ({ ...r })), []];
     }
@@ -727,6 +737,14 @@ class MemoryDB {
       this.copySubs = this.copySubs.filter(
         s => !(s.user_id === params[0] && s.agent_id === params[1]));
       return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM COPY_SUBSCRIPTIONS') && cmd.includes('GROUP BY AGENT_ID')) {
+      const byAgent = new Map();
+      for (const sub of this.copySubs) {
+        if (!byAgent.has(sub.agent_id)) byAgent.set(sub.agent_id, new Set());
+        byAgent.get(sub.agent_id).add(sub.user_id);
+      }
+      return [[...byAgent.entries()].map(([agent_id, users]) => ({ agent_id, n: users.size })), []];
     }
     if (cmd.includes('FROM COPY_SUBSCRIPTIONS') && cmd.includes('COUNT(*)')) {
       return [[{ n: this.copySubs.filter(s => s.user_id === params[0]).length }], []];
@@ -1694,12 +1712,20 @@ async function migrate() {
         regime VARCHAR(24),
         horizon VARCHAR(24),
         visibility VARCHAR(12) NOT NULL DEFAULT 'draft',
+        published_at TIMESTAMP NULL DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_strat_user (user_id),
         INDEX idx_strat_pub (visibility, slug)
       )
     `);
+    // Back-fill published_at on pre-existing deployments (CREATE TABLE IF NOT
+    // EXISTS won't add it). NULL for already-public legacy rows on purpose —
+    // inventing a publish date they never had would be a fabricated number;
+    // the public ordering falls back to created_at, which is real.
+    try {
+      await pool.execute('ALTER TABLE user_strategies ADD COLUMN published_at TIMESTAMP NULL DEFAULT NULL');
+    } catch (e) { /* column already exists — fine */ }
     // Bot-pushed intelligence reports (funding scan / arb tracker / parity /
     // yield radar) — single-row cache like scan_cache. The yield section is
     // operator-sensitive and only served to admin-plan users (routes/reports.js).

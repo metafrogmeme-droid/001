@@ -5763,6 +5763,7 @@
           ${a.tagline ? `<p class="small" style="color:var(--text-2)">${esc(a.tagline)}</p>` : ''}
           <p class="small muted" style="margin:0"><b>How it trades:</b> ${esc(a.how)}</p>
           <div class="row" style="gap:6px;flex-wrap:wrap">${chips}</div>
+          ${a.followers ? `<div class="small" style="color:var(--text-3)">👥 ${esc(String(a.followers))} ${esc(T('mk.following_w', 'following'))}</div>` : ''}
           <div style="border-top:1px solid rgba(128,128,128,.15);padding-top:var(--s2)">${scoreBlock(a.scorecard)}</div>
           <div class="row mt-2" style="gap:var(--s2);flex-wrap:wrap;margin-top:auto">
             <button class="btn btn--primary btn--sm" data-agentlab="${esc(a.id)}" type="button">${hasSc ? 'Reproduce in Lab' : 'Backtest in Lab'}</button>
@@ -5837,6 +5838,7 @@
         ${tags ? `<div class="row" style="gap:5px;flex-wrap:wrap">${tags}</div>` : ''}
         <div class="row" style="gap:5px;flex-wrap:wrap">${chips}</div>
         ${profileLine(a.risk_profile)}
+        ${a.followers ? `<div class="small" style="color:var(--text-3)">👥 ${esc(String(a.followers))} ${esc(T('mk.following_w', 'following'))}</div>` : ''}
         <div class="row" style="gap:var(--s2);align-items:center;margin-top:auto">
           <a class="small" href="/agents/${encodeURIComponent(a.slug || a.id)}">Open shareable page →</a>
           ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-sfork="${esc(a.slug || a.id)}" type="button" style="margin-left:auto">⑂ Fork</button>` : ''}

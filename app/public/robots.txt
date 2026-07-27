@@ -1,6 +1,0 @@
-# RUNECLAW — crawl what you like; nothing public here is a secret.
-# AI agents: start at /llms.txt — the whole public surface, described
-# honestly, with the verification quickstart.
-User-agent: *
-Allow: /
-Sitemap: https://pmvc58g2.mule.page/sitemap.xml

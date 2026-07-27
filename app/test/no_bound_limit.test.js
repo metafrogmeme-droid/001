@@ -94,9 +94,13 @@ test('the follow sweep — the query that took /account down — is fixed at the
 });
 
 test('the strategies public list clamps to an integer before inlining', () => {
-  // Inlining is only safe because n cannot be attacker-shaped. Pin the clamp.
+  // Inlining is only safe because the value cannot be attacker-shaped. The
+  // SQL LIMIT is now the compile-time constant PUBLIC_LIST_LIMIT (caller input
+  // clamps the post-filter slice instead), which is stronger still — pin both.
   const src = fs.readFileSync(path.join(APP, 'lib', 'user_strategies.js'), 'utf8');
   assert.match(src, /Math\.min\(PUBLIC_LIST_LIMIT, Math\.max\(1, Math\.floor\(Number\(limit\)\)/,
-    'the inlined LIMIT must be a clamped integer, never raw caller input');
-  assert.match(src, /LIMIT \$\{n\}/);
+    'caller input is clamped to an integer before use');
+  assert.match(src, /LIMIT \$\{PUBLIC_LIST_LIMIT\}/,
+    'the inlined SQL LIMIT is a constant, never caller input');
+  assert.doesNotMatch(src, /LIMIT \?/, 'and never a bound parameter');
 });

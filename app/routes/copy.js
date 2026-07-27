@@ -33,16 +33,26 @@ const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;   // catalogue slug
 // Short server-side cache of the agent catalogue (it changes only on a deploy).
 let catCache = null;   // { at, agents }
 const CAT_MS = 5 * 60 * 1000;
-async function loadCatalogue() {
-  if (!isConfigured()) return [];
+// `readable` distinguishes "the catalogue answered (possibly empty)" from
+// "we could not read it" — an absence claim ("unknown agent") is only honest
+// in the first case. An unconfigured gateway IS readable: this deployment
+// knowingly has no engine catalogue, so its emptiness is a fact, not a guess.
+async function loadCatalogueChecked() {
+  if (!isConfigured()) return { agents: [], readable: true };
   const now = Date.now();
-  if (catCache && (now - catCache.at) < CAT_MS) return catCache.agents;
-  const r = await getGateway('/public/strategies', 15000);
-  if (r.status >= 200 && r.status < 300 && r.data && Array.isArray(r.data.agents)) {
-    catCache = { at: now, agents: r.data.agents };
-    return catCache.agents;
-  }
-  return catCache ? catCache.agents : [];
+  if (catCache && (now - catCache.at) < CAT_MS) return { agents: catCache.agents, readable: true };
+  try {
+    const r = await getGateway('/public/strategies', 15000);
+    if (r.status >= 200 && r.status < 300 && r.data && Array.isArray(r.data.agents)) {
+      catCache = { at: now, agents: r.data.agents };
+      return { agents: catCache.agents, readable: true };
+    }
+  } catch (e) { /* fall through to stale-or-unreadable */ }
+  if (catCache) return { agents: catCache.agents, readable: true };  // stale beats blind
+  return { agents: [], readable: false };
+}
+async function loadCatalogue() {
+  return (await loadCatalogueChecked()).agents;
 }
 
 async function followingIds(uid) {
@@ -64,6 +74,19 @@ router.post('/follow', writeLimit, async (req, res) => {
   try {
     const agentId = String((req.body || {}).agent_id || '').trim().toLowerCase();
     if (!AGENT_ID_RE.test(agentId)) return res.status(400).json({ error: 'invalid agent_id' });
+    // A follow slot is finite (25) — burning one on a slug that exists in NO
+    // catalogue is a bug users pay for. Community first (local, always
+    // readable), then the engine catalogue. "unknown_agent" is an absence
+    // claim, so it is only made when the catalogue actually answered; an
+    // unreadable catalogue refuses with 503 instead of guessing either way.
+    const community = await require('../lib/user_strategies').getPublicBySlug(agentId);
+    if (!community) {
+      const cat = await loadCatalogueChecked();
+      if (!cat.agents.some(a => String(a.id).toLowerCase() === agentId)) {
+        if (cat.readable) return res.status(404).json({ error: 'unknown_agent' });
+        return res.status(503).json({ error: 'catalogue_unreadable' });
+      }
+    }
     const uid = req.user.user_id;
     const [c] = await pool.execute(
       'SELECT COUNT(*) AS n FROM copy_subscriptions WHERE user_id = ?', [uid]);

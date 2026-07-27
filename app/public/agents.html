@@ -122,6 +122,13 @@
     return '<div class="prof" style="font-size:11px;color:var(--text-3);margin-top:6px" title="' + esc(T('sp.cv', 'a shape read of the config — not a safety verdict')) + '">'
       + '<span class="tag">' + esc(T('sp.h', 'Declared constraints')) + ': <b>' + esc(T('sp.tier_' + p.tier, p.tier)) + '</b></span> ' + esc(facts) + '</div>';
   }
+  // A count is a fact, not a ranking — shown only when non-zero, never sorted by.
+  function followersLine(n) {
+    if (!n) return '';
+    var fillT = function (tpl, map) { return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return map[k] != null ? map[k] : '{' + k + '}'; }); };
+    return '<div style="font-size:11px;color:var(--text-3);margin-top:4px">👥 '
+      + esc(fillT(T('mk.followers', '{n} following'), { n: n })) + '</div>';
+  }
   function ruleChips(rules) {
     return (rules || []).map(function (r) {
       return '<span class="rchip"><span class="rk">' + esc(RULE_LABEL[r.type] || r.type) + '</span> '
@@ -142,6 +149,7 @@
         + (chips ? '<div class="tags">' + chips + '</div>' : '')
         + '<div class="rules">' + ruleChips(a.rules) + '</div>'
         + profileLine(a.risk_profile)
+        + followersLine(a.followers)
         + '<div class="go">View strategy → <span style="color:var(--text-3)">· config-only, no dollars</span></div></a>';
     }
     var sc = a.scorecard && a.scorecard.metrics;
@@ -155,7 +163,7 @@
       + '<div class="h"><span class="emo">' + esc(a.icon || '🤖') + '</span>'
       + '<span class="nm">' + esc(a.name) + '</span></div>'
       + (a.tagline ? '<p class="tg">' + esc(a.tagline) + '</p>' : '<p class="tg"></p>')
-      + mx + '<div class="go">View agent →</div></a>';
+      + mx + followersLine(a.followers) + '<div class="go">View agent →</div></a>';
   }
 
   var num = function (v) { return v == null || isNaN(v) ? null : Number(v); };
@@ -240,7 +248,7 @@
     });
 })();
 </script>
-<script src="/js/i18n.js?v=97"></script>
+<script src="/js/i18n.js?v=98"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>

@@ -432,7 +432,10 @@ app.get('/strengthmap', (req, res) => { res.setHeader('Cache-Control', 'no-cache
 // SEO discoverability for the public marketplace: robots.txt + a dynamic
 // sitemap.xml that enumerates the static public pages plus one URL per catalogue
 // agent (best-effort from the gateway — the static pages ship even if it's down).
-// Both are generated (no physical files), so these routes win over express.static.
+// Both are generated. NO physical public/sitemap.xml or robots.txt may exist:
+// express.static mounts EARLIER, so a file with either name silently shadows
+// these routes (that regression shipped once — the dynamic per-agent sitemap
+// vanished behind a hand-written file until a probe caught it).
 const { buildSitemap, buildRobots } = require('./lib/sitemap');
 // One resolver for every externally-consumed URL (see lib/public_origin).
 // A crawler following a sitemap entry is as outside-the-server as a phone
@@ -464,6 +467,11 @@ app.get('/sitemap.xml', async (req, res) => {
       }
     }
   } catch (_) { /* best-effort: the static pages still ship */ }
+  // Published community strategies share the /agents/:slug space — their
+  // pages are just as public and indexable. buildSitemap dedupes slugs.
+  try {
+    agents = agents.concat(await require('./lib/user_strategies').listPublic());
+  } catch (_) { /* community list unreadable — engine + static pages still ship */ }
   const xml = buildSitemap(origin, agents);
   _sitemapCache = { at: now, origin, xml };
   res.send(xml);

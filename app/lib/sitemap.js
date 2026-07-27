@@ -38,6 +38,15 @@ const STATIC_PATHS = [
   { path: '/strengthmap', changefreq: 'daily', priority: '0.7' },
   // Paper Trading Arena — the zero-friction on-ramp (virtual stake, no keys).
   { path: '/arena', changefreq: 'daily', priority: '0.8' },
+  // The study room, command deck, rune gallery and live-gas board.
+  { path: '/learn', changefreq: 'weekly', priority: '0.8' },
+  { path: '/command', changefreq: 'weekly', priority: '0.6' },
+  { path: '/rune', changefreq: 'weekly', priority: '0.6' },
+  { path: '/gas', changefreq: 'daily', priority: '0.6' },
+  // Allowance X-ray + the verify-everything surfaces.
+  { path: '/approvals', changefreq: 'weekly', priority: '0.8' },
+  { path: '/provable', changefreq: 'monthly', priority: '0.6' },
+  { path: '/roots', changefreq: 'daily', priority: '0.5' },
 ];
 
 // Private / account / API surfaces crawlers should never index.
@@ -88,7 +97,11 @@ function buildSitemap(origin, agents) {
 /** buildRobots(origin) → robots.txt pointing crawlers at the sitemap. */
 function buildRobots(origin) {
   const o = normOrigin(origin);
-  const lines = ['User-agent: *', 'Allow: /'];
+  const lines = [
+    '# RUNECLAW — crawl what you like; nothing public here is a secret.',
+    '# AI agents: start at /llms.txt — the whole public surface, described',
+    '# honestly, with the verification quickstart.',
+    'User-agent: *', 'Allow: /'];
   DISALLOW.forEach(function (d) { lines.push('Disallow: ' + d); });
   lines.push('');
   if (o) lines.push('Sitemap: ' + o + '/sitemap.xml');

@@ -97,14 +97,21 @@ test('both arena pages carry the frame meta with the og swap', () => {
 });
 
 test('every sitemap URL is a real page route', () => {
-  const sitemap = read('public', 'sitemap.xml');
+  const { STATIC_PATHS, buildRobots } = require('../lib/sitemap');
   const srv = read('server.js');
-  const locs = [...sitemap.matchAll(/<loc>https:\/\/pmvc58g2\.mule\.page(\/[a-z-]*)<\/loc>/g)]
-    .map((m) => m[1]);
-  assert.ok(locs.length >= 15, 'the sitemap is substantive');
-  for (const loc of locs) {
-    assert.ok(srv.includes(`app.get('${loc}'`), `${loc} is claimed but not routed`);
+  assert.ok(STATIC_PATHS.length >= 15, 'the sitemap is substantive');
+  for (const { path: loc } of STATIC_PATHS) {
+    if (loc === '/') continue;
+    assert.ok(srv.includes(`app.get('${loc}'`) || srv.includes(`app.get('${loc}/:`),
+      `${loc} is claimed but not routed`);
   }
-  const robots = read('public', 'robots.txt');
+  const robots = buildRobots('https://pmvc58g2.mule.page');
   assert.match(robots, /Sitemap: https:\/\/pmvc58g2\.mule\.page\/sitemap\.xml/);
+  // The dynamic routes are only reachable while NO static file shadows them —
+  // express.static mounts first, so a hand-written sitemap.xml/robots.txt
+  // silently disconnects the per-agent sitemap (that regression shipped once).
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', 'public', 'sitemap.xml')),
+    'a static sitemap.xml would shadow the dynamic per-agent sitemap');
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', 'public', 'robots.txt')),
+    'a static robots.txt would shadow the dynamic robots');
 });

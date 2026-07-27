@@ -249,20 +249,42 @@ async function setVisibility(userId, id, visibility) {
     if ((cnt[0]?.n || 0) >= MAX_PUBLIC_PER_USER && existing.visibility !== 'public') {
       return { ok: false, error: `You can publish up to ${MAX_PUBLIC_PER_USER} strategies — unpublish one first.` };
     }
+    // The FIRST publish date sticks forever (COALESCE): re-saves never bump
+    // it, and no publish/unpublish cycle can buy a fresher list position.
+    await pool.execute(
+      `UPDATE user_strategies SET visibility = 'public', updated_at = ?,
+         published_at = COALESCE(published_at, ?) WHERE id = ? AND user_id = ?`,
+      [new Date(), new Date(), Number(id), userId]);
+    return { ok: true, visibility: vis };
   }
   await pool.execute(
     'UPDATE user_strategies SET visibility = ?, updated_at = ? WHERE id = ? AND user_id = ?',
     [vis, new Date(), Number(id), userId]);
   return { ok: true, visibility: vis };
 }
-async function listPublic(limit) {
+async function listPublic(limit, filters) {
   const n = Math.min(PUBLIC_LIST_LIMIT, Math.max(1, Math.floor(Number(limit)) || PUBLIC_LIST_LIMIT));
+  // Ordered by the FIRST publish date (created_at for legacy rows that predate
+  // the column — a real date, never an invented one). updated_at buys nothing:
+  // re-saving a strategy no longer resurfaces it.
   // Inlined, not bound: a bound LIMIT is ER_WRONG_ARGUMENTS on real MySQL
-  // (mysql2 sends numbers as DOUBLE). Safe to interpolate — n is clamped to a
-  // small positive integer two lines up.
+  // (mysql2 sends numbers as DOUBLE). Safe to interpolate — the cap is clamped
+  // to a small positive integer above.
   const [rows] = await pool.execute(
-    `SELECT * FROM user_strategies WHERE visibility = 'public' ORDER BY updated_at DESC LIMIT ${n}`);
-  return rows.map(toPublicCard);
+    `SELECT * FROM user_strategies WHERE visibility = 'public'
+     ORDER BY COALESCE(published_at, created_at) DESC LIMIT ${PUBLIC_LIST_LIMIT}`);
+  let cards = rows.map(toPublicCard);
+  // Server-side search/filter over the bounded public window (≤120 rows) —
+  // identical semantics on real MySQL and the in-memory shim.
+  const f = filters || {};
+  if (f.q) {
+    const q = String(f.q).toLowerCase().slice(0, 80);
+    cards = cards.filter((c) =>
+      (c.name + ' ' + c.tagline + ' ' + c.how).toLowerCase().includes(q));
+  }
+  if (f.regime) cards = cards.filter((c) => c.regime === f.regime);
+  if (f.horizon) cards = cards.filter((c) => c.horizon === f.horizon);
+  return cards.slice(0, n);
 }
 async function getPublicBySlug(slug) {
   const [rows] = await pool.execute(
