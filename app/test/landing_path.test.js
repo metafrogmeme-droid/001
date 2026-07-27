@@ -37,7 +37,7 @@ test('the path band links all three stations of the loop', () => {
   const cut = pathBand();
   assert.match(cut, /<a class="feature" href="\/learn"/);
   assert.match(cut, /<a class="feature" href="\/command"/);
-  assert.match(cut, /<a class="feature" href="\/dashboard"/);
+  assert.match(cut, /<a class="feature" href="\/rune"/);
   assert.match(cut, /reveal-on-scroll/);
   assert.match(cut, /rc-stagger/);
 });

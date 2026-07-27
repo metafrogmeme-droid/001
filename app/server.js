@@ -279,6 +279,8 @@ app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); re
 // /rune — the soulbound collection, public and honest about all three forge
 // states (cold / unreadable / lit) before and after deployment.
 app.get('/rune', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'rune.html')); });
+// /gas — live per-chain gas as a public utility page (market facts only).
+app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'gas.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.

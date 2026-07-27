@@ -66,6 +66,7 @@ https://pmvc58g2.mule.page/provable
 - /learn — the Study Room (diary, lessons, AI tutor)
 - /rune — the soulbound Rune of Entry collection (free, gas-only,
   one per wallet, never sellable — a badge, not an investment)
+- /gas — live per-chain gas with literal floor transfer costs
 - /escape, /stress, /firewall, /intent, /guardian — the agent-safety suite
 
 ## What no endpoint here will ever do
