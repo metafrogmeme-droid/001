@@ -37,7 +37,7 @@ function baseCard(subtitle) {
   return c;
 }
 
-async function renderFor(key) {
+async function renderFor(key, rechecked) {
   const { lookupCall } = require('./call');
   const r = await lookupCall(key);
   const c = baseCard('PROVABLE CALL');
@@ -57,6 +57,15 @@ async function renderFor(key) {
   const match = recomputed === String(d.seal);
   c.center(match ? 'SERVER RECOMPUTED: MATCH' : 'SERVER RECOMPUTED: MISMATCH',
     266, 2, match ? COLORS.up : COLORS.down);
+  if (rechecked) {
+    // The re-verify tap really ran: the recompute above happened on THIS
+    // request, and the stamp carries the SERVER's clock — never a client
+    // string (nothing from the POST body reaches the drawing).
+    const at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    c.center('RECHECKED ' + at + ' UTC - TAP RE-VERIFY ANYTIME', 302, 2, COLORS.gold);
+    c.center('OPEN TO RE-DERIVE THE HASH IN YOUR OWN BROWSER', 356, 2, COLORS.muted);
+    return c.png();
+  }
   c.center('SEALED AT DECISION TIME - BEFORE THE OUTCOME', 320, 2, COLORS.muted);
   c.center('OPEN TO RE-DERIVE THE HASH IN YOUR OWN BROWSER', 356, 2, COLORS.muted);
   return c.png();
@@ -66,6 +75,18 @@ router.get('/call/:key/image', async (req, res) => {
   try {
     const key = String(req.params.key || '');
     if (!KEY_RE.test(key)) return res.status(400).json({ error: 'Bad key' });
+    if (req.query.rechecked != null) {
+      // Recheck variants carry a clock line, so they cache by the minute —
+      // bounded in the same map under a bucketed key, and briefly at the edge.
+      const bucket = key + '|R' + new Date().toISOString().slice(0, 16);
+      let rp = cache.get(bucket);
+      if (!rp) {
+        rp = await renderFor(key, true);
+        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+        cache.set(bucket, rp);
+      }
+      return res.type('png').set('Cache-Control', 'public, max-age=60').send(rp);
+    }
     let png = cache.get(key);
     if (!png) {
       png = await renderFor(key);
@@ -77,6 +98,34 @@ router.get('/call/:key/image', async (req, res) => {
     console.error('Frame image error:', err.stack || err.message);
     res.status(500).json({ error: 'Card unavailable' });
   }
+});
+
+// ── Frame POST interactions — the feed taps back ─────────────────────────────
+// A Farcaster client POSTs a signed packet when a viewer taps a post-action
+// button. We deliberately ignore the packet: these interactions grant
+// nothing and read nothing private, so no identity is needed — the response
+// is the same public card, re-verified on THIS request. The signed-packet
+// fields are untrusted input and none of them reach the drawing or the URLs
+// (both are rebuilt server-side from the validated path param alone).
+const { callVerifyFrame, traderRefreshFrame } = require('../lib/frame_meta');
+const publicOrigin = require('../lib/public_origin');
+
+router.post('/call/:key/verify', (req, res) => {
+  const key = String(req.params.key || '');
+  const origin = publicOrigin.configured();
+  if (!origin || !KEY_RE.test(key)) return res.status(400).json({ error: 'Bad key' });
+  const html = callVerifyFrame(key, origin, Date.now().toString(36));
+  if (!html) return res.status(400).json({ error: 'Bad key' });
+  res.type('html').set('Cache-Control', 'no-store').send(html);
+});
+
+router.post('/trader/:handle/refresh', (req, res) => {
+  const handle = String(req.params.handle || '').trim();
+  const origin = publicOrigin.configured();
+  if (!origin || !HANDLE_RE.test(handle)) return res.status(400).json({ error: 'Bad handle' });
+  const html = traderRefreshFrame(handle, origin, Date.now().toString(36));
+  if (!html) return res.status(400).json({ error: 'Bad handle' });
+  res.type('html').set('Cache-Control', 'no-store').send(html);
 });
 
 // ── Public trader card — the leaderboard record as a feed image ──────────────

@@ -97,6 +97,7 @@
   </section>
 
   <div class="summary panel" id="summary" style="border-radius:var(--radius)"></div>
+  <div id="floorLine" class="muted" style="font-size:var(--fs-xs);margin:6px 0 0;display:none"></div>
 
   <section class="panel reveal-on-scroll"><h2 data-i18n="es.plan_h">Escape plan — in order</h2><div id="steps"></div></section>
   <section class="panel reveal-on-scroll" id="blkPanel" hidden><h2 data-i18n="es.locked_h">Locked — can't exit yet</h2><div id="blockers"></div></section>
@@ -109,7 +110,7 @@
 <!-- Ahead of the page script, not after it. The plan renders synchronously at
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
-<script src="/js/i18n.js?v=79"></script>
+<script src="/js/i18n.js?v=80"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
@@ -197,6 +198,28 @@
       + (plan.counts.blocked ? ' · ' + esc(TF('esc.c_locked', '{n} locked', { n: plan.counts.blocked })) : '') + '</span>';
     // Cascade only when the PLAN changed shape — retyping a symbol must not
     // restrobe the list. First paint cascades (lastPlanKey starts undefined).
+    // Whole-plan network floor — one typical transaction per on-chain step,
+    // at live gas, summed. A FLOOR, so "\u2265" is literal: bridge fees,
+    // relayers, approvals and destination gas all come on top. Steps on
+    // chains we cannot read are NOT counted and are said out loud —
+    // omitted, never invented.
+    var fl = $('floorLine');
+    if (fl) {
+      var floorUsd = 0, counted = 0, skipped = 0;
+      plan.steps.forEach(function (s) {
+        if (!s.chain) return;
+        var hit = GAS && GAS[String(s.chain).trim().toLowerCase()];
+        if (hit && hit.xfer_cost_usd > 0) { floorUsd += hit.xfer_cost_usd; counted++; }
+        else skipped++;
+      });
+      if (counted > 0) {
+        var txt = TF('es.floor', 'Network floor for this plan: \u2265 ${usd} in gas alone across {n} on-chain steps \u2014 bridge fees, relayers and destination gas come on top. Indicative; moves with the market.',
+          { usd: floorUsd.toFixed(2), n: counted });
+        if (skipped > 0) txt += ' ' + TF('es.floor_skip', '({n} steps not counted \u2014 no readable gas for their chain.)', { n: skipped });
+        fl.textContent = '\u26FD ' + txt;
+        fl.style.display = '';
+      } else { fl.style.display = 'none'; }
+    }
     var planKey = plan.steps.map(function (s) { return s.type + '|' + s.asset + '|' + (s.chain || ''); }).join(';');
     var cascade = planKey !== lastPlanKey;
     lastPlanKey = planKey;

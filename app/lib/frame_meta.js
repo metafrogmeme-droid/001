@@ -24,12 +24,16 @@ function injectCallMeta(html, key, origin) {
   if (!base || !KEY_RE.test(String(key || ''))) return html;
   const img = `${base}/api/frame/call/${encodeURIComponent(key)}/image`;
   const page = `${base}/call/${encodeURIComponent(key)}`;
+  const post = `${base}/api/frame/call/${encodeURIComponent(key)}/verify`;
   const tags = [
     '<meta name="fc:frame" content="vNext">',
     `<meta name="fc:frame:image" content="${escAttr(img)}">`,
+    `<meta name="fc:frame:post_url" content="${escAttr(post)}">`,
     '<meta name="fc:frame:button:1" content="Verify in your browser">',
     '<meta name="fc:frame:button:1:action" content="link">',
     `<meta name="fc:frame:button:1:target" content="${escAttr(page)}">`,
+    '<meta name="fc:frame:button:2" content="Re-verify now">',
+    '<meta name="fc:frame:button:2:action" content="post">',
     `<meta property="og:image" content="${escAttr(img)}">`,
     `<meta property="og:url" content="${escAttr(page)}">`,
   ].join('\n');
@@ -43,16 +47,65 @@ function injectTraderMeta(html, handle, origin) {
   if (!base || !HANDLE_RE.test(String(handle || ''))) return html;
   const img = `${base}/api/frame/trader/${encodeURIComponent(handle)}/image`;
   const page = `${base}/trader/${encodeURIComponent(handle)}`;
+  const post = `${base}/api/frame/trader/${encodeURIComponent(handle)}/refresh`;
   const tags = [
     '<meta name="fc:frame" content="vNext">',
     `<meta name="fc:frame:image" content="${escAttr(img)}">`,
+    `<meta name="fc:frame:post_url" content="${escAttr(post)}">`,
     '<meta name="fc:frame:button:1" content="View the record">',
     '<meta name="fc:frame:button:1:action" content="link">',
     `<meta name="fc:frame:button:1:target" content="${escAttr(page)}">`,
+    '<meta name="fc:frame:button:2" content="Refresh the record">',
+    '<meta name="fc:frame:button:2:action" content="post">',
     `<meta property="og:image" content="${escAttr(img)}">`,
     `<meta property="og:url" content="${escAttr(page)}">`,
   ].join('\n');
   return html.replace('</head>', tags + '\n</head>');
 }
 
-module.exports = { injectCallMeta, injectTraderMeta, KEY_RE };
+/**
+ * The frame document a POST interaction answers with — a minimal page whose
+ * only job is carrying fresh meta back to the Farcaster client. `bust` is a
+ * SERVER-generated cache-buster (never echoed client input); the image route
+ * ignores unknown queries except the recheck marker it understands.
+ */
+function callVerifyFrame(key, origin, bust) {
+  const base = String(origin || '').trim().replace(/\/+$/, '');
+  if (!base || !KEY_RE.test(String(key || ''))) return null;
+  const img = `${base}/api/frame/call/${encodeURIComponent(key)}/image?rechecked=${encodeURIComponent(bust)}`;
+  const page = `${base}/call/${encodeURIComponent(key)}`;
+  const post = `${base}/api/frame/call/${encodeURIComponent(key)}/verify`;
+  return ['<!DOCTYPE html><html><head>',
+    '<meta name="fc:frame" content="vNext">',
+    `<meta name="fc:frame:image" content="${escAttr(img)}">`,
+    `<meta name="fc:frame:post_url" content="${escAttr(post)}">`,
+    '<meta name="fc:frame:button:1" content="Verify in your browser">',
+    '<meta name="fc:frame:button:1:action" content="link">',
+    `<meta name="fc:frame:button:1:target" content="${escAttr(page)}">`,
+    '<meta name="fc:frame:button:2" content="Re-verify now">',
+    '<meta name="fc:frame:button:2:action" content="post">',
+    `</head><body>Recomputed just now. Open ${escAttr(page)} to re-derive the hash yourself.</body></html>`,
+  ].join('\n');
+}
+
+function traderRefreshFrame(handle, origin, bust) {
+  const { HANDLE_RE } = require('./arena_trader');
+  const base = String(origin || '').trim().replace(/\/+$/, '');
+  if (!base || !HANDLE_RE.test(String(handle || ''))) return null;
+  const img = `${base}/api/frame/trader/${encodeURIComponent(handle)}/image?t=${encodeURIComponent(bust)}`;
+  const page = `${base}/trader/${encodeURIComponent(handle)}`;
+  const post = `${base}/api/frame/trader/${encodeURIComponent(handle)}/refresh`;
+  return ['<!DOCTYPE html><html><head>',
+    '<meta name="fc:frame" content="vNext">',
+    `<meta name="fc:frame:image" content="${escAttr(img)}">`,
+    `<meta name="fc:frame:post_url" content="${escAttr(post)}">`,
+    '<meta name="fc:frame:button:1" content="View the record">',
+    '<meta name="fc:frame:button:1:action" content="link">',
+    `<meta name="fc:frame:button:1:target" content="${escAttr(page)}">`,
+    '<meta name="fc:frame:button:2" content="Refresh the record">',
+    '<meta name="fc:frame:button:2:action" content="post">',
+    `</head><body>Refreshed. Open ${escAttr(page)} for the full record.</body></html>`,
+  ].join('\n');
+}
+
+module.exports = { injectCallMeta, injectTraderMeta, callVerifyFrame, traderRefreshFrame, KEY_RE };

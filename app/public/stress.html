@@ -53,6 +53,16 @@
   .sc .dd { margin-left: auto; font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; }
   .sc .bar { height: 8px; border-radius: 5px; background: var(--surface-2); overflow: hidden; margin: 10px 0 8px; }
   .sc .bar i { display: block; height: 100%; transition: width .5s cubic-bezier(.2,.8,.2,1); }
+  /* Shockwave: when the BOOK changes, drawdown bars sweep across the grid in
+     card order -- the shock propagating through the portfolio. Guarded by a
+     results key in JS so retyping a symbol never restrobes the grid. */
+  #grid.wave .sc .bar i { animation: shock .55s cubic-bezier(.2,.8,.2,1) backwards; animation-delay: var(--d, 0s); }
+  @keyframes shock { from { width: 0; } }
+  #grid.wave .liqchip.on { animation: alarm .6s ease-out backwards; animation-delay: var(--d, 0s); }
+  @keyframes alarm { 0% { box-shadow: 0 0 0 0 rgba(224,82,82,.5); } 100% { box-shadow: 0 0 0 9px rgba(224,82,82,0); } }
+  @media (prefers-reduced-motion: reduce) {
+    #grid.wave .sc .bar i, #grid.wave .liqchip.on { animation: none; }
+  }
   .sc .meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-3); }
   .liqchip { font-size: 10px; padding: 1px 8px; border-radius: 999px; border: 1px solid; }
   .sev-critical { color: #ff5c6c; } .sev-critical .bar i, .bar i.sev-critical { background: #ff5c6c; } .liqchip.on { border-color: #ff5c6c; color: #ff5c6c; }
@@ -141,7 +151,7 @@
 <!-- Ahead of the page script: renderRows()/recompute() run at parse time,
      so an i18n.js loaded at the bottom arrives after every T() has already
      fallen back to English. Same boot-order bug the escape page had. -->
-<script src="/js/i18n.js?v=79"></script>
+<script src="/js/i18n.js?v=80"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/stress-model.js?v=2"></script>
 <script>
@@ -271,11 +281,19 @@
       + (legs ? '<details><summary>' + esc(T('sx.legs_h', 'Per-leg breakdown')) + '</summary>' + legs + '</details>' : '');
   }
 
+  var lastGridKey;
   function renderGrid() {
     var runs = M.runAll(positions);
+    // Shockwave only when the RESULTS changed shape -- same no-restrobe rule
+    // as the escape cascade. First paint waves (lastGridKey starts undefined).
+    var gridKey = runs.map(function (x) {
+      return x.scenario.id + '|' + x.result.drawdownPct.toFixed(2) + '|' + x.result.liquidatedCount;
+    }).join(';');
+    $('grid').classList.toggle('wave', gridKey !== lastGridKey);
+    lastGridKey = gridKey;
     // Named by the scenario's stable id; the model's English is the fallback.
-    $('grid').innerHTML = runs.map(function (x) {
-      return '<div class="sc">' + scenarioCard(T('sx.sc.' + x.scenario.id, x.scenario.name), x.scenario.emoji, x.result) + '</div>';
+    $('grid').innerHTML = runs.map(function (x, i) {
+      return '<div class="sc" style="--d:' + (i * 0.07).toFixed(2) + 's">' + scenarioCard(T('sx.sc.' + x.scenario.id, x.scenario.name), x.scenario.emoji, x.result) + '</div>';
     }).join('');
 
     // "What breaks you" verdict — harshest scenario + first liquidation.
