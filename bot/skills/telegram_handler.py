@@ -6207,7 +6207,13 @@ class TelegramHandler:
         result = await executor.close_position(trade_id, "manual_telegram")
         await self._send(update, f"\U0001f510 {result}")
 
-    @guard("admin")
+    # `trade`, not `admin`. These are inert 7-line stubs that print "spot
+    # trading is disabled, use /trade" and touch nothing. Under @guard("admin")
+    # a normal user typing /buy got SILENCE — the exact "commands feel broken"
+    # failure command_catalog.py exists to fix, on a command whose only job is
+    # to redirect them to the one they should have used. Same permission as the
+    # /trade they point at.
+    @guard("trade")
     async def _cmd_buy(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/buy — DISABLED (futures-only mode)."""
         await self._send(update,
@@ -6216,7 +6222,7 @@ class TelegramHandler:
             "The bot automatically opens positions via AI analysis. "
             "Use <code>/livepositions</code> to view open positions.")
 
-    @guard("admin")
+    @guard("trade")
     async def _cmd_sell(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/sell — DISABLED (futures-only mode)."""
         await self._send(update,
@@ -6823,6 +6829,24 @@ class TelegramHandler:
 
     async def _cmd_setllm(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/setllm <provider> [api_key] [model] — switch LLM provider at runtime."""
+        # SCRUB FIRST, AUTHORISE SECOND.
+        #
+        # The API key is already in the chat by the time this runs. The admin
+        # rejection below used to `return` before the delete at the end of this
+        # function — the one commented "Always try to delete the original message
+        # containing the API key" — so a NON-admin who pasted a key had it
+        # refused and left in the history permanently, which is the one case
+        # where the key is most likely to have been pasted by mistake.
+        #
+        # Deleting is not a privileged action and does not depend on who asked,
+        # so it happens before the authorisation check, unconditionally.
+        try:
+            await update.message.delete()
+        except Exception as _del_exc:
+            system_log.warning(
+                "Failed to delete /setllm message containing API key: %s — "
+                "key may be visible in chat history", _del_exc)
+
         # Audit F-12: swapping the analysis LLM / injecting a key affects every
         # trade decision — restrict to admins, not the broad `mode` permission.
         if not self._is_admin(update):
@@ -6917,13 +6941,9 @@ class TelegramHandler:
             await self._send(update,
                 f"🔴 {t('llm_update_failed', self._lang(update), msg=html.escape(msg))}")
 
-        # Always try to delete the original message containing the API key
-        try:
-            await update.message.delete()
-        except Exception as del_exc:
-            system_log.warning(
-                "Failed to delete /setllm message containing API key: %s — "
-                "key may be visible in chat history", del_exc)
+        # (The message was already deleted at the top of this function, before
+        # the authorisation check, so that a rejected non-admin's pasted key is
+        # scrubbed too.)
 
     @guard("status")
     async def _cmd_llmstatus(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

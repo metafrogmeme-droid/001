@@ -13,6 +13,18 @@ import pytest
 import bot.utils.control_pull as ctl
 
 
+@pytest.fixture
+def paper_enabled(monkeypatch):
+    """PAPER_SIM_OPT_IN_ENABLED on, which is NOT the default.
+
+    Every pause test needs this now. The pause control sets `sim_opt_in`, and
+    `engine.confirm_trade` honours that flag only when this env feature is
+    enabled — so with the real default (False) the correct behaviour is to
+    refuse the pause, not to store it. See TestPauseRequiresPaperMode.
+    """
+    monkeypatch.setattr(ctl, "_paper_mode_available", lambda: True)
+
+
 class _FakeStore:
     def __init__(self, allowlisted=False):
         self.live = False
@@ -69,11 +81,12 @@ class TestProcessControls:
         ctl.process_pending_controls([_row(margin=0)], s)
         assert ("margin", None) in s.calls
 
-    def test_pause(self):
+    def test_pause(self, paper_enabled):
         s = _FakeStore()
         acks = ctl.process_pending_controls([_row(paused=1)], s)
         assert ("paused", True) in s.calls
         assert acks[0]["paused"] is True
+        assert acks[0]["paused_effective"] is True
 
     def test_null_fields_left_unchanged(self):
         s = _FakeStore()
@@ -97,13 +110,116 @@ class TestProcessControls:
         assert ctl.process_pending_controls([_row(tg="", live=1)], s) == []
         assert s.calls == []
 
-    def test_combined_change(self):
+    def test_combined_change(self, paper_enabled):
         s = _FakeStore()
         acks = ctl.process_pending_controls([_row(live=1, margin=100, paused=1)], s)
         kinds = [c[0] for c in s.calls]
         assert set(kinds) == {"live", "margin", "paused"}
         a = acks[0]
         assert a["live_enabled"] and a["paused"] and a["max_margin"] == 100.0
+
+
+class TestPauseRequiresPaperMode:
+    """The website's pause switch was acked as applied while doing nothing.
+
+    THE DEFECT
+
+    `paused` sets `sim_opt_in`. `engine.confirm_trade` consults that flag only
+    inside `if CONFIG.paper_sim_opt_in_enabled and ...` — and that env flag
+    defaults to False. So on a default deployment the pull stored the flag,
+    acked `paused: True`, and the website rendered the user as paused while
+    every confirmed trade went to the exchange. The user believes their trades
+    are simulated; they are real.
+
+    Telegram never had it: `/paper` refuses and names the missing flag. The web
+    path is the one that never asked, which is this audit's recurring shape —
+    the same decision enforced on one client and not another.
+    """
+
+    def test_a_pause_is_refused_when_the_engine_would_ignore_it(self, monkeypatch):
+        monkeypatch.setattr(ctl, "_paper_mode_available", lambda: False)
+        s = _FakeStore()
+        acks = ctl.process_pending_controls([_row(paused=1)], s)
+        assert s.calls == [], "stored an opt-in the engine will ignore"
+        a = acks[0]
+        assert a["paused"] is False
+        assert a["paused_effective"] is False
+        assert a["paper_mode_available"] is False
+        assert a["paused_rejected"] == "paper_mode_disabled"
+
+    def test_unpausing_always_applies(self, monkeypatch):
+        """Only the direction that CLAIMS protection needs the feature.
+
+        Refusing to clear a stale opt-in would strand a user in a paper mode
+        they explicitly asked to leave, on a bot that no longer honours it —
+        the same asymmetry the kill switch uses for reducing actions.
+        """
+        monkeypatch.setattr(ctl, "_paper_mode_available", lambda: False)
+        s = _FakeStore(); s.paused = True
+        acks = ctl.process_pending_controls([_row(paused=0)], s)
+        assert ("paused", False) in s.calls and s.paused is False
+        assert acks[0]["paused"] is False
+
+    def test_a_stale_stored_optin_is_reported_as_not_effective(self, monkeypatch):
+        """Operator enables the feature, user pauses, operator disables it.
+
+        The stored flag still reads True, so `paused` alone keeps saying
+        "paused" forever. `paused_effective` is the field that answers the only
+        question the user is actually asking.
+        """
+        monkeypatch.setattr(ctl, "_paper_mode_available", lambda: False)
+        s = _FakeStore(); s.paused = True
+        acks = ctl.process_pending_controls([_row(live=0)], s)   # unrelated change
+        assert acks[0]["paused"] is True
+        assert acks[0]["paused_effective"] is False
+
+    def test_other_controls_still_apply_when_the_pause_is_refused(self, monkeypatch):
+        """A refused pause must not silently drop the margin cap beside it."""
+        monkeypatch.setattr(ctl, "_paper_mode_available", lambda: False)
+        s = _FakeStore()
+        acks = ctl.process_pending_controls([_row(live=1, margin=100, paused=1)], s)
+        assert set(c[0] for c in s.calls) == {"live", "margin"}
+        assert acks[0]["live_enabled"] is True and acks[0]["max_margin"] == 100.0
+        assert acks[0]["ok"] is True
+
+    def test_availability_fails_closed_when_config_is_unreadable(self, monkeypatch):
+        """Unknown must never read as "protected"."""
+        import builtins
+        real_import = builtins.__import__
+
+        def boom(name, *a, **k):
+            if name == "bot.config":
+                raise ImportError("config unavailable")
+            return real_import(name, *a, **k)
+        monkeypatch.setattr(builtins, "__import__", boom)
+        assert ctl._paper_mode_available() is False
+
+    def test_the_engine_really_does_gate_on_that_flag(self):
+        """The premise, asserted rather than assumed.
+
+        If `confirm_trade` ever honours `sim_opt_in` unconditionally, this whole
+        precondition becomes wrong and should be deleted — not left refusing
+        pauses that would now work.
+        """
+        import ast
+        import pathlib as _pl
+        src = (_pl.Path(__file__).resolve().parent.parent
+               / "bot" / "core" / "engine.py").read_text()
+        lines = src.splitlines(keepends=True)
+        # By function-that-contains, not by name: the gate lives in
+        # `_confirm_trade_inner`, and pinning the outer `confirm_trade` made
+        # this pass vacuously the moment the body moved one call deeper.
+        sites = [(n.name, "".join(lines[n.lineno - 1:n.end_lineno]))
+                 for n in ast.walk(ast.parse(src))
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and "sim_opt_in(" in "".join(lines[n.lineno - 1:n.end_lineno])]
+        assert sites, "engine.py no longer consults sim_opt_in anywhere"
+        for name, body in sites:
+            i = body.index("sim_opt_in(")
+            assert "paper_sim_opt_in_enabled" in body[max(0, i - 400):i], (
+                f"engine.{name} consults sim_opt_in without the "
+                "CONFIG.paper_sim_opt_in_enabled precondition — the web pause "
+                "control's refusal is now wrong and must be removed")
 
 
 class TestPullGate:

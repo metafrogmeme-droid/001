@@ -34,8 +34,16 @@ STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ARCHIVE="$BACKUP_DIR/runeclaw-data-$STAMP.tar.gz"
 
 # --ignore-failed-read: a file mid-rotation must not kill the backup.
-tar --ignore-failed-read -czf "$ARCHIVE" data/
-chmod 600 "$ARCHIVE"   # contains .jwt_secret + encrypted credential blobs
+# umask BEFORE tar, not chmod after it. `chmod 600` on the following line
+# closes the permissions but not the window: tar creates the archive with
+# the ambient umask (0644 on a default system) and it sits readable until
+# the chmod lands. The archive contains data/ wholesale — the Fernet
+# key, .jwt_secret, the encrypted credential blobs, and
+# data/attestation_key.bin, the Ed25519 signing key that is 0600 in place
+# and would be world-readable inside a 0644 tarball.
+(umask 077
+ tar --ignore-failed-read -czf "$ARCHIVE" data/)
+chmod 600 "$ARCHIVE"   # belt and braces; the umask above already did it
 
 SIZE=$(du -h "$ARCHIVE" | cut -f1)
 echo "[backup] wrote $ARCHIVE ($SIZE)"

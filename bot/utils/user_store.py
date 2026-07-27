@@ -32,18 +32,35 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     # "Start here" for all users, and a person who cannot read the interface
     # cannot ask for permission to change its language. It sets a display
     # preference and touches nothing else.
+    # `exposure`, `networth`, `research` and `rwa` were invented at the
+    # @guard(...) decorator and never added here, so the permission string
+    # existed and NO role held it: only admin (which holds "*") could run four
+    # commands the catalog documents for everyone. All four are read-only and
+    # either caller-scoped (`fetch_exposure(self._get_tg_id(update))`,
+    # /networth's own docstring says "the caller's own") or pure market data
+    # (/research a symbol, /rwa a sector radar) — nothing shared, nothing
+    # mutable — so the PERMISSION was the error, not the catalogue.
     "trader": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
         "trade", "risk", "status", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
+        "exposure", "networth", "research", "rwa",
     },
     "viewer": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "status", "risk",
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
+        "exposure", "networth", "research", "rwa",
     },
+    # "journal" STAYS here even though /journal moved to an operator group.
+    # It is not /journal's permission alone — `/daily_report` is `@guard("journal")`
+    # too, and it is genuinely user-facing. Dropping the string to "tidy up"
+    # after moving the catalogue entry silently revoked /daily_report from every
+    # trader and viewer; the test caught it. /journal is restricted by its own
+    # inline `if not self._is_admin(update)`, which is the layer that actually
+    # decides. A role permission is necessary, not sufficient.
     "pending": {"start", "help", "lang"},
 }
 

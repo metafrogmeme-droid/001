@@ -1,6 +1,6 @@
 """Every Telegram command, grouped and described — the source of /help.
 
-The bot registers 125 commands. /help documented FIVE of them, and the "/"
+The bot registers 126 commands. /help documented FIVE of them, and the "/"
 menu shows a curated 15, so ~110 working features were discoverable only by
 word of mouth. That is the whole of the operator's report: "too many
 commands, some don't work or it's not clear what they do."
@@ -39,13 +39,10 @@ GROUPS: List[Group] = [
     ("📈 Trading", "user", [
         ("trade", "place a trade — /trade buy SOL 71.42 sl 70.05 tp 76.42"),
         ("paper", "practise risk-free with virtual funds"),
-        ("golive", "enable live trading (double confirmation)"),
         ("open_positions", "your open positions"),
         ("livepositions", "live exchange positions and pending orders"),
         ("orders", "your open/pending orders"),
-        ("liveclose", "close one live position — /liveclose <id>"),
         ("latest_signal", "pending signals with action buttons"),
-        ("autoconfirm", "view or set the auto-confirm threshold"),
         ("emergency_stop", "stop everything (asks to confirm)"),
         ("pause", "pause trading (circuit breaker on)"),
         ("resume", "resume trading"),
@@ -58,7 +55,6 @@ GROUPS: List[Group] = [
         ("scan", "scan the market for setups"),
         ("fullscan", "full 67-symbol scan"),
         ("deepscan", "deep scan with chart + candle patterns"),
-        ("forcescan", "scan now, bypassing cooldown"),
         ("analyze", "deep-dive one coin — /analyze SOL"),
         ("alpha", "daily alpha insight card"),
         ("research", "cited research dossier for a symbol"),
@@ -83,7 +79,6 @@ GROUPS: List[Group] = [
         ("fundingscan", "annualized funding, multi-venue"),
         ("arb", "funding-arb paper tracker"),
         ("rwa", "tokenized real-world-asset radar"),
-        ("crossasset", "cross-asset correlation context"),
     ]),
     ("💼 Portfolio & record", "user", [
         ("portfolio", "equity, positions and win rate"),
@@ -93,11 +88,9 @@ GROUPS: List[Group] = [
         ("risk", "risk status and circuit breaker"),
         ("signals", "per-pair signal stats"),
         ("rejected", "signals risk turned down"),
-        ("journal", "weekly trade journal"),
         ("daily_report", "daily trading report"),
         ("classpf", "performance by asset class"),
         ("holdtime", "hold-time analytics"),
-        ("equitycurve", "equity-curve breaker status"),
         ("costs", "trading costs breakdown"),
     ]),
     ("🔔 Alerts & notes", "user", [
@@ -109,14 +102,19 @@ GROUPS: List[Group] = [
     ("🧪 Research & tuning", "user", [
         ("backtest", "run a backtest"),
         ("walkforward", "walk-forward validation"),
-        ("montecarlo", "Monte Carlo risk simulation"),
-        ("calibration", "learning overlays and calibration"),
         ("learn", "what the engine has learned"),
         ("optimize", "parameter optimization"),
         ("proposals", "pending tuning proposals"),
-        ("strategy", "active strategy and regime routing"),
         ("playbook", "full system playbook briefing"),
         ("run", "run a named strategy preset"),
+    ]),
+    ("🧪 Research & tuning (operator)", "admin", [
+        # Both were documented for everyone and admin-only in fact. /calibration
+        # REFITS the confidence overlays every trade decision then uses, and
+        # /montecarlo runs over engine.portfolio._history — the shared operator
+        # book, not the caller's.
+        ("montecarlo", "Monte Carlo risk simulation (operator book)"),
+        ("calibration", "learning overlays and calibration — refit mutates them"),
     ]),
     ("🛡 Guardian (operator)", "admin", [
         ("guardian", "the Guardian console"),
@@ -130,6 +128,27 @@ GROUPS: List[Group] = [
         ("readiness", "is the learning loop validated enough to apply"),
     ]),
     ("🚦 Engine ops (operator)", "admin", [
+        # MOVED FROM USER GROUPS. Each of these was documented for everyone
+        # while its handler refused every non-admin — the catalogue was the
+        # error, not the guard, because each one reads or mutates the SHARED
+        # operator engine rather than the caller's own account:
+        #   golive       flips RUNTIME.live_mode + the global compliance profile
+        #   liveclose    closes on the operator executor when per-user live is off
+        #   autoconfirm  sets the global auto-confirm threshold
+        #   forcescan    clears the shared pending ideas and bypasses cooldown
+        #   equitycurve  the shared risk engine's breaker state
+        #   journal      engine.journal — the operator account's trades
+        #   strategy     the global router's regime + vol state
+        #   crossasset   admin-gated in the handler; market-wide, but widening
+        #                access is a product call, not an audit fix
+        ("golive", "enable live trading (double confirmation)"),
+        ("liveclose", "close one live position — /liveclose <id>"),
+        ("autoconfirm", "view or set the auto-confirm threshold"),
+        ("forcescan", "scan now, bypassing cooldown"),
+        ("equitycurve", "equity-curve breaker status"),
+        ("journal", "weekly trade journal (operator account)"),
+        ("strategy", "active strategy and regime routing"),
+        ("crossasset", "cross-asset correlation context"),
         ("gates", "per-gate pass/fail telemetry"),
         ("flags", "deep-audit opt-in flags"),
         ("shadow", "counterfactual shadow book"),
@@ -289,6 +308,7 @@ GROUP_TITLES_ZH: Dict[str, str] = {
     "💼 Portfolio & record": "💼 投資組合與紀錄",
     "🔔 Alerts & notes": "🔔 提醒與筆記",
     "🧪 Research & tuning": "🧪 研究與調校",
+    "🧪 Research & tuning (operator)": "🧪 研究與調校（操作員）",
     "🛡 Guardian (operator)": "🛡 Guardian（操作員）",
     "🚦 Engine ops (operator)": "🚦 引擎營運（操作員）",
     "👥 Users & access (operator)": "👥 使用者與權限（操作員）",

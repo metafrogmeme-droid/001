@@ -703,3 +703,68 @@ def test_no_fallback_warning_when_the_staking_program_is_set(monkeypatch):
     monkeypatch.setattr(mod, "staked_of", lambda w: 50_000.0)
     assert mod.allows_user(_Users(WALLET), 1, "premium_scan") is True
     assert not [m for m in msgs if "RCLAW_STAKING_PROGRAM is unset" in m]
+
+
+# ---------------------------------------------------------------------------
+# The cross-language offset check the README already claimed existed.
+#
+# programs/rclaw_staking/README.md said the offsets are "machine-checked on both
+# sides" and that "Changing one side alone fails CI". Only half was true. The
+# Rust test (layout_tests::borsh_offsets_match_the_python_gate) asserts the Borsh
+# encoding against RUST'S OWN layout:: constants — genuinely valuable, and it
+# protects the Rust side. Nothing read the Python constants from Rust or the Rust
+# constants from Python, so editing bot/token/tier_gate.py alone broke nothing
+# and CI stayed green while the gate read the wrong bytes off the chain.
+#
+# This parses the constants straight out of lib.rs. It is the missing half.
+# ---------------------------------------------------------------------------
+
+def _rust_layout_constants():
+    """`pub const NAME: usize = N;` inside `pub mod layout` in lib.rs."""
+    import pathlib
+    import re as _re
+    src = (pathlib.Path(__file__).resolve().parent.parent / "programs" / "rclaw_staking"
+           / "src" / "lib.rs").read_text()
+    start = src.index("pub mod layout {")
+    body = src[start:src.index("\n}", start)]
+    return {m.group(1): int(m.group(2))
+            for m in _re.finditer(r"pub const (\w+): usize = (\d+);", body)}
+
+
+def test_python_offsets_are_read_from_the_rust_source_not_a_fixture(monkeypatch):
+    """The claim, finally enforced: change either side alone and this fails."""
+    rust = _rust_layout_constants()
+    assert rust, "no layout constants parsed from lib.rs — did `pub mod layout` move?"
+    mod = _reload_clean(monkeypatch)
+
+    pairs = {
+        "VERSION_OFFSET": mod.STAKE_VERSION_OFFSET,
+        "OWNER_OFFSET": mod.STAKE_OWNER_OFFSET,
+        "MINT_OFFSET": mod.STAKE_MINT_OFFSET,
+        "AMOUNT_OFFSET": mod.STAKE_AMOUNT_OFFSET,
+        "UNLOCK_AT_OFFSET": mod.STAKE_UNLOCK_AT_OFFSET,
+    }
+    for name, py_value in pairs.items():
+        assert name in rust, f"lib.rs no longer defines layout::{name}"
+        assert rust[name] == py_value, (
+            f"layout::{name} is {rust[name]} in programs/rclaw_staking/src/lib.rs but "
+            f"{py_value} in bot/token/tier_gate.py. The gate would read the wrong bytes "
+            "off the chain and mis-scale or mis-attribute every stake.")
+
+
+def test_the_account_size_agrees_across_languages():
+    """`dataSize` filters on it, so a divergence returns zero accounts — which
+    reads exactly like "this user has not staked"."""
+    rust = _rust_layout_constants()
+    assert rust["DISCRIMINATOR"] == 8
+    # 8 disc + body(90) + reserved(64) = 162, asserted from the Rust side's own
+    # discriminator width rather than restating the number.
+    assert tg.STAKE_ACCOUNT_TOTAL_LEN == (
+        rust["DISCRIMINATOR"] + tg.STAKE_ACCOUNT_SPACE + tg.STAKE_ACCOUNT_RESERVED)
+
+
+def test_the_parser_actually_found_constants():
+    """Guards the guard: a regex that silently matched nothing would make both
+    tests above pass while comparing empty sets."""
+    rust = _rust_layout_constants()
+    assert len(rust) >= 8, f"only parsed {len(rust)} constants from lib.rs"

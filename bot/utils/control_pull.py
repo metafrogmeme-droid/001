@@ -10,6 +10,26 @@ Safety: enabling live only flips the user-store ``can_trade_live`` flag — the 
 ``_can_trade_live`` gate STILL also requires the operator's env allowlist, so this
 can never grant live access the operator hasn't pre-approved. The ack reports
 ``allowlisted`` separately so the UI can show "on, pending operator approval".
+
+PAUSE-TO-PAPER IS GATED THE SAME WAY, AND WAS NOT
+--------------------------------------------------
+``paused`` sets ``sim_opt_in``, which ``engine.confirm_trade`` honours only when
+``CONFIG.paper_sim_opt_in_enabled`` is true — and that env flag defaults to
+**False**. So on a default deployment this stored the preference, acked
+``paused: True``, and the website showed the user as paused while every confirmed
+trade still went to the exchange. Believing your trades are simulated when they
+are real is the worst direction for this to fail in.
+
+Telegram never had the bug: ``/paper`` refuses up front and says the flag is off.
+The web path just never asked. It now applies the same precondition and reports
+``paper_mode_available`` alongside ``paused`` — the same shape as
+``live_enabled``/``allowlisted`` above, for the same reason — plus
+``paused_effective``, which is the only field that answers "will my next trade be
+simulated?".
+
+Turning pause OFF is always applied, whatever the flag says. Only the direction
+that claims protection needs the feature to exist; refusing to clear a stale
+opt-in would strand a user in a paper mode they asked to leave.
 """
 
 from __future__ import annotations
@@ -26,6 +46,23 @@ def _coerce_bool(v):
     return None if v is None else bool(int(v)) if not isinstance(v, bool) else v
 
 
+def _paper_mode_available() -> bool:
+    """Will the engine actually honour ``sim_opt_in``?
+
+    Imported lazily and fail-CLOSED: if the config cannot be read we report the
+    feature as unavailable, so the ack never claims a protection whose status is
+    unknown. `bot.utils` is imported early enough that a module-level
+    `from bot.config import CONFIG` risks a cycle, hence the local import.
+    """
+    try:
+        from bot.config import CONFIG
+        return bool(CONFIG.paper_sim_opt_in_enabled)
+    except Exception as exc:                                  # pragma: no cover
+        log.warning("control pull: cannot read paper-mode config (%s) — "
+                    "reporting paper mode UNAVAILABLE", exc)
+        return False
+
+
 def process_pending_controls(rows, store,
                              allowlist_check: Optional[Callable[[str], bool]] = None,
                              on_change: Optional[Callable[[str], None]] = None) -> list[dict]:
@@ -37,6 +74,7 @@ def process_pending_controls(rows, store,
     a successful apply so the caller can refresh per-user state.
     """
     acks: list[dict] = []
+    paper_available = _paper_mode_available()
     for r in rows:
         uid = r.get("user_id")
         tg = str(r.get("telegram_id") or "")
@@ -48,20 +86,40 @@ def process_pending_controls(rows, store,
             margin = r.get("max_margin")
             if live is not None:
                 store.set_live_trading(tg, live)
+            paused_rejected = None
             if paused is not None:
-                store.set_sim_opt_in(tg, paused)
+                # Storing a True the engine will ignore is what made the website
+                # show "paused" over a live account. Refuse it instead, and say
+                # so. Clearing the opt-in always applies.
+                if paused and not paper_available:
+                    paused_rejected = "paper_mode_disabled"
+                    log.warning(
+                        "control pull: user %s asked to pause to paper, but "
+                        "PAPER_SIM_OPT_IN_ENABLED is off — NOT applied; their "
+                        "confirmed trades still execute live", tg)
+                else:
+                    store.set_sim_opt_in(tg, paused)
             if margin is not None:
                 m = float(margin)
                 store.set_max_margin(tg, m if m > 0 else None)  # 0 clears the cap
             applied_margin = store.max_margin(tg)
-            acks.append({
+            stored_pause = bool(store.sim_opt_in(tg))
+            ack = {
                 "user_id": uid,
                 "live_enabled": bool(store.can_trade_live(tg)),
                 "max_margin": applied_margin,
-                "paused": bool(store.sim_opt_in(tg)),
+                "paused": stored_pause,
+                # A stored opt-in from when the feature WAS enabled still reads
+                # back True after the operator turns it off, so the stored flag
+                # alone cannot answer the only question the user is asking.
+                "paper_mode_available": paper_available,
+                "paused_effective": stored_pause and paper_available,
                 "allowlisted": bool(allowlist_check(tg)) if allowlist_check else False,
                 "ok": True,
-            })
+            }
+            if paused_rejected:
+                ack["paused_rejected"] = paused_rejected
+            acks.append(ack)
             if on_change:
                 on_change(tg)
         except Exception as exc:

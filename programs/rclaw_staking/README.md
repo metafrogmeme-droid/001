@@ -41,9 +41,15 @@ The Python tier gate reads stake via `getProgramAccounts` with a `memcmp` on **o
 and — when `RCLAW_MINT` is set — **mint @41**, then reads `amount` at **offset 73**. It also
 checks `version @8` and skips any record whose `unlock_at @89` has already passed.
 Changing this layout without updating `tier_gate.py` silently breaks tier resolution;
-These offsets are machine-checked on both sides: `layout_tests::borsh_offsets_match_the_python_gate`
-asserts them against the real Borsh encoding, and `tests/test_token_tier_gate.py` asserts the
-gate reads the same positions. Changing one side alone fails CI.
+These offsets are machine-checked on both sides, and that claim is now true in
+both directions — it was not before. `layout_tests::borsh_offsets_match_the_python_gate`
+asserts the offsets against the real Borsh encoding, which protects the Rust side.
+But the Python test used to assert against a Python-built fixture, so editing
+`bot/token/tier_gate.py` alone changed nothing that any test could see: CI stayed
+green while the gate read the wrong bytes off the chain.
+`tests/test_token_tier_gate.py::test_python_offsets_are_read_from_the_rust_source_not_a_fixture`
+now parses `pub mod layout` straight out of `lib.rs` and compares it to the gate's
+constants. Changing either side alone fails CI.
 
 ## The fix is EXECUTED, not just reasoned about
 

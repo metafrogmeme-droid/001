@@ -1309,6 +1309,35 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
         engine._pending_atr[trade_id] = atr
 
         caller_uid = str(update.effective_user.id) if update.effective_user else ""
+
+        # H-18: LIVE mode needs per-user live-trading permission, exactly as the
+        # three sibling confirm paths do (telegram_handler.py's `confirm:` button
+        # and inline branch, and user_gateway.py). This one had NO auth check at
+        # all — grep for _can_trade_live/_is_admin/has_permission in this file
+        # returned nothing — so a user in LIVE_TRADER_TELEGRAM_IDS who had never
+        # been granted per-user live could tap the ✅ on a scan card and place a
+        # real order on the SHARED OPERATOR account, while the same person
+        # tapping `confirm:` on an /analyze card was refused.
+        #
+        # Fails CLOSED when the handler is unreachable: without it there is no
+        # way to evaluate the permission, and "cannot check" must not mean
+        # "allowed" on the path that spends real money.
+        from bot.config import CONFIG as _CFG   # module-scope import does not exist here
+        if _CFG.is_live():
+            _h = context.bot_data.get("telegram_handler") if context else None
+            if _h is None:
+                await query.message.reply_text(
+                    "\U0001f512 Live trade refused — the permission check is "
+                    "unavailable, so this could not be authorised.",
+                    parse_mode="HTML")
+                return
+            if not _h._is_admin(update) and not _h._can_trade_live(caller_uid):
+                await query.message.reply_text(
+                    "\U0001f512 Live trading is not enabled for your account. "
+                    "An admin must grant it with /grant_live.",
+                    parse_mode="HTML")
+                return
+
         result = await engine.confirm_trade(trade_id, user_id=caller_uid)
 
         # ── Auto re-analyze on price drift rejection ──

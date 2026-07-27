@@ -104,21 +104,49 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
 `fundingMode` numeric against the Genesis program before mainnet.*
 
 **Confirm on devnet / before launch:**
-- **Soft-cap / refund semantics** — Genesis fixed-price presale is "buy until cap." The
-  `withdraw`/`withdraw-unsold` commands cover depositor-cancel and operator-recover-unsold; a
-  true *soft-cap-missed → auto-refund-all* still needs an operational cancel (or a min-raise
-  extension). Validate the exact V2 behavior on devnet.
+- **Soft-cap / refund semantics** — ~~The `withdraw`/`withdraw-unsold` commands cover
+  depositor-cancel and operator-recover-unsold~~ **CORRECTED — they do not, and this bullet
+  said to "validate on devnet" something that was validated and came back negative.**
+  Genesis fixed-price presale is "buy until cap." PROVEN on devnet 2026-07-26:
+  `withdrawPresaleV1` and `withdrawUnsoldPresaleV1` are **V1-only** and reject a V2 genesis
+  account with `The Genesis Account is invalid` (0x2f); the SDK ships no V2 equivalent. So
+  there is **no depositor cancel and no operator recovery of unsold tokens** — a deposit that
+  lands cannot be returned. Unsold supply is handled instead by the on-chain
+  `unsoldRollover` end behavior (see `metaplex-genesis.config.json`), without which it is
+  stranded permanently. Published terms must not promise a refund of any kind. This holds at
+  the **fallback venue too** until Smithii's refund path is executed on devnet and the
+  transaction published — `venue_parity.test.mjs` fails if either config sets
+  `refundIfSoftCapMissed`.
 - **Liquidity finalize** — `presale:liquidity` adds the Raydium bucket + permanent LP lock;
   confirm the pool-creation/finalize flow end-to-end on devnet before mainnet.
 - **Publish** — genesis account, bucket, mint, whitelist root, LP-lock proof, audit report.
 
 ## Path B — Smithii (fallback)
 
+> **The fallback is not automatically equivalent to Path A.** `smithii.config.json` used to
+> claim it "mirrors the Metaplex Genesis params so the two are interchangeable" while three
+> values diverged — refund promise, liquidity share of the raise, and LP lock duration — so
+> which venue the operator happened to use silently changed what buyers were told. The values
+> are corrected and `venue_parity.test.mjs` now checks the full key set, but two of the three
+> depend on what Smithii's contract can actually do, and **nothing in this repository has read
+> that contract**. Steps 3-4 below are blocking for that reason.
+
 1. Open Smithii's Solana launchpad, select **devnet**.
 2. Enter the values from `smithii.config.json` (caps, whitelist phase, vesting, auto-list %).
-3. Confirm the exact **% of sales** platform fee in-app (placeholder in config).
-4. Run the same devnet dry-run (contribute → finalize → auto-list → claim).
-5. Publish the same proof artifacts.
+   If the auto-list field takes only an integer, enter **67**, not 66 — rounding up sends more
+   SOL to the pool, which opens it higher and deeper, the recoverable side of the sizing
+   decision (`metaplex-genesis.config.json` → `liquidity._liquidityPricing_comment`).
+3. **BLOCKING — permanent LP lock.** Genesis uses `createNeverClaimSchedule()`: the LP is
+   never claimable, with no expiry. Confirm Smithii can express that. If it can only offer a
+   fixed duration, the fallback is a **materially different product** and must be re-ratified
+   and published as such before the sale — not discovered by a holder reading the pool
+   afterwards.
+4. **BLOCKING — refund.** `refundIfSoftCapMissed` is `false` at both venues. Do not enable a
+   refund in Smithii's UI or in published terms unless the refund has been executed on devnet
+   and the transaction published, exactly as Path A requires of itself.
+5. Confirm the exact **% of sales** platform fee in-app (placeholder in config).
+6. Run the same devnet dry-run (contribute → finalize → auto-list → claim).
+7. Publish the same proof artifacts, plus the outcome of steps 3 and 4.
 
 ## The one decision point: `presale:trigger` may refuse
 

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
+from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.system_health import SystemHealthMonitor
 from bot.core.exchange_flow import ExchangeFlowProvider
@@ -414,6 +415,21 @@ class RuneClawEngine:
         self._last_scan_time: float = 0.0
         self._current_scan_interval: float = CONFIG.scan_interval_seconds
         self._recent_atr_values: dict[str, float] = {}  # symbol -> latest ATR
+
+        # Black-swan detector. It was written, unit-tested and referenced by two
+        # consumers, and NOTHING EVER CONSTRUCTED IT — `engine.black_swan` did
+        # not exist, so `api_bridge.py`'s /blackswan answered "not_initialized"
+        # forever and `proactive_monitor._check_black_swan`'s
+        # `hasattr(self.engine, 'black_swan')` was always False, returning [] on
+        # every pass of the alert pipeline it is registered in. Same shape as the
+        # rest of this audit: the code works, nothing reaches it.
+        #
+        # It OBSERVES ONLY. `halt_recommended` is surfaced, never acted on — no
+        # caller halts on it today, and wiring an automatic halt would be a new
+        # trading behaviour rather than the fix for a dead reference. Fed from
+        # _analyze_signal; every call is wrapped so a detector fault can never
+        # block a trade decision.
+        self.black_swan = BlackSwanDetector()
 
     # -- State management --
 
@@ -3449,6 +3465,22 @@ class RuneClawEngine:
         # Smart scan: track ATR for interval adjustment
         if atr_value is not None and signal.price > 0:
             self._recent_atr_values[signal.symbol] = atr_value / signal.price
+
+        # Feed the black-swan detector. This is the one place in the scan path
+        # that already holds all four inputs it needs — symbol, last price,
+        # period volume (ohlcv column 5) and ATR — so feeding it anywhere else
+        # would mean recomputing them.
+        #
+        # Fail-open and silent: the detector only OBSERVES (nothing acts on
+        # halt_recommended), so an exception here must never cost a trade
+        # decision. It is `debug`, not `warning`, because a symbol with too
+        # little history is the normal case, not a fault.
+        try:
+            _bs_vol = float(ohlcv[-1][5]) if ohlcv and len(ohlcv[-1]) > 5 else 0.0
+            self.black_swan.update(signal.symbol, price=float(signal.price),
+                                   volume=_bs_vol, atr=float(atr_value or 0.0))
+        except Exception as _bs_exc:
+            logger.debug("black swan update skipped for %s: %s", signal.symbol, _bs_exc)
 
         # (Signal-stack audit: the old "strategy router" call here computed a
         # 4-profile selection per signal, fed it an absolute-price ATR where

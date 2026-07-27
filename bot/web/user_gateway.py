@@ -97,6 +97,88 @@ def _is_admin_id(tg_handler, tg_id: str) -> bool:
     return False
 
 
+
+# Skill -> the permission the equivalent Telegram command requires. Derived from
+# telegram_handler's @guard decorators, not invented here: whatever /halt needs
+# on Telegram is what "halt the bot" needs in web chat.
+#
+# WHY THIS EXISTS. The web chat path executed ANY registry skill by name with no
+# per-skill authorisation: `_guard_user` is called without a `command`, so its
+# role branch (`if command and not ...has_permission`) was dead code, and web ids
+# deliberately skip the Telegram allowlist. A stranger who signed up on the
+# website was auto-provisioned as role=trader and could POST "halt the bot" to
+# /api/chat — tripping the GLOBAL circuit breaker, halting every per-user risk
+# engine and clearing all pending ideas on the shared engine. The same person is
+# refused /halt on Telegram, and refused even a self-scoped stop over HTTP.
+#
+# Unmapped skills DENY. A skill added later is unreachable from web chat until
+# somebody decides what it needs, which is the safe direction — the alternative
+# is exactly the defect above, arriving silently.
+_WEB_SKILL_PERMISSION: dict[str, str] = {
+    "analyze_asset": "analyze",
+    "check_risk": "risk",
+    "costs": "costs",
+    "deepscan": "deepscan",
+    "get_portfolio": "portfolio",
+    # "halt" is DELIBERATELY ABSENT. HaltSkill is GLOBAL — it trips the shared
+    # circuit breaker, halts every per-user risk engine and clears all pending
+    # ideas. Web ids are auto-provisioned with DEFAULT_AUTO_ROLE, which holds
+    # the "halt" permission, so mapping it here would still let anyone who
+    # signed up on the website stop trading for everybody. The codebase already
+    # drew this line: POST /api/controls/stop refuses a merely SELF-SCOPED stop
+    # from a web identity with 409 telegram_required. A global halt over chat
+    # cannot be laxer than that. Operators halt from Telegram, where the
+    # allowlist applies.
+    "learning": "learn",
+    "macro_calendar": "macro",
+    "optimize": "optimize",
+    "patterns": "patterns",
+    "playbook": "playbook",
+    "pro_scan": "scan",
+    "proposals": "proposals",
+    "rejected_trades": "rejected",
+    "run_backtest": "backtest",
+    "run_strategy": "run",
+    "scan_market": "scan",
+    "walk_forward": "walkforward",
+    "whynot": "rejected",
+}
+
+
+def _web_skill_denied(tg_handler, tg_id: str, skill_name: str):
+    """None when this caller may run `skill_name` from the web, else a response.
+
+    Two checks the web path was missing entirely:
+
+      1. ROLE PERMISSION — the same one Telegram enforces for the equivalent
+         command.
+      2. THE $RCLAW TIER GATE — the web surface reached deepscan, patterns,
+         analyze_asset, learning and optimize without it, so every paid feature
+         was free through chat. The Telegram side gates all of them.
+    """
+    perm = _WEB_SKILL_PERMISSION.get(skill_name)
+    if perm is None:
+        return web.json_response(
+            {"reply_html": "That is not available from the web chat.",
+             "error": "skill_not_web_enabled"}, status=403)
+    if not tg_handler.users.has_permission(tg_id, perm):
+        role = (tg_handler.users.get(tg_id) or {}).get("role", "pending")
+        return web.json_response(
+            {"reply_html": f"Your role ({role}) cannot use that.",
+             "error": "insufficient_permissions"}, status=403)
+    try:
+        from bot.token import tier_gate
+        allowed, reason = tier_gate.check_user(tg_handler.users, tg_id, skill_name)
+        if not allowed:
+            msg = (tier_gate.unavailable_message() if reason == "unavailable"
+                   else tier_gate.upgrade_message(skill_name))
+            return web.json_response({"reply_html": msg, "error": f"tier_{reason}"},
+                                     status=402)
+    except Exception as exc:  # never take the gateway down on a gate bug
+        system_log.debug("web tier gate check skipped: %s", exc)
+    return None
+
+
 def _guard_user(tg_handler, tg_id: str, command: str = "", name: str = ""):
     """Auth + role + rate limit for a web-originated request.
 
@@ -330,6 +412,9 @@ async def handle_chat(request: web.Request) -> web.Response:
         skill_name = _INTENT_ALIASES.get(intent.skill, intent.skill)
         skill = tg_handler.registry.get(skill_name)
         if skill:
+            denied = _web_skill_denied(tg_handler, tg_id, skill_name)
+            if denied is not None:
+                return denied
             audit(system_log, f"Web NL intent routed: '{text[:50]}' -> {intent.skill}",
                   action="web_intent_dispatch", result=intent.skill,
                   data={"confidence": intent.confidence, "source": intent.source})

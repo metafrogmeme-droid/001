@@ -680,6 +680,7 @@ async def blackswan_status():
     """Black swan detector status — returns latest anomaly alerts if available."""
     if engine is None: raise HTTPException(status_code=503, detail="Engine not initialized")
     try:
+        from bot.core.black_swan import AnomalyType
         detector = getattr(engine, 'black_swan', None)
         if detector is None:
             return {
@@ -687,11 +688,23 @@ async def blackswan_status():
                 "alerts": [],
                 "note": "Black swan detector not initialized in current engine configuration.",
             }
-        alerts = getattr(detector, 'recent_alerts', [])
+        # `active_alerts`, not `recent_alerts` — BlackSwanDetector has no
+        # attribute by that name and never did, so the getattr default silently
+        # returned [] and this endpoint reported "monitoring" with zero alerts
+        # no matter what the detector had found. Until now it could not be
+        # noticed, because `engine.black_swan` did not exist either and the
+        # branch above returned first, every time. Two dead layers, each hiding
+        # the next.
+        alerts = list(getattr(detector, 'active_alerts', []))
         return {
             "status": "active" if alerts else "monitoring",
             "alerts": [a.model_dump(mode="json") if hasattr(a, 'model_dump') else a for a in alerts[-10:]],
-            "anomaly_types": ["CORRELATION_BREAKDOWN", "VOLUME_COLLAPSE", "PRICE_ACCELERATION", "VOLATILITY_EXPLOSION", "SPREAD_WIDENING"],
+            # Enumerated from the enum rather than retyped, so a new anomaly
+            # type cannot be added to the detector and missed here.
+            "anomaly_types": [t.value for t in AnomalyType],
+            "halt_recommended": bool(getattr(detector, 'halt_recommended', False)),
+            "note": ("Observation only — the engine does not auto-halt on anomalies. "
+                     "halt_recommended is the detector's advice, not an action taken."),
         }
     except Exception:
         return {

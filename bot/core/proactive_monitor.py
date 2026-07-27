@@ -1545,29 +1545,56 @@ class ProactiveMonitor:
         return alerts
 
     def _check_black_swan(self) -> list[Alert]:
-        """Alert on black-swan detector triggers."""
+        """Alert on black-swan detector triggers.
+
+        This ran on every pass of the alert pipeline and returned [] every
+        time, because nothing ever set `engine.black_swan` — `hasattr` was
+        always False. Now that the detector is constructed in Engine.__init__,
+        this code executes for the first time, and it had a bug that could only
+        have been found by executing it: `AnomalyAlert.severity` is a FLOAT in
+        [0, 1] (`Field(ge=0.0, le=1.0)`), not the string "SEVERE". The
+        comparison was always False, so a genuine flash-crash alert would have
+        rendered as an orange WARNING. Compared against `_HALT_SEVERITY` — the
+        same 0.8 the detector itself uses to decide `halt_recommended` — so the
+        alert's colour and the detector's own escalation cannot disagree.
+        """
         alerts = []
         try:
+            from bot.core.black_swan import _HALT_SEVERITY
             if hasattr(self.engine, 'black_swan'):
                 for alert_obj in self.engine.black_swan.active_alerts:
-                    key = f"bs_{alert_obj.anomaly_type}_{alert_obj.symbol}"
-                    sev = "CRITICAL" if alert_obj.severity == "SEVERE" else "WARNING"
-                    sev_icon = "\U0001f534" if alert_obj.severity == "SEVERE" else "\U0001f7e0"
+                    # `.value`, not the enum. AnomalyType is a `str, Enum`, and
+                    # Python 3.11 formats those as "AnomalyType.PRICE_ACCELERATION"
+                    # — which went into the dedup key AND into the Telegram
+                    # message body. Another artefact of a path that had never run.
+                    kind = getattr(alert_obj.anomaly_type, "value", alert_obj.anomaly_type)
+                    key = f"bs_{kind}_{alert_obj.symbol}"
+                    severe = float(alert_obj.severity) >= _HALT_SEVERITY
+                    sev = "CRITICAL" if severe else "WARNING"
+                    sev_icon = "\U0001f534" if severe else "\U0001f7e0"
                     ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
                     alerts.append(Alert(
                         alert_type="BLACK_SWAN",
                         severity=sev,
-                        title=f"Anomaly: {alert_obj.anomaly_type}",
+                        title=f"Anomaly: {kind}",
                         body=(
                             f"\U0001f6a8 <b>ANOMALY DETECTED</b>\n"
                             "────────────────\n"
-                            f"- Type: <code>{alert_obj.anomaly_type}</code>\n"
+                            f"- Type: <code>{kind}</code>\n"
                             f"- Symbol: <code>{alert_obj.symbol}</code>\n"
-                            f"- Severity: {sev_icon} <code>{alert_obj.severity}</code>\n"
+                            f"- Severity: {sev_icon} <code>{float(alert_obj.severity):.2f}</code>"
+                            f" (advises {getattr(alert_obj, 'recommended_action', 'MONITOR')})\n"
                             f"- Detected At: <code>{ts}</code>\n\n"
                             f"<i>{alert_obj.description}</i>\n"
                             "────────────────\n"
-                            "\u26a0\ufe0f Engine may auto-halt if severity is SEVERE.\n"
+                            # WAS: "Engine may auto-halt if severity is SEVERE."
+                            # It does not, and never did — nothing reads
+                            # `halt_recommended`. Telling an operator the bot may
+                            # protect itself when it will not is the worst form of
+                            # this defect class: they stand down waiting for an
+                            # action nobody implemented.
+                            "\u26a0\ufe0f This is an OBSERVATION, not an action. The engine "
+                            "does NOT auto-halt on anomalies \u2014 use /halt to stop trading.\n"
                             f"\U0001f449 /status — check engine state\n"
                             f"\U0001f449 Say \"positions\" to review exposure"
                         ),

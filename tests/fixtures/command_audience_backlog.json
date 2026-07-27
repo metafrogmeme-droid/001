@@ -2,22 +2,7 @@
   "_what": "Commands the catalog documents for USERS that no non-admin role can actually run.",
   "_why": "Each is either a catalog error (the command really is operator-only) or a permission error (users should be able to run it). Both readings are plausible per command and the fix differs, so they are recorded rather than guessed at. This is a RATCHET: new drift fails the test, the known backlog does not.",
   "_fix": "Move it to an admin group, or grant the permission to the roles that should have it.",
-  "known": [
-    "autoconfirm",
-    "buy",
-    "calibration",
-    "crossasset",
-    "equitycurve",
-    "exposure",
-    "forcescan",
-    "golive",
-    "journal",
-    "liveclose",
-    "montecarlo",
-    "networth",
-    "research",
-    "rwa",
-    "sell",
-    "strategy"
-  ]
+  "_cleared": "EMPTY as of 2026-07-27. All sixteen were resolved, and the split was 10/6 — the guess either way would have been wrong for a third of them, which is why they were recorded instead of guessed at. CATALOG WAS WRONG (10): autoconfirm, calibration, crossasset, equitycurve, forcescan, golive, journal, liveclose, montecarlo, strategy — each reads or mutates the SHARED operator engine (RUNTIME flags, engine.journal, engine.portfolio._history, the global risk engine and router), so the handler's refusal was right and the documentation was not. PERMISSION WAS WRONG (6): exposure, networth, research, rwa were invented at the @guard(...) decorator and never added to any role set, so the string existed and nobody held it while all four are read-only and caller-scoped or pure market data; buy and sell are inert stubs that print 'spot trading is disabled, use /trade' and were @guard('admin'), so a normal user typing /buy got silence — the exact 'commands feel broken' failure this catalogue exists to fix, on a command whose only job is to redirect them.",
+  "_do_not_refill": "An entry added here is an accepted mismatch, not a TODO that gets done later — the ratchet stops complaining the moment it is listed. Fix the command instead, and add one only when the right fix genuinely cannot be decided yet.",
+  "known": []
 }

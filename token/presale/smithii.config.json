@@ -1,5 +1,6 @@
 {
-  "_comment": "PROPOSED BASELINE for the FALLBACK venue (Smithii no-code launchpad). Devnet/draft. Mirrors the Metaplex Genesis params so the two are interchangeable. Ratify before launch — docs/TOKEN_ROADMAP.md §6, §13.",
+  "_comment": "PROPOSED BASELINE for the FALLBACK venue (Smithii no-code launchpad). Devnet/draft. Ratify before launch — docs/TOKEN_ROADMAP.md §6, §13. NOT read by any code: an operator transcribes these values into Smithii's UI (RUNBOOK Path B), which is exactly why a wrong value here becomes a published sale term with nothing in between.",
+  "_parityNote": "CORRECTION 2026-07-27. This file used to claim it 'Mirrors the Metaplex Genesis params so the two are interchangeable'. It did not, and they were not. Three values diverged, each making the fallback venue's terms differ from the primary one's: refundIfSoftCapMissed was true against Genesis's false, autoListPercentOfRaise was 60 against 6667 bps (66.67%), and lpLockMonths was 12 against a permanent never-claim lock. The refund one mattered most — metaplex-genesis.config.json documents that flag as a promise that must not ship, and derivePresaleParams() THROWS if it is flipped, so the primary venue could not publish it even by mistake while the fallback published it by default. venue_parity.test.mjs now machine-checks every shared field, so 'mirrors' is a checked claim rather than a comment.",
   "venue": "smithii-launchpad",
   "cluster": "devnet",
   "platformFee": {
@@ -17,7 +18,8 @@
     "hardCapSol": 5000,
     "minContributionSol": 0.25,
     "maxContributionSol": 25,
-    "refundIfSoftCapMissed": true
+    "refundIfSoftCapMissed": false,
+    "_refundNote": "FALSE, and it may not be flipped on the strength of a venue feature list. It read true here while metaplex-genesis.config.json carried a proven finding that there is NO refund instruction for a V2 presale (withdrawPresaleV1 and withdrawUnsoldPresaleV1 both reject a V2 genesis account, 0x2f) and a derivePresaleParams() guard that throws if the flag is set. Whether SMITHII's contract can refund is a separate and UNVERIFIED question — nothing in this repository has executed a refund on Smithii or read its program. Treat it exactly as the primary venue treats its own: the promise ships only after the refund path is executed on devnet and the transaction published. Until then the terms must not promise a refund at either venue, so switching venues cannot silently change what buyers were told."
   },
   "whitelist": {
     "enabled": true,
@@ -29,8 +31,11 @@
     "linearMonthsAfterTge": 2
   },
   "liquidity": {
-    "autoListPercentOfRaise": 60,
+    "autoListPercentOfRaise": 66.67,
+    "_autoListNote": "Was 60. Genesis encodes raisedSolToLiquidityBps: 6667 on chain, so 60 here would have sent 6.67pp less of the raise to the pool at the fallback venue than at the primary one — a thinner pool and a lower opening price for the same raise, decided by which venue the operator happened to use. If Smithii's field only accepts an integer, enter 67 and record the rounding: UP is the buyer-safe direction (more SOL against a fixed token side opens the pool HIGHER and deeper), and metaplex-genesis.config.json's liquidity._liquidityPricing_comment explains why the above-presale-price side is the recoverable one.",
     "dex": "raydium",
-    "lpLockMonths": 12
+    "lpLock": "never-claim (permanent)",
+    "lpLockMonths": null,
+    "_lpLockNote": "Was 12 months. Genesis uses createNeverClaimSchedule() — a PERMANENT lock with no expiry — and 'the LP unlocks in a year' is a materially different product from 'the LP is never claimable', not a config detail. UNVERIFIED: nothing here has confirmed Smithii's launchpad can express a permanent lock. If it cannot, the fallback is NOT equivalent to the primary venue, and the difference must be re-ratified and published before the sale rather than discovered by a holder reading the pool afterwards. RUNBOOK Path B makes this a blocking check."
   }
 }
