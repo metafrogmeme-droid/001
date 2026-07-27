@@ -681,6 +681,61 @@ const TOOLS = {
     },
   },
 
+  get_arena_trader: {
+    description: 'One public paper-arena trader record by opt-in handle: '
+      + 'settled percent return, close/seal counts, streak, badges and the '
+      + 'recent closes with their receipt keys — the same §4-safe card the '
+      + 'website serves (percent and counts only, never an account amount, '
+      + 'not even a virtual one). Unknown handles return found:false — '
+      + 'handles are opt-in and absence is not a verdict.',
+    inputSchema: {
+      type: 'object',
+      properties: { handle: { type: 'string', minLength: 3, maxLength: 20,
+        description: 'an opt-in leaderboard handle from the public board' } },
+      required: ['handle'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const { fetchTraderCard, HANDLE_RE } = require('../lib/arena_trader');
+      const handle = String((args && args.handle) || '').trim();
+      if (!HANDLE_RE.test(handle)) return { found: false, error: 'handle must be 3-20 word characters' };
+      const card = await fetchTraderCard(handle);
+      if (!card) return { found: false, note: 'handles are opt-in; absence is not a verdict' };
+      return { found: true, ...card };
+    },
+  },
+
+  get_paper_leaderboard: {
+    description: 'The paper-trading arena leaderboard: anonymous opt-in '
+      + 'handles ranked by percent return on the same virtual stake, with '
+      + 'close counts and how many closes carry verifiable open-time '
+      + 'receipts. Percent and counts only — never balances, never dollar '
+      + 'amounts (not even virtual ones). The exact payload the public '
+      + 'website serves, from the same computation.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const { computeLeaderboard } = require('./arena');
+      return computeLeaderboard();
+    },
+  },
+
+  get_rune_stats: {
+    description: 'The soulbound Rune of Entry collection state, read live '
+      + 'from Base: deployed or not, the contract address when one exists, '
+      + 'and the minted count — null when the chain would not answer '
+      + '(unknown is never reported as zero). The rune is free (gas only), '
+      + 'one per wallet, non-transferable forever, and explicitly not an '
+      + 'investment.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const nft = require('../lib/nft');
+      const stats = await nft.readStats();
+      return { ...stats,
+        honesty: stats.deployed && stats.minted_count == null
+          ? 'the chain did not answer — the count is unknown, not zero' : undefined };
+    },
+  },
+
   get_public_letter: {
     description: 'The PUBLIC edition of the weekly Agent Letter — the same '
       + 'recorded data recomposed with no dollar figure (counts, win rate, '
