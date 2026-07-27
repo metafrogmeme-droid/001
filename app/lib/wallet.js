@@ -171,10 +171,15 @@ function defaultProviderFactory(chain) {
     ).map((u) => u.trim()).filter(Boolean);
     p = { _urls: urls, _i: 0, _mk: (u) => new ethers.JsonRpcProvider(u) };
     p.current = p._mk(urls[0]);
-    // rotate() moves to the next endpoint; returns false once they are exhausted.
+    // rotate() moves to the next endpoint, wrapping around. The wrap matters:
+    // the old one-way rotation returned false forever once every endpoint had
+    // failed ONCE — a single double-blip then pinned the chain to the last
+    // endpoint until process restart, with no way back to a recovered primary.
+    // Call sites rotate at most once per read, so the wrap cannot loop; a
+    // single-URL list still returns false (nowhere to rotate to).
     p.rotate = function () {
-      if (this._i + 1 >= this._urls.length) return false;
-      this._i += 1;
+      if (this._urls.length < 2) return false;
+      this._i = (this._i + 1) % this._urls.length;
       this.current = this._mk(this._urls[this._i]);
       return true;
     };
