@@ -10010,7 +10010,16 @@ class TelegramHandler:
 
     async def _handle_callback(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            # Telegram expires callback queries after ~15s; a tap retried after
+            # a lag (or redelivered after a TimedOut) raises BadRequest "query
+            # is too old" HERE — before any real work. Answering only clears
+            # the client's loading spinner, so a stale one is cosmetic: never
+            # abort the button's actual action for it, and never page the
+            # operator with "Something broke" over an expired tap.
+            pass
 
         # M-18 FIX: rate limit callback buttons
         uid = update.effective_user.id if update.effective_user else 0

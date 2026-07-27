@@ -467,3 +467,37 @@ async def test_stake_only_proposes_never_executes(monkeypatch):
     flat = [b for row in markup.inline_keyboard for b in row]
     assert any(b.callback_data == "yld:s:USDT" for b in flat)
     assert all("98" not in (b.callback_data or "") for b in flat)
+
+
+# ── Stale callback taps (TimedOut → BadRequest pair) ──────────────
+
+
+class TestStaleCallbackAnswer:
+    """query.answer() on an expired callback raises BadRequest BEFORE any
+    real work. The entry-point answer is cosmetic (it clears the client's
+    loading spinner), so a stale one must neither abort the button's actual
+    action nor reach the global error handler (which would page the operator
+    with "Something broke" over an expired tap)."""
+
+    @pytest.mark.asyncio
+    async def test_expired_answer_does_not_abort_the_callback(self):
+        from telegram.error import BadRequest
+
+        handler = _make_handler()
+        update, ctx = _make_update()
+        update.message = None
+        update.callback_query = MagicMock()
+        update.callback_query.answer = AsyncMock(
+            side_effect=BadRequest("Query is too old and response timeout "
+                                   "expired or query id is invalid"))
+        update.callback_query.data = "definitely_unknown_button"
+        update.callback_query.edit_message_text = AsyncMock()
+        update.callback_query.message = MagicMock()
+        update.callback_query.message.reply_text = AsyncMock()
+
+        # Must not raise — a raise here bubbles to the global error handler
+        # and the user sees "Something broke" for a stale tap.
+        await handler._handle_callback(update, ctx)
+        # And the handler got PAST the answer: the rate limiter ran (proof the
+        # guard swallowed the exception instead of aborting the coroutine).
+        update.callback_query.answer.assert_awaited()
