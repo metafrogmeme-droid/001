@@ -160,6 +160,16 @@ jobs:
       - name: SCA — RustSec advisory ratchet
         run: python3 scripts/cargo_audit_gate.py
 
+      # Is the guard REACHED? Three times in this audit a guard was written
+      # correctly and some call site never received it: assertDevnet (5 of 9
+      # presale commands), assertKeyfilePermissions (1 of 2 keypair loaders),
+      # _token_gate_blocks (8 of 12 dispatch sites). A unit test cannot find
+      # this — it exercises a path, and an UNGUARDED path is by definition one
+      # nobody wrote a test for, so the suite stays green while half the call
+      # sites are open. Pure source parsing, no deps, <1s.
+      - name: Guard reachability (structural)
+        run: python3 scripts/guard_lint.py
+
       - name: Check for the Anchor placeholder program id
         # `anchor keys sync` is mentioned only in a README snippet, so a build
         # can otherwise ship with a program id the project does not control.

@@ -1112,6 +1112,37 @@ turned out to be.
    `anchor-syn` source rather than recalled; the first value reached for from
    memory (`IDL_IX_TAG`) was wrong.
 
+### Devnet presale lifecycle (2026-07-27)
+
+The full sequence run end to end on **devnet**, not a local validator —
+`create → liquidity → allocate → finalize → deposit → trigger → claim`. It had
+only ever been rehearsed on a validator whose ledger dies with the container,
+which meant the two on-chain verification claims could never actually be
+checked by anyone else.
+
+| | |
+|---|---|
+| Genesis account | `8ok2QT92P6cRpu8Mj18rfR7TjszinWYhF77YZ8LYJ8og` |
+| Base mint | `5KdefGy7aUSXNEwie3D9ambWVaVuBDikSjanKRhre3iT` |
+| Presale bucket | `GiAfvH5TtAvs66qzBrJY9vRk7bg72p7qb4nnLvnNJVxW` |
+| Liquidity bucket | `CLZhnD1DjEnG9KuP2eTfkGMVV4Ynp59kWt9hMTgMZxu7` |
+| Finalized | `True` |
+
+`presale:verify` reports **16/16 against the chain** — base mint, finalization,
+full-supply allocation, bucket parentage, allocation and hard cap, the
+never-claim LP lock, and all six allocation buckets.
+
+`programs:inventory` reports **five programs, all accounted for**: SPL System,
+SPL Token, SPL Associated Token, Metaplex Token Metadata and Metaplex Genesis.
+MPL Token Extras is absent, so the `createAtaIdempotent` fix holds on devnet and
+not merely on a local validator.
+
+This is still a **dry run**: the timeline is generated near-now so the
+deposit and claim windows are minutes rather than days, and the artifact is
+named `presale.dryrun.*` rather than `presale.devnet.json`. `scripts/receipts.py`
+reports the published-presale claim as UNVERIFIED for exactly that reason —
+nothing has been published, which is not the same as a check that failed.
+
 ### Devnet deployment record (2026-07-26)
 
 The first real deployment of `rclaw_staking`. Devnet only — nothing here holds

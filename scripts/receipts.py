@@ -67,6 +67,8 @@ class Claim:
     cwd: Path = REPO
     needs_network: bool = False
     requires: list[str] = field(default_factory=list)  # executables that must exist
+    needs_file: str = ""   # repo-relative; absent -> UNVERIFIED, not FAIL
+    absent_note: str = ""  # why absence means 'not applicable yet'
     env: dict = field(default_factory=dict)
 
     @property
@@ -109,6 +111,14 @@ CLAIMS: list[Claim] = [
         requires=["npm"],
     ),
     Claim(
+        key="guard-reachability",
+        claim="Every security guard is actually CALLED at every site that needs it",
+        command=["python3", "scripts/guard_lint.py"],
+        why=("Three times in this audit a correct guard existed and call sites never received "
+             "it. Unit tests cannot see this: they exercise paths, and an unguarded path is one "
+             "nobody wrote a test for."),
+    ),
+    Claim(
         key="tier-gate-coverage",
         claim="Every paid feature is actually behind the paywall, and no safety command is",
         command=["python3", "-m", "pytest", "-q", "tests/test_tier_gate_coverage.py",
@@ -133,6 +143,7 @@ CLAIMS: list[Claim] = [
         cwd=REPO / "token",
         needs_network=True,
         requires=["npm"],
+        env={"RPC_URL": os.environ.get("RPC_URL") or "https://api.devnet.solana.com"},
     ),
     Claim(
         key="presale-artifact",
@@ -143,6 +154,11 @@ CLAIMS: list[Claim] = [
         cwd=REPO / "token",
         needs_network=True,
         requires=["npm"],
+        env={"RPC_URL": os.environ.get("RPC_URL") or "https://api.devnet.solana.com"},
+        needs_file="token/.artifacts/presale.devnet.json",
+        absent_note=("no presale has been published yet — only e2e dry runs, whose artifacts "
+                     "carry their own names. Nothing to check, which is not the same as a "
+                     "check that failed."),
     ),
 ]
 
@@ -160,6 +176,11 @@ def run_claim(c: Claim, *, offline: bool, timeout: int = 900) -> tuple[str, str]
         return UNVERIFIED, "skipped (--offline) — needs a live RPC"
     if not c.cwd.exists():
         return UNVERIFIED, f"{c.cwd} does not exist"
+    # "Nothing has been published yet" is not "the published thing is wrong".
+    # Reporting it as FAIL would overstate in the opposite direction from the
+    # one this page mainly guards against, but it is still overstating.
+    if c.needs_file and not (REPO / c.needs_file).exists():
+        return UNVERIFIED, c.absent_note or f"{c.needs_file} does not exist yet"
     env = {**os.environ, **c.env}
     try:
         proc = subprocess.run(c.command, cwd=c.cwd, env=env, capture_output=True,
