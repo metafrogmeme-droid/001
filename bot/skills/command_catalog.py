@@ -28,6 +28,7 @@ GROUPS: List[Group] = [
         ("dashboard", "open the web dashboard"),
         ("connect", "link your own exchange account"),
         ("exchange", "your linked-account status (never shows keys)"),
+        ("livebalance", "your real exchange balance (your own account, read-only)"),
         ("disconnect", "remove your linked credentials"),
         ("linkwallet", "link a Solana wallet (read-only) for $RCLAW tier access"),
         ("lang", "switch language"),
@@ -141,7 +142,6 @@ GROUPS: List[Group] = [
         ("drawdownlimit", "override the drawdown limit"),
         ("leverage", "the standard leverage"),
         ("venue", "show or switch the trading venue"),
-        ("livebalance", "real exchange balance"),
     ]),
     ("👥 Users & access (operator)", "admin", [
         ("users", "list registered users"),

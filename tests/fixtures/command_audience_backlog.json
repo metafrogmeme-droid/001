@@ -1,0 +1,23 @@
+{
+  "_what": "Commands the catalog documents for USERS that no non-admin role can actually run.",
+  "_why": "Each is either a catalog error (the command really is operator-only) or a permission error (users should be able to run it). Both readings are plausible per command and the fix differs, so they are recorded rather than guessed at. This is a RATCHET: new drift fails the test, the known backlog does not.",
+  "_fix": "Move it to an admin group, or grant the permission to the roles that should have it.",
+  "known": [
+    "autoconfirm",
+    "buy",
+    "calibration",
+    "crossasset",
+    "equitycurve",
+    "exposure",
+    "forcescan",
+    "golive",
+    "journal",
+    "liveclose",
+    "montecarlo",
+    "networth",
+    "research",
+    "rwa",
+    "sell",
+    "strategy"
+  ]
+}

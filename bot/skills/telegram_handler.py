@@ -6928,6 +6928,13 @@ class TelegramHandler:
     @guard("status")
     async def _cmd_llmstatus(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/llmstatus — show current LLM provider and key fingerprint."""
+        # Operator infrastructure: provider, model, base_url and per-tier key
+        # fingerprints. @guard('status') is in the VIEWER role's permission set,
+        # so the catalog's "operator" label was not enforced by anything.
+        if not self._is_admin(update):
+            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
+            return
+
 
         env_config = LLMConfig(
             provider=LLMProvider(CONFIG.llm.provider) if CONFIG.llm.provider else LLMProvider.OPENAI,
@@ -7043,6 +7050,13 @@ class TelegramHandler:
     @guard("status")
     async def _cmd_llmtiers(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/llmtiers — show multi-tier LLM routing configuration."""
+        # Operator infrastructure: provider, model, base_url and per-tier key
+        # fingerprints. @guard('status') is in the VIEWER role's permission set,
+        # so the catalog's "operator" label was not enforced by anything.
+        if not self._is_admin(update):
+            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
+            return
+
 
         env_config = LLMConfig(
             provider=LLMProvider(CONFIG.llm.provider) if CONFIG.llm.provider else LLMProvider.OPENAI,

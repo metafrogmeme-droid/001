@@ -28,17 +28,23 @@ ROLES = ("admin", "trader", "viewer", "pending")
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {"*"},  # everything
+    # "lang" is in every role including pending: /lang is documented under
+    # "Start here" for all users, and a person who cannot read the interface
+    # cannot ask for permission to change its language. It sets a display
+    # preference and touches nothing else.
     "trader": {
+        "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
         "trade", "risk", "status", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
     },
     "viewer": {
+        "lang",
         "start", "help", "dashboard", "scan", "deepscan", "status", "risk",
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
     },
-    "pending": {"start", "help"},
+    "pending": {"start", "help", "lang"},
 }
 
 # ── Tiers: feature gating ──────────────────────────────────────
