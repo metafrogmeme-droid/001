@@ -33,6 +33,38 @@ def _base(sym: str) -> str:
     return s
 
 
+def resolve_key(raw, presets, aliases) -> Optional[str]:
+    """slug ('dip-sniper') | alias ('dip') | key ('dip sniper') → canonical
+    preset key, or None. The web and Telegram surfaces speak different
+    spellings of the same catalogue; the store only ever holds the key."""
+    r = str(raw or "").strip().lower()
+    if not r:
+        return None
+    r = (aliases or {}).get(r, r)
+    if r in (presets or {}):
+        return r
+    r2 = r.replace("-", " ")
+    return r2 if r2 in (presets or {}) else None
+
+
+def describe_gates(preset: dict) -> tuple[list[str], list[str]]:
+    """(confirm_gates, scan_gates) — the SAME split check_confirm enforces,
+    exported so every surface states it identically and none can overclaim."""
+    confirm: list[str] = []
+    scan: list[str] = []
+    for g in ("rsi_threshold", "regime", "volume_spike_min"):
+        if preset.get(g) is not None:
+            scan.append(g)
+    syms = preset.get("symbols")
+    if isinstance(syms, (list, tuple)) and syms:
+        confirm.append("symbols")
+    elif isinstance(syms, str) and syms:
+        scan.append(f"symbols:{syms}")
+    if preset.get("confidence_threshold") is not None:
+        confirm.append(f"confidence>={float(preset['confidence_threshold']) * 100:.0f}%")
+    return confirm, scan
+
+
 def check_confirm(preset_key: str, preset: Optional[dict],
                   asset: str, confidence: Any) -> dict:
     """→ {ok, reason (when refused), enforced: [..], scan_only: [..]}.

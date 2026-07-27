@@ -99,6 +99,42 @@ def test_engine_applies_veto_to_user_confirms_only():
         "every refusal is audited"
 
 
+def test_resolve_key_accepts_slug_alias_and_key():
+    from bot.core.strategy_gate import resolve_key
+    P, A = RunStrategySkill.PRESETS, RunStrategySkill.ALIASES
+    assert resolve_key("dip sniper", P, A) == "dip sniper"   # key
+    assert resolve_key("dip-sniper", P, A) == "dip sniper"   # slug
+    assert resolve_key("dip", P, A) == "dip sniper"          # alias
+    assert resolve_key("MOMENTUM", P, A) == "momentum hunter"
+    assert resolve_key("moon wizard", P, A) is None
+    assert resolve_key("", P, A) is None
+
+
+def test_describe_gates_matches_the_veto_split():
+    from bot.core.strategy_gate import describe_gates
+    confirm, scan = describe_gates(RunStrategySkill.PRESETS["dip sniper"])
+    assert confirm == ["confidence>=70%"]
+    assert "rsi_threshold" in scan and "regime" in scan
+    confirm2, scan2 = describe_gates(RunStrategySkill.PRESETS["safe scalper"])
+    assert "symbols:top3_volume" in scan2
+    assert confirm2 == ["confidence>=75%"]
+
+
+def test_web_gateway_mirrors_mystrategy():
+    """The web surface is the SAME product: same store, same permission,
+    same honesty split, registered on the user gateway."""
+    src = Path("bot/web/user_gateway.py").read_text(encoding="utf-8")
+    assert 'app.router.add_get("/user/strategy", handle_user_strategy_get)' in src
+    assert 'app.router.add_post("/user/strategy", handle_user_strategy_set)' in src
+    # SET requires the same trader-role permission Telegram's /mystrategy has
+    set_body = src.split("async def handle_user_strategy_set")[1].split("async def ")[0]
+    assert '_guard_user(tg_handler, tg_id, command="mystrategy")' in set_body
+    assert "resolve_key" in set_body, "accepts key, slug or alias — one product"
+    get_body = src.split("async def handle_user_strategy_get")[1].split("async def ")[0]
+    assert "describe_gates" in get_body, "the honesty split ships with the catalogue"
+    assert "tighten-only veto" in get_body
+
+
 def test_command_is_catalogued_bilingually():
     from bot.skills.command_catalog import DESC_ZH, all_entries
     assert "mystrategy" in set(all_entries())

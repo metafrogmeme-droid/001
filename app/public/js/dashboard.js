@@ -5691,6 +5691,7 @@
       <section class="panel" id="p-agents">
         <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.agents">The lineup</span>
           <span class="right muted small">real presets · design &amp; regime only · verified % in the Lab</span></h2>
+        ${LOGGED_IN ? '<div id="botStratBar" class="small" hidden style="margin-bottom:var(--s2)"></div>' : ''}
         <div id="c-agents"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
       </section>
       <section class="panel" id="p-community" hidden>
@@ -5768,6 +5769,7 @@
           <div class="row mt-2" style="gap:var(--s2);flex-wrap:wrap;margin-top:auto">
             <button class="btn btn--primary btn--sm" data-agentlab="${esc(a.id)}" type="button">${hasSc ? 'Reproduce in Lab' : 'Backtest in Lab'}</button>
             ${LOGGED_IN ? `<button class="btn btn--sm ${_agentFollows.has(a.id) ? 'btn--ghost' : ''}" data-agentfollow="${esc(a.id)}" type="button">${_agentFollows.has(a.id) ? '✓ Following' : '+ Follow'}</button>` : ''}
+            ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-botstrat="${esc(a.id)}" type="button">${_botStrat.slug === a.id ? '🤖 ✓ ' + esc(T('bs.on_bot', 'On your bot')) : '🤖 ' + esc(T('bs.run_b', 'Run on my bot'))}</button>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentask="${esc(a.name)}" type="button">Ask the agent</button>
           </div>
         </article>`;
@@ -5816,6 +5818,52 @@
       host.innerHTML = blocks + note;
     }
     loadAgentPicks();
+    // ── "Run on my bot" — the web mirror of Telegram's /mystrategy. A
+    // selection is a TIGHTEN-ONLY veto on trades this user confirms: the
+    // bot-side gate can refuse, never place. State is read from the bot
+    // through the gateway; a failed read renders nothing (omit, never invent).
+    let _botStrat = { slug: null };
+    async function loadBotStrat() {
+      const bar = document.getElementById('botStratBar');
+      if (!bar) return;
+      let d = null;
+      try { const r = await fetchJSON('/api/bot-strategy', { timeoutMs: 12000 }); d = r.ok ? r.data : null; } catch (_) {}
+      if (!d || !d.presets) { bar.hidden = true; return; }
+      _botStrat = { slug: d.selected_slug || null, label: d.selected_label || null };
+      bar.innerHTML = d.selected
+        ? `🤖 <b>${esc(T('bs.h', 'Your bot runs'))}: ${esc(d.selected_label || d.selected)}</b> — ${esc(T('bs.note', 'a tighten-only veto on trades you confirm; it refuses, never places.'))}
+           <button class="btn btn--ghost btn--sm" data-botstratoff type="button" style="margin-left:8px">${esc(T('bs.clear_b', 'Clear'))}</button>`
+        : `🤖 ${esc(T('bs.none', 'No strategy pinned to your bot — pick one below and trades you confirm will run through its gates.'))}`;
+      bar.hidden = false;
+      // repaint the per-card buttons so the active one is marked
+      document.querySelectorAll('[data-botstrat]').forEach((b) => {
+        const on = _botStrat.slug === b.getAttribute('data-botstrat');
+        b.textContent = on ? '🤖 ✓ ' + T('bs.on_bot', 'On your bot') : '🤖 ' + T('bs.run_b', 'Run on my bot');
+      });
+    }
+    loadBotStrat();
+    // Attached to #p-agents (rebuilt with the view) so re-renders can never
+    // stack duplicate listeners — the double-handler class of bug.
+    document.getElementById('p-agents')?.addEventListener('click', async (e) => {
+      const off = e.target.closest('[data-botstratoff]');
+      const pick = e.target.closest('[data-botstrat]');
+      if (!off && !pick) return;
+      if (pick && _botStrat.slug === pick.getAttribute('data-botstrat')) return; // already set
+      const btn = off || pick;
+      btn.disabled = true;
+      const r = off
+        ? await fetchJSON('/api/bot-strategy', { method: 'DELETE', timeoutMs: 12000 }).catch(() => null)
+        : await fetchJSON('/api/bot-strategy', { method: 'PUT', body: { strategy: pick.getAttribute('data-botstrat') }, timeoutMs: 12000 }).catch(() => null);
+      btn.disabled = false;
+      if (r?.ok) {
+        toast(off ? T('bs.cleared', 'Cleared — your confirms run ungated again.')
+          : TF('bs.set', '{s} now gates trades you confirm — tighten-only, revocable any time.', { s: (r.data && r.data.selected_label) || '' }));
+        loadBotStrat();
+      } else {
+        toast((r && r.data && r.data.error === 'unknown_strategy' && T('bs.unknown', 'That preset no longer exists.'))
+          || (r && r.data && r.data.detail) || T('bs.fail', 'Could not reach your bot — nothing changed.'));
+      }
+    });
     // Copy a pick straight into the Arena, ATTRIBUTED: the server re-verifies
     // that this agent's own gates admit the signal before the tag sticks —
     // an unverifiable claim opens the trade but drops the attribution.

@@ -1802,6 +1802,81 @@ async def handle_leaderboard_public(request: web.Request) -> web.Response:
     return web.json_response(_leaderboard_payload(season))
 
 
+async def handle_user_strategy_get(request: web.Request) -> web.Response:
+    """Per-user bot strategy — the web mirror of Telegram's /mystrategy.
+    Returns the caller's selection plus the catalogue with each preset's
+    honest confirm-time vs scan-time gate split (describe_gates — the same
+    function the veto enforces, so no surface can overclaim)."""
+    tg_handler = request.app["tg_handler"]
+    tg_id = str(request.query.get("telegram_id") or "").strip()
+    if not tg_id:
+        return web.json_response({"error": "telegram_id required"}, status=400)
+    err = _guard_user(tg_handler, tg_id)
+    if err is not None:
+        return err
+    from bot.core import user_strategy_store
+    from bot.core.strategy_gate import describe_gates
+    from bot.skills.skill_registry import RunStrategySkill
+    selected = user_strategy_store.get(tg_id)
+    presets = []
+    for key in sorted(RunStrategySkill.PRESETS):
+        cfg = RunStrategySkill.PRESETS[key]
+        confirm, scan = describe_gates(cfg)
+        presets.append({
+            "key": key, "slug": key.replace(" ", "-"),
+            "label": cfg.get("label", key), "icon": cfg.get("icon", ""),
+            "desc": cfg.get("desc", ""),
+            "confirm_gates": confirm, "scan_gates": scan,
+        })
+    sel_cfg = RunStrategySkill.PRESETS.get(selected) if selected else None
+    return web.json_response({
+        "selected": selected,
+        "selected_slug": selected.replace(" ", "-") if selected else None,
+        "selected_label": (sel_cfg or {}).get("label") if sel_cfg else None,
+        "presets": presets,
+        # The contract, stated where the UI reads it — tighten-only, veto-only.
+        "note": ("A selection is a tighten-only veto on trades YOU confirm: it can "
+                 "refuse an idea that breaks its rules, it never places trades and "
+                 "never touches the operator's global stance."),
+    })
+
+
+async def handle_user_strategy_set(request: web.Request) -> web.Response:
+    """POST {telegram_id, strategy} — set or clear ('' / 'off') the caller's
+    strategy. Accepts key, slug or alias; a name that resolves to no real
+    preset is refused, never stored. Same permission as Telegram's
+    /mystrategy (trader-role) — the surfaces stay one product."""
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    tg_id = str(body.get("telegram_id") or "").strip()
+    if not tg_id:
+        return web.json_response({"error": "telegram_id required"}, status=400)
+    err = _guard_user(tg_handler, tg_id, command="mystrategy")
+    if err is not None:
+        return err
+    from bot.core import user_strategy_store
+    from bot.core.strategy_gate import resolve_key
+    from bot.skills.skill_registry import RunStrategySkill
+    raw = str(body.get("strategy") or "").strip().lower()
+    if raw in ("", "off", "none", "clear"):
+        user_strategy_store.clear(tg_id)
+        audit(system_log, f"Web strategy cleared for {tg_id}",
+              action="web_user_strategy", result="CLEARED")
+        return web.json_response({"selected": None})
+    key = resolve_key(raw, RunStrategySkill.PRESETS, RunStrategySkill.ALIASES)
+    if key is None:
+        return web.json_response({"error": "unknown_strategy"}, status=404)
+    stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
+    if stored is None:
+        return web.json_response({"error": "store_failed"}, status=500)
+    audit(system_log, f"Web strategy set for {tg_id}: {stored}",
+          action="web_user_strategy", result="SET")
+    cfg = RunStrategySkill.PRESETS[stored]
+    return web.json_response({"selected": stored,
+                              "selected_slug": stored.replace(" ", "-"),
+                              "selected_label": cfg.get("label", stored)})
+
+
 async def handle_strategies_public(request: web.Request) -> web.Response:
     """GET /gateway/public/strategies — the Strategy-Agent marketplace catalogue,
     no auth. Public-safe by construction: each card is one of the real engine
@@ -3100,6 +3175,9 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_get("/public/leaderboard", handle_leaderboard_public)
     # Strategy-Agent marketplace catalogue (public, read-only, §4-safe).
     app.router.add_get("/public/strategies", handle_strategies_public)
+    # Per-user bot strategy — the web mirror of /mystrategy (user-authed).
+    app.router.add_get("/user/strategy", handle_user_strategy_get)
+    app.router.add_post("/user/strategy", handle_user_strategy_set)
     app.router.add_get("/share-card", handle_share_card)
     app.router.add_get("/public/agent/{address}", handle_agent_card_public)
     app.router.add_post("/idleyield", handle_idle_yield)
