@@ -117,7 +117,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=91"></script>
+<script src="/js/i18n.js?v=92"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -215,6 +215,13 @@
   var DONE = {};
   var LESSONS = [];
 
+  // Deep link: /learn#lesson=slug opens that lesson once the shelf has
+  // loaded — safety pages link straight to the lesson that explains them.
+  function openFromHash() {
+    var m = /[#&]lesson=([a-z0-9-]+)/.exec(location.hash || '');
+    if (m && LESSONS.some(function (l) { return l.slug === m[1]; })) openLesson(m[1]);
+  }
+
   function lessonList() {
     var doneN = LESSONS.filter(function (l) { return DONE[l.slug]; }).length;
     $('lessonProg').textContent = LESSONS.length
@@ -244,7 +251,10 @@
   $('lessons').addEventListener('click', async function (e) {
     var a = e.target.closest('[data-lesson]');
     if (a) { e.preventDefault(); openLesson(a.getAttribute('data-lesson')); return; }
-    if (e.target.closest('#lessonBack')) { lessonList(); return; }
+    if (e.target.closest('#lessonBack')) {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (x) { /* hash stays; shelf still shows */ }
+      lessonList(); return;
+    }
     var d = e.target.closest('#lessonDone');
     if (d) {
       d.disabled = true;
@@ -266,7 +276,7 @@
         var st = await api('/tutor/status');
         if (st.ok && st.data && st.data.ready) $('tutorBox').hidden = false;
       }
-      lessonList();
+      lessonList(); openFromHash();
     } catch (e) { /* the diary stands alone */ }
   }
   loadLessons();
