@@ -34,6 +34,10 @@
   textarea { width: 100%; min-height: 150px; resize: vertical; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: var(--s3); font: inherit; font-size: var(--fs-sm); line-height: 1.6; }
   .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s3); }
   .streak { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--s4); }
+  .ember { display: inline-block; }
+  .ember.hot { animation: emberPulse 1.6s ease-in-out infinite; }
+  @keyframes emberPulse { 50% { transform: scale(1.18); filter: brightness(1.25); } }
+  @media (prefers-reduced-motion: reduce) { .ember.hot { animation: none; } }
   .trade { display: flex; gap: var(--s3); align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); font-size: var(--fs-sm); flex-wrap: wrap; }
   .trade:first-child { border-top: 0; }
   .trade .sym { font-weight: 600; }
@@ -119,7 +123,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=93"></script>
+<script src="/js/i18n.js?v=94"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -152,7 +156,7 @@
     });
   }
 
-  function renderTrades(list) {
+  function renderTrades(list, nudges) {
     if (!list.length) {
       $('trades').innerHTML = '<p class="note">' + esc(T('ln.no_trades',
         'No paper trades closed today — a no-trade day is worth a line too: what kept you out?')) + '</p>';
@@ -168,7 +172,20 @@
           + '<span class="muted">' + esc(t.reason) + '</span>'
           + (t.trade_key ? '<a href="/call/' + encodeURIComponent(t.trade_key) + '" target="_blank" rel="noopener">🔏</a>' : '')
           + '</div>';
-      }).join('');
+      }).join('') + renderCoach(nudges);
+  }
+
+  // The coach — whole-line translation by stable id, facts with lesson
+  // pointers. Deterministic (lib/learn_coach); the tutor is for questions.
+  function renderCoach(nudges) {
+    if (!nudges || !nudges.length) return '';
+    return nudges.map(function (n) {
+      var line = fill(T('lc.' + n.id, n.en), n.params || {});
+      var link = n.lesson
+        ? ' <a href="#" data-lesson="' + esc(n.lesson) + '">' + esc(T('lc.open', 'Open the lesson \u2192')) + '</a>'
+        : '';
+      return '<p class="note" style="margin-top:6px">\ud83e\udded ' + esc(line) + link + '</p>';
+    }).join('');
   }
 
   function renderHist(entries) {
@@ -194,7 +211,9 @@
       if (list.ok && list.data && list.data.entries) {
         if (list.data.streak > 0 || list.data.total > 0) {
           $('streak').hidden = false;
-          $('streak').innerHTML = '🔥 ' + esc(fill(T('ln.streak',
+          var emberScale = Math.min(1 + list.data.streak * 0.06, 1.5);
+          $('streak').innerHTML = '<span class="ember' + (list.data.streak >= 5 ? ' hot' : '')
+            + '" style="transform:scale(' + emberScale.toFixed(2) + ')">🔥</span> ' + esc(fill(T('ln.streak',
             '{n}-day journaling streak · {t} entries kept'), { n: list.data.streak, t: list.data.total }));
         }
         renderHist(list.data.entries);
@@ -206,7 +225,7 @@
           $('body').value = d.data.entry.body;
           if (d.data.entry.edited) note('✎ ' + T('ln.edited', 'edited'));
         }
-        renderTrades(d.data.trades || []);
+        renderTrades(d.data.trades || [], d.data.nudges || []);
       }
     } catch (e) {
       note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');

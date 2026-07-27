@@ -199,10 +199,14 @@ router.get('/diary/:day', async (req, res) => {
       `SELECT day, body, created_at, edited_at FROM learn_diary
        WHERE user_id = ? AND day = ?`, [req.user.user_id, day]);
     const e = rows && rows[0];
+    const trades = await tradesOfDay(req.user.user_id, day);
     res.json({
       day,
       entry: e ? { body: e.body, edited: e.edited_at != null } : null,
-      trades: await tradesOfDay(req.user.user_id, day),
+      trades,
+      // The coach: deterministic nudges from the day's own record — facts
+      // with lesson pointers, never model output (lib/learn_coach).
+      nudges: require('../lib/learn_coach').coachNudges(trades),
       private: true,
     });
   } catch (err) {
