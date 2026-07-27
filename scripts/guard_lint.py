@@ -77,6 +77,34 @@ the repo which registers HTTP routes is named by at least one rule. Adding rules
 fixes today's blind spot; that check is what stops the next module from being
 born blind — which is how this one happened.
 
+THEN THE SAME THING AGAIN, ONE LAYER OUT
+
+`app/` is the LARGEST HTTP surface in this repo — 228 Express routes against
+the aiohttp gateway's 53 — and no rule named it. `express-route-auth` fixed
+that at MODULE granularity, and was itself too coarse: it matches the string
+`authMiddleware` anywhere in a file, so one authenticated route makes fourteen
+public ones look fine. Express is why that matters — `router.use(mw)` applies
+only to routes declared AFTER it, so a route above that line silently skips the
+middleware inside a module that reads as guarded. Fifteen routes are in exactly
+that position today (all deliberate, all now individually listed).
+
+`express-mixed-module-routes` therefore works per ROUTE, implementing the real
+semantics: guarded iff a `router.use(auth…)` precedes the route's position, or
+the middleware is attached to that route itself. It only examines modules that
+authenticate SOMETHING — a wholly-public module is justified once, as a module,
+and re-listing its ~100 routes would bury the case that matters.
+
+COMMENTS ARE NOT CODE
+
+Mutation-testing that rule found the linter had the defect it exists to catch:
+commenting out `router.use(authMiddleware)` left it GREEN, because the regex
+matched the text inside the comment. A guard a comment can satisfy would pass on
+a reverted fix with the explanation left behind. JS sources are now stripped
+first — blanking to spaces, not deleting, because the whole rule turns on
+whether a route sits before or after the `router.use` and re-indexing would
+corrupt that. It strengthened the older rules too: a commented-out
+`assertDevnet` is now caught.
+
 LIMITS, STATED
 
 `resolve_calls` answers "can the guard be reached from here", not "is the guard
@@ -86,6 +114,12 @@ linter and claiming more would be the same overstatement the audit keeps
 finding. Depth is bounded (`_CALL_DEPTH`) and only bare-name calls are followed,
 so a guard hidden three helpers deep behind a method call is a false positive —
 which is the safe direction.
+
+Dead code is not comments, and is NOT handled: `0 && assertKeyfilePermissions(…)`
+still reads as a call, because deciding otherwise means evaluating expressions.
+Mutation-tested and left failing on purpose rather than papered over — the
+honest boundary of a regex tool is where the regex stops, and a reader who knows
+that can rely on the rest.
 
 Usage:
     python3 scripts/guard_lint.py                 # check every rule
@@ -119,6 +153,7 @@ class Rule:
     # "body-regex"     — trigger matched against each function body
     # "aiohttp-route"  — one candidate per registered aiohttp route
     # "express-router" — one candidate per Express route MODULE (whole file)
+    # "express-route"  — one candidate per Express ROUTE, in mixed modules only
     selector: str = "body-regex"
     mode: str = "require-guard"   # "require-guard" | "forbid"
     resolve_calls: bool = False   # follow same-file helper calls when hunting the guard
@@ -285,6 +320,57 @@ RULES: list[Rule] = [
              "exclude_functions with the reason."),
     ),
     Rule(
+        name="express-mixed-module-routes",
+        files=["app/routes/*.js"],
+        language="js",
+        selector="express-route",
+        trigger=r".",
+        guard=r"authMiddleware|optionalAuth|botAuth",
+        min_sites=120,
+        # PUBLIC ROUTES INSIDE AN OTHERWISE-AUTHENTICATED MODULE.
+        #
+        # Every one is declared ABOVE its module's `router.use(authMiddleware)`,
+        # which in Express means the middleware never runs for it. All fifteen
+        # were read and each module's own header states the intent; the reason
+        # is the grouping.
+        exclude_functions=[
+            # Teaching material — learn.js: "teaching material is not a secret".
+            # Its per-user routes (/progress, /lessons/:slug/done) carry
+            # authMiddleware INLINE, which is why the module looks mixed.
+            "learn.js:GET /lessons", "learn.js:GET /lessons/:slug",
+            # Paper-trading Arena: virtual funds only, and the leaderboard/tape
+            # are the public competitive surface.
+            "arena.js:GET /leaderboard", "arena.js:GET /tape",
+            "arena.js:GET /trader/:handle", "arena.js:GET /season",
+            "arena.js:GET /seasons",
+            # OpenSea read-only data; /stats is marked "(public)" in the header
+            # and /wallet/:address reflects an address the caller supplied.
+            "nft.js:GET /stats", "nft.js:GET /radar", "nft.js:GET /wallet/:address",
+            # "public sections" per its header; the operator-sensitive yield
+            # payload is a separate admin-gated route and this one exposes only
+            # a `has_yield` presence flag.
+            "reports.js:GET /",
+            # Provable Calls v3 — the daily Merkle seal-root feed is public by
+            # design; mirroring it is what makes the timestamp independent.
+            "roots.js:GET /", "roots.js:GET /anchor-plan/:day", "roots.js:GET /verify/:day",
+            # "public curated radar (no user data, IP-rate-limited)".
+            "airdrops.js:GET /",
+            # sync.js authenticates with its own botAuth (shared secret). Its
+            # one remaining pre-guard route is documented public market data —
+            # /portfolio-summary was the OTHER one, and it served the operator's
+            # equity to anyone until it was moved onto optionalAuth + the
+            # scrubber. That is why this rule now knows the name `botAuth`.
+            "sync.js:GET /scan",
+        ],
+        why=("An unauthenticated route inside a module that authenticates its OTHER routes. "
+             "`router.use(mw)` in Express applies only to routes declared AFTER it, so a "
+             "route above that line silently skips the middleware while the module reads as "
+             "guarded — and express-route-auth cannot see it, because that rule matches the "
+             "string `authMiddleware` anywhere in the file. If the route is genuinely public, "
+             "add it to exclude_functions with the reason; if not, move it below the "
+             "`router.use` or attach the middleware to the route itself."),
+    ),
+    Rule(
         name="dashboard-route-placement",
         files=["bot/web/dashboard_server.py"],
         language="python",
@@ -397,12 +483,110 @@ def _aiohttp_routes(src: str) -> list[tuple[str, str]]:
     return routes
 
 
-_EXPRESS_ROUTE = re.compile(r"router\.(get|post|put|delete|patch)\(", re.M)
+@lru_cache(maxsize=None)
+def _strip_js_comments(src: str) -> str:
+    """JS source with `//` and `/* */` comments blanked, LENGTHS PRESERVED.
+
+    Found by mutation-testing: commenting out `router.use(authMiddleware)` left
+    the rule GREEN, because the regex matched the text inside the comment. A
+    guard that a comment can satisfy is not a guard — the same failure this
+    audit found in three of its own tests, arriving here in the linter that
+    exists to catch it.
+
+    Comments are replaced with spaces rather than removed so every byte offset
+    still lines up: the whole rule turns on whether a route is declared before
+    or after the `router.use`, and re-indexing would silently corrupt that.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    quote = None
+    while i < n:
+        c = src[i]
+        if quote:
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in "\"'`":
+            quote = c
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n":
+                out[i] = " "
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            while i < n and not (src[i] == "*" and i + 1 < n and src[i + 1] == "/"):
+                if src[i] != "\n":
+                    out[i] = " "
+                i += 1
+            for k in range(i, min(i + 2, n)):
+                out[k] = " "
+            i += 2
+            continue
+        i += 1
+    return "".join(out)
+
+
+_EXPRESS_ROUTE = re.compile(r"router\.(get|post|put|delete|patch)\s*\(", re.M)
+# Every auth middleware mounted with router.use in this repo. `botAuth` is
+# here because sync.js rolls its own shared-secret check under that name, and a
+# rule that only knew the two common names examined none of its 23 routes —
+# which is how an unauthenticated equity endpoint sat inside a module whose
+# header says "Authenticated via a shared secret".
+_AUTH_MW = r"authMiddleware|optionalAuth|botAuth"
+_EXPRESS_USE_AUTH = re.compile(rf"router\.use\(\s*({_AUTH_MW})\s*\)")
 
 
 def _express_routes(src: str) -> int:
     """How many HTTP routes this Express router module declares."""
     return len(_EXPRESS_ROUTE.findall(src))
+
+
+def _balanced_call(src: str, start: int) -> str:
+    """`router.get( ... )` text from `start`, paren-balanced."""
+    i = src.index("(", start)
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "(":
+            depth += 1
+        elif src[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return src[i:j + 1]
+    return src[i:i + 400]
+
+
+def _express_route_guards(src: str) -> list[tuple[str, str]]:
+    """[(``METHOD /path``, the middleware in effect for it)] per route.
+
+    EXPRESS SEMANTICS, WHICH ARE THE WHOLE POINT. `router.use(mw)` applies only
+    to routes declared AFTER it in the file — a route above that line is
+    unauthenticated inside a module that reads as guarded. Middleware can also
+    be attached per route: `router.get('/x', authMiddleware, handler)`.
+
+    So a route is guarded iff a `router.use(auth…)` precedes its position, or
+    the auth middleware appears in its own handler list. The returned "context"
+    is exactly that text, so the rule's ordinary guard regex decides.
+    """
+    covers_from = min([m.start() for m in _EXPRESS_USE_AUTH.finditer(src)] or [None] or [], default=None)
+    out = []
+    for m in _EXPRESS_ROUTE.finditer(src):
+        call = _balanced_call(src, m.start())
+        path_m = re.match(r"\(\s*['\"]([^'\"]*)['\"]", call)
+        path = path_m.group(1) if path_m else "<computed>"
+        # Handler list only — up to the first function body, so middleware named
+        # inside a handler's own code cannot masquerade as a route guard.
+        handlers = call.split("{", 1)[0]
+        context = handlers
+        if covers_from is not None and m.start() > covers_from:
+            context += "\nrouter.use(authMiddleware)  /* in effect above */"
+        out.append((f"{m.group(1).upper()} {path}", context))
+    return out
 
 
 def _py_called_names(node: ast.AST) -> set[str]:
@@ -468,8 +652,31 @@ def check_rule(rule: Rule) -> tuple[list[str], int, int]:
         for path in sorted(REPO.glob(pattern)):
             rel = path.relative_to(REPO)
             src = path.read_text(encoding="utf-8")
+            # Comments are not code. A rule that a commented-out line can
+            # satisfy would pass on a reverted fix with the explanation left
+            # behind — which is exactly how E4 slipped through in testing.
+            if rule.language == "js":
+                src = _strip_js_comments(src)
             try:
-                if rule.selector == "express-router":
+                if rule.selector == "express-route":
+                    # ROUTE granularity, and only for MIXED modules — ones that
+                    # authenticate something. A module with no auth anywhere is
+                    # a wholly-public surface, already justified entry-by-entry
+                    # in express-route-auth's exempt list; re-listing all ~100
+                    # of its routes here would bury the case that matters.
+                    #
+                    # The case that matters is a module that authenticates SOME
+                    # routes and not others, because that is the one a reader
+                    # assumes is guarded. express-route-auth cannot see it: it
+                    # matches the string `authMiddleware` anywhere in the file,
+                    # so one authed route makes fourteen public ones look fine.
+                    if not re.search(_AUTH_MW, src):
+                        continue
+                    routes = _express_route_guards(src)
+                    discovered += len(routes)
+                    candidates = [(f"{rel.name}:{label}", f"{rel.name}:{label}", ctx)
+                                  for label, ctx in routes if trigger.search(label)]
+                elif rule.selector == "express-router":
                     # One candidate per FILE. Express mounts a whole router at a
                     # prefix and guards it with `router.use(authMiddleware)` at
                     # the top, so the module — not the individual handler — is

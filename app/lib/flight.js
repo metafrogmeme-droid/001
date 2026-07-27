@@ -42,7 +42,24 @@ function inspectWindow(records) {
 // Any key naming a dollar quantity — stripped from public records. We keep the
 // key-name test broad (anything with "usd", plus a handful of bare names) so a
 // new dollar field the engine adds later is redacted by default, not leaked.
-const DOLLAR_KEY = /(usd|equity|balance|notional|margin|collateral|dollars?|account_value|pnl_abs|cash|funds|wallet_value)/i;
+const DOLLAR_KEY = /(usd|equity|balance|notional|margin|collateral|dollars?|account_value|pnl|cash|funds|wallet_value)/i;
+// …and the keys that name a RATIO rather than an amount, which must survive:
+// percent/R-multiple outcomes are the entire content of the public record.
+//
+// WHY `pnl` REPLACED `pnl_abs`. The comment above promises redaction "by
+// default" for "a new dollar field the engine adds later", and the bare-name
+// list did not deliver it: `pnl`, `net_pnl`, `daily_pnl`, `realized_pnl` and
+// `total_pnl` all sailed through, because only `pnl_abs` and the `usd` suffix
+// were listed. Broadening to `pnl` catches every one — and then needs this
+// allowlist, because `pnl_pct` would otherwise be stripped too and the public
+// flight view is made of exactly that field.
+//
+// Suffix-anchored on purpose: `pnl_pct` survives, `pct_pnl_usd` does not. A key
+// that names a currency anywhere is never exempted, so a hypothetical
+// `usd_ratio` stays stripped.
+const RATIO_KEY = /(_pct|_percent|_ratio|_bps|_r|_multiple|_rate)$/i;
+const CURRENCY_TOKEN = /(usd|dollars?|cash|equity|balance)/i;
+const isRatioKey = (k) => RATIO_KEY.test(k) && !CURRENCY_TOKEN.test(k);
 // A currency amount embedded in a free-text string (e.g. "closed +$12.50").
 const DOLLAR_TEXT = /\$\s?-?\d[\d,]*(\.\d+)?/g;
 
@@ -52,7 +69,7 @@ function scrub(value) {
   if (typeof value === 'object') {
     const out = {};
     for (const k of Object.keys(value)) {
-      if (DOLLAR_KEY.test(k)) continue;            // drop dollar-named fields entirely
+      if (DOLLAR_KEY.test(k) && !isRatioKey(k)) continue;  // drop amounts, keep ratios
       out[k] = scrub(value[k]);
     }
     return out;

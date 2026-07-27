@@ -7,7 +7,28 @@
 const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('../db');
+// LAZY on purpose. `require('../auth')` at module load makes this file fatally
+// depend on the WEB session secret — auth.js exits the process when JWT_SECRET
+// is unset — and sync.js is the BOT channel, authenticated by BOT_SYNC_SECRET.
+// The eager version broke test/status_scan_rehydrate.test.js, which exercises
+// scan rehydration and has no business needing a JWT secret. Node caches the
+// require, so this costs one map lookup per request and keeps the coupling
+// where it belongs: on the one route that actually reads a web session.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
+const { scrub } = require('../lib/flight');
 const { broadcast } = require('./stream');
+
+/**
+ * The summary an anonymous caller may see: the same object with every dollar
+ * amount removed, via the SAME scrubber the public flight feed uses. Reusing it
+ * rather than hand-listing keys is the point — a field added to the summary
+ * later is redacted by default instead of needing someone to remember.
+ */
+function summaryFor(req, summary) {
+  if (!summary) return summary;
+  return req.user ? summary : { ...scrub(summary), disclosure: 'Anonymous view — '
+    + 'counts and rates only, no dollar amounts. Sign in for equity and P&L.' };
+}
 
 const router = express.Router();
 
@@ -70,13 +91,31 @@ router.get('/scan', async (req, res) => {
 
 /**
  * GET /api/bot/sync/portfolio-summary
- * Dashboard fetches bot portfolio summary (no auth required — shows synced data).
- * Priority: in-memory cache → scan circuit_breaker → DB fallback
+ *
+ * DOLLARS ARE AUTHENTICATED. This used to say "no auth required — shows synced
+ * data", which describes where the numbers came from, not whether they are safe
+ * to publish. The payload carries `equity` — the operator's account balance —
+ * and `net_pnl`, cumulative dollar P&L; the DB fallback below reads
+ * `equity_snapshots` and `SUM(pnl) FROM trades` with no user scoping at all.
+ * Both routes above `router.use(botAuth)` (line ~160), so neither ever saw it.
+ *
+ * That is the §4 line this repo draws everywhere else: `sanitizeRecord`'s
+ * dollar-key list names `equity` explicitly, public_flight.js "strips every
+ * dollar figure", /api/guardian/incidents promises "percent/flags only", and
+ * public_letter.js publishes equity as a PERCENT change. One endpoint served
+ * the raw figure, and nothing in app/ or bot/ calls it — so it was exposure
+ * with no consumer.
+ *
+ * Kept reachable and redacted rather than moved below botAuth, because "no
+ * caller in this repo" is not "no caller": an external dashboard could be
+ * reading it, and a 401 would break it silently where a redaction degrades it
+ * honestly. Anonymous callers get the counts and rates — open positions, total
+ * trades, win rate, mode — which is what a summary is for.
  */
-router.get('/portfolio-summary', async (req, res) => {
+router.get('/portfolio-summary', optionalAuth, async (req, res) => {
   // Return cached in-memory summary if available
   if (latestPortfolio) {
-    return res.json({ portfolio: latestPortfolio });
+    return res.json({ portfolio: summaryFor(req, latestPortfolio) });
   }
   // Try to build from persisted scan data (circuit_breaker has live exchange data)
   if (!latestScan) {
@@ -102,7 +141,7 @@ router.get('/portfolio-summary', async (req, res) => {
       live_unavailable: !!cb.live_unavailable,
       updated_at: latestScan.received_at || latestScan.timestamp || new Date().toISOString()
     };
-    return res.json({ portfolio: latestPortfolio });
+    return res.json({ portfolio: summaryFor(req, latestPortfolio) });
   }
   // Final fallback: read from DB
   try {
@@ -135,7 +174,7 @@ router.get('/portfolio-summary', async (req, res) => {
       total_trades: total, win_rate: winRate,
       updated_at: snapRows[0]?.snapshot_at || new Date().toISOString()
     };
-    res.json({ portfolio: latestPortfolio });
+    res.json({ portfolio: summaryFor(req, latestPortfolio) });
   } catch (err) {
     res.json({ portfolio: null });
   }
@@ -920,3 +959,8 @@ async function getLatestScan() {
 module.exports.getLatestScan = getLatestScan;
 // Named accessor for routes/guardian.js — the Flight Recorder ledger mirror.
 module.exports.getLatestFlight = getLatestFlight;
+// Exported so the redaction can be TESTED, not just read. The first version of
+// its test reimplemented `req.user ? summary : scrub(summary)` locally and
+// therefore passed with the real function reverted to returning the raw
+// summary — a vacuous test of the exact kind this audit keeps finding.
+module.exports.summaryFor = summaryFor;
