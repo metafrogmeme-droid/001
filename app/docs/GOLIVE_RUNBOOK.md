@@ -75,6 +75,22 @@ Also: **every MCP tool change moves the hash.** Register when the tool set
 is settled; after registration, each tool change costs a re-registration
 transaction to stay verifiable.
 
+### If you don't know what your creator address "should" be
+
+It is a choice, not a lost key. Until a registration transaction exists
+on-chain, nothing anywhere is committed to any address — and the registry
+call itself (`registerTool(metadataURI, manifestHash, accessPredicate)`)
+does not even take a creator parameter: the creator lives inside the
+hashed manifest as a self-declared identity field, and the on-chain owner
+of the registration is simply whichever wallet sends the transaction.
+
+So: pick a wallet you control **today** — the one linked on your
+dashboard is a fine choice, since you have already proven control of it
+by signature — set it as `TOOL_CREATOR_ADDRESS`, and send the
+registration **from that same wallet** so the manifest's claimed creator
+matches the on-chain registrant. Any half-remembered address from an old
+env var can be abandoned without consequence.
+
 ### Steps (safe order — do not reorder)
 
 1. Set `TOOL_CREATOR_ADDRESS` to your full wallet address (only you have

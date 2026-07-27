@@ -37,6 +37,18 @@ test('the creatorAddress-inside-the-hash trap is documented', () => {
   assert.match(doc, /every MCP tool change moves the hash/i);
 });
 
+test('a forgotten creator address is documented as a choice, not a loss', () => {
+  assert.match(doc, /a choice, not a lost key/);
+  assert.match(doc, /does not even take a creator parameter/,
+    'the registry-call fact that makes recovery unnecessary');
+  assert.match(doc, /from that same wallet/,
+    'claimed creator should match the on-chain registrant');
+  // and still no concrete address beyond the public registry contract
+  const addrs = (doc.match(/0x[0-9a-fA-F]{40}/g) || []);
+  assert.deepEqual([...new Set(addrs)], ['0x265BB2DBFC0A8165C9A1941Eb1372F349baD2cf1'],
+    'the registry is the only concrete address in the runbook');
+});
+
 test('F-15: env var names only — no secret-shaped value in the doc', () => {
   // Names are allowed (they are in .env.example); values are not.
   assert.ok(!/=\s*0x[0-9a-fA-F]{16,}/.test(doc), 'no hex key material after =');
