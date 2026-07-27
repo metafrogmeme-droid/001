@@ -105,6 +105,35 @@ whether a route sits before or after the `router.use` and re-indexing would
 corrupt that. It strengthened the older rules too: a commented-out
 `assertDevnet` is now caught.
 
+FOUR SURFACES, NOT ONE — AND THE COVERAGE CHECK WAS THE THING THAT WAS BLIND
+
+`_route_module_coverage` exists to stop a surface being born unwatched. It
+looked for aiohttp registrations under `bot/` only, so it could not see:
+
+    api_bridge.py             19 FastAPI routes at the repo ROOT
+    bot/api/auth_routes.py     7 FastAPI routes — the auth API
+    bot/api/lab.py             3 FastAPI routes
+    app/auth.js               30 Express routes — login, OAuth, wallet linking
+    app/server.js             37 Express routes
+
+370 routes across four frameworks, and 96 of them outside every rule. The
+meta-check written to prevent this exact failure had the exact failure.
+
+It now scans the whole repository, keyed by file extension, and — this is the
+part that mattered — keyed on the PATH LITERAL rather than the receiver's name.
+`app` and `router` are conventions, not requirements: `bot/api/auth_routes.py`
+uses `@auth_router.post("/register")`, `bot/api/lab.py` uses `@lab_router.get`,
+and a JS module doing `const r = express.Router()` escaped entirely. That
+assumption had to be removed from THREE separate places in this file. A first
+argument beginning with `/` is what makes a call a route; `map.get('key')` is
+not one.
+
+Two rules follow from covering those surfaces: `fastapi-route-auth` (the guard
+lives in the SIGNATURE, since FastAPI authenticates via `Depends(...)`) and
+`server-js-serves-pages-not-data`, a forbid rule — server.js is exempt as a
+wholly-public page server, so a data route added there would be checked by
+nothing at all. That gap was found by mutation, not by reading.
+
 LIMITS, STATED
 
 `resolve_calls` answers "can the guard be reached from here", not "is the guard
@@ -154,6 +183,8 @@ class Rule:
     # "aiohttp-route"  — one candidate per registered aiohttp route
     # "express-router" — one candidate per Express route MODULE (whole file)
     # "express-route"  — one candidate per Express ROUTE, in mixed modules only
+    # "fastapi-route"  — one candidate per @app.<method> route (guard is in the
+    #                    SIGNATURE: FastAPI authenticates via Depends(...))
     selector: str = "body-regex"
     mode: str = "require-guard"   # "require-guard" | "forbid"
     resolve_calls: bool = False   # follow same-file helper calls when hunting the guard
@@ -281,7 +312,7 @@ RULES: list[Rule] = [
     ),
     Rule(
         name="express-route-auth",
-        files=["app/routes/*.js"],
+        files=["app/routes/*.js", "app/auth.js", "app/server.js"],
         language="js",
         selector="express-router",
         trigger=r".",                 # every route module is a candidate
@@ -304,6 +335,11 @@ RULES: list[Rule] = [
             "track",       # mounted under /api/public
             "mcp",         # its header enumerates the public-data tools it exposes
             "tool8257",    # ERC-8257 manifest over the SAME read-only registry as /mcp
+            "server",      # app/server.js: 29 of its 37 routes are res.sendFile of a
+                           # static page, plus /api/version, assetlinks.json, robots.txt
+                           # and the leaderboard/arena/trader pages. It is the WEBSITE.
+                           # Data lives behind the routers it mounts, each of which is
+                           # checked on its own.
             "stream",      # a "refresh now" ping, no payload
             "frame",       # Farcaster frame endpoints, public by protocol
             "call",        # /call/<key> verify links printed in public scan cards
@@ -321,7 +357,7 @@ RULES: list[Rule] = [
     ),
     Rule(
         name="express-mixed-module-routes",
-        files=["app/routes/*.js"],
+        files=["app/routes/*.js", "app/auth.js", "app/server.js"],
         language="js",
         selector="express-route",
         trigger=r".",
@@ -361,6 +397,24 @@ RULES: list[Rule] = [
             # equity to anyone until it was moved onto optionalAuth + the
             # scrubber. That is why this rule now knows the name `botAuth`.
             "sync.js:GET /scan",
+            # app/auth.js — the routes that CANNOT require a session, because
+            # they are how a session is obtained or recovered. Listed one by one
+            # so a new unauthenticated route here has to be argued for.
+            "auth.js:POST /register", "auth.js:POST /login",
+            "auth.js:POST /forgot-password", "auth.js:POST /reset-password",
+            "auth.js:POST /verify-email",
+            "auth.js:POST /telegram", "auth.js:POST /google",
+            "auth.js:GET /oauth/:provider/start", "auth.js:GET /oauth/:provider/callback",
+            "auth.js:POST /validate-token",   # answers "is this token valid" — the
+                                              # token IS the credential being checked
+            "auth.js:GET /config",            # which sign-in providers are enabled
+            "auth.js:POST /wallet/nonce",     # issues a nonce to sign; binds nothing
+            "auth.js:POST /wallet/verify",    # proves wallet control, no account write
+            # Redeemed FROM THE PHONE, which has no session: a 128-bit single-use
+            # code (10-min TTL, issued by the AUTHED /wallet/link-code) carries the
+            # account binding, and the request must also carry a signature over a
+            # fresh nonce. Refuses if the wallet is already on another account.
+            "auth.js:POST /wallet/link-by-code",
         ],
         why=("An unauthenticated route inside a module that authenticates its OTHER routes. "
              "`router.use(mw)` in Express applies only to routes declared AFTER it, so a "
@@ -369,6 +423,75 @@ RULES: list[Rule] = [
              "string `authMiddleware` anywhere in the file. If the route is genuinely public, "
              "add it to exclude_functions with the reason; if not, move it below the "
              "`router.use` or attach the middleware to the route itself."),
+    ),
+    Rule(
+        name="server-js-serves-pages-not-data",
+        files=["app/server.js"],
+        language="js",
+        selector="express-route",
+        mode="forbid",
+        # server.js is the WEBSITE: 29 of its routes are res.sendFile of a static
+        # page. Data belongs in the routers it mounts, each of which is checked
+        # on its own — so the enforceable property is that server.js itself
+        # registers nothing under /api/. Placement, not a guard call, exactly
+        # like dashboard-route-placement.
+        trigger=r"^\w+ /api/",
+        guard="",
+        min_sites=25,
+        exclude_functions=[
+            # Build metadata, no account in scope.
+            "server.js:GET /api/version",
+        ],
+        why=("app/server.js registered a route under /api/. It is exempt from "
+             "express-route-auth as a wholly-public page server, so a data route "
+             "added here is checked by nothing at all. Put it in a router under "
+             "app/routes/ where the auth rules can see it."),
+    ),
+    Rule(
+        name="fastapi-route-auth",
+        files=["api_bridge.py", "bot/api/auth_routes.py", "bot/api/lab.py"],
+        language="python",
+        selector="fastapi-route",
+        trigger=r".",
+        # Two dependencies, two apps: api_bridge guards with an operator bearer
+        # token, the auth router with a per-user session.
+        guard=r"require_dashboard_token|get_current_user_id",
+        min_sites=25,
+        # A FOURTH HTTP SURFACE, and the one that showed the coverage check
+        # itself was too narrow: it looked for aiohttp registrations under
+        # `bot/` only, so a FastAPI app at the repo root was invisible to the
+        # very check written to stop a surface being born blind.
+        exclude_functions=[
+            "api_bridge.py:GET /health",         # liveness; counts and flags only
+            "api_bridge.py:POST /scan",          # indicators over public market data,
+                                                 # rate-limited, symbols regex-validated
+            "api_bridge.py:GET /blackswan",      # anomaly state: type, symbol, severity
+                                                 # ratio — market microstructure, no account
+            "api_bridge.py:GET /patterns/{symbol}",
+            "api_bridge.py:GET /insight/{symbol}",
+            "api_bridge.py:GET /platform-url",   # a configured public URL
+            # Legacy path redirects — one handler, no data.
+            "api_bridge.py:GET /warroom", "api_bridge.py:GET /warroom.html",
+            "api_bridge.py:GET /live-signals", "api_bridge.py:GET /live-signals.html",
+            "api_bridge.py:GET /register", "api_bridge.py:GET /register.html",
+            "api_bridge.py:GET /dashboard",
+            # bot/api/auth_routes.py — how a session is obtained; cannot require one.
+            "auth_routes.py:POST /register", "auth_routes.py:POST /login",
+            "auth_routes.py:POST /refresh",   # the refresh TOKEN is the credential
+            # bot/api/lab.py — the public Strategy Lab. Bounded by construction
+            # rather than by a session: frozen snapshots only, symbols validated
+            # against the snapshot, ONE job at a time (409), a submit-gap
+            # throttle (429), and every numeric clamped (last_bars 200..6000,
+            # balance 100..1e6, confidence 0..1). Reads no account.
+            "lab.py:GET /lab/meta", "lab.py:POST /lab/run",
+            "lab.py:GET /lab/status/{job_id}",
+        ],
+        why=("A FastAPI route with no `require_dashboard_token` dependency. This app "
+             "reaches the live engine — /confirm places a trade, /portfolio/close "
+             "flattens a position, /risk/halt trips the breaker — and the token "
+             "dependency fails CLOSED (503) when DASHBOARD_TOKEN is unset, which is "
+             "the property to preserve. If the new route is genuinely public, add it "
+             "to exclude_functions with the reason."),
     ),
     Rule(
         name="dashboard-route-placement",
@@ -532,7 +655,9 @@ def _strip_js_comments(src: str) -> str:
     return "".join(out)
 
 
-_EXPRESS_ROUTE = re.compile(r"router\.(get|post|put|delete|patch)\s*\(", re.M)
+# `app.` as well as `router.`: app/server.js registers 37 page routes directly
+# on the app, and a rule that only knew `router.` could not see any of them.
+_EXPRESS_ROUTE = re.compile(r"(?:router|app)\.(get|post|put|delete|patch)\s*\(", re.M)
 # Every auth middleware mounted with router.use in this repo. `botAuth` is
 # here because sync.js rolls its own shared-secret check under that name, and a
 # rule that only knew the two common names examined none of its 23 routes —
@@ -586,6 +711,43 @@ def _express_route_guards(src: str) -> list[tuple[str, str]]:
         if covers_from is not None and m.start() > covers_from:
             context += "\nrouter.use(authMiddleware)  /* in effect above */"
         out.append((f"{m.group(1).upper()} {path}", context))
+    return out
+
+
+def _fastapi_routes(src: str) -> list[tuple[str, str]]:
+    """[(``METHOD /path``, the handler's signature)] for each @app.<method> route.
+
+    The guard lives in the SIGNATURE, not the body: FastAPI authenticates with
+    `Depends(...)` on a parameter, so the question "is this route guarded" is
+    answered by its parameter list alone.
+    """
+    out = []
+    tree = _parse(src)
+    lines = _lines(src)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for d in node.decorator_list:
+            # ANY receiver, decided by the path literal. `app` and `router` are
+            # conventions: bot/api/auth_routes.py uses `@auth_router.post("/…")`
+            # and bot/api/lab.py `@lab_router.get("/…")`, so a receiver-name
+            # check missed ten routes including the entire auth API. This is the
+            # third place in this file that assumption had to be removed.
+            if not (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                    and isinstance(d.func.value, ast.Name)
+                    and d.func.attr in ("get", "post", "put", "delete", "patch")
+                    and d.args):
+                continue
+            try:
+                path = ast.literal_eval(d.args[0])
+            except (ValueError, SyntaxError):
+                continue
+            if not isinstance(path, str) or not path.startswith("/"):
+                continue
+            # Signature only — up to the closing paren of the def.
+            sig = "".join(lines[node.lineno - 1:node.lineno + 8])
+            sig = sig.split("):", 1)[0] if "):" in sig else sig
+            out.append((f"{d.func.attr.upper()} {path}", sig))
     return out
 
 
@@ -658,7 +820,12 @@ def check_rule(rule: Rule) -> tuple[list[str], int, int]:
             if rule.language == "js":
                 src = _strip_js_comments(src)
             try:
-                if rule.selector == "express-route":
+                if rule.selector == "fastapi-route":
+                    routes = _fastapi_routes(src)
+                    discovered += len(routes)
+                    candidates = [(f"{rel.name}:{label}", f"{rel.name}:{label}", sig)
+                                  for label, sig in routes if trigger.search(label)]
+                elif rule.selector == "express-route":
                     # ROUTE granularity, and only for MIXED modules — ones that
                     # authenticate something. A module with no auth anywhere is
                     # a wholly-public surface, already justified entry-by-entry
@@ -670,7 +837,13 @@ def check_rule(rule: Rule) -> tuple[list[str], int, int]:
                     # assumes is guarded. express-route-auth cannot see it: it
                     # matches the string `authMiddleware` anywhere in the file,
                     # so one authed route makes fourteen public ones look fine.
-                    if not re.search(_AUTH_MW, src):
+                    # `mode="forbid"` asks whether a route EXISTS, not whether a
+                    # guard was applied, so the mixed-module filter must not
+                    # apply to it — otherwise a wholly-public module (exempt at
+                    # module level) could gain a data route unseen. Found by
+                    # mutation: adding `app.get('/api/secret-equity', …)` to
+                    # server.js was invisible to every rule.
+                    if rule.mode != "forbid" and not re.search(_AUTH_MW, src):
                         continue
                     routes = _express_route_guards(src)
                     discovered += len(routes)
@@ -728,6 +901,30 @@ def check_rule(rule: Rule) -> tuple[list[str], int, int]:
     return violations, sites, discovered
 
 
+# Every way this repo registers an HTTP route. The coverage check below is only
+# as good as this table — see its docstring for why that is the point.
+_ROUTE_SIGNATURES = {
+    # Language-scoped: an Express pattern run over Python matched FastAPI
+    # routers AND this file's own regex literals.
+    #
+    # Both JS and Python entries key on the PATH LITERAL rather than the
+    # receiver's name. `router`/`app` are conventions, not requirements —
+    # `bot/api/auth_routes.py` uses `@auth_router.post("/register")` and
+    # `bot/api/lab.py` uses `@lab_router.get(...)`, so a receiver-name regex
+    # missed ten real routes including the entire auth API. A first argument
+    # beginning with `/` is what makes it a route; `map.get('key')` is not one.
+    ".py": {
+        "aiohttp": re.compile(r"\.add_(?:get|post|put|delete|patch)\("),
+        "fastapi": re.compile(r"^@\w+\.(?:get|post|put|delete|patch)\(\s*[\"']/", re.M),
+    },
+    ".js": {"express": re.compile(r"\.(?:get|post|put|delete|patch)\(\s*['\"`]/", re.M)},
+    ".mjs": {"express": re.compile(r"\.(?:get|post|put|delete|patch)\(\s*['\"`]/", re.M)},
+}
+_COVERAGE_SKIP = ("node_modules", "/.git/", "/tests/", "/test/", ".test.",
+                  "_test.", "/dist/", "/build/", "/.venv/", "/venv/")
+_ROUTE_SELECTORS = ("aiohttp-route", "express-router", "express-route", "fastapi-route")
+
+
 def _route_module_coverage() -> list[str]:
     """Every module that registers HTTP routes must be named by some rule.
 
@@ -742,24 +939,33 @@ def _route_module_coverage() -> list[str]:
     one of its routes. A coverage check that can be satisfied by an unrelated
     rule measures nothing.
     """
-    watched = {p.resolve() for r in RULES if r.selector == "aiohttp-route"
+    watched = {p.resolve() for r in RULES if r.selector in _ROUTE_SELECTORS
                for pat in r.files for p in REPO.glob(pat)}
     problems = []
-    for path in sorted(REPO.glob("bot/**/*.py")):
+    for path in sorted(REPO.rglob("*")):
+        if path.suffix not in (".py", ".js", ".mjs") or not path.is_file():
+            continue
+        rel = str(path)
+        if any(k in rel for k in _COVERAGE_SKIP):
+            continue
         try:
-            src = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            src = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
             continue
-        if not any(m + "(" in src for m in _ROUTE_METHODS):
+        if path.suffix in (".js", ".mjs"):
+            # Comments are not code — here too. app/lib/rate_limit.js documents
+            # its usage with `router.post('/', rateLimit(…))` in a docblock, and
+            # an unstripped scan reported a rate-limiter as an HTTP surface.
+            src = _strip_js_comments(src)
+        hits = {fw: len(rx.findall(src))
+                for fw, rx in _ROUTE_SIGNATURES.get(path.suffix, {}).items()}
+        total = sum(hits.values())
+        if not total or path.resolve() in watched:
             continue
-        try:
-            routes = _aiohttp_routes(src)
-        except SyntaxError:
-            continue
-        if routes and path.resolve() not in watched:
-            problems.append(
-                f"{path.relative_to(REPO)} registers {len(routes)} HTTP route(s) but no "
-                f"guard rule names it — that surface is unchecked")
+        kinds = ", ".join(f"{n} {fw}" for fw, n in hits.items() if n)
+        problems.append(
+            f"{path.relative_to(REPO)} registers HTTP route(s) ({kinds}) but no "
+            f"guard rule names it — that surface is unchecked")
     return problems
 
 
