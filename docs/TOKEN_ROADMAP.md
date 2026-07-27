@@ -1177,7 +1177,38 @@ Two operational notes for whoever repeats this:
    is an undeclared dependency.
 
    `npm run programs:inventory` does this from the run's own transaction logs
-   and fails on anything not in `token/.program-inventory.json`. Measured over a
+   and fails on anything not in `token/.program-inventory.json`.
+### One command for every claim: `scripts/receipts.py`
+
+Each check above lives somewhere different and is invoked differently, so in
+practice nobody runs them all — and **a verification nobody runs is
+indistinguishable from one that does not exist**.
+
+```bash
+python3 scripts/receipts.py                   # run every check available here
+python3 scripts/receipts.py --offline         # skip the ones needing a live RPC
+python3 scripts/receipts.py --markdown --out receipts.md    # publishable page
+```
+
+It adds no new checking. It is the index of the checks that already exist:
+build reproducibility and the mint pin, the Rust and npm advisory ratchets, the
+presale tooling's offline invariants, paywall coverage and the never-gated
+safety commands, the Proof-of-PnL verifier including forged-identity rejection,
+the on-chain program inventory, and the presale artifact against the chain.
+
+**It reports three states, not two.** `PASS`, `FAIL`, and `UNVERIFIED` — the
+last meaning the check did not run to completion, whether from a missing
+toolchain, no network, or a missing artifact. `UNVERIFIED` is never folded into
+either of the others and makes the exit non-zero (2) unless
+`--allow-unverified` is passed explicitly. A page that quietly upgrades
+*unknown* to *fine* is worth less than no page, and this is precisely the
+document where a project is tempted to do that.
+
+**No generated page is committed.** A snapshot goes stale the moment anything
+changes, and a stale receipts page is the same record-versus-reality gap this
+roadmap keeps closing elsewhere — it would assert as current a state nobody
+re-checked. Generate it at publish time, from the commit you are publishing.
+ Measured over a
    full lifecycle, five programs execute: SPL System, SPL Token, SPL Associated
    Token, Metaplex Token Metadata and Metaplex Genesis. The first four are
    immutable on mainnet-beta (native, non-upgradeable loader, or upgrade
