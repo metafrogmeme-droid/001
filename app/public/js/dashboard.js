@@ -5787,6 +5787,17 @@
       const panel = document.getElementById('p-agentpicks');
       const host = document.getElementById('c-agentpicks');
       if (!panel || !host) return;
+      // The follow list loads HERE, not only in the engine-catalogue path —
+      // a 503 catalogue must never hide followed COMMUNITY strategies (the
+      // two sources are independent; coupling them hid one behind the other).
+      if (LOGGED_IN) {
+        try {
+          const fr = await fetchJSON('/api/copy', { timeoutMs: 10000 });
+          if (fr.ok && fr.data && Array.isArray(fr.data.following)) {
+            _agentFollows = new Set(fr.data.following);
+          }
+        } catch (_) { /* keep the last known list */ }
+      }
       if (!_agentFollows.size) { panel.hidden = true; return; }
       panel.hidden = false;
       host.innerHTML = '<div class="skel"></div>';
@@ -5797,6 +5808,7 @@
       const blocks = groups.map(g => {
         const head = `<div class="row" style="gap:8px;align-items:center;margin:var(--s2) 0 6px">
             <span style="font-size:18px">${esc(g.icon || '🤖')}</span><b>${esc(g.name)}</b>
+            ${g.community ? `<span class="chip" style="font-size:10px;color:var(--accent,#3fb6ff)">${esc(T('cp.comm', 'Community'))}</span>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentunfollow="${esc(g.id)}" type="button" style="margin-left:auto">Unfollow</button></div>`;
         if (g.unavailable) return head + `<p class="small muted">Gates unavailable — the catalogue bridge is offline.</p>`;
         if (!g.picks || !g.picks.length) {

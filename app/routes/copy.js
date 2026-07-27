@@ -22,7 +22,7 @@ const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { isConfigured } = require('../lib/gateway');
 const { loadCatalogueChecked, loadCatalogue } = require('../lib/agent_catalogue');
-const { picksForAgent } = require('../lib/agent_match');
+const { picksForAgent, rulesToGates } = require('../lib/agent_match');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -116,14 +116,30 @@ router.get('/picks', async (req, res) => {
     try { catalogue = await loadCatalogue(); } catch (e) { catalogue = []; }
     const byId = new Map(catalogue.map(a => [a.id, a]));
 
-    const agents = following.map(id => {
+    const store = require('../lib/user_strategies');
+    const agents = await Promise.all(following.map(async (id) => {
       const a = byId.get(id);
-      if (!a) return { id, name: id, icon: '🤖', matched_on: [], picks: [], unavailable: true };
-      return picksForAgent(a, signals);
-    });
+      if (a) return picksForAgent(a, signals);
+      // Not an engine agent — a followed COMMUNITY strategy resolves here:
+      // its signal-checkable rules project onto the same gate shape
+      // (rulesToGates), so one matcher serves both catalogues. Size caps,
+      // drawdown halts and R:R floors are the member's risk config, not
+      // signal filters — matched_on states exactly what was applied.
+      try {
+        const c = await store.getPublicBySlug(id);
+        if (c) {
+          const g = picksForAgent(
+            { id, name: c.name, icon: c.icon,
+              scorecard: { gates: rulesToGates(c.rules, c.regime) } }, signals);
+          g.community = true;
+          return g;
+        }
+      } catch (e) { /* fall through to unavailable */ }
+      return { id, name: id, icon: '🤖', matched_on: [], picks: [], unavailable: true };
+    }));
     const note = isConfigured()
-      ? 'Picks are the live signals each agent’s published gates would act on — the engine applies its finer intraday entry filters live. Copying is paper-only and you place every trade yourself.'
-      : 'The agent catalogue needs the bot bridge to resolve each agent’s gates.';
+      ? 'Picks are the live signals each agent’s published gates would act on — the engine applies its finer intraday entry filters live. Community strategies match on their signal-checkable rules only (their size caps and halts are yours to apply when you size the trade). Copying is paper-only and you place every trade yourself.'
+      : 'Engine-agent gates need the bot bridge; followed community strategies still match on their own rules.';
     res.json({ agents, note });
   } catch (err) {
     console.error('Copy picks error:', err.stack || err.message);

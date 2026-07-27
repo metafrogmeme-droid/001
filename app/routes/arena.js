@@ -489,12 +489,28 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
       if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(claimed)) {
         attribution = { attributed: false, reason: 'bad_slug' };
       } else {
-        const cat = await require('../lib/agent_catalogue').loadCatalogueChecked();
-        const agent = cat.agents.find((a) => String(a.id).toLowerCase() === claimed);
-        if (!agent) {
+        // Community strategies verify FIRST (local DB, always readable) —
+        // their signal-checkable rules project onto the same gate shape the
+        // engine publishes, so both catalogues face the identical matcher
+        // and community records accumulate through the same sealed flow.
+        const match = require('../lib/agent_match');
+        let gates = null;
+        let known = false;
+        let readable = true;
+        try {
+          const cs = await require('../lib/user_strategies').getPublicBySlug(claimed);
+          if (cs) { known = true; gates = match.rulesToGates(cs.rules, cs.regime); }
+        } catch (e) { /* community store unreadable — the engine lookup decides */ }
+        if (!known) {
+          const cat = await require('../lib/agent_catalogue').loadCatalogueChecked();
+          const agent = cat.agents.find((a) => String(a.id).toLowerCase() === claimed);
+          if (agent) { known = true; gates = agent.scorecard && agent.scorecard.gates; }
+          readable = cat.readable;
+        }
+        if (!known) {
           attribution = { attributed: false,
-            reason: cat.readable ? 'agent_unknown' : 'catalogue_unreadable' };
-        } else if (!require('../lib/agent_match').agentWouldTake(sig, agent.scorecard && agent.scorecard.gates)) {
+            reason: readable ? 'agent_unknown' : 'catalogue_unreadable' };
+        } else if (!match.agentWouldTake(sig, gates)) {
           attribution = { attributed: false, reason: 'gates_reject' };
         } else {
           agentSlug = claimed;

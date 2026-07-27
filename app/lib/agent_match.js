@@ -27,6 +27,34 @@ function baseOf(sym) {
   return s.endsWith('USDT') && s.length > 4 ? s.slice(0, -4) : s;
 }
 
+// Project a COMMUNITY strategy's signal-checkable rules onto the same gate
+// shape the engine agents publish, so one matcher serves both catalogues.
+// Only rules the signal payload can actually answer become gates:
+//   min_confidence → confidence_threshold, allowed_symbols → symbols,
+//   blocked_symbols → blocked_symbols, direction → direction, and the
+//   strategy's regime chip (when not 'any') → regime_filter.
+// Everything else — size caps, drawdown halts, R:R floors, open-position
+// counts — is the member's own risk config, NOT a signal filter; projecting
+// it would fabricate a match criterion the data cannot support.
+function rulesToGates(rules, regime) {
+  const gates = {};
+  for (const r of (Array.isArray(rules) ? rules : [])) {
+    if (!r || !r.type) continue;
+    if (r.type === 'min_confidence' && Number(r.value) > 0) {
+      gates.confidence_threshold = Number(r.value);
+    } else if (r.type === 'allowed_symbols' && Array.isArray(r.value) && r.value.length) {
+      gates.symbols = r.value;
+    } else if (r.type === 'blocked_symbols' && Array.isArray(r.value) && r.value.length) {
+      gates.blocked_symbols = r.value;
+    } else if (r.type === 'direction' && (r.value === 'long_only' || r.value === 'short_only')) {
+      gates.direction = r.value;
+    }
+  }
+  const rg = String(regime || '').toLowerCase();
+  if (rg && rg !== 'any') gates.regime_filter = rg;
+  return gates;
+}
+
 // Which of an agent's gates can actually be checked against a live signal?
 // (confidence / regime / symbol are in the payload; rsi_max & volume_spike_min
 // are not, so they're always reported as "applied live by the engine".)
@@ -36,6 +64,8 @@ function matchableGates(gates) {
   if (g.confidence_threshold != null && Number(g.confidence_threshold) > 0) applied.push('confidence');
   if (g.regime_filter) applied.push('regime');
   if (Array.isArray(g.symbols) && g.symbols.length) applied.push('symbols');
+  if (Array.isArray(g.blocked_symbols) && g.blocked_symbols.length) applied.push('blocked');
+  if (g.direction) applied.push('direction');
   return applied;
 }
 
@@ -56,6 +86,17 @@ function agentWouldTake(signal, gates) {
     const allow = new Set(gates.symbols.map(baseOf));
     if (!allow.has(baseOf(signal.symbol))) return false;
   }
+  // Community-config gates (additive — engine gate sets never carry these,
+  // so engine matching behaviour is byte-identical to before):
+  if (Array.isArray(gates.blocked_symbols) && gates.blocked_symbols.length) {
+    const deny = new Set(gates.blocked_symbols.map(baseOf));
+    if (deny.has(baseOf(signal.symbol))) return false;
+  }
+  if (gates.direction) {
+    const dir = String(signal.direction || '').toUpperCase();
+    if (gates.direction === 'long_only' && dir !== 'LONG') return false;
+    if (gates.direction === 'short_only' && dir !== 'SHORT') return false;
+  }
   return true;
 }
 
@@ -75,4 +116,4 @@ function picksForAgent(agent, signals, limit = 8) {
   return { id: agent.id, name: agent.name, icon: agent.icon || '🤖', matched_on: applied, picks };
 }
 
-module.exports = { baseOf, matchableGates, agentWouldTake, picksForAgent };
+module.exports = { baseOf, rulesToGates, matchableGates, agentWouldTake, picksForAgent };
