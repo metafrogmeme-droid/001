@@ -207,6 +207,7 @@
     <div style="font-family:var(--font-data);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--gold-bright);margin-bottom:6px" id="rootStripHead"></div>
     <div id="rootStripHash" style="font-family:var(--font-data);font-size:var(--fs-xs);color:var(--text-2);word-break:break-all"></div>
     <div class="muted" style="font-size:var(--fs-xs);margin-top:6px" data-i18n="sec.prov_mirror">Copy that hash anywhere public and the whole day is frozen for everyone — we can't add a call to it afterwards without breaking your copy.</div>
+    <div id="rootStripTotals" style="font-size:var(--fs-xs);color:var(--text-2);margin-top:6px;border-top:1px solid var(--line);padding-top:6px"></div>
   </div>
   <div class="feature-grid rc-stagger">
     <a class="feature" href="/provable"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧾</span><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
@@ -607,7 +608,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=83"></script>
+<script src="/js/i18n.js?v=84"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=6"></script>
 <script src="/js/chat.js?v=26" defer></script>
@@ -1415,6 +1416,29 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
         : 'Sealed on {day} · {n} calls committed to this one hash';
       head.textContent = tpl.replace('{day}', row.day).replace('{n}', Number(row.seal_count) || 0);
       hash.textContent = row.root;
+      // Window totals — computed from the same feed rows the strip shows,
+      // so the numbers can be re-derived from /api/roots by anyone. The
+      // anchored clause appears only when a day is actually anchored: a zero
+      // is honest but "not yet anchored" is already covered by mirroring.
+      var totals = document.getElementById('rootStripTotals');
+      if (totals) {
+        var seals = 0, anchored = 0;
+        for (var ri = 0; ri < d.roots.length; ri++) {
+          seals += Number(d.roots[ri].seal_count) || 0;
+          if (d.roots[ri].anchor_tx) anchored++;
+        }
+        var tt = (typeof T === 'function')
+          ? T('sec.prov_totals', '{s} sealed calls across {d} published daily roots')
+          : '{s} sealed calls across {d} published daily roots';
+        var line = tt.replace('{s}', seals).replace('{d}', d.roots.length);
+        if (anchored > 0) {
+          var ta = (typeof T === 'function')
+            ? T('sec.prov_totals_anch', '{a} of those days anchored on Base')
+            : '{a} of those days anchored on Base';
+          line += ' \u00b7 ' + ta.replace('{a}', anchored);
+        }
+        totals.textContent = line;
+      }
       document.getElementById('rootStrip').hidden = false;
     })
     .catch(function () { /* the strip is proof, not chrome — silence is honest */ });
