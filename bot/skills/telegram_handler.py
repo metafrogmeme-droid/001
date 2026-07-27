@@ -830,6 +830,26 @@ class TelegramHandler:
 
     # ── Pane renderers ────────────────────────────────────────
 
+    def _pane_gate_blocks(self, feature: str, user_id) -> Optional[str]:
+        """Upgrade/unavailable text if the tier gate blocks `feature`, else None.
+
+        The dashboard equivalent of `_token_gate_blocks`. Same decision, same
+        reasons, different return shape: panes render a string, so a blocked
+        pane shows the message in place instead of sending one. Fail-open on any
+        internal error, exactly as the Telegram path does — a bug in the gate
+        must never take the dashboard down.
+        """
+        try:
+            from bot.token import tier_gate
+            allowed, reason = tier_gate.check_user(self.users, user_id, feature)
+            if allowed:
+                return None
+            return (tier_gate.unavailable_message() if reason == "unavailable"
+                    else tier_gate.upgrade_message(feature))
+        except Exception as exc:
+            system_log.debug("pane token gate check skipped: %s", exc)
+            return None
+
     async def _render_pane(self, pane: str, user_id: str = None) -> str:
         kw = {"user_id": user_id} if user_id else {}
         if pane == "status":
@@ -841,6 +861,14 @@ class TelegramHandler:
         elif pane == "macro":
             return await self.registry.dispatch("macro_calendar", self.engine, **kw)
         elif pane == "learning":
+            # The web dashboard reaches the same skills as the Telegram
+            # commands. Gating one and not the other makes the paywall a
+            # question of which client you happen to open, so the check runs
+            # here too — returning the upgrade text rather than sending it,
+            # because this path renders a string and has no chat to reply to.
+            blocked = self._pane_gate_blocks("learning", user_id)
+            if blocked:
+                return blocked
             return await self.registry.dispatch("learning", self.engine, **kw)
         elif pane == "scan":
             return await self.registry.dispatch("scan_market", self.engine, **kw)
@@ -1726,6 +1754,14 @@ class TelegramHandler:
             }
             if intent.skill in scan_modes:
                 mode, thinking_msg = scan_modes[intent.skill]
+                # The same skills the /scalp /intraday /swing /deepscan commands
+                # dispatch, reached by typing words instead. Gating the commands
+                # and not this made the paywall a spelling test.
+                _deep = intent.skill in ("scan_deep", "scan_full")
+                if await self._token_gate_blocks(
+                    update, mode or "deep", "deepscan" if _deep else "premium_scan"
+                ):
+                    return
                 await self._send(update, thinking_msg)
                 if intent.skill == "scan_deep":
                     result = await self.registry.dispatch("deepscan",
@@ -7308,6 +7344,8 @@ class TelegramHandler:
 
     @guard("analyze")
     async def _cmd_analyze(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self._token_gate_blocks(update, "analysis", "analyze_asset"):
+            return
         args = ctx.args
         if args:
             raw = args[0].upper().strip()
@@ -7966,6 +8004,8 @@ class TelegramHandler:
 
     @guard("backtest")
     async def _cmd_backtest(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self._token_gate_blocks(update, "backtest", "run_backtest"):
+            return
         args = ctx.args or []
         bars = args[0] if args else "720"
         seed = args[1] if len(args) > 1 else "42"
@@ -7977,6 +8017,8 @@ class TelegramHandler:
 
     @guard("walkforward")
     async def _cmd_walkforward(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self._token_gate_blocks(update, "walk-forward", "walk_forward"):
+            return
         args = ctx.args or []
         bars = args[0] if args else "1440"
         folds = args[1] if len(args) > 1 else "3"
@@ -8194,8 +8236,14 @@ class TelegramHandler:
             f"<i>Expires in {self.WALLET_CHALLENGE_TTL_SECONDS // 60} minutes. "
             "Signing authorizes no transaction and moves no funds.</i>")
 
-    async def _token_gate_blocks(self, update: Update, mode: str) -> bool:
-        """True (and notify) if the $RCLAW token-tier gate blocks a premium scan.
+    async def _token_gate_blocks(self, update: Update, mode: str,
+                                 feature: str = "premium_scan") -> bool:
+        """True (and notify) if the $RCLAW token-tier gate blocks `feature`.
+
+        `mode` is only ever shown to the user; `feature` is what is actually
+        checked. They were the same thing while exactly one feature was gated,
+        and separating them is what lets the natural-language path be gated too
+        — it dispatches the same skills under different words.
 
         No-op unless TOKEN_TIER_GATE_ENABLED + a mint are configured (draft
         feature — see docs/TOKEN_ROADMAP.md). Fail-open on any internal error.
@@ -8203,7 +8251,7 @@ class TelegramHandler:
         try:
             from bot.token import tier_gate
             allowed, reason = tier_gate.check_user(
-                self.users, self._get_tg_id(update), "premium_scan"
+                self.users, self._get_tg_id(update), feature
             )
             if allowed:
                 return False
@@ -8290,6 +8338,8 @@ class TelegramHandler:
     @guard("deepscan")
     async def _cmd_deepscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Deep scan 67+ symbols with chart + candle patterns."""
+        if await self._token_gate_blocks(update, "deep", "deepscan"):
+            return
         # Parse optional timeframe from args: /deepscan 1h  (or /deepscan all
         # to sweep every timeframe 5m→1d in one pass).
         from bot.utils.candles import SUPPORTED_TIMEFRAMES
@@ -8593,11 +8643,15 @@ class TelegramHandler:
 
     @guard("learn")
     async def _cmd_learn(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self._token_gate_blocks(update, "learning", "learning"):
+            return
         result = await self.registry.dispatch("learning", self.engine)
         await self._send(update, result)
 
     @guard("patterns")
     async def _cmd_patterns(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self._token_gate_blocks(update, "patterns", "patterns"):
+            return
         result = await self.registry.dispatch("patterns", self.engine)
         await self._send(update, result)
 
@@ -8608,6 +8662,8 @@ class TelegramHandler:
 
     @guard("optimize")
     async def _cmd_optimize(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self._token_gate_blocks(update, "optimize", "optimize"):
+            return
         result = await self.registry.dispatch("optimize", self.engine)
         await self._send(update, result)
 

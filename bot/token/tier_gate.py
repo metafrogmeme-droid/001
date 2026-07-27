@@ -1,7 +1,10 @@
 """$RCLAW token-tier gate — DRAFT, feature-flagged OFF by default.
 
 Maps an on-chain **$RCLAW** balance/stake to an access tier and uses it to gate
-premium features (today: the /scalp /intraday /swing scan modes). It is modeled
+premium features across two tiers: `pro` for per-call analysis (/scalp
+/intraday /swing /deepscan /patterns /analyze) and `elite` for research-grade
+work (/backtest /walkforward /optimize /learn). Safety commands — /halt,
+risk, portfolio, whynot — are in NEVER_GATED and can never be sold. It is modeled
 on :mod:`bot.core.onchain`: **completely inert unless explicitly enabled AND
 configured**, no import-time side effects, and fail-open on infrastructure
 errors so an RPC hiccup never locks a user out.
@@ -53,10 +56,93 @@ except Exception:  # pragma: no cover - fallback for isolated imports
 
 _DEFAULT_RPC = "https://api.devnet.solana.com"
 
+# Commands that must NEVER require a token, at any tier, for any reason.
+#
+# This is a product-safety line, not a pricing decision, and it is written down
+# because pricing pressure is exactly what erodes it later. Everything here helps
+# a user UNDERSTAND or REDUCE their exposure. Gating any of it means a user whose
+# stake lapsed — or whose RPC is down — cannot see their own positions or hit the
+# kill switch while a trade runs against them. No amount of revenue justifies
+# that, and a gate that can reach these is a gate that will eventually be pointed
+# at them by someone tuning conversion.
+#
+# `_assert_never_gated` enforces this against FEATURE_MIN_TIER, including the
+# operator's env override, and refuses rather than warns.
+NEVER_GATED: frozenset[str] = frozenset({
+    "halt",             # the kill switch
+    "check_risk",
+    "get_portfolio",
+    "proposals",
+    "rejected_trades",  # why we did NOT trade — the explainability promise
+    "whynot",
+    "costs",
+})
+
 # Feature -> minimum tier required when the gate is ENABLED.
-FEATURE_MIN_TIER: dict[str, str] = {
-    "premium_scan": "pro",
+#
+# The ladder is built on COST TO SERVE, which is the only basis that stays
+# honest as the product changes: `pro` is per-call LLM/compute analysis, `elite`
+# is research-grade work that runs for minutes. Free is everything a user needs
+# to operate safely and understand what the bot did.
+#
+# It used to be `{"premium_scan": "pro"}` alone — one entry, so `elite` bought
+# nothing `pro` did not and the whole staking thesis rested on a single dict key.
+_DEFAULT_FEATURE_MIN_TIER: dict[str, str] = {
+    # pro — real compute per call
+    "premium_scan": "pro",     # /scalp /intraday /swing
+    "deepscan": "pro",         # 67+ symbols
+    "patterns": "pro",
+    "analyze_asset": "pro",
+    # elite — minutes of compute, the most expensive things this bot does
+    "run_backtest": "elite",
+    "walk_forward": "elite",
+    "optimize": "elite",
+    "learning": "elite",
 }
+
+
+def _load_feature_min_tier() -> dict[str, str]:
+    """The ladder, with an operator override.
+
+    ``RCLAW_TIER_FEATURES="deepscan:elite,patterns:basic"`` retunes without a
+    code change, because the right split depends on real serving costs that
+    nobody knows yet. Unparseable entries are refused loudly rather than
+    silently dropped: a typo that quietly ungates a feature is a revenue leak
+    nobody would notice, and one that quietly gates a safety command is worse.
+    """
+    table = dict(_DEFAULT_FEATURE_MIN_TIER)
+    raw = _env("RCLAW_TIER_FEATURES")
+    if raw:
+        for pair in raw.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            feature, _, tier = pair.partition(":")
+            feature, tier = feature.strip(), tier.strip().lower()
+            if not feature or tier not in _TIER_RANK:
+                raise GateMisconfigured(
+                    f"tier_gate: RCLAW_TIER_FEATURES entry {pair!r} is not "
+                    f"'<feature>:<tier>' with tier in {sorted(_TIER_RANK)}"
+                )
+            if tier == "basic":
+                table.pop(feature, None)  # explicitly ungate
+            else:
+                table[feature] = tier
+    _assert_never_gated(table)
+    return table
+
+
+def _assert_never_gated(table: dict[str, str]) -> None:
+    """Refuse a configuration that puts a safety command behind the token."""
+    trespass = sorted(set(table) & NEVER_GATED)
+    if trespass:
+        raise GateMisconfigured(
+            f"tier_gate: refusing to gate {trespass} — these let a user see or "
+            "reduce their own exposure and must stay free at every tier. If this "
+            "came from RCLAW_TIER_FEATURES, remove it; if from a code change, "
+            "read the NEVER_GATED comment before changing it."
+        )
+
 
 _TIER_RANK = {"basic": 0, "pro": 1, "elite": 2, "admin": 3}
 
@@ -121,6 +207,11 @@ class GateMisconfigured(RuntimeError):
 
 def _env(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
+
+
+# Evaluated here rather than beside its definition: the loader needs _env,
+# _TIER_RANK and GateMisconfigured, all of which are defined above this point.
+FEATURE_MIN_TIER: dict[str, str] = _load_feature_min_tier()
 
 
 def _env_bool(name: str) -> bool:
