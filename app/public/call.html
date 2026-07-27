@@ -41,6 +41,7 @@
     <a class="btn btn--sm" id="shTg" target="_blank" rel="noopener" data-i18n="brand.tg">Telegram</a>
     <a class="btn btn--sm" id="shX" target="_blank" rel="noopener" data-i18n="brand.x">X</a>
     <a class="btn btn--sm" id="shWc" target="_blank" rel="noopener" data-i18n="brand.wc">Warpcast</a>
+    <a class="btn btn--sm" id="shBs" target="_blank" rel="noopener" data-i18n="brand.bs">Bluesky</a>
   </div>
   <div class="explain" data-i18n-html="cl.explain">
     <b>What this proves:</b> the call’s decision facts (symbol, direction, entry, stop, target, confidence, time — for Arena paper trades: symbol, direction, entry, leverage, exits, open time) hash to the seal shown — if any had been edited after sealing, the hash your browser computes would not match, and any difference between the sealed payload and the live record is flagged in red. Outcomes attach to the same sealed record later; losers can’t be deleted without leaving a hole in the stream.<br>
@@ -188,7 +189,7 @@
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n.js?v=82"></script>
+<script src="/js/i18n.js?v=83"></script>
   <script>
   (function () {
     // The share payload is the receipt URL + an honest line. No numbers ride
@@ -199,6 +200,7 @@
     document.getElementById('shTg').href = 'https://t.me/share/url?url=' + u + '&text=' + t;
     document.getElementById('shX').href = 'https://twitter.com/intent/tweet?url=' + u + '&text=' + t;
     document.getElementById('shWc').href = 'https://warpcast.com/~/compose?text=' + t + '&embeds[]=' + u;
+    document.getElementById('shBs').href = 'https://bsky.app/intent/compose?text=' + t + '%0A' + u;
   })();
   </script>
 </body>
