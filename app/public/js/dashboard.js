@@ -4125,6 +4125,8 @@
               its balances mirror into Portfolio, net worth and exposure across the tracked chains.
               RUNECLAW can read them, never move them.</p>
             <button class="btn btn--sm" id="walletUnlink" type="button">Unlink wallet</button>
+            <a class="btn btn--sm" href="/approvals?a=${encodeURIComponent(d.address)}">🩻 ${esc(
+              T('dd.w_xray', 'X-ray its allowances'))}</a>
             ${runeBlock}
             ${solBlock}`;
         }

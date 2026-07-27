@@ -78,7 +78,7 @@
     <p class="note" data-i18n-html="av.hon_p"><b>Bounded by construction:</b> only the curated majors on each chain are checked, and only against well-known spenders (Permit2, 1inch, 0x, Seaport, and — where its bytecode really is the router — Uniswap's SwapRouter02). Approvals to anything outside this registry are <b>not scanned</b>, so a clean result is <b>never a guarantee</b>. A pair that can't be read is counted as unreadable, never shown as zero. UNLIMITED means the grant exceeds 2¹²⁸ — the same threshold the transaction X-ray uses, so both halves of the firewall agree.</p>
   </section>
 </div>
-<script src="/js/i18n.js?v=87"></script>
+<script src="/js/i18n.js?v=88"></script>
 <script src="/js/ambient.js?v=3" defer></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script>
@@ -160,6 +160,19 @@
   }
   document.getElementById('go').addEventListener('click', run);
   document.getElementById('addr').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+
+  // Deep link: /approvals?a=0x…&c=base prefills and runs — the dashboard's
+  // wallet panel sends its linked address here so nobody retypes 42 chars.
+  // The address is validated by the same regex before anything runs.
+  try {
+    var q = new URLSearchParams(location.search);
+    var qa = q.get('a') || '', qc = (q.get('c') || '').toLowerCase();
+    if (CHAINS.indexOf(qc) >= 0) sel.value = qc;
+    if (/^0x[0-9a-fA-F]{40}$/.test(qa)) {
+      document.getElementById('addr').value = qa;
+      run();
+    }
+  } catch (e) { /* the manual form stands alone */ }
 })();
 </script>
 </body>
