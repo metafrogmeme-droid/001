@@ -452,6 +452,8 @@ class MemoryDB {
         seal_payload: sealed ? params[11] : null,
         sealed_at: sealed ? params[12] : null,
         opened_at: sealed ? params[13] : params[9],
+        signal_key: cmd.includes('AGENT_SLUG') ? params[14] : null,
+        agent_slug: cmd.includes('AGENT_SLUG') ? params[15] : null,
       });
       return [{ affectedRows: 1, insertId: this._nextArenaPosId - 1 }, []];
     }
@@ -520,6 +522,9 @@ class MemoryDB {
         p => !(p.id === params[0] && p.user_id === params[1]));
       return [{ affectedRows: before - this.arenaPositions.length }, []];
     }
+    if (cmd.includes('FROM ARENA_POSITIONS') && cmd.includes('WHERE AGENT_SLUG')) {
+      return [[{ n: this.arenaPositions.filter(x => x.agent_slug === params[0]).length }], []];
+    }
     if (cmd.includes('FROM ARENA_POSITIONS')) {
       if (cmd.includes('WHERE TRADE_KEY')) {
         // Provable Calls verify: one open position by its receipt key
@@ -562,6 +567,8 @@ class MemoryDB {
         sealed_at: sealed ? params[12] : null,
         opened_at: sealed ? params[13] : params[9],
         closed_at: sealed ? params[14] : params[10],
+        signal_key: cmd.includes('AGENT_SLUG') ? params[15] : null,
+        agent_slug: cmd.includes('AGENT_SLUG') ? params[16] : null,
       });
       return [{ affectedRows: 1, insertId: this._nextArenaTradeId - 1 }, []];
     }
@@ -586,6 +593,12 @@ class MemoryDB {
     if (cmd.includes('FROM ARENA_SEASONS')) {
       // newest first — the route picks the relevant one
       const rows = this.arenaSeasons.slice().sort((a, b) => b.id - a.id);
+      return [rows.map(r => ({ ...r })), []];
+    }
+    if (cmd.includes('FROM ARENA_TRADES') && cmd.includes('WHERE AGENT_SLUG')) {
+      // Per-agent record: attributed closes, newest first.
+      const rows = this.arenaTrades.filter(t => t.agent_slug === params[0])
+        .sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at)).slice(0, 500);
       return [rows.map(r => ({ ...r })), []];
     }
     if (cmd.includes('FROM ARENA_TRADES')) {
@@ -1726,6 +1739,18 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE user_strategies ADD COLUMN published_at TIMESTAMP NULL DEFAULT NULL');
     } catch (e) { /* column already exists — fine */ }
+    // Arena attribution: which signal (and which agent's pick) opened a paper
+    // position, carried onto the closed trade. Nullable — only the verified
+    // copy flow ever writes them; every other open stays NULL forever.
+    for (const ddl of [
+      'ALTER TABLE arena_positions ADD COLUMN signal_key VARCHAR(128) NULL',
+      'ALTER TABLE arena_positions ADD COLUMN agent_slug VARCHAR(64) NULL',
+      'ALTER TABLE arena_trades ADD COLUMN signal_key VARCHAR(128) NULL',
+      'ALTER TABLE arena_trades ADD COLUMN agent_slug VARCHAR(64) NULL',
+      'ALTER TABLE arena_trades ADD INDEX idx_arena_trades_agent (agent_slug)',
+    ]) {
+      try { await pool.execute(ddl); } catch (e) { /* already applied — fine */ }
+    }
     // Bot-pushed intelligence reports (funding scan / arb tracker / parity /
     // yield radar) — single-row cache like scan_cache. The yield section is
     // operator-sensitive and only served to admin-plan users (routes/reports.js).
@@ -1867,9 +1892,12 @@ async function migrate() {
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
         sealed_at TIMESTAMP NULL,
+        signal_key VARCHAR(128) NULL,
+        agent_slug VARCHAR(64) NULL,
         opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_arena_pos_user (user_id),
-        INDEX idx_arena_pos_key (trade_key)
+        INDEX idx_arena_pos_key (trade_key),
+        INDEX idx_arena_pos_agent (agent_slug)
       )
     `);
     // Back-fill columns on pre-existing deployments (CREATE TABLE IF NOT
@@ -1906,10 +1934,13 @@ async function migrate() {
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
         sealed_at TIMESTAMP NULL,
+        signal_key VARCHAR(128) NULL,
+        agent_slug VARCHAR(64) NULL,
         opened_at TIMESTAMP NULL,
         closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_arena_tr_user (user_id),
-        INDEX idx_arena_tr_key (trade_key)
+        INDEX idx_arena_tr_key (trade_key),
+        INDEX idx_arena_trades_agent (agent_slug)
       )
     `);
     await pool.execute(`

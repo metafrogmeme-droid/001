@@ -20,7 +20,11 @@
 // Normalise a symbol to its base ticker so an agent `symbols` allow-list of
 // ["BTC","ETH"] matches a signal on "BTC/USDT" or "ETH/USDT:USDT".
 function baseOf(sym) {
-  return String(sym || '').toUpperCase().replace(/[:/].*$/, '').trim();
+  const s = String(sym || '').toUpperCase().replace(/[:/].*$/, '').trim();
+  // Signals arrive in both shapes — 'BTC/USDT' from the stream, 'BTCUSDT'
+  // from exchange-style rows. The allow-list means BASE TICKERS, so a
+  // trailing USDT quote is stripped either way (never to emptiness).
+  return s.endsWith('USDT') && s.length > 4 ? s.slice(0, -4) : s;
 }
 
 // Which of an agent's gates can actually be checked against a live signal?

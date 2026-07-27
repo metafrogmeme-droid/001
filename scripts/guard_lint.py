@@ -331,6 +331,9 @@ RULES: list[Rule] = [
             "public_agent", "public_chat", "public_flight", "public_invite",
             "public_leaderboard", "public_letter", "public_proofofpnl",
             "public_status", "public_strategies", "public_user_strategies",
+            "agent_record",        # mounted under /api/public — cross-user aggregate
+                                   # of already-sealed paper receipts, §4-tested:
+                                   # percent/count only, no identity, no vUSDT.
             "strategy_templates",  # mounted under /api/public — a static, curated
                                    # archetype catalogue (configs only, §4-tested:
                                    # no dollars, no performance claims); nothing

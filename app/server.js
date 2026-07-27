@@ -191,6 +191,7 @@ app.use('/api/public/proofofpnl', require('./routes/public_proofofpnl'));
 app.use('/api/public/flight', require('./routes/public_flight'));
 app.use('/api/public/user-strategies', require('./routes/public_user_strategies'));
 app.use('/api/public/strategy-templates', require('./routes/strategy_templates'));
+app.use('/api/public/agent-record', require('./routes/agent_record'));
 app.use('/api/public/leaderboard', require('./routes/public_leaderboard'));
 app.use('/api/public/strategies', require('./routes/public_strategies'));
 app.use('/api/public/letter', require('./routes/public_letter'));

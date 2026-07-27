@@ -20,7 +20,8 @@ const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
-const { getGateway, isConfigured } = require('../lib/gateway');
+const { isConfigured } = require('../lib/gateway');
+const { loadCatalogueChecked, loadCatalogue } = require('../lib/agent_catalogue');
 const { picksForAgent } = require('../lib/agent_match');
 
 const router = express.Router();
@@ -30,30 +31,9 @@ const writeLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
 const MAX_FOLLOWS = 25;
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;   // catalogue slug
 
-// Short server-side cache of the agent catalogue (it changes only on a deploy).
-let catCache = null;   // { at, agents }
-const CAT_MS = 5 * 60 * 1000;
-// `readable` distinguishes "the catalogue answered (possibly empty)" from
-// "we could not read it" — an absence claim ("unknown agent") is only honest
-// in the first case. An unconfigured gateway IS readable: this deployment
-// knowingly has no engine catalogue, so its emptiness is a fact, not a guess.
-async function loadCatalogueChecked() {
-  if (!isConfigured()) return { agents: [], readable: true };
-  const now = Date.now();
-  if (catCache && (now - catCache.at) < CAT_MS) return { agents: catCache.agents, readable: true };
-  try {
-    const r = await getGateway('/public/strategies', 15000);
-    if (r.status >= 200 && r.status < 300 && r.data && Array.isArray(r.data.agents)) {
-      catCache = { at: now, agents: r.data.agents };
-      return { agents: catCache.agents, readable: true };
-    }
-  } catch (e) { /* fall through to stale-or-unreadable */ }
-  if (catCache) return { agents: catCache.agents, readable: true };  // stale beats blind
-  return { agents: [], readable: false };
-}
-async function loadCatalogue() {
-  return (await loadCatalogueChecked()).agents;
-}
+// Catalogue reads live in lib/agent_catalogue — shared with arena attribution
+// so both surfaces verify against the SAME source ("stale beats blind" and
+// the readable/unreadable honesty split are documented there).
 
 async function followingIds(uid) {
   const [rows] = await pool.execute(

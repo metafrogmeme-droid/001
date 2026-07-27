@@ -140,6 +140,50 @@
       + '<p class="prov">' + prov + '</p></div>';
   }
 
+  // ── Live paper record — forward-only, sealed-at-open, copiers' record ──
+  function fillT(tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return map[k] != null ? map[k] : '{' + k + '}'; });
+  }
+  function recRow(t) {
+    var up = String(t.direction || '').toUpperCase() === 'LONG';
+    var rom = t.rom_pct == null ? '—' : (t.rom_pct > 0 ? '+' : '') + t.rom_pct + '%';
+    return '<div class="rec-row" style="display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid rgba(128,128,128,.12);font-size:13px">'
+      + '<b>' + esc(String(t.symbol || '').replace(/USDT$/, '')) + '</b>'
+      + '<span class="chip" style="font-size:10px">' + (up ? 'LONG' : 'SHORT') + '</span>'
+      + '<span style="color:' + (t.rom_pct > 0 ? 'var(--up)' : t.rom_pct < 0 ? 'var(--down)' : 'var(--text-3)') + '">' + esc(rom) + '</span>'
+      + '<span class="muted" style="font-size:11px">' + esc(t.reason || '') + '</span>'
+      + (t.trade_key ? '<a href="/call/' + encodeURIComponent(t.trade_key) + '" style="margin-left:auto;font-size:11px">'
+        + esc(T('rec.verify', 'verify')) + ' ↗</a>' : '')
+      + '</div>';
+  }
+  function renderRecord(r) {
+    var host = document.getElementById('liveRecord');
+    if (!host || !r || !r.trades) return;   // no record → no section, no claim
+    var cells = [
+      [r.trades, T('rec.trades', 'copied trades')],
+      [r.copiers, T('rec.copiers', 'copiers')],
+      [r.wins + '/' + r.losses, T('rec.wl', 'wins / losses')],
+      [(r.median_rom_pct > 0 ? '+' : '') + r.median_rom_pct + '%', T('rec.median', 'median return on margin')],
+      [r.worst_rom_pct + '% … ' + (r.best_rom_pct > 0 ? '+' : '') + r.best_rom_pct + '%', T('rec.spread', 'worst … best')],
+    ].map(function (c) {
+      return '<div><div style="font-family:var(--font-data);font-size:16px">' + esc(String(c[0])) + '</div>'
+        + '<div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.04em">' + esc(c[1]) + '</div></div>';
+    }).join('');
+    host.innerHTML = '<div class="sc" style="margin-top:14px">'
+      + '<div class="k" style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);margin-bottom:8px">'
+      + esc(T('rec.h', 'Live paper record')) + (r.open_now ? ' · ' + esc(fillT(T('rec.open_now', '{n} open now'), { n: r.open_now })) : '') + '</div>'
+      + '<div style="display:flex;gap:18px;flex-wrap:wrap">' + cells + '</div>'
+      + (r.low_sample ? '<p class="muted" style="font-size:11px;margin:8px 0 0">⚠ ' + esc(fillT(T('rec.low', 'Low sample — {n} trades prove very little.'), { n: r.trades })) + '</p>' : '')
+      + '<div style="margin-top:8px">' + (r.recent || []).map(recRow).join('') + '</div>'
+      + '<p class="prov">' + esc(T('rec.note', "Forward-only record of members paper-copying this agent's picks — every row was sealed when it opened, before its outcome existed. Fills are live marks, never the call's price. This is the copiers' record, not the engine's; virtual funds only.")) + '</p>'
+      + '</div>';
+  }
+  function loadRecord(slug) {
+    fetch('/api/public/agent-record/' + encodeURIComponent(slug), { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(renderRecord)
+      .catch(function () { /* no record read → no section — omit, never invent */ });
+  }
   function render(a) {
     var chips = [a.risk_label, a.regime, a.horizon].filter(Boolean)
       .map(function (c) { return '<span class="chip">' + esc(c) + '</span>'; }).join('');
@@ -151,6 +195,7 @@
       + (a.how ? '<p class="how"><b>How it trades:</b> ' + esc(a.how) + '</p>' : '')
       + (chips ? '<div class="chips">' + chips + '</div>' : '')
       + (a.community ? rulesBlock(a.rules, a.risk_profile) : scoreBlock(a.scorecard))
+      + '<div id="liveRecord"></div>'
       + '<div class="cta-row">'
       + (a.community
         // A member config — no frozen backtest to reproduce. Fork it into your
@@ -210,7 +255,7 @@
         return r.json();
       })
       .then(function (cd) {
-        if (cd && cd.agent) render(cd.agent);
+        if (cd && cd.agent) { render(cd.agent); loadRecord(slug); }
         else if (engineReadable) notFound();             // both sources answered: absent
         else unavailable();                              // engine unread — no absence claim
       })
@@ -224,13 +269,13 @@
     .then(function (d) {
       var agents = (d && d.agents) || [];
       var a = agents.filter(function (x) { return String(x.id).toLowerCase() === slug; })[0];
-      if (a) { render(a); return; }
+      if (a) { render(a); loadRecord(slug); return; }
       tryCommunity(true);
     })
     .catch(function () { tryCommunity(false); });
 })();
 </script>
-<script src="/js/i18n.js?v=98"></script>
+<script src="/js/i18n.js?v=99"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>

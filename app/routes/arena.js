@@ -88,7 +88,7 @@ async function loadAccount(userId) {
 
 async function loadPositions(userId) {
   const [rows] = await pool.execute(
-    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, exits_edited, trail_pct, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
+    'SELECT id, user_id, symbol, direction, entry, margin, leverage, source, tp, sl, exits_edited, trail_pct, trade_key, seal, seal_payload, sealed_at, signal_key, agent_slug, opened_at FROM arena_positions WHERE user_id = ? ORDER BY id DESC', [userId]);
   return rows;
 }
 
@@ -175,11 +175,11 @@ async function settleLiquidations(userId, positions, marks) {
     if (!exit) { alive.push(p); continue; }
     const pnl = exit.reason === 'liquidated' ? -p.margin : arena.posPnl(p, exit.price);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, round2(exit.price),
         p.margin, p.leverage, round2(pnl), exit.reason,
         p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
-        p.opened_at, new Date()]);
+        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null]);
     await pool.execute(
       'DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     if (exit.reason !== 'liquidated') credit += p.margin + pnl;
@@ -438,11 +438,16 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     }
     const [srows] = Number.isInteger(signalId) && signalId > 0
       ? await pool.execute(
-        'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM signals WHERE id = ?', [signalId])
+        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, created_at FROM signals WHERE id = ?', [signalId])
       : await pool.execute(
-        'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM signals WHERE signal_key = ?', [signalKey]);
+        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, created_at FROM signals WHERE signal_key = ?', [signalKey]);
     const sig = srows[0];
     if (!sig) return res.status(404).json({ error: 'That signal no longer exists' });
+    // Signals arrive in whatever shape the bot speaks — 'BTC/USDT:USDT',
+    // 'BTC/USDT', 'BTCUSDT'. The arena's whole world (marks, positions,
+    // envelopes) is exchange-style 'BTCUSDT': normalize once at the door so
+    // a dialect difference can never turn into a phantom "no live mark".
+    sig.symbol = require('../lib/agent_match').baseOf(sig.symbol) + 'USDT';
 
     // A fill needs a fresh price, so this one uses getTickers() and fails
     // loudly rather than the bounded read the display path can tolerate.
@@ -471,14 +476,41 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
       if (!sr.ok) return res.status(400).json({ error: sr.error });
     } catch (e) { /* season read failure never blocks an open */ }
 
+    // Optional agent attribution — "I am copying THIS agent's pick." The tag
+    // sticks only when the claim VERIFIES server-side: the agent must exist in
+    // the catalogue and its own published gates must actually admit this
+    // signal (agentWouldTake — the same matcher the picks feed runs). A claim
+    // that cannot be verified is dropped and the response says so; the open
+    // itself proceeds either way — it is the member's trade regardless.
+    let agentSlug = null;
+    let attribution = null;
+    const claimed = String((req.body || {}).agent_slug || '').toLowerCase().slice(0, 64);
+    if (claimed) {
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(claimed)) {
+        attribution = { attributed: false, reason: 'bad_slug' };
+      } else {
+        const cat = await require('../lib/agent_catalogue').loadCatalogueChecked();
+        const agent = cat.agents.find((a) => String(a.id).toLowerCase() === claimed);
+        if (!agent) {
+          attribution = { attributed: false,
+            reason: cat.readable ? 'agent_unknown' : 'catalogue_unreadable' };
+        } else if (!require('../lib/agent_match').agentWouldTake(sig, agent.scorecard && agent.scorecard.gates)) {
+          attribution = { attributed: false, reason: 'gates_reject' };
+        } else {
+          agentSlug = claimed;
+          attribution = { attributed: true, agent_slug: claimed };
+        }
+      }
+    }
     const openedAt = new Date();
     const rc = sealedOpen(await handleFor(userId), {
       symbol: d.symbol, direction: d.direction, entry: d.entry,
       leverage: d.leverage, tp: d.tp, sl: d.sl, opened_at: openedAt });
     await pool.execute(
-      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, d.symbol, d.direction, d.entry, d.margin, d.leverage, 'signal', d.tp, d.sl,
-        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
+        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt,
+        sig.signal_key || null, agentSlug]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance - d.margin), userId]);
     res.json({ ok: true, filled: {
@@ -488,7 +520,7 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
       // which of its exits the market had already passed.
       signal_entry: d.signal_entry, drift_pct: d.drift_pct, dropped: d.dropped,
       key: rc.trade_key,
-    }, virtual: true });
+    }, ...(attribution ? { attribution } : {}), virtual: true });
   } catch (err) {
     console.error('Arena open-signal error:', err.stack || err.message);
     res.status(500).json({ error: 'Arena unavailable', reason: safeReason(err) });
@@ -586,7 +618,7 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
       return res.status(400).json({ error: 'Invalid position_id' });
     }
     const [rows] = await pool.execute(
-      'SELECT id, user_id, symbol, direction, entry, margin, leverage, trade_key, seal, seal_payload, sealed_at, opened_at FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
+      'SELECT id, user_id, symbol, direction, entry, margin, leverage, trade_key, seal, seal_payload, sealed_at, signal_key, agent_slug, opened_at FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
     const p = rows[0];
     if (!p) return res.status(404).json({ error: 'Position not found' });
     let marks;
@@ -600,11 +632,11 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
     const pnl = liquidated ? -p.margin : arena.posPnl(p, mark);
     const acct = await loadAccount(userId);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, exitPrice, p.margin, p.leverage,
         round2(pnl), liquidated ? 'liquidated' : 'manual',
         p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
-        p.opened_at, new Date()]);
+        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null]);
     await pool.execute('DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance + p.margin + pnl), userId]);

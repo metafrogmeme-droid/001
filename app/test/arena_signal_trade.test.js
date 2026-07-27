@@ -184,9 +184,13 @@ test('the route fills from the live ticker, not the bounded display read', () =>
 });
 
 test('the position is recorded as coming from a signal, not as manual', () => {
+  // (window widened past 4000: the agent-attribution block sits between the
+  // season check and the INSERT now)
   const openSig = routeSrc.slice(routeSrc.indexOf("router.post('/open-signal'"));
-  assert.match(openSig.slice(0, 4000), /d\.leverage, 'signal'/,
+  assert.match(openSig.slice(0, 7000), /d\.leverage, 'signal'/,
     'a signal-opened position must be attributable to the signal');
+  assert.match(openSig.slice(0, 7000), /sig\.signal_key \|\| null, agentSlug/,
+    'and it records WHICH signal, plus any verified agent attribution');
 });
 
 test('a live season constrains signal opens exactly as it constrains manual ones', () => {

@@ -5807,7 +5807,8 @@
               <b>${esc(String(s.symbol || '').replace(/[:/].*$/, ''))}</b>
               <span class="chip ${up ? 'chip--up' : 'chip--down'}" style="font-size:10px">${up ? 'LONG' : 'SHORT'}</span>
               <span class="muted small">conf ${s.confidence != null ? (Number(s.confidence) * 100).toFixed(0) + '%' : '—'}${s.regime ? ' · ' + esc(s.regime) : ''}</span>
-              <button class="btn btn--sm btn--primary" data-ptrade='${pt}' style="margin-left:auto">Paper-trade</button></div>`;
+              <button class="btn btn--sm btn--primary" data-pcopy='${esc(JSON.stringify({ k: s.signal_key, a: g.id }))}' style="margin-left:auto">${esc(T('rec.copy_b', '⚔️ Copy to Arena'))}</button>
+              <button class="btn btn--sm btn--ghost" data-ptrade='${pt}'>${esc(T('rec.ticket_b', 'Ticket'))}</button></div>`;
         }).join('');
         return head + rows;
       }).join('');
@@ -5815,6 +5816,30 @@
       host.innerHTML = blocks + note;
     }
     loadAgentPicks();
+    // Copy a pick straight into the Arena, ATTRIBUTED: the server re-verifies
+    // that this agent's own gates admit the signal before the tag sticks —
+    // an unverifiable claim opens the trade but drops the attribution.
+    document.getElementById('c-agentpicks')?.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-pcopy]');
+      if (!b) return;
+      let req_;
+      try { req_ = JSON.parse(b.getAttribute('data-pcopy')); } catch (_) { return; }
+      if (!req_ || !req_.k) { toast(T('rec.no_key', 'This pick carries no signal key — use the ticket.')); return; }
+      b.disabled = true;
+      const r = await fetchJSON('/api/arena/open-signal', { method: 'POST', body: {
+        signal_key: req_.k, agent_slug: req_.a, margin: 200, leverage: 2,
+      }, timeoutMs: 14000 }).catch(() => null);
+      b.disabled = false;
+      if (r?.ok && r.data?.filled) {
+        const att = r.data.attribution;
+        try { navigator.vibrate && navigator.vibrate(12); } catch (_) { /* no haptics — fine */ }
+        toast(att && att.attributed
+          ? TF('rec.copied', 'Copied to the Arena at {e} — attributed to {a}.', { e: r.data.filled.entry, a: req_.a })
+          : TF('rec.copied_unattr', 'Opened at {e} — attribution dropped ({r}).', { e: r.data.filled.entry, r: (att && att.reason) || 'unverified' }));
+      } else {
+        toast((r && r.data && r.data.error) || T('rec.copy_fail', 'Could not copy this pick.'));
+      }
+    });
 
     // Derived risk profile — server-computed restatement of the rules. A shape
     // read, never a safety verdict; the tier is always shown WITH its facts.
