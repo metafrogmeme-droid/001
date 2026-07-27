@@ -146,6 +146,32 @@ function authMiddleware(req, res, next) {
   }
 }
 
+/**
+ * Auth that does not REFUSE — it only identifies.
+ *
+ * `req.user` is set when a valid Bearer token is present and left undefined
+ * otherwise; the request always continues. For a surface that must stay
+ * reachable anonymously but must show LESS to an anonymous caller, this is the
+ * difference between "who are you" and "you may not pass", and only the first
+ * question is being asked.
+ *
+ * An invalid token is treated as anonymous rather than rejected, deliberately:
+ * an expired session on a page that also serves the public should degrade to
+ * the public view, not to a 401. That is safe here precisely because `req.user`
+ * only ever ADDS to a response.
+ */
+function optionalAuth(req, _res, next) {
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith('Bearer ')) {
+    try {
+      req.user = jwt.verify(auth.slice(7), JWT_SECRET);
+    } catch {
+      /* anonymous */
+    }
+  }
+  next();
+}
+
 // -- Helpers --
 
 function signToken(user) {
@@ -1221,6 +1247,6 @@ router.get('/oauth/:provider/callback', async (req, res) => {
 });
 
 module.exports = {
-  router, authMiddleware, verifyTelegramAuth, findOrCreateOAuthUser, sendVerificationEmail,
-  sessionResponse,
+  router, authMiddleware, optionalAuth, verifyTelegramAuth, findOrCreateOAuthUser,
+  sendVerificationEmail, sessionResponse,
 };

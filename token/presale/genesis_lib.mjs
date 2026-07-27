@@ -999,3 +999,65 @@ export {
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
 };
+
+// ── Irreversible-step preconditions ────────────────────────────────────────
+//
+// Both of these guard a value that `initializeV2` / `addPresaleBucketV2` fixes
+// permanently, and both used to be a `console.warn` that the run then scrolled
+// past. The inconsistency is what made them defects rather than a style
+// preference: in the same CLI, `presale:allocate` THROWS on an unset bucket
+// recipient and `presale:trigger` THROWS rather than open a pool below the
+// presale price — so the refusing guards covered a recoverable allocation and a
+// bad-but-known price, while the warning-only ones covered total permanent
+// control of the raise and the permanent loss of every unsold token.
+//
+// They live here, as pure functions over (config, signer, flags), because a
+// guard inside a 200-line async command that needs a validator to reach is a
+// guard nobody can test. These are executed by irreversible_guards.test.mjs in
+// both directions — refusing without the flag, proceeding with it.
+
+/** Message for an unset `treasury.authority`, or null when the config is fine. */
+export function hotKeyAuthorityRefusal(cfg, signerPublicKey, { override = false } = {}) {
+  if (cfg?.treasury?.authority) return null;
+  if (override) return null;
+  return (
+    'Refusing to create a presale whose authority is a single hot key.\n' +
+    `  authority would be : ${signerPublicKey} (the signing key)\n` +
+    '  treasury.authority : unset\n' +
+    '\n' +
+    'That key would control the sale, every lamport of the proceeds, and the ' +
+    'unsold-token withdrawal. It is fixed by initializeV2 and CANNOT be changed ' +
+    'afterwards — there is no set-authority instruction for a finalized genesis ' +
+    'account, so a key compromised or lost later takes the raise with it.\n' +
+    '\n' +
+    'RUNBOOK.md and docs/TOKEN_ROADMAP.md §11 both require a Squads multisig vault ' +
+    'PDA here. Note that the vault PDA is NOT the multisig account address — see ' +
+    'programs/rclaw_staking/scripts/check_upgrade_authority.mjs for the derivation.\n' +
+    '\n' +
+    'Either:\n' +
+    '  - set treasury.authority to the vault PDA (the answer for any real sale), or\n' +
+    '  - re-run with --accept-hot-key-authority for a throwaway devnet rehearsal ' +
+    '(logged, and still immutable for that presale).'
+  );
+}
+
+/** Message for a missing `sale.unsoldRollover`, or null when the config is fine. */
+export function strandedUnsoldRefusal(cfg, { override = false } = {}) {
+  if (cfg?.sale?.unsoldRollover) return null;
+  if (override) return null;
+  return (
+    'Refusing to create a presale bucket with no unsold-token rollover.\n' +
+    '  sale.unsoldRollover : unset\n' +
+    '\n' +
+    'Presale tokens nobody buys would be STRANDED PERMANENTLY. The end behavior is ' +
+    'attached at bucket creation and cannot be added later, and there is no V2 ' +
+    'withdraw-unsold instruction (withdrawUnsoldPresaleV1 rejects a V2 genesis ' +
+    'account, 0x2f). At a soft-cap raise that is roughly 120,000,000 tokens — 12% of ' +
+    'supply — in an account no one can reach.\n' +
+    '\n' +
+    'Either:\n' +
+    "  - configure sale.unsoldRollover (see metaplex-genesis.config.json's\n" +
+    '    _unsoldRolloverNote for why the destination is "reserve"), or\n' +
+    '  - re-run with --accept-stranded-unsold to accept the loss deliberately.'
+  );
+}

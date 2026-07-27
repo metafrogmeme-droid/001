@@ -116,7 +116,10 @@ class Rule:
     guard: str                    # regex — ...and is satisfied by this
     why: str                      # what a violation actually costs
     language: str = "python"      # "python" | "js"
-    selector: str = "body-regex"  # "body-regex" | "aiohttp-route"
+    # "body-regex"     — trigger matched against each function body
+    # "aiohttp-route"  — one candidate per registered aiohttp route
+    # "express-router" — one candidate per Express route MODULE (whole file)
+    selector: str = "body-regex"
     mode: str = "require-guard"   # "require-guard" | "forbid"
     resolve_calls: bool = False   # follow same-file helper calls when hunting the guard
     exclude_functions: list[str] = field(default_factory=list)
@@ -242,6 +245,46 @@ RULES: list[Rule] = [
              "`halt` against the shared circuit breaker and every paid feature for free."),
     ),
     Rule(
+        name="express-route-auth",
+        files=["app/routes/*.js"],
+        language="js",
+        selector="express-router",
+        trigger=r".",                 # every route module is a candidate
+        # `optionalAuth` counts: it identifies without refusing, for a surface
+        # that must stay anonymously reachable while showing an anonymous caller
+        # less. A module using it is asserted to redact by
+        # app/test/guardian_redaction.test.js — reachability is this linter's
+        # question, and what gets served is that test's.
+        guard=r"authMiddleware|optionalAuth",
+        min_sites=180,                # 228 routes across 76 modules today
+        # DELIBERATELY PUBLIC OR SEPARATELY AUTHENTICATED. Each was read before
+        # being listed; the reason is the entry.
+        exclude_functions=[
+            # `public_*` is the naming convention for the open surface, and each
+            # module's header states what makes its payload public-safe.
+            "public_agent", "public_chat", "public_flight", "public_invite",
+            "public_leaderboard", "public_letter", "public_proofofpnl",
+            "public_status", "public_strategies", "public_user_strategies",
+            "sync",        # bot<->web channel; WEB_GATEWAY_SECRET, not a user session
+            "track",       # mounted under /api/public
+            "mcp",         # its header enumerates the public-data tools it exposes
+            "tool8257",    # ERC-8257 manifest over the SAME read-only registry as /mcp
+            "stream",      # a "refresh now" ping, no payload
+            "frame",       # Farcaster frame endpoints, public by protocol
+            "call",        # /call/<key> verify links printed in public scan cards
+            "spot", "market", "macro", "patterns", "signals", "insight",
+            "today", "feed", "gas", "dapps", "allowances",
+            # ^ market data and read-only chain lookups: no account is in scope,
+            #   the inputs are a symbol or an address the caller already has.
+        ],
+        why=("An Express route module under /api/ that never applies authMiddleware. "
+             "This is the SECOND HTTP surface in this repo — 228 routes, larger than "
+             "the aiohttp gateway — and until this rule existed nothing structural "
+             "looked at it, which is exactly the blind spot that let web chat run any "
+             "skill unauthenticated. If the new module is genuinely public, add it to "
+             "exclude_functions with the reason."),
+    ),
+    Rule(
         name="dashboard-route-placement",
         files=["bot/web/dashboard_server.py"],
         language="python",
@@ -354,6 +397,14 @@ def _aiohttp_routes(src: str) -> list[tuple[str, str]]:
     return routes
 
 
+_EXPRESS_ROUTE = re.compile(r"router\.(get|post|put|delete|patch)\(", re.M)
+
+
+def _express_routes(src: str) -> int:
+    """How many HTTP routes this Express router module declares."""
+    return len(_EXPRESS_ROUTE.findall(src))
+
+
 def _py_called_names(node: ast.AST) -> set[str]:
     """Names this function DELEGATES to: `return f(...)` / `return await f(...)`.
 
@@ -418,7 +469,18 @@ def check_rule(rule: Rule) -> tuple[list[str], int, int]:
             rel = path.relative_to(REPO)
             src = path.read_text(encoding="utf-8")
             try:
-                if rule.selector == "aiohttp-route":
+                if rule.selector == "express-router":
+                    # One candidate per FILE. Express mounts a whole router at a
+                    # prefix and guards it with `router.use(authMiddleware)` at
+                    # the top, so the module — not the individual handler — is
+                    # the unit that is or is not protected.
+                    n = _express_routes(src)
+                    if not n:
+                        continue
+                    discovered += n
+                    candidates = ([(f"{rel.name} ({n} route(s))", rel.stem, src)]
+                                  if trigger.search(rel.name) else [])
+                elif rule.selector == "aiohttp-route":
                     nodes = {n.name: n for n in ast.walk(_parse(src))
                              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
                     routes = _aiohttp_routes(src)

@@ -61,6 +61,8 @@ import {
   findAssociatedTokenPda,
   findPresaleDepositV2Pda,
   createAtaIdempotent,
+  hotKeyAuthorityRefusal,
+  strandedUnsoldRefusal,
   TOKEN_ROOT,
 } from './genesis_lib.mjs';
 
@@ -397,15 +399,36 @@ async function cmdCreate() {
   // withdrawal. A single hot key holding all of that is what the roadmap's
   // multisig requirement exists to prevent, and it cannot be changed after
   // initializeV2 — so it has to be right here, not later.
+  //
+  // This USED TO BE A console.warn, and the comment directly above it said the
+  // authority "has to be right here, not later" — then the code printed a
+  // warning and carried on. A warning scrolls past in a log; initializeV2 does
+  // not come round again.
+  //
+  // The inconsistency is what makes it a defect rather than a preference. In
+  // this same file, `presale:allocate` THROWS when a bucket recipient is unset
+  // for exactly this reason ("it would default to the signing key"), and
+  // `presale:trigger` THROWS rather than open a pool below the presale price.
+  // The refusing guards covered the recoverable decision and a bad-but-known
+  // price; the merely-warning one covered total, permanent control of the
+  // raise. That is backwards.
+  //
+  // So it refuses, in the shape `presale:trigger` already established: an
+  // explicit, logged override exists for a deliberate rehearsal, and the
+  // default is to stop.
   const authority = cfg.treasury?.authority
     ? publicKey(cfg.treasury.authority)
     : umi.identity;
+  const hotKeyRefusal = hotKeyAuthorityRefusal(
+    cfg, umi.identity.publicKey, { override: hasFlag('--accept-hot-key-authority') });
+  if (hotKeyRefusal) throw new Error(hotKeyRefusal);
   if (!cfg.treasury?.authority) {
     console.warn(
-      'WARNING: presale authority is a single hot key (' + umi.identity.publicKey + ').\n' +
-      '         Set treasury.authority to a Squads multisig vault PDA before any real sale —\n' +
-      '         RUNBOOK.md and TOKEN_ROADMAP.md §11 both require it, and it is immutable\n' +
-      '         once the genesis account exists.'
+      'PROCEEDING WITH A SINGLE HOT-KEY AUTHORITY ON AN EXPLICIT OVERRIDE.\n' +
+      `  authority: ${umi.identity.publicKey}\n` +
+      '  This key controls the sale, the proceeds and the unsold-token withdrawal, and ' +
+      'it is immutable once the genesis account exists. Valid for a throwaway devnet ' +
+      'rehearsal; never for a sale that takes real money.'
     );
   }
 
@@ -551,10 +574,13 @@ async function cmdCreate() {
       `"${rollover.name}" bucket [${rollover.bucketIndex}] ${destination[0]}`
     );
   } else {
+    const strandedRefusal = strandedUnsoldRefusal(
+      cfg, { override: hasFlag('--accept-stranded-unsold') });
+    if (strandedRefusal) throw new Error(strandedRefusal);
     console.warn(
-      '    WARNING: no sale.unsoldRollover configured. Any presale token nobody buys is ' +
-      'STRANDED PERMANENTLY — there is no V2 withdraw-unsold instruction. This is only ' +
-      'acceptable if the sale is certain to sell out.'
+      'PROCEEDING WITH NO UNSOLD ROLLOVER ON AN EXPLICIT OVERRIDE.\n' +
+      '  Any presale token nobody buys is stranded permanently and cannot be recovered ' +
+      'by any instruction. This is irreversible from the moment the bucket is created.'
     );
   }
 

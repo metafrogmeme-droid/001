@@ -416,3 +416,34 @@ jobs:
       - name: Contract tests (compile + EVM execution)
         working-directory: contracts/rune
         run: npm test
+
+  web-app:
+    name: Web app (express)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install (locked)
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+
+      # app/ IS THE LARGEST HTTP SURFACE IN THIS REPO — 228 Express routes
+      # against the aiohttp gateway's 53 — and until this job existed no
+      # workflow referenced it at all. 1670 tests were written, committed, and
+      # never executed by CI; app/test/allowances.test.js shipped in #926 and
+      # had never run here. A test that does not run is documentation.
+      #
+      # Found while extending scripts/guard_lint.py to cover this surface: the
+      # rule flagged routes/guardian.js as serving records with no auth, which
+      # public_flight.js's own header described as "the authed" endpoint. That
+      # is the class of defect the whole audit is about, and it was sitting in
+      # a directory CI had never looked at.
+      - name: Tests
+        working-directory: app
+        run: npm test

@@ -10,13 +10,40 @@
  * cryptographic verify() (it holds the file and the exact canonical hashing) and
  * pushes recent joined DECISION↔OUTCOME records plus the verification result via
  * /api/bot/sync/flight. This route is a read-only mirror of that.
+ *
+ * DOLLAR FIGURES ARE AUTHENTICATED; THE RECORD IS NOT.
+ *
+ * public_flight.js says, in its own header: "The authed /api/guardian/flight
+ * keeps the full (dollar-carrying) record." That sentence described a boundary
+ * that did not exist. This router never applied authMiddleware — its two
+ * siblings, guardian_readiness.js and guardian_review.js, both do — so an
+ * anonymous GET returned records straight from `outcome_event_payload`,
+ * including `pnl_usd`, `entry_price` and `exit_price`, plus any `*_usd` field
+ * inside `idea`/`risk`. sanitizeRecord() existed, worked, and was applied only
+ * on the public route; the endpoint documented as the authed one was the
+ * unauthenticated way around it.
+ *
+ * The endpoint stays reachable anonymously, because it must: dashboard.js
+ * fetches both /flight and /incidents with `auth: false`. What changes is WHAT
+ * an anonymous caller gets — the same §4-safe, percent/ratio-only view the
+ * public route serves. A logged-in caller still gets the dollars, which is what
+ * public_flight.js said all along.
  */
 
 const express = require('express');
+const { optionalAuth } = require('../auth');
 const { getLatestFlight } = require('./sync');
-const { inspectWindow } = require('../lib/flight');
+const { inspectWindow, sanitizeRecord } = require('../lib/flight');
 
 const router = express.Router();
+// Identifies, never refuses — see optionalAuth in auth.js.
+router.use(optionalAuth);
+
+/**
+ * Redact for anonymous callers. One helper, used by every handler in this file,
+ * so a new endpoint here cannot forget it in the way this whole router did.
+ */
+const publicSafe = (req, value) => (req.user ? value : sanitizeRecord(value));
 
 /**
  * GET /api/guardian/flight?limit=50
@@ -37,12 +64,17 @@ router.get('/flight', async (req, res) => {
     limit = Math.min(limit, 200);
     const records = flight.records.slice(0, limit);
     res.json({
-      records,
+      records: records.map((r) => publicSafe(req, r)),
       chain: flight.chain || {},
-      policy: flight.policy || null,
+      policy: publicSafe(req, flight.policy || null),
       guardian_status: flight.guardian_status || null,
+      // The window check runs over the UNREDACTED records: it verifies hash
+      // chaining and sequence, which the scrubber does not touch, and deriving
+      // it from the redacted copy would only make it weaker.
       window: inspectWindow(records),
       updated_at: flight.updated_at || null,
+      disclosure: req.user ? undefined
+        : 'Anonymous view — percent/ratio only, no dollar amounts. Sign in for the full record.',
     });
   } catch (err) {
     console.error('Guardian flight error:', err.stack || err.message);
@@ -60,7 +92,12 @@ router.get('/flight/:decisionId', async (req, res) => {
     const records = (flight && Array.isArray(flight.records)) ? flight.records : [];
     const rec = records.find((r) => r && r.decision_id === req.params.decisionId);
     if (!rec) return res.status(404).json({ error: 'Decision not found in recent window' });
-    res.json({ record: rec, chain: (flight && flight.chain) || {} });
+    res.json({
+      record: publicSafe(req, rec),
+      chain: (flight && flight.chain) || {},
+      disclosure: req.user ? undefined
+        : 'Anonymous view — percent/ratio only, no dollar amounts. Sign in for the full record.',
+    });
   } catch (err) {
     console.error('Guardian flight-by-id error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to read decision' });
@@ -106,7 +143,12 @@ router.get('/incidents', async (req, res) => {
 
     res.json({
       read_only: true,
-      incidents,
+      // The header of this endpoint already promised "Percent/flags only, no
+      // dollar amounts" and nothing enforced it. `flight.incidents` arrives
+      // unscrubbed from the bot, and the derived fallback copies `risk.reason`
+      // and `checks_failed[0]` verbatim — risk reasons routinely name a dollar
+      // cap. The promise is now kept by the scrubber rather than by intent.
+      incidents: incidents.map((i) => publicSafe(req, i)),
       counts: tally,
       derived,                          // true = fallback (rejections only)
       guardian_status: (flight && flight.guardian_status) || null,
