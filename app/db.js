@@ -1454,6 +1454,71 @@ if (!USE_MYSQL) {
   console.log('Using in-memory database (no DATABASE_URL found)');
 }
 
+/**
+ * Every table the migration creates. Kept beside the DDL and pinned to it by
+ * a test, so the two cannot drift: a new CREATE TABLE without a new entry
+ * here would make the fast path below skip it forever.
+ */
+const EXPECTED_TABLES = Object.freeze([
+  'users',
+  'trades',
+  'equity_snapshots',
+  'scan_cache',
+  'wallet_link_codes',
+  'wallet_link_nonces',
+  'signals',
+  'push_subscriptions',
+  'copy_subscriptions',
+  'user_profiles',
+  'agent_letters',
+  'user_alerts',
+  'user_strategies',
+  'reports_cache',
+  'flight_cache',
+  'pending_stance',
+  'agent_events',
+  'pending_credentials',
+  'exchange_status',
+  'pending_controls',
+  'user_controls',
+  'pending_flatten',
+  'arena_accounts',
+  'arena_positions',
+  'arena_trades',
+  'arena_envelopes',
+  'learn_diary',
+  'learn_progress',
+  'seal_roots',
+  'arena_seasons',
+  'arena_follows',
+  'user_watchlist',
+]);
+
+/**
+ * Is the schema already in place? Returns true only when EVERY expected table
+ * exists — a partial schema must still run the full DDL.
+ *
+ * Why this exists: the migration is 33 distributed DDL statements, and on a
+ * serverless cluster it takes minutes. Re-running it on every boot to create
+ * tables that already exist burned that time on each restart, held the
+ * readiness gate closed the whole while, and spent connections doing nothing.
+ * One information_schema query answers the same question in milliseconds.
+ *
+ * Fail-SAFE: any error returns false, so an unreadable check runs the
+ * migration rather than skipping it. Being slow is recoverable; silently
+ * skipping schema creation is not.
+ */
+async function schemaIsCurrent() {
+  try {
+    const [rows] = await pool.query(
+      'SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
+    const have = new Set((rows || []).map((r) => String(r.t || r.TABLE_NAME || '').toLowerCase()));
+    return EXPECTED_TABLES.every((t) => have.has(t.toLowerCase()));
+  } catch (e) {
+    return false;
+  }
+}
+
 async function migrate() {
   // DDL goes through query(), NOT execute().
   //
@@ -1471,6 +1536,12 @@ async function migrate() {
   // wants. Every OTHER call in this file still uses execute(): those carry
   // user values, and prepared statements are how they stay injection-safe.
   if (USE_MYSQL) {
+    // Fast path: if every table is already there, the 33 statements below
+    // are no-ops that still cost minutes on a serverless cluster. Skip them.
+    if (await schemaIsCurrent()) {
+      console.log('Schema already current — skipping DDL');
+      return;
+    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2086,4 +2157,7 @@ async function migrate() {
   // In-memory DB needs no migration
 }
 
-module.exports = { pool, migrate, lastStatement, describeSql };
+module.exports = {
+  pool, migrate, lastStatement, describeSql,
+  EXPECTED_TABLES, schemaIsCurrent,
+};

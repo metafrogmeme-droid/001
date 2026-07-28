@@ -103,3 +103,50 @@ test('the arena_seasons regression specifically', () => {
   assert.match(s.sql, /arena_seasons\s*\(/,
     'arena_seasons lost its opening parenthesis again');
 });
+
+// ── the fast path ─────────────────────────────────────────────────────────
+
+test('EXPECTED_TABLES matches the DDL exactly', () => {
+  // These two must not drift. A new CREATE TABLE without a new entry here
+  // would make the fast path skip it forever — the schema would silently stop
+  // being created on any database that already has the older tables.
+  const { EXPECTED_TABLES } = require('../db');
+  const inDdl = [...new Set(statements().map((s) => s.name))];
+  assert.deepEqual([...EXPECTED_TABLES].sort(), inDdl.sort(),
+    'EXPECTED_TABLES and the migration have diverged');
+});
+
+test('the fast path requires EVERY table, not merely some', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function schemaIsCurrent'),
+    src.indexOf('async function migrate()'));
+  assert.match(fn, /EXPECTED_TABLES\.every\(/,
+    'a PARTIAL schema must still run the full DDL');
+  assert.ok(!/\.some\(/.test(fn), 'some() would skip a half-created schema');
+});
+
+test('an unreadable check runs the migration rather than skipping it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function schemaIsCurrent'),
+    src.indexOf('async function migrate()'));
+  assert.match(fn, /catch \(e\) \{\s*return false;/,
+    'fail-safe: being slow is recoverable, silently skipping schema is not');
+});
+
+test('the check reads only table names — no schema or credential detail', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function schemaIsCurrent'),
+    src.indexOf('async function migrate()'));
+  assert.match(fn, /information_schema\.TABLES/);
+  assert.match(fn, /TABLE_SCHEMA = DATABASE\(\)/,
+    'scoped to this database, never a server-wide listing');
+});
+
+test('migrate consults the fast path before running any DDL', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function migrate()'));
+  const guard = body.indexOf('await schemaIsCurrent()');
+  const firstDdl = body.indexOf('CREATE TABLE IF NOT EXISTS');
+  assert.ok(guard > 0 && guard < firstDdl,
+    'the check must come before the statements it exists to avoid');
+});
