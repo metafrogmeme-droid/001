@@ -2046,7 +2046,7 @@ async function migrate() {
     try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchor_tx VARCHAR(66) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchored_at TIMESTAMP NULL'); } catch (e) { /* present */ }
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS arena_seasons
+      CREATE TABLE IF NOT EXISTS arena_seasons (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(60) NOT NULL,
         starts_at TIMESTAMP NOT NULL,
