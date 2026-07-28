@@ -56,6 +56,10 @@
   .warn { color: #e6c34b; font-size: var(--fs-sm); padding: 4px 0; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
   #envState .env-armed { margin-top: var(--s3); border: 1px solid rgba(47,191,113,.5); border-radius: 10px; padding: 10px 12px; font-size: var(--fs-s); display: grid; gap: 6px; justify-items: start; }
+  #envPrev .prev-box { margin-top: var(--s3); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; font-size: var(--fs-s); display: grid; gap: 6px; }
+  #envPrev .prev-h { color: var(--text-1); }
+  #envPrev .prev-row { color: var(--text-2); font-size: var(--fs-xs); border-top: 1px solid var(--line); padding-top: 5px; }
+  #envPrev .prev-note { color: var(--text-3); font-size: 11px; }
   #envState .env-t { color: var(--up); }
   #envState .env-l { color: var(--text-2); }
   .act-msg { font-size: var(--fs-xs); }
@@ -104,10 +108,12 @@
     <div class="actions" id="actions">
       <button class="chip" type="button" id="shareBtn" data-i18n="in.share">🔗 Copy share link</button>
       <button class="chip" type="button" id="jsonBtn" data-i18n="in.json">⧉ Copy as JSON</button>
+      <button class="chip" type="button" id="prevBtn" data-i18n="in.prev_b" hidden>🔎 Preview against my history</button>
       <button class="chip" type="button" id="armBtn" data-i18n="in.arm_b" hidden>🛡 Arm on my Arena account</button>
       <span class="act-msg muted" id="actMsg" role="status" aria-live="polite"></span>
     </div>
     <div id="envState" role="status" aria-live="polite"></div>
+    <div id="envPrev" role="status" aria-live="polite"></div>
   </section>
 
   <p class="disc" data-i18n-html="in.disc">This is a <b>compiler preview</b>: it turns language into a policy so you can read exactly what
@@ -120,7 +126,7 @@
 <!-- Ahead of the page script, not after it: render() runs synchronously at
      parse time, and an i18n.js loaded below would arrive after every T() had
      already fallen back to English. Same boot-order bug the escape page had. -->
-<script src="/js/i18n.js?v=103"></script>
+<script src="/js/i18n.js?v=104"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/intent-model.js?v=2"></script>
 <script>
@@ -304,7 +310,61 @@
       });
     });
   }
+  // ---- Preview against my own history ------------------------------------
+  // The honest counterfactual: what this policy would have REFUSED among the
+  // trades you really took, and what those trades really returned. It never
+  // claims what the account "would have been" — refusing a trade changes
+  // everything after it, so that number is unknowable and is omitted.
+  function renderPrev(d) {
+    var el = $('envPrev');
+    if (!d) { el.innerHTML = ''; return; }
+    if (!d.checked) {
+      el.innerHTML = '<div class="prev-box"><div class="prev-h">'
+        + esc(T('in.prev_none', 'No recorded Arena opens yet — there is nothing to replay this policy against.'))
+        + '</div></div>';
+      return;
+    }
+    var byRule = Object.keys(d.by_rule || {}).map(function (k) {
+      return esc(T('in.r.' + k, k)) + ' × ' + d.by_rule[k];
+    }).join(' · ');
+    var rows = (d.refused || []).slice(0, 6).map(function (r) {
+      var rom = r.rom_pct == null ? '—' : (r.rom_pct > 0 ? '+' : '') + r.rom_pct + '%';
+      return '<div class="prev-row">' + esc(String(r.symbol).replace(/USDT$/, '')) + ' '
+        + esc(r.direction) + ' — ' + esc(T('in.r.' + r.rule_id, r.rule_id))
+        + ' · ' + esc(T('in.prev_ret', 'actually returned')) + ' ' + esc(rom) + '</div>';
+    }).join('');
+    el.innerHTML = '<div class="prev-box">'
+      + '<div class="prev-h">🔎 <b>' + esc(fillT(T('in.prev_h', 'Would have refused {n} of your {m} recorded opens'),
+        { n: d.refused_count, m: d.checked })) + '</b></div>'
+      + (byRule ? '<div class="prev-row">' + byRule + '</div>' : '')
+      + rows
+      + (d.refused_rom_pct_avg != null
+        ? '<div class="prev-row">' + esc(fillT(T('in.prev_avg', 'Those refused trades actually averaged {v}% return on margin.'),
+          { v: (d.refused_rom_pct_avg > 0 ? '+' : '') + d.refused_rom_pct_avg })) + '</div>' : '')
+      + '<div class="prev-note">' + esc(T('in.prev_note', d.sample_note || '')) + '</div>'
+      + '</div>';
+  }
+
   if (rcToken()) {
+    $('prevBtn').hidden = false;
+    $('prevBtn').addEventListener('click', function () {
+      var text = $('intent').value.trim();
+      if (!text) { flash('Type a policy first.'); return; }
+      $('prevBtn').disabled = true;
+      var h = { Authorization: 'Bearer ' + rcToken(), 'Content-Type': 'application/json' };
+      fetch('/api/arena/envelope/preview', { method: 'POST', headers: h,
+        body: JSON.stringify({ text: text }) })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (r) {
+          $('prevBtn').disabled = false;
+          if (r.ok) renderPrev(r.data);
+          else flash((r.data && r.data.error) || T('in.prev_fail', 'Could not run the preview.'));
+        })
+        .catch(function () {
+          $('prevBtn').disabled = false;
+          flash(T('in.prev_fail', 'Could not run the preview.'));
+        });
+    });
     $('armBtn').hidden = false;
     $('armBtn').addEventListener('click', function () {
       var text = $('intent').value.trim();

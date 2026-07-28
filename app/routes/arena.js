@@ -295,6 +295,40 @@ router.get('/envelope', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /envelope/preview { text } — the promise the Intent page has always
+// made ("previews before it binds"), delivered. Compiles the policy SERVER
+// side and replays it over the caller's OWN recorded opens. Stores nothing,
+// arms nothing, and never produces a hypothetical equity curve (see
+// lib/envelope_replay's header for why that number is unknowable).
+router.post('/envelope/preview', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 500);
+    if (!text) return res.status(400).json({ error: 'Describe your limits first' });
+    const compiled = require('../public/js/intent-model.js').compile(text);
+    const rules = (compiled && compiled.rules) || [];
+    if (!rules.length) return res.status(400).json({ error: 'No enforceable rules found in that text' });
+    const [rows] = await pool.execute(
+      'SELECT id, symbol, direction, margin, leverage, pnl, opened_at FROM arena_trades WHERE user_id = ?',
+      [req.user.user_id]);
+    // OLDEST FIRST, sorted here rather than trusted from the driver: the
+    // replay walks the real balance path, so order is load-bearing.
+    const trades = (rows || []).slice().sort((a, b) => Number(a.id) - Number(b.id));
+    const { replay } = require('../lib/envelope_replay');
+    const report = replay(rules, trades, arena.START_BALANCE);
+    const { ENFORCEABLE } = require('../lib/envelope_guard');
+    res.json({
+      ...report,
+      rules,
+      enforced_here: rules.filter((r) => ENFORCEABLE.has(r.id)).map((r) => r.id),
+      not_enforced_here: rules.filter((r) => !ENFORCEABLE.has(r.id)).map((r) => r.id),
+      armed: false,   // a preview arms nothing — stated in the payload
+    });
+  } catch (err) {
+    console.error('Envelope preview error:', err.stack || err.message);
+    res.status(500).json({ error: 'Preview unavailable' });
+  }
+});
+
 router.put('/envelope', authMiddleware, tradeLimit, async (req, res) => {
   try {
     const text = String((req.body && req.body.text) || '').trim().slice(0, 500);
