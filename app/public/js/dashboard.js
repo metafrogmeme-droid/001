@@ -134,6 +134,14 @@
     if (r.ok && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
     return cache.scan;
   }
+  // A win rate over ZERO trades is not 0% — it does not exist. The sync
+  // payload sends 0 for "nothing recorded", and rendering that as "0.0%" and
+  // "+0.00" states a measurement the engine never made. The shared formatters
+  // already render null as "—"; the zeros simply never reached them. Same rule
+  // the venue line one panel down follows ("balance unreadable, the bot did
+  // not answer") — absent is not zero.
+  const _haveTrades = (cb) => Number(cb && cb.total_trades) > 0;
+
   async function getTickers() {
     const r = await fetchJSON('/api/market/tickers', { auth: false });
     if (r.ok && r.data?.data) for (const t of r.data.data) cache.tickers[t.symbol] = t;
@@ -3802,8 +3810,8 @@
       if (!cb || (cb.equity == null && !cb.total_trades)) return null;
       return `<div class="stat-row">
         <div class="stat"><div class="k">Engine equity</div><div class="v">${cb.equity != null ? fmtMoney(cb.equity) : '—'}</div></div>
-        <div class="stat"><div class="k">Net PnL</div><div class="v num ${pnlClass(cb.net_pnl)}">${signed(cb.net_pnl)}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${fmt(cb.win_rate, 1)}%</div></div>
+        <div class="stat"><div class="k">Net PnL</div><div class="v num ${_haveTrades(cb) ? pnlClass(cb.net_pnl) : ''}">${_haveTrades(cb) ? signed(cb.net_pnl) : '—'}</div></div>
+        <div class="stat"><div class="k">Win rate</div><div class="v">${_haveTrades(cb) ? fmt(cb.win_rate, 1) + '%' : '—'}</div></div>
         <div class="stat"><div class="k">Open</div><div class="v">${cb.open_count ?? 0}</div></div>
       </div>
       <div class="row mt-3">${(cb.rules || []).map(r => `<span class="chip ${r.active ? 'chip--down' : 'chip--up'}">${r.active ? '⚠' : '✓'} ${esc(r.label)}</span>`).join('')}</div>`;
