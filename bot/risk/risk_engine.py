@@ -301,6 +301,9 @@ class RiskEngine:
         self._live_daily_pnl: float = 0.0
         self._live_daily_day: str = ""      # "YYYY-MM-DD" the accumulator is for
         self._live_equity_peak: float = 0.0  # high-water mark for live drawdown
+        # Last live equity seen by evaluate(). Only ever set in LIVE mode, so
+        # None means "no live evaluation yet" and the reporter says paper.
+        self._last_live_equity: float | None = None
         # Feature: Rolling return correlation (V2)
         # #49: (timestamp, price) points so cross-asset returns align on a common
         # time grid, not by list position. In-memory only (not persisted).
@@ -1206,6 +1209,11 @@ class RiskEngine:
             # high-water mark (updated each live evaluation), not the paper
             # snapshot which never moves in pure-live mode (audit CRITICAL).
             if live_equity is not None and live_equity > 0:
+                # Remember it so the OPERATOR-FACING reporter can show the
+                # same number this gate enforces. Without it drawdown_status()
+                # had no live equity to work from and fell back to the paper
+                # snapshot — reporting ~0% while this gate was refusing trades.
+                self._last_live_equity = live_equity
                 if live_equity > self._live_equity_peak:
                     self._live_equity_peak = live_equity
                 _cur_dd = (100.0 * (self._live_equity_peak - live_equity)
@@ -3006,6 +3014,7 @@ class RiskEngine:
             # cap, so the breaker re-tripped on the very next evaluate() and a
             # manual /resume never stuck — the "still halted after reset" report.
             self._live_equity_peak = 0.0
+            self._last_live_equity = None
             # ALSO clear the DAILY-LOSS condition, for the same reason: a manual
             # reset is a deliberate operator override, but the day's realized
             # loss stays on the books, so the daily-loss check re-trips on the
@@ -3041,10 +3050,30 @@ class RiskEngine:
         try:
             state = self._portfolio.snapshot()
             from bot.config import RUNTIME
+            paper_dd = float(getattr(state, "current_drawdown_pct",
+                                     state.max_drawdown_pct))
+            # In LIVE mode the breaker gates on the LIVE high-water mark (see
+            # _evaluate_locked), not the paper snapshot. This reporter used to
+            # return the paper number while its own docstring promised "the
+            # drawdown the breaker actually gates on" — so an operator could
+            # read ~0% from a gate that was refusing trades at 9%. Report what
+            # is enforced, and label which source it came from.
+            live_dd = None
+            if (self._last_live_equity is not None
+                    and self._last_live_equity > 0
+                    and self._live_equity_peak > 0):
+                live_dd = 100.0 * (self._live_equity_peak - self._last_live_equity) \
+                    / self._live_equity_peak
+                live_dd = max(0.0, live_dd)
+            enforced = live_dd if live_dd is not None else paper_dd
             return {
-                # "drawdown_pct" is the LIVE (recoverable) drawdown the breaker
-                # actually gates on; max_drawdown_pct is the monotonic worst-ever.
-                "drawdown_pct": float(getattr(state, "current_drawdown_pct", state.max_drawdown_pct)),
+                # The number the breaker ACTUALLY gates on, whichever mode.
+                "drawdown_pct": float(enforced),
+                "drawdown_source": "live" if live_dd is not None else "paper",
+                "paper_drawdown_pct": paper_dd,
+                "live_drawdown_pct": live_dd,
+                "live_equity_peak": (float(self._live_equity_peak)
+                                     if self._live_equity_peak > 0 else None),
                 "max_drawdown_pct": float(state.max_drawdown_pct),
                 "effective_limit_pct": float(self._effective_max_drawdown_pct()),
                 "config_live_limit_pct": float(CONFIG.risk.live_max_drawdown_pct),

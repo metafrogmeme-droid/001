@@ -136,6 +136,27 @@ what you saw — every step is independently reversible.
 
 ---
 
+## Deposits and withdrawals move the drawdown baseline
+
+The live drawdown breaker measures against a **high-water mark of live
+equity**. It has no way to tell a withdrawal from a loss — both simply reduce
+equity — so moving funds OUT of a live account reads exactly like losing them.
+
+Worked example: equity $495 → $450 after a $45 withdrawal is a 9.1% drop
+against the peak. With `LIVE_MAX_DRAWDOWN_PCT=7` that trips the breaker and
+halts new entries, even though nothing was lost.
+
+**After any deposit or withdrawal on a live account, run `/reset`.** It
+re-seeds the high-water mark from the next live evaluation, so the gate
+measures against the new balance instead of the old one.
+
+`/status` shows the drawdown the breaker **actually enforces** — the live
+figure in live mode, the paper figure otherwise. (It previously showed the
+paper number in both, which never moves in pure-live operation: an operator
+could read 0.0% from a gate refusing trades at 9%.)
+
+---
+
 ## Deployment-host hygiene (ops)
 
 Two host-level practices that are outside this repository's control but bite

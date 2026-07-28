@@ -8121,7 +8121,20 @@ class TelegramHandler:
             equity = state.equity_usd if hasattr(state, "equity_usd") else 10_000.0
             open_count = state.open_positions
             daily_pnl = round(state.daily_pnl, 2) if hasattr(state, "daily_pnl") else 0.0
+        # Show the drawdown the BREAKER ENFORCES, not the paper snapshot.
+        # In LIVE mode the gate measures against a live high-water mark while
+        # this card was rendering the paper portfolio's figure — which never
+        # moves in pure-live operation. An operator could therefore read
+        # "0.0%" from a gate that was refusing trades at 9%. Fail-safe: any
+        # error falls back to the previous paper number rather than blanking
+        # the line.
         drawdown = round(state.max_drawdown_pct, 2) if state.max_drawdown_pct else 0.0
+        try:
+            _dd = self.engine.risk.drawdown_status() or {}
+            if _dd.get("drawdown_source") == "live":
+                drawdown = round(float(_dd.get("drawdown_pct") or 0.0), 2)
+        except Exception:
+            pass
 
         # BUGFIX: the status card renders daily_pnl through a percent formatter
         # (appends "%"), and the adjacent "/ +X% limit" is a percent-of-equity
