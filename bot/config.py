@@ -1993,6 +1993,20 @@ class MonitoringConfig:
     # moves on. 0 disables.
     tick_maintenance_timeout_sec: float = _env_float_bounded(
         "TICK_MAINTENANCE_TIMEOUT_SEC", 120.0, 0.0, 3600.0)
+    # A SCAN that exceeds its cap does not fail the tick.
+    #
+    # Scanning is how new entries are FOUND; monitoring open positions is how
+    # existing money is PROTECTED. Letting the first take down the second gets
+    # the priority exactly backwards, and in production it did: a slow
+    # exchange blew the scan cap, the whole tick failed, three failures
+    # tripped the warning-rate breaker, and the bot stopped trading over
+    # latency. Positions are already checked EARLIER in the same tick, so
+    # skipping a scan cycle costs only the chance of a new entry — strictly
+    # conservative.
+    #
+    # It is never silent: the timeout is recorded, named in /status, and
+    # alerted on. Set true to restore the old fail-the-tick behaviour.
+    tick_scan_timeout_fatal: bool = _env_bool("TICK_SCAN_TIMEOUT_FATAL", False)
 
 
 @dataclass(frozen=True)

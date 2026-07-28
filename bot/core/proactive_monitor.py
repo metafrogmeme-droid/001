@@ -122,6 +122,7 @@ class ProactiveMonitor:
         self._ws_down_since: float = 0.0           # monotonic ts WS first seen down
         self._last_warn_rate: bool = False         # last warning-rate-breaker state
         self._last_tick_degraded: bool = False     # last tick-failure alert state
+        self._scan_timeout_alerted_at: int | None = None
         self._last_llm_degraded: bool = False       # last LLM-brain-offline state
         # Strangle watchdog: rolling (wall_ts, evaluated, approved, fails_by_gate)
         # snapshots of the risk engine's cumulative counters, plus our own
@@ -296,6 +297,7 @@ class ProactiveMonitor:
         alerts.extend(self._check_circuit_breaker())
         alerts.extend(self._check_drawdown_tiers())
         alerts.extend(self._check_tick_failures())
+        alerts.extend(self._check_scan_timeouts())
         alerts.extend(self._check_engine_tick_stale())
         alerts.extend(self._check_warning_rate_breaker())
         alerts.extend(self._check_llm_degraded())
@@ -978,6 +980,50 @@ class ProactiveMonitor:
             system_log.debug("tick-failure check failed: %s", exc)
         return alerts
 
+    def _check_scan_timeouts(self) -> list[Alert]:
+        """WARNING when scans keep exceeding their cap.
+
+        A scan timeout is deliberately non-fatal — a slow exchange must not
+        take the tick loop down with it, because monitoring money already at
+        risk matters more than finding new entries. But non-fatal must never
+        mean invisible: the bot would look perfectly healthy while silently
+        finding nothing, which is exactly the quiet degradation this codebase
+        refuses to ship. Edge-triggered on the repeat count, so one slow scan
+        says nothing and a PATTERN pages once.
+        """
+        alerts: list[Alert] = []
+        try:
+            pt = getattr(self.engine, "_last_phase_timeout", None)
+            if not isinstance(pt, dict) or pt.get("phase") != "scan":
+                self._scan_timeout_alerted_at = None
+                return alerts
+            count = int(pt.get("count") or 0)
+            if count < self.SCAN_TIMEOUT_ALERT_AT:
+                return alerts
+            if self._scan_timeout_alerted_at == count:
+                return alerts
+            self._scan_timeout_alerted_at = count
+            cap = float(pt.get("cap_s") or 0)
+            sep = "\u2500" * 16
+            alerts.append(Alert(
+                alert_type="SCAN_TIMEOUT", severity="WARNING",
+                title="Scans are timing out",
+                body=(
+                    "\U0001f7e0 <b>SCANS TIMING OUT</b>\n"
+                    f"{sep}\n"
+                    f"The market scan has exceeded its {cap:.0f}s cap "
+                    f"<b>{count}</b> times in a row.\n"
+                    "New entries are not being found. Open positions are "
+                    "still monitored \u2014 the tick loop is intact.\n"
+                    "Usually exchange/data latency rather than the bot.\n"
+                    f"{sep}\n"
+                    "\U0001f449 /status \u2014 engine health\n"
+                    "\U0001f449 /fullscan \u2014 force a deep sweep"),
+                dedup_key="scan_timeout"))
+        except Exception as exc:
+            system_log.debug("scan-timeout check failed: %s", exc)
+        return alerts
+
     # A hung tick (a blocked await that never raises) increments no failure
     # counter and is invisible to _check_tick_failures above. This watches the
     # tick loop's START stamp instead. Threshold must clear the worst
@@ -989,6 +1035,9 @@ class ProactiveMonitor:
     # time inside a declared sleep (+ grace) never counts as a stall.
     # Root-caused from a production false alarm (15s tick + 600s planned
     # sleep = 615s "stall").
+    # Consecutive scan timeouts before paging. One slow scan is weather;
+    # three in a row is a condition.
+    SCAN_TIMEOUT_ALERT_AT = 3
     TICK_STALL_THRESHOLD_S = 600.0
     TICK_DUE_GRACE_S = 120.0
 

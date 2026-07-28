@@ -2346,7 +2346,7 @@ class RuneClawEngine:
             )
             raise
 
-    async def _phase(self, coro, what: str):
+    async def _phase(self, coro, what: str, fatal: bool = True):
         """Bound ONE phase of a tick, naming it if it hangs.
 
         The whole-tick cap (_tick_guarded) recovers the loop but is silent
@@ -2360,6 +2360,13 @@ class RuneClawEngine:
         it handles any other tick error. This is deliberately NOT the quiet
         treatment `_with_maintenance_cap` gives optional post-tick work: a
         hung phase is a real outage, not a skippable extra. 0 disables.
+
+        `fatal=False` returns None instead of raising, for a phase whose
+        failure should not cost the REST of the tick — scanning, whose job is
+        finding new entries, versus position monitoring, whose job is
+        protecting money already at risk. It is never quiet: the timeout is
+        still recorded and still named on every operator surface. Degraded is
+        not the same as hidden.
         """
         cap = float(getattr(CONFIG.monitoring, "tick_phase_timeout_sec", 0.0) or 0.0)
         if cap <= 0:
@@ -2387,6 +2394,8 @@ class RuneClawEngine:
                 if (getattr(self, "_last_phase_timeout", None) or {}).get("phase") == what
                 else 1,
             }
+            if not fatal:
+                return None
             raise
 
     async def _with_maintenance_cap(self, coro, what: str):
@@ -2879,7 +2888,13 @@ class RuneClawEngine:
             return
 
         self._transition(AgentState.SCANNING, "beginning scan cycle")
-        signals = await self._phase(self.scanner.scan(), "scan")
+        # Non-fatal by default: a slow exchange must not take the tick loop
+        # down with it. Positions were checked earlier in this same tick, so a
+        # skipped scan costs only the chance of a new entry. The timeout is
+        # recorded and surfaced — see CONFIG.monitoring.tick_scan_timeout_fatal.
+        signals = await self._phase(
+            self.scanner.scan(), "scan",
+            fatal=bool(getattr(CONFIG.monitoring, "tick_scan_timeout_fatal", False)))
         # Cache scan results for the proactive monitor (Move 2)
         self._last_scan_signals = signals or []
 
