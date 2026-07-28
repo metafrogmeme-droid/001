@@ -3943,15 +3943,22 @@ class RuneClawEngine:
         if user_id and user_id != "auto":
             try:
                 from bot.core import strategy_gate, user_strategy_store
-                _skey = user_strategy_store.get(user_id)
+                _sel = user_strategy_store.get_entry(user_id)
             except Exception:
-                _skey = None
-            if _skey:
+                _sel = None
+            _skey = _sel if isinstance(_sel, str) else (
+                _sel.get("slug") if isinstance(_sel, dict) else None)
+            if _sel:
                 try:
-                    from bot.skills.skill_registry import RunStrategySkill
-                    _preset = RunStrategySkill.PRESETS.get(_skey)
-                    _g = strategy_gate.check_confirm(
-                        _skey, _preset, idea.asset, idea.confidence)
+                    if isinstance(_sel, dict):
+                        # A community snapshot — armed from the marketplace.
+                        _g = strategy_gate.check_custom(
+                            _sel, idea.asset, idea.confidence, idea.direction)
+                    else:
+                        from bot.skills.skill_registry import RunStrategySkill
+                        _preset = RunStrategySkill.PRESETS.get(_skey)
+                        _g = strategy_gate.check_confirm(
+                            _skey, _preset, idea.asset, idea.confidence)
                 except Exception as _exc:
                     _g = {"ok": False, "reason": (
                         f"Your chosen strategy '{_skey}' could not be evaluated — "

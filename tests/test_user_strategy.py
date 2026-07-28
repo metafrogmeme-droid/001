@@ -135,6 +135,64 @@ def test_web_gateway_mirrors_mystrategy():
     assert "tighten-only veto" in get_body
 
 
+def test_community_snapshot_roundtrip_and_validation(tmp_path, monkeypatch):
+    """A community strategy is armed as a validated SNAPSHOT — the caller's
+    projection is never trusted blindly."""
+    monkeypatch.setenv("RUNECLAW_STATE_DIR", str(tmp_path))
+    e = user_strategy_store.set_custom(
+        42, "long-majors-ab12", "Long Majors",
+        {"confidence_threshold": 0.7, "symbols": ["BTC", "ETH"],
+         "direction": "long_only", "regime_filter": "trend_up",
+         "max_position_pct": 5,            # not signal-checkable -> dropped
+         "confidence_threshold_evil": 9})  # unknown -> dropped
+    assert e["kind"] == "community" and e["slug"] == "long-majors-ab12"
+    assert set(e["gates"]) == {"confidence_threshold", "symbols", "direction", "regime_filter"}
+    assert e["armed_at"], "the snapshot records WHEN it was taken"
+    # get() is engine-preset shaped; get_entry() understands both
+    assert user_strategy_store.get(42) is None
+    assert user_strategy_store.get_entry(42)["slug"] == "long-majors-ab12"
+    # a bogus slug is refused, never stored
+    assert user_strategy_store.set_custom(43, "NOT A SLUG", "x", {}) is None
+    assert user_strategy_store.clear(42) is True
+
+
+def test_custom_gate_enforces_and_states_scan_only():
+    entry = {"kind": "community", "slug": "s", "label": "Long Majors",
+             "gates": {"confidence_threshold": 0.7, "symbols": ["BTC", "ETH"],
+                       "direction": "long_only", "regime_filter": "trend_up"}}
+    ok = strategy_gate.check_custom(entry, "BTCUSDT", 0.8, "LONG")
+    assert ok["ok"] is True
+    assert "regime" in ok["scan_only"], "regime is scan-only — never claimed at confirm"
+    assert "confidence" in ok["enforced"] and "direction" in ok["enforced"]
+    bad_sym = strategy_gate.check_custom(entry, "DOGE/USDT:USDT", 0.9, "LONG")
+    assert bad_sym["ok"] is False and "DOGE" in bad_sym["reason"]
+    bad_dir = strategy_gate.check_custom(entry, "BTCUSDT", 0.9, "SHORT")
+    assert bad_dir["ok"] is False and "long-only" in bad_dir["reason"]
+    bad_conf = strategy_gate.check_custom(entry, "BTCUSDT", 0.61, "LONG")
+    assert bad_conf["ok"] is False and "61%" in bad_conf["reason"] and "70%" in bad_conf["reason"]
+    # an unreadable snapshot fails CLOSED, like every armed control here
+    dead = strategy_gate.check_custom(None, "BTCUSDT", 0.9, "LONG")
+    assert dead["ok"] is False and "fail closed" in dead["reason"]
+
+
+def test_engine_routes_the_veto_by_stored_shape():
+    src = Path("bot/core/engine.py").read_text(encoding="utf-8")
+    assert "user_strategy_store.get_entry(user_id)" in src
+    assert "strategy_gate.check_custom(" in src
+    assert "isinstance(_sel, dict)" in src
+
+
+def test_web_arming_says_it_is_a_snapshot_not_a_link():
+    gw = Path("bot/web/user_gateway.py").read_text(encoding="utf-8")
+    assert "set_custom(" in gw
+    assert "snapshot_note" in gw
+    assert "does not change your bot" in gw
+    js = Path("app/routes/botstrategy.js").read_text(encoding="utf-8")
+    assert "rulesToGates" in js, "the SAME projection the picks feed uses"
+    assert "no_enforceable_rules" in js, \
+        "a config with nothing signal-checkable is refused, not falsely armed"
+
+
 def test_command_is_catalogued_bilingually():
     from bot.skills.command_catalog import DESC_ZH, all_entries
     assert "mystrategy" in set(all_entries())

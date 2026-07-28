@@ -5844,28 +5844,37 @@
       _botStrat = { slug: d.selected_slug || null, label: d.selected_label || null };
       bar.innerHTML = d.selected
         ? `🤖 <b>${esc(T('bs.h', 'Your bot runs'))}: ${esc(d.selected_label || d.selected)}</b> — ${esc(T('bs.note', 'a tighten-only veto on trades you confirm; it refuses, never places.'))}
+           ${d.kind === 'community' ? `<div class="small muted">${esc(T('bs.snap', 'Armed from a snapshot of this strategy\'s rules — editing it on the site does not change your bot until you arm it again.'))}</div>` : ''}
            <button class="btn btn--ghost btn--sm" data-botstratoff type="button" style="margin-left:8px">${esc(T('bs.clear_b', 'Clear'))}</button>`
         : `🤖 ${esc(T('bs.none', 'No strategy pinned to your bot — pick one below and trades you confirm will run through its gates.'))}`;
       bar.hidden = false;
       // repaint the per-card buttons so the active one is marked
-      document.querySelectorAll('[data-botstrat]').forEach((b) => {
-        const on = _botStrat.slug === b.getAttribute('data-botstrat');
+      document.querySelectorAll('[data-botstrat],[data-botstratc]').forEach((b) => {
+        const id = b.getAttribute('data-botstrat') || b.getAttribute('data-botstratc');
+        const on = _botStrat.slug === id;
         b.textContent = on ? '🤖 ✓ ' + T('bs.on_bot', 'On your bot') : '🤖 ' + T('bs.run_b', 'Run on my bot');
       });
     }
     loadBotStrat();
-    // Attached to #p-agents (rebuilt with the view) so re-renders can never
-    // stack duplicate listeners — the double-handler class of bug.
-    document.getElementById('p-agents')?.addEventListener('click', async (e) => {
+    // Attached to the two panels that carry the buttons (both rebuilt with
+    // the view) so re-renders can never stack duplicate listeners — the
+    // double-handler class of bug. #p-agents holds the engine lineup and the
+    // status bar; #p-community holds the member strategies.
+    const onBotStratClick = async (e) => {
       const off = e.target.closest('[data-botstratoff]');
       const pick = e.target.closest('[data-botstrat]');
-      if (!off && !pick) return;
-      if (pick && _botStrat.slug === pick.getAttribute('data-botstrat')) return; // already set
-      const btn = off || pick;
+      const cpick = e.target.closest('[data-botstratc]');   // community strategy
+      if (!off && !pick && !cpick) return;
+      const wanted = pick ? pick.getAttribute('data-botstrat')
+        : cpick ? cpick.getAttribute('data-botstratc') : null;
+      if (wanted && _botStrat.slug === wanted) return;      // already set
+      const btn = off || pick || cpick;
       btn.disabled = true;
       const r = off
         ? await fetchJSON('/api/bot-strategy', { method: 'DELETE', timeoutMs: 12000 }).catch(() => null)
-        : await fetchJSON('/api/bot-strategy', { method: 'PUT', body: { strategy: pick.getAttribute('data-botstrat') }, timeoutMs: 12000 }).catch(() => null);
+        : await fetchJSON('/api/bot-strategy', { method: 'PUT', body: cpick
+          ? { strategy: wanted, kind: 'community' } : { strategy: wanted },
+          timeoutMs: 12000 }).catch(() => null);
       btn.disabled = false;
       if (r?.ok) {
         toast(off ? T('bs.cleared', 'Cleared — your confirms run ungated again.')
@@ -5875,6 +5884,9 @@
         toast((r && r.data && r.data.error === 'unknown_strategy' && T('bs.unknown', 'That preset no longer exists.'))
           || (r && r.data && r.data.detail) || T('bs.fail', 'Could not reach your bot — nothing changed.'));
       }
+    };
+    ['p-agents', 'p-community'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('click', onBotStratClick);
     });
     // Copy a pick straight into the Arena, ATTRIBUTED: the server re-verifies
     // that this agent's own gates admit the signal before the tag sticks —
@@ -5926,7 +5938,8 @@
         ${a.followers ? `<div class="small" style="color:var(--text-3)">👥 ${esc(String(a.followers))} ${esc(T('mk.following_w', 'following'))}</div>` : ''}
         <div class="row" style="gap:var(--s2);align-items:center;margin-top:auto">
           <a class="small" href="/agents/${encodeURIComponent(a.slug || a.id)}">Open shareable page →</a>
-          ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-sfork="${esc(a.slug || a.id)}" type="button" style="margin-left:auto">⑂ Fork</button>` : ''}
+          ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-botstratc="${esc(a.slug || a.id)}" type="button" style="margin-left:auto">${_botStrat.slug === (a.slug || a.id) ? '🤖 ✓ ' + esc(T('bs.on_bot', 'On your bot')) : '🤖 ' + esc(T('bs.run_b', 'Run on my bot'))}</button>` : ''}
+          ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-sfork="${esc(a.slug || a.id)}" type="button">⑂ Fork</button>` : ''}
         </div></article>`;
     }
     async function loadCommunity() {

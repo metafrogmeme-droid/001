@@ -35,8 +35,14 @@ function startMockGateway() {
           res.end(JSON.stringify({ selected: 'dip sniper', selected_slug: 'dip-sniper',
             selected_label: 'Dip Sniper', presets: [], note: 'tighten-only' }));
         } else if (req.method === 'POST' && req.url === '/gateway/user/strategy') {
-          const s = String(JSON.parse(body).strategy || '');
-          if (s === 'off') res.end(JSON.stringify({ selected: null }));
+          const b = JSON.parse(body);
+          const s = String(b.strategy || '');
+          if (b.kind === 'community') {
+            res.end(JSON.stringify({ selected: b.slug, selected_slug: b.slug,
+              selected_label: b.label, kind: 'community', armed_at: '2026-07-28T00:00:00+00:00',
+              gates: b.gates, snapshot_note: 'Armed from a SNAPSHOT' }));
+          }
+          else if (s === 'off') res.end(JSON.stringify({ selected: null }));
           else if (s === 'ghost') { res.statusCode = 404; res.end(JSON.stringify({ error: 'unknown_strategy' })); }
           else res.end(JSON.stringify({ selected: 'dip sniper', selected_label: 'Dip Sniper' }));
         } else { res.statusCode = 404; res.end('{}'); }
@@ -102,13 +108,67 @@ test('PUT sets by key/slug/alias; DELETE clears via off', async () => {
   assert.strictEqual(seen[seen.length - 1].body.strategy, 'off');
 });
 
+test('a community strategy arms as a projected snapshot', async () => {
+  // publish one through the real store so the route can resolve it
+  const { pool } = require('../db');
+  const jwt = require('jsonwebtoken');
+  const [u] = await pool.execute(
+    'INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, NOW())',
+    ['botstrat2@test.dev', 'x'.repeat(60)]);
+  const tok2 = jwt.sign({ user_id: u.insertId, email: 'botstrat2@test.dev' }, process.env.JWT_SECRET);
+  const store = require('../lib/user_strategies');
+  const c = await store.create(u.insertId, { name: 'Snapshot Majors', regime: 'trend_up',
+    rules: [{ type: 'direction', value: 'long_only' }, { type: 'min_confidence', value: 0.7 },
+      { type: 'allowed_symbols', value: ['BTC', 'ETH'] }] });
+  const mine = await store.listMine(u.insertId);
+  await store.setVisibility(u.insertId, mine[0].dbId, 'public');
+
+  seen.length = 0;
+  const r = await req('PUT', '/api/bot-strategy', { strategy: c.slug, kind: 'community' }, tok2);
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.strictEqual(r.body.kind, 'community');
+  assert.ok(r.body.armed_at, 'the snapshot records when it was taken');
+  const sent = seen[seen.length - 1].body;
+  assert.strictEqual(sent.kind, 'community');
+  assert.strictEqual(sent.slug, c.slug);
+  // only signal-checkable rules travel — never the account-side ones
+  assert.deepEqual(Object.keys(sent.gates).sort(),
+    ['confidence_threshold', 'direction', 'regime_filter', 'symbols']);
+  assert.strictEqual(sent.gates.confidence_threshold, 0.7);
+});
+
+test('a config with nothing signal-checkable is refused, not falsely armed', async () => {
+  const { pool } = require('../db');
+  const jwt = require('jsonwebtoken');
+  const [u] = await pool.execute(
+    'INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, NOW())',
+    ['botstrat3@test.dev', 'x'.repeat(60)]);
+  const tok3 = jwt.sign({ user_id: u.insertId, email: 'botstrat3@test.dev' }, process.env.JWT_SECRET);
+  const store = require('../lib/user_strategies');
+  // size caps + halts only: real risk config, but nothing a SIGNAL can be
+  // checked against — arming it would claim protection it cannot deliver.
+  const c = await store.create(u.insertId, { name: 'Account Side Only',
+    rules: [{ type: 'max_position_pct', value: 5 }, { type: 'max_drawdown_pct', value: 10 }] });
+  const mine = await store.listMine(u.insertId);
+  await store.setVisibility(u.insertId, mine[0].dbId, 'public');
+  const r = await req('PUT', '/api/bot-strategy', { strategy: c.slug, kind: 'community' }, tok3);
+  assert.strictEqual(r.status, 400);
+  assert.strictEqual(r.body.error, 'no_enforceable_rules');
+  assert.match(r.body.detail, /cannot deliver|account-side/);
+  const unknown = await req('PUT', '/api/bot-strategy', { strategy: 'ghost-zzz', kind: 'community' }, tok3);
+  assert.strictEqual(unknown.status, 404);
+});
+
 test('the dashboard states the contract and fails silent-honest', () => {
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   assert.match(dash, /data-botstrat/);
   assert.match(dash, /omit, never invent/, 'a failed read renders nothing');
   assert.match(dash, /TIGHTEN-ONLY veto/, 'the contract is stated where the UI lives');
-  assert.match(dash, /getElementById\('p-agents'\)\?\.addEventListener/,
-    'listener scoped to the view so re-renders never stack duplicates');
+  assert.match(dash, /\['p-agents', 'p-community'\]\.forEach/,
+    'listeners scoped to the view panels — both, since community cards carry the button too');
+  assert.match(dash, /data-botstratc/, 'community cards can arm the bot too');
+  assert.match(dash, /kind: 'community'/);
+  assert.match(dash, /bs\.snap/, 'the snapshot disclosure ships with the armed state');
   const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
   for (const k of ['bs.h', 'bs.note', 'bs.run_b', 'bs.on_bot', 'bs.cleared', 'bs.fail']) {
     assert.ok(i18n.includes(`'${k}'`), `${k} in the dictionary`);

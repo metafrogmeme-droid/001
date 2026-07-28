@@ -1817,7 +1817,8 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
     from bot.core import user_strategy_store
     from bot.core.strategy_gate import describe_gates
     from bot.skills.skill_registry import RunStrategySkill
-    selected = user_strategy_store.get(tg_id)
+    entry = user_strategy_store.get_entry(tg_id)
+    selected = entry if isinstance(entry, str) else None
     presets = []
     for key in sorted(RunStrategySkill.PRESETS):
         cfg = RunStrategySkill.PRESETS[key]
@@ -1829,6 +1830,21 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
             "confirm_gates": confirm, "scan_gates": scan,
         })
     sel_cfg = RunStrategySkill.PRESETS.get(selected) if selected else None
+    if isinstance(entry, dict):
+        # A community snapshot: report WHEN it was taken, so the UI can say
+        # plainly that it is a copy of the rules, not a live link.
+        return web.json_response({
+            "selected": entry["slug"], "selected_slug": entry["slug"],
+            "selected_label": entry.get("label"), "kind": "community",
+            "armed_at": entry.get("armed_at"), "gates": entry.get("gates") or {},
+            "presets": presets,
+            "snapshot_note": ("Armed from a SNAPSHOT of this strategy's rules — "
+                              "editing it on the site does not change your bot "
+                              "until you arm it again."),
+            "note": ("A selection is a tighten-only veto on trades YOU confirm: it can "
+                     "refuse an idea that breaks its rules, it never places trades and "
+                     "never touches the operator's global stance."),
+        })
     return web.json_response({
         "selected": selected,
         "selected_slug": selected.replace(" ", "-") if selected else None,
@@ -1863,6 +1879,26 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
         audit(system_log, f"Web strategy cleared for {tg_id}",
               action="web_user_strategy", result="CLEARED")
         return web.json_response({"selected": None})
+    # A COMMUNITY strategy arrives as a snapshot: the website validated and
+    # projected its signal-checkable rules (the same rulesToGates the picks
+    # feed runs) and sends them here, because the bot cannot read the web
+    # database. The store re-validates — a caller's projection is never
+    # trusted blindly — and the snapshot is explicitly a copy, not a link.
+    if str(body.get("kind") or "").lower() == "community":
+        stored = user_strategy_store.set_custom(
+            tg_id, body.get("slug"), body.get("label"), body.get("gates"))
+        if stored is None:
+            return web.json_response({"error": "bad_snapshot"}, status=400)
+        audit(system_log, f"Web community strategy armed for {tg_id}: {stored['slug']}",
+              action="web_user_strategy", result="SET_COMMUNITY")
+        return web.json_response({
+            "selected": stored["slug"], "selected_slug": stored["slug"],
+            "selected_label": stored["label"], "kind": "community",
+            "armed_at": stored["armed_at"], "gates": stored["gates"],
+            "snapshot_note": ("Armed from a SNAPSHOT of this strategy's rules — "
+                              "editing it on the site does not change your bot "
+                              "until you arm it again."),
+        })
     key = resolve_key(raw, RunStrategySkill.PRESETS, RunStrategySkill.ALIASES)
     if key is None:
         return web.json_response({"error": "unknown_strategy"}, status=404)

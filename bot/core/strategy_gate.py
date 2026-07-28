@@ -65,6 +65,64 @@ def describe_gates(preset: dict) -> tuple[list[str], list[str]]:
     return confirm, scan
 
 
+def check_custom(entry: Optional[dict], asset: str, confidence: Any,
+                 direction: Any = None) -> dict:
+    """The same contract for a COMMUNITY snapshot: only signal-checkable
+    gates enforce, refusals name their rule, an unreadable snapshot fails
+    CLOSED. `regime_filter` is scan-only here — a TradeIdea carries no
+    regime reading, so claiming it would be claiming more than we deliver.
+    """
+    if not isinstance(entry, dict) or not entry.get("slug"):
+        return {"ok": False, "enforced": [], "scan_only": [],
+                "reason": ("Your pinned strategy could not be read — confirms are "
+                           "refused until it can be (fail closed). "
+                           "/mystrategy off disarms it.")}
+    g = entry.get("gates") or {}
+    label = entry.get("label") or entry.get("slug")
+    enforced: list[str] = []
+    scan_only: list[str] = []
+    if g.get("regime_filter"):
+        scan_only.append("regime")
+
+    base = _base(asset)
+    syms = g.get("symbols")
+    if isinstance(syms, (list, tuple)) and syms:
+        enforced.append("symbols")
+        allow = {_base(x) for x in syms}
+        if base not in allow:
+            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
+                    "reason": (f"{label}: {base} is outside this strategy's symbols "
+                               f"({', '.join(sorted(allow))}).")}
+    deny = g.get("blocked_symbols")
+    if isinstance(deny, (list, tuple)) and deny:
+        enforced.append("blocked")
+        if base in {_base(x) for x in deny}:
+            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
+                    "reason": f"{label}: {base} is on this strategy's blocked list."}
+    d = g.get("direction")
+    if d in ("long_only", "short_only"):
+        enforced.append("direction")
+        got = str(direction or "").upper()
+        want = "LONG" if d == "long_only" else "SHORT"
+        if got and got != want:
+            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
+                    "reason": f"{label}: this strategy is {want.lower()}-only — {got} refused."}
+    thr = g.get("confidence_threshold")
+    if thr is not None:
+        enforced.append("confidence")
+        try:
+            conf = float(confidence)
+        except (TypeError, ValueError):
+            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
+                    "reason": (f"{label}: this idea carries no readable confidence — "
+                               "refused (unreadable is never assumed to pass).")}
+        if conf < float(thr):
+            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
+                    "reason": (f"{label}: confidence {conf * 100:.0f}% is below this "
+                               f"strategy's {float(thr) * 100:.0f}% floor.")}
+    return {"ok": True, "enforced": enforced, "scan_only": scan_only}
+
+
 def check_confirm(preset_key: str, preset: Optional[dict],
                   asset: str, confidence: Any) -> dict:
     """→ {ok, reason (when refused), enforced: [..], scan_only: [..]}.

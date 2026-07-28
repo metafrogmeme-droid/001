@@ -38,6 +38,30 @@ router.put('/', async (req, res) => {
     if (!gateway.isConfigured()) return res.status(503).json({ error: 'Not configured' });
     const strategy = String((req.body || {}).strategy || '').slice(0, 64);
     const ident = await resolveBotIdentity(req);
+    // A published COMMUNITY strategy can be armed too: we project its
+    // signal-checkable rules with the SAME rulesToGates the picks feed uses,
+    // and send that snapshot. The bot cannot read this database, so what is
+    // armed is a copy taken now — the response says so, and editing the
+    // strategy later does not silently change the bot.
+    if (String((req.body || {}).kind || '') === 'community') {
+      const store = require('../lib/user_strategies');
+      const { rulesToGates } = require('../lib/agent_match');
+      const c = await store.getPublicBySlug(strategy);
+      if (!c) return res.status(404).json({ error: 'unknown_strategy' });
+      const gates = rulesToGates(c.rules, c.regime);
+      if (!Object.keys(gates).length) {
+        // Nothing signal-checkable to enforce — arming would claim a gate
+        // that cannot gate. Refuse and say why.
+        return res.status(400).json({ error: 'no_enforceable_rules',
+          detail: "This strategy's rules are all account-side (size caps, halts) — "
+                  + 'there is nothing the bot can check on a signal, so arming it '
+                  + 'would claim protection it cannot deliver.' });
+      }
+      const r2 = await gateway.postGateway('/user/strategy', {
+        telegram_id: ident.id, kind: 'community',
+        slug: c.slug, label: c.name, gates });
+      return gateway.relay(res, r2);
+    }
     const r = await gateway.postGateway('/user/strategy', {
       telegram_id: ident.id, strategy });
     return gateway.relay(res, r);
