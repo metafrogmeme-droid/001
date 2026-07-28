@@ -1978,6 +1978,15 @@ class MonitoringConfig:
     # a critical outage. 0 disables (pre-hardening behavior).
     tick_hard_timeout_sec: float = _env_float_bounded(
         "TICK_HARD_TIMEOUT_SEC", 900.0, 0.0, 7200.0)
+    # Per-PHASE cap inside a tick. The whole-tick cap above recovers the loop
+    # but says nothing about WHERE it hung — a real 900s hang (2026-07-28)
+    # reported only "engine.py:2226 in run", the outermost await. Bounding
+    # each phase (positions / scan / analyze) means a hang fails in a third
+    # of the time AND names the phase in the audit line, so the operator
+    # knows what stalled without reading a stack. Generous: no healthy phase
+    # comes near it. 0 disables (whole-tick cap still applies).
+    tick_phase_timeout_sec: float = _env_float_bounded(
+        "TICK_PHASE_TIMEOUT_SEC", 300.0, 0.0, 3600.0)
     # Same idea for the light post-tick maintenance awaits (healthcheck ping,
     # web-credential pull, flatten requests, publishing) — each is throttled
     # and fail-open already, so a hung one is cancelled QUIETLY and the loop

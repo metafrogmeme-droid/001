@@ -2340,6 +2340,34 @@ class RuneClawEngine:
             )
             raise
 
+    async def _phase(self, coro, what: str):
+        """Bound ONE phase of a tick, naming it if it hangs.
+
+        The whole-tick cap (_tick_guarded) recovers the loop but is silent
+        about where: a real 900s hang reported only the outermost await
+        ("engine.py:2226 in run"). A per-phase cap fires FIRST, so the audit
+        line names the phase — positions / scan / analyze — and the tick
+        fails in a third of the time.
+
+        A timeout is re-raised so the existing tick-failure machinery
+        (backoff, degraded alerts, the stall counters) handles it exactly as
+        it handles any other tick error. This is deliberately NOT the quiet
+        treatment `_with_maintenance_cap` gives optional post-tick work: a
+        hung phase is a real outage, not a skippable extra. 0 disables.
+        """
+        cap = float(getattr(CONFIG.monitoring, "tick_phase_timeout_sec", 0.0) or 0.0)
+        if cap <= 0:
+            return await coro
+        try:
+            return await asyncio.wait_for(coro, timeout=cap)
+        except asyncio.TimeoutError:
+            audit(system_log,
+                  f"Tick phase '{what}' exceeded its {cap:.0f}s cap — cancelled "
+                  f"the parked await. This NAMES the hang the whole-tick cap "
+                  f"could only report as 'in run'.",
+                  action="tick_phase", result="TIMEOUT", data={"phase": what})
+            raise
+
     async def _with_maintenance_cap(self, coro, what: str):
         """Bound a post-tick maintenance await. Each is throttled and
         fail-open by design, so a hung one is cancelled QUIETLY (warning log)
@@ -2749,7 +2777,11 @@ class RuneClawEngine:
         # Refresh live balance cache if in live mode
         if CONFIG.is_live():
             try:
-                await self.get_live_equity()
+                # Its own intent is "non-fatal: use cached value" — but an
+                # except clause cannot catch a HANG, so the quiet cap is what
+                # actually delivers that intent.
+                await self._with_maintenance_cap(
+                    self.get_live_equity(), "live equity refresh")
             except Exception:
                 pass  # non-fatal: use cached value
 
@@ -2764,7 +2796,7 @@ class RuneClawEngine:
         if self.risk.circuit_breaker_active:
             if self.state != AgentState.HALTED:
                 self._transition(AgentState.HALTED, "circuit breaker active")
-            await self._check_open_positions()
+            await self._phase(self._check_open_positions(), "positions (halted)")
             return
         elif self.state == AgentState.HALTED:
             self._transition(AgentState.IDLE, "circuit breaker cleared")
@@ -2775,7 +2807,7 @@ class RuneClawEngine:
                 self._transition(AgentState.COOLING_DOWN, "post-loss cooldown active")
             # C2-25 FIX: Still monitor open positions during cooldown — they need
             # SL/TP protection even when new scanning is paused.
-            await self._check_open_positions()
+            await self._phase(self._check_open_positions(), "positions (cooldown)")
             return
         elif self._cooldown_until and time.monotonic() >= self._cooldown_until:
             self._cooldown_until = 0.0
@@ -2810,7 +2842,7 @@ class RuneClawEngine:
                 len(self._pending_ideas),
             )
             self._transition(AgentState.MONITORING, "checking positions (scan skipped, pending confirms)")
-            await self._check_open_positions()
+            await self._phase(self._check_open_positions(), "positions (pending confirms)")
             self._transition(AgentState.IDLE, "tick cycle complete (scan skipped)")
             return
 
@@ -2821,12 +2853,12 @@ class RuneClawEngine:
         # the per-symbol entry locks in confirm_trade.
         if self._scan_lock.locked():
             self._transition(AgentState.MONITORING, "checking positions (force_scan in progress)")
-            await self._check_open_positions()
+            await self._phase(self._check_open_positions(), "positions (scan in progress)")
             self._transition(AgentState.IDLE, "tick cycle complete (scan in progress)")
             return
 
         self._transition(AgentState.SCANNING, "beginning scan cycle")
-        signals = await self.scanner.scan()
+        signals = await self._phase(self.scanner.scan(), "scan")
         # Cache scan results for the proactive monitor (Move 2)
         self._last_scan_signals = signals or []
 
@@ -2890,7 +2922,8 @@ class RuneClawEngine:
         # gather would fan out hundreds of simultaneous OHLCV/order-flow/MTF
         # fetches and hammer the exchange rate limiter. The semaphore caps
         # in-flight analyses at CONFIG.scan_analysis_concurrency.
-        results = await self._analyze_signals_batched(signals)
+        results = await self._phase(
+            self._analyze_signals_batched(signals), "analyze")
         _synced_ideas = []
         for idea in results:
             if idea:
@@ -3038,7 +3071,10 @@ class RuneClawEngine:
                       data={"trade_id": tid, "error": str(exc)})
 
         self._transition(AgentState.MONITORING, "checking open positions")
-        await self._check_open_positions()
+        # The safety-critical one: this is the SL/TP monitor on every tick.
+        # A hang here means stops are not being watched, so it gets the loud
+        # cap like the rest — named, and counted as a tick failure.
+        await self._phase(self._check_open_positions(), "positions")
         self._transition(AgentState.IDLE, "tick cycle complete")
 
     async def _cached_ohlcv(self, exchange, symbol, timeframe, limit=100, ttl=120):
