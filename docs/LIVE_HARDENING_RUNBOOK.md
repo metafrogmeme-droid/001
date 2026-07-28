@@ -166,10 +166,63 @@ difference is the whole diagnosis:
 | `GET /healthz` | the process is alive and its event loop is turning | nothing at all |
 | `GET /readyz` | it can serve database-backed traffic | the migration result |
 
-`/readyz` returns `200 {"ready":true,…}` or `503` with a **coarse** reason
-code — `starting`, `db_unreachable`, `db_auth`, `db_error`. It never contains a
-driver message, hostname, port or credential, because it is a public endpoint.
-The full error goes to the server log instead.
+`/readyz` returns `200 {"ready":true,…}` or `503` with a **coarse** reason code.
+It never contains a driver message, hostname, port or credential, because it is
+a public endpoint. The full error goes to the server log instead.
+
+| Reason | What it means | Where to look |
+|---|---|---|
+| `starting` | no attempt has finished yet | normal for a few seconds after boot |
+| `db_unreachable` | refused / timed out / no DNS / no route | network, firewall, host allowlist |
+| `db_auth` | the server answered and rejected the credentials | username/password in `DATABASE_URL` |
+| `db_tls` | the server answered and refused the transport | see below — the usual TiDB cause |
+| `db_config` | the server answered; the URL names something absent | database name, host allowlist |
+| `db_timeout` | the attempt was still running when its cap expired | the driver never came back at all |
+| `db_error` | reached, failed, cause not yet classified | grep the log (below) and send the code |
+
+⚠️ **`starting` with `attempts: 0` long after boot is not "still starting".** It
+means no attempt has ever *finished* — the driver is hanging. Each attempt is
+capped (`MIGRATE_ATTEMPT_TIMEOUT_MS`, default 45s), so this should resolve into
+`db_timeout` and keep retrying; if it does not, the cap has been disabled.
+
+**`db_tls` — the most likely TiDB failure.** TiDB Cloud mandates encrypted
+transport and refuses a plaintext connect with `ER_SECURE_TRANSPORT_REQUIRED`.
+The database is fine; the connection string is missing its TLS options. Append
+them to `DATABASE_URL`:
+
+```
+mysql://USER:PASS@HOST:4000/DB?ssl={"minVersion":"TLSv1.2","rejectUnauthorized":true}
+```
+
+**Where the web app's diagnostics actually are.** The Node app logs to stdout,
+and `logs/*.log` belongs to the **Python bot** — docker-compose mounts `./logs`
+into the bot and api_bridge containers, never the web one. So grepping
+`logs/*.log` for a web-app message matches nothing even when the message was
+printed. That is how a boot fatal read as a hang for hours.
+
+The events that explain a non-serving app are therefore also appended to
+`logs/web.log` (override with `WEB_LOG_DIR`):
+
+```bash
+grep -E 'listening|migration_' logs/web.log
+# 2026-07-28T11:20:03.114Z listening port=8080
+# 2026-07-28T11:20:48.902Z migration_failed reason=db_tls code=ER_SECURE_TRANSPORT_REQUIRED attempt=3 retry_in_ms=5000
+# 2026-07-28T11:21:10.551Z migration_ok after_attempts=3
+```
+
+`listening` answers the question every incident today started with — *is this
+build serving at all, or did the container never get that far?* Categories,
+codes and the port only; never an error message, never a connection string,
+never a secret.
+
+The file writes are asynchronous and fail-open: a missing or unwritable
+directory is silently tolerated, because a logger that can break boot is worse
+than no logger.
+
+**When the reason is `db_error`,** the driver's own code appears beside the
+category in both stdout and that file — one word, no stack-reading. Send it and
+it can be classified properly, so the next occurrence names itself instead of
+landing in the catch-all.
 
 Read the combination:
 

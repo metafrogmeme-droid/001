@@ -91,6 +91,7 @@ auditConfig();
 const express = require('express');
 const { migrate } = require('./db');
 const readiness = require('./lib/readiness');
+const bootLog = require('./lib/boot_log');
 const { router: authRouter } = require('./auth');
 const tradesRouter = require('./routes/trades');
 const syncRouter = require('./routes/sync');
@@ -627,6 +628,10 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`RUNECLAW app running on port ${PORT}`);
+  // The one line that distinguishes "this build is serving" from "the
+  // container never got that far" — the question every incident today began
+  // with. Port only; no secrets, no config.
+  bootLog.record('listening', `port=${PORT}`);
 });
 
 // Migration runs in the background and RETRIES rather than exiting, so a
@@ -635,20 +640,71 @@ app.listen(PORT, '0.0.0.0', () => {
 // permanently half-dead process that only a human could notice.
 const MIGRATE_BACKOFF_MS = [1000, 2000, 5000, 10000, 20000, 30000];
 
+// Each ATTEMPT is capped, not just the loop around it.
+//
+// Retrying only helps if the thing being retried can finish. mysql2's pool
+// does not bound a connect that gets no answer, so a driver that never comes
+// back parks this loop on its FIRST call: no attempt is ever recorded, no
+// backoff ever runs, and the process cannot recover even when the database
+// does. Production showed exactly that — /readyz reporting
+// {"reason":"starting","attempts":0} after seven minutes of uptime, which is
+// honest and completely useless.
+//
+// Capping the attempt converts a hang into a failure the loop can act on, the
+// same bargain the engine's tick-phase caps make. The cap is generous: a cold
+// TiDB connection plus a full CREATE TABLE IF NOT EXISTS sweep is slow but
+// finite, and this must never abort a migration that was merely working hard.
+const MIGRATE_ATTEMPT_TIMEOUT_MS =
+  Number(process.env.MIGRATE_ATTEMPT_TIMEOUT_MS || 45000);
+
+function migrateOnce() {
+  if (!(MIGRATE_ATTEMPT_TIMEOUT_MS > 0)) return migrate();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const e = new Error('migration attempt exceeded its cap');
+      e.code = readiness.TIMEOUT_CODE;
+      reject(e);
+    }, MIGRATE_ATTEMPT_TIMEOUT_MS);
+    // The abandoned attempt is left to settle on its own — mysql2 owns that
+    // socket and there is no safe way to cancel it from here. It is made
+    // harmless instead: its result is ignored, and its rejection is swallowed
+    // so an abandoned attempt can never surface as an unhandled rejection.
+    migrate().then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 async function migrateWithRetry() {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      await migrate();
+      await migrateOnce();
       readiness.markReady();
       console.log('Database migrated successfully');
+      bootLog.record('migration_ok', `after_attempts=${attempt}`);
       return true;
     } catch (err) {
       // Coarse category only — the full error goes to the server log (operator
       // surface), never to /readyz (public surface).
+      //
+      // The driver's RAW CODE is logged beside the category. It is a driver
+      // constant, not a secret, and when a failure lands in the catch-all
+      // 'db_error' it is the single fact needed to classify it properly — the
+      // difference between an operator grepping a stack trace and reading one
+      // word. The connection string never appears; only err.code does.
       const reason = readiness.markAttemptFailed(err);
+      const code = (err && typeof err.code === 'string' && err.code) || 'no-code';
       const wait = MIGRATE_BACKOFF_MS[Math.min(attempt, MIGRATE_BACKOFF_MS.length - 1)];
-      console.error(`Migration failed (${reason}); serving static content only, `
-        + `retrying in ${wait}ms:`, err.stack || err.message);
+      console.error(`Migration failed (${reason}, code=${code}); serving static `
+        + `content only, retrying in ${wait}ms:`, err.stack || err.message);
+      // Also to a FILE, because stdout is not reachable on every host: this
+      // app writes no other log, so a database failure was otherwise visible
+      // only through the platform's log viewer. Categories and the driver
+      // code only — never the error text, which can carry a connection
+      // string.
+      bootLog.record('migration_failed',
+        `reason=${reason} code=${code} attempt=${attempt + 1} retry_in_ms=${wait}`);
       await new Promise((r) => setTimeout(r, wait));
     }
   }
