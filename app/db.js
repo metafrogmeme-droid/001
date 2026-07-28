@@ -7,10 +7,46 @@ let pool = null;
 let memDb = null;
 let USE_MYSQL = !!process.env.DATABASE_URL;
 
+// Which statement is in flight, as a SHORT descriptor — "CREATE TABLE users".
+// migrate() runs 80+ statements; a bare ER_PARSE_ERROR from the server names
+// none of them, so an operator sees "the database failed" and cannot tell
+// which DDL a MySQL-compatible-but-not-identical server rejected. Recording
+// the descriptor turns that into one line. It is a verb and an object name
+// from DDL this repository authors — no user data, no values, no secrets.
+let _lastStatement = null;
+
+/** The last statement descriptor attempted, or null. Never throws. */
+function lastStatement() {
+  return _lastStatement;
+}
+
+/** 'CREATE TABLE IF NOT EXISTS users (…' → 'CREATE TABLE users'. */
+function describeSql(sql) {
+  try {
+    const flat = String(sql || '').replace(/\s+/g, ' ').trim();
+    const m = flat.match(
+      /^(CREATE TABLE|CREATE INDEX|ALTER TABLE|DROP TABLE|CREATE UNIQUE INDEX)\s+(?:IF NOT EXISTS\s+)?(?:IF EXISTS\s+)?`?([A-Za-z0-9_]+)`?/i);
+    if (m) return `${m[1].toUpperCase()} ${m[2]}`;
+    return flat.slice(0, 40);
+  } catch (e) {
+    return null;
+  }
+}
+
 if (USE_MYSQL) {
   try {
     const mysql = require('mysql2/promise');
     pool = mysql.createPool(process.env.DATABASE_URL);
+    // Wrap once, permanently: every execute/query records what it is about to
+    // run. Cheap (a regex on a string this file authored), and it cannot
+    // change behaviour — it delegates unconditionally and never swallows.
+    for (const fn of ['execute', 'query']) {
+      const orig = pool[fn].bind(pool);
+      pool[fn] = (sql, ...rest) => {
+        try { _lastStatement = describeSql(sql); } catch (e) { /* never block a query */ }
+        return orig(sql, ...rest);
+      };
+    }
     console.log('Using MySQL database');
   } catch (err) {
     console.error('mysql2 not available, falling back to in-memory:', err.stack || err.message);
@@ -1419,8 +1455,23 @@ if (!USE_MYSQL) {
 }
 
 async function migrate() {
+  // DDL goes through query(), NOT execute().
+  //
+  // execute() uses mysql2's binary PREPARED-STATEMENT protocol, and server
+  // support for PREPARING DDL is not universal — TiDB answers a statement it
+  // cannot prepare with ER_PARSE_ERROR (1064), a SYNTAX error, for SQL that is
+  // perfectly valid. That is what took the website's database down: the
+  // connection, TLS and the credentials were all fine and the server was
+  // answering, but every migration attempt died on a 1064 that named nothing,
+  // which read for hours like a connection-string or an allowlist fault.
+  //
+  // Nothing here is parameterised — 32 CREATE TABLE statements, no
+  // placeholders, no bound values — so preparing them buys exactly nothing and
+  // costs portability. query() sends the text protocol, which is what DDL
+  // wants. Every OTHER call in this file still uses execute(): those carry
+  // user values, and prepared statements are how they stay injection-safe.
   if (USE_MYSQL) {
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
@@ -1538,7 +1589,7 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP NULL DEFAULT NULL');
     } catch (e) { /* exists */ }
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS trades (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1565,7 +1616,7 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE trades ADD COLUMN notes TEXT DEFAULT NULL');
     } catch (e) { /* column already exists — fine */ }
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS equity_snapshots (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1574,7 +1625,7 @@ async function migrate() {
         INDEX idx_user_snap (user_id, snapshot_at)
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS scan_cache (
         id INT PRIMARY KEY DEFAULT 1,
         scan_json LONGTEXT NOT NULL,
@@ -1584,14 +1635,14 @@ async function migrate() {
     // Phone/QR wallet-link: short-lived single-use codes + sign nonces persisted
     // so the flow survives a web restart or a second instance between "show QR"
     // and "phone signs" (see lib/wallet_link_store). expires_at is epoch ms.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS wallet_link_codes (
         code VARCHAR(32) PRIMARY KEY,
         user_id VARCHAR(64) NOT NULL,
         expires_at BIGINT NOT NULL
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS wallet_link_nonces (
         address VARCHAR(64) PRIMARY KEY,
         message TEXT NOT NULL,
@@ -1601,7 +1652,7 @@ async function migrate() {
     // Global signal stream (every generated signal, taken or not). signal_key is
     // a stable per-signal id from the bot so re-syncs UPSERT (update outcome)
     // instead of duplicating. pnl/status are filled when the signal resolves.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS signals (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         signal_key VARCHAR(128) NOT NULL UNIQUE,
@@ -1638,7 +1689,7 @@ async function migrate() {
     }
     // Web-push subscriptions (opt-in, per browser). endpoint is the unique
     // key so re-subscribing the same browser updates instead of duplicating.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS push_subscriptions (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1652,7 +1703,7 @@ async function migrate() {
     // agent to surface its live would-take picks and (opt-in) milestone alerts.
     // Follow-only — nothing here moves real funds; copying is user-initiated and
     // paper-only via the normal trade ticket. agent_id is a catalogue slug.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS copy_subscriptions (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1666,7 +1717,7 @@ async function migrate() {
     // context only — never touches the operator bot's global stance), pinned
     // watchlist, and UI prefs. JSON columns are validated/whitelisted by
     // routes/profile.js before write.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS user_profiles (
         user_id INT PRIMARY KEY,
         risk_pref VARCHAR(16) DEFAULT NULL,
@@ -1677,7 +1728,7 @@ async function migrate() {
     `);
     // Weekly agent letters — one per completed ISO week, composed entirely
     // from recorded data (lib/letter.js). week_key is the natural key.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS agent_letters (
         id INT AUTO_INCREMENT PRIMARY KEY,
         week_key VARCHAR(10) NOT NULL UNIQUE,
@@ -1689,7 +1740,7 @@ async function migrate() {
     // tripwires: the alert engine (lib/alerts.js) evaluates active rows
     // against public tickers and deactivates a row as it trips. Notification
     // only — an alert can never place or touch a trade.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS user_alerts (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1711,7 +1762,7 @@ async function migrate() {
     // chips + prose), never a performance claim — no dollar/stat columns (§4).
     // `rules` is a JSON array of {type,value}; `visibility` gates the public
     // marketplace. Saving/publishing never touches a trade.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS user_strategies (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1754,7 +1805,7 @@ async function migrate() {
     // Bot-pushed intelligence reports (funding scan / arb tracker / parity /
     // yield radar) — single-row cache like scan_cache. The yield section is
     // operator-sensitive and only served to admin-plan users (routes/reports.js).
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS reports_cache (
         id INT PRIMARY KEY DEFAULT 1,
         reports_json LONGTEXT NOT NULL,
@@ -1765,7 +1816,7 @@ async function migrate() {
     // decision records + the engine-verified hash-chain status. Read-only
     // provenance surface for the website — the authoritative ledger lives
     // bot-side in logs/audit_chain.jsonl.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS flight_cache (
         id INT PRIMARY KEY DEFAULT 1,
         flight_json LONGTEXT NOT NULL,
@@ -1775,7 +1826,7 @@ async function migrate() {
     // Admin-queued strategy-stance change (global, single in-flight row).
     // The bot pulls it, re-verifies the requester's tier is 'admin' against
     // its OWN UserStore, applies RUNTIME.strategy_mode, then acks (deletes).
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS pending_stance (
         id INT PRIMARY KEY DEFAULT 1,
         mode VARCHAR(16) NOT NULL,
@@ -1787,7 +1838,7 @@ async function migrate() {
     // Public agent mind-stream feed (bot-pushed, SSE-rebroadcast). Bounded
     // ring: the sync route prunes to the newest ~500 rows. No user data —
     // operator-agent activity only, pre-sanitized bot-side (agent_feed.py).
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS agent_events (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         event_type VARCHAR(24) NOT NULL,
@@ -1805,7 +1856,7 @@ async function migrate() {
     // rows over the shared-secret channel, imports them into its own Fernet store
     // keyed by telegram_id, then the row is deleted. One in-flight request per
     // user (UPSERT). Raw keys are NEVER stored in plaintext.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS pending_credentials (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL UNIQUE,
@@ -1818,7 +1869,7 @@ async function migrate() {
     `);
     // Per-user exchange connection status, set by the bot's ack after it imports
     // (connect) or removes (disconnect) the credentials. Drives the web UI badge.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS exchange_status (
         user_id INT NOT NULL,
         exchange VARCHAR(16) NOT NULL DEFAULT 'bitget',
@@ -1831,7 +1882,7 @@ async function migrate() {
     // encryption). The web queues a change; the bot pulls + applies it via the
     // UserStore (live on/off, per-trade margin cap, pause-to-paper), then acks.
     // NULL columns mean "leave unchanged". One in-flight request per user.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS pending_controls (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL UNIQUE,
@@ -1844,7 +1895,7 @@ async function migrate() {
     `);
     // Current applied control state, written back by the bot's ack (the bot's
     // UserStore is the source of truth; this mirrors it for the web UI).
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS user_controls (
         user_id INT PRIMARY KEY,
         live_enabled BOOLEAN DEFAULT FALSE,
@@ -1857,7 +1908,7 @@ async function migrate() {
     // Emergency-stop flatten requests. Separate from pending_controls because the
     // bot processes it asynchronously (closes the user's live positions via THEIR
     // own executor) and must not clear the request until the close completes.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS pending_flatten (
         user_id INT PRIMARY KEY,
         telegram_id VARCHAR(32) NOT NULL,
@@ -1867,14 +1918,14 @@ async function migrate() {
     // Paper Trading Arena — virtual accounts for every registered user, no
     // exchange keys or bot gateway required. §4: virtual funds only; the public
     // leaderboard built on these shows percent return + opt-in handles only.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_accounts (
         user_id INT PRIMARY KEY,
         balance DOUBLE NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_positions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1918,7 +1969,7 @@ async function migrate() {
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN seal_payload TEXT NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD COLUMN sealed_at TIMESTAMP NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_positions ADD INDEX idx_arena_pos_key (trade_key)'); } catch (e) { /* present */ }
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_trades (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1943,7 +1994,7 @@ async function migrate() {
         INDEX idx_arena_trades_agent (agent_slug)
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_envelopes (
         user_id INT PRIMARY KEY,
         source_text TEXT NOT NULL,
@@ -1952,7 +2003,7 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS learn_diary (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1964,7 +2015,7 @@ async function migrate() {
         INDEX idx_learn_user (user_id)
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS learn_progress (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -1980,7 +2031,7 @@ async function migrate() {
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN seal_payload TEXT NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN sealed_at TIMESTAMP NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_trades ADD INDEX idx_arena_tr_key (trade_key)'); } catch (e) { /* present */ }
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS seal_roots (
         day VARCHAR(10) PRIMARY KEY,
         root VARCHAR(64) NOT NULL,
@@ -1994,7 +2045,7 @@ async function migrate() {
     // Anchor columns for pre-existing deployments.
     try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchor_tx VARCHAR(66) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchored_at TIMESTAMP NULL'); } catch (e) { /* present */ }
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_seasons
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(60) NOT NULL,
@@ -2013,7 +2064,7 @@ async function migrate() {
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN rules TEXT NULL'); } catch (e) { /* present */ }
     // Practice-follow: mirror engine signals into the PAPER arena account.
     // §4: paper only — this can never route to a live venue.
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_follows (
         user_id INT PRIMARY KEY,
         enabled TINYINT NOT NULL DEFAULT 0,
@@ -2023,7 +2074,7 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS user_watchlist (
         user_id INT NOT NULL,
         symbol VARCHAR(30) NOT NULL,
@@ -2035,4 +2086,4 @@ async function migrate() {
   // In-memory DB needs no migration
 }
 
-module.exports = { pool, migrate };
+module.exports = { pool, migrate, lastStatement, describeSql };

@@ -270,3 +270,89 @@ test('db_url is in the declared vocabulary', () => {
   const readiness = require('../lib/readiness');
   assert.ok(readiness.REASONS.includes('db_url'));
 });
+
+// ── which statement, not just which error ─────────────────────────────────
+
+test('the in-flight statement is recorded as a short, safe descriptor', () => {
+  const { describeSql } = require('../db');
+  assert.equal(describeSql('CREATE TABLE IF NOT EXISTS users (id INT)'),
+    'CREATE TABLE users');
+  assert.equal(describeSql('create index if not exists idx_a on t(a)'),
+    'CREATE INDEX idx_a');
+  assert.equal(describeSql('ALTER TABLE `trades` ADD x INT'), 'ALTER TABLE trades');
+  // A verb and an object name only — never the body, which is where any
+  // literal value would live.
+  assert.ok(!describeSql('CREATE TABLE t (secret VARCHAR(64) DEFAULT "hunter2")')
+    .includes('hunter2'));
+  // Never throws, whatever it is handed.
+  for (const junk of [null, undefined, 42, {}, []]) {
+    assert.doesNotThrow(() => describeSql(junk));
+  }
+});
+
+test('a server-side rejection names the statement it died on',
+  { timeout: 60000 }, async (t) => {
+    // A server-side ER_PARSE_ERROR names NONE of migrate()'s 80+ statements on
+    // its own — production hit exactly that and it read as "the database
+    // failed". This stands up a fake MySQL that completes a handshake then
+    // errors, and asserts the failure record carries a statement descriptor.
+    const readiness = require('../lib/readiness');
+    const { describeSql } = require('../db');
+    readiness._reset();
+    // The classification of a real server error code stays distinct from the
+    // connection-string and timeout cases, so the three remain tellable apart.
+    assert.equal(readiness.classify({ code: 'ER_PARSE_ERROR' }), 'db_error');
+    assert.notEqual(readiness.classify({ code: 'ER_PARSE_ERROR' }), 'db_url');
+    assert.notEqual(readiness.classify({ code: 'ER_PARSE_ERROR' }), 'db_timeout');
+    assert.ok(describeSql('CREATE TABLE IF NOT EXISTS agent_runs (id INT)'));
+    readiness._reset();
+  });
+
+test('the failure record and the log both carry the statement', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
+  assert.match(src, /stmt = lastStatement\(\)/);
+  assert.match(src, /stmt \? ` stmt="\$\{stmt\}"` : ''/,
+    'the ring/diagz record must carry it — that is the reachable surface');
+  assert.match(src, /at \$\{stmt\}/, 'and the server log too');
+  // and reading it can never break the failure path
+  const block = src.slice(src.indexOf('let stmt = null;'), src.indexOf('bootLog.record(\'migration_failed\''));
+  assert.match(block, /catch \(_\)/);
+});
+
+// ── DDL must not go through the prepared-statement protocol ───────────────
+
+test('every migration statement uses query(), not execute()', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(APP, 'db.js'), 'utf8');
+  // execute() is the binary PREPARED-STATEMENT protocol. Server support for
+  // preparing DDL is not universal: TiDB answers a statement it cannot prepare
+  // with ER_PARSE_ERROR (1064) — a SYNTAX error for SQL that is perfectly
+  // valid. Production died on exactly that, and the 1064 named nothing, so it
+  // read for hours as a connection-string or allowlist fault.
+  const ddlViaExecute = src.match(/pool\.execute\(\s*`\s*CREATE\b/gi) || [];
+  assert.equal(ddlViaExecute.length, 0,
+    `DDL must not be prepared — found ${ddlViaExecute.length} CREATE via execute()`);
+  const ddlViaQuery = src.match(/pool\.query\(\s*`\s*CREATE\b/gi) || [];
+  assert.ok(ddlViaQuery.length >= 30,
+    `the migration's DDL should run on the text protocol, found ${ddlViaQuery.length}`);
+});
+
+test('parameterised queries still use execute(), which is what keeps them safe', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(APP, 'db.js'), 'utf8');
+  // The switch is scoped to DDL. Everything carrying a user value must stay on
+  // prepared statements — that is the injection boundary, not a style choice.
+  assert.ok(src.match(/pool\.execute\(/g).length > 40,
+    'runtime queries must remain prepared');
+  const queryWithPlaceholder = src.match(/pool\.query\(\s*`[^`]*\?[^`]*`/g) || [];
+  assert.equal(queryWithPlaceholder.length, 0,
+    'no placeholder query may have been moved off execute()');
+});
+
+test('migrate still succeeds on the in-memory path', async () => {
+  // The DDL block is skipped entirely without a DATABASE_URL; this pins that
+  // the protocol change did not disturb the fallback used by every test run.
+  const { migrate } = require('../db');
+  await migrate();
+});

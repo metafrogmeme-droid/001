@@ -89,7 +89,7 @@ const { auditConfig } = require('./lib/config_audit');
 auditConfig();
 
 const express = require('express');
-const { migrate } = require('./db');
+const { migrate, lastStatement } = require('./db');
 const readiness = require('./lib/readiness');
 const bootLog = require('./lib/boot_log');
 const { router: authRouter } = require('./auth');
@@ -732,15 +732,23 @@ async function migrateWithRetry() {
       const reason = readiness.markAttemptFailed(err);
       const code = (err && typeof err.code === 'string' && err.code) || 'no-code';
       const wait = MIGRATE_BACKOFF_MS[Math.min(attempt, MIGRATE_BACKOFF_MS.length - 1)];
-      console.error(`Migration failed (${reason}, code=${code}); serving static `
-        + `content only, retrying in ${wait}ms:`, err.stack || err.message);
+      // WHICH statement, not just which error. A server-side ER_PARSE_ERROR
+      // names none of migrate()'s 80+ statements on its own, so an operator
+      // reads "the database failed" with no way to tell which DDL a
+      // MySQL-compatible-but-not-identical server rejected.
+      let stmt = null;
+      try { stmt = lastStatement(); } catch (_) { /* never block the log */ }
+      console.error(`Migration failed (${reason}, code=${code}`
+        + `${stmt ? `, at ${stmt}` : ''}); serving static content only, `
+        + `retrying in ${wait}ms:`, err.stack || err.message);
+      bootLog.record('migration_failed',
+        `reason=${reason} code=${code} attempt=${attempt + 1} retry_in_ms=${wait}`
+        + (stmt ? ` stmt="${stmt}"` : ''));
       // Also to a FILE, because stdout is not reachable on every host: this
       // app writes no other log, so a database failure was otherwise visible
       // only through the platform's log viewer. Categories and the driver
       // code only — never the error text, which can carry a connection
       // string.
-      bootLog.record('migration_failed',
-        `reason=${reason} code=${code} attempt=${attempt + 1} retry_in_ms=${wait}`);
       await new Promise((r) => setTimeout(r, wait));
     }
   }
