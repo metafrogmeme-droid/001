@@ -156,6 +156,46 @@ live operators:
 
 ---
 
+## Website triage — is it the app, or the host?
+
+The web app exposes two probes. They answer different questions, and the
+difference is the whole diagnosis:
+
+| Probe | Means | Touches |
+|---|---|---|
+| `GET /healthz` | the process is alive and its event loop is turning | nothing at all |
+| `GET /readyz` | it can serve database-backed traffic | the migration result |
+
+`/readyz` returns `200 {"ready":true,…}` or `503` with a **coarse** reason
+code — `starting`, `db_unreachable`, `db_auth`, `db_error`. It never contains a
+driver message, hostname, port or credential, because it is a public endpoint.
+The full error goes to the server log instead.
+
+Read the combination:
+
+- **`/healthz` 200, `/readyz` 200** — the app is fine. If pages still look
+  wrong, it is the browser cache or the edge, not this process.
+- **`/healthz` 200, `/readyz` 503** — the app is up and the database is not.
+  Static pages, docs and learn pages keep serving; `/api/*` refuses with an
+  explicit 503 rather than rendering an error as if it were data. The
+  migration retries on a capped backoff, so a database that comes back heals
+  the process **without a restart**. Fix the database; do not restart the app.
+- **`/healthz` does not answer at all** — the request never reached this
+  process. That is the host, the edge or the container, not the app.
+
+⚠️ **A 200 from a `/healthz` you did not deploy proves nothing.** Some hosting
+platforms answer `/healthz` at their own edge. Check for a header such as
+`x-envoy-upstream-service-time`, or confirm `/api/version` reports the commit
+you expect — that response can only come from this app.
+
+**Why this exists:** the app used to run `migrate()` *before* `app.listen()`
+and exit on failure, so an unreachable database meant the port was never bound.
+That is not a degraded site, it is a blackout — every path hangs, static assets
+included, and a restarting platform crash-loops with no healthy origin to route
+to. The port is now bound first and migration retries in the background.
+
+---
+
 ## Operating habits (ops tips, 2026-07)
 
 1. **Size like the backtest verdict is real.** The offline deterministic path

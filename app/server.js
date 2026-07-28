@@ -62,6 +62,7 @@ auditConfig();
 
 const express = require('express');
 const { migrate } = require('./db');
+const readiness = require('./lib/readiness');
 const { router: authRouter } = require('./auth');
 const tradesRouter = require('./routes/trades');
 const syncRouter = require('./routes/sync');
@@ -145,6 +146,30 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Probes ────────────────────────────────────────────────────────────────
+// Mounted HERE, ahead of the body parsers, the static handler and every
+// router, so that whatever is wrong further down the stack these two still
+// answer. A probe that can be blocked by the thing it is meant to observe
+// reports health it cannot actually see.
+
+// Liveness: this process is up and its event loop is turning. Deliberately
+// touches NOTHING — no database, no disk, no upstream — because a liveness
+// probe that can hang is worse than no probe at all: it converts "the app is
+// sick" into "the app is silent".
+app.get('/healthz', (req, res) => {
+  res.type('text/plain').send('ok');
+});
+
+// Readiness: can this process serve DATABASE-BACKED traffic yet? Distinct
+// from liveness on purpose — during a database outage the answer is "alive,
+// not ready", and the static site keeps serving while /api/* refuses. Body is
+// coarse by construction (see lib/readiness.js): a reason CODE, never a
+// driver message, hostname or credential.
+app.get('/readyz', (req, res) => {
+  const snap = readiness.snapshot();
+  res.status(snap.ready ? 200 : 503).json(snap);
+});
+
 // WEB-VISION: the chat route accepts optional image attachments (chart /
 // position screenshots, base64), which exceed the 1mb default. Give ONLY
 // /api/chat a larger parser — it runs first for that path, so the global 1mb
@@ -162,6 +187,27 @@ app.use(express.static(path.join(__dirname, 'public'), {
     else if (/\.(css|js|woff2)$/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=86400');
   },
 }));
+
+// ── Not-ready gate ────────────────────────────────────────────────────────
+// Until the schema is migrated, DB-backed routes must not be reached: a query
+// against an unmigrated or unreachable database produces an error, and an
+// error rendered into a panel is indistinguishable from real data meaning
+// "nothing". Refusing with an explicit 503 keeps "we cannot answer" separate
+// from "the answer is zero" — the same unreadable-is-never-zero rule the rest
+// of the codebase follows.
+//
+// Static assets are deliberately NOT gated. The marketing pages, the docs and
+// the learn pages need no database, so a database outage now degrades the site
+// instead of blacking it out.
+const DB_FREE_API = new Set(['/api/version']);
+app.use((req, res, next) => {
+  if (readiness.isReady()) return next();
+  if (!req.path.startsWith('/api/')) return next();
+  if (DB_FREE_API.has(req.path)) return next();
+  const snap = readiness.snapshot();
+  res.set('Retry-After', '15');
+  return res.status(503).json({ error: 'starting', reason: snap.reason });
+});
 
 // API routes
 app.use('/api/auth', authRouter);
@@ -537,19 +583,55 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-(async () => {
-  try {
-    await migrate();
-    console.log('Database migrated successfully');
-  } catch (err) {
-    console.error('Migration failed:', err.stack || err.message);
-    process.exit(1);
-  }
+// Bind the port BEFORE touching the database.
+//
+// This order is the whole fix. The previous order — await migrate(), exit on
+// failure, listen only on success — coupled the availability of every static
+// page to the reachability of the database, and did it in the worst possible
+// way: the process exited before it ever bound the port, so the failure did
+// not present as an error page but as nothing at all. Every request hung,
+// including /index.html and /styles.css, and a restarting platform simply
+// crash-looped with no healthy origin to route to.
+//
+// Listening first means a database outage costs the DB-backed panels and
+// nothing else. /healthz says alive, /readyz says why not ready, and the
+// site stays up.
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`RUNECLAW app running on port ${PORT}`);
+});
 
-  const PORT = process.env.PORT || 8080;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`RUNECLAW app running on port ${PORT}`);
-  });
+// Migration runs in the background and RETRIES rather than exiting, so a
+// database that comes back heals this process without a restart. Backoff is
+// bounded and capped; it never gives up, because giving up would mean a
+// permanently half-dead process that only a human could notice.
+const MIGRATE_BACKOFF_MS = [1000, 2000, 5000, 10000, 20000, 30000];
+
+async function migrateWithRetry() {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await migrate();
+      readiness.markReady();
+      console.log('Database migrated successfully');
+      return true;
+    } catch (err) {
+      // Coarse category only — the full error goes to the server log (operator
+      // surface), never to /readyz (public surface).
+      const reason = readiness.markAttemptFailed(err);
+      const wait = MIGRATE_BACKOFF_MS[Math.min(attempt, MIGRATE_BACKOFF_MS.length - 1)];
+      console.error(`Migration failed (${reason}); serving static content only, `
+        + `retrying in ${wait}ms:`, err.stack || err.message);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
+(async () => {
+  await migrateWithRetry();
+
+  // Every watcher below queries the database, so none of them may start
+  // before the schema is in place — that is why they wait on the retry loop
+  // rather than on the listen call.
 
   // Custom "tell me when…" alert tripwires: evaluate active alerts against
   // public tickers once a minute (skips instantly when none are armed).
