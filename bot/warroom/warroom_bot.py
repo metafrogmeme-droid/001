@@ -260,16 +260,25 @@ def render_signal(data: Dict[str, Any]) -> Dict[str, Any]:
 def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     dd = data.get("current_drawdown", 0.0)
     dll = data.get("daily_loss_limit", 5.0)
+    # The DRAWDOWN cap, which is a different control from the daily-loss cap.
+    # This whole card used to measure drawdown against `dll`: the verdict, the
+    # health score and the drawdown gauge were all computed by comparing a
+    # drawdown reading to the DAILY-LOSS limit. So /risk could report HEALTHY
+    # with the drawdown breaker about to trip, or WARNING for a drawdown
+    # nowhere near its actual cap. Falls back to dll only if the caller
+    # supplies nothing, so an old caller degrades to the previous behaviour
+    # rather than dividing by zero.
+    ddl = data.get("drawdown_limit") or dll
     max_t = data.get("max_open_trades", 5)
     open_t = data.get("open_trades", 0)
     lev = data.get("leverage_cap", 5)
 
-    healthy = dd < dll
+    healthy = dd < ddl
     status_icon = _OK if healthy else _BAD
     status_label = "HEALTHY" if healthy else "WARNING"
 
-    # Risk health score
-    risk_score = max(0, 100 - int(dd / dll * 100)) if dll > 0 else 100
+    # Risk health score — against the cap that actually governs drawdown.
+    risk_score = max(0, 100 - int(dd / ddl * 100)) if ddl > 0 else 100
     health_bar = _bar(risk_score, 100, 14)
 
     text = (
@@ -277,13 +286,14 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         f"  {status_icon} Status: <b>{status_label}</b>\n"
         f"  \u25cf Health \u2502{health_bar}\u2502 {_pill(f'{risk_score}%')}\n\n"
         # ── Gauges ──
-        f"{_gauge('Drawdown', dd, dll)}\n"
+        f"{_gauge('Drawdown', dd, ddl)}\n"
         f"{_gauge('Positions', float(open_t), float(max_t), unit='#')}\n"
         f"{_gauge('Leverage', 1.0, float(lev), unit='x')}\n\n"
         # ── Limits ──
         f"\U0001f512 <b>Limits</b>\n"
         "<pre>"
         f"{_kv('Daily Loss', f'{dll}%')}\n"
+        f"{_kv('Drawdown', f'{ddl}%')}\n"
         f"{_kv('Max Trades', str(max_t))}\n"
         f"{_kv('Open Now', str(open_t))}\n"
         f"{_kv('Leverage', f'{lev}x')}"

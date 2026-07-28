@@ -8056,10 +8056,38 @@ class TelegramHandler:
             open_count = len(_risk_ex.open_positions) if _risk_ex else 0
         else:
             open_count = state.open_positions
+        # Source every number from the control that ENFORCES it. This card
+        # previously reported `state.max_drawdown_pct` as "current drawdown" —
+        # the PAPER portfolio's monotonic worst-EVER, which never recovers and
+        # never moves in pure-live operation — and the renderer then measured
+        # it against the DAILY-LOSS cap to produce the HEALTHY/WARNING verdict,
+        # the health score and the drawdown gauge. Two different controls, so
+        # /risk could read HEALTHY with the drawdown breaker about to trip.
+        _dd_now = round(state.max_drawdown_pct, 2) if state.max_drawdown_pct else 0.0
+        _dd_limit = CONFIG.risk.max_drawdown_pct
+        try:
+            _st = self.engine.risk.drawdown_status() or {}
+            if _st.get("drawdown_pct") is not None:
+                _dd_now = round(float(_st["drawdown_pct"]), 2)
+            if _st.get("effective_limit_pct"):
+                _dd_limit = float(_st["effective_limit_pct"])
+        except Exception:
+            pass
+        # In LIVE mode two independent caps bound the position count — the risk
+        # engine's and the executor's — so the BINDING one is the lower. Showing
+        # only the higher would promise room the other refuses.
+        _max_trades = CONFIG.risk.max_open_positions
+        if CONFIG.is_live():
+            try:
+                _max_trades = min(_max_trades,
+                                  int(CONFIG.execution.max_live_open_positions))
+            except Exception:
+                pass
         data = {
             "daily_loss_limit": CONFIG.risk.max_daily_loss_pct,
-            "current_drawdown": round(state.max_drawdown_pct, 2) if state.max_drawdown_pct else 0.0,
-            "max_open_trades": CONFIG.risk.max_open_positions,
+            "drawdown_limit": _dd_limit,
+            "current_drawdown": _dd_now,
+            "max_open_trades": _max_trades,
             "open_trades": open_count,
             "leverage_cap": CONFIG.exchange.default_leverage,
         }
