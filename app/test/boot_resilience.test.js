@@ -51,9 +51,14 @@ test('classifies failures into the coarse vocabulary only', () => {
   assert.equal(readiness.classify({ code: 'ETIMEDOUT' }), 'db_unreachable');
   assert.equal(readiness.classify({ code: 'ENOTFOUND' }), 'db_unreachable');
   assert.equal(readiness.classify({ code: 'ER_ACCESS_DENIED_ERROR' }), 'db_auth');
-  // anything unrecognised collapses — it does not pass detail through
+  // An unrecognised CODE collapses — it does not pass detail through.
   assert.equal(readiness.classify({ code: 'ER_SOMETHING_NEW' }), 'db_error');
-  assert.equal(readiness.classify(new Error('boom')), 'db_error');
+  // A failure with NO code is a different signal: every mysql2 error that
+  // reaches the network carries one, so its absence means the options never
+  // parsed. Bucketing it with unknown codes sent an operator hunting an IP
+  // allowlist for a malformed `ssl` parameter.
+  assert.equal(readiness.classify(new Error('boom')), 'db_url');
+  // An ABSENT error claims nothing — there is no failure to attribute.
   assert.equal(readiness.classify(null), 'db_error');
   assert.equal(readiness.classify(undefined), 'db_error');
 });
@@ -72,9 +77,12 @@ test('the readiness body never carries driver text, host or credentials', () => 
 });
 
 test('classify reads only the error code, never the message', () => {
-  // A message mentioning a known code must NOT be promoted out of db_error —
-  // otherwise arbitrary driver prose could steer the public reason field.
-  assert.equal(readiness.classify({ message: 'ECONNREFUSED somewhere' }), 'db_error');
+  // A message mentioning a known code must NOT be promoted to that code —
+  // otherwise arbitrary driver prose could steer the public reason field. It
+  // carries no code, so it classifies on that absence alone.
+  assert.equal(readiness.classify({ message: 'ECONNREFUSED somewhere' }), 'db_url');
+  assert.notEqual(readiness.classify({ message: 'ECONNREFUSED somewhere' }),
+    'db_unreachable', 'prose must never be promoted into a code');
 });
 
 test('every emitted reason is in the declared vocabulary', () => {

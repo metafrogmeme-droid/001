@@ -231,3 +231,42 @@ test('a missing or unwritable log directory is silently tolerated', () => {
   delete process.env.WEB_LOG_DIR;
   bootLog._reset();
 });
+
+// ── a failure with no driver code is its own signal ───────────────────────
+
+test('a connection string that will not parse is named, not bucketed', () => {
+  const readiness = require('../lib/readiness');
+  readiness._reset();
+  // Every mysql2 failure that REACHES the network carries a code. One with
+  // none did not get that far — in practice a malformed DATABASE_URL or an
+  // `ssl` parameter that is not valid JSON. Verified against mysql2:
+  //   ?ssl={"minVersion":"TLSv1.2"}  → ECONNREFUSED  (reaches the socket)
+  //   ?ssl={mangled} / ?ssl=true     → code undefined (never gets there)
+  // Collapsing both into db_error sent an operator hunting an IP allowlist
+  // for a connection string problem.
+  assert.equal(readiness.classify(new Error('boom')), 'db_url');
+  assert.equal(readiness.classify({ message: 'no code here' }), 'db_url');
+  // An UNRECOGNISED code is a different thing and keeps the catch-all.
+  assert.equal(readiness.classify({ code: 'ER_SOMETHING_NEW' }), 'db_error');
+  // Absent errors stay in the catch-all rather than claiming a URL fault.
+  assert.equal(readiness.classify(null), 'db_error');
+  assert.equal(readiness.classify(undefined), 'db_error');
+  readiness._reset();
+});
+
+test('an IP allowlist rejection would NOT read as a URL fault', () => {
+  const readiness = require('../lib/readiness');
+  readiness._reset();
+  // A blocked source address fails at the network layer, so it carries a code
+  // and reports as unreachable. This distinction is what tells an operator
+  // whether to edit a connection string or an allowlist.
+  for (const code of ['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH']) {
+    assert.equal(readiness.classify({ code }), 'db_unreachable');
+  }
+  readiness._reset();
+});
+
+test('db_url is in the declared vocabulary', () => {
+  const readiness = require('../lib/readiness');
+  assert.ok(readiness.REASONS.includes('db_url'));
+});

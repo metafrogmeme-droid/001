@@ -32,6 +32,7 @@ const REASONS = Object.freeze([
   'db_tls',          // the server answered and refused the transport
   'db_config',       // the server answered; the URL names something that isn't there
   'db_timeout',      // the attempt was still running when its cap expired
+  'db_url',          // failed before the network — the options did not parse
   'db_error',        // reached, failed, cause not classifiable — no detail kept
   'ready',           // migration succeeded; database-backed traffic is served
 ]);
@@ -85,6 +86,20 @@ let _readySince = null;
  */
 function classify(err) {
   const code = err && typeof err.code === 'string' ? err.code : '';
+  // NO driver code at all is itself a signal, and a different one from "a code
+  // I don't recognise". Every mysql2 failure that reaches the network carries a
+  // code (ECONNREFUSED, ETIMEDOUT, ER_*); a failure with none did not get that
+  // far, which in practice means the connection OPTIONS could not be parsed — a
+  // malformed DATABASE_URL, or an `ssl` parameter that is not valid JSON.
+  // Verified: `?ssl={mangled}` and `?ssl=true` both throw with code undefined,
+  // while a well-formed `?ssl={...}` reaches the socket and fails with a real
+  // code. Collapsing the two into 'db_error' sent an operator hunting an IP
+  // allowlist for a connection string problem.
+  //
+  // Honest caveat: any non-driver exception raised inside migrate() would also
+  // land here. The reason says "the failure carried no driver code" — the
+  // connection string is the overwhelmingly likely cause, not a certainty.
+  if (err && !code) return 'db_url';
   if (code === TIMEOUT_CODE) return 'db_timeout';
   if (UNREACHABLE.has(code)) return 'db_unreachable';
   if (AUTH.has(code)) return 'db_auth';

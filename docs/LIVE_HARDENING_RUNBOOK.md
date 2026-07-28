@@ -199,6 +199,7 @@ a public endpoint. The full error goes to the server log instead.
 | `db_tls` | the server answered and refused the transport | see below — the usual TiDB cause |
 | `db_config` | the server answered; the URL names something absent | database name, host allowlist |
 | `db_timeout` | the attempt was still running when its cap expired | the driver never came back at all |
+| `db_url` | the failure carried **no driver code** — it never reached the network | the connection string, almost always the `ssl` parameter |
 | `db_error` | reached, failed, cause not yet classified | grep the log (below) and send the code |
 
 ⚠️ **`starting` with `attempts: 0` long after boot is not "still starting".** It
@@ -206,14 +207,29 @@ means no attempt has ever *finished* — the driver is hanging. Each attempt is
 capped (`MIGRATE_ATTEMPT_TIMEOUT_MS`, default 45s), so this should resolve into
 `db_timeout` and keep retrying; if it does not, the cap has been disabled.
 
-**`db_tls` — the most likely TiDB failure.** TiDB Cloud mandates encrypted
-transport and refuses a plaintext connect with `ER_SECURE_TRANSPORT_REQUIRED`.
-The database is fine; the connection string is missing its TLS options. Append
-them to `DATABASE_URL`:
+**TiDB requires TLS, and the `ssl` parameter must be valid JSON.** Append it to
+`DATABASE_URL` **URL-encoded**, so nothing can mangle the braces or quotes on
+the way through a shell or an env-var injection:
 
 ```
-mysql://USER:PASS@HOST:4000/DB?ssl={"minVersion":"TLSv1.2","rejectUnauthorized":true}
+mysql://USER:PASS@HOST:4000/DB?ssl=%7B%22minVersion%22%3A%22TLSv1.2%22%2C%22rejectUnauthorized%22%3Atrue%7D
 ```
+
+⚠️ **`ssl=true` does not work**, and neither does unquoted JSON. Both throw
+before the driver reaches the network, so they report `db_url` — verified
+against mysql2:
+
+| `ssl` form | result |
+|---|---|
+| valid JSON (raw or URL-encoded) | reaches the socket; fails there with a real code |
+| `{mangled}` — unquoted keys | no driver code → `db_url` |
+| `ssl=true` | no driver code → `db_url` |
+
+**This is how to tell a connection-string fault from an allowlist one.** A
+blocked source address fails at the *network* layer, so it carries a code and
+reports `db_unreachable` (or `db_timeout` if the peer simply never answers).
+`db_url` means the driver never got that far — do not go hunting an IP
+allowlist for it.
 
 **Which build is actually serving.** `/api/version` reports the commit when it
 can. On a bundled deploy it usually cannot — no `BUILD_SHA`, no
