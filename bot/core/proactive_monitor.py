@@ -1562,7 +1562,56 @@ class ProactiveMonitor:
         try:
             from bot.core.black_swan import _HALT_SEVERITY
             if hasattr(self.engine, 'black_swan'):
-                for alert_obj in self.engine.black_swan.active_alerts:
+                raw_alerts = list(self.engine.black_swan.active_alerts)
+                # One market event, one page: when several correlation
+                # breakdowns share the same PEER (one symbol decorrelating
+                # from many), collapse them into a single alert naming the
+                # hub — the old behaviour paged once per counterpart within
+                # a minute for what was one idiosyncratic move.
+                by_peer: dict = {}
+                singles = []
+                for a in raw_alerts:
+                    kind_ = getattr(a.anomaly_type, "value", a.anomaly_type)
+                    if kind_ == "CORRELATION_BREAKDOWN" and getattr(a, "peer", None):
+                        by_peer.setdefault(a.peer, []).append(a)
+                    else:
+                        singles.append(a)
+                for peer, group in by_peer.items():
+                    if len(group) < 2:
+                        singles.extend(group)
+                        continue
+                    top = max(group, key=lambda a: float(a.severity))
+                    sev_ = float(top.severity)
+                    severe_ = sev_ >= _HALT_SEVERITY
+                    names = ", ".join(sorted(a.symbol for a in group))
+                    ts_ = datetime.now(UTC).strftime("%H:%M:%S UTC")
+                    head_icon = "\U0001f6a8" if severe_ else "\U0001f440"
+                    head_word = "DETECTED" if severe_ else "NOTED"
+                    sev_icon_ = ("\U0001f534" if severe_
+                                 else "\U0001f7e0" if sev_ >= 0.3 else "\U0001f7e1")
+                    alerts.append(Alert(
+                        alert_type="BLACK_SWAN",
+                        severity="CRITICAL" if severe_ else "WARNING",
+                        title=f"Anomaly cluster: {peer} decorrelated",
+                        body=(
+                            f"{head_icon} <b>ANOMALY {head_word}</b> (clustered)\n"
+                            "────────────────\n"
+                            f"- Type: <code>CORRELATION_BREAKDOWN</code> \u00d7 {len(group)}\n"
+                            f"- Hub: <code>{peer}</code> decorrelated from <code>{names}</code>\n"
+                            f"- Worst severity: {sev_icon_} "
+                            f"<code>{sev_:.2f}</code> (advises {top.recommended_action})\n"
+                            f"- Detected At: <code>{ts_}</code>\n\n"
+                            f"<i>{top.description}</i>\n"
+                            "────────────────\n"
+                            "\u26a0\ufe0f One market event, clustered from "
+                            f"{len(group)} pairwise alerts. This is an OBSERVATION, not an "
+                            "action \u2014 use /halt to stop trading.\n"
+                            f"\U0001f449 /status — check engine state\n"
+                            f"\U0001f449 Say \"positions\" to review exposure"
+                        ),
+                        dedup_key=f"bs_CORR_HUB_{peer}",
+                    ))
+                for alert_obj in singles:
                     # `.value`, not the enum. AnomalyType is a `str, Enum`, and
                     # Python 3.11 formats those as "AnomalyType.PRICE_ACCELERATION"
                     # — which went into the dedup key AND into the Telegram
@@ -1571,14 +1620,20 @@ class ProactiveMonitor:
                     key = f"bs_{kind}_{alert_obj.symbol}"
                     severe = float(alert_obj.severity) >= _HALT_SEVERITY
                     sev = "CRITICAL" if severe else "WARNING"
-                    sev_icon = "\U0001f534" if severe else "\U0001f7e0"
+                    # Three visual tiers, so a 0.03 observation never wears the
+                    # same siren as a 1.00 — the alarm's credibility is the asset.
+                    sev_icon = ("\U0001f534" if severe
+                                else "\U0001f7e0" if float(alert_obj.severity) >= 0.3
+                                else "\U0001f7e1")
                     ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+                    head_icon = "\U0001f6a8" if severe else "\U0001f440"
+                    head_word = "DETECTED" if severe else "NOTED"
                     alerts.append(Alert(
                         alert_type="BLACK_SWAN",
                         severity=sev,
                         title=f"Anomaly: {kind}",
                         body=(
-                            f"\U0001f6a8 <b>ANOMALY DETECTED</b>\n"
+                            f"{head_icon} <b>ANOMALY {head_word}</b>\n"
                             "────────────────\n"
                             f"- Type: <code>{kind}</code>\n"
                             f"- Symbol: <code>{alert_obj.symbol}</code>\n"

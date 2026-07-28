@@ -47,6 +47,10 @@ class AnomalyAlert(BaseModel):
     metric_value: float  # the actual measured value
     threshold: float  # the threshold it exceeded
     recommended_action: str  # e.g. "HALT_NEW_TRADES", "REDUCE_POSITION_SIZE", "MONITOR"
+    # The counterparty of a pairwise anomaly (correlation breakdown names the
+    # peer that decorrelated) — lets the alert pipeline CLUSTER one market
+    # event that fires against many symbols into a single page.
+    peer: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -57,6 +61,11 @@ class AnomalyAlert(BaseModel):
 _MAX_HISTORY = 100
 _CORRELATION_WINDOW = 20
 _CORRELATION_THRESHOLD = 0.3
+# A "breakdown" needs something to break: the pair must have been genuinely
+# correlated over the PRIOR window before an uncorrelated present means
+# anything. Without this gate, any two unrelated small-caps sitting near
+# zero correlation — normal alt behaviour — paged at max severity.
+_CORRELATION_BASELINE = 0.6
 _VOLUME_WINDOW = 20
 _VOLUME_COLLAPSE_RATIO = 0.30
 _PRICE_ACCEL_WINDOW = 5
@@ -200,57 +209,70 @@ class BlackSwanDetector:
     # -- individual anomaly checks ------------------------------------------
 
     def _check_correlation_breakdown(self, symbol: str) -> Optional[AnomalyAlert]:
-        """Detect divergence between assets that normally move together.
+        """Detect divergence between assets that WERE moving together.
 
-        Computes pairwise rolling correlation (window = 20) between *symbol*
-        and every other tracked symbol.  If the minimum correlation drops
-        below ``_CORRELATION_THRESHOLD`` (0.3), an alert is raised.
+        A breakdown needs something to break. For each peer we compute the
+        correlation over the PRIOR window (bars -40..-20, the baseline) and
+        over the CURRENT window (bars -20..). Only a pair whose baseline was
+        >= ``_CORRELATION_BASELINE`` (0.6) and whose current correlation fell
+        below ``_CORRELATION_THRESHOLD`` (0.3) is a breakdown; two symbols
+        that were never correlated sitting near zero is normal market
+        behaviour, not an anomaly (the old check paged max-severity for
+        exactly that). Severity scales with the DROP from baseline, and
+        insufficient history is silence, never a guess.
         """
         prices = self._price_history.get(symbol)
-        if prices is None or len(prices) < _CORRELATION_WINDOW:
+        if prices is None or len(prices) < 2 * _CORRELATION_WINDOW:
             return None
 
-        target = np.array(prices[-_CORRELATION_WINDOW:])
-        # Need at least one other symbol to compare against
+        target_now = np.array(prices[-_CORRELATION_WINDOW:])
+        target_base = np.array(prices[-2 * _CORRELATION_WINDOW:-_CORRELATION_WINDOW])
         other_symbols = [s for s in self._price_history if s != symbol]
         if not other_symbols:
             return None
 
-        min_corr = 1.0
-        worst_peer = symbol
+        worst = None   # (drop, current, baseline, peer)
         for peer in other_symbols:
-            peer_prices = self._price_history[peer]
-            if len(peer_prices) < _CORRELATION_WINDOW:
+            pp = self._price_history[peer]
+            if len(pp) < 2 * _CORRELATION_WINDOW:
                 continue
-            peer_arr = np.array(peer_prices[-_CORRELATION_WINDOW:])
+            peer_now = np.array(pp[-_CORRELATION_WINDOW:])
+            peer_base = np.array(pp[-2 * _CORRELATION_WINDOW:-_CORRELATION_WINDOW])
             # Guard against constant series (zero std)
-            if np.std(target) == 0 or np.std(peer_arr) == 0:
+            if min(np.std(target_now), np.std(target_base),
+                   np.std(peer_now), np.std(peer_base)) == 0:
                 continue
-            corr = float(np.corrcoef(target, peer_arr)[0, 1])
-            if corr < min_corr:
-                min_corr = corr
-                worst_peer = peer
+            baseline = float(np.corrcoef(target_base, peer_base)[0, 1])
+            if baseline < _CORRELATION_BASELINE:
+                continue   # never correlated -> nothing broke
+            current = float(np.corrcoef(target_now, peer_now)[0, 1])
+            if current >= _CORRELATION_THRESHOLD:
+                continue
+            drop = baseline - current
+            if worst is None or drop > worst[0]:
+                worst = (drop, current, baseline, peer)
 
-        if min_corr < _CORRELATION_THRESHOLD:
-            severity = self._severity_from_ratio(
-                _CORRELATION_THRESHOLD - min_corr,
-                floor=0.0,
-                ceiling=_CORRELATION_THRESHOLD,
-            )
-            action = "HALT_NEW_TRADES" if severity >= _HALT_SEVERITY else "REDUCE_POSITION_SIZE"
-            return AnomalyAlert(
-                anomaly_type=AnomalyType.CORRELATION_BREAKDOWN,
-                severity=severity,
-                symbol=symbol,
-                description=(
-                    f"Correlation between {symbol} and {worst_peer} collapsed to "
-                    f"{min_corr:.3f} (threshold {_CORRELATION_THRESHOLD})"
-                ),
-                metric_value=min_corr,
-                threshold=_CORRELATION_THRESHOLD,
-                recommended_action=action,
-            )
-        return None
+        if worst is None:
+            return None
+        drop, current, baseline, peer = worst
+        # Full severity means a genuinely tight pair inverting (drop ~1.0+),
+        # not merely dipping under the threshold.
+        severity = self._severity_from_ratio(drop, floor=0.0, ceiling=1.0)
+        action = "HALT_NEW_TRADES" if severity >= _HALT_SEVERITY else "REDUCE_POSITION_SIZE"
+        return AnomalyAlert(
+            anomaly_type=AnomalyType.CORRELATION_BREAKDOWN,
+            severity=severity,
+            symbol=symbol,
+            description=(
+                f"Correlation between {symbol} and {peer} collapsed to "
+                f"{current:.3f} (was {baseline:.3f} over the prior window; "
+                f"alert threshold {_CORRELATION_THRESHOLD})"
+            ),
+            metric_value=current,
+            threshold=_CORRELATION_THRESHOLD,
+            recommended_action=action,
+            peer=peer,
+        )
 
     def _check_volume_collapse(self, symbol: str) -> Optional[AnomalyAlert]:
         """Detect sudden liquidity evaporation.
