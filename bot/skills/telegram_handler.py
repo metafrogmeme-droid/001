@@ -3403,6 +3403,24 @@ class TelegramHandler:
                       "the operator loop keeps its own stance. /mystrategy off clears.")
         await self._reply(update, "\n".join(x for x in _lines if x))
 
+    @staticmethod
+    def _tick_age_s(engine) -> "float | None":
+        """Seconds since the engine last started a tick, or None if it never
+        has. Never raises — a status card must not fail on a liveness read.
+
+        Deliberately NOT placed between a @guard decorator and its command:
+        an insertion there silently re-targets the decorator (it wrapped this
+        helper and left /leverage unguarded once — caught by the audience
+        ratchet test, and now by this comment)."""
+        try:
+            import time as _t
+            last = getattr(engine, "_last_tick_started_ts", None)
+            if last is None:
+                return None
+            return max(0.0, _t.monotonic() - float(last))
+        except Exception:
+            return None
+
     @guard("leverage")
     async def _cmd_leverage(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/leverage — the standard leverage, runtime-adjustable (admin).
@@ -8087,6 +8105,10 @@ class TelegramHandler:
             market_bias=macro.state.value.replace("_", " ").title(),
             pending_ideas=len(self.engine.pending_ideas) if hasattr(self.engine, "pending_ideas") else 0,
             lang=self._lang(update),
+            # Seconds since the engine last STARTED a tick. None when the
+            # engine has not ticked yet (documented monotonic None-sentinel)
+            # — the card then omits the line rather than printing a zero.
+            tick_age_s=self._tick_age_s(self.engine),
         )
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).

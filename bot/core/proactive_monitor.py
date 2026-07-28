@@ -100,6 +100,9 @@ class ProactiveMonitor:
         self.last_loop_ts: float | None = None
         # Edge-trigger state for the engine-tick stall watch.
         self._tick_stale_alerted = False
+        # The _last_tick_started_ts a stall was alerted for. Re-arming keys on
+        # this MOVING, not on the predicate momentarily reading healthy.
+        self._tick_stale_alerted_for = None
         self._dedup_cache: dict[str, float] = {}  # dedup_key -> last_alert_time
 
         # State tracking for change detection
@@ -1011,15 +1014,65 @@ class ProactiveMonitor:
                 continue
         return out
 
+    @staticmethod
+    def _await_chain_frames(task: "Any", max_depth: int = 60) -> "list[Any]":
+        """Every frame from the task's outermost coroutine down to the await
+        it is actually parked on.
+
+        WHY THIS EXISTS (production incident, 2026-07-28): the diagnosis used
+        Task.get_stack() alone and reported a ONE-FRAME stack —
+        "engine.py:2226 in run" — for a real 900s hang. That is the line
+        `await self._tick_guarded()`: the outermost suspension point, and
+        nothing about where the tick actually parked. get_stack() does NOT
+        descend into nested awaited coroutines; a self-diagnosing alert that
+        cannot name the culprit is a stall alert with the diagnosis missing.
+
+        The chain has to be walked explicitly: a suspended coroutine exposes
+        what it awaits as `cr_await` (async generators: `ag_await`, legacy
+        generators: `gi_yieldfrom`). Following that link yields the real
+        innermost frame. Cycle-guarded and depth-capped; a Future/Task at the
+        end of the chain simply terminates the walk (it has no frame).
+        """
+        frames: list[Any] = []
+        seen: set[int] = set()
+        try:
+            obj = task.get_coro()
+        except Exception:
+            return frames
+        depth = 0
+        while obj is not None and depth < max_depth and id(obj) not in seen:
+            seen.add(id(obj))
+            depth += 1
+            fr = (getattr(obj, "cr_frame", None)
+                  or getattr(obj, "gi_frame", None)
+                  or getattr(obj, "ag_frame", None))
+            if fr is not None:
+                frames.append(fr)
+            nxt = (getattr(obj, "cr_await", None)
+                   or getattr(obj, "ag_await", None)
+                   or getattr(obj, "gi_yieldfrom", None))
+            if nxt is None:
+                # A Task/Future ends the coroutine chain — but a Task wraps
+                # its own coroutine, so step into it rather than stopping at
+                # a name-less boundary.
+                inner = getattr(obj, "get_coro", None)
+                nxt = inner() if callable(inner) else None
+            obj = nxt
+        return frames
+
     def _stall_diagnosis(self) -> "list[str]":
         """Best-effort stack of the engine's hung run/tick task.
 
         The monitor shares the engine's event loop, so when TICK_STALL fires
         the loop is demonstrably alive and the hang is a parked await — whose
-        suspended frames are readable in place via Task.get_stack(). The
-        engine task is the one whose OUTERMOST frame is Engine.run (a stuck
-        post-tick maintenance await still matches; '_tick' alone would not).
-        Fail-open: any error returns [] and never touches the alert path.
+        suspended frames are readable in place. The engine task is the one
+        whose OUTERMOST frame is Engine.run (a stuck post-tick maintenance
+        await still matches; '_tick' alone would not).
+
+        Task.get_stack() identifies the task but reports only that outermost
+        frame, so the DEEP chain comes from _await_chain_frames — the line
+        that actually names the parked call. Falls back to the shallow stack
+        if the walk yields nothing. Fail-open: any error returns [].
         """
         try:
             for task in asyncio.all_tasks():
@@ -1031,7 +1084,8 @@ class ProactiveMonitor:
                     continue
                 code = frames[0].f_code
                 if code.co_name == "run" and str(code.co_filename).endswith("engine.py"):
-                    return self._frame_summaries(frames)
+                    deep = self._await_chain_frames(task)
+                    return self._frame_summaries(deep or frames)
         except Exception:
             pass
         return []
@@ -1046,7 +1100,13 @@ class ProactiveMonitor:
         stalled = self._is_tick_stalled(
             last, time.monotonic(), self.TICK_STALL_THRESHOLD_S,
             next_due=getattr(self.engine, "_next_tick_due_ts", None))
-        if stalled and not self._tick_stale_alerted:
+        # One hang, one page. The alert is edge-triggered, but re-arming on
+        # "predicate reads healthy" let a moving _next_tick_due_ts re-arm it
+        # DURING a hang: the operator got repeated CRITICAL pages 13s apart
+        # for one stall (2026-07-28). Re-arm only when the tick has actually
+        # MOVED — a changed _last_tick_started_ts is the only proof of that.
+        if stalled and self._tick_stale_alerted_for != last:
+            self._tick_stale_alerted_for = last
             self._tick_stale_alerted = True
             age = time.monotonic() - last
             # Self-diagnosing alert: capture WHERE the loop is parked. Full
@@ -1069,8 +1129,9 @@ class ProactiveMonitor:
                       f"{hung_at}"),
                 dedup_key="tick_stall",
             ))
-        elif not stalled:
+        elif not stalled and last != self._tick_stale_alerted_for:
             self._tick_stale_alerted = False
+            self._tick_stale_alerted_for = None
         return alerts
 
     def _check_warning_rate_breaker(self) -> list[Alert]:

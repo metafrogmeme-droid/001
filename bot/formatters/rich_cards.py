@@ -767,6 +767,7 @@ def render_status_card(
     market_bias: str,
     pending_ideas: int = 0,
     lang: str = "en",
+    tick_age_s: Optional[float] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
@@ -787,6 +788,15 @@ def render_status_card(
         f"- {t('lbl_mode', lang)}: {mode}",
         f"- {t('lbl_market_bias', lang)}: {market_bias}",
         f"- {t('lbl_pending_ideas', lang)}: {pending_ideas}",
+        # Loop liveness. During a parked tick the FSM state and the cached
+        # equity FREEZE — so "Active" is not evidence the loop is running,
+        # and an operator debugging a hang (2026-07-28) had no way to tell
+        # from /status at all. This line is the one number that answers it.
+        *([] if tick_age_s is None else [
+            f"- {t('lbl_last_tick', lang)}: "
+            + (f"{tick_age_s:.0f}s {t('val_ago', lang)}" if tick_age_s < 120
+               else f"\u26a0 {tick_age_s / 60:.0f}m {t('val_ago', lang)} — "
+                    + t('val_loop_stalled', lang))]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —
