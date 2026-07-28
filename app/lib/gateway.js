@@ -18,6 +18,23 @@ function isConfigured() {
   return GATEWAY_SECRET.length >= 32;
 }
 
+// How long to wait for the TCP CONNECTION, as opposed to the response.
+//
+// These are different failures and they deserve different patience. A chat
+// reply legitimately takes many seconds — there is a model behind it. Getting
+// a socket to the bot does not: on a reachable host it is milliseconds, and
+// if it has not happened in a few seconds it is not going to.
+//
+// Sharing one long budget between them cost a diagnosis. An unreachable
+// gateway (a firewall that DROPS rather than REJECTS, so packets vanish
+// instead of bouncing) made the request hang for the full response timeout —
+// longer than the CDN in front of this app was willing to wait. The visitor
+// got the edge's opaque "error code: 502" instead of this app's
+// {"error":"Chat unavailable"}, and the operator was left unable to tell
+// "cannot reach the bot" from "the app is down". Failing the connect fast
+// means our own honest error arrives first.
+const CONNECT_TIMEOUT_MS = Number(process.env.GATEWAY_CONNECT_TIMEOUT_MS || 4000);
+
 function requestJSON(method, gwPath, body, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     const url = `${BOT_GATEWAY_URL}/gateway${gwPath}`;
@@ -28,6 +45,7 @@ function requestJSON(method, gwPath, body, timeoutMs = 20000) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = Buffer.byteLength(payload);
     }
+    let connectTimer = null;
     const req = mod.request(url, { method, timeout: timeoutMs, headers }, (res) => {
       let data = '';
       res.on('data', d => data += d);
@@ -36,8 +54,27 @@ function requestJSON(method, gwPath, body, timeoutMs = 20000) {
         catch (e) { reject(new Error('Invalid JSON from gateway')); }
       });
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Gateway timeout')); });
+    // Fast-fail the CONNECT phase only. Cleared the moment a socket is
+    // established, so a slow model reply is never cut short by it.
+    req.on('socket', (sock) => {
+      if (!CONNECT_TIMEOUT_MS) return;
+      if (sock.connecting === false) return;          // already up (pooled)
+      connectTimer = setTimeout(() => {
+        req.destroy();
+        const e = new Error('Gateway unreachable — no connection established');
+        e.code = 'GATEWAY_UNREACHABLE';
+        reject(e);
+      }, CONNECT_TIMEOUT_MS);
+      const clear = () => { if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; } };
+      sock.once('connect', clear);
+      sock.once('error', clear);
+    });
+    req.on('error', (e) => { if (connectTimer) clearTimeout(connectTimer); reject(e); });
+    req.on('timeout', () => {
+      if (connectTimer) clearTimeout(connectTimer);
+      req.destroy();
+      reject(new Error('Gateway timeout'));
+    });
     if (payload) req.write(payload);
     req.end();
   });

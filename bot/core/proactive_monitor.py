@@ -123,6 +123,11 @@ class ProactiveMonitor:
         self._last_warn_rate: bool = False         # last warning-rate-breaker state
         self._last_tick_degraded: bool = False     # last tick-failure alert state
         self._scan_timeout_alerted_at: int | None = None
+        # Last result of the public-gateway probe: the path the WEBSITE uses
+        # to reach this bot. None until the first probe runs.
+        self._gw_probe: dict | None = None
+        self._gw_probe_at: float = 0.0
+        self._gw_alerted_state: str | None = None
         self._last_llm_degraded: bool = False       # last LLM-brain-offline state
         # Strangle watchdog: rolling (wall_ts, evaluated, approved, fails_by_gate)
         # snapshots of the risk engine's cumulative counters, plus our own
@@ -276,6 +281,7 @@ class ProactiveMonitor:
                 # (below, in _check_all) sees current headlines. Throttled + never
                 # raises; the only network I/O in the loop.
                 await self._refresh_news_radar()
+                await self._probe_public_gateway()
                 alerts = self._check_all()
                 for alert in alerts:
                     if self._should_send(alert):
@@ -298,6 +304,7 @@ class ProactiveMonitor:
         alerts.extend(self._check_drawdown_tiers())
         alerts.extend(self._check_tick_failures())
         alerts.extend(self._check_scan_timeouts())
+        alerts.extend(self._check_public_gateway())
         alerts.extend(self._check_engine_tick_stale())
         alerts.extend(self._check_warning_rate_breaker())
         alerts.extend(self._check_llm_degraded())
@@ -978,6 +985,120 @@ class ProactiveMonitor:
             self._last_tick_degraded = degraded
         except Exception as exc:
             system_log.debug("tick-failure check failed: %s", exc)
+        return alerts
+
+    # The one other piece of network I/O in this loop, same contract as the
+    # news radar above: throttled, bounded, and it never raises.
+    async def _probe_public_gateway(self) -> None:
+        """Prove the WEBSITE's path to this bot still works, from this side.
+
+        The website reaches the bot over a public URL. When that broke there
+        was nothing to notice it: the website has no alert channel, and the
+        bot never knew it was being reached until it wasn't — so the first
+        report came from a person opening the page. An ephemeral tunnel URL
+        rotating on restart breaks it silently and looks exactly like a
+        firewall.
+
+        Probing from HERE closes that, because this process is the one that
+        can page an operator. The result distinguishes the two faults, which
+        have different remedies:
+
+          unreachable  the URL is wrong/expired or the path is blocked
+          forbidden    reachable, but the shared secret no longer matches
+
+        Never raises and never blocks the loop for long: one bounded request
+        on a slow interval.
+        """
+        url = str(getattr(CONFIG.monitoring, "public_gateway_url", "") or "").strip()
+        if not url:
+            return
+        every = float(getattr(CONFIG.monitoring, "public_gateway_probe_interval_s", 300.0) or 300.0)
+        now = time.monotonic()
+        if self._gw_probe_at and (now - self._gw_probe_at) < every:
+            return
+        self._gw_probe_at = now
+
+        secret = (os.environ.get("WEB_GATEWAY_SECRET") or "").strip()
+        result: dict = {"state": "unreachable", "status": None}
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=10)
+            headers = {"X-Gateway-Secret": secret} if secret else {}
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get(url.rstrip("/") + "/gateway/health",
+                                    headers=headers) as resp:
+                    result["status"] = resp.status
+                    if resp.status == 200:
+                        result["state"] = "ok"
+                    elif resp.status in (401, 403):
+                        result["state"] = "forbidden"
+                    else:
+                        result["state"] = "error"
+        except Exception as exc:
+            result["state"] = "unreachable"
+            system_log.debug("public gateway probe failed: %s", exc)
+
+        prev = self._gw_probe or {}
+        fails = int(prev.get("consecutive_failures") or 0)
+        result["consecutive_failures"] = 0 if result["state"] == "ok" else fails + 1
+        self._gw_probe = result
+
+    # Consecutive probe failures before paging. One is a blip; two in a row on
+    # a 5-minute interval is a real outage of the website's path to the bot.
+    GATEWAY_PROBE_ALERT_AT = 2
+
+    def _check_public_gateway(self) -> list[Alert]:
+        """Page when the WEBSITE can no longer reach this bot, and say which
+        fault it is. Edge-triggered on the STATE, so a recovery re-arms it and
+        a change of fault (unreachable -> forbidden) pages again."""
+        alerts: list[Alert] = []
+        try:
+            p = self._gw_probe
+            if not isinstance(p, dict):
+                return alerts
+            state = str(p.get("state") or "")
+            if state == "ok":
+                if self._gw_alerted_state and self._gw_alerted_state != "ok":
+                    self._gw_alerted_state = "ok"
+                    sep = "\u2500" * 16
+                    alerts.append(Alert(
+                        alert_type="GATEWAY_OK", severity="INFO",
+                        title="Website can reach the bot again",
+                        body=("\u2705 <b>WEB GATEWAY RECOVERED</b>\n"
+                              f"{sep}\n"
+                              "The website's path to this bot is working again — "
+                              "chat and web trade are back."),
+                        dedup_key="gateway_recovered"))
+                else:
+                    self._gw_alerted_state = "ok"
+                return alerts
+            if int(p.get("consecutive_failures") or 0) < self.GATEWAY_PROBE_ALERT_AT:
+                return alerts
+            if self._gw_alerted_state == state:
+                return alerts
+            self._gw_alerted_state = state
+            sep = "\u2500" * 16
+            if state == "forbidden":
+                why = ("The bot answered but REJECTED the shared secret.\n"
+                       "WEB_GATEWAY_SECRET differs between the website and this bot.")
+            elif state == "unreachable":
+                why = ("No answer at the public gateway URL.\n"
+                       "The URL has changed or expired (an ephemeral tunnel does this "
+                       "on every restart), or the path is blocked.")
+            else:
+                why = f"The gateway answered with HTTP {p.get('status')}."
+            alerts.append(Alert(
+                alert_type="GATEWAY_DOWN", severity="WARNING",
+                title="Website cannot reach the bot",
+                body=("\U0001f7e0 <b>WEB GATEWAY UNREACHABLE</b>\n"
+                      f"{sep}\n"
+                      f"{why}\n"
+                      "Web chat and web trade are down. Trading is unaffected — "
+                      "this is the website's path to me, not the exchange.\n"
+                      f"{sep}"),
+                dedup_key=f"gateway_down_{state}"))
+        except Exception as exc:
+            system_log.debug("public-gateway check failed: %s", exc)
         return alerts
 
     def _check_scan_timeouts(self) -> list[Alert]:

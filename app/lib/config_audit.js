@@ -75,6 +75,58 @@ function auditConfig(opts = {}) {
     warn('WEB_GATEWAY_SECRET', 'shorter than 16 chars — weak shared secret for the bot gateway.');
   }
 
+  // Where that secret is SENT, and over what.
+  //
+  // Two traps, both hit in production on 2026-07-28 and both silent:
+  //
+  // 1. A near-miss env name. start.js set GATEWAY_URL; this app reads
+  //    BOT_GATEWAY_URL. Nothing complained — the app simply kept its
+  //    localhost default and every chat request went nowhere, which on a
+  //    managed page host means the bot is not there at all. Setting a
+  //    variable the app never reads should not look identical to setting
+  //    nothing.
+  //
+  // 2. Plain HTTP to a remote host. WEB_GATEWAY_SECRET is presented in that
+  //    request, so over http:// to anything but localhost it crosses the
+  //    network in cleartext on every message. The shared secret grants chat
+  //    and trade access to the bot, so this is a disclosure, not a degrade.
+  //
+  //    It is still a WARNING, not a fatal. Refusing to boot would take down a
+  //    site that is otherwise serving perfectly, over a transport the operator
+  //    may have chosen deliberately while standing up the gateway — and an
+  //    outage is a certain harm today against a possible one. The remedy is
+  //    named in the message and the finding reaches /diagz, so it is loud
+  //    without being destructive.
+  const gwUrlRaw = (env.BOT_GATEWAY_URL || '').trim();
+  const GW_NEAR_MISSES = ['GATEWAY_URL', 'BOT_GATEWAY', 'BOT_URL', 'GATEWAY_BASE_URL'];
+  if (!gwUrlRaw) {
+    const named = GW_NEAR_MISSES.filter((k) => (env[k] || '').trim());
+    if (named.length) {
+      warn('BOT_GATEWAY_URL',
+        `unset, but ${named.join(' / ')} is set — this app reads BOT_GATEWAY_URL only, `
+        + 'so the gateway is falling back to http://localhost:8080 and web chat/trade '
+        + 'will not reach the bot. Rename the variable.');
+    }
+  } else {
+    let host = '';
+    let proto = '';
+    try {
+      const u = new URL(gwUrlRaw);
+      host = u.hostname;
+      proto = u.protocol;
+    } catch (e) {
+      warn('BOT_GATEWAY_URL', 'set but not a parseable URL — expected e.g. https://host:port.');
+    }
+    const local = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+      || host.endsWith('.internal') || host.endsWith('.local');
+    if (proto === 'http:' && host && !local) {
+      const msg = `sends WEB_GATEWAY_SECRET over plain HTTP to ${host} — the shared `
+        + 'secret crosses the network in cleartext on every chat and trade request. '
+        + 'Use https, or terminate TLS in front of the bot gateway.';
+      warn('BOT_GATEWAY_URL', msg);
+    }
+  }
+
   // Absolute base URL. Only matters once email or OAuth is configured — then a
   // missing host produces links like "/verify?token=…" and redirect URIs like
   // "/api/auth/oauth/discord/callback" with no origin, which silently 404 or

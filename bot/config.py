@@ -2007,6 +2007,18 @@ class MonitoringConfig:
     # It is never silent: the timeout is recorded, named in /status, and
     # alerted on. Set true to restore the old fail-the-tick behaviour.
     tick_scan_timeout_fatal: bool = _env_bool("TICK_SCAN_TIMEOUT_FATAL", False)
+    # The bot's gateway as the WEBSITE reaches it — the public URL, not the
+    # local bind. Set it and the monitor periodically proves that path still
+    # works, from this side, and pages when it stops.
+    #
+    # Why this exists: the website talks to the bot over that URL, and when it
+    # broke nothing said so. The website cannot report it (it has no alert
+    # channel), and the bot never knew it was being reached until it wasn't.
+    # An ephemeral tunnel URL rotating on restart breaks it silently and looks
+    # identical to a firewall. Unset = no probe, no alerts.
+    public_gateway_url: str = _env("PUBLIC_GATEWAY_URL", "")
+    public_gateway_probe_interval_s: float = _env_float_bounded(
+        "PUBLIC_GATEWAY_PROBE_INTERVAL_S", 300.0, 30.0, 3600.0)
 
 
 @dataclass(frozen=True)
