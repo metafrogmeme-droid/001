@@ -3421,6 +3421,41 @@ class TelegramHandler:
         except Exception:
             return None
 
+    @staticmethod
+    def _tick_liveness(engine) -> "tuple[bool, float | None]":
+        """(stalled, seconds_until_next_tick) for the status card.
+
+        The verdict is delegated to ProactiveMonitor._is_tick_stalled — the
+        SAME predicate the watchdog pages on — so /status and the CRITICAL
+        alert can never disagree. That predicate treats time inside a
+        DECLARED wait as healthy: the engine stamps _next_tick_due_ts before
+        every inter-tick sleep, covering both the smart-scan quiet-market
+        interval (up to 600s) and the run loop's failure backoff (capped at
+        300s). A bare age threshold cannot tell either apart from a hang.
+
+        Fail-safe: on any error return (False, None) — an unreadable liveness
+        read must not manufacture a stall warning, and the watchdog alert is
+        the authority on a real one either way.
+
+        Placed here, AWAY from the @guard("leverage") below: inserting a
+        method between a decorator and its command silently re-targets the
+        decorator and leaves that command unguarded.
+        """
+        try:
+            import time as _t
+            from bot.core.proactive_monitor import ProactiveMonitor as _PM
+            last = getattr(engine, "_last_tick_started_ts", None)
+            due = getattr(engine, "_next_tick_due_ts", None)
+            now = _t.monotonic()
+            stalled = _PM._is_tick_stalled(
+                last, now, _PM.TICK_STALL_THRESHOLD_S, next_due=due)
+            next_in = None
+            if due is not None and not stalled:
+                next_in = max(0.0, float(due) - now)
+            return (bool(stalled), next_in)
+        except Exception:
+            return (False, None)
+
     @guard("leverage")
     async def _cmd_leverage(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/leverage — the standard leverage, runtime-adjustable (admin).
@@ -8094,6 +8129,12 @@ class TelegramHandler:
         # Previously a −$56 daily figure printed as "−56.0%". Convert here.
         daily_pnl_pct = (daily_pnl / equity * 100.0) if equity and equity > 0 else 0.0
 
+        # Loop liveness for the card. The stall VERDICT comes from the
+        # watchdog's own predicate, not from the age — time inside a declared
+        # sleep or a failure backoff is healthy waiting, and calling that a
+        # stall spends the trust the line exists to earn.
+        tick_stalled, next_tick_in_s = self._tick_liveness(self.engine)
+
         msg = render_status_card(
             mode=mode,
             active=not cb,
@@ -8109,6 +8150,8 @@ class TelegramHandler:
             # engine has not ticked yet (documented monotonic None-sentinel)
             # — the card then omits the line rather than printing a zero.
             tick_age_s=self._tick_age_s(self.engine),
+            tick_stalled=tick_stalled,
+            next_tick_in_s=next_tick_in_s,
         )
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).

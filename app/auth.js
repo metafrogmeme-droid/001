@@ -18,8 +18,24 @@ const router = express.Router();
 // CRITICAL: No fallback secret. Refuse to start if unset or too short.
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
-  console.error('FATAL: JWT_SECRET must be set (>=32 chars). Refusing to start.');
-  console.error('Generate one: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  // This exit happens at MODULE SCOPE, during require('./auth') — so from the
+  // outside it does not look like a crash, it looks like the app never
+  // finished loading. A 29-character JWT_SECRET crash-looped production for
+  // hours behind exactly that disguise, and the old message ("must be set")
+  // read as "unset" when the real problem was "set, but three characters too
+  // short".
+  //
+  // So: say WHICH of the two it is, and how short. fs.writeSync rather than
+  // console.error because the process leaves on the next line and a queued
+  // write to a container's stdout pipe can be lost. The length is reported;
+  // the value never is.
+  const n = (JWT_SECRET || '').length;
+  require('fs').writeSync(2,
+    `FATAL: JWT_SECRET ${n ? `is only ${n} characters` : 'is not set'} — it must be at `
+    + 'least 32. Refusing to start.\n'
+    + '  Either unset it, in which case a strong secret is derived automatically from\n'
+    + '  BOT_SYNC_SECRET, or generate one:\n'
+    + '    node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"\n');
   process.exit(1);
 }
 // Session lifetime. Was '1h', which -- with no refresh-token flow ever built --

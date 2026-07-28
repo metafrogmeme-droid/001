@@ -30,8 +30,25 @@ try {
 //      and invalidating every session.
 //   3. Ephemeral random (dev only, when BOT_SYNC_SECRET is also missing —
 //      the fatal check below exits shortly after anyway).
-if (!process.env.JWT_SECRET) {
-  if (process.env.BOT_SYNC_SECRET && process.env.BOT_SYNC_SECRET.length >= 32) {
+//
+// A JWT_SECRET that is SET BUT TOO SHORT takes the same path as an absent
+// one. It used to skip this block entirely (the test was merely "is it
+// set?") and then hit auth.js's >=32 check, which exits at module scope —
+// so a 29-character value crash-looped the container on every deploy while
+// a perfectly good derivation source sat unused in BOT_SYNC_SECRET. The
+// override is announced, never silent: the operator set something and is
+// told plainly that it could not be used and what replaced it. Its LENGTH
+// is reported and its value never is.
+const SECRET_MIN_LEN = 32;
+const _jwtProvided = process.env.JWT_SECRET || '';
+if (_jwtProvided.length < SECRET_MIN_LEN) {
+  if (_jwtProvided) {
+    console.warn(`WARNING: JWT_SECRET is set but only ${_jwtProvided.length} characters `
+      + `(minimum ${SECRET_MIN_LEN}) — too short to sign sessions with, so it is being `
+      + 'IGNORED. Either unset it (a strong one is derived from BOT_SYNC_SECRET) or '
+      + 'replace it with a longer value.');
+  }
+  if (process.env.BOT_SYNC_SECRET && process.env.BOT_SYNC_SECRET.length >= SECRET_MIN_LEN) {
     process.env.JWT_SECRET = crypto
       .createHmac('sha256', process.env.BOT_SYNC_SECRET)
       .update('runeclaw-jwt-signing-v1')
@@ -48,8 +65,19 @@ if (!process.env.JWT_SECRET) {
 // /api/bot/sync endpoints (which overwrite trade/equity data). Require it to be
 // provided via env in all modes; the bot and web app must share the same value.
 // The previously committed default must be rotated — it is exposed in git history.
-if (!process.env.BOT_SYNC_SECRET || process.env.BOT_SYNC_SECRET.length < 32) {
-  console.error('FATAL: BOT_SYNC_SECRET must be set to a shared secret of >=32 chars (see .env.example).');
+if (!process.env.BOT_SYNC_SECRET || process.env.BOT_SYNC_SECRET.length < SECRET_MIN_LEN) {
+  // fs.writeSync, not console.error: this exits on the very next line, and a
+  // console write to a PIPE (which is what a container's stdout is) can be
+  // queued and lost when the process leaves immediately. A boot fatal whose
+  // reason never reaches the log is indistinguishable from a hang — that is
+  // precisely how a too-short secret read as "the app never finishes loading"
+  // for hours. Says whether it was missing or short, and how short; never the
+  // value itself.
+  const _n = (process.env.BOT_SYNC_SECRET || '').length;
+  require('fs').writeSync(2,
+    `FATAL: BOT_SYNC_SECRET ${_n ? `is only ${_n} characters` : 'is not set'} — `
+    + `it must be a shared secret of at least ${SECRET_MIN_LEN} chars (see .env.example). `
+    + 'Refusing to start.\n');
   process.exit(1);
 }
 

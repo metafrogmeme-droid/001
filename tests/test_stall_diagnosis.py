@@ -209,8 +209,25 @@ class TestStatusReportsLoopLiveness:
         out = render_status_card(
             mode="LIVE", active=True, equity=495.69, open_positions=0,
             daily_pnl=0.2, drawdown=0.0, max_drawdown=5.0,
-            market_bias="Normal", pending_ideas=0, tick_age_s=640.0)
+            market_bias="Normal", pending_ideas=0, tick_age_s=640.0,
+            tick_stalled=True)
         assert "11m ago" in out and "stalled" in out
+
+    def test_the_same_age_inside_a_declared_wait_is_NOT_a_stall(self):
+        """This assertion is the bug the card shipped with. Age alone used to
+        decide, so a loop merely parked in its declared failure backoff (or a
+        600s quiet-market sleep) was reported as stalled — in production, to
+        an operator reading /status mid-incident. The verdict now comes from
+        the watchdog's predicate; the age is only ever the number beside it.
+        See tests/test_status_tick_liveness.py for the full contract."""
+        from bot.formatters.rich_cards import render_status_card
+        out = render_status_card(
+            mode="LIVE", active=True, equity=495.69, open_positions=0,
+            daily_pnl=0.2, drawdown=0.0, max_drawdown=5.0,
+            market_bias="Normal", pending_ideas=0, tick_age_s=640.0,
+            tick_stalled=False, next_tick_in_s=45.0)
+        assert "stalled" not in out
+        assert "640s ago" in out and "45s" in out
 
     def test_never_ticked_omits_the_line_rather_than_printing_zero(self):
         from bot.formatters.rich_cards import render_status_card

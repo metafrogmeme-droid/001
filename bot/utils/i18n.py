@@ -699,6 +699,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "lbl_last_tick": {"en": "Last tick", "zh": "上次循環"},
     "val_ago": {"en": "ago", "zh": "前"},
     "val_loop_stalled": {"en": "the loop looks stalled", "zh": "循環似乎停滯"},
+    "val_next_tick_in": {"en": "next due in", "zh": "下次預計"},
+    "val_waiting": {"en": "waiting", "zh": "等待中"},
     "lbl_limit_word": {"en": "limit", "zh": "上限"},
     "open_positions_n": {"en": "Open Positions ({n})", "zh": "持倉 ({n})"},
     "val_none": {"en": "None", "zh": "無"},

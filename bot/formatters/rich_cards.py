@@ -768,6 +768,8 @@ def render_status_card(
     pending_ideas: int = 0,
     lang: str = "en",
     tick_age_s: Optional[float] = None,
+    tick_stalled: bool = False,
+    next_tick_in_s: Optional[float] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
@@ -792,11 +794,26 @@ def render_status_card(
         # equity FREEZE — so "Active" is not evidence the loop is running,
         # and an operator debugging a hang (2026-07-28) had no way to tell
         # from /status at all. This line is the one number that answers it.
+        #
+        # `tick_stalled` is the CALLER's verdict, taken from the SAME
+        # ProactiveMonitor._is_tick_stalled predicate the watchdog pages on —
+        # this card must never reach a different conclusion than the alert.
+        # It had its own 120s rule once, which called a healthy engine
+        # "stalled" during any inter-tick gap over two minutes: the smart-scan
+        # quiet-market sleep alone reaches 600s, and the run loop's own failure
+        # backoff is capped at 300s. Both are DECLARED waits the engine stamps
+        # in _next_tick_due_ts, and both read as a stall under a bare age
+        # threshold. A liveness line that cries stall while the engine is
+        # deliberately waiting is worse than no line — it spends the operator's
+        # trust in the one number meant to answer "is the loop alive?".
         *([] if tick_age_s is None else [
             f"- {t('lbl_last_tick', lang)}: "
-            + (f"{tick_age_s:.0f}s {t('val_ago', lang)}" if tick_age_s < 120
-               else f"\u26a0 {tick_age_s / 60:.0f}m {t('val_ago', lang)} — "
-                    + t('val_loop_stalled', lang))]),
+            + (f"\u26a0 {tick_age_s / 60:.0f}m {t('val_ago', lang)} \u2014 "
+               + t('val_loop_stalled', lang) if tick_stalled
+               else f"{tick_age_s:.0f}s {t('val_ago', lang)}"
+                    + (f" ({t('val_next_tick_in', lang)} {next_tick_in_s:.0f}s)"
+                       if next_tick_in_s is not None and next_tick_in_s > 0
+                       else ""))]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —
