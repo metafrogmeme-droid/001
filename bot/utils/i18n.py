@@ -700,6 +700,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "val_ago": {"en": "ago", "zh": "前"},
     "val_loop_stalled": {"en": "the loop looks stalled", "zh": "循環似乎停滯"},
     "val_next_tick_in": {"en": "next due in", "zh": "下次預計"},
+    "lbl_last_phase_timeout": {"en": "Tick phase timed out", "zh": "循環階段逾時"},
+    "val_exceeded_cap": {"en": "exceeded its", "zh": "超過"},
     "val_waiting": {"en": "waiting", "zh": "等待中"},
     "lbl_limit_word": {"en": "limit", "zh": "上限"},
     "open_positions_n": {"en": "Open Positions ({n})", "zh": "持倉 ({n})"},

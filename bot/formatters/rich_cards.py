@@ -770,6 +770,7 @@ def render_status_card(
     tick_age_s: Optional[float] = None,
     tick_stalled: bool = False,
     next_tick_in_s: Optional[float] = None,
+    phase_timeout: Optional[dict] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
@@ -814,6 +815,16 @@ def render_status_card(
                     + (f" ({t('val_next_tick_in', lang)} {next_tick_in_s:.0f}s)"
                        if next_tick_in_s is not None and next_tick_in_s > 0
                        else ""))]),
+        # The named cause of a failing tick. /status is where the degraded
+        # alert SENDS the operator, so the answer has to be here — otherwise
+        # the alert says "check /status" and /status repeats the symptom.
+        *([] if not (phase_timeout or {}).get("phase") else [
+            f"- {t('lbl_last_phase_timeout', lang)}: "
+            f"<b>{phase_timeout['phase']}</b> "
+            f"({t('val_exceeded_cap', lang)} "
+            f"{float(phase_timeout.get('cap_s') or 0):.0f}s"
+            + (f", \u00d7{int(phase_timeout['count'])}"
+               if int(phase_timeout.get('count') or 0) > 1 else "") + ")"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —

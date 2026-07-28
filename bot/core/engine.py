@@ -360,6 +360,10 @@ class RuneClawEngine:
         # production false alarm: 15s tick + 600s planned sleep = 615s since
         # tick start, which tripped the 600s threshold.
         self._next_tick_due_ts: float | None = None
+        # {phase, cap_s, at, count} for the most recent phase to exceed its
+        # cap — surfaced in /status and in the degraded alert so the cause
+        # travels with the symptom. None until one fires.
+        self._last_phase_timeout: dict | None = None
         # Reciprocal watch on the proactive monitor loop (attached by the
         # Telegram handler at start_monitor; None when Telegram is off).
         self._proactive_monitor = None
@@ -2287,7 +2291,9 @@ class RuneClawEngine:
                     f"Engine tick error (#{_consecutive_failures}): {exc}",
                     action="tick",
                     result="ERROR",
-                    data={"consecutive_failures": _consecutive_failures},
+                    data={"consecutive_failures": _consecutive_failures,
+                          "phase": (getattr(self, "_last_phase_timeout", None)
+                                    or {}).get("phase")},
                 )
                 # Feed the warning-rate breaker so sustained failures can trip it.
                 try:
@@ -2366,6 +2372,21 @@ class RuneClawEngine:
                   f"the parked await. This NAMES the hang the whole-tick cap "
                   f"could only report as 'in run'.",
                   action="tick_phase", result="TIMEOUT", data={"phase": what})
+            # Remember it. The audit line above lands in a log the operator
+            # cannot easily reach, and for one live incident the alerts said
+            # only "the main loop has failed 3 times in a row" — the cause was
+            # already known to the process and simply never travelled to the
+            # surfaces anyone reads. A diagnosis that does not reach the
+            # operator is not a diagnosis.
+            self._last_phase_timeout = {
+                "phase": what,
+                "cap_s": cap,
+                "at": time.monotonic(),
+                "count": int((getattr(self, "_last_phase_timeout", None) or {})
+                             .get("count", 0)) + 1
+                if (getattr(self, "_last_phase_timeout", None) or {}).get("phase") == what
+                else 1,
+            }
             raise
 
     async def _with_maintenance_cap(self, coro, what: str):

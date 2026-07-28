@@ -950,6 +950,15 @@ class ProactiveMonitor:
             fails = int(getattr(self.engine, "_tick_consecutive_failures", 0) or 0)
             degraded = fails >= 3
             if degraded and not self._last_tick_degraded:
+                # Carry the CAUSE with the symptom. The engine already knows
+                # which phase blew its cap; without this the operator reads
+                # "failed 3 times in a row" and has to go find a log they may
+                # have no way to reach.
+                cause = ""
+                pt = getattr(self.engine, "_last_phase_timeout", None)
+                if isinstance(pt, dict) and pt.get("phase"):
+                    cause = (f"Cause: phase <b>{pt['phase']}</b> exceeded its "
+                             f"{float(pt.get('cap_s') or 0):.0f}s cap.\n")
                 alerts.append(Alert(
                     alert_type="TICK_FAILURE", severity="CRITICAL",
                     title="Engine loop degraded",
@@ -957,6 +966,7 @@ class ProactiveMonitor:
                         "\U0001f6a8 <b>ENGINE LOOP DEGRADED</b>\n"
                         "────────────────\n"
                         f"The main loop has failed <b>{fails}</b> times in a row.\n"
+                        f"{cause}"
                         "Scanning and position monitoring may be impaired — "
                         "open positions could be <b>unmonitored</b>.\n"
                         "────────────────\n"
