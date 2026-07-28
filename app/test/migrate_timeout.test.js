@@ -123,8 +123,10 @@ test('the cap can be disabled, and is not applied when non-positive', () => {
   const src = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
   assert.match(src, /if \(!\(MIGRATE_ATTEMPT_TIMEOUT_MS > 0\)\) return migrate\(\)/,
     'an operator must be able to opt out of the cap entirely');
-  assert.match(src, /MIGRATE_ATTEMPT_TIMEOUT_MS \|\| 45000/,
-    'the default must be generous — a slow migration is not a hung one');
+  assert.match(src, /MIGRATE_ATTEMPT_TIMEOUT_MS \|\| 180000/,
+    'the default must clear a FIRST migration — 33 distributed DDL statements '
+    + 'on a possibly cold serverless cluster. 45s aborted one that was merely '
+    + 'working hard, which is the failure the cap exists NOT to cause.');
 });
 
 // ── classification breadth ────────────────────────────────────────────────

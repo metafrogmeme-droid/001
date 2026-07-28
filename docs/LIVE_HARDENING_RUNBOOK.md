@@ -202,6 +202,24 @@ a public endpoint. The full error goes to the server log instead.
 | `db_url` | the failure carried **no driver code** — it never reached the network | the connection string, almost always the `ssl` parameter |
 | `db_error` | reached, failed, cause not yet classified | grep the log (below) and send the code |
 
+⚠️ **`db_timeout` during a FIRST migration is usually the cap, not the network.**
+The first run creates 33 tables, each a real distributed DDL operation, on a
+cluster that may also be cold-starting. The cap
+(`MIGRATE_ATTEMPT_TIMEOUT_MS`, default 180s) has to clear all of it. If
+`/diagz` shows `RC_MIGRATE_TIMEOUT`, read the `stmt=` — the statement's
+POSITION in the migration is the tell:
+
+- an EARLY table (`users`, `trades`, `equity_snapshots` — 1st to 4th) means the
+  attempt is being cut off almost immediately: raise the cap;
+- a LATE table means most of the migration succeeded and only the tail was cut:
+  raise the cap by less;
+- the SAME table every time, with a real driver code rather than
+  `RC_MIGRATE_TIMEOUT`, means that statement is genuinely rejected — fix the DDL.
+
+A network or allowlist fault cannot produce partial progress. If the migration
+ever reached a late statement, the source address is not blocked — do not go
+opening an allowlist on that evidence.
+
 ⚠️ **`starting` with `attempts: 0` long after boot is not "still starting".** It
 means no attempt has ever *finished* — the driver is hanging. Each attempt is
 capped (`MIGRATE_ATTEMPT_TIMEOUT_MS`, default 45s), so this should resolve into

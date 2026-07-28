@@ -687,11 +687,21 @@ const MIGRATE_BACKOFF_MS = [1000, 2000, 5000, 10000, 20000, 30000];
 // honest and completely useless.
 //
 // Capping the attempt converts a hang into a failure the loop can act on, the
-// same bargain the engine's tick-phase caps make. The cap is generous: a cold
-// TiDB connection plus a full CREATE TABLE IF NOT EXISTS sweep is slow but
-// finite, and this must never abort a migration that was merely working hard.
+// same bargain the engine's tick-phase caps make.
+//
+// The cap must clear a FIRST migration, which is the slowest one that will
+// ever run: 33 CREATE TABLE statements, each a real distributed DDL operation
+// on a serverless cluster that may also be cold-starting. 45s was the original
+// guess and it was too tight — production reached statement 31 of 33 on one
+// attempt and only statement 4 on another, so the cap was aborting a migration
+// that was merely working hard. That is the exact failure this comment
+// promised not to cause.
+//
+// 180s instead. A longer cap costs only how quickly an unreachable database is
+// noticed, and the site stays up and serving throughout either way, so the
+// asymmetry favours patience. MIGRATE_ATTEMPT_TIMEOUT_MS tunes it; 0 disables.
 const MIGRATE_ATTEMPT_TIMEOUT_MS =
-  Number(process.env.MIGRATE_ATTEMPT_TIMEOUT_MS || 45000);
+  Number(process.env.MIGRATE_ATTEMPT_TIMEOUT_MS || 180000);
 
 function migrateOnce() {
   if (!(MIGRATE_ATTEMPT_TIMEOUT_MS > 0)) return migrate();
