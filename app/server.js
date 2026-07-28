@@ -423,6 +423,10 @@ app.get('/agent/:address', (req, res) => { res.setHeader('Cache-Control', 'no-ca
 // slugs, e.g. /agents and /agents/dip-sniper). Bare /agents must precede the
 // parametised route so it isn't captured as a slug.
 app.get('/agents', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agents.html')); });
+// Literal path registered BEFORE /agents/:slug below — Express matches in
+// order, so this line moving under the param route would turn /agents/compare
+// into a slug lookup that 404s.
+app.get('/agents/compare', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'compare.html')); });
 // NB: /agents/:slug is registered further down (after originFrom) so it can
 // server-render per-agent <head> metadata via lib/agent_seo.
 app.get('/developers', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'developers.html')); });

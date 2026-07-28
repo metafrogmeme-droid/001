@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Compare Agents</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="Side-by-side comparison of RUNECLAW strategy agents — with each column's evidence declared: frozen backtest, member config, or live copier record. Percent/ratio only, never dollars.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#0a0b10">
+<link rel="stylesheet" href="/styles.css?v=18">
+<style>
+  .cw { max-width: 1080px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); }
+  .topnav a:hover { color: var(--text-1); }
+  .spacer { flex: 1; }
+  h1 { font-size: var(--fs-xl); margin: 0 0 6px; }
+  .sub { color: var(--text-2); font-size: var(--fs-sm); margin: 0 0 var(--s4); max-width: 70ch; }
+  .cmp-scroll { overflow-x: auto; }
+  table.cmp { border-collapse: collapse; width: 100%; min-width: 560px; }
+  .cmp th, .cmp td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--line, #222636); vertical-align: top; font-size: var(--fs-sm); }
+  .cmp th { color: var(--text-3); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; width: 1%; }
+  .cmp thead td { border-top: 0; }
+  .cmp .nm { font-weight: 600; font-size: var(--fs-md); }
+  .cmp .tg { color: var(--text-2); font-size: var(--fs-xs); margin-top: 2px; }
+  .tier { display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2, #2a2e3d); margin: 2px 4px 2px 0; white-space: nowrap; }
+  .tier.bt { border-color: rgba(63,182,255,.5); }
+  .tier.cf { border-color: rgba(240,185,80,.5); }
+  .tier.lv { border-color: rgba(47,191,113,.5); }
+  .num { font-family: var(--font-data, monospace); font-variant-numeric: tabular-nums; }
+  .pos { color: var(--up, #2fbf71); } .neg { color: var(--down, #e05252); }
+  .dim { color: var(--text-3); }
+  .low { color: var(--gold-bright, #f0b950); font-size: 11px; }
+  .empty { color: var(--text-3); padding: var(--s5) 0; }
+  .foot-note { color: var(--text-3); font-size: var(--fs-xs); margin-top: var(--s4); max-width: 78ch; }
+</style>
+</head>
+<body>
+<div class="cw" role="main">
+  <nav class="topnav">
+    <a href="/agents" data-i18n="cmp.back">← All agents</a>
+    <span class="spacer"></span>
+    <a href="/dashboard#agents" data-i18n="ag.open_in_app">Open in app</a>
+    <a href="/leaderboard" data-i18n="vh.leaderboard.title">Leaderboard</a>
+  </nav>
+
+  <h1 data-i18n="cmp.h1">Compare agents</h1>
+  <p class="sub" data-i18n="cmp.note">A frozen backtest, a member-authored config and a live copier record are different kinds of evidence — each column declares which kind backs it. Compare within a row, never across kinds. Percent/ratio/count only; nothing here is investment advice.</p>
+
+  <div id="root"><div class="empty" data-i18n="cmp.loading">Loading…</div></div>
+
+  <p class="foot-note" data-i18n="cmp.foot">Engine metrics come from frozen, content-hashed benchmark backtests (reproduce them in the Lab). Live records are forward-only paper trades members copied, sealed at open. A missing number renders as “—”, never as zero.</p>
+</div>
+
+<script>
+(function () {
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var fillT = function (tpl, map) {
+    return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return map[k] != null ? map[k] : '{' + k + '}'; });
+  };
+  var SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+  var root = document.getElementById('root');
+
+  // Up to three validated, deduped slugs from ?slugs=a,b,c.
+  var slugs = [];
+  try {
+    (new URLSearchParams(location.search).get('slugs') || '').toLowerCase().split(',')
+      .forEach(function (s) {
+        s = s.trim();
+        if (s && SLUG_RE.test(s) && slugs.indexOf(s) === -1 && slugs.length < 3) slugs.push(s);
+      });
+  } catch (e) { /* no valid slugs */ }
+  if (!slugs.length) {
+    root.innerHTML = '<div class="empty">' + esc(T('cmp.none_sel', 'Nothing to compare — pick up to three agents on the directory page.'))
+      + ' <a href="/agents">' + esc(T('cmp.back', '← All agents')) + '</a></div>';
+    return;
+  }
+
+  function getJSON(url) {
+    return fetch(url, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  }
+
+  var fmtPct = function (v) { return v == null ? null : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; };
+  var cellNum = function (v, cls) {
+    if (v == null) return '<span class="dim">—</span>';
+    return '<span class="num ' + (cls || '') + '">' + esc(v) + '</span>';
+  };
+
+  // The two catalogues + per-slug live records are INDEPENDENT sources: one
+  // being unreadable must never hide what the others know (and "not found"
+  // is only claimed when the catalogue that would hold it actually answered).
+  Promise.all([
+    getJSON('/api/public/strategies'),
+    getJSON('/api/public/user-strategies'),
+  ].concat(slugs.map(function (s) { return getJSON('/api/public/agent-record/' + encodeURIComponent(s)); })))
+    .then(function (res) {
+      var engineRead = !!res[0];
+      var commRead = !!res[1];
+      var engine = (res[0] && res[0].agents) || [];
+      var community = (res[1] && res[1].agents) || [];
+      var records = {};
+      slugs.forEach(function (s, i) { records[s] = res[2 + i]; });
+
+      var cols = slugs.map(function (s) {
+        var e = engine.filter(function (a) { return String(a.id).toLowerCase() === s; })[0];
+        var c = !e && community.filter(function (a) { return String(a.slug).toLowerCase() === s; })[0];
+        return { slug: s, engine: e || null, comm: c || null,
+          missing: !e && !c, bothRead: engineRead && commRead, rec: records[s] };
+      });
+
+      function tierCell(col) {
+        if (col.missing) return '<span class="dim">—</span>';
+        var t = [];
+        if (col.engine) {
+          t.push(col.engine.scorecard && col.engine.scorecard.metrics
+            ? '<span class="tier bt">🔬 ' + esc(T('cmp.t_backtest', 'Frozen backtest')) + '</span>'
+            : '<span class="tier bt">🔬 ' + esc(T('cmp.t_pending', 'Backtest pending')) + '</span>');
+        }
+        if (col.comm) t.push('<span class="tier cf">🧩 ' + esc(T('cmp.t_config', 'Member config')) + '</span>');
+        var rec = col.rec;
+        if (rec && rec.trades > 0) {
+          t.push('<span class="tier lv">📊 ' + esc(fillT(T('cmp.t_live', 'Live record · {n} copied'), { n: rec.trades })) + '</span>');
+        }
+        return t.join(' ');
+      }
+
+      function headCell(col) {
+        if (col.missing) {
+          // Absence is only claimed when both catalogues actually answered.
+          var msg = col.bothRead ? T('cmp.not_found', 'Not in either catalogue')
+            : T('cmp.unavailable', 'A catalogue was unreadable — this may exist');
+          return '<div class="nm dim">' + esc(col.slug) + '</div><div class="tg">' + esc(msg) + '</div>';
+        }
+        var a = col.engine || col.comm;
+        return '<div>' + esc(a.icon || '🤖') + ' <span class="nm">' + esc(a.name) + '</span></div>'
+          + (a.tagline ? '<div class="tg">' + esc(a.tagline) + '</div>' : '')
+          + '<div class="tg"><a href="/agents/' + encodeURIComponent(col.slug) + '">' + esc(T('cmp.view', 'view page')) + ' →</a></div>';
+      }
+
+      function metric(col, key) {
+        var m = col.engine && col.engine.scorecard && col.engine.scorecard.metrics;
+        if (!m || m[key] == null) return cellNum(null);
+        if (key === 'total_return_pct' || key === 'max_drawdown_pct') {
+          return cellNum(fmtPct(m[key]), m[key] >= 0 ? 'pos' : 'neg');
+        }
+        if (key === 'win_rate') return cellNum((m[key] * 100).toFixed(0) + '%');
+        return cellNum(Number(m[key]).toFixed(2));
+      }
+
+      function rulesCell(col) {
+        if (col.comm) {
+          var rp = col.comm.risk_profile;
+          var facts = (rp && rp.facts || []).map(function (f) {
+            return esc(fillT(T('sp.f_' + f.id, f.en), f.params || {}));
+          }).join(' · ');
+          return (rp ? '<div>' + esc(T('sp.h', 'Declared constraints')) + ': <b>'
+            + esc(T('sp.tier_' + rp.tier, rp.tier)) + '</b></div>' : '')
+            + (facts ? '<div class="tg">' + facts + '</div>' : '');
+        }
+        if (col.engine) {
+          var g = (col.engine.scorecard && col.engine.scorecard.gates) || {};
+          var parts = [];
+          if (g.confidence_threshold) parts.push('conf ≥ ' + Math.round(g.confidence_threshold * 100) + '%');
+          if (g.regime_filter) parts.push(esc(String(g.regime_filter)));
+          if (Array.isArray(g.symbols) && g.symbols.length) parts.push(g.symbols.map(esc).join(', '));
+          return parts.length ? parts.join(' · ') : '<span class="dim">—</span>';
+        }
+        return '<span class="dim">—</span>';
+      }
+
+      function recordCell(col) {
+        var r = col.rec;
+        if (!r) return '<span class="dim">' + esc(T('cmp.rec_unread', 'record unreadable — not zero')) + '</span>';
+        if (!r.trades) return '<span class="dim">' + esc(T('cmp.rec_none', 'No copied trades yet')) + '</span>';
+        var med = r.median_rom_pct;
+        return '<div class="num">' + esc(fillT(T('cmp.rec_line', '{t} trades · {c} copiers'), { t: r.trades, c: r.copiers })) + '</div>'
+          + '<div>' + esc(T('rec.median', 'median return on margin')) + ': <span class="num ' + (med > 0 ? 'pos' : med < 0 ? 'neg' : '') + '">' + esc((med > 0 ? '+' : '') + med + '%') + '</span></div>'
+          + (r.low_sample ? '<div class="low">⚠ ' + esc(fillT(T('rec.low', 'Low sample — {n} trades prove very little.'), { n: r.trades })) + '</div>' : '');
+      }
+
+      var simple = function (fn) { return cols.map(function (c) { return '<td>' + fn(c) + '</td>'; }).join(''); };
+      var plain = function (get) {
+        return simple(function (c) {
+          var a = c.engine || c.comm;
+          var v = a && get(a);
+          return v ? esc(v) : '<span class="dim">—</span>';
+        });
+      };
+
+      root.innerHTML = '<div class="cmp-scroll"><table class="cmp">'
+        + '<thead><tr><td></td>' + simple(headCell) + '</tr></thead><tbody>'
+        + '<tr><th data-i18n="cmp.r_tier">Evidence</th>' + simple(tierCell) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_regime">Regime</th>' + plain(function (a) { return a.regime; }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_horizon">Horizon</th>' + plain(function (a) { return a.horizon; }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_rules">Rules / gates</th>' + simple(rulesCell) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_return">Backtest return</th>' + simple(function (c) { return metric(c, 'total_return_pct'); }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_pf">Profit factor</th>' + simple(function (c) { return metric(c, 'profit_factor'); }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_win">Win rate</th>' + simple(function (c) { return metric(c, 'win_rate'); }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_dd">Max drawdown</th>' + simple(function (c) { return metric(c, 'max_drawdown_pct'); }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_followers">Following</th>' + simple(function (c) {
+          var a = c.engine || c.comm;
+          return a && a.followers ? cellNum(String(a.followers)) : '<span class="dim">—</span>';
+        }) + '</tr>'
+        + '<tr><th data-i18n="cmp.r_record">Live record</th>' + simple(recordCell) + '</tr>'
+        + '</tbody></table></div>';
+      if (window.RCI18N && RCI18N.apply) RCI18N.apply(root);
+    });
+})();
+</script>
+<script src="/js/i18n.js?v=102"></script>
+<script src="/js/palette.js?v=1" defer></script>
+</body>
+</html>
