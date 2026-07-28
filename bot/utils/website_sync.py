@@ -85,8 +85,14 @@ def sync_portfolio(user_id: int, equity: float,
             "opened_at": str(_attr(p, "opened_at", "")),
         })
 
+    # Send only what counts as a trade. The website's schema stores neither
+    # close_reason nor trade_id, so it CANNOT apply this rule itself — which
+    # is exactly why it must be applied here. Filtering at the source makes
+    # the website's plain SUM agree with Telegram by construction, instead of
+    # the two reporting different numbers under the same label.
+    from bot.utils.trade_filter import countable as _countable
     closed_list = []
-    for t in closed_trades:
+    for t in _countable(closed_trades):
         closed_list.append({
             "symbol": _attr(t, "asset", ""),
             "direction": str(_attr(t, "direction", "")).split(".")[-1],

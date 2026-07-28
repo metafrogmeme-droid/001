@@ -203,7 +203,12 @@ from bot.nlp.sanitize import (
 
 # Prefixes for orphan-adopted and diagnostic-injected trades.
 # Used throughout handlers to exclude these from user-facing stats.
-_ORPHAN_PREFIXES = ("TI-adopted", "TI-injected")
+#
+# Re-exported from bot.utils.trade_filter, which is the single definition of
+# what counts as a trade. It also governs what the WEBSITE is sent, so the two
+# surfaces cannot report different numbers under the same label — they did:
+# +10.19 over 50 trades here, -10.74 over 95 there, same account, same day.
+from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 
 
 # ── War Room main menu keyboard ─────────────────────────────
@@ -1044,7 +1049,7 @@ class TelegramHandler:
                 live_open = executor.open_positions if executor else []
                 # Exclude adopted orphan trades and never-filled orders (canceled/
                 # expired/price_drift/rejected close at $0 PnL) from stats.
-                _non_trade_reasons_pane = {"canceled", "cancelled", "expired", "price_drift", "rejected"}
+                from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_pane
                 live_closed = [t for t in live_closed_all
                                if not any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)
                                and getattr(t, "close_reason", "") not in _non_trade_reasons_pane]
@@ -1144,7 +1149,7 @@ class TelegramHandler:
             if is_live and executor:
                 # Use live executor closed trades (actual exchange fills)
                 # Filter out canceled/expired limit orders (never-filled, $0 PnL)
-                _ntr = {"canceled", "cancelled", "expired", "price_drift", "rejected"}
+                from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _ntr
                 live_closed = [t for t in executor.closed_positions
                                if getattr(t, "close_reason", "") not in _ntr]
                 recent_trades_live = live_closed[-5:] if live_closed else []
@@ -5966,7 +5971,7 @@ class TelegramHandler:
             # Filter out adopted/injected trades and never-filled orders (canceled/
             # expired/price_drift/rejected close at $0 PnL) for consistency with
             # the Performance view.
-            _non_trade_reasons_bal = {"canceled", "cancelled", "expired", "price_drift", "rejected"}
+            from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_bal
             user_closed = [t for t in closed_pos
                            if not any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)
                            and getattr(t, "close_reason", "") not in _non_trade_reasons_bal]
@@ -7772,7 +7777,7 @@ class TelegramHandler:
 
             # Exclude adopted orphan trades and injected diagnostic artifacts
             # so Portfolio matches Performance numbers
-            _NON_TRADE_REASONS = {"canceled", "cancelled", "expired", "price_drift", "rejected"}
+            from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _NON_TRADE_REASONS
             live_closed = [t for t in all_closed
                            if not any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)
                            and getattr(t, "close_reason", "") not in _NON_TRADE_REASONS]
@@ -10000,7 +10005,7 @@ class TelegramHandler:
             # ── Separate adopted/injected vs user-initiated trades ──
             # Exclude: TI-adopted (orphan positions), TI-injected (diagnostic artifacts),
             # canceled/expired/price_drift (never-filled limit orders with $0 PnL)
-            _NON_TRADE_REASONS_PERF = {"canceled", "cancelled", "expired", "price_drift", "rejected"}
+            from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _NON_TRADE_REASONS_PERF
             user_trades = [t for t in live_closed
                            if not any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)
                            and getattr(t, "close_reason", "") not in _NON_TRADE_REASONS_PERF]
@@ -10200,7 +10205,7 @@ class TelegramHandler:
         # LIVE mode: use real trade data from executor
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
             executor = self.engine.live_executor
-            _non_trade_reasons_daily = {"canceled", "cancelled", "expired", "price_drift", "rejected"}
+            from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_daily
             closed = [t for t in executor.closed_positions
                        if not any(getattr(t, "trade_id", "").startswith(p)
                                   for p in _ORPHAN_PREFIXES)
