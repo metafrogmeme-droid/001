@@ -8129,10 +8129,22 @@ class TelegramHandler:
         # error falls back to the previous paper number rather than blanking
         # the line.
         drawdown = round(state.max_drawdown_pct, 2) if state.max_drawdown_pct else 0.0
+        # The LIMIT beside it must be the drawdown cap the breaker enforces.
+        # It was CONFIG.risk.max_daily_loss_pct — the DAILY-LOSS cap, a
+        # different control entirely — so the card read "0.0% / +5.0% limit"
+        # while the drawdown breaker was set at 7%. That advertises a tighter
+        # cap than exists, and the gauge bar divides by it too, so the bar was
+        # wrong as well. #959 fixed the numerator and missed the denominator.
+        drawdown_limit = CONFIG.risk.max_drawdown_pct
         try:
             _dd = self.engine.risk.drawdown_status() or {}
             if _dd.get("drawdown_source") == "live":
                 drawdown = round(float(_dd.get("drawdown_pct") or 0.0), 2)
+            _lim = _dd.get("effective_limit_pct")
+            if _lim:
+                # effective_limit_pct already accounts for live-vs-paper and
+                # any runtime operator override.
+                drawdown_limit = float(_lim)
         except Exception:
             pass
 
@@ -8155,7 +8167,7 @@ class TelegramHandler:
             open_positions=open_count,
             daily_pnl=round(daily_pnl_pct, 2),
             drawdown=drawdown,
-            max_drawdown=CONFIG.risk.max_daily_loss_pct,
+            max_drawdown=drawdown_limit,
             market_bias=macro.state.value.replace("_", " ").title(),
             pending_ideas=len(self.engine.pending_ideas) if hasattr(self.engine, "pending_ideas") else 0,
             lang=self._lang(update),

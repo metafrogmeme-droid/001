@@ -109,6 +109,20 @@ function auditConfig(opts = {}) {
   const fatals = findings.filter((f) => f.level === 'fatal');
   if (fatals.length && prod) {
     log.error(`[config] ${fatals.length} fatal configuration problem(s) in production — refusing to start.`);
+    // The default onFatal exits, and auditConfig() runs at MODULE SCOPE in
+    // server.js — so from outside the container this does not look like a
+    // crash, it looks like the app never finished loading. Two other boot
+    // fatals had exactly that disguise and cost hours each. A console write
+    // to a container's stdout PIPE can be queued and lost when the process
+    // leaves immediately, so restate the reasons through fs.writeSync, which
+    // cannot be. Keys and levels only — a finding's message is authored here
+    // and never contains a value, but nothing is interpolated from env.
+    try {
+      const lines = fatals.map((f) => `  - ${f.key}: ${f.msg}`).join('\n');
+      require('fs').writeSync(2,
+        `FATAL: ${fatals.length} configuration problem(s) in production — `
+        + `refusing to start.\n${lines}\n`);
+    } catch (_) { /* logging must never be the thing that breaks boot */ }
     (opts.onFatal || (() => process.exit(1)))(fatals);
   }
 

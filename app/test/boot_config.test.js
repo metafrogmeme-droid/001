@@ -148,3 +148,37 @@ test('a missing BOT_SYNC_SECRET still refuses to start, legibly', () => {
   assert.match(said, /FATAL: BOT_SYNC_SECRET is not set/);
   assert.ok(!said.includes('running on port'));
 });
+
+// ── the third boot fatal ──────────────────────────────────────────────────
+
+test('the config-audit fatal also survives the exit on the next line', () => {
+  // auditConfig() runs at MODULE SCOPE in server.js and its default onFatal
+  // exits, so this is the same disguise the other two boot fatals wore: from
+  // outside the container it reads as "the app never finished loading"
+  // rather than as a crash. A console write to a stdout PIPE can be queued
+  // and lost when the process leaves immediately.
+  const src = fs.readFileSync(path.join(APP, 'lib', 'config_audit.js'), 'utf8');
+  const block = src.slice(src.indexOf('const fatals = findings.filter'));
+  assert.match(block, /writeSync\(2,/,
+    'the reasons must be restated through a write that cannot be queued');
+  // the key AND the reason, so the operator knows which setting and why
+  assert.match(block, /\$\{f\.key\}/);
+  assert.match(block, /\$\{f\.msg\}/);
+  // and logging must never be the thing that breaks boot
+  assert.match(block, /catch \(_\)/);
+});
+
+test('every boot fatal in the web app now names itself durably', () => {
+  // One assertion covering the class, so a fourth one added later is caught.
+  for (const rel of ['server.js', 'auth.js', 'lib/config_audit.js']) {
+    const src = fs.readFileSync(path.join(APP, rel), 'utf8');
+    const i = src.indexOf('writeSync(2,');
+    assert.ok(i > 0,
+      `${rel}'s boot fatal must fs.writeSync — a console write to a container's `
+      + 'stdout pipe can be queued and lost when the process exits on the next '
+      + 'line, and a lost reason reads as a hang');
+    // …and what it writes must be the refusal, not incidental output.
+    assert.match(src.slice(i, i + 320), /FATAL|refusing to start/i,
+      `${rel}'s durable write should carry the refusal`);
+  }
+});
