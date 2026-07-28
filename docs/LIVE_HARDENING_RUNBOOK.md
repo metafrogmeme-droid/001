@@ -194,6 +194,28 @@ them to `DATABASE_URL`:
 mysql://USER:PASS@HOST:4000/DB?ssl={"minVersion":"TLSv1.2","rejectUnauthorized":true}
 ```
 
+**Which build is actually serving.** `/api/version` reports the commit when it
+can. On a bundled deploy it usually cannot — no `BUILD_SHA`, no
+`build-info.json`, no `git` binary, no `.git` — and honestly says
+`"sha":"unknown"`. The `build` field answers the question anyway:
+
+```bash
+curl -s https://YOUR_HOST/api/version
+# {"sha":"unknown","build":"9fe79eaa6713+186","started_at":"…","uptime_s":1303}
+```
+
+It is a hash of the `.js` source that shipped, not a commit id — it changes
+when the code changes and does not when it has not. Compute the expected value
+from a checkout **before** deploying and compare:
+
+```bash
+node -e "console.log(require('./app/lib/version').fingerprint())"
+```
+
+Same value → your build is live. Different → it is not, whatever the deploy log
+says. (Ask the host to pass `BUILD_SHA` as a build arg and `sha` becomes a real
+commit id, which is nicer still.)
+
 **Where the web app's diagnostics actually are.** The Node app logs to stdout,
 and `logs/*.log` belongs to the **Python bot** — docker-compose mounts `./logs`
 into the bot and api_bridge containers, never the web one. So grepping
@@ -218,6 +240,24 @@ never a secret.
 The file writes are asynchronous and fail-open: a missing or unwritable
 directory is silently tolerated, because a logger that can break boot is worse
 than no logger.
+
+⚠️ **On a managed page host that file is unreachable.** The web app runs in
+its own container with no shell and no reachable disk, so `logs/web.log` lands
+somewhere nobody can grep — which is how `/readyz` reported `db_error` for
+hours with the driver code behind it out of reach. HTTP is the only channel
+into that container, so set `DIAG_TOKEN` in the web environment and ask it
+directly:
+
+```bash
+curl -s -H "X-Diag-Token: $DIAG_TOKEN" https://YOUR_HOST/diagz | jq
+```
+
+It returns the readiness snapshot, the build stamp, and the last 50 events with
+their driver codes. The guard is a shared secret **from the environment**, not
+the normal login: signing in needs the database, and the database being
+unreachable is the exact circumstance this exists for. With `DIAG_TOKEN` unset
+the route 404s as though unmounted, and a wrong token 404s identically — a
+distinct code would confirm the route exists.
 
 **When the reason is `db_error`,** the driver's own code appears beside the
 category in both stdout and that file — one word, no stack-reading. Send it and

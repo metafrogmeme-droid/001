@@ -19,6 +19,7 @@
  */
 
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -94,6 +95,65 @@ function readGitHead(root) {
   }
 }
 
+/**
+ * A content fingerprint of the app's own source — the answer to "did my
+ * deploy actually land?" when NO git metadata survives.
+ *
+ * All five sha strategies above can miss at once: a bundled deploy ships no
+ * BUILD_SHA, no build-info.json, no git binary and no .git directory, and
+ * then `sha` is honestly 'unknown'. That is truthful and unhelpful — for a
+ * whole day it was impossible to tell which build production was serving,
+ * so every "is the fix live?" question had to be answered by probing
+ * behaviour.
+ *
+ * This does not pretend to be a commit id. It is a hash over the source that
+ * actually shipped, so it CHANGES when the code changes and stays identical
+ * when it does not — which is exactly the question being asked. It can also
+ * be computed from a checkout, so an expected value can be stated in advance.
+ *
+ * §F-15: hashes only .js source under app/. Never .env, never data/, never
+ * anything holding a credential — and a hash of source reveals nothing
+ * regardless. Fail-open: any error yields null and the field is omitted.
+ */
+const FINGERPRINT_DIRS = ['lib', 'routes'];
+const FINGERPRINT_FILES = ['server.js', 'auth.js', 'db.js'];
+
+function fingerprint() {
+  try {
+    const appRoot = path.join(__dirname, '..');
+    const parts = [];
+
+    for (const f of FINGERPRINT_FILES) parts.push([f, path.join(appRoot, f)]);
+    for (const d of FINGERPRINT_DIRS) {
+      const dir = path.join(appRoot, d);
+      let names;
+      try { names = fs.readdirSync(dir); } catch (e) { continue; }
+      for (const n of names.sort()) {
+        if (n.endsWith('.js')) parts.push([`${d}/${n}`, path.join(dir, n)]);
+      }
+    }
+
+    // Sorted by RELATIVE path so the digest is independent of readdir order
+    // and of where the app is installed.
+    parts.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+    const h = crypto.createHash('sha256');
+    let counted = 0;
+    for (const [rel, abs] of parts) {
+      let buf;
+      try { buf = fs.readFileSync(abs); } catch (e) { continue; }
+      h.update(rel);
+      h.update('\0');
+      h.update(buf);
+      counted += 1;
+    }
+    if (!counted) return null;
+    return `${h.digest('hex').slice(0, 12)}+${counted}`;
+  } catch (e) {
+    return null;
+  }
+}
+
 function compute() {
   let sha = (process.env.BUILD_SHA || process.env.SOURCE_COMMIT || '').trim() || null;
   let committedAt = (process.env.BUILD_TIME || '').trim() || null;
@@ -115,6 +175,7 @@ function compute() {
     sha: (sha ? String(sha).slice(0, 12) : 'unknown'),
     committed_at: committedAt || null,
     started_at: new Date().toISOString(),
+    build: fingerprint(),
   };
 }
 
@@ -122,12 +183,16 @@ const BUILD = compute();
 
 /** Immutable build facts plus the live uptime at call time. */
 function buildInfo() {
-  return {
+  const out = {
     sha: BUILD.sha,
     committed_at: BUILD.committed_at,
     started_at: BUILD.started_at,
     uptime_s: Math.floor(process.uptime()),
   };
+  // Omitted rather than sent as null — an absent field reads as "not
+  // available here", where a null invites being mistaken for a value.
+  if (BUILD.build) out.build = BUILD.build;
+  return out;
 }
 
-module.exports = { buildInfo, readGitHead };
+module.exports = { buildInfo, readGitHead, fingerprint };

@@ -199,6 +199,42 @@ app.get('/readyz', (req, res) => {
   res.status(snap.ready ? 200 : 503).json(snap);
 });
 
+// Diagnosis, reachable over HTTP because on this host nothing else is.
+//
+// The web app runs in a managed page container: no shell, no reachable disk.
+// logs/web.log therefore lands somewhere nobody can grep, and the operator
+// could see /readyz say "db_error" without ever reaching the driver code
+// behind it. Diagnostics that cannot be reached are not diagnostics, and a
+// file alone repeats that mistake one layer down.
+//
+// Guarded by a SHARED SECRET FROM THE ENVIRONMENT, deliberately not by the
+// normal auth stack: the login path needs the database, and the database
+// being unreachable is the exact circumstance this endpoint exists for. An
+// authenticated diagnostic that cannot authenticate during an outage is
+// furniture.
+//
+// Fail-CLOSED: with DIAG_TOKEN unset the route 404s as though it were not
+// mounted, so an unconfigured deployment exposes nothing at all.
+app.get('/diagz', (req, res) => {
+  const expected = process.env.DIAG_TOKEN || '';
+  if (!expected) return res.status(404).json({ error: 'Not found' });
+
+  const given = String(req.get('X-Diag-Token') || '');
+  // Length-independent compare, and never confirm a partial match.
+  const ok = given.length === expected.length
+    && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+  if (!ok) return res.status(404).json({ error: 'Not found' });
+
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ...readiness.snapshot(),
+    version: require('./lib/version').buildInfo(),
+    // Categories, codes and counts — the same discipline as every other
+    // surface here. No error message is ever recorded, so none can be served.
+    events: bootLog.recent(),
+  });
+});
+
 // WEB-VISION: the chat route accepts optional image attachments (chart /
 // position screenshots, base64), which exceed the 1mb default. Give ONLY
 // /api/chat a larger parser — it runs first for that path, so the global 1mb

@@ -38,6 +38,24 @@ const path = require('path');
 
 const MAX_BYTES = 2 * 1024 * 1024;   // 2 MB, then start over
 const BASENAME = 'web.log';
+const RING_MAX = 50;
+
+/**
+ * The same events, held IN MEMORY.
+ *
+ * The file is only reachable where the app's disk is reachable — and on a
+ * managed page host it is not: the web app runs in one container while the
+ * operator's shell is on another machine entirely, so logs/web.log exists
+ * somewhere nobody can grep. The whole reason this module exists is that
+ * diagnostics which cannot be reached are not diagnostics, and a file alone
+ * repeats that mistake one layer down.
+ *
+ * HTTP is the only channel into that container, so the last few events are
+ * also kept here for a token-guarded endpoint to serve. Bounded to RING_MAX;
+ * oldest drops first. Same discipline as the file: categories, codes and
+ * counts, never an error message and never a secret.
+ */
+const _ring = [];
 
 let _dir = null;         // resolved lazily, once
 let _resolved = false;
@@ -73,6 +91,12 @@ function dir() {
 function record(event, detail) {
   if (_disabled) return;
   try {
+    // The ring is filled FIRST and unconditionally: it is the copy that
+    // survives a host with no writable disk, which is the host this app
+    // actually runs on.
+    _ring.push({ at: new Date().toISOString(), event, detail: detail || '' });
+    while (_ring.length > RING_MAX) _ring.shift();
+
     const d = dir();
     if (!d) return;
     const file = path.join(d, BASENAME);
@@ -93,11 +117,17 @@ function record(event, detail) {
   }
 }
 
+/** The retained events, oldest first. A copy — callers cannot mutate it. */
+function recent() {
+  return _ring.map((e) => ({ ...e }));
+}
+
 /** Test seam. */
 function _reset() {
   _dir = null;
   _resolved = false;
   _disabled = false;
+  _ring.length = 0;
 }
 
-module.exports = { record, _reset, MAX_BYTES, BASENAME };
+module.exports = { record, recent, _reset, MAX_BYTES, BASENAME, RING_MAX };
