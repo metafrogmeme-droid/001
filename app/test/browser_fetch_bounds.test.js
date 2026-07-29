@@ -144,7 +144,7 @@ test('every changed bundle is served under a new cache-buster', () => {
   // digest added in #974 makes a forgotten bump VISIBLE; it does not make the
   // browser fetch the new file.
   const floors = {
-    'dashboard.js': 126, 'i18n.js': 105, 'mascot3d.js': 4,
+    'dashboard.js': 127, 'i18n.js': 105, 'mascot3d.js': 4,
     'strengthmap.js': 4, 'guardian-console.js': 3,
   };
   const pub = path.join(__dirname, '..', 'public');

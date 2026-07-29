@@ -126,11 +126,20 @@
   }
 
   // ── Shared data caches ────────────────────────────────────────────────
-  const cache = { scan: null, scanAt: 0, tickers: {}, portfolio: null, insightOk: null };
+  // scanOk is TRI-state and it matters: null = never attempted, true = the
+  // last read of our own database succeeded, false = it failed. Collapsing
+  // "the read failed" into "there is no scan" is what let the topbar chip
+  // announce ENGINE OFFLINE during a database outage — a claim about the
+  // TRADING ENGINE derived from the website being unable to read its own
+  // table. Same rule as _haveTrades below: absent is not zero.
+  const cache = { scan: null, scanAt: 0, scanOk: null, tickers: {}, portfolio: null, insightOk: null };
 
   async function getScan(maxAgeMs = 45000) {
+    // Served from cache — no read happened, so the read state is unchanged.
     if (cache.scan && Date.now() - cache.scanAt < maxAgeMs) return cache.scan;
-    const r = await fetchJSON('/api/bot/sync/scan', { auth: false });
+    const r = await fetchJSON('/api/bot/sync/scan', { auth: false })
+      .catch(() => ({ ok: false, status: 0, data: null }));
+    cache.scanOk = !!(r && r.ok);
     if (r.ok && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
     return cache.scan;
   }
@@ -168,15 +177,50 @@
   }
 
   // ── Top chrome: connection + mode chips ───────────────────────────────
+  // The most prominent claim on the page, so it must only make claims it can
+  // support. There are FOUR states here, not two, and three of them used to
+  // render as the same flat "ENGINE OFFLINE":
+  //
+  //   read failed        -> we cannot see the engine. Say that.
+  //   never read yet     -> connecting.
+  //   read ok, no scan   -> nothing has been recorded. Not the same as down.
+  //   read ok, has scan  -> judge it by age; age is real evidence.
+  //
+  // During this week's database outages the site stayed up and every tab
+  // announced ENGINE OFFLINE, because /api/bot/sync/scan was refused with a
+  // 503 by the not-ready gate. The engine was running the whole time. An
+  // operator then has to rule out a trading outage that never happened.
   function updateConnChip() {
     const el = document.getElementById('connChip');
     if (!el) return;
+    const set = (text, cls, title) => {
+      el.textContent = text;
+      el.className = `chip ${cls}`;
+      el.title = title;
+    };
     const syncTime = cache.scan?.received_at || cache.scan?.timestamp;
-    if (!syncTime) { el.textContent = '● ENGINE OFFLINE'; el.className = 'chip chip--offline'; return; }
+    if (!syncTime) {
+      if (cache.scanOk === false) {
+        return set('● ENGINE STATUS UNKNOWN', 'chip--warn',
+          'The site could not read its own engine feed, so it cannot tell you '
+          + 'whether the engine is running. This is a website problem, not '
+          + 'evidence of a trading outage.');
+      }
+      if (cache.scanOk === null) {
+        return set('● CONNECTING', 'chip--offline', 'Reading the engine feed…');
+      }
+      return set('● NO ENGINE DATA', 'chip--offline',
+        'The feed was read successfully and holds no scan yet.');
+    }
     const ageSec = (Date.now() - new Date(syncTime).getTime()) / 1000;
-    if (ageSec < 900) { el.textContent = '● ENGINE LIVE'; el.className = 'chip chip--up'; }
-    else if (ageSec < 1800) { el.textContent = '● ENGINE STALE'; el.className = 'chip chip--warn'; }
-    else { el.textContent = '● ENGINE OFFLINE'; el.className = 'chip chip--offline'; }
+    // We have a payload, so age is real evidence and the verdict stands on it.
+    // A failed REFRESH is noted rather than allowed to overwrite what we know.
+    const stale = cache.scanOk === false
+      ? ' The latest refresh failed, so this may be older than it looks.' : '';
+    const ago = `Last engine scan ${Math.round(ageSec / 60)}m ago.`;
+    if (ageSec < 900) set('● ENGINE LIVE', 'chip--up', ago + stale);
+    else if (ageSec < 1800) set('● ENGINE STALE', 'chip--warn', ago + stale);
+    else set('● ENGINE OFFLINE', 'chip--offline', ago + stale);
   }
   function updateModeChip(pf) {
     const el = document.getElementById('modeChip');
