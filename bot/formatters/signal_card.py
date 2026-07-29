@@ -25,6 +25,10 @@ _GRAY = (130, 140, 160)      # Secondary text / labels
 _CYAN = (80, 200, 220)       # Accent highlights
 _YELLOW = (230, 190, 50)     # Warning / pattern badge
 _DIM = (60, 70, 90)          # Dimmed elements
+# Deliberately NOT green and NOT red: an unreadable figure must not be
+# coloured like a profit or a loss, because colour is a claim too and the
+# accent stripe carries it across the full width of the card.
+_MUTED = (150, 155, 170)     # A value we could not read
 
 # CJK-capable fonts (cover Latin too) for cards whose labels are translated to
 # Chinese. Tried in order; if none are present the renderer falls back to the
@@ -884,13 +888,30 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     # red/loss color right next to a negative net dollar figure in the SAME
     # line, reading as self-contradictory even though both numbers were
     # individually correct.
+    # An UNREADABLE live PnL is not a flat one.
+    #
+    # The caller sets these to None when the current price could not be
+    # fetched. They used to arrive as 0.0, and 0.0 renders "+0.00%" beside a
+    # green accent stripe — a position that may be 15% underwater presented as
+    # exactly break-even, in an image, about real money. _fmt() already drew an
+    # unreadable PRICE as "—"; the PnL derived from that same missing price
+    # kept claiming a number.
+    pnl_unknown = pnl_pct is None or pnl_usd is None
+    if pnl_unknown:
+        pnl_pct = 0.0 if pnl_pct is None else pnl_pct
+        pnl_usd = 0.0 if pnl_usd is None else pnl_usd
+    net_unknown = net_pnl is None
+    if net_unknown:
+        net_pnl = 0.0
     pnl_positive = pnl_pct >= 0
-    pnl_color = _GREEN if pnl_positive else _RED
+    # Neutral, not green: colour is a claim too, and the stripe runs the full
+    # width of the card.
+    pnl_color = _MUTED if pnl_unknown else (_GREEN if pnl_positive else _RED)
     # NET (after-fee) sign -- used ONLY for the dedicated "NET PnL" cell below,
     # which can legitimately disagree with the gross sign once fees are
     # subtracted.
     net_positive = net_pnl >= 0
-    net_color = _GREEN if net_positive else _RED
+    net_color = _MUTED if net_unknown else (_GREEN if net_positive else _RED)
 
     def _fmt(price: float) -> str:
         if price == 0:
@@ -907,7 +928,7 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     y = PAD
 
     # ── Accent stripe ──
-    stripe_color = _GREEN if pnl_positive else _RED
+    stripe_color = _MUTED if pnl_unknown else (_GREEN if pnl_positive else _RED)
     draw.rectangle([0, 0, W, 4], fill=stripe_color)
 
     # ── Header: SYMBOL  [LONG]  LIVE ──
@@ -930,11 +951,12 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
 
     # ── PnL Hero Row ──
     pnl_sign = "+" if pnl_pct >= 0 else ""
-    pnl_text = f"{pnl_sign}{pnl_pct:.2f}%"
+    pnl_text = "—" if pnl_unknown else f"{pnl_sign}{pnl_pct:.2f}%"
     draw.text((PAD, y), pnl_text, fill=pnl_color, font=_font(28, bold=True))
     pnl_w = draw.textlength(pnl_text, font=_font(28, bold=True))
 
-    usd_text = f"  (${pnl_usd:+,.2f})"
+    usd_text = ("  (price unavailable)" if pnl_unknown
+                else f"  (${pnl_usd:+,.2f})")
     draw.text((PAD + pnl_w, y + 8), usd_text, fill=pnl_color, font=f_value)
 
     y += 42
@@ -976,7 +998,7 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     y += CELL_H + GAP
 
     # ── Net PnL + Fees row ──
-    net_text = f"${net_pnl:+,.2f}"
+    net_text = "—" if net_unknown else f"${net_pnl:+,.2f}"
     fees_text = f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", net_color, w=full_w)

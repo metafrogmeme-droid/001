@@ -6388,11 +6388,19 @@ class TelegramHandler:
                 pass
 
             async def _last(sym):
+                """Current price, or None when we could not read it.
+
+                None, not 0.0. A zero here used to flow into the position
+                card as pnl_pct=0.0, which renders "+0.00%" beside a green
+                stripe — a position that may be well underwater presented as
+                exactly break-even, in an image, about real money.
+                """
                 try:
                     tk = await exchange.fetch_ticker(sym)
-                    return float(tk.get("last") or 0)
+                    px = float(tk.get("last") or 0)
+                    return px if px > 0 else None
                 except Exception:
-                    return 0.0
+                    return None
 
             now = datetime.now(timezone.utc)
             sent_any = False
@@ -6400,11 +6408,16 @@ class TelegramHandler:
             # ── Position cards (one per open position, composited) ──
             pos_pngs: list = []
             for p in filled_pos:
-                cur = await _last(p.symbol) if exchange else 0.0
+                # No exchange client is the same fact as a failed ticker:
+                # we do not know the current price.
+                cur = await _last(p.symbol) if exchange else None
                 lev = getattr(p, "leverage", 10) or 1
                 cost = getattr(p, "cost_usd", 0) or 0
-                pnl_usd = pnl_pct = 0.0
-                if cur > 0 and p.entry_price > 0:
+                # None means unreadable and the card renders "—". Omit, never
+                # invent: a fabricated 0.00% is worse than an absent one,
+                # because it looks like a measurement.
+                pnl_usd = pnl_pct = None
+                if cur and cur > 0 and p.entry_price > 0:
                     raw = ((cur - p.entry_price) if p.direction == "LONG"
                            else (p.entry_price - cur)) / p.entry_price
                     pnl_usd = _leveraged_pnl_usd(p.entry_price, cur, p.direction, cost, lev)
@@ -6413,11 +6426,11 @@ class TelegramHandler:
                 if getattr(p, "opened_at", None):
                     mins = int((now - p.opened_at).total_seconds() // 60)
                     hold = f"{mins}m" if mins < 60 else f"{mins // 60}h {mins % 60}m"
-                sl_pct = (abs(cur - p.stop_loss) / cur * 100) if (cur > 0 and p.stop_loss > 0) else 0
-                tp_pct = (abs(p.take_profit - cur) / cur * 100) if (cur > 0 and p.take_profit > 0) else 0
+                sl_pct = (abs(cur - p.stop_loss) / cur * 100) if (cur and cur > 0 and p.stop_loss > 0) else 0
+                tp_pct = (abs(p.take_profit - cur) / cur * 100) if (cur and cur > 0 and p.take_profit > 0) else 0
                 png = render_position_card({
                     "symbol": p.symbol, "direction": p.direction, "is_live": True,
-                    "entry": p.entry_price, "now": cur,
+                    "entry": p.entry_price, "now": cur or 0,
                     "pnl_pct": pnl_pct, "pnl_usd": pnl_usd, "net_pnl": pnl_usd,
                     "fees": 0.0, "size_usd": cost, "leverage": lev, "hold_time": hold,
                     "rr": getattr(p, "rr", 0) or 0,
