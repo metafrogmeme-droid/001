@@ -30,15 +30,46 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 SRC = (ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
 
+
+def code_only(text: str) -> str:
+    """Source with comments and docstrings stripped.
+
+    Fourth time this trap has been hit: a comment that QUOTES the string it
+    forbids is indistinguishable from the code doing it when you scan raw
+    text. Scan code; read prose separately.
+    """
+    import io
+    import tokenize
+    out, prev_type = [], None
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                continue
+            if tok.type == tokenize.STRING and prev_type in (
+                    None, tokenize.NEWLINE, tokenize.NL, tokenize.INDENT,
+                    tokenize.DEDENT):
+                continue                      # a docstring, not a value
+            out.append(tok.string)
+            if tok.type not in (tokenize.NL, tokenize.NEWLINE):
+                prev_type = tok.type
+            else:
+                prev_type = tok.type
+    except tokenize.TokenError:
+        return text
+    return " ".join(out)
+
+
+CODE = code_only(SRC)
+
 sys.path.insert(0, str(ROOT / "scripts"))
 import preflight  # noqa: E402
 
 
-def _ci_python_commands() -> list[str]:
+def _ci_local_commands() -> list[str]:
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     out = []
     for job in wf["jobs"].values():
-        if job.get("name") not in preflight.PYTHON_JOBS:
+        if job.get("name") not in preflight.LOCAL_JOBS:
             continue
         for step in job.get("steps", []):
             run, name = step.get("run"), (step.get("name") or "").lower()
@@ -51,8 +82,8 @@ def _ci_python_commands() -> list[str]:
 # ── it runs what CI runs ──────────────────────────────────────────────────
 
 def test_every_ci_gate_is_in_the_plan():
-    planned = {cmd for _, cmd in preflight.steps(fast=False)}
-    missing = [c for c in _ci_python_commands() if c not in planned]
+    planned = {cmd for _, cmd, _ in preflight.steps(fast=False)}
+    missing = [c for c in _ci_local_commands() if c not in planned]
     assert missing == [], f"CI runs these and preflight does not:\n  " + "\n  ".join(missing)
 
 
@@ -76,23 +107,54 @@ def test_a_new_ci_step_needs_no_edit_here():
     tmp.write_text(yaml.safe_dump(wf), encoding="utf-8")
     try:
         preflight.WORKFLOW, original = tmp, preflight.WORKFLOW
-        assert ("Brand new gate", "echo invented") in preflight.steps(fast=False)
+        assert any(n.endswith("Brand new gate") and c == "echo invented"
+                   for n, c, _ in preflight.steps(fast=False))
     finally:
         preflight.WORKFLOW = original
         tmp.unlink()
 
 
 def test_guard_lint_is_included_even_though_it_lives_in_another_job():
-    planned = {cmd for _, cmd in preflight.steps(fast=False)}
+    planned = {cmd for _, cmd, _ in preflight.steps(fast=False)}
     assert "python3 scripts/guard_lint.py" in planned
 
 
-def test_only_python_jobs_are_attempted():
-    """cargo and node jobs need toolchains a Python box will not have.
-    Pretending to run them would be worse than saying they are out of scope."""
-    planned = " ".join(cmd for _, cmd in preflight.steps(fast=False))
-    for foreign in ("cargo ", "npm ", "anchor "):
-        assert foreign not in planned
+def test_the_web_suite_is_covered_and_runs_in_its_own_directory():
+    """The first version of this script omitted it while printing "this is
+    what CI will run" — the exact overclaim it exists to prevent, in itself."""
+    hits = [(c, wd) for _, c, wd in preflight.steps(fast=False) if c == "npm test"]
+    assert hits == [("npm test", "app")], (
+        "the web app suite runs in app/, and running it from the repo root "
+        "would fail for a reason that has nothing to do with the code")
+
+
+def test_the_summary_names_what_it_cannot_judge():
+    """"All gates green — this is what CI will run" was false: cargo,
+    solidity, gitleaks and token tooling are never touched here."""
+    assert "this is what CI will run" not in CODE, "the overclaim must be gone"
+    assert "All local gates green" in SRC
+    assert "Still only CI can judge" in SRC
+    missing = preflight.uncovered()
+    for job in ("Staking program (cargo)", "Secret scan (gitleaks)",
+                "Rune NFT (solidity)", "Token tooling (node)"):
+        assert job in missing
+
+
+def test_token_tooling_is_excluded_deliberately_not_accidentally():
+    """It is a node job, so "we only do Python" does not explain it. One of
+    its steps curl-pipes a Solana installer."""
+    assert "Token tooling (node)" not in preflight.LOCAL_JOBS
+    assert "curl-pipes a Solana validator installer" in preflight.__doc__ or \
+        "curl-pipes a Solana validator installer" in SRC
+
+
+def test_no_gate_needing_an_absent_toolchain_is_attempted():
+    """Pretending to run these would be worse than naming them uncovered."""
+    planned = " ".join(cmd for _, cmd, _ in preflight.steps(fast=False))
+    for foreign in ("cargo ", "anchor ", "solana-test-validator"):
+        assert foreign not in planned, (
+            "these need toolchains a dev box will not have; pretending to run "
+            "them would be worse than naming them as uncovered")
 
 
 # ── the honesty rules ─────────────────────────────────────────────────────
@@ -119,8 +181,8 @@ def test_fast_mode_says_what_it_skipped():
 
 
 def test_fast_only_drops_the_network_gates():
-    full = {c for _, c in preflight.steps(fast=False)}
-    fast = {c for _, c in preflight.steps(fast=True)}
+    full = {c for _, c, _ in preflight.steps(fast=False)}
+    fast = {c for _, c, _ in preflight.steps(fast=True)}
     dropped = full - fast
     assert dropped, "fast mode must actually drop something"
     for cmd in dropped:
@@ -131,7 +193,7 @@ def test_one_failure_does_not_hide_the_rest():
     """Running the whole plan and reporting at the end beats bailing on the
     first failure: one run should tell you everything that is wrong."""
     assert "results.append" in SRC
-    assert "for name, cmd in plan:" in SRC
+    assert "for name, cmd, wd in plan:" in SRC
     assert "sys.exit" not in SRC.split("def main")[1].split("print(")[0]
 
 

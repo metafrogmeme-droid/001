@@ -39,10 +39,16 @@ except ImportError:  # pragma: no cover - trivially environment-dependent
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
-#: Jobs whose steps run on a plain Python checkout. The cargo/solidity/node
-#: jobs need toolchains a Python dev box will not have, and pretending to run
-#: them would be worse than saying they are out of scope.
-PYTHON_JOBS = ("Lint + tests (baseline gate)",)
+#: Jobs this can genuinely run on a dev box. Everything else is named in the
+#: summary rather than silently omitted — "all gates green" while quietly
+#: covering half of them is the exact defect this script exists to prevent,
+#: and the first version of it printed precisely that.
+#:
+#: Token tooling is excluded on purpose despite being node: one of its steps
+#: curl-pipes a Solana validator installer, and a preflight that installs a
+#: toolchain behind your back is not a preflight.
+LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)")
+PYTHON_JOBS = LOCAL_JOBS          # back-compat alias
 
 #: Steps to skip: setup, and anything whose name matches. Substring match on
 #: the step's `name`, case-insensitive.
@@ -53,9 +59,9 @@ ALWAYS_SKIP = ("install", "checkout", "set up", "setup", "cache")
 #: and the wrong things to drop before pushing.
 FAST_SKIP = ("pip-audit", "sca —", "sca -")
 
-#: Steps run by other jobs that still work on a Python checkout. Kept as an
-#: explicit list because they are the exception, not the rule.
-EXTRA = [("Guard reachability (structural)", "python3 scripts/guard_lint.py")]
+#: Steps run by other jobs that still work here. Kept explicit because they
+#: are the exception, not the rule. (name, command, working directory)
+EXTRA = [("Guard reachability (structural)", "python3 scripts/guard_lint.py", ".")]
 
 
 def _flatten(cmd: str) -> str:
@@ -63,11 +69,12 @@ def _flatten(cmd: str) -> str:
     return " ".join(cmd.split())
 
 
-def steps(fast: bool) -> list[tuple[str, str]]:
+def steps(fast: bool) -> list[tuple[str, str, str]]:
+    """(display name, command, working directory) in CI order."""
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, str]] = []
     for job in wf.get("jobs", {}).values():
-        if job.get("name") not in PYTHON_JOBS:
+        if job.get("name") not in LOCAL_JOBS:
             continue
         for step in job.get("steps", []):
             run = step.get("run")
@@ -79,9 +86,17 @@ def steps(fast: bool) -> list[tuple[str, str]]:
                 continue
             if fast and any(s in low for s in FAST_SKIP):
                 continue
-            out.append((name, _flatten(run)))
+            out.append((f"{job['name']} — {name}", _flatten(run),
+                        step.get("working-directory") or "."))
     out.extend(EXTRA)
     return out
+
+
+def uncovered() -> list[str]:
+    """CI jobs this cannot run. Named in the summary, never left implied."""
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return sorted(j.get("name") for j in wf.get("jobs", {}).values()
+                  if j.get("name") not in LOCAL_JOBS)
 
 
 def main() -> int:
@@ -99,12 +114,13 @@ def main() -> int:
         return 2
 
     if args.list:
-        for name, cmd in plan:
-            print(f"{name}\n    {cmd}\n")
+        for name, cmd, wd in plan:
+            print(f"{name}\n    ({wd}) {cmd}\n")
+        print("NOT covered locally: " + ", ".join(uncovered()))
         return 0
 
     results: list[tuple[str, bool, float, bool]] = []
-    for name, cmd in plan:
+    for name, cmd, wd in plan:
         tool = cmd.split()[0]
         if shutil.which(tool) is None and tool not in ("python", "python3"):
             # Absent is not passing. Say so and keep going, so one missing
@@ -112,9 +128,9 @@ def main() -> int:
             print(f"\n\033[33m— SKIP\033[0m {name}\n  {tool!r} is not installed")
             results.append((name, False, 0.0, True))
             continue
-        print(f"\n\033[36m▶ {name}\033[0m\n  $ {cmd}")
+        print(f"\n\033[36m▶ {name}\033[0m\n  $ ({wd}) {cmd}")
         t0 = time.monotonic()
-        rc = subprocess.call(cmd, shell=True, cwd=ROOT)
+        rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd)
         results.append((name, rc == 0, time.monotonic() - t0, False))
 
     print("\n" + "─" * 68)
@@ -132,7 +148,11 @@ def main() -> int:
         return 1
     if skipped:
         return 2
-    print("\n\033[32mAll gates green — this is what CI will run.\033[0m")
+    # NOT "this is what CI will run". It is what CI will run MINUS the jobs
+    # below, and a summary that rounds that up to "everything" is the same
+    # overclaim this script was written to stop. Name them every time.
+    print("\n\033[32mAll local gates green.\033[0m")
+    print("\033[33mStill only CI can judge: " + ", ".join(uncovered()) + "\033[0m")
     return 0
 
 
