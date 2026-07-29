@@ -35,6 +35,80 @@ function isConfigured() {
 // means our own honest error arrives first.
 const CONNECT_TIMEOUT_MS = Number(process.env.GATEWAY_CONNECT_TIMEOUT_MS || 4000);
 
+/**
+ * Arm the two timers every gateway request needs, and return a disarm().
+ *
+ * CONNECT is the fast-fail from above: a socket, or nothing, in a few seconds.
+ *
+ * DEADLINE is an absolute cap from the moment the request starts, and it
+ * exists because `timeout:` on http.request is NOT one. Node's socket timeout
+ * measures INACTIVITY: every byte that arrives resets it. A gateway that
+ * sends headers and then trickles — or a proxy that keeps the connection
+ * warm — holds the request open indefinitely while never being idle long
+ * enough to trip. The caller asked for a 20s budget and could wait forever.
+ *
+ * This is the same shape as the engine's hung analyze phase earlier today: a
+ * bound that only fires on one failure mode is not a bound. Retrying,
+ * catching, and resetting all share the property that they only help if the
+ * thing can finish. So the inactivity timeout stays (it still catches a
+ * stalled socket sooner) and an absolute deadline sits over it.
+ *
+ * It matters here specifically because there is a CDN in front of this app
+ * with its own patience. Whenever our budget can exceed the edge's, the
+ * visitor stops getting our honest {"error": ...} and starts getting the
+ * edge's opaque 502 — which is exactly how tonight's chat outage presented.
+ */
+function armTimers(req, timeoutMs, reject) {
+  let connectTimer = null;
+  let deadlineTimer = null;
+  let settled = false;
+
+  const disarm = () => {
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
+    if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null; }
+  };
+  // One rejection, one destroy. Without this a deadline firing after a
+  // resolve would tear down a socket whose response we already returned.
+  const fail = (err) => {
+    if (settled) return;
+    settled = true;
+    disarm();
+    req.destroy();
+    reject(err);
+  };
+
+  if (timeoutMs > 0) {
+    deadlineTimer = setTimeout(() => {
+      const e = new Error('Gateway timeout');
+      e.code = 'GATEWAY_DEADLINE';
+      fail(e);
+    }, timeoutMs);
+  }
+
+  // Fast-fail the CONNECT phase only. Cleared the moment a socket is
+  // established, so a slow model reply is never cut short by it.
+  req.on('socket', (sock) => {
+    if (!CONNECT_TIMEOUT_MS) return;
+    if (sock.connecting === false) return;          // already up (pooled)
+    connectTimer = setTimeout(() => {
+      const e = new Error('Gateway unreachable — no connection established');
+      e.code = 'GATEWAY_UNREACHABLE';
+      fail(e);
+    }, CONNECT_TIMEOUT_MS);
+    const clear = () => { if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; } };
+    sock.once('connect', clear);
+    sock.once('error', clear);
+  });
+  req.on('error', (e) => fail(e));
+  req.on('timeout', () => fail(new Error('Gateway timeout')));
+
+  return {
+    // Called on a successful response so a late timer cannot fire.
+    done: () => { settled = true; disarm(); },
+    settled: () => settled,
+  };
+}
+
 function requestJSON(method, gwPath, body, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     const url = `${BOT_GATEWAY_URL}/gateway${gwPath}`;
@@ -45,36 +119,17 @@ function requestJSON(method, gwPath, body, timeoutMs = 20000) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = Buffer.byteLength(payload);
     }
-    let connectTimer = null;
     const req = mod.request(url, { method, timeout: timeoutMs, headers }, (res) => {
       let data = '';
       res.on('data', d => data += d);
       res.on('end', () => {
+        if (timers.settled()) return;               // deadline already fired
+        timers.done();
         try { resolve({ status: res.statusCode, data: JSON.parse(data || '{}') }); }
         catch (e) { reject(new Error('Invalid JSON from gateway')); }
       });
     });
-    // Fast-fail the CONNECT phase only. Cleared the moment a socket is
-    // established, so a slow model reply is never cut short by it.
-    req.on('socket', (sock) => {
-      if (!CONNECT_TIMEOUT_MS) return;
-      if (sock.connecting === false) return;          // already up (pooled)
-      connectTimer = setTimeout(() => {
-        req.destroy();
-        const e = new Error('Gateway unreachable — no connection established');
-        e.code = 'GATEWAY_UNREACHABLE';
-        reject(e);
-      }, CONNECT_TIMEOUT_MS);
-      const clear = () => { if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; } };
-      sock.once('connect', clear);
-      sock.once('error', clear);
-    });
-    req.on('error', (e) => { if (connectTimer) clearTimeout(connectTimer); reject(e); });
-    req.on('timeout', () => {
-      if (connectTimer) clearTimeout(connectTimer);
-      req.destroy();
-      reject(new Error('Gateway timeout'));
-    });
+    const timers = armTimers(req, timeoutMs, reject);
     if (payload) req.write(payload);
     req.end();
   });
@@ -83,6 +138,13 @@ function requestJSON(method, gwPath, body, timeoutMs = 20000) {
 // Binary sibling of requestJSON for the gateway's non-JSON endpoints (today:
 // /share-card PNG). Collects raw Buffer chunks and never JSON.parses — routing
 // a binary response through requestJSON/relay would corrupt it or throw.
+//
+// It shares armTimers with requestJSON deliberately. The connect fast-fail
+// was added to requestJSON alone, so this sibling kept the exact bug that
+// change existed to kill: against a firewall that DROPS packets it waited the
+// full response budget for a connection that was never coming — past the
+// edge's patience, so the visitor got a 502 instead of our error. Two copies
+// of a request path is how one of them stays broken.
 function requestBinary(gwPath, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const url = `${BOT_GATEWAY_URL}/gateway${gwPath}`;
@@ -93,14 +155,17 @@ function requestBinary(gwPath, timeoutMs = 15000) {
     }, (res) => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        contentType: res.headers['content-type'] || '',
-        body: Buffer.concat(chunks),
-      }));
+      res.on('end', () => {
+        if (timers.settled()) return;
+        timers.done();
+        resolve({
+          status: res.statusCode,
+          contentType: res.headers['content-type'] || '',
+          body: Buffer.concat(chunks),
+        });
+      });
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Gateway timeout')); });
+    const timers = armTimers(req, timeoutMs, reject);
     req.end();
   });
 }
