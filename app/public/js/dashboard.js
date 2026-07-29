@@ -3700,7 +3700,8 @@
           const q = `symbol=${encodeURIComponent(String(sym).toUpperCase())}` +
             `&direction=${encodeURIComponent(String(dir).toUpperCase())}` +
             `&pnl_pct=${encodeURIComponent(pct.toFixed(2))}`;
-          const resp = await fetch(`/api/share/card?${q}`, { headers: RC.authHeaders() });
+          const resp = await fetch(`/api/share/card?${q}`,
+            { headers: RC.authHeaders(), signal: AbortSignal.timeout(8000) });
           if (resp.ok && /image\/png/.test(resp.headers.get('content-type') || '')) {
             const blob = await resp.blob();
             file = new File([blob], `runeclaw-${sym}.png`, { type: 'image/png' });

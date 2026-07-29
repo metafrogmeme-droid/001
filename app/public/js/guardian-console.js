@@ -111,7 +111,8 @@
     if (kind === 'intent') { out.innerHTML = intentView(t); return; }
     if (kind === 'sentinel') {
       out.innerHTML = '<div class="gc-card gc-loading">Reading the market…</div>';
-      try { var r = await fetch('/api/market/sentinel', { headers: { Accept: 'application/json' } }); out.innerHTML = sentinelView(r.ok ? await r.json() : null); }
+      try { var r = await fetch('/api/market/sentinel',
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12000) }); out.innerHTML = sentinelView(r.ok ? await r.json() : null); }
       catch (e) { out.innerHTML = sentinelView(null); }
       return;
     }

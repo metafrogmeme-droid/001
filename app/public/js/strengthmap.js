@@ -106,8 +106,13 @@ async function openPanel(c) {
   });
   if (REDUCED) grow(); else requestAnimationFrame(() => requestAnimationFrame(grow));
   try {
-    const r = await fetch('/api/market/venues/' + encodeURIComponent(c.base), { headers: { Accept: 'application/json' } });
-    const d = r.ok ? await r.json() : null;
+    const r = await fetch('/api/market/venues/' + encodeURIComponent(c.base),
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12000) });
+    // A non-OK status is UNREADABLE, not empty. Falling through with an
+    // empty list rendered "No venues found." — a claim about the market
+    // made from a 503. Throw so the catch below says what is true.
+    if (!r.ok) throw new Error('venues');
+    const d = await r.json();
     const vs = (d && d.venues) || [];
     $('smVenues').innerHTML = vs.map((v) =>
       `<a class="sm-v" href="${esc(v.url)}" target="_blank" rel="noopener">
@@ -156,7 +161,8 @@ function wireBias(onChange) {
 }
 
 async function loadData() {
-  const r = await fetch('/api/market/strengthmap?limit=240', { headers: { Accept: 'application/json' } });
+  const r = await fetch('/api/market/strengthmap?limit=240',
+    { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error('data');
   const d = await r.json();
   state.coins = (d && d.coins) || [];

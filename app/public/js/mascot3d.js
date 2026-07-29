@@ -41,7 +41,7 @@ const _instances = new Set();   // every live viewer, for global react()/dispose
 
 async function modelExists() {
   try {
-    const r = await fetch(MODEL_URL, { method: 'HEAD' });
+    const r = await fetch(MODEL_URL, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
     return r.ok && !/text\/html/.test(r.headers.get('content-type') || '');
   } catch (e) { return false; }
 }

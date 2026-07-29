@@ -1846,6 +1846,7 @@
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ prefs: { lang: lang } }),
+        signal: AbortSignal.timeout(8000),
       }).catch(function () {});
     } catch (e) { /* ignore */ }
   }
