@@ -4990,13 +4990,30 @@ class TelegramHandler:
         client = BitgetV3Client.from_config()
         return client if client.has_credentials else None
 
-    def _engine_free_usdt(self) -> float:
-        """Free futures margin from the engine's venue-aware balance cache."""
+    def _engine_free_usdt(self) -> Optional[float]:
+        """Free futures margin from the engine's venue-aware balance cache.
+
+        Three outcomes, and the middle one used to be indistinguishable from
+        the first:
+
+          0.0   PAPER mode — there is no live futures margin, and a report
+                that omits the row is complete and correct.
+          None  LIVE mode with an empty or unreadable cache — we do not know.
+                The Earn report then drops what is usually the LARGEST idle
+                row and would otherwise present the remainder as the whole
+                picture of the operator's idle capital.
+          float the real number.
+        """
         try:
-            cache = getattr(self.engine, "_live_balance_cache", None) or {}
-            return float(cache.get("free", 0) or 0)
+            if not CONFIG.is_live():
+                return 0.0
+            cache = getattr(self.engine, "_live_balance_cache", None)
+            if not cache:
+                return None
+            free = cache.get("free")
+            return None if free is None else float(free or 0)
         except Exception:
-            return 0.0
+            return None
 
     async def _cmd_weblive(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/weblive <web:id> [on|off] — web live-trading readiness + enablement.
@@ -5067,11 +5084,15 @@ class TelegramHandler:
             if report.error:
                 await self._send(update, f"🔴 {report.error}")
                 return
+            _incomplete = getattr(report, "incomplete", "")
             holdings = [{"asset": r.coin, "usd_value": r.idle_usd, "location": r.source}
                         for r in report.rows if r.idle_usd > 0]
             if not holdings:
+                # "No idle assets" is a claim about the whole balance, and the
+                # leg we could not read is usually the largest one.
                 await self._send(update,
-                    "🟡 No idle assets above the dust floor right now.")
+                    "🟡 No idle assets above the dust floor right now."
+                    + (f"\n\n⚠️ {html.escape(_incomplete)}" if _incomplete else ""))
                 return
             # Options: Bitget Earn (custodial) + Bybit Earn + non-custodial feeds.
             bitget_cat = await asyncio.to_thread(fetch_savings_catalog, client)
@@ -5088,7 +5109,9 @@ class TelegramHandler:
             body = iy.human_readable(result)
             nc = sum(1 for o in options if not o.get("custodial"))
             await self._send(update,
-                f"<b>💤→💸 Idle-Yield Optimizer</b>\n<pre>{html.escape(body)}</pre>\n"
+                "<b>💤→💸 Idle-Yield Optimizer</b>\n"
+                + (f"⚠️ <i>{html.escape(_incomplete)}</i>\n" if _incomplete else "")
+                + f"<pre>{html.escape(body)}</pre>\n"
                 f"<i>{nc} non-custodial rate(s) live · recommendation only — "
                 f"nothing moved. /stake executes flexible CEX Earn on confirm.</i>")
         except Exception as exc:
@@ -5131,16 +5154,26 @@ class TelegramHandler:
             if report.error:
                 await self._send(update, f"🔴 {html.escape(report.error)}")
                 return
+            # A partial report is not an error — it produced rows — but acting
+            # on it as if it were the whole picture is the risk. Say it first,
+            # before the plan it is missing a leg of.
+            _incomplete = getattr(report, "incomplete", "")
             plans = [r for r in report.rows
                      if r.coin in STAKEABLE_COINS and r.apy_flexible
                      and r.product_id and r.stakeable_usd >= MIN_IDLE_USD]
             if not plans:
+                # "Nothing stakeable" is a claim about the balance. Only make
+                # it when the balance was fully read.
+                _why = (f"\n\n⚠️ {html.escape(_incomplete)}" if _incomplete else "")
                 await self._send(update,
                     "🟡 Nothing stakeable right now — no stable balance above "
                     f"${MIN_IDLE_USD:.0f} after the {MARGIN_RESERVE_PCT:.0%} "
-                    "margin reserve, or no flexible Earn product available.")
+                    "margin reserve, or no flexible Earn product available."
+                    + _why)
                 return
             lines = ["⚡ <b>Stake plan — flexible Earn, instantly redeemable</b>"]
+            if _incomplete:
+                lines.append(f"⚠️ <i>{html.escape(_incomplete)}</i>")
             buttons = []
             for r in plans:
                 lines.append(

@@ -67,6 +67,11 @@ class YieldReport:
     total_idle_usd: float = 0.0
     total_est_year_usd: float = 0.0
     error: str = ""             # non-empty when the radar could not run
+    # Non-empty when the report RAN but is missing a leg it should have had.
+    # Distinct from `error`, which means nothing was produced at all: a
+    # partial report that looks complete is the more dangerous of the two,
+    # because the operator acts on it.
+    incomplete: str = ""
 
 
 def _f(v: Any) -> float:
@@ -163,14 +168,19 @@ def fetch_spot_idle(client) -> dict[str, float]:
     return out
 
 
-def build_report(client, futures_free_usdt: float = 0.0,
+def build_report(client, futures_free_usdt: Optional[float] = 0.0,
                  prices: Optional[dict[str, float]] = None) -> YieldReport:
     """Assemble the idle-asset yield report (pure given its inputs).
 
     ``futures_free_usdt`` — free USDT margin from the engine's live balance
-    cache (the venue-aware executor number). ``prices`` — {coin: usd} for
-    valuing non-stable spot coins; missing prices value stables at 1 and skip
-    the rest (never invent a price).
+    cache (the venue-aware executor number). **None means it could not be
+    read**, which is not the same as zero: 0.0 drops the futures row on the
+    grounds that there is nothing idle there, and None drops it because we do
+    not know. The first is a complete report; the second is a partial one, and
+    it says so rather than presenting the remainder as the whole picture.
+
+    ``prices`` — {coin: usd} for valuing non-stable spot coins; missing prices
+    value stables at 1 and skip the rest (never invent a price).
     """
     prices = prices or {}
     report = YieldReport()
@@ -182,7 +192,10 @@ def build_report(client, futures_free_usdt: float = 0.0,
         return report
 
     idle: dict[str, tuple[float, str]] = {}
-    if futures_free_usdt > 0:
+    if futures_free_usdt is None:
+        report.incomplete = ("Free futures margin could not be read, so it is "
+                             "not counted below. Spot holdings are complete.")
+    elif futures_free_usdt > 0:
         idle["USDT"] = (futures_free_usdt, "futures free")
     for coin, amount in fetch_spot_idle(client).items():
         prev = idle.get(coin)
