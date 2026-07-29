@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Run locally what CI runs, by READING what CI runs.
+
+Written after pushing a change that passed pytest and guard_lint and then
+failed CI on `ruff F541`. The interesting part was not the stray f-prefix; it
+was that "my checks pass" had been standing in for "CI will pass" while
+covering a fraction of it. The baseline gate runs six commands. I was running
+none of them — a raw pytest that approximates the last one, plus guard_lint
+from a different job.
+
+That is the same defect as most of what this codebase was fixing that week: a
+check whose coverage is narrower than the confidence placed in it.
+
+So this does not RESTATE the commands — restating them is how the copy drifts
+from the original, silently, exactly once, at the least convenient moment. It
+parses .github/workflows/ci.yml and runs what is written there. A new CI step
+is a new preflight step for free, and there is no second list to forget.
+
+Usage:
+    python3 scripts/preflight.py              # everything, in CI order
+    python3 scripts/preflight.py --fast       # skip the slow/network gates
+    python3 scripts/preflight.py --list       # show what would run
+"""
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - trivially environment-dependent
+    print("preflight: PyYAML is required (pip install pyyaml)", file=sys.stderr)
+    raise SystemExit(2)
+
+ROOT = Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
+#: Jobs whose steps run on a plain Python checkout. The cargo/solidity/node
+#: jobs need toolchains a Python dev box will not have, and pretending to run
+#: them would be worse than saying they are out of scope.
+PYTHON_JOBS = ("Lint + tests (baseline gate)",)
+
+#: Steps to skip: setup, and anything whose name matches. Substring match on
+#: the step's `name`, case-insensitive.
+ALWAYS_SKIP = ("install", "checkout", "set up", "setup", "cache")
+
+#: Skipped by --fast. Both reach the network and neither can fail from an edit
+#: you just made, so they are the right things to drop from a tight loop —
+#: and the wrong things to drop before pushing.
+FAST_SKIP = ("pip-audit", "sca —", "sca -")
+
+#: Steps run by other jobs that still work on a Python checkout. Kept as an
+#: explicit list because they are the exception, not the rule.
+EXTRA = [("Guard reachability (structural)", "python3 scripts/guard_lint.py")]
+
+
+def _flatten(cmd: str) -> str:
+    """A YAML folded scalar arrives with newlines; CI runs it as one line."""
+    return " ".join(cmd.split())
+
+
+def steps(fast: bool) -> list[tuple[str, str]]:
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    out: list[tuple[str, str]] = []
+    for job in wf.get("jobs", {}).values():
+        if job.get("name") not in PYTHON_JOBS:
+            continue
+        for step in job.get("steps", []):
+            run = step.get("run")
+            name = step.get("name") or "(unnamed)"
+            if not run:
+                continue
+            low = name.lower()
+            if any(s in low for s in ALWAYS_SKIP):
+                continue
+            if fast and any(s in low for s in FAST_SKIP):
+                continue
+            out.append((name, _flatten(run)))
+    out.extend(EXTRA)
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--fast", action="store_true",
+                    help="skip the network-dependent gates (not before pushing)")
+    ap.add_argument("--list", action="store_true", help="print the plan and exit")
+    args = ap.parse_args()
+
+    plan = steps(args.fast)
+    if not plan:
+        # An empty plan would exit 0 and read as success. It means the workflow
+        # was renamed or restructured, which is a failure to report, not pass.
+        print("preflight: no steps found — has ci.yml changed shape?", file=sys.stderr)
+        return 2
+
+    if args.list:
+        for name, cmd in plan:
+            print(f"{name}\n    {cmd}\n")
+        return 0
+
+    results: list[tuple[str, bool, float, bool]] = []
+    for name, cmd in plan:
+        tool = cmd.split()[0]
+        if shutil.which(tool) is None and tool not in ("python", "python3"):
+            # Absent is not passing. Say so and keep going, so one missing
+            # tool does not hide the state of everything after it.
+            print(f"\n\033[33m— SKIP\033[0m {name}\n  {tool!r} is not installed")
+            results.append((name, False, 0.0, True))
+            continue
+        print(f"\n\033[36m▶ {name}\033[0m\n  $ {cmd}")
+        t0 = time.monotonic()
+        rc = subprocess.call(cmd, shell=True, cwd=ROOT)
+        results.append((name, rc == 0, time.monotonic() - t0, False))
+
+    print("\n" + "─" * 68)
+    failed = [r for r in results if not r[1] and not r[3]]
+    skipped = [r for r in results if r[3]]
+    for name, ok, secs, skip in results:
+        mark = "\033[33m?\033[0m" if skip else ("\033[32m✓\033[0m" if ok else "\033[31m✗\033[0m")
+        print(f"{mark} {name}  ({secs:.1f}s)")
+    if args.fast:
+        print("\n\033[33m--fast omitted the network gates; run without it before pushing.\033[0m")
+    if skipped:
+        print(f"\n\033[33m{len(skipped)} gate(s) could not run — that is not a pass.\033[0m")
+    if failed:
+        print(f"\n\033[31m{len(failed)} gate(s) failed.\033[0m")
+        return 1
+    if skipped:
+        return 2
+    print("\n\033[32mAll gates green — this is what CI will run.\033[0m")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
