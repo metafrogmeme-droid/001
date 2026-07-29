@@ -46,7 +46,16 @@ from bot.utils.models import (
 )
 
 # ── Universe ─────────────────────────────────────────────────────
-# 66 symbols covering majors, alt L1s, DeFi, memes, infra, AI
+# A FIXED list used by THIS bridge's own /scan endpoint. It is not the
+# engine's trading universe: that one is built each cycle from a
+# volume-filtered ticker sweep and capped by TOP_MOVERS_COUNT, so the two
+# numbers routinely differ — 70 here against 161 live, on 2026-07-29.
+#
+# The count is deliberately not written in prose. The comment said "66" while
+# the list held 70, and /health reported it as a bare `universe_size`, which
+# reads as THE universe. Both fed a live diagnosis: the engine's analyze phase
+# was timing out and the 70 was taken as the symbol count it was working
+# through. It was not.
 UNIVERSE: list[str] = [
     # Majors
     "BTC/USDT", "ETH/USDT",
@@ -392,8 +401,32 @@ async def health():
         "simulation_mode": CONFIG.simulation_mode,
         "circuit_breaker_active": engine.risk.circuit_breaker_active if engine else False,
         "open_positions": len(engine.portfolio.open_positions) if engine else 0,
-        "universe_size": len(UNIVERSE),
+        # Named for what it IS. `universe_size` alone read as the engine's
+        # trading universe and was used that way in a live diagnosis; it is
+        # this bridge's own fixed /scan list and nothing else.
+        "bridge_scan_universe_size": len(UNIVERSE),
+        # The number people actually mean: how many signals the engine's last
+        # analyze batch was working through. Absent rather than guessed when
+        # no batch has run yet — a zero here would read as "nothing to scan".
+        **({"engine_universe_size": _engine_universe_size(engine)}
+           if _engine_universe_size(engine) is not None else {}),
     }
+
+
+def _engine_universe_size(engine) -> "int | None":
+    """How many signals the engine's most recent analyze batch covered.
+
+    None when no batch has run — absent is not zero, and a zero on a health
+    endpoint reads as "there is nothing to scan" rather than "not measured
+    yet". Fail-open: any error yields None and the field is omitted.
+    """
+    try:
+        prog = getattr(engine, "_analyze_progress", None)
+        if isinstance(prog, dict) and prog.get("of"):
+            return int(prog["of"])
+    except Exception:
+        pass
+    return None
 
 
 @app.post("/scan")

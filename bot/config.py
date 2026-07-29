@@ -190,6 +190,37 @@ def _env_secret_any(*keys: str, default: str = "") -> str:
     return default
 
 
+def _env_choice(key: str, default: str, allowed: tuple[str, ...]) -> str:
+    """A setting whose wrong value would silently change behaviour, validated.
+
+    TRADE_MODE is why this exists. It was read raw, and every consumer asked
+    `trade_mode == "futures"`, so ANY other value — a typo, a capitalisation,
+    an aspirational "spot" — silently flipped that to False. That skipped the
+    futures-market existence check, skipped _ensure_leverage, and skipped the
+    swap-symbol conversion, while the ccxt client stayed hardwired to
+    defaultType "swap". Orders would have gone to a live account with leverage
+    never set.
+
+    A value that quietly degrades safety is worse than one that refuses to
+    boot: the second is a minute of confusion, the first is a live order
+    placed under assumptions nobody checked. So: normalise case and
+    whitespace, accept only what is implemented, and fail loudly with the list
+    rather than falling back to a default the operator did not ask for.
+    """
+    raw = _env(key, "").strip().lower()
+    if not raw:
+        return default
+    if raw not in allowed:
+        raise SystemExit(
+            f"FATAL: {key}={raw!r} is not supported. "
+            f"Valid values: {', '.join(sorted(allowed))}. "
+            f"Refusing to start rather than run with a setting whose consumers "
+            f"would silently treat it as 'not futures' and skip the leverage "
+            f"and market-existence checks."
+        )
+    return raw
+
+
 def _env_bool(key: str, default: bool = False) -> bool:
     raw = _env(key, "").strip().lower()
     if raw in ("", "false", "0", "no"):
@@ -709,8 +740,17 @@ class ExchangeConfig:
     bingx_api_secret: str = _env_secret("BINGX_API_SECRET")
     # Asset universe filter: "all" scans everything, "solana" adds Solana ecosystem priority
     asset_universe: str = _env("ASSET_UNIVERSE", "all_markets")  # all_markets | all | solana | metals | tradfi | etc.
-    # Trading mode: "spot" for no leverage, "futures" for USDT-M perpetual
-    trade_mode: str = _env("TRADE_MODE", "futures")
+    # Trading mode. ONLY "futures" is implemented — the venue clients are
+    # built with defaultType "swap", sizing multiplies by leverage, and the
+    # position model carries leverage and a liquidation price. There is no
+    # spot execution path; `LivePosition.is_spot` is a vestige of one that was
+    # never finished and is always False.
+    #
+    # This used to be read raw and documented as accepting "spot". It does
+    # not: every consumer tests `== "futures"`, so "spot" merely turned the
+    # safety checks off. Validated now, so an unimplemented value fails at
+    # boot instead of at a live order. Add "spot" here when it actually works.
+    trade_mode: str = _env_choice("TRADE_MODE", "futures", ("futures",))
     # Default leverage (1x = no leverage, 5x = default for futures)
     default_leverage: int = int(_env_float_bounded("DEFAULT_LEVERAGE", 5, 1, 125))
     # Dynamic leverage scaling. Default OFF (operator directive 2026-07-20:
