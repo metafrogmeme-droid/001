@@ -38,6 +38,94 @@ test('every panel loader that fetches also guards the read', () => {
   assert.ok(guards >= 65, `expected the read guard at 65+ loaders, found ${guards}`);
 });
 
+/**
+ * The body of every renderPanel(el, loader) — brace-matched from the call.
+ *
+ * The single-line scan above only catches `if (!r.ok) return null;` written on
+ * ONE line. Three live escapes were found by hand afterwards, all of which
+ * simply split the fetch from the null-check:
+ *
+ *     const load = async () => { ...; data = r.ok ? r.data : null; return data; };
+ *     renderPanel(el, async () => { await load(); if (!data) return null; ... });
+ *
+ * A guard whose coverage is narrower than the rule it states is the same
+ * defect it exists to prevent. This one walks the whole loader body.
+ */
+function loaderBodies(src) {
+  const out = [];
+  const re = /renderPanel\(/g;
+  let m;
+  while ((m = re.exec(src))) {
+    let depth = 0, i = m.index + 'renderPanel'.length;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === '(') depth++;
+      else if (c === ')') { depth--; if (depth === 0) break; }
+    }
+    out.push({ body: src.slice(m.index, i + 1), line: src.slice(0, m.index).split('\n').length });
+  }
+  return out;
+}
+
+test('a loader that reads the network guards that read, however it is written', () => {
+  // A loader is honest by one of two strategies, and the test accepts either:
+  //
+  //   GUARD    — mustRead()/throw, so renderPanel paints the error state and
+  //              a Retry button. Right for a panel with one source.
+  //   OMIT     — every fetch individually .catch()'d, so no rejection can
+  //              reach the render and each missing source is simply left out.
+  //              Right for a composite panel where one dead source must not
+  //              blank the other four. c-agent states the rule in place:
+  //              "anything unavailable is omitted, never invented".
+  //
+  // What is banned is NEITHER: a fetch whose failure falls through into the
+  // empty state, which is how the leaderboard came to tell users there were
+  // no ranked traders because our own request 500'd.
+  //
+  // Honest limit: "every fetch is caught" proves the panel still RENDERS, not
+  // that the render omits rather than invents. It is a structural proxy, and
+  // the wording tests below cover the claims themselves.
+  const offenders = [];
+  for (const { body, line } of loaderBodies(DASH)) {
+    if (/mustRead\(/.test(body) || /\bthrow\b/.test(body)) continue;
+    // Any load() helper it delegates to must itself guard.
+    if (/\bload\(\)/.test(body)) {
+      if (/const load = async[\s\S]{0,500}?mustRead\(/.test(DASH)) continue;
+      offenders.push(`dashboard.js:${line} (delegates to an unguarded load())`);
+      continue;
+    }
+    const unc = [...body.matchAll(/fetchJSON\(/g)]
+      .filter((m) => !/\.catch\(/.test(body.slice(m.index, m.index + 200)));
+    if (unc.length) offenders.push(`dashboard.js:${line} (${unc.length} unguarded fetch)`);
+  }
+  assert.deepStrictEqual(offenders, [],
+    'these panels can render a failed read as an empty one:\n  ' + offenders.join('\n  '));
+});
+
+test('a claim about emptiness never comes from an unread response', () => {
+  // Direct-innerHTML writers are outside renderPanel entirely, so neither
+  // scan above sees them. Both of these told the user their own account was
+  // empty — "No strategies yet", and a pinned-strategy bar that simply
+  // vanished — when the request had merely failed.
+  for (const [anchor, needle] of [
+    ['async function refreshMyStrat', 'if (!readOk)'],
+    ['async function loadBotStrat', 'if (!readOk)'],
+  ]) {
+    const i = DASH.indexOf(anchor);
+    assert.ok(i > 0, `${anchor} not found`);
+    const body = DASH.slice(i, i + 1600);
+    assert.ok(body.includes(needle),
+      `${anchor} must distinguish an unreadable response from an empty one`);
+  }
+});
+
+test('the unreadable branches say the user has lost nothing', () => {
+  // A read failure changes nothing on the server. Saying so is the difference
+  // between a display glitch and a user believing their strategy was dropped.
+  assert.match(DASH, /not an empty list\. Nothing has been deleted\./);
+  assert.match(DASH, /Your bot is unaffected/);
+});
+
 test('mustRead throws on server errors and passes 404 through as empty', () => {
   // Re-declared from app.js (browser globals cannot be required here); the
   // assertion below proves this copy still matches the shipped source.

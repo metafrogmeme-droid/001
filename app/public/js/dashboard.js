@@ -5891,8 +5891,22 @@
     async function loadBotStrat() {
       const bar = document.getElementById('botStratBar');
       if (!bar) return;
-      let d = null;
-      try { const r = await fetchJSON('/api/bot-strategy', { timeoutMs: 12000 }); d = r.ok ? r.data : null; } catch (_) {}
+      let d = null, readOk = false;
+      try {
+        const r = await fetchJSON('/api/bot-strategy', { timeoutMs: 12000 });
+        readOk = !!(r && r.ok);
+        d = r.ok ? r.data : null;
+      } catch (_) { /* readOk stays false */ }
+      // Hiding the bar on a failed read tells a user with a strategy armed
+      // that nothing is armed — about the thing that vetoes their trades.
+      // Say we could not check, and say the bot is unaffected, because it is:
+      // a failed READ changes nothing on the bot.
+      if (!readOk) {
+        bar.innerHTML = `🤖 <span class="muted">${esc(T('bs.unread',
+          'Could not check which strategy is pinned to your bot. Your bot is unaffected — this is a display problem.'))}</span>`;
+        bar.hidden = false;
+        return;
+      }
       if (!d || !d.presets) { bar.hidden = true; return; }
       _botStrat = { slug: d.selected_slug || null, label: d.selected_label || null };
       bar.innerHTML = d.selected
@@ -6162,8 +6176,19 @@
     async function refreshMyStrat() {
       const host = document.getElementById('myStratList');
       if (!host) return;
-      let d = null;
-      try { const r = await fetchJSON('/api/strategies', { timeoutMs: 12000 }); d = r.ok ? r.data : null; } catch (_) {}
+      let d = null, readOk = false;
+      try {
+        const r = await fetchJSON('/api/strategies', { timeoutMs: 12000 });
+        readOk = !!(r && r.ok);
+        d = r.ok ? r.data : null;
+      } catch (_) { /* readOk stays false */ }
+      // "No strategies yet" is a claim about the user's own account. It must
+      // come from a list we actually read, never from a failed request.
+      if (!readOk) {
+        host.innerHTML = `<p class="small muted">${esc(T('ms.unread',
+          'Your strategies could not be loaded right now — a connection problem, not an empty list. Nothing has been deleted.'))}</p>`;
+        return;
+      }
       const list = (d && d.strategies) || [];
       if (!list.length) { host.innerHTML = '<p class="small muted">No strategies yet — build one above, then publish it to the marketplace.</p>'; return; }
       host.innerHTML = list.map(s => {
@@ -6290,7 +6315,17 @@
       </div>`);
 
     let data = null;
-    const load = async () => { const r = await fetchJSON('/api/leaderboard'); data = r.ok ? r.data : null; return data; };
+    // mustRead, not `r.ok ? r.data : null`. Without it a 500 left data null,
+    // rows empty, and the table rendered "No ranked traders yet — be the
+    // first" — a statement about every other trader on the platform, made
+    // from our own failed request. renderPanel paints the error state and a
+    // Retry when a loader throws, which is what an unreadable board deserves.
+    const load = async () => {
+      const r = await fetchJSON('/api/leaderboard');
+      mustRead(r);
+      data = r.ok ? r.data : null;
+      return data;
+    };
 
     renderPanel(C('lbjoin'), async () => {
       await load();
