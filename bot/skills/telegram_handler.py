@@ -63,7 +63,11 @@ def _background_scan_is_fresh(
     return False, 0
 
 
-def _scan_timeout_hint(analyzer) -> str:
+#: How long an analysis-timeout record stays relevant to a slow scan (s).
+ANALYSIS_TIMEOUT_HINT_WINDOW_S = 900.0
+
+
+def _scan_timeout_hint(analyzer, engine=None) -> str:
     """One diagnostic line for the interactive-scan timeout message.
 
     The quick scan analyzes up to INTERACTIVE_SCAN_COUNT symbols inside a
@@ -73,6 +77,16 @@ def _scan_timeout_hint(analyzer) -> str:
     operator sees only "taking longer than usual" and can't tell LLM failure
     from exchange throttling (live incident: two consecutive timeouts right
     after a model-id change). Best-effort — returns "" on any error.
+
+    HONESTY: a green LLM health check rules ONE cause out; it does not name
+    the cause. This line used to conclude "the slowness is likely
+    exchange/data latency, not the AI" from that single negative — and on
+    2026-07-29 it said exactly that while individual analyses were hanging
+    long enough to blow the 300s tick cap thirty-seven times in a row,
+    pointing the operator at the exchange for a problem that was not there.
+    A heuristic flag is never a verdict. Report what is measured: the
+    degraded streak when there is one, the engine's own analysis-timeout
+    record when there is one, and otherwise the negative alone.
     """
     try:
         if analyzer is None or not hasattr(analyzer, "llm_health"):
@@ -84,10 +98,41 @@ def _scan_timeout_hint(analyzer) -> str:
                     f"provider has failed {streak} analyses in a row, so each "
                     "symbol burns through the fallback chain. Check "
                     "<code>/llmstatus</code> and the configured model id.")
-        return ("\n\nℹ️ LLM brain is healthy — the slowness is likely "
-                "exchange/data latency, not the AI.")
+        # Measured, not inferred: the background loop caps each analysis, and
+        # records the batch when any of them hit that cap. If it fired
+        # recently, THAT is the slowness — same dependency, same symptom.
+        at = _recent_analysis_timeout(engine)
+        if at:
+            return ("\n\n⚠️ <b>Analyses are hanging</b> — the last background "
+                    f"sweep gave up on {at['skipped']} of {at['of']} symbols "
+                    f"after {float(at['cap_s']):.0f}s each. LLM health is "
+                    "green, so the stall is in a per-symbol dependency "
+                    "(exchange fetch or a single provider call), not the "
+                    "fallback chain. See <code>/status</code>.")
+        return ("\n\nℹ️ LLM brain is healthy — that rules out the fallback "
+                "chain, but does not identify the cause. Check "
+                "<code>/status</code> for a tick-phase timeout.")
     except Exception:
         return ""
+
+
+def _recent_analysis_timeout(engine, *, window_s: float = ANALYSIS_TIMEOUT_HINT_WINDOW_S):
+    """The engine's analysis-timeout record if it is recent, else None.
+
+    A record from hours ago says nothing about the scan that just timed out;
+    citing it would be the same "conclude from stale evidence" mistake in the
+    other direction. Pure — no I/O.
+    """
+    try:
+        rec = getattr(engine, "_last_analysis_timeout", None)
+        if not isinstance(rec, dict) or not rec.get("skipped"):
+            return None
+        at = float(rec.get("at") or 0.0)
+        if at <= 0 or (time.monotonic() - at) > window_s:
+            return None
+        return rec
+    except Exception:
+        return None
 
 
 def _closed_on_utc_date(pos, day) -> bool:
@@ -9090,7 +9135,8 @@ class TelegramHandler:
                         "⏳ <b>Scan is taking longer than usual.</b> Try "
                         "<code>/latest_signal</code> again in a moment, or "
                         "<code>/fullscan</code> for the deep sweep."
-                        + _scan_timeout_hint(getattr(self.engine, "analyzer", None)))
+                        + _scan_timeout_hint(getattr(self.engine, "analyzer", None),
+                                             self.engine))
                     return
             except Exception as exc:
                 await self._send(update,

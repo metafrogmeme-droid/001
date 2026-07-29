@@ -364,6 +364,13 @@ class RuneClawEngine:
         # cap — surfaced in /status and in the degraded alert so the cause
         # travels with the symptom. None until one fires.
         self._last_phase_timeout: dict | None = None
+        # {skipped, of, cap_s, at} for the most recent batch in which one or
+        # more individual analyses exceeded their own cap. Distinct from the
+        # phase timeout above: that one says the tick died, this one says a
+        # dependency inside it is hanging — which is the thing that KILLS the
+        # tick, and the thing an operator can actually act on. None until one
+        # fires.
+        self._last_analysis_timeout: dict | None = None
         # Reciprocal watch on the proactive monitor loop (attached by the
         # Telegram handler at start_monitor; None when Telegram is off).
         self._proactive_monitor = None
@@ -3293,8 +3300,10 @@ class RuneClawEngine:
         limiter. A semaphore caps in-flight analyses at
         ``CONFIG.scan_analysis_concurrency`` (default 12) — the same bounded
         pattern DeepScan already uses. Each analysis is wrapped so one failure
-        never sinks the batch; the result list preserves input order with
-        ``None`` for any signal that failed or produced no idea.
+        never sinks the batch, AND bounded by ``CONFIG.analysis_timeout_sec``
+        so one that never returns cannot either; the result list preserves
+        input order with ``None`` for any signal that failed, timed out or
+        produced no idea.
         """
         limit = max(1, int(CONFIG.scan_analysis_concurrency))
         sem = asyncio.Semaphore(limit)
@@ -3306,12 +3315,32 @@ class RuneClawEngine:
         # ENGINE_ANALYSIS_AS_ADMIN=false restores cheap-tier-only scans.
         _as_admin = bool(getattr(CONFIG.analyzer, "engine_analysis_as_admin", True))
 
+        # A HANG is not an exception. The try/except below has always covered
+        # analyses that FAIL; it does nothing for one that never returns, and
+        # asyncio.gather waits for every task. One parked analysis parks the
+        # batch, the batch parks the phase, and the phase cap kills the tick —
+        # production, 2026-07-29: "analyze (exceeded its 300s, x37)", thirty-
+        # seven dead ticks feeding the warning-rate breaker until it tripped
+        # and started rejecting real trades. Bound each analysis on its own.
+        # 0 disables the cap.
+        _cap = float(getattr(CONFIG, "analysis_timeout_sec", 0.0) or 0.0)
+        _timed_out: list[str] = []
+
         async def _one(sig):
             async with sem:
                 try:
-                    return await self._analyze_signal(
+                    _coro = self._analyze_signal(
                         sig, timeframe=timeframe, lightweight=lightweight,
                         is_admin=_as_admin)
+                    if _cap > 0:
+                        return await asyncio.wait_for(_coro, timeout=_cap)
+                    return await _coro
+                except asyncio.TimeoutError:
+                    # Same outcome as any other failed analysis: this signal
+                    # yields no idea. Never fabricate one for a symbol we
+                    # could not actually analyse.
+                    _timed_out.append(str(getattr(sig, "symbol", "?")))
+                    return None
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
                                  getattr(sig, "symbol", "?"), exc)
@@ -3319,7 +3348,28 @@ class RuneClawEngine:
 
         if not signals:
             return []
-        return await asyncio.gather(*[_one(s) for s in signals])
+        _results = await asyncio.gather(*[_one(s) for s in signals])
+        if _timed_out:
+            # NAMED, not silently skipped — a quiet tick hiding a hanging
+            # dependency is exactly how this stayed invisible for a day. The
+            # audit line lands in a log the operator cannot easily reach, so
+            # keep the fact on the engine where /status and the scan-timeout
+            # hint can read it too.
+            self._last_analysis_timeout = {
+                "skipped": len(_timed_out),
+                "of": len(signals),
+                "cap_s": _cap,
+                "at": time.monotonic(),
+            }
+            audit(scan_log,
+                  f"Analysis timed out for "
+                  f"{len(_timed_out)} of {len(signals)} signals "
+                  f"after {_cap:.0f}s each. The tick continues "
+                  f"with the rest.",
+                  action="analysis_timeout", result="SKIPPED",
+                  data={"skipped": len(_timed_out), "of": len(signals),
+                        "cap_s": _cap, "symbols": _timed_out[:20]})
+        return _results
 
     async def _analyze_signal(self, signal: MarketSignal, *, timeframe: str = "1h", is_admin: bool = False, user_id=None, user_tier=None, lightweight: bool = False) -> Optional[TradeIdea]:
         """Run full analysis pipeline on a single signal.

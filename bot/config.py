@@ -2157,6 +2157,20 @@ class AppConfig:
     # OHLCV + order-flow + MTF + analyzer work). Keeps a wide universe from
     # overwhelming the exchange rate limiter / event loop.
     scan_analysis_concurrency: int = int(_env_float("SCAN_ANALYSIS_CONCURRENCY", 12))
+    # Cap on a SINGLE signal's analysis.
+    #
+    # The batch bounds concurrency but not duration: it gathers every analysis
+    # and waits for all of them, and each one is wrapped against EXCEPTIONS
+    # only. A hang is not an exception — one signal whose LLM call or exchange
+    # fetch never returns parks the whole gather, and with it the tick.
+    # Production ran into exactly that: "Tick phase timed out: analyze
+    # (exceeded its 300s, x37)".
+    #
+    # Generous: a full analysis is several OHLCV fetches, order flow, MTF and
+    # an LLM turn, and this must never abort one that is merely working hard.
+    # It exists to bound the pathological case, not the slow one. 0 disables.
+    analysis_timeout_sec: float = _env_float_bounded(
+        "ANALYSIS_TIMEOUT_SEC", 90.0, 0.0, 600.0)
     # How many symbols an INTERACTIVE force-scan analyzes (the "Latest Signal"
     # button). The full ~200 universe is analyzed by the background loop, but a
     # button tap must stay responsive: each analyzed symbol fires ~9 rate-limited
