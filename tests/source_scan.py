@@ -27,11 +27,27 @@ import tokenize
 
 __all__ = ["code_only"]
 
-#: Token types after which a bare string literal is a docstring rather than a
-#: value. A value always follows `=`, `(`, `,`, `return`, and so on.
+#: Token types after which a bare string literal may be a docstring.
+#:
+#: NL is deliberately ABSENT, and that omission is load-bearing. NEWLINE ends
+#: a logical line; NL is the newline *inside* brackets. Treating NL as a
+#: statement boundary made every key in a multi-line dict literal look like a
+#: docstring, so this helper silently blanked them:
+#:
+#:     self._last_phase_timeout = {
+#:         "phase": what,        ->        : what,
+#:
+#: Which is worse than the bug it exists to fix: an assertion that a key is
+#: PRESENT would fail mysteriously, and one that a key is ABSENT would pass
+#: for the wrong reason.
 _DOCSTRING_MAY_FOLLOW = frozenset({
-    tokenize.INDENT, tokenize.DEDENT, tokenize.NEWLINE, tokenize.NL,
+    tokenize.INDENT, tokenize.DEDENT, tokenize.NEWLINE,
 })
+
+#: Brackets that opened. A docstring is a statement, and a statement cannot
+#: occur inside a collection literal or an argument list — so depth > 0 means
+#: any string is a value, whatever preceded it.
+_OPEN, _CLOSE = "([{", ")]}"
 
 
 def code_only(text: str) -> str:
@@ -46,14 +62,20 @@ def code_only(text: str) -> str:
     """
     lines = text.splitlines(keepends=True)
     spans: list[tuple[int, int, int, int]] = []
-    prev = None
+    prev, depth = None, 0
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             drop = tok.type == tokenize.COMMENT or (
                 tok.type == tokenize.STRING
+                and depth == 0
                 and (prev is None or prev in _DOCSTRING_MAY_FOLLOW))
             if drop:
                 spans.append((*tok.start, *tok.end))
+            if tok.type == tokenize.OP:
+                if tok.string in _OPEN:
+                    depth += 1
+                elif tok.string in _CLOSE:
+                    depth = max(0, depth - 1)
             if tok.type != tokenize.COMMENT:
                 prev = tok.type
     except (tokenize.TokenError, IndentationError, SyntaxError):

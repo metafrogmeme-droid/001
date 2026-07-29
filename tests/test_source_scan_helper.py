@@ -73,3 +73,39 @@ def test_it_is_idempotent():
     src = 'x = 1  # c\ndef f():\n    """d"""\n    return 2\n'
     once = code_only(src)
     assert code_only(once) == once
+
+
+def test_dict_keys_are_not_mistaken_for_docstrings():
+    """The bug this helper shipped with, caught within the hour.
+
+    NEWLINE ends a logical line; NL is the newline INSIDE brackets. Treating
+    NL as a statement boundary made every key in a multi-line dict literal
+    look like a docstring, and they were blanked — which is worse than the
+    problem the helper exists to fix, because an assertion that a key is
+    ABSENT would then pass for entirely the wrong reason.
+    """
+    src = ('d = {\n'
+           '    "phase": what,\n'
+           '    "cap_s": cap,\n'
+           '}\n')
+    out = code_only(src)
+    assert '"phase"' in out and '"cap_s"' in out
+
+
+def test_a_string_inside_a_call_is_a_value():
+    src = 'f(\n    "kept",\n)\n'
+    assert '"kept"' in code_only(src)
+
+
+def test_a_docstring_after_a_multiline_signature_is_still_removed():
+    """Depth returns to zero before the body, so this must still work."""
+    src = ('def f(\n    a,\n    b,\n):\n    """doc"""\n    return a\n')
+    out = code_only(src)
+    assert "doc" not in out
+    assert "return a" in out
+
+
+def test_a_module_docstring_is_removed():
+    src = '"""module doc"""\nx = 1\n'
+    out = code_only(src)
+    assert "module doc" not in out and "x = 1" in out

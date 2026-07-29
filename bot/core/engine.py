@@ -374,6 +374,9 @@ class RuneClawEngine:
         # {phase: {last_s, peak_s, cap_s, at}} for phases that SUCCEEDED —
         # the headroom, not just the breach. Bounded by the phase-name count.
         self._phase_durations: dict[str, dict] = {}
+        # {of, done, started} for the analyze batch in flight. Read by the
+        # phase-timeout handler, which runs after the batch's frames are gone.
+        self._analyze_progress: dict | None = None
         # Reciprocal watch on the proactive monitor loop (attached by the
         # Telegram handler at start_monitor; None when Telegram is off).
         self._proactive_monitor = None
@@ -2387,11 +2390,30 @@ class RuneClawEngine:
             self._record_phase_duration(what, time.monotonic() - _started, cap)
             return _r
         except asyncio.TimeoutError:
+            # How far did it get? "Exceeded its 300s" says the phase died; it
+            # does not say whether 4 of 200 symbols finished or 194 did, and
+            # those are opposite diagnoses. A cancelled phase that cannot
+            # account for itself forces the next step to be a guess — which
+            # is how two fixes shipped against a cause that was never
+            # confirmed.
+            _prog = getattr(self, "_analyze_progress", None) if what == "analyze" else None
+            _detail = ""
+            _pdata: dict = {"phase": what}
+            if isinstance(_prog, dict) and _prog.get("of"):
+                _done, _of = int(_prog.get("done") or 0), int(_prog["of"])
+                _elapsed = time.monotonic() - float(_prog.get("started") or 0.0)
+                _rate = (_done / _elapsed) if _elapsed > 0 else 0.0
+                _detail = (f" It had finished {_done} of {_of} signals "
+                           f"({_done / _of:.0%}) in {_elapsed:.0f}s"
+                           + (f" — {_of / _rate:.0f}s needed at that rate."
+                              if _rate > 0 else "."))
+                _pdata.update(done=_done, of=_of, elapsed_s=round(_elapsed, 1),
+                              needed_s=round(_of / _rate, 1) if _rate > 0 else None)
             audit(system_log,
                   f"Tick phase '{what}' exceeded its {cap:.0f}s cap — cancelled "
                   f"the parked await. This NAMES the hang the whole-tick cap "
-                  f"could only report as 'in run'.",
-                  action="tick_phase", result="TIMEOUT", data={"phase": what})
+                  f"could only report as 'in run'." + _detail,
+                  action="tick_phase", result="TIMEOUT", data=_pdata)
             # Remember it. The audit line above lands in a log the operator
             # cannot easily reach, and for one live incident the alerts said
             # only "the main loop has failed 3 times in a row" — the cause was
@@ -2416,6 +2438,7 @@ class RuneClawEngine:
             self._last_phase_timeout = {
                 "phase": what,
                 "cap_s": cap,
+                "progress": (dict(_prog) if isinstance(_prog, dict) else None),
                 "at": time.monotonic(),
                 "count": int((getattr(self, "_last_phase_timeout", None) or {})
                              .get("count", 0)) + 1
@@ -3418,6 +3441,15 @@ class RuneClawEngine:
         # 0 disables the cap.
         _cap = float(getattr(CONFIG, "analysis_timeout_sec", 0.0) or 0.0)
         _timed_out: list[str] = []
+        # Progress, so a phase that is CANCELLED can still say what it was
+        # doing. Without this the analyze phase died silently: the operator
+        # saw "exceeded its 300s" and nothing about whether it had finished 4
+        # symbols or 194 — and those call for opposite fixes (a few bad
+        # symbols versus a universe too wide for the budget). Kept on the
+        # engine because the batch's own frames are gone by the time the
+        # timeout handler runs.
+        self._analyze_progress = {
+            "of": len(signals), "done": 0, "started": time.monotonic()}
 
         async def _one(sig):
             async with sem:
@@ -3438,6 +3470,14 @@ class RuneClawEngine:
                     logger.debug("Signal analysis error for %s: %s",
                                  getattr(sig, "symbol", "?"), exc)
                     return None
+                finally:
+                    # Counts finished work of ANY outcome — an idea, no idea,
+                    # a failure, a timeout. The question it answers is "how
+                    # far did the batch get", not "how many succeeded".
+                    try:
+                        self._analyze_progress["done"] += 1
+                    except Exception:
+                        pass
 
         if not signals:
             return []

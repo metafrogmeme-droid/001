@@ -825,7 +825,15 @@ def render_status_card(
             f"({t('val_exceeded_cap', lang)} "
             f"{float(phase_timeout.get('cap_s') or 0):.0f}s"
             + (f", \u00d7{int(phase_timeout['count'])}"
-               if int(phase_timeout.get('count') or 0) > 1 else "") + ")"]),
+               if int(phase_timeout.get('count') or 0) > 1 else "") + ")"
+            # How far it got. "Exceeded its 300s" says the phase died; this
+            # says whether it was nearly done or barely started, which is the
+            # difference between "the budget is too small" and "something is
+            # stuck". Omitted when unknown — never guessed.
+            + (f"\n  \u21b3 {int((phase_timeout.get('progress') or {}).get('done') or 0)}"
+               f"/{int((phase_timeout['progress'])['of'])} "
+               f"{t('val_signals_done', lang)}"
+               if (phase_timeout.get('progress') or {}).get('of') else "")]),
         # The HEADROOM, not just the breach. Recording only the breach made
         # every phase a cliff: 299s of a 300s cap looked identical to 30s,
         # and the first signal was a dead tick. Shown only once a phase has
