@@ -834,10 +834,16 @@ def render_status_card(
             f"- {t('lbl_phase_headroom', lang)}: "
             + ("\u26a0 " if float(phase_headroom['used_ratio']) >= 0.8 else "")
             + f"<b>{phase_headroom['phase']}</b> "
-            f"{float(phase_headroom['peak_s']):.0f}s "
+            # A CANCELLED phase ran for at least the cap; the true figure was
+            # never observed. "≥" says so rather than presenting a floor
+            # as a reading.
+            + ("≥" if phase_headroom.get("timed_out") else "")
+            + f"{float(phase_headroom['peak_s']):.0f}s "
             f"{t('val_peak_of', lang)} "
             f"{float(phase_headroom['cap_s']):.0f}s "
-            f"({float(phase_headroom['used_ratio']) * 100:.0f}%)"]),
+            f"({float(phase_headroom['used_ratio']) * 100:.0f}%"
+            + (f" — {t('val_cap_hit', lang)}"
+               if phase_headroom.get("timed_out") else "") + ")"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —

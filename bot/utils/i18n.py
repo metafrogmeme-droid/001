@@ -704,6 +704,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     "val_exceeded_cap": {"en": "exceeded its", "zh": "超過"},
     "lbl_phase_headroom": {"en": "Slowest tick phase", "zh": "最慢循環階段"},
     "val_peak_of": {"en": "peak of", "zh": "峰值／上限"},
+    "val_cap_hit": {"en": "cap hit, tick cancelled", "zh": "已達上限，循環取消"},
     "val_waiting": {"en": "waiting", "zh": "等待中"},
     "lbl_limit_word": {"en": "limit", "zh": "上限"},
     "open_positions_n": {"en": "Open Positions ({n})", "zh": "持倉 ({n})"},

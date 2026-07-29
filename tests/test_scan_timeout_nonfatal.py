@@ -42,9 +42,21 @@ def _restore_flags():
 
 
 class _Engine:
-    """Only what _phase touches."""
+    """Only what _phase touches.
+
+    Keep it honest: when _phase starts touching something new, add it here
+    rather than relying on the caller's guard to paper over the gap. The
+    guard exists so an instrumentation bug cannot change the failure path,
+    not so fixtures may drift from what they claim to model.
+    """
     def __init__(self):
         self._last_phase_timeout = None
+        self._phase_durations = {}
+
+    def _record_phase_duration(self, what, elapsed, cap, timed_out=False):
+        from bot.core.engine import RuneClawEngine
+        return RuneClawEngine._record_phase_duration(
+            self, what, elapsed, cap, timed_out)
 
 
 def _phase(engine, coro, what, fatal):

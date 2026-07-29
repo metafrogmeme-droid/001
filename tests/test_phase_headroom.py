@@ -170,3 +170,89 @@ def test_no_dollar_amount_reaches_this_line():
                                 "used_ratio": 0.43})
     line = out.split("Slowest tick phase")[1].split("\n")[0]
     assert "$" not in line
+
+
+# ── a phase that DIES must be the one reported ────────────────────────────
+#
+# Production, 2026-07-29 10:22 UTC, with everything above already shipped:
+#
+#     - Tick phase timed out: analyze (exceeded its 300s, x5)
+#     - Slowest tick phase: scan 2s peak of 300s (1%)
+#
+# _record_phase_duration ran only on the success path, so a phase that ALWAYS
+# times out never entered the record and phase_headroom() reported the slowest
+# of the SURVIVORS. Read alone — which is how a one-line summary gets read —
+# the second line says 99% of the budget is spare while the first says the
+# loop is dying. The instrument built to show the margin was reassuring about
+# the exact phase that was failing.
+
+def test_a_timed_out_phase_is_recorded_at_all(eng):
+    eng._record_phase_duration("analyze", 300.0, 300.0, timed_out=True)
+    h = eng.phase_headroom()
+    assert h is not None, "a phase that only ever dies must still be reported"
+    assert h["phase"] == "analyze"
+
+
+def test_the_dying_phase_outranks_a_healthy_one(eng):
+    eng._record_phase_duration("scan", 2.0, 300.0)
+    eng._record_phase_duration("analyze", 300.0, 300.0, timed_out=True)
+    h = eng.phase_headroom()
+    assert h["phase"] == "analyze" and h["used_ratio"] >= 1.0, (
+        "reporting scan at 1% while analyze blows its cap is the failure this "
+        "test exists for")
+
+
+def test_the_timeout_flag_survives_a_later_success(eng):
+    """Sticky on purpose: one timeout in the window is what an operator needs
+    to see, and a later success does not un-happen it."""
+    eng._record_phase_duration("analyze", 300.0, 300.0, timed_out=True)
+    eng._record_phase_duration("analyze", 40.0, 300.0)
+    assert eng.phase_headroom()["timed_out"] is True
+
+
+def test_phase_records_the_timeout_before_re_raising():
+    from pathlib import Path
+
+    from tests.source_scan import code_only
+
+    # code_only, because the comments in this block contain the word "raised"
+    # and an ordering assertion against "raise" matched it. Fifth instance of
+    # a source-scanning test failing on its own explanation.
+    src = code_only(Path("bot/core/engine.py").read_text(encoding="utf-8"))
+    # Anchor on _phase itself — engine.py has several TimeoutError handlers
+    # and the first one belongs to a different function.
+    block = src[src.index("async def _phase(self, coro"):
+                src.index("def _record_phase_duration")]
+    block = block[block.index("except asyncio.TimeoutError:"):]
+    assert '_rec(what, cap, cap, timed_out=True)' in block
+    assert block.index("_rec(what") < block.index("raise")
+    # Guarded, because this is the FAILURE path: an error from a recorder must
+    # not replace a phase timeout the tick machinery knows how to handle with
+    # something it has never seen.
+    assert 'getattr(self, "_record_phase_duration", None)' in block
+    assert "except Exception:" in block
+
+
+def test_the_card_marks_the_figure_as_a_floor():
+    """A cancelled phase ran for AT LEAST the cap. The true duration was never
+    observed, so the card must not present the cap as a measurement."""
+    out = _card(phase_headroom={"phase": "analyze", "peak_s": 300.0, "cap_s": 300.0,
+                                "last_s": 300.0, "used_ratio": 1.0, "timed_out": True})
+    line = out.split("Slowest tick phase")[1].split("\n")[0]
+    assert "≥" in line, "the cap is a floor on the duration, not a reading of it"
+    assert "cap hit" in line
+    assert "⚠" in line
+
+
+def test_a_healthy_phase_carries_no_floor_marker():
+    out = _card(phase_headroom={"phase": "scan", "peak_s": 2.0, "cap_s": 300.0,
+                                "last_s": 2.0, "used_ratio": 0.0067,
+                                "timed_out": False})
+    line = out.split("Slowest tick phase")[1].split("\n")[0]
+    assert "≥" not in line and "cap hit" not in line
+
+
+def test_the_cap_hit_label_is_translated():
+    from bot.utils.i18n import t
+    for lang in ("en", "zh"):
+        assert t("val_cap_hit", lang) and t("val_cap_hit", lang) != "val_cap_hit"

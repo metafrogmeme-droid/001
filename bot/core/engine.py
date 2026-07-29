@@ -2398,6 +2398,21 @@ class RuneClawEngine:
             # already known to the process and simply never travelled to the
             # surfaces anyone reads. A diagnosis that does not reach the
             # operator is not a diagnosis.
+            # The cap is a FLOOR on how long it ran, not a measurement — but
+            # a floor of 100% is the entry the headroom line most needs.
+            #
+            # Guarded because this is the FAILURE path. A phase timeout is a
+            # recoverable event the tick machinery knows how to handle; an
+            # error raised by a recorder here would replace it with something
+            # that machinery has never seen. Instrumentation may not change
+            # what happens when things go wrong — that is when it matters most
+            # that behaviour is the behaviour that was tested.
+            _rec = getattr(self, "_record_phase_duration", None)
+            if _rec is not None:
+                try:
+                    _rec(what, cap, cap, timed_out=True)
+                except Exception:
+                    pass
             self._last_phase_timeout = {
                 "phase": what,
                 "cap_s": cap,
@@ -2411,8 +2426,27 @@ class RuneClawEngine:
                 return None
             raise
 
-    def _record_phase_duration(self, what: str, elapsed: float, cap: float) -> None:
-        """Remember how long a phase took when it SUCCEEDED.
+    def _record_phase_duration(self, what: str, elapsed: float, cap: float,
+                               timed_out: bool = False) -> None:
+        """Remember how long a phase took — including when it DIED.
+
+        Recording only successes was a hole big enough to hide the very thing
+        this instrument exists for. A phase that always times out never
+        entered the record, so phase_headroom() reported the slowest of the
+        SURVIVING phases. Production, 2026-07-29 10:22 UTC:
+
+            - Tick phase timed out: analyze (exceeded its 300s, x5)
+            - Slowest tick phase: scan 2s peak of 300s (1%)
+
+        Read alone — which is how a one-line summary gets read — the second
+        line says the loop has 99% of its budget spare while the first says
+        it is dying. A phase at 100% of cap is the single most important
+        data point here and it was the one being dropped.
+
+        A timeout records `cap` as the duration. That is a FLOOR, not a
+        measurement: the phase used at least that long and was cancelled, so
+        the true figure is unknowable. `timed_out` carries that distinction
+        so nothing downstream presents a floor as a reading.
 
         _phase used to record only the breach. That made every phase a cliff:
         indistinguishable at 299s of a 300s cap from 30s, then a dead tick at
@@ -2436,6 +2470,9 @@ class RuneClawEngine:
                 "peak_s": max(float(elapsed), float(prev.get("peak_s") or 0.0)),
                 "cap_s": float(cap),
                 "at": time.monotonic(),
+                # Sticky: one timeout in the window is what an operator needs
+                # to see, and a later success does not un-happen it.
+                "timed_out": bool(timed_out) or bool(prev.get("timed_out")),
             }
         except Exception:  # instrumentation must never break a tick
             pass
@@ -2457,7 +2494,8 @@ class RuneClawEngine:
             if worst is None or used > worst["used_ratio"]:
                 worst = {"phase": name, "peak_s": peak, "cap_s": cap,
                          "last_s": float(rec.get("last_s") or 0.0),
-                         "used_ratio": used}
+                         "used_ratio": used,
+                         "timed_out": bool(rec.get("timed_out"))}
         return worst
 
     async def _with_maintenance_cap(self, coro, what: str):
