@@ -217,3 +217,71 @@ def test_the_change_is_audited():
     fn = fn[:fn.index("async def _phase")]
     assert 'action="high_conviction_size"' in fn
     assert '"from"' in fn and '"to"' in fn, "an unexplained size change is a mystery later"
+
+
+# ── the enable procedure ──────────────────────────────────────────────────
+#
+# Notional is margin x leverage. Turning both up at once multiplies the
+# exposure change and leaves nobody able to say which half was wrong. The
+# ordering is therefore part of the feature, not advice about it — so it is
+# written down, and the claims it makes are checked.
+
+from pathlib import Path
+
+RUNBOOK = Path("docs/LIVE_HARDENING_RUNBOOK.md").read_text(encoding="utf-8")
+ENV_EXAMPLE = Path(".env.example").read_text(encoding="utf-8")
+
+
+def test_all_three_knobs_are_in_the_env_template():
+    for k in ("HIGH_CONVICTION_ENABLED", "HIGH_CONVICTION_MIN_CONFIDENCE",
+              "HIGH_CONVICTION_MARGIN_USD"):
+        assert k in ENV_EXAMPLE, f"{k} is undiscoverable"
+        assert k in Path("bot/config.py").read_text(encoding="utf-8")
+
+
+def test_the_template_ships_it_off():
+    assert "HIGH_CONVICTION_ENABLED=false" in ENV_EXAMPLE
+
+
+def test_the_runbook_gives_the_two_steps_in_order():
+    i = RUNBOOK.index("Step 1 — margin only")
+    j = RUNBOOK.index("Step 2 — leverage")
+    assert i < j
+    assert "needs a restart" in RUNBOOK, "config is read at boot; say so"
+    assert "no restart" in RUNBOOK, "the leverage half is runtime"
+
+
+def test_it_says_how_to_confirm_step_one_before_step_two():
+    """A ramp with no verification between the steps is one step."""
+    block = RUNBOOK[RUNBOOK.index("Step 1 — margin only"):
+                    RUNBOOK.index("Step 2 — leverage")]
+    assert "high_conviction_size" in block, "the audit action to grep for"
+    assert "rule is not reaching the sizing path" in block
+
+
+def test_the_audit_action_it_tells_you_to_grep_for_is_real():
+    assert 'action="high_conviction_size"' in ENGINE_SRC
+
+
+def test_the_reversal_is_documented_beside_the_change():
+    assert "/leverage reset" in RUNBOOK, (
+        "a runtime change with no stated undo is one people hesitate to make")
+
+
+def test_the_drawdown_interaction_is_stated_as_a_formula_not_a_number():
+    """Their equity moves. A worked example alone would go stale and be
+    trusted anyway — the formula is what stays true."""
+    block = RUNBOOK[RUNBOOK.index("The arithmetic to check first"):]
+    assert "MAX_DRAWDOWN_PCT" in block
+    assert "budget / notional" in block
+    assert "MICRO_MAX_OPEN_POSITIONS" in block
+
+
+def test_the_worked_example_matches_the_formula():
+    """$884 x 7% = $61.88. /1000 = 6.19% -> "6.2%". /5000 = 1.24%."""
+    budget = 884 * 0.07
+    assert round(budget / 1000 * 100, 1) == 6.2
+    assert round(budget / 5000 * 100, 2) == 1.24
+    block = RUNBOOK[RUNBOOK.index("The arithmetic to check first"):]
+    assert "6.2% on one position" in block
+    assert "1.24% across five" in block

@@ -465,6 +465,62 @@ cap six of them in series is 180s before the LLM turn is even reached.
 clients. A cap tuned for a public market-data GET has no business bounding a
 live order.
 
+## Turning on high-conviction flat sizing
+
+Above `HIGH_CONVICTION_MIN_CONFIDENCE`, every trade takes
+`HIGH_CONVICTION_MARGIN_USD` of margin instead of the usual
+`risk_budget / stop_distance_pct`. It is a TARGET: every existing ceiling still
+reduces it and none can be bypassed.
+
+**Do it in two steps.** Notional is margin x leverage, so changing both at once
+multiplies the exposure change and leaves you unable to tell which half was
+wrong if something surprises you.
+
+**Step 1 — margin only** (needs a restart; config is read at boot):
+
+```
+HIGH_CONVICTION_ENABLED=true
+HIGH_CONVICTION_MIN_CONFIDENCE=0.70
+HIGH_CONVICTION_MARGIN_USD=100
+```
+
+Leave `DEFAULT_LEVERAGE` alone. At the standard 5x that is 500 notional per
+trade — half the eventual size, enough to prove the path. Confirm it fired:
+
+```bash
+grep 'high_conviction_size' logs/*.log | tail -3
+# ... confidence 78% >= 70% — margin $23.40 -> $100.00
+```
+
+If the line does not appear, the rule is not reaching the sizing path and
+nothing else below matters yet.
+
+**Step 2 — leverage** (no restart, admin, instantly reversible):
+
+```
+/leverage set 10        # every NEW position; open ones keep what they opened with
+/leverage reset         # back to the configured default
+```
+
+### The arithmetic to check first
+
+Work these out for YOUR equity before step 2, because they decide whether your
+stop-loss or the drawdown breaker is the control that actually binds:
+
+| | |
+|---|---|
+| drawdown budget | `equity x MAX_DRAWDOWN_PCT` |
+| adverse move that spends it, one position | `budget / notional` |
+| ...across `MICRO_MAX_OPEN_POSITIONS` | `budget / (notional x positions)` |
+
+At $884 equity, a 7% limit and 1000 notional that is **6.2% on one position**
+and **1.24% across five**. If your stops sit wider than the single-position
+figure, the drawdown halt fires before any stop does — the account-level
+breaker becomes your stop, which is not what either control is for.
+
+`MICRO_MAX_OPEN_POSITIONS` is the lever that changes the second number, and it
+is the one worth revisiting when per-trade notional goes up.
+
 ## Reading the dashboard honestly
 
 The web app deliberately distinguishes "we could not read this" from "there is
