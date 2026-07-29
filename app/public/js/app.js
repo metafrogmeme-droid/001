@@ -287,14 +287,78 @@
   }
 
   // ── SSE (server push -> named callbacks) ─────────────────────────────────
-  function connectStream(handlers) {
+  //
+  // EventSource auto-reconnects, but ONLY after a transport-level drop. Per
+  // spec, a response whose status is not 200 — or whose content-type is not
+  // text/event-stream — makes the browser "fail the connection": it fires
+  // error, sets readyState to CLOSED, and never tries again.
+  //
+  // This app produces exactly that response. The not-ready gate in server.js
+  // refuses every /api/* with a 503 JSON body while the schema is unmigrated,
+  // and an expired token gets a 401. So a database blip — of which there were
+  // several today — permanently killed the stream in every open tab. The page
+  // stayed rendered, the panels stayed populated, and nothing updated again
+  // until someone reloaded. "It works and after a little time it doesn't,
+  // seems like it disconnects" is precisely this.
+  //
+  // The old handler was a comment asserting the opposite:
+  //     es.onerror = () => { /* browser auto-reconnects; polling covers gaps */ };
+  // Both halves were wrong for the failure this app actually generates.
+  //
+  // So: reconnect ourselves when the browser has given up, with capped
+  // exponential backoff plus jitter — the server that 503s is a server under
+  // strain, and every open tab retrying in lockstep is how a recovering
+  // process gets knocked back down.
+  const STREAM_RETRY_MIN_MS = 2000;
+  const STREAM_RETRY_MAX_MS = 60000;
+
+  function connectStream(handlers, opts = {}) {
     if (typeof EventSource === 'undefined') return null;
-    try {
-      const es = new EventSource('/api/stream');
+    const onState = typeof (opts && opts.onState) === 'function' ? opts.onState : () => {};
+    let es = null, timer = null, delay = STREAM_RETRY_MIN_MS, attempts = 0, closed = false;
+
+    function schedule() {
+      if (closed || timer) return;
+      attempts += 1;
+      // Jitter ±25% so N tabs do not retry on the same tick.
+      const wait = Math.round(delay * (0.75 + Math.random() * 0.5));
+      onState({ connected: false, attempts, retryInMs: wait });
+      timer = setTimeout(() => { timer = null; open(); }, wait);
+      delay = Math.min(delay * 2, STREAM_RETRY_MAX_MS);
+    }
+
+    function open() {
+      if (closed) return;
+      try { es = new EventSource('/api/stream'); }
+      catch (e) { es = null; schedule(); return; }
+      es.onopen = () => {
+        delay = STREAM_RETRY_MIN_MS; attempts = 0;
+        onState({ connected: true, attempts: 0 });
+      };
       Object.entries(handlers || {}).forEach(([evt, fn]) => es.addEventListener(evt, fn));
-      es.onerror = () => { /* browser auto-reconnects; polling covers gaps */ };
-      return es;
-    } catch (e) { return null; }
+      es.onerror = () => {
+        // CONNECTING means the browser is retrying on its own — leave it be,
+        // or we would race it and open two streams. CLOSED means it gave up,
+        // and it gives up permanently.
+        if (es && es.readyState === 2 /* CLOSED */) {
+          try { es.close(); } catch (e) { /* already gone */ }
+          es = null;
+          schedule();
+        } else {
+          onState({ connected: false, attempts });
+        }
+      };
+    }
+
+    open();
+    return {
+      close() {
+        closed = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (es) { try { es.close(); } catch (e) { /* already gone */ } es = null; }
+      },
+      get readyState() { return es ? es.readyState : 2; },
+    };
   }
 
   // ── Modal a11y: focus-trap + inert background + focus-return ─────────────

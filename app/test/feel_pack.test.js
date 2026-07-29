@@ -21,7 +21,11 @@ test('the heartbeat dot pulses on every SSE event and dims honestly', () => {
   // every stream handler beats
   const handlers = (js.match(/beat\(\);/g) || []).length;
   assert.ok(handlers >= 5, `all five stream handlers beat (found ${handlers})`);
-  assert.match(js, /last event \$\{s\}s ago/);
+  // "engine event", not "event": the dot reports the CONNECTION it can see,
+  // and names the engine only as the source of what arrived over it. It used
+  // to read "Engine live" from stream silence alone — see
+  // stream_reconnect.test.js for why that claim had to go.
+  assert.match(js, /last engine event \$\{s\}s ago/);
   assert.match(js, /'quiet', s > 90/);
   assert.match(css, /\.pulse-dot\.beat/);
   assert.match(css, /prefers-reduced-motion[^}]*\{[^}]*\.pulse-dot/s);

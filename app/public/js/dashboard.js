@@ -7807,21 +7807,47 @@
   // Engine heartbeat: pulse the topbar dot on every live stream event; dim to
   // "quiet" after 90s of silence so liveness is never faked.
   let _lastBeat = 0;
+  let _streamUp = false;
+  // What the dot can honestly claim.
+  //
+  // It used to read "Engine live — last event 40s ago" from stream silence
+  // alone. Silence on a stream is not evidence the engine is running: the
+  // stream itself may be dead, which is what a 503 from the not-ready gate
+  // did to it in every open tab today. And before the FIRST event _lastBeat
+  // was 0, so the refresh returned early and the dot never dimmed at all —
+  // a page that had never received anything looked identical to one
+  // receiving events.
+  //
+  // Three distinct states, three different sentences. The dot reports the
+  // CONNECTION, which is the only thing it observes.
+  function renderPulse() {
+    const dot = document.getElementById('pulseDot');
+    if (!dot) return;
+    if (!_streamUp) {
+      dot.title = 'Live updates disconnected — reconnecting. Figures on '
+        + 'screen may be stale; reload for the current picture.';
+      dot.classList.add('quiet');
+      return;
+    }
+    if (!_lastBeat) {
+      dot.title = 'Live updates connected — no engine event yet.';
+      dot.classList.add('quiet');
+      return;
+    }
+    const s = Math.round((Date.now() - _lastBeat) / 1000);
+    dot.title = s < 5
+      ? 'Live updates connected — engine event just now'
+      : `Live updates connected — last engine event ${s}s ago`;
+    dot.classList.toggle('quiet', s > 90);
+  }
   function beat() {
     const dot = document.getElementById('pulseDot');
     if (!dot) return;
     _lastBeat = Date.now();
-    dot.title = 'Engine live — event just now';
-    dot.classList.remove('quiet');
+    renderPulse();
     dot.classList.remove('beat'); void dot.offsetWidth; dot.classList.add('beat');
   }
-  setInterval(() => {
-    const dot = document.getElementById('pulseDot');
-    if (!dot || !_lastBeat) return;
-    const s = Math.round((Date.now() - _lastBeat) / 1000);
-    dot.title = s < 5 ? 'Engine live — event just now' : `Engine live — last event ${s}s ago`;
-    dot.classList.toggle('quiet', s > 90);
-  }, 10000);
+  setInterval(renderPulse, 10000);
 
   connectStream({
     scan: () => { beat(); cache.scan = null; agentReact('analyze'); getScan().then(updateConnChip); if (currentView === 'engine' || currentView === 'deepscan') showView(currentView, { soft: true }); },
@@ -7829,6 +7855,17 @@
     trade: () => { beat(); cache.portfolio = null; agentReact('execute'); toast(T('dd.t_trade_update', 'Trade update from the engine.')); if (currentView === 'home' || currentView === 'portfolio' || currentView === 'trade') showView(currentView, { soft: true }); },
     signals: () => { beat(); agentReact('alert'); if (currentView === 'signals') showView('signals', { soft: true }); },
     activity: (e) => { beat(); onActivity(e); },
+  }, {
+    // The reconnect loop tells us what it is doing; the dot says so rather
+    // than continuing to imply liveness it cannot see.
+    onState: (s) => {
+      _streamUp = !!(s && s.connected);
+      // A reconnect means we missed whatever happened while we were gone.
+      // Drop the caches so the next render reads the server, not a snapshot
+      // taken before the gap.
+      if (_streamUp) { cache.scan = null; cache.portfolio = null; }
+      renderPulse();
+    },
   });
 
   // Drill-down: click (or Enter/Space) any [data-sym] card opens the symbol
