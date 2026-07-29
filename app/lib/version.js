@@ -118,40 +118,88 @@ function readGitHead(root) {
 const FINGERPRINT_DIRS = ['lib', 'routes'];
 const FINGERPRINT_FILES = ['server.js', 'auth.js', 'db.js'];
 
+/** Hash a set of files into "<12 hex>+<count>", or null if none were readable. */
+function digestOf(parts) {
+  // Sorted by RELATIVE path so the digest is independent of readdir order
+  // and of where the app is installed.
+  parts.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+  const h = crypto.createHash('sha256');
+  let counted = 0;
+  for (const [rel, abs] of parts) {
+    let buf;
+    try { buf = fs.readFileSync(abs); } catch (e) { continue; }
+    h.update(rel);
+    h.update('\0');
+    h.update(buf);
+    counted += 1;
+  }
+  if (!counted) return null;
+  return `${h.digest('hex').slice(0, 12)}+${counted}`;
+}
+
+/** Collect `<dir>/*<ext>` as [relPath, absPath] pairs. Missing dir → nothing. */
+function collect(root, relDir, ext, out) {
+  const dir = relDir ? path.join(root, relDir) : root;
+  let names;
+  try { names = fs.readdirSync(dir); } catch (e) { return out; }
+  for (const n of names.sort()) {
+    if (!n.endsWith(ext)) continue;
+    const rel = relDir ? `${relDir}/${n}` : n;
+    out.push([rel, path.join(dir, n)]);
+  }
+  return out;
+}
+
 function fingerprint() {
   try {
     const appRoot = path.join(__dirname, '..');
     const parts = [];
-
     for (const f of FINGERPRINT_FILES) parts.push([f, path.join(appRoot, f)]);
-    for (const d of FINGERPRINT_DIRS) {
-      const dir = path.join(appRoot, d);
-      let names;
-      try { names = fs.readdirSync(dir); } catch (e) { continue; }
-      for (const n of names.sort()) {
-        if (n.endsWith('.js')) parts.push([`${d}/${n}`, path.join(dir, n)]);
-      }
-    }
-
-    // Sorted by RELATIVE path so the digest is independent of readdir order
-    // and of where the app is installed.
-    parts.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-
-    const h = crypto.createHash('sha256');
-    let counted = 0;
-    for (const [rel, abs] of parts) {
-      let buf;
-      try { buf = fs.readFileSync(abs); } catch (e) { continue; }
-      h.update(rel);
-      h.update('\0');
-      h.update(buf);
-      counted += 1;
-    }
-    if (!counted) return null;
-    return `${h.digest('hex').slice(0, 12)}+${counted}`;
+    for (const d of FINGERPRINT_DIRS) collect(appRoot, d, '.js', parts);
+    return digestOf(parts);
   } catch (e) {
     return null;
   }
+}
+
+/**
+ * The same question, asked of the code that runs in the BROWSER.
+ *
+ * `build` above hashes server-side .js only. That is the right scope for what
+ * it answers, and it left a hole big enough to ship a whole fix through: the
+ * SSE reconnect (#973) lives entirely in public/js, so /api/version reported
+ * an unchanged `build` before and after that deploy. The one instrument we
+ * have for "did it land?" was blind to it, and the only way to check was
+ * view-source on a script tag.
+ *
+ * Kept SEPARATE rather than folded into `build`, because server and client
+ * versions genuinely diverge: the browser caches assets independently, so
+ * "server updated, tab still on the old bundle" is a real and common state
+ * and one number could not express it. Two values distinguish
+ * "nothing deployed" from "deployed but the browser has not caught up".
+ *
+ * Covers public/js/*.js, public/*.html and styles.css — the script tags carry
+ * the cache-buster versions, so an asset change that forgot to bump one still
+ * moves this digest and is still visible.
+ *
+ * §F-15: everything hashed here is served publicly by definition. No .env, no
+ * data/, and a hash of public files reveals nothing regardless.
+ */
+function digestTree(pub) {
+  try {
+    const parts = [];
+    collect(pub, 'js', '.js', parts);
+    collect(pub, '', '.html', parts);
+    collect(pub, '', '.css', parts);
+    return digestOf(parts);
+  } catch (e) {
+    return null;
+  }
+}
+
+function assetFingerprint() {
+  return digestTree(path.join(__dirname, '..', 'public'));
 }
 
 function compute() {
@@ -176,6 +224,7 @@ function compute() {
     committed_at: committedAt || null,
     started_at: new Date().toISOString(),
     build: fingerprint(),
+    assets: assetFingerprint(),
   };
 }
 
@@ -192,7 +241,15 @@ function buildInfo() {
   // Omitted rather than sent as null — an absent field reads as "not
   // available here", where a null invites being mistaken for a value.
   if (BUILD.build) out.build = BUILD.build;
+  // Same omit-rather-than-null rule: an absent field reads as "not available
+  // here", where a null invites being mistaken for a value.
+  if (BUILD.assets) out.assets = BUILD.assets;
   return out;
 }
 
-module.exports = { buildInfo, readGitHead, fingerprint };
+module.exports = {
+  buildInfo, readGitHead, fingerprint, assetFingerprint,
+  // Test seam: the same algorithm against an arbitrary tree, so the
+  // change-detection property can be exercised instead of asserted.
+  __digestTree: digestTree,
+};

@@ -81,25 +81,35 @@ test('the payload carries it, and omits rather than nulls when absent', () => {
   assert.match(src, /if \(BUILD\.build\) out\.build = BUILD\.build;/);
 });
 
-test('it never reaches for secrets or state', () => {
+// The whole digest machinery — shared by `build` and the `assets` digest
+// added beside it — with comments stripped. The docs deliberately NAME what
+// they exclude (".env", "data/"), so a test that reads prose would fail on the
+// very sentence promising the exclusion.
+function digestCode() {
   const src = fs.readFileSync(path.join(APP, 'lib', 'version.js'), 'utf8');
-  const block = src.slice(src.indexOf('const FINGERPRINT_DIRS'),
-    src.indexOf('function compute()'));
+  return src.slice(src.indexOf('const FINGERPRINT_DIRS'),
+                   src.indexOf('function compute()'))
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+}
+
+test('it never reaches for secrets or state', () => {
+  const block = digestCode();
   for (const f of ['.env', 'data', 'secrets', 'creds', 'process.env']) {
     assert.ok(!block.includes(f),
-      `the fingerprint must not touch ${f} — it hashes shipped .js source only`);
+      `the fingerprint must not touch ${f} — it hashes shipped source only`);
   }
-  assert.ok(block.includes("endsWith('.js')"), 'and only .js files');
+  assert.ok(block.includes("endsWith(ext)"), 'and only the listed extensions');
 });
 
 test('it survives an unreadable file rather than throwing', () => {
   // A bundle may omit a file the list expects; the digest must still resolve.
   // (readFileSync failures are skipped, and a zero-file result returns null.)
-  const src = fs.readFileSync(path.join(APP, 'lib', 'version.js'), 'utf8');
-  const block = src.slice(src.indexOf('function fingerprint()'),
-    src.indexOf('function compute()'));
+  const block = digestCode();
   assert.match(block, /catch \(e\) \{ continue; \}/,
     'a missing file is skipped, not fatal');
   assert.match(block, /if \(!counted\) return null;/,
     'and nothing readable yields null, never a hash of emptiness');
+  assert.match(block, /catch \(e\) \{ return out; \}/,
+    'and a missing directory contributes nothing rather than throwing');
 });
