@@ -407,6 +407,30 @@ many symbols each cycle analyses. Roughly triple the universe, roughly triple
 the phase time — a comfortable margin at 70 symbols is not a comfortable margin
 at 200. Re-read this line after changing it.
 
+**Start here: how far did the batch get?** When the analyze phase is
+cancelled it now reports its own progress, in the log and on `/status`:
+
+```
+Tick phase 'analyze' exceeded its 300s cap … It had finished 41 of 200
+signals (21%) in 300s — 1463s needed at that rate.
+
+  ↳ 41/200 signals analysed before it was cancelled
+```
+
+That fraction is the first thing to read, because the two ends of it call for
+opposite fixes and no amount of reasoning substitutes for it:
+
+| the fraction | means | fix |
+|---|---|---|
+| small, and the projection far exceeds the cap | the universe is wider than the budget | lower `TOP_MOVERS_COUNT`, raise `SCAN_ANALYSIS_CONCURRENCY`, or raise `TICK_PHASE_TIMEOUT_SEC` |
+| close to complete | the budget is nearly right | raise the phase cap modestly, or trim the universe slightly |
+| stuck at a low number across several ticks | specific symbols are blocking | see the audit line below — it names them |
+
+⚠️ **Two fixes were shipped against this before that number existed** (a
+per-analysis cap, then bounding the fetch chain). Both corrected genuine
+defects and neither stopped the timeouts, because the cause was inferred
+rather than measured. Read the fraction first.
+
 **The analysis-timeout audit line.** Each analysis is bounded individually
 (`ANALYSIS_TIMEOUT_SEC`, default 90s). When any hit that cap the engine records
 it and names the symbols:

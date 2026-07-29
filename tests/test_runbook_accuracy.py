@@ -165,3 +165,31 @@ def test_no_secret_shaped_value_crept_in():
     for pat in (r"sk-[A-Za-z0-9]{16,}", r"LLM_API_KEY\s*=\s*\S+",
                 r"WEB_GATEWAY_SECRET\s*=\s*[A-Za-z0-9]{8,}"):
         assert not re.search(pat, RUNBOOK), f"secret-shaped text matched {pat}"
+
+
+# ── the progress signal ───────────────────────────────────────────────────
+
+def test_the_progress_line_it_documents_is_one_the_code_emits():
+    from tests.source_scan import code_only
+    engine = code_only(Path("bot/core/engine.py").read_text(encoding="utf-8"))
+    assert "finished {_done} of {_of} signals" in engine
+    assert "needed at that rate" in engine
+    assert "signals analysed before it was cancelled" in RUNBOOK or \
+        "val_signals_done" in Path("bot/utils/i18n.py").read_text(encoding="utf-8")
+    assert "How far did the batch get" in RUNBOOK or "how far did the batch get" in RUNBOOK
+
+
+def test_the_triage_order_is_stated():
+    """The fraction comes FIRST. Two fixes shipped ahead of it, against a
+    cause that was inferred rather than measured, and neither worked."""
+    assert "Read the fraction first" in RUNBOOK
+    i = RUNBOOK.index("how far did the batch get")
+    j = RUNBOOK.index("The analysis-timeout audit line")
+    assert i < j, "the measured signal must be documented before the narrower one"
+
+
+def test_the_knobs_it_names_for_a_sizing_problem_all_exist():
+    for env in ("TOP_MOVERS_COUNT", "SCAN_ANALYSIS_CONCURRENCY",
+                "TICK_PHASE_TIMEOUT_SEC"):
+        assert env in RUNBOOK
+        assert env in CONFIG, f"the runbook offers {env} as a fix; config never reads it"
