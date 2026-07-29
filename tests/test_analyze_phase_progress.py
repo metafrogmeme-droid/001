@@ -47,7 +47,7 @@ def test_every_outcome_counts_toward_progress():
                    ENGINE.index("async def _analyze_signal(self")]
     assert "finally:" in block
     tail = block[block.index("finally:"):]
-    assert '_analyze_progress["done"] += 1' in tail
+    assert '_p["done"] += 1' in tail
 
 
 def test_the_counter_cannot_break_the_batch():
@@ -183,3 +183,73 @@ def test_the_engine_declares_the_attribute_up_front():
         "an attribute created only inside the batch would be missing on an "
         "engine whose first analyze phase has not started")
     _ = SimpleNamespace, pytest
+
+
+# ── a stale batch must not write into a live record ───────────────────────
+#
+# Production, minutes after this shipped:
+#
+#     ↳ 47/40 signals analysed before it was cancelled
+#
+# 47 of 40. The slot is engine-level and a CANCELLED batch keeps unwinding
+# after _phase has returned — its tasks' `finally` blocks fire while the next
+# tick has already installed a fresh record, and they incremented THAT one.
+#
+# An instrument reporting a number larger than its own denominator is not
+# reporting anything, and this one was being read to diagnose a live trading
+# fault. Worse than no instrument: the first reading was used to argue about
+# where the phase was dying.
+
+def test_the_record_is_tagged_with_its_batch():
+    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
+                   ENGINE.index("async def _analyze_signal(self")]
+    assert "_analyze_batch_seq" in block
+    assert '"seq": _seq' in block
+
+
+def test_only_the_owning_batch_increments():
+    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
+                   ENGINE.index("async def _analyze_signal(self")]
+    tail = block[block.index("finally:"):]
+    assert '_p.get("seq") == _seq' in tail, (
+        "without the check, a cancelled batch's unwinding tasks corrupt the "
+        "next batch's count")
+
+
+def test_the_sequence_starts_defined():
+    assert "self._analyze_batch_seq: int = 0" in ENGINE
+
+
+def test_a_stale_batch_cannot_corrupt_the_live_count():
+    """The property, driven directly rather than asserted."""
+    class _E:
+        def __init__(self):
+            self._analyze_progress = None
+            self._analyze_batch_seq = 0
+
+        def start(self, n):
+            self._analyze_batch_seq += 1
+            seq = self._analyze_batch_seq
+            self._analyze_progress = {"of": n, "done": 0, "started": 0.0,
+                                      "seq": seq}
+            return seq
+
+        def finished_one(self, seq):
+            p = self._analyze_progress
+            if p is not None and p.get("seq") == seq:
+                p["done"] += 1
+
+    e = _E()
+    old = e.start(70)
+    for _ in range(9):
+        e.finished_one(old)          # nine complete before the cancellation
+    new = e.start(40)                # next tick installs a fresh record
+    for _ in range(38):
+        e.finished_one(old)          # the cancelled batch keeps unwinding
+    for _ in range(7):
+        e.finished_one(new)          # and the new batch makes real progress
+
+    assert e._analyze_progress["done"] == 7, "only the owning batch counts"
+    assert e._analyze_progress["of"] == 40
+    assert e._analyze_progress["done"] <= e._analyze_progress["of"], (
+        "done can never exceed of — that is what 47/40 meant")

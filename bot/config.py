@@ -1563,6 +1563,27 @@ class ExecutionConfig:
     # trade, $500 total, 5 positions); raise them via env for real-size live
     # trading. These are MARGIN figures — exchange notional is margin × leverage.
     max_live_position_usd: float = _env_float_bounded("MICRO_MAX_POSITION_USD", 100.0, 1.0, 10_000_000.0)
+    # ── High-conviction fixed sizing (operator directive, 2026-07-29) ──
+    #
+    # Normal sizing is fixed-fractional: risk_budget / stop_distance_pct, so a
+    # tight stop buys a bigger position. This overrides that for ideas at or
+    # above a confidence floor, giving them a FLAT margin instead.
+    #
+    # It sets a TARGET, never a floor. Every existing reducer still applies
+    # afterwards — stock-session multiplier, exchange free-balance clamp,
+    # per-user margin ceiling, MICRO_MAX_POSITION_USD, total-exposure and
+    # open-position caps, and the drawdown breaker. Nothing here can raise a
+    # position past a limit that already bound it.
+    #
+    # Notional is margin x leverage, and leverage is NOT set here: it stays
+    # with _compute_target_leverage (DEFAULT_LEVERAGE, the /leverage runtime
+    # override, and volatility de-leveraging, which only ever reduces). One
+    # source of truth for leverage; this decides margin only.
+    high_conviction_enabled: bool = _env_bool("HIGH_CONVICTION_ENABLED", False)
+    high_conviction_min_confidence: float = _env_float_bounded(
+        "HIGH_CONVICTION_MIN_CONFIDENCE", 0.70, 0.0, 1.0)
+    high_conviction_margin_usd: float = _env_float_bounded(
+        "HIGH_CONVICTION_MARGIN_USD", 100.0, 1.0, 10_000_000.0)
     max_live_total_exposure_usd: float = _env_float_bounded("MICRO_MAX_TOTAL_EXPOSURE", 500.0, 1.0, 100_000_000.0)
     max_live_open_positions: int = int(_env_float_bounded("MICRO_MAX_OPEN_POSITIONS", 5, 1, 1000))
     # WebSocket price staleness guard. The live SL/TP monitoring loop prefers

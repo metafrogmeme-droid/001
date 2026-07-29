@@ -377,6 +377,7 @@ class RuneClawEngine:
         # {of, done, started} for the analyze batch in flight. Read by the
         # phase-timeout handler, which runs after the batch's frames are gone.
         self._analyze_progress: dict | None = None
+        self._analyze_batch_seq: int = 0
         # Reciprocal watch on the proactive monitor loop (attached by the
         # Telegram handler at start_monitor; None when Telegram is off).
         self._proactive_monitor = None
@@ -2359,6 +2360,92 @@ class RuneClawEngine:
             )
             raise
 
+    def _high_conviction_ceiling(self, user_id: str = "") -> Optional[float]:
+        """The margin ceilings already binding before this rule runs.
+
+        confirm_trade feeds MICRO_MAX_POSITION_USD and the per-user cap INTO
+        the risk recheck, so recheck.position_size_usd already respects them.
+        Overwriting that with a flat target would therefore RAISE past a cap
+        that had already bound — and the per-user cap is only re-applied
+        further down inside the manual-override branch, which the auto path
+        never enters. Caught by the ordering test before this shipped.
+
+        So the same ceilings are recomputed here and applied to the target.
+        Tighten-only: None means nothing binds.
+        """
+        ceiling: Optional[float] = None
+        try:
+            if CONFIG.is_live():
+                ceiling = float(CONFIG.execution.max_live_position_usd)
+            cap = self._per_user_margin_cap(user_id)
+            if cap is not None:
+                ceiling = float(cap) if ceiling is None else min(ceiling, float(cap))
+        except Exception as exc:
+            logger.debug("High-conviction ceiling unresolved: %s", exc)
+        return ceiling
+
+    def _high_conviction_margin(self, idea, size_usd: float,
+                                user_id: str = "") -> float:
+        """Flat margin for an idea at or above the confidence floor.
+
+        Normal sizing is fixed-fractional — risk_budget / stop_distance_pct —
+        so a tight stop buys a bigger position and a wide one buys a smaller.
+        The operator directive is different: at or above the floor, every
+        trade gets the SAME margin regardless of stop distance.
+
+        Returns the target margin, or `size_usd` unchanged when the rule is
+        off or the idea does not clear the floor. It is deliberately only a
+        TARGET: every reducer downstream still runs — stock-session
+        multiplier, exchange free-balance clamp, per-user ceiling,
+        MICRO_MAX_POSITION_USD, total-exposure and open-position caps, and the
+        drawdown breaker. This can raise a size the risk engine chose; it can
+        never raise one past a limit that already bound it.
+
+        Leverage is NOT decided here. It stays with _compute_target_leverage
+        (DEFAULT_LEVERAGE, the /leverage override, and volatility
+        de-leveraging, which only ever reduces), so there is still one source
+        of truth for it and this cannot silently double a notional.
+
+        Fail-safe: any error leaves the risk engine's number alone.
+        """
+        try:
+            cfg = CONFIG.execution
+            if not getattr(cfg, "high_conviction_enabled", False):
+                return size_usd
+            conf = float(getattr(idea, "confidence", 0.0) or 0.0)
+            floor = float(cfg.high_conviction_min_confidence)
+            if conf < floor:
+                return size_usd
+            target = float(cfg.high_conviction_margin_usd)
+            # Never above a ceiling that was already binding.
+            _ceiling = self._high_conviction_ceiling(user_id)
+            if _ceiling is not None and target > _ceiling:
+                audit(trade_log,
+                      f"High-conviction target ${target:.2f} capped to "
+                      f"${_ceiling:.2f} (existing margin ceiling)",
+                      action="high_conviction_cap", result="CAPPED",
+                      data={"target": round(target, 2),
+                            "ceiling": round(_ceiling, 2)})
+                target = _ceiling
+            if target == size_usd:
+                return size_usd
+            audit(trade_log,
+                  f"High-conviction sizing: {getattr(idea, 'asset', '?')} "
+                  f"confidence {conf:.0%} >= {floor:.0%} — margin "
+                  f"${size_usd:.2f} -> ${target:.2f} (every cap below still "
+                  f"applies)",
+                  action="high_conviction_size",
+                  result="RAISED" if target > size_usd else "REDUCED",
+                  data={"asset": getattr(idea, "asset", None),
+                        "confidence": round(conf, 4),
+                        "floor": floor,
+                        "from": round(size_usd, 2),
+                        "to": round(target, 2)})
+            return target
+        except Exception as exc:      # never let sizing policy break a trade
+            logger.debug("High-conviction sizing skipped: %s", exc)
+            return size_usd
+
     async def _phase(self, coro, what: str, fatal: bool = True):
         """Bound ONE phase of a tick, naming it if it hangs.
 
@@ -3448,8 +3535,22 @@ class RuneClawEngine:
         # symbols versus a universe too wide for the budget). Kept on the
         # engine because the batch's own frames are gone by the time the
         # timeout handler runs.
+        # Tagged with a sequence number, because the slot is engine-level and
+        # a CANCELLED batch keeps unwinding after _phase has returned. Its
+        # tasks' `finally` blocks then fire while the NEXT tick has already
+        # installed a fresh record — and they incremented that one. Production
+        # showed the impossible result within minutes of shipping this:
+        #
+        #     ↳ 47/40 signals analysed before it was cancelled
+        #
+        # 47 of 40. An instrument that reports a number larger than its own
+        # denominator is not reporting anything. A stale batch now cannot
+        # write into a record it does not own.
+        self._analyze_batch_seq = int(getattr(self, "_analyze_batch_seq", 0)) + 1
+        _seq = self._analyze_batch_seq
         self._analyze_progress = {
-            "of": len(signals), "done": 0, "started": time.monotonic()}
+            "of": len(signals), "done": 0, "started": time.monotonic(),
+            "seq": _seq}
 
         async def _one(sig):
             async with sem:
@@ -3475,7 +3576,9 @@ class RuneClawEngine:
                     # a failure, a timeout. The question it answers is "how
                     # far did the batch get", not "how many succeeded".
                     try:
-                        self._analyze_progress["done"] += 1
+                        _p = self._analyze_progress
+                        if _p is not None and _p.get("seq") == _seq:
+                            _p["done"] += 1
                     except Exception:
                         pass
 
@@ -4064,7 +4167,7 @@ class RuneClawEngine:
         position is then monitored for SL/TP by the existing paper loop
         (``check_stops_all``). Never calls ``live_executor``.
         """
-        size_usd = recheck.position_size_usd
+        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
         try:
             leverage = int(CONFIG.exchange.default_leverage)
         except (TypeError, ValueError):
@@ -4658,7 +4761,9 @@ class RuneClawEngine:
 
         # Live mode — execute via LiveExecutor with micro-test safety limits
         self._transition(AgentState.EXECUTING, f"executing LIVE trade {trade_id}")
-        size_usd = recheck.position_size_usd
+        # Flat margin for high-conviction ideas. A TARGET only: every
+        # reducer below still applies and can only lower it.
+        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
 
         # Resolve WHICH executor places this order. With PER_USER_LIVE_ENABLED off
         # (default) this is always the shared operator executor, so everything
