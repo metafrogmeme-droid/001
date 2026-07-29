@@ -2171,6 +2171,22 @@ class AppConfig:
     # It exists to bound the pathological case, not the slow one. 0 disables.
     analysis_timeout_sec: float = _env_float_bounded(
         "ANALYSIS_TIMEOUT_SEC", 90.0, 0.0, 600.0)
+    # Per-request cap (ms) on the KEYLESS market-data clients the scanner
+    # builds. Not the trading clients — order placement keeps its own.
+    #
+    # These three were the only ccxt clients in the codebase at 30000; every
+    # other one (exchange_credentials x8, scan_skill, cross_venue) is 15000.
+    # The outlier mattered because these are the clients on the analysis hot
+    # path, under a 300s phase cap, and a single analysis makes ~9 requests
+    # through them. At 30s a symbol whose requests all time out could burn
+    # most of the phase budget without anything hanging at all.
+    #
+    # A healthy public market-data GET returns well under a second, so 15s is
+    # already ~15x headroom; the value exists to bound the failure, not the
+    # request. Raise it if a venue is genuinely slow — lowering it below a few
+    # seconds would start cutting requests that would have succeeded.
+    market_data_timeout_ms: int = int(_env_float_bounded(
+        "MARKET_DATA_TIMEOUT_MS", 15000, 2000, 60000))
     # How many symbols an INTERACTIVE force-scan analyzes (the "Latest Signal"
     # button). The full ~200 universe is analyzed by the background loop, but a
     # button tap must stay responsive: each analyzed symbol fires ~9 rate-limited

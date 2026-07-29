@@ -187,7 +187,7 @@ class MarketScanner:
         if self._exchange is None:
             self._exchange = ccxt.bitget({
                 "aiohttp_trust_env": True,  # honor HTTPS_PROXY/CA env (no-op without proxy)
-                "timeout": 30000,
+                "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
             })
         return self._exchange
@@ -200,7 +200,7 @@ class MarketScanner:
         if self._futures_exchange is None:
             self._futures_exchange = ccxt.bitget({
                 "aiohttp_trust_env": True,  # honor HTTPS_PROXY/CA env (no-op without proxy)
-                "timeout": 30000,
+                "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
                 "options": {
                     "defaultType": "swap",
@@ -229,7 +229,7 @@ class MarketScanner:
         if self._venue_data_exchange is None:
             self._venue_data_exchange = getattr(ccxt, venue.id)({
                 "aiohttp_trust_env": True,
-                "timeout": 30000,
+                "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
                 "options": {"defaultType": "swap"},
             })

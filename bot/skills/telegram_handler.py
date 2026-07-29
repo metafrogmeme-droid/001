@@ -8256,6 +8256,8 @@ class TelegramHandler:
             tick_stalled=tick_stalled,
             next_tick_in_s=next_tick_in_s,
             phase_timeout=getattr(self.engine, "_last_phase_timeout", None),
+            phase_headroom=(self.engine.phase_headroom()
+                            if hasattr(self.engine, "phase_headroom") else None),
         )
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).

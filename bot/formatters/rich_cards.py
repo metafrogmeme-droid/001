@@ -771,6 +771,7 @@ def render_status_card(
     tick_stalled: bool = False,
     next_tick_in_s: Optional[float] = None,
     phase_timeout: Optional[dict] = None,
+    phase_headroom: Optional[dict] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
@@ -825,6 +826,18 @@ def render_status_card(
             f"{float(phase_timeout.get('cap_s') or 0):.0f}s"
             + (f", \u00d7{int(phase_timeout['count'])}"
                if int(phase_timeout.get('count') or 0) > 1 else "") + ")"]),
+        # The HEADROOM, not just the breach. Recording only the breach made
+        # every phase a cliff: 299s of a 300s cap looked identical to 30s,
+        # and the first signal was a dead tick. Shown only once a phase has
+        # actually completed \u2014 an unmeasured margin is not a margin of 100%.
+        *([] if not (phase_headroom or {}).get("cap_s") else [
+            f"- {t('lbl_phase_headroom', lang)}: "
+            + ("\u26a0 " if float(phase_headroom['used_ratio']) >= 0.8 else "")
+            + f"<b>{phase_headroom['phase']}</b> "
+            f"{float(phase_headroom['peak_s']):.0f}s "
+            f"{t('val_peak_of', lang)} "
+            f"{float(phase_headroom['cap_s']):.0f}s "
+            f"({float(phase_headroom['used_ratio']) * 100:.0f}%)"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —

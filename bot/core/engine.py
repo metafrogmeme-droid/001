@@ -371,6 +371,9 @@ class RuneClawEngine:
         # tick, and the thing an operator can actually act on. None until one
         # fires.
         self._last_analysis_timeout: dict | None = None
+        # {phase: {last_s, peak_s, cap_s, at}} for phases that SUCCEEDED —
+        # the headroom, not just the breach. Bounded by the phase-name count.
+        self._phase_durations: dict[str, dict] = {}
         # Reciprocal watch on the proactive monitor loop (attached by the
         # Telegram handler at start_monitor; None when Telegram is off).
         self._proactive_monitor = None
@@ -2378,8 +2381,11 @@ class RuneClawEngine:
         cap = float(getattr(CONFIG.monitoring, "tick_phase_timeout_sec", 0.0) or 0.0)
         if cap <= 0:
             return await coro
+        _started = time.monotonic()
         try:
-            return await asyncio.wait_for(coro, timeout=cap)
+            _r = await asyncio.wait_for(coro, timeout=cap)
+            self._record_phase_duration(what, time.monotonic() - _started, cap)
+            return _r
         except asyncio.TimeoutError:
             audit(system_log,
                   f"Tick phase '{what}' exceeded its {cap:.0f}s cap — cancelled "
@@ -2404,6 +2410,55 @@ class RuneClawEngine:
             if not fatal:
                 return None
             raise
+
+    def _record_phase_duration(self, what: str, elapsed: float, cap: float) -> None:
+        """Remember how long a phase took when it SUCCEEDED.
+
+        _phase used to record only the breach. That made every phase a cliff:
+        indistinguishable at 299s of a 300s cap from 30s, then a dead tick at
+        301s. The 2026-07-29 incident lived in that blind spot — the analyze
+        phase had presumably been creeping toward its cap for some time, and
+        the first signal anyone got was thirty-seven consecutive failures and
+        a breaker rejecting live trades.
+
+        It is also the only way to VERIFY a latency fix. "The breaches
+        stopped" is consistent with the fix working and with the load simply
+        being lighter today; peak-vs-cap distinguishes them.
+
+        Peak, not just last: a mean hides the tail, and the tail is what
+        trips a cap. Bounded by the number of phase names (three), so this
+        cannot grow.
+        """
+        try:
+            prev = self._phase_durations.get(what) or {}
+            self._phase_durations[what] = {
+                "last_s": float(elapsed),
+                "peak_s": max(float(elapsed), float(prev.get("peak_s") or 0.0)),
+                "cap_s": float(cap),
+                "at": time.monotonic(),
+            }
+        except Exception:  # instrumentation must never break a tick
+            pass
+
+    def phase_headroom(self) -> Optional[dict]:
+        """The phase running CLOSEST to its cap, or None if none has run.
+
+        Reports the tightest margin rather than every phase: the operator
+        needs to know whether anything is near the edge, and one number they
+        will actually read beats three they will not.
+        """
+        worst = None
+        for name, rec in (self._phase_durations or {}).items():
+            cap = float(rec.get("cap_s") or 0.0)
+            peak = float(rec.get("peak_s") or 0.0)
+            if cap <= 0:
+                continue
+            used = peak / cap
+            if worst is None or used > worst["used_ratio"]:
+                worst = {"phase": name, "peak_s": peak, "cap_s": cap,
+                         "last_s": float(rec.get("last_s") or 0.0),
+                         "used_ratio": used}
+        return worst
 
     async def _with_maintenance_cap(self, coro, what: str):
         """Bound a post-tick maintenance await. Each is throttled and
@@ -3499,13 +3554,26 @@ class RuneClawEngine:
         mtf_candles = None
         if not lightweight and (CONFIG.analyzer.elliott_mtf_enabled or CONFIG.analyzer.mtf_confluence_enabled):
             mtf_candles = {}
-            for _tf, _lim in (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200)):
-                try:
-                    _c = await self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim, ttl=180)
-                    if _c:
-                        mtf_candles[_tf] = self._drop_forming_candle(_c, _tf)
-                except Exception as _mtf_exc:
-                    system_log.debug("Elliott MTF fetch %s failed: %s", _tf, _mtf_exc)
+            # PARALLEL, not sequential. These four fetches are independent —
+            # four timeframes of the same symbol — and awaiting them one after
+            # another put four socket timeouts END TO END inside a single
+            # analysis. With the data client's per-request cap that was the
+            # longest serial stretch in the whole pipeline by a wide margin,
+            # and it sat under a 300s phase cap. The order-flow fetches beside
+            # it were already gathered; this now matches them.
+            _tf_specs = (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200))
+            _tf_results = await asyncio.gather(
+                *[self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim, ttl=180)
+                  for _tf, _lim in _tf_specs],
+                return_exceptions=True)
+            for (_tf, _lim), _c in zip(_tf_specs, _tf_results):
+                # Fail-open per timeframe, exactly as the sequential loop did:
+                # one bad timeframe degrades that leg to absent, never the rest.
+                if isinstance(_c, BaseException):
+                    system_log.debug("Elliott MTF fetch %s failed: %s", _tf, _c)
+                    continue
+                if _c:
+                    mtf_candles[_tf] = self._drop_forming_candle(_c, _tf)
 
         idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe)
         if idea is None:
