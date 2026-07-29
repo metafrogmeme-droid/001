@@ -8791,9 +8791,12 @@ class TelegramHandler:
             result = await asyncio.wait_for(
                 self.registry.dispatch("deepscan",
                     self.engine, timeframe=tf),
-                # A full multi-timeframe sweep does ~5× the fetches, so give it
-                # proportionally longer before timing out.
-                timeout=300 if _multi else 120,
+                # A full multi-timeframe sweep does ~5× the fetches, so give
+                # it proportionally longer. Configurable: the right value
+                # depends on the universe, and a deadline shorter than the
+                # work is a sizing fact, not an exchange fault.
+                timeout=(CONFIG.deepscan_multi_timeout_sec if _multi
+                         else CONFIG.deepscan_timeout_sec),
             )
             if result:
                 # Try to render a card image from structured hits
@@ -8889,8 +8892,22 @@ class TelegramHandler:
             else:
                 await self._send(update, "🔴 <b>Deepscan returned empty result.</b>")
         except asyncio.TimeoutError:
-            system_log.error("Deepscan timed out after 120s")
-            await self._send(update, "🔴 <b>Deepscan timed out.</b> Exchange may be slow — try again.")
+            # NOT "Exchange may be slow". That was a verdict inferred from a
+            # deadline expiring, and on 2026-07-29 the engine's own numbers
+            # showed the exchange was fine — the analyze phase was simply
+            # given more symbols than its budget covered. A timeout says the
+            # work did not fit the time. Which of the two was wrong is a
+            # separate question, and this message is not entitled to answer
+            # it. Same correction as the interactive-scan hint above.
+            _budget = (CONFIG.deepscan_multi_timeout_sec if _multi
+                       else CONFIG.deepscan_timeout_sec)
+            system_log.error("Deepscan timed out after %.0fs (multi=%s)",
+                             _budget, _multi)
+            await self._send(update,
+                f"🔴 <b>Deepscan hit its {_budget:.0f}s limit.</b> That is this "
+                f"command's own budget — not a diagnosis of the exchange. "
+                f"<code>/status</code> carries the engine's measured scan "
+                f"timing if you want to know where the time goes.")
         except Exception as exc:
             system_log.error(f"Deepscan error: {exc}", exc_info=True)
             await self._send(update, f"🔴 <b>Deepscan error:</b> <code>{html.escape(str(exc)[:200])}</code>")

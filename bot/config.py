@@ -2214,6 +2214,15 @@ class AppConfig:
     # exchange calls, so analyzing 200 inline hangs the handler for minutes. Cap
     # the interactive path to the top-N ranked signals.
     interactive_scan_count: int = int(_env_float("INTERACTIVE_SCAN_COUNT", 40))
+    # Deadline on an interactive /deepscan, and on the multi-timeframe sweep
+    # which does ~5x the fetches. Configurable because the right value depends
+    # on the universe: the BACKGROUND analyze phase needs ~3.3s per symbol, so
+    # a deadline shorter than universe x 3.3 will always expire, and that is a
+    # sizing fact rather than an exchange fault.
+    deepscan_timeout_sec: float = _env_float_bounded(
+        "DEEPSCAN_TIMEOUT_SEC", 120.0, 10.0, 1800.0)
+    deepscan_multi_timeout_sec: float = _env_float_bounded(
+        "DEEPSCAN_MULTI_TIMEOUT_SEC", 300.0, 10.0, 3600.0)
     # Hard timeout (seconds) on an interactive force-scan so the Telegram handler
     # can never hang unbounded; on timeout we show whatever pending ideas exist.
     interactive_scan_timeout_sec: int = int(_env_float("INTERACTIVE_SCAN_TIMEOUT_SEC", 45))

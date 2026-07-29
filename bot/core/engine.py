@@ -40,6 +40,13 @@ from bot.core.dashboard_pusher import DashboardPusher
 from bot.utils.audit_chain import AuditChain, DecisionRecord
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, system_log, trade_log, scan_log
+
+#: Stages of one analysis, in the order they run. Module-level, not a class
+#: attribute reached through `self`: _analyze_signals_batched is exercised
+#: with lightweight stubs standing in for the engine, and every `self.` lookup
+#: for what is really a constant is one more thing those stubs must grow. That
+#: has now broken two suites for reasons unrelated to what they test.
+ANALYSIS_STAGES = ("fetch", "mtf", "analyze", "refine")
 from bot.utils.models import (
     AgentState,
     MarketSignal,
@@ -378,6 +385,8 @@ class RuneClawEngine:
         # phase-timeout handler, which runs after the batch's frames are gone.
         self._analyze_progress: dict | None = None
         self._analyze_batch_seq: int = 0
+        # Per-stage seconds summed across the current analyze batch.
+        self._stage_totals: dict[str, float] | None = None
         # Reciprocal watch on the proactive monitor loop (attached by the
         # Telegram handler at start_monitor; None when Telegram is off).
         self._proactive_monitor = None
@@ -2360,6 +2369,53 @@ class RuneClawEngine:
             )
             raise
 
+    #: Stages of one analysis, in the order they run. Bound to the module
+    #: constant so there is exactly one list.
+    ANALYSIS_STAGES = ANALYSIS_STAGES
+
+    def _stage_add(self, stage: str, seconds: float) -> None:
+        """Accumulate time spent in one stage of one analysis.
+
+        Summed ACROSS the batch, not per signal. With bounded concurrency the
+        sum exceeds wall-clock — twelve analyses each spending 15s in the LLM
+        contribute 180s to a phase that ran for 231s. That is the point: the
+        SHARE tells you which stage to attack, and wall-clock alone never
+        could.
+
+        Safe under asyncio without a lock: `+=` on a float completes between
+        awaits, and the loop is single-threaded.
+
+        Fail-open. Instrumentation that can break a tick is not worth having,
+        which the phase recorder learned the hard way on the failure path.
+        """
+        try:
+            acc = self._stage_totals
+            if acc is not None and stage in acc:
+                acc[stage] += float(seconds)
+        except Exception:
+            pass
+
+    def _stage_report(self, wall_s: float) -> str:
+        """One line: where the batch's work actually went.
+
+        Empty when nothing was recorded — a breakdown of zero is not a
+        breakdown, and printing 0s across the board would read as a
+        measurement.
+        """
+        try:
+            acc = dict(self._stage_totals or {})
+            total = sum(acc.values())
+            if total <= 0:
+                return ""
+            parts = " · ".join(
+                f"{k} {acc[k]:.0f}s ({acc[k] / total:.0%})"
+                for k in ANALYSIS_STAGES if acc.get(k, 0) > 0)
+            return (f"{parts} — {total:.0f}s of work across {wall_s:.0f}s "
+                    f"wall-clock at {int(CONFIG.scan_analysis_concurrency)} "
+                    f"concurrent")
+        except Exception:
+            return ""
+
     def _high_conviction_ceiling(self, user_id: str = "") -> Optional[float]:
         """The margin ceilings already binding before this rule runs.
 
@@ -2496,6 +2552,13 @@ class RuneClawEngine:
                               if _rate > 0 else "."))
                 _pdata.update(done=_done, of=_of, elapsed_s=round(_elapsed, 1),
                               needed_s=round(_of / _rate, 1) if _rate > 0 else None)
+                # A cancelled batch never reaches its own report, and it is
+                # the batch whose breakdown anyone actually wants.
+                _stages = self._stage_report(_elapsed)
+                if _stages:
+                    _detail += f" Work: {_stages}."
+                    _pdata["stages"] = {k: round(v, 1) for k, v in
+                                        (self._stage_totals or {}).items()}
             audit(system_log,
                   f"Tick phase '{what}' exceeded its {cap:.0f}s cap — cancelled "
                   f"the parked await. This NAMES the hang the whole-tick cap "
@@ -3551,6 +3614,7 @@ class RuneClawEngine:
         self._analyze_progress = {
             "of": len(signals), "done": 0, "started": time.monotonic(),
             "seq": _seq}
+        self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
 
         async def _one(sig):
             async with sem:
@@ -3585,6 +3649,28 @@ class RuneClawEngine:
         if not signals:
             return []
         _results = await asyncio.gather(*[_one(s) for s in signals])
+        # Where the work went. Reported on a batch that FINISHED, so the
+        # healthy shape is on record too — a breakdown you only ever see
+        # during an incident has nothing to be compared against.
+        # Guarded like the phase recorder: instrumentation may not require
+        # its caller to grow attributes, and this helper runs on a path
+        # exercised with lightweight stubs.
+        _rep = ""
+        try:
+            _fn = getattr(self, "_stage_report", None)
+            if _fn is not None:
+                _rep = _fn(time.monotonic() - float(
+                    (self._analyze_progress or {}).get("started")
+                    or time.monotonic()))
+        except Exception:
+            _rep = ""
+        if _rep:
+            audit(scan_log,
+                  f"Analyze batch complete: {len(signals)} signals — {_rep}",
+                  action="analyze_stages", result="OK",
+                  data={"of": len(signals),
+                        **{k: round(v, 1) for k, v in
+                           (self._stage_totals or {}).items()}})
         if _timed_out:
             # NAMED, not silently skipped — a quiet tick hiding a hanging
             # dependency is exactly how this stayed invisible for a day. The
@@ -3670,12 +3756,16 @@ class RuneClawEngine:
             if lightweight:
                 # Interactive fast path: only the primary OHLCV; skip the 4
                 # order-flow fetches (funding/OI/book/trades).
+                _t0 = time.monotonic()
                 results = list(await asyncio.gather(ohlcv_task, return_exceptions=True))
+                self._stage_add("fetch", time.monotonic() - _t0)
                 results.append(None)
             else:
                 of_task = self.order_flow.analyze(exchange, signal.symbol,
                                                   derivatives_symbol=of_deriv)
+                _t0 = time.monotonic()
                 results = list(await asyncio.gather(ohlcv_task, of_task, return_exceptions=True))
+                self._stage_add("fetch", time.monotonic() - _t0)
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
             of_signal = results[1] if not isinstance(results[1], Exception) else None
 
@@ -3743,10 +3833,12 @@ class RuneClawEngine:
             # and it sat under a 300s phase cap. The order-flow fetches beside
             # it were already gathered; this now matches them.
             _tf_specs = (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200))
+            _t0 = time.monotonic()
             _tf_results = await asyncio.gather(
                 *[self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim, ttl=180)
                   for _tf, _lim in _tf_specs],
                 return_exceptions=True)
+            self._stage_add("mtf", time.monotonic() - _t0)
             for (_tf, _lim), _c in zip(_tf_specs, _tf_results):
                 # Fail-open per timeframe, exactly as the sequential loop did:
                 # one bad timeframe degrades that leg to absent, never the rest.
@@ -3756,7 +3848,9 @@ class RuneClawEngine:
                 if _c:
                     mtf_candles[_tf] = self._drop_forming_candle(_c, _tf)
 
+        _t0 = time.monotonic()
         idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe)
+        self._stage_add("analyze", time.monotonic() - _t0)
         if idea is None:
             audit(scan_log, f"Analysis produced no idea for {signal.symbol}",
                   action="analyze_signal", result="NO_IDEA",
@@ -4133,7 +4227,9 @@ class RuneClawEngine:
             self._pending_timing.clear()
 
         # MTF entry refinement: zoom into 15m for better entry within zone
+        _t0 = time.monotonic()
         idea = await self._refine_entry_mtf(idea, exchange)
+        self._stage_add("refine", time.monotonic() - _t0)
 
         return idea
 
