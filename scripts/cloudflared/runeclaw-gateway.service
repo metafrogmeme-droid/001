@@ -1,0 +1,36 @@
+# systemd unit for the RUNECLAW gateway tunnel.
+#
+# Naming the tunnel fixes the URL churn. It does NOT fix the tunnel being
+# DOWN — those are two separate failure modes, and only one of them is solved
+# by giving the hostname a stable name. A named tunnel whose process died at
+# 03:00 and was never restarted is just as unreachable as a quick tunnel whose
+# URL rotated. This unit is the other half.
+#
+# Install:
+#   sudo cp runeclaw-gateway.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now runeclaw-gateway
+#   systemctl status runeclaw-gateway
+#
+# Adjust User= and the config path if the bot does not run as `mulerun`.
+
+[Unit]
+Description=RUNECLAW bot gateway (Cloudflare named tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=mulerun
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config /home/mulerun/.cloudflared/config.yml tunnel run
+# Come back from a crash, and keep coming back — an unattended tunnel that
+# gives up after five attempts is the failure this unit exists to prevent.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+# The tunnel needs no privileges beyond a socket to localhost.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

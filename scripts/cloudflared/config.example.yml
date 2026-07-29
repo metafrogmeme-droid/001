@@ -1,0 +1,29 @@
+# cloudflared named-tunnel ingress — TEMPLATE.
+#
+# Copy to ~/.cloudflared/config.yml on the bot host and fill in the two
+# placeholders. Do NOT commit the filled-in copy: the credentials file it
+# points at is a bearer credential for the tunnel.
+#
+#   TUNNEL_UUID   printed by `cloudflared tunnel create runeclaw-gateway`
+#   HOSTNAME      the stable name you route to it, on a zone you control
+#
+# The whole point of this file is the `hostname:` line. A quick tunnel gets a
+# random *.trycloudflare.com name bound to the PROCESS, so restarting
+# cloudflared changes the URL and the website can no longer reach the bot. A
+# named tunnel's hostname belongs to your DNS, not to the process.
+
+tunnel: TUNNEL_UUID
+credentials-file: /home/mulerun/.cloudflared/TUNNEL_UUID.json
+
+# Keep the tunnel up through brief bot restarts rather than tearing down.
+originRequest:
+  connectTimeout: 10s
+  noHappyEyeballs: true
+
+ingress:
+  # The bot's user gateway. It binds 127.0.0.1 deliberately — the tunnel is
+  # the only way in, and the shared secret is checked on every request.
+  - hostname: HOSTNAME
+    service: http://127.0.0.1:8080
+  # Anything else that reaches this tunnel is not ours.
+  - service: http_status:404

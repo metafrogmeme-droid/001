@@ -259,17 +259,50 @@ curl -s https://YOUR_HOST/api/version
 # {"sha":"unknown","build":"9fe79eaa6713+186","started_at":"…","uptime_s":1303}
 ```
 
-It is a hash of the `.js` source that shipped, not a commit id — it changes
-when the code changes and does not when it has not. Compute the expected value
-from a checkout **before** deploying and compare:
+There are **two** fingerprints, and the pair is the diagnosis:
+
+| field | hashes | moves when |
+|---|---|---|
+| `build` | `server.js`, `auth.js`, `db.js`, `lib/*.js`, `routes/*.js` | server code changes |
+| `assets` | `public/js/*.js`, `public/*.html`, `styles.css` | browser code changes |
 
 ```bash
-node -e "console.log(require('./app/lib/version').fingerprint())"
+curl -s https://YOUR_HOST/api/version
+# {"sha":"…","build":"fa5e44a8231b+186","assets":"7be07ceb9c8c+61",…}
 ```
 
-Same value → your build is live. Different → it is not, whatever the deploy log
-says. (Ask the host to pass `BUILD_SHA` as a build arg and `sha` becomes a real
+| `build` | `assets` | means |
+|---|---|---|
+| moved | moved | full deploy landed |
+| moved | unchanged | server-only change — expected for a route/lib fix |
+| unchanged | moved | client-only change — expected for a dashboard fix |
+| unchanged | unchanged | **nothing deployed**, whatever the deploy log says |
+
+Both are hashes of the source that shipped, not commit ids — they change when
+the code changes and do not when it has not. Compute the expected values from a
+checkout **before** deploying and compare:
+
+```bash
+node -e "const v=require('./app/lib/version').buildInfo(); console.log(v.build, v.assets)"
+```
+
+(Ask the host to pass `BUILD_SHA` as a build arg and `sha` becomes a real
 commit id, which is nicer still.)
+
+⚠️ **Why `assets` exists.** `build` alone was the deploy check for a while, and
+it hashes server code only — so a fix living entirely in `public/js` deployed
+with `build` completely unchanged, and the endpoint could not tell you whether
+it had landed. Verifying it meant view-source on a `<script>` tag. An
+instrument that needs a caveat about what it cannot see is one somebody will
+eventually read without the caveat.
+
+⚠️ **A moved `assets` does not mean browsers have it.** They cache by the
+`?v=` on the script tag. If a change ships without bumping that, `assets`
+moves and every open tab still runs the old bundle. Check both:
+
+```bash
+curl -s https://YOUR_HOST/dashboard | grep -o 'js/[a-z0-9-]*\.js?v=[0-9]*'
+```
 
 **Where the web app's diagnostics actually are.** The Node app logs to stdout,
 and `logs/*.log` belongs to the **Python bot** — docker-compose mounts `./logs`
@@ -343,6 +376,105 @@ included, and a restarting platform crash-loops with no healthy origin to route
 to. The port is now bound first and migration retries in the background.
 
 ---
+
+## Engine triage — is the loop healthy, and how do you know?
+
+`/status` carries the loop's own instruments. Two lines matter when trades
+start being rejected.
+
+**`Tick phase timed out: <phase> (exceeded its Ns, xN)`** — a phase blew its
+cap. Each failure feeds the warning-rate breaker, and enough of them trip it,
+at which point the engine starts REJECTING trades:
+
+```
+WARNING_RATE_BREAKER: infrastructure warnings firing too
+frequently (key='engine_tick_failure')
+```
+
+Read that as the breaker doing its job. The thing it is protecting the account
+from is the loop, not the market.
+
+**`Slowest tick phase: <phase> Ns peak of Ns (N%)`** — the headroom, reported
+whether or not anything has broken. This exists because the cap used to be a
+cliff: 299s of a 300s budget looked identical to 30s right up until the tick
+died, so the first signal anyone ever got was a run of failures. Peak rather
+than mean, because the tail is what trips a cap; ranked by ratio rather than
+seconds, because a 40s phase against a 45s cap is in more danger than a 100s
+one against 300s.
+
+⚠️ **The percentage scales with the universe.** `TOP_MOVERS_COUNT` sets how
+many symbols each cycle analyses. Roughly triple the universe, roughly triple
+the phase time — a comfortable margin at 70 symbols is not a comfortable margin
+at 200. Re-read this line after changing it.
+
+**The analysis-timeout audit line.** Each analysis is bounded individually
+(`ANALYSIS_TIMEOUT_SEC`, default 90s). When any hit that cap the engine records
+it and names the symbols:
+
+```
+Analysis timed out for 7 of 180 signals after 90s each.
+The tick continues with the rest.    action=analysis_timeout
+```
+
+This is the line that tells you *which* problem you have, and the two answers
+call for opposite fixes:
+
+| what it names | means | fix |
+|---|---|---|
+| many symbols at once | exchange-wide slowness or rate-limiter queueing | tune the caps below, or narrow the universe |
+| the same one or two, repeatedly | those symbols' endpoints are bad | drop them from the universe |
+
+Do not skip this step and assume the first. A phase can reach a 300s cap with
+nothing hanging at all: an analysis makes ~9 requests, and at a 30s per-request
+cap six of them in series is 180s before the LLM turn is even reached.
+
+### The caps, and what each one bounds
+
+| env | default | bounds |
+|---|---|---|
+| `ANALYSIS_TIMEOUT_SEC` | 90 | one symbol's whole analysis. `0` disables |
+| `MARKET_DATA_TIMEOUT_MS` | 15000 | one request by the scanner's keyless data clients |
+| `TICK_PHASE_TIMEOUT_SEC` | 300 | one phase of the tick (positions / scan / analyze) |
+| `GATEWAY_CONNECT_TIMEOUT_MS` | 4000 | the website's TCP connect to the bot gateway |
+
+`MARKET_DATA_TIMEOUT_MS` is deliberately **not** shared with the trading
+clients. A cap tuned for a public market-data GET has no business bounding a
+live order.
+
+## Reading the dashboard honestly
+
+The web app deliberately distinguishes "we could not read this" from "there is
+nothing here", because collapsing the two turned every database blip into an
+apparent trading outage. The vocabulary:
+
+| shown | means |
+|---|---|
+| `● ENGINE LIVE / STALE / OFFLINE` | judged from a scan we actually read, by its age |
+| `● ENGINE STATUS UNKNOWN` | **the site could not read its own feed.** Says nothing about the engine |
+| `● NO ENGINE DATA` | the feed read fine and holds no scan yet |
+| `● CONNECTING` | no read has finished yet |
+| a panel's error state + Retry | the request failed |
+| a panel's empty state | the request succeeded and the answer was empty |
+| `Live updates disconnected` (pulse dot) | the SSE stream is down; figures on screen may be stale |
+
+`ENGINE STATUS UNKNOWN` is a **website** symptom. Check `/readyz` — not the
+bot.
+
+## Standing hazards
+
+**An ephemeral Cloudflare quick tunnel is a single point of failure.** The
+`*.trycloudflare.com` URL is bound to the `cloudflared` process: restart it and
+the URL changes, at which point the website can no longer reach the bot and web
+chat is down until both configs are hand-edited on two hosts.
+
+Fix it with a **named** tunnel plus a supervisor — two different failure modes,
+and a named tunnel whose process died overnight is exactly as unreachable as a
+quick tunnel whose URL rotated. Templates, the ordered commands and the
+verification steps live in `scripts/cloudflared/`.
+
+The bot probes `PUBLIC_GATEWAY_URL` and alerts after two consecutive failures,
+so this now announces itself — but an alert about a foreseeable, preventable
+outage is worse than not having the outage.
 
 ## Operating habits (ops tips, 2026-07)
 
