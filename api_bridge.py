@@ -415,7 +415,27 @@ async def health():
         # no batch has run yet — a zero here would read as "nothing to scan".
         **({"engine_universe_size": _engine_universe_size(engine)}
            if _engine_universe_size(engine) is not None else {}),
+        # Whether the analyze phase can actually finish the universe it was
+        # handed, from the last batch's MEASURED throughput. Absent until a
+        # batch has run — a forecast off a guessed rate is a fabricated
+        # number. `shortfall` is how many signals will not be looked at.
+        **({"analyze_capacity": _analyze_capacity(engine)}
+           if _analyze_capacity(engine) is not None else {}),
     }
+
+
+def _analyze_capacity(engine) -> "dict | None":
+    """Forecast for the analyze batch in flight, or None when unmeasured.
+
+    None rather than a zeroed shape: the phase timed out 37 times in a row and
+    the operator had to reconstruct the arithmetic by hand. A placeholder
+    would read as "measured, and fine".
+    """
+    try:
+        cap = getattr(engine, "_analyze_capacity", None) if engine else None
+        return cap if isinstance(cap, dict) else None
+    except Exception:
+        return None
 
 
 def _engine_universe_size(engine) -> "int | None":

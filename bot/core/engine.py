@@ -385,6 +385,12 @@ class RuneClawEngine:
         # phase-timeout handler, which runs after the batch's frames are gone.
         self._analyze_progress: dict | None = None
         self._analyze_batch_seq: int = 0
+        # Effective wall-clock throughput of the LAST analyze batch, and the
+        # forecast it produces for the batch in flight. None until measured —
+        # a forecast from a guessed rate is a fabricated number, and guessed
+        # causes already shipped two wrong fixes for this exact phase.
+        self._analyze_throughput: dict | None = None
+        self._analyze_capacity: dict | None = None
         # Per-stage seconds summed across the current analyze batch.
         self._stage_totals: dict[str, float] | None = None
         # Reciprocal watch on the proactive monitor loop (attached by the
@@ -2395,6 +2401,73 @@ class RuneClawEngine:
         except Exception:
             pass
 
+    def _forecast_analyze_capacity(self, of: int) -> Optional[dict]:
+        """Can `of` signals finish inside the analyze phase cap?
+
+        Returns None when it cannot be known — no measured throughput yet, no
+        phase cap configured, or a prior batch that completed zero analyses.
+        Omit, never invent: a forecast built from a guessed rate would be a
+        fabricated number on an operator surface, and the whole reason this
+        exists is that guessed causes shipped two wrong fixes.
+
+        The rate is effective wall-clock throughput (done / elapsed) from the
+        previous batch, so it already carries the concurrency in force. That
+        matters: dividing per-analysis latency by hand ignores the 12-way
+        concurrency and lands ~12x off, which is how a serial-chain theory got
+        as far as it did.
+        """
+        # The cap that kills the batch is the PHASE cap, not
+        # analysis_timeout_sec (which bounds one analysis). Getting those two
+        # confused is what made "exceeded its 300s" read as a per-symbol
+        # limit. Read the same value _phase() enforces, from the same place.
+        cap = float(getattr(CONFIG.monitoring, "tick_phase_timeout_sec", 0.0) or 0.0)
+        tp = getattr(self, "_analyze_throughput", None)
+        if cap <= 0 or of <= 0 or not isinstance(tp, dict):
+            return None
+        per = float(tp.get("per_signal_s") or 0.0)
+        if per <= 0:
+            return None
+        needed = of * per
+        fits = int(cap / per)
+        rec = {
+            "of": of,
+            "per_signal_s": round(per, 2),
+            "needed_s": round(needed, 1),
+            "cap_s": round(cap, 1),
+            "fits": fits,
+            # How many will simply never be looked at this tick. Reported as a
+            # count, because "57%" was the number that got read as progress
+            # rather than as a shortfall.
+            "shortfall": max(0, of - fits),
+            "measured_from": int(tp.get("done") or 0),
+        }
+        if rec["shortfall"] > 0:
+            audit(scan_log,
+                  f"Analyze budget short: {of} signals at "
+                  f"{per:.1f}s/signal needs ~{needed:.0f}s against a "
+                  f"{cap:.0f}s cap — about {fits} will fit and "
+                  f"{rec['shortfall']} will not be analysed this tick. "
+                  f"Lower TOP_MOVERS_COUNT or raise "
+                  f"SCAN_ANALYSIS_CONCURRENCY.",
+                  action="analyze_capacity", result="SHORT", data=rec)
+        return rec
+
+    def _record_analyze_throughput(self, done: int, of: int, elapsed: float) -> None:
+        """Remember effective throughput so the NEXT batch can forecast.
+
+        Recorded from timed-out batches too: a batch that got through 90 of
+        161 measured a real rate for those 90. Discarding it because the phase
+        died would throw away the only measurement taken during the exact
+        conditions worth forecasting.
+        """
+        if done <= 0 or elapsed <= 0:
+            return
+        self._analyze_throughput = {
+            "per_signal_s": elapsed / done,
+            "done": int(done),
+            "of": int(of),
+        }
+
     def _stage_report(self, wall_s: float) -> str:
         """One line: where the batch's work actually went.
 
@@ -2552,6 +2625,15 @@ class RuneClawEngine:
                               if _rate > 0 else "."))
                 _pdata.update(done=_done, of=_of, elapsed_s=round(_elapsed, 1),
                               needed_s=round(_of / _rate, 1) if _rate > 0 else None)
+                # A cancelled batch measured a real rate for the analyses it
+                # DID finish, under exactly the conditions worth forecasting.
+                # Discarding it would leave the next tick guessing again.
+                try:
+                    _rt = getattr(self, "_record_analyze_throughput", None)
+                    if _rt is not None:
+                        _rt(_done, _of, _elapsed)
+                except Exception:
+                    pass
                 # A cancelled batch never reaches its own report, and it is
                 # the batch whose breakdown anyone actually wants.
                 _stages = self._stage_report(_elapsed)
@@ -3615,6 +3697,22 @@ class RuneClawEngine:
             "of": len(signals), "done": 0, "started": time.monotonic(),
             "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
+        # Will this batch even fit? The phase cap is per-analysis; the PHASE
+        # cap that actually kills the batch belongs to _phase(). For 37
+        # consecutive ticks the operator saw "analyze exceeded its 300s" and
+        # had to work backwards to the cause — a universe that had grown to
+        # 161 symbols when the measured throughput only covered ~90 in the
+        # budget. Every input to that arithmetic was already on the engine.
+        # Say it up front, from the LAST batch's measured rate, so the tick
+        # that is about to be truncated says so before it is.
+        # Guarded like the other instruments on this path: it runs under
+        # lightweight stubs, and a forecast must never be the reason a batch
+        # cannot start.
+        try:
+            _fc = getattr(self, "_forecast_analyze_capacity", None)
+            self._analyze_capacity = _fc(len(signals)) if _fc else None
+        except Exception:
+            self._analyze_capacity = None
 
         async def _one(sig):
             async with sem:
@@ -3649,6 +3747,17 @@ class RuneClawEngine:
         if not signals:
             return []
         _results = await asyncio.gather(*[_one(s) for s in signals])
+        # Measure the rate this batch actually ran at, so the next one can
+        # forecast instead of guess. Guarded: the recorder is instrumentation
+        # and must not require its caller to grow attributes.
+        try:
+            _p = self._analyze_progress or {}
+            _rec_tp = getattr(self, "_record_analyze_throughput", None)
+            if _rec_tp is not None and _p.get("seq") == _seq:
+                _rec_tp(int(_p.get("done") or 0), len(signals),
+                        time.monotonic() - float(_p.get("started") or 0.0))
+        except Exception:
+            pass
         # Where the work went. Reported on a batch that FINISHED, so the
         # healthy shape is on record too — a breakdown you only ever see
         # during an incident has nothing to be compared against.

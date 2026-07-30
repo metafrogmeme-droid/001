@@ -474,7 +474,7 @@ class MarketScanner:
         Bug fix: previously priority symbols were added first with no cap and
         the final ``result[:max_total]`` truncation cut whatever was appended
         last — which was exactly the category entries. Once the crypto
-        PRIORITY_SYMBOLS list grew toward ``top_movers_count`` (80), every
+        PRIORITY_SYMBOLS list grew toward ``top_movers_count``, every
         metal/stock/ETF slot was silently truncated to zero, so those markets
         never reached analysis. TradFi is now reserved up front.
         """
