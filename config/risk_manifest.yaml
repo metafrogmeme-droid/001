@@ -728,6 +728,19 @@ defaults:
       (live + LIVE_RISK_HARDENING_ENABLED). In paper mode the standard
       max_drawdown_pct applies.
 
+  persist_live_drawdown_peak:
+    value: false
+    env_var: PERSIST_LIVE_DRAWDOWN_PEAK
+    description: >
+      Persist the live drawdown high-water mark across restarts. Default OFF:
+      a restart re-seeds the peak at current equity, which also means a 6%
+      loss + restart + 6% loss never trips the 7% breaker — the protection's
+      memory dies with the process. ON closes that hole; the cost is that a
+      fund transfer followed by a restart now trips the breaker on the
+      withdrawal gap (the trip card's transfer hint names it; /resume
+      re-seeds the peak). Opt-in because it changes when a live safety gate
+      fires.
+
   regime_sizing_enabled:
     value: true
     env_var: REGIME_SIZING_ENABLED

@@ -625,6 +625,17 @@ class RiskLimits:
     # Default OFF → byte-identical until enabled; in paper mode it never applies.
     live_risk_hardening_enabled: bool = _env_bool("LIVE_RISK_HARDENING_ENABLED", True)
     live_max_drawdown_pct: float = _env_float_bounded("LIVE_MAX_DRAWDOWN_PCT", 7.0, 0.1, 100.0)
+    # Persist the live drawdown high-water mark across restarts (default OFF).
+    # The peak is in-memory: a restart re-seeds it at current equity, so a 6%
+    # loss + restart + another 6% loss never trips the 7% breaker — the
+    # protection restarts from zero with the process. ON closes that hole, at
+    # a cost the operator must understand before enabling: a fund TRANSFER
+    # followed by a restart will no longer silently reset the peak, so the
+    # breaker will trip on the withdrawal gap (with the transfer hint naming
+    # it, and /resume re-seeding the peak — that flow exists and is the
+    # intended remedy). Opt-in because it changes when a live safety gate
+    # fires; the trip is fail-closed either way.
+    persist_live_drawdown_peak: bool = _env_bool("PERSIST_LIVE_DRAWDOWN_PEAK", False)
     # Live-performance governor (default ON; runbook stage 2). A closed-loop backstop ON
     # TOP of the pre-trade checks: it scores REALIZED closed-trade outcomes over a
     # rolling window and de-risks when the strategy is actually losing — a graduated

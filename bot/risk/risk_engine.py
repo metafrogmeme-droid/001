@@ -276,6 +276,12 @@ class RiskEngine:
         self._last_of_signal: Optional[Any] = None
         # C2-34: combined state saver — when set, _save_state delegates to this
         self._combined_saver: Optional[Callable] = None
+        # Initialised BEFORE _load_state(), which may restore a persisted
+        # value into it (PERSIST_LIVE_DRAWDOWN_PEAK). The first version set
+        # this 20 lines below the load and silently stomped every restored
+        # peak back to 0.0 — the restore ran, audited PEAK_RESTORED, and had
+        # no effect. Init-after-load is invisible in review; a test caught it.
+        self._live_equity_peak: float = 0.0  # high-water mark for live drawdown
         # F-01: reload persisted safety state so restarts don't clear the breaker
         self._load_state()
         # Feature: Equity curve circuit breaker
@@ -300,7 +306,7 @@ class RiskEngine:
         # after restart is safe — a fresh day starts flat).
         self._live_daily_pnl: float = 0.0
         self._live_daily_day: str = ""      # "YYYY-MM-DD" the accumulator is for
-        self._live_equity_peak: float = 0.0  # high-water mark for live drawdown
+        # _live_equity_peak is initialised ABOVE _load_state() — see there.
         # Last live equity seen by evaluate(). Only ever set in LIVE mode, so
         # None means "no live evaluation yet" and the reporter says paper.
         self._last_live_equity: float | None = None
@@ -2901,6 +2907,7 @@ class RiskEngine:
             self._circuit_trip_cause = data.get("circuit_trip_cause", "")
             self._circuit_trip_day = data.get("circuit_trip_day", "")
             self._restore_dd_override(data)
+            self._restore_live_peak(data)
             if self._circuit_open:
                 audit(risk_log, "Circuit breaker state restored from disk: ACTIVE",
                       action="state_restore", result="LOADED")
@@ -2969,6 +2976,12 @@ class RiskEngine:
             "circuit_trip_cause": self._circuit_trip_cause,
             "circuit_trip_day": self._circuit_trip_day,
             "live_drawdown_override_pct": _dd_override,
+            # Always WRITTEN (it is just a number); only RESTORED behind
+            # CONFIG.risk.persist_live_drawdown_peak. Writing unconditionally
+            # means flipping the flag on starts protecting from the next
+            # restart without a "first restart writes, second restores" lag.
+            "live_equity_peak": (float(self._live_equity_peak)
+                                 if self._live_equity_peak > 0 else None),
             "saved_at": datetime.now(UTC).isoformat(),
         }
 
@@ -2994,9 +3007,39 @@ class RiskEngine:
         self._circuit_trip_cause = data.get("circuit_trip_cause", "")
         self._circuit_trip_day = data.get("circuit_trip_day", "")
         self._restore_dd_override(data)
+        self._restore_live_peak(data)
         if self._circuit_open:
             audit(risk_log, "Circuit breaker state restored from combined state: ACTIVE",
                   action="state_restore", result="LOADED")
+
+    def _restore_live_peak(self, data: dict) -> None:
+        """Restore the live drawdown high-water mark, IF the operator opted in.
+
+        Default OFF preserves the historical behaviour: a restart re-seeds
+        the peak at current equity. That behaviour is also a hole — a 6%
+        loss, a restart, and another 6% loss never trips the 7% breaker,
+        because the protection's memory dies with the process. The flag
+        closes it, and the cost it buys (a transfer followed by a restart
+        now trips the breaker instead of silently resetting) already has a
+        named remedy: the trip card's transfer hint plus /resume.
+
+        Restores only a sane positive float; anything else is ignored — a
+        tampered peak of 10^12 would pin drawdown at ~100% forever, and the
+        fail-closed answer to garbage here is "no peak, re-seed live",
+        because the breaker still gates on fresh live readings either way.
+        """
+        try:
+            if not CONFIG.risk.persist_live_drawdown_peak:
+                return
+            val = data.get("live_equity_peak")
+            if isinstance(val, (int, float)) and 0 < float(val) < 1e12:
+                self._live_equity_peak = float(val)
+                audit(risk_log,
+                      "Live drawdown peak restored across restart",
+                      action="state_restore", result="PEAK_RESTORED",
+                      data={"peak": float(val)})
+        except Exception:
+            pass
 
     @staticmethod
     def _soft_loss_streak_limit(hard_limit) -> int:
