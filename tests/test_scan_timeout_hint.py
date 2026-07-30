@@ -161,3 +161,62 @@ def test_the_engine_record_carries_the_symbols():
     from bot.core.engine import RuneClawEngine
     src = inspect.getsource(RuneClawEngine._analyze_signals_batched)
     assert '"symbols": list(_timed_out[:5])' in src
+
+
+# ── in-flight progress branch ────────────────────────────────────────────
+
+from bot.skills.telegram_handler import _inflight_analysis_progress
+
+
+def _prog_engine(done, of, age_s=20.0, with_timeout_record=False):
+    ns = SimpleNamespace(_analyze_progress={
+        "of": of, "done": done, "started": time.monotonic() - age_s, "seq": 1})
+    if not with_timeout_record:
+        ns._last_analysis_timeout = None
+    return ns
+
+
+def test_partial_progress_reads_as_slow_not_hung():
+    # This branch fired twice live on 2026-07-30 saying "does not identify
+    # the cause" while the batch's own progress record was populated.
+    hint = _scan_timeout_hint(_analyzer(0), _prog_engine(12, 40, age_s=25.0))
+    assert "12 of 40" in hint
+    assert "slow, not hung" in hint
+
+
+def test_zero_progress_reads_as_blocked():
+    hint = _scan_timeout_hint(_analyzer(0), _prog_engine(0, 40, age_s=30.0))
+    assert "0 of 40" in hint
+    assert "blocked dependency" in hint
+
+
+def test_a_completed_batch_is_not_blamed():
+    # done >= of means the batch FINISHED — it cannot be what blew the
+    # deadline, and citing it would blame a bystander.
+    assert _inflight_analysis_progress(_prog_engine(40, 40)) is None
+    hint = _scan_timeout_hint(_analyzer(0), _prog_engine(40, 40))
+    assert "does not identify the cause" in hint
+
+
+def test_a_stale_progress_record_is_not_cited():
+    assert _inflight_analysis_progress(
+        _prog_engine(5, 40, age_s=3600.0)) is None
+
+
+def test_the_recorded_timeout_still_outranks_inflight_progress():
+    # A recorded analysis timeout is the stronger evidence (it names the
+    # skipped count and now the symbols); progress is the fallback.
+    eng = _prog_engine(12, 40, with_timeout_record=True)
+    eng._last_analysis_timeout = {
+        "skipped": 1, "of": 70, "cap_s": 90.0,
+        "at": time.monotonic() - 5.0, "symbols": ["PEPE/USDT"]}
+    hint = _scan_timeout_hint(_analyzer(0), eng)
+    assert "Analyses are hanging" in hint
+    assert "slow, not hung" not in hint
+
+
+def test_inflight_helper_is_defensive():
+    assert _inflight_analysis_progress(None) is None
+    assert _inflight_analysis_progress(SimpleNamespace()) is None
+    assert _inflight_analysis_progress(
+        SimpleNamespace(_analyze_progress={"of": 0, "done": 0, "started": 0})) is None

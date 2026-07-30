@@ -116,11 +116,62 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
                     "is green, so the stall is in a per-symbol dependency "
                     "(exchange fetch or a single provider call), not the "
                     "fallback chain. See <code>/status</code>.")
+        # The interactive scan runs through the same batched analyzer, so the
+        # engine's in-flight progress record covers the batch this deadline
+        # just cancelled. Report what it MEASURED — "got through 12 of 40 in
+        # 25s" and "finished none" call for different next moves — instead of
+        # ending on "does not identify the cause" while the numbers that
+        # narrow it sat on the engine. (Live: this branch fired twice on
+        # 2026-07-30 with the progress record populated both times.)
+        p = _inflight_analysis_progress(engine)
+        if p and p["done"] > 0:
+            return ("\n\nℹ️ LLM brain is healthy. The analyze batch in "
+                    f"flight had finished {p['done']} of {p['of']} signals "
+                    f"in {p['elapsed_s']:.0f}s when the deadline hit — "
+                    "measured progress, so this is slow, not hung. If it "
+                    "repeats, the per-symbol dependency (exchange fetch or "
+                    "a single provider call) is the bottleneck. See "
+                    "<code>/status</code>.")
+        if p:
+            return ("\n\nℹ️ LLM brain is healthy, but the analyze batch in "
+                    f"flight had finished 0 of {p['of']} signals after "
+                    f"{p['elapsed_s']:.0f}s — nothing completed, which "
+                    "points at a blocked dependency (exchange fetch or a "
+                    "single provider call) rather than slowness. See "
+                    "<code>/status</code>.")
         return ("\n\nℹ️ LLM brain is healthy — that rules out the fallback "
                 "chain, but does not identify the cause. Check "
                 "<code>/status</code> for a tick-phase timeout.")
     except Exception:
         return ""
+
+
+def _inflight_analysis_progress(engine, *, max_age_s: float = 600.0):
+    """Measured progress of the analyze batch in flight moments ago, or None.
+
+    None when there is nothing honest to report: no record, a stale record
+    (a batch from a prior epoch says nothing about the scan that just timed
+    out), or a COMPLETED batch — done >= of means the batch finished, so it
+    cannot be the thing that blew this deadline, and citing it would blame
+    a bystander. Pure — no I/O.
+    """
+    try:
+        rec = getattr(engine, "_analyze_progress", None)
+        if not isinstance(rec, dict):
+            return None
+        of = int(rec.get("of") or 0)
+        done = int(rec.get("done") or 0)
+        started = float(rec.get("started") or 0.0)
+        if of <= 0 or started <= 0:
+            return None
+        age = time.monotonic() - started
+        if age < 0 or age > max_age_s:
+            return None
+        if done >= of:
+            return None
+        return {"done": done, "of": of, "elapsed_s": age}
+    except Exception:
+        return None
 
 
 def _recent_analysis_timeout(engine, *, window_s: float = ANALYSIS_TIMEOUT_HINT_WINDOW_S):
