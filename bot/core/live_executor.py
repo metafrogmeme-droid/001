@@ -1990,6 +1990,13 @@ class LiveExecutor:
                     lp.take_profit = ex_tp
                     if ex_tp_id:
                         lp.tp_order_id = ex_tp_id
+                if ex_sl > 0 or ex_tp > 0:
+                    # PROVENANCE (runtime marker, like `unprotected`): which
+                    # rung of the adoption ladder supplied the levels. The
+                    # /positions card renders it so the operator can tell a
+                    # strategy stop from a 3%/6% safety default at a glance —
+                    # today that question needed a code read to answer.
+                    setattr(lp, "sl_tp_source", "exchange")
 
                 # Fallback: if position data didn't have SL/TP, try open orders
                 if lp.stop_loss <= 0 or lp.take_profit <= 0:
@@ -2025,9 +2032,11 @@ class LiveExecutor:
                             if ("stop" in otype or "loss" in otype) and lp.stop_loss <= 0:
                                 lp.stop_loss = trigger
                                 lp.sl_order_id = o.get("id")
+                                setattr(lp, "sl_tp_source", "exchange")
                             elif ("take" in otype or "profit" in otype) and lp.take_profit <= 0:
                                 lp.take_profit = trigger
                                 lp.tp_order_id = o.get("id")
+                                setattr(lp, "sl_tp_source", "exchange")
                     except Exception as _sltp_adopt_exc:
                         logger.warning("SL/TP extraction failed during adoption of %s: %s",
                                        raw_sym, _sltp_adopt_exc)  # position adopted without SL/TP
@@ -2047,8 +2056,10 @@ class LiveExecutor:
                         if donor is not None:
                             if lp.stop_loss <= 0 and donor.stop_loss > 0:
                                 lp.stop_loss = donor.stop_loss
+                                setattr(lp, "sl_tp_source", "inherited")
                             if lp.take_profit <= 0 and donor.take_profit > 0:
                                 lp.take_profit = donor.take_profit
+                                setattr(lp, "sl_tp_source", "inherited")
                             lp.strategy_type = getattr(
                                 donor, "strategy_type", lp.strategy_type)
                             lp.signal_type = getattr(
@@ -2066,6 +2077,10 @@ class LiveExecutor:
                 need_sl = lp.stop_loss <= 0 and entry_price > 0
                 need_tp = lp.take_profit <= 0 and entry_price > 0
                 if need_sl or need_tp:
+                    # Even a PARTIAL default (real SL, defaulted TP) marks the
+                    # whole pair "default" — the conservative reading, since
+                    # the card's point is "review these levels".
+                    setattr(lp, "sl_tp_source", "default")
                     default_sl_pct = 0.03
                     default_tp_pct = 0.06
                     if need_sl:

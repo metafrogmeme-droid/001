@@ -9933,6 +9933,13 @@ class TelegramHandler:
                         "trade_id": pos.trade_id,
                         "status": getattr(pos, "status", "open"),
                         "strategy_type": getattr(pos, "strategy_type", "swing"),
+                        # Adoption provenance for the card: whether this row is
+                        # an adopted position and which ladder rung supplied
+                        # its SL/TP ("exchange"/"inherited"/"default"/""), so
+                        # "review the adopted position" doesn't require a code
+                        # read to tell a strategy stop from a 3% safety default.
+                        "origin": getattr(pos, "origin", ""),
+                        "sl_tp_source": getattr(pos, "sl_tp_source", ""),
                     })
             elif executor:
                 # No locally-tracked positions — fall back to exchange API

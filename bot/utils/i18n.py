@@ -713,6 +713,12 @@ _STRINGS: dict[str, dict[str, str]] = {
     "val_none": {"en": "None", "zh": "無"},
     "lbl_on_exchange": {"en": "on exchange", "zh": "於交易所"},
     "untracked_outside": {"en": "Untracked — opened outside bot", "zh": "未追蹤 — 在機器人外開倉"},
+    # Adoption provenance on the /positions card. t() falls back to English
+    # for languages without an entry.
+    "adopted_position": {"en": "Adopted from exchange", "zh": "已從交易所接管"},
+    "adopted_levels_exchange": {"en": "Adopted — SL/TP are the exchange's own levels", "zh": "已接管 — 止損/止盈為交易所原有設定"},
+    "adopted_levels_inherited": {"en": "Adopted — SL/TP inherited from the strategy record", "zh": "已接管 — 止損/止盈繼承自策略記錄"},
+    "adopted_levels_default": {"en": "Adopted — SL/TP are 3%/6% SAFETY DEFAULTS, review and tighten", "zh": "已接管 — 止損/止盈為 3%/6% 安全預設值，請檢查並收緊"},
     "open_pos_empty": {
         "en": "No open positions right now.\nSay \"scan\" or \"analyze BTC\" to find setups.",
         "zh": "目前沒有持倉。\n輸入「掃描」或「分析 BTC」來尋找機會。",

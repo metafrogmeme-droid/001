@@ -749,6 +749,20 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
         ])
         if untracked:
             lines.append(f"  \u26a0\ufe0f <i>{t('untracked_outside', lang)}</i>")
+        if p.get("origin") == "adopted":
+            # WHICH ladder rung supplied the levels. "default" is the row the
+            # operator actually needs to act on \u2014 3%/6% safety stops are a
+            # floor, not a strategy \u2014 so it carries the warning glyph while
+            # the other sources stay informational.
+            _src = p.get("sl_tp_source") or ""
+            if _src == "default":
+                lines.append(f"  \u26a0\ufe0f <i>{t('adopted_levels_default', lang)}</i>")
+            elif _src == "inherited":
+                lines.append(f"  \u2691 <i>{t('adopted_levels_inherited', lang)}</i>")
+            elif _src == "exchange":
+                lines.append(f"  \u2691 <i>{t('adopted_levels_exchange', lang)}</i>")
+            else:
+                lines.append(f"  \u2691 <i>{t('adopted_position', lang)}</i>")
         lines.append("")
 
     return "\n".join(lines)
