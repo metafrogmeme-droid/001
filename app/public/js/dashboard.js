@@ -3878,6 +3878,22 @@
         tiles.push(tile('Equity throttle', `${esc(t.status || '—')}${t.multiplier != null && t.multiplier < 1 ? ` · ${Math.round(t.multiplier * 100)}% size` : ''}`,
           `rolling PF ${t.pf != null ? fmt(t.pf) : '—'} over ${t.samples ?? 0} closes`));
       }
+      if (f.analyze_capacity) {
+        // The engine's own forecast from its MEASURED rate. Only rendered
+        // when present (unmeasured = absent, never a zeroed placeholder) and
+        // only alarming when there is a real shortfall — a warning that fires
+        // on healthy ticks gets ignored on the tick that matters.
+        const a = f.analyze_capacity;
+        const short = (a.shortfall || 0) > 0;
+        tiles.push(short
+          ? `<div class="panel" style="background:var(--surface-2);border:1px solid var(--down,#c0392b)"><div class="stat">
+              <div class="k">Analyze budget · SHORT</div>
+              <div class="v" style="color:var(--down,#c0392b)">${Number(a.fits) || 0} of ${Number(a.of) || 0} fit</div>
+              <div class="d muted small">${Number(a.shortfall)} symbols will not be analysed this tick — needs ~${Math.round(a.needed_s)}s vs a ${Math.round(a.cap_s)}s cap</div>
+            </div></div>`
+          : tile('Analyze budget', `${Number(a.of) || 0} fit`,
+              `~${Math.round(a.needed_s)}s of a ${Math.round(a.cap_s)}s cap at the measured rate`));
+      }
       if (f.entry_timing) tiles.push(tile('Entry timing', f.entry_timing.enabled ? 'ALL REGIMES' : (f.entry_timing.regimes || []).join(', ').toUpperCase() || 'OFF', 'wave-degree confirmation before entries'));
       if (f.shadow_book?.counts) {
         const c = f.shadow_book.counts;

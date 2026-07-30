@@ -51,3 +51,22 @@ def test_features_catalog_watch_reads_recent():
     features = _build_features_block(engine)
     # catalog_watch_enabled defaults ON, so the recent listing shows up.
     assert features["catalog_watch"]["recent"][0]["symbol"] == "NEW/USDT:USDT"
+
+
+def test_features_carry_the_analyze_budget_forecast():
+    # #991 put the forecast on /status and /health; the website is the
+    # PRIMARY surface and gets it through this block.
+    cap = {"of": 161, "per_signal_s": 3.3, "needed_s": 531.3, "cap_s": 300.0,
+           "fits": 90, "shortfall": 71, "measured_from": 90}
+    features = _build_features_block(SimpleNamespace(_analyze_capacity=cap))
+    assert features["analyze_capacity"] == cap
+
+
+def test_unmeasured_analyze_budget_is_absent_not_zeroed():
+    # The forecast is None until a batch has run. A zeroed placeholder in the
+    # payload would render as "measured, and fine" on the dashboard.
+    features = _build_features_block(SimpleNamespace(_analyze_capacity=None))
+    assert "analyze_capacity" not in features
+    # A non-dict (stub garbage) is treated the same as unmeasured.
+    features = _build_features_block(SimpleNamespace(_analyze_capacity=0))
+    assert "analyze_capacity" not in features

@@ -627,6 +627,19 @@ def _build_features_block(engine=None) -> dict:
     except Exception:
         pass
 
+    try:
+        # The analyze-budget forecast (engine._forecast_analyze_capacity):
+        # whether the scan universe fits the phase cap at the last MEASURED
+        # rate. /status and /health carry it; the website is the primary
+        # surface and must too. Absent when unmeasured — the forecast is
+        # None until a batch has run, and a zeroed placeholder here would
+        # read as "measured, and fine".
+        cap = getattr(engine, "_analyze_capacity", None)
+        if isinstance(cap, dict):
+            features["analyze_capacity"] = cap
+    except Exception:
+        pass
+
     return features
 
 
