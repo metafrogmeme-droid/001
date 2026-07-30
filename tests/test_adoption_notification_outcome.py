@@ -18,10 +18,20 @@ from tests.source_scan import code_only
 
 SRC = open("bot/skills/telegram_handler.py", encoding="utf-8").read()
 CODE = code_only(SRC)
+# The card body moved to a PURE renderer so it could be exercised at all —
+# living inline in the handler is why #999's per-position detail shipped and
+# never rendered once. These source scans follow it there.
+#
+# Note what happened when it moved: the SOURCE-SCANNING assertions below all
+# broke on a behaviour-preserving refactor, while the behavioural scenarios
+# in test_surface_scenarios.py passed untouched. That is the argument for
+# the scenario suite in one observation.
+CARD_SRC = open("bot/formatters/rich_cards.py", encoding="utf-8").read()
+CARD = code_only(CARD_SRC)
 
 
 def test_the_blanket_maybe_is_gone():
-    assert "may not be set" not in CODE, (
+    assert "may not be set" not in CODE and "may not be set" not in CARD, (
         "the footer must state outcomes, not a maybe that sends the operator "
         "to redo the ladder adoption already ran"
     )
@@ -29,27 +39,27 @@ def test_the_blanket_maybe_is_gone():
 
 def test_the_unprotected_case_is_loud_and_directive():
     # RC-AUD-022's marker is the one state where a human must act NOW.
-    assert "UNPROTECTED" in CODE
-    assert "Set one NOW" in CODE
+    assert "UNPROTECTED" in CARD
+    assert "Set one NOW" in CARD
 
 
 def test_protected_positions_show_their_levels():
-    block = CODE.split("Adopted Exchange Positions", 1)[1]
+    block = CARD.split("Adopted Exchange Positions", 1)[1]
     assert "stop_loss" in block and "take_profit" in block
 
 
 def test_the_lookup_is_scoped_to_adopted_open_positions():
     # The card must not attribute a NON-adopted position's levels to an
     # adopted symbol that shares its name.
-    block = CODE.split("Adopted Exchange Positions", 1)[1].split("lines.extend", 1)[0]
+    block = CARD.split("Adopted Exchange Positions", 1)[1].split("lines.extend", 1)[0]
     assert '"adopted"' in block
     assert '"open"' in block
 
 
 def test_a_failed_lookup_degrades_to_the_bare_symbol():
     # The card is a notification; a lookup error must never suppress it.
-    block = SRC.split("Adopted Exchange Positions", 1)[1].split("lines.extend", 1)[0]
-    assert re.search(r"except Exception:\s*\n\s*_detail = \"\"", block), (
+    block = CARD_SRC.split("Adopted Exchange Positions", 1)[1].split("lines.extend", 1)[0]
+    assert re.search(r"except Exception:\s*\n\s*detail = \"\"", block), (
         "the per-symbol detail must fail to empty, not raise"
     )
 

@@ -691,6 +691,66 @@ def render_multi_analysis(
 
 # ── Open positions card ──────────────────────────────────────────
 
+def render_adoption_card(adopted_symbols: List[str],
+                         positions: Optional[List[Any]] = None) -> str:
+    """The "Adopted Exchange Positions" notice, as a PURE function.
+
+    Extracted from the Telegram handler because it was unreachable by tests
+    while it lived inline, and that is exactly how it shipped broken: the
+    per-position SL/TP outcome (#999) never rendered once in production. The
+    callback receives symbols, the lookup matched none of them, and nothing
+    failed — there was no seam at which to assert "the card names the levels".
+
+    ``positions`` is the executor's position list (or None). Each adopted
+    symbol is matched against the ADOPTED, OPEN ones; a symbol with no match
+    renders bare rather than being dropped, because losing an adoption notice
+    is worse than rendering one without levels.
+    """
+    from bot.core.live_executor import normalize_symbol
+
+    lines = [
+        "\u26a0\ufe0f <b>Adopted Exchange Positions</b>",
+        "",
+        f"Found <b>{len(adopted_symbols)}</b> position(s) on the exchange",
+        "that were not tracked locally:",
+        "",
+    ]
+    for sym in adopted_symbols:
+        detail = ""
+        try:
+            pos = next(
+                (p for p in (positions or [])
+                 if getattr(p, "origin", "") == "adopted"
+                 and normalize_symbol(getattr(p, "symbol", "")) == normalize_symbol(sym)
+                 and getattr(p, "status", "") == "open"),
+                None)
+            if pos is not None:
+                if getattr(pos, "unprotected", False):
+                    detail = (" \u2014 \U0001f6a8 <b>UNPROTECTED</b>: the safety "
+                              "stop could not be placed. Set one NOW.")
+                elif getattr(pos, "stop_loss", 0):
+                    _tp = getattr(pos, "take_profit", 0)
+                    detail = (f" \u2014 SL <code>{pos.stop_loss:g}</code>"
+                              + (f" / TP <code>{_tp:g}</code>" if _tp else "")
+                              + " active")
+        except Exception:
+            detail = ""
+        lines.append(f"  \u2022 <code>{_html_escape(str(sym))}</code>{detail}")
+    lines.extend([
+        "",
+        "These may have been opened in a previous session",
+        "or directly on the exchange.",
+        "",
+        "Use <b>Positions</b> to review. Close any you didn't intend.",
+    ])
+    return "\n".join(lines)
+
+
+def _html_escape(s: str) -> str:
+    import html as _h
+    return _h.escape(s)
+
+
 def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> str:
     """Render open positions — compact card format. Telegram HTML (CJK-safe)."""
     if not positions:
