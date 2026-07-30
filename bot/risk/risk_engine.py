@@ -1270,7 +1270,10 @@ class RiskEngine:
             if _cur_dd >= _max_dd:
                 failed.append(f"DRAWDOWN: {_cur_dd:.1f}% >= {_max_dd}%")
                 # C-05 FIX: trip circuit breaker AND reject the CURRENT trade
-                self._trip_circuit_breaker("max drawdown breached", cause="drawdown")
+                self._trip_circuit_breaker(
+                    "max drawdown breached"
+                    + self._drawdown_transfer_hint(live_equity),
+                    cause="drawdown")
                 if "CIRCUIT_BREAKER: tripped during evaluation" not in failed:
                     failed.append("CIRCUIT_BREAKER: tripped during evaluation — current trade rejected")
             else:
@@ -3026,6 +3029,47 @@ class RiskEngine:
             return False, 0.0
         margin_pct = position_usd / sizing_equity * 100
         return (margin_pct < max_position_pct + 1e-9), margin_pct
+
+    def _drawdown_transfer_hint(self, live_equity) -> str:
+        """A suffix for the drawdown trip reason when the drop looks like a
+        TRANSFER rather than trading losses — "" when losses explain it.
+
+        The live high-water-mark arithmetic cannot tell a withdrawal from a
+        loss: on 2026-07-30 the operator moved funds out and equity fell 41%
+        below the peak with recorded trade PnL of roughly nothing. Only a
+        restart (which re-seeds the in-memory peak) kept the breaker from
+        tripping on a phantom loss — without one, the operator would be
+        diagnosing a 41% drawdown that never happened.
+
+        Deliberately a HINT on the trip message, never a suppression: the
+        breaker still trips. Guessing "that was probably a transfer" to keep
+        trading would gut a safety control — a bug or a compromised balance
+        feed can look exactly like a withdrawal. The operator confirms it
+        was theirs and /resume re-seeds the peak; that path already exists.
+
+        Fires only when recorded trade losses explain less than half the
+        drop from peak — a real losing streak carries its own PnL trail and
+        must keep the plain message.
+        """
+        try:
+            if live_equity is None or live_equity <= 0:
+                return ""
+            if self._live_equity_peak <= 0:
+                return ""
+            drop = self._live_equity_peak - float(live_equity)
+            if drop <= 0:
+                return ""
+            recorded_loss = max(0.0, -self._live_daily_pnl)
+            if recorded_loss >= 0.5 * drop:
+                return ""
+            return (f" — equity is ${drop:,.2f} below the session peak but "
+                    f"recorded trade PnL only accounts for ${recorded_loss:,.2f} "
+                    f"of it. If you deposited earlier or withdrew funds, this "
+                    f"is the high-water mark seeing the transfer as a loss: "
+                    f"confirm and /resume to re-seed the peak at current "
+                    f"equity. If you did NOT move funds, treat this as real.")
+        except Exception:
+            return ""
 
     def _trip_circuit_breaker(self, reason: str, cause: str = "manual") -> None:
         if not self._circuit_open:
