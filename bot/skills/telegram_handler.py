@@ -103,10 +103,17 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
         # recently, THAT is the slowness — same dependency, same symptom.
         at = _recent_analysis_timeout(engine)
         if at:
+            # Name the symbols when the record carries them. "1 of 70 gave
+            # up" without the WHICH sent the operator to the logs for the one
+            # fact that makes the diagnosis instant. Absent on old-shape
+            # records — omit, never guess.
+            _syms = [html.escape(str(s)) for s in (at.get("symbols") or [])[:5]]
+            _who = (" (" + ", ".join(f"<code>{s}</code>" for s in _syms) + ")"
+                    if _syms else "")
             return ("\n\n⚠️ <b>Analyses are hanging</b> — the last background "
                     f"sweep gave up on {at['skipped']} of {at['of']} symbols "
-                    f"after {float(at['cap_s']):.0f}s each. LLM health is "
-                    "green, so the stall is in a per-symbol dependency "
+                    f"after {float(at['cap_s']):.0f}s each{_who}. LLM health "
+                    "is green, so the stall is in a per-symbol dependency "
                     "(exchange fetch or a single provider call), not the "
                     "fallback chain. See <code>/status</code>.")
         return ("\n\nℹ️ LLM brain is healthy — that rules out the fallback "

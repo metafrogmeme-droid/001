@@ -123,3 +123,41 @@ def test_timeout_branch_uses_the_hint():
     src = inspect.getsource(TelegramHandler._cmd_latest_signal)
     assert "_scan_timeout_hint" in src
     assert "self.engine" in src, "the hint needs the engine to read its record"
+
+
+def test_the_hanging_symbols_are_named_when_recorded():
+    # "1 of 70 gave up after 90s" reached the operator on 2026-07-30 without
+    # the one fact that makes the diagnosis instant: WHICH symbol. The audit
+    # log carried the names all along; the operator record dropped them.
+    eng = SimpleNamespace(_last_analysis_timeout={
+        "skipped": 1, "of": 70, "cap_s": 90.0,
+        "at": time.monotonic() - 5.0,
+        "symbols": ["PEPE/USDT"]})
+    hint = _scan_timeout_hint(_analyzer(0), eng)
+    assert "PEPE/USDT" in hint
+
+
+def test_an_old_shape_record_without_symbols_still_renders():
+    # Records written before the field existed (or by stubs) must not break
+    # the hint — and must not invent names either.
+    hint = _scan_timeout_hint(_analyzer(0), _engine(skipped=2, of=70))
+    assert "Analyses are hanging" in hint
+    assert "(" not in hint.split("each")[1].split(".")[0]
+
+
+def test_symbol_names_are_escaped_and_capped():
+    eng = SimpleNamespace(_last_analysis_timeout={
+        "skipped": 9, "of": 70, "cap_s": 90.0,
+        "at": time.monotonic() - 5.0,
+        "symbols": ["<b>X</b>/USDT"] + [f"S{i}/USDT" for i in range(9)]})
+    hint = _scan_timeout_hint(_analyzer(0), eng)
+    assert "<b>X</b>" not in hint            # escaped, not injected
+    assert "&lt;b&gt;X&lt;/b&gt;" in hint
+    assert "S3/USDT" in hint and "S4/USDT" not in hint   # capped at 5 total
+
+
+def test_the_engine_record_carries_the_symbols():
+    import inspect
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine._analyze_signals_batched)
+    assert '"symbols": list(_timed_out[:5])' in src

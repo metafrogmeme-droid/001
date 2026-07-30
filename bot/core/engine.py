@@ -3823,6 +3823,12 @@ class RuneClawEngine:
                 "of": len(signals),
                 "cap_s": _cap,
                 "at": time.monotonic(),
+                # WHICH symbols. The audit line below has carried these all
+                # along, but the operator-facing record dropped them — so the
+                # hint could say "1 of 70 gave up after 90s" and not name the
+                # one symbol that would make the diagnosis instant. A capped
+                # few, not all: the record rides /status-adjacent surfaces.
+                "symbols": list(_timed_out[:5]),
             }
             audit(scan_log,
                   f"Analysis timed out for "
