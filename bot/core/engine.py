@@ -119,6 +119,22 @@ def _flight_risk(risk, size_usd=None) -> dict:
             return {}
 
 
+
+def _stage_enter_guarded(engine, symbol, stage) -> None:
+    """Module-level, getattr-guarded stage mark.
+
+    _analyze_signal runs under lightweight stubs in several suites; a mark
+    that requires the caller to grow a method turns instrumentation into a
+    hard dependency, which is how the same hazard broke five suites once
+    already this session.
+    """
+    try:
+        _fn = getattr(engine, "_stage_enter", None)
+        if _fn is not None:
+            _fn(symbol, stage)
+    except Exception:
+        pass
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -2411,6 +2427,40 @@ class RuneClawEngine:
     #: constant so there is exactly one list.
     ANALYSIS_STAGES = ANALYSIS_STAGES
 
+    def _stage_enter(self, symbol: str, stage: str) -> None:
+        """Mark which stage THIS symbol's analysis is entering.
+
+        _stage_add accumulates COMPLETED stages. A cancelled analysis never
+        completes one, so the batch totals said where finished work went and
+        nothing about where a hung symbol was stuck — the operator got
+        "gave up on FET/USDT after 90s" (#998) with no way to tell an
+        exchange fetch from an LLM call without reading logs.
+
+        Measured, not inferred. The alternative — "last completed stage + 1"
+        — guesses, and a guess on a diagnosis surface is what this codebase
+        keeps removing. Fail-open: instrumentation must never break a tick.
+        """
+        try:
+            inflight = getattr(self, "_stage_inflight", None)
+            if inflight is None:
+                inflight = self._stage_inflight = {}
+            inflight[str(symbol)] = stage
+            # Bounded: one entry per in-flight analysis, cleared on exit, but
+            # a cancelled task's finally may not run before the next batch.
+            if len(inflight) > 500:
+                inflight.clear()
+        except Exception:
+            pass
+
+    def _stage_exit(self, symbol: str) -> None:
+        """Analysis finished (any outcome) — it is no longer in a stage."""
+        try:
+            inflight = getattr(self, "_stage_inflight", None)
+            if inflight is not None:
+                inflight.pop(str(symbol), None)
+        except Exception:
+            pass
+
     def _stage_add(self, stage: str, seconds: float) -> None:
         """Accumulate time spent in one stage of one analysis.
 
@@ -3729,6 +3779,10 @@ class RuneClawEngine:
             "of": len(signals), "done": 0, "started": time.monotonic(),
             "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
+        # Per-symbol in-flight stage, read by the per-analysis timeout handler.
+        # Reset per batch so a cancelled batch's leftovers cannot be read as
+        # this one's — the same epoch discipline the progress record uses.
+        self._stage_inflight: dict[str, str] = {}
         # Will this batch even fit? The phase cap is per-analysis; the PHASE
         # cap that actually kills the batch belongs to _phase(). For 37
         # consecutive ticks the operator saw "analyze exceeded its 300s" and
@@ -3759,7 +3813,19 @@ class RuneClawEngine:
                     # Same outcome as any other failed analysis: this signal
                     # yields no idea. Never fabricate one for a symbol we
                     # could not actually analyse.
-                    _timed_out.append(str(getattr(sig, "symbol", "?")))
+                    #
+                    # WHERE it was stuck, measured — not the batch totals
+                    # (those cover COMPLETED stages only) and not inferred
+                    # from the last finished stage. "FET/USDT (mtf)" is a
+                    # diagnosis; "FET/USDT" alone sent the operator to the
+                    # logs. Absent when unmarked — omit, never guess.
+                    _sym = str(getattr(sig, "symbol", "?"))
+                    _stg = ""
+                    try:
+                        _stg = (getattr(self, "_stage_inflight", None) or {}).get(_sym, "")
+                    except Exception:
+                        _stg = ""
+                    _timed_out.append(f"{_sym} ({_stg})" if _stg else _sym)
                     return None
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
@@ -3773,6 +3839,22 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["done"] += 1
+                    except Exception:
+                        pass
+                    # Clear the in-flight stage marker AFTER the timeout
+                    # handler above has read it. A stale mark would attribute
+                    # this batch's hang to the previous batch's stage.
+                    #
+                    # getattr-guarded like every other instrument on this
+                    # path: five suites drive this batch with SimpleNamespace
+                    # stubs, and a diagnostic must never be the reason an
+                    # analysis cannot finish. (Caught by those suites — the
+                    # third time this exact hazard has bitten instrumentation
+                    # added here.)
+                    try:
+                        _sx = getattr(self, "_stage_exit", None)
+                        if _sx is not None:
+                            _sx(str(getattr(sig, "symbol", "?")))
                     except Exception:
                         pass
 
@@ -3904,6 +3986,7 @@ class RuneClawEngine:
                 # Interactive fast path: only the primary OHLCV; skip the 4
                 # order-flow fetches (funding/OI/book/trades).
                 _t0 = time.monotonic()
+                _stage_enter_guarded(self, signal.symbol, "fetch")
                 results = list(await asyncio.gather(ohlcv_task, return_exceptions=True))
                 self._stage_add("fetch", time.monotonic() - _t0)
                 results.append(None)
@@ -3911,6 +3994,7 @@ class RuneClawEngine:
                 of_task = self.order_flow.analyze(exchange, signal.symbol,
                                                   derivatives_symbol=of_deriv)
                 _t0 = time.monotonic()
+                _stage_enter_guarded(self, signal.symbol, "fetch")
                 results = list(await asyncio.gather(ohlcv_task, of_task, return_exceptions=True))
                 self._stage_add("fetch", time.monotonic() - _t0)
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
@@ -3981,6 +4065,7 @@ class RuneClawEngine:
             # it were already gathered; this now matches them.
             _tf_specs = (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200))
             _t0 = time.monotonic()
+            _stage_enter_guarded(self, signal.symbol, "mtf")
             _tf_results = await asyncio.gather(
                 *[self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim, ttl=180)
                   for _tf, _lim in _tf_specs],
@@ -3996,6 +4081,7 @@ class RuneClawEngine:
                     mtf_candles[_tf] = self._drop_forming_candle(_c, _tf)
 
         _t0 = time.monotonic()
+        _stage_enter_guarded(self, signal.symbol, "analyze")
         idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe)
         self._stage_add("analyze", time.monotonic() - _t0)
         if idea is None:
@@ -4375,6 +4461,7 @@ class RuneClawEngine:
 
         # MTF entry refinement: zoom into 15m for better entry within zone
         _t0 = time.monotonic()
+        _stage_enter_guarded(self, signal.symbol, "refine")
         idea = await self._refine_entry_mtf(idea, exchange)
         self._stage_add("refine", time.monotonic() - _t0)
 
