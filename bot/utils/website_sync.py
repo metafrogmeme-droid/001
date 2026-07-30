@@ -13,10 +13,11 @@ import threading
 import urllib.request
 import urllib.error
 from typing import Optional
+from bot.utils.site_url import site_url
 
 log = logging.getLogger(__name__)
 
-WEBSITE_URL = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page")
+WEBSITE_URL = site_url()
 SYNC_SECRET = os.getenv("BOT_SYNC_SECRET", "")
 
 if not SYNC_SECRET:

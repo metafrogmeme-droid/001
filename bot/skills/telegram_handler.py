@@ -373,6 +373,7 @@ from bot.nlp.sanitize import (
 # surfaces cannot report different numbers under the same label — they did:
 # +10.19 over 50 trades here, -10.74 over 95 there, same account, same day.
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
+from bot.utils.site_url import site_url
 
 
 # ── War Room main menu keyboard ─────────────────────────────
@@ -400,7 +401,7 @@ def _dashboard_url() -> str:
     """The web dashboard deep-link surfaced in /start. Reuses the same
     WEBSITE_URL env + default the rest of the bot uses (user_middleware,
     website_sync) so the bot and web stay pointed at one origin."""
-    base = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+    base = site_url()
     return f"{base}/dashboard#home"
 
 
@@ -5730,7 +5731,7 @@ class TelegramHandler:
         """
         import asyncio as _aio
         import re as _re
-        base = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+        base = site_url()
         args = list(ctx.args or [])
         if not args:
             await self._send(update,
@@ -5782,7 +5783,7 @@ class TelegramHandler:
         xray_transaction tool any MCP agent calls). Pure decode: nothing sent
         here is stored, no account is seen, amounts are RAW token units."""
         import asyncio as _aio
-        base = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+        base = site_url()
         data = (ctx.args[0].strip() if ctx.args else "")
         if not data.startswith("0x") or len(data) < 10:
             await self._send(update,

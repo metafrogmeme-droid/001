@@ -1,6 +1,6 @@
 """RUNECLAW Deep Scan Skill — Telegram /scan command module."""
 from __future__ import annotations
-import asyncio, logging, os, time
+import asyncio, logging, time
 from datetime import datetime
 from typing import Optional
 import numpy as np
@@ -15,6 +15,7 @@ from bot.formatters.rich_cards import (
     compute_rsi as _compute_rsi,
     compute_atr as _compute_atr,
 )
+from bot.utils.site_url import site_url
 
 log = logging.getLogger("runeclaw.scan_skill")
 
@@ -721,7 +722,7 @@ def _scan_verify_links(payload: dict) -> dict:
     could be built first.
     """
     from urllib.parse import quote
-    site = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+    site = site_url()
     out: dict = {}
     for row in _scan_signal_rows(payload):
         key = str(row.get("signal_key") or "")
@@ -1054,7 +1055,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # rendered BEFORE the stream push assigns keys, and a link that 404s would
     # be worse than none.
     if setup_lines:
-        _site = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page").rstrip("/")
+        _site = site_url()
         body += (f"\n\n\U0001f512 <i>Every call above is sealed when it is made — "
                  f"verify any of them at <a href=\"{_site}/dashboard#signals\">the signal "
                  f"stream</a>, or read how at <a href=\"{_site}/provable\">/provable</a>.</i>")

@@ -9,7 +9,7 @@ Every incoming message passes through require_registered().
 """
 
 from __future__ import annotations
-import functools, json, logging, os, urllib.request, urllib.error
+import functools, json, logging, urllib.request, urllib.error
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -21,10 +21,11 @@ from bot.db.models import (
 from bot.db.models import User as DBUser
 
 from bot.utils.i18n import t
+from bot.utils.site_url import site_url
 
 log = logging.getLogger(__name__)
 
-WEBSITE_URL = os.getenv("WEBSITE_URL", "https://pmvc58g2.mule.page")
+WEBSITE_URL = site_url()
 REGISTER_URL = WEBSITE_URL
 
 
