@@ -7024,15 +7024,42 @@ class TelegramHandler:
                     "that were not tracked locally:",
                     "",
                 ]
+                # Per-position PROTECTION OUTCOME. The old footer said "SL/TP
+                # may not be set \u2014 check and add manually", which told the
+                # operator to do work adoption already does (exchange levels \u2192
+                # plan-channel read \u2192 donor inheritance \u2192 3%/6% safety stops
+                # with retry) and hid the one case that genuinely needs a
+                # human NOW: a stop that could not be placed. Report what
+                # each position actually got; never a blanket maybe.
+                from bot.core.live_executor import normalize_symbol
                 for sym in adopted_symbols:
-                    lines.append(f"  \u2022 <code>{html.escape(sym)}</code>")
+                    _detail = ""
+                    try:
+                        _pos = next(
+                            (p for p in self.engine.live_executor._positions.values()
+                             if getattr(p, "origin", "") == "adopted"
+                             and normalize_symbol(p.symbol) == normalize_symbol(sym)
+                             and p.status == "open"),
+                            None)
+                        if _pos is not None:
+                            if getattr(_pos, "unprotected", False):
+                                _detail = (" \u2014 \ud83d\udea8 <b>UNPROTECTED</b>: the safety "
+                                           "stop could not be placed. Set one NOW.")
+                            elif _pos.stop_loss and _pos.stop_loss > 0:
+                                _detail = (f" \u2014 SL <code>{_pos.stop_loss:g}</code>"
+                                           + (f" / TP <code>{_pos.take_profit:g}</code>"
+                                              if _pos.take_profit and _pos.take_profit > 0
+                                              else "")
+                                           + " active")
+                    except Exception:
+                        _detail = ""
+                    lines.append(f"  \u2022 <code>{html.escape(sym)}</code>{_detail}")
                 lines.extend([
                     "",
                     "These may have been opened in a previous session",
                     "or directly on the exchange.",
                     "",
                     "Use <b>Positions</b> to review. Close any you didn't intend.",
-                    "<i>SL/TP may not be set \u2014 check and add manually.</i>",
                 ])
                 admin_chat_id = os.environ.get("ADMIN_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
                 if admin_chat_id:
