@@ -180,6 +180,67 @@ from bot.config import CONFIG
 # SEC-H3 FIX: strict symbol regex — applied at every Telegram entry point
 # before symbols reach CCXT or the LLM.
 _SYMBOL_RE = re.compile(r'^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15})?$')
+
+# ── Operator error diagnostics (F-15) ────────────────────────────────
+# A Telegram bot token has the shape <digits>:<base64ish>, and PTB puts the
+# request URL — https://api.telegram.org/bot<TOKEN>/sendMessage — into some
+# error messages. The logger's inline redactor only catches `key=value`, so it
+# would not touch that. Strip the token shape explicitly before any exception
+# message can reach a chat.
+#
+# No leading \b: the token appears in the URL as `/bot123456789:AA…`, and
+# there is no word boundary between `bot` and the digits, so a \b-anchored
+# pattern matched nothing and passed the whole token through. The optional
+# `bot` prefix is consumed so the replacement swallows it too.
+_TG_TOKEN_RE = re.compile(r"(?:bot)?\d{6,12}:[A-Za-z0-9_-]{20,}")
+
+# Exception classes whose MESSAGE may be shown to the operator.
+#
+# The default is class-name-only, and that default is right: str(exc) on a
+# ccxt/auth error can carry a raw API key. But BadRequest covers dozens of
+# distinct causes, so the class alone diagnoses nothing — a live
+# `telegram.error.BadRequest` stayed unresolved precisely because the report
+# said the type and not what Telegram objected to.
+#
+# These messages are Telegram's own `description` field about OUR payload
+# ("Can't parse entities…", "message is not modified", "message is too long").
+# Matched by EXACT class name, never isinstance: BadRequest SUBCLASSES
+# NetworkError in PTB, so an isinstance test on the parent would silently
+# admit every network error — and those DO carry the request URL.
+_MSG_SAFE_ERRORS: frozenset[str] = frozenset({
+    "telegram.error.BadRequest",
+    "telegram.error.Forbidden",
+    "telegram.error.ChatMigrated",
+    "telegram.error.RetryAfter",
+})
+
+
+def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
+    """Redacted one-line detail for the operator, or "" when not permitted.
+
+    Returns "" for every class outside _MSG_SAFE_ERRORS — including
+    NetworkError, TimedOut and InvalidToken, whose messages can contain the
+    bot token via the request URL. Omit, never invent, and never leak.
+    """
+    cls = type(exc)
+    mod = getattr(cls, "__module__", "") or ""
+    qual = f"{mod}.{cls.__name__}" if mod and mod != "builtins" else cls.__name__
+    if qual not in _MSG_SAFE_ERRORS:
+        return ""
+    try:
+        msg = str(exc)
+    except Exception:
+        return ""
+    if not msg:
+        return ""
+    # Two passes, in this order: the token shape first (the logger's redactor
+    # does not know it), then the shared key=value chokepoint.
+    msg = _TG_TOKEN_RE.sub("***REDACTED***", msg)
+    msg = _redact_string(msg)
+    msg = " ".join(msg.split())
+    return msg[:limit]
+
+
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
 from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, DEFAULT_TIER_ROUTING, create_llm_client, llm_complete, resolve_tier_config
@@ -701,9 +762,21 @@ class TelegramHandler:
                         _mod = getattr(_cls, "__module__", "") or ""
                         _name = f"{_mod}.{_cls.__name__}" if _mod and _mod != "builtins" else _cls.__name__
                         _uid = f" · update {upd_id}" if upd_id is not None else ""
-                        text += (f"\n\n<code>{html.escape(_name[:120])}</code>{_uid}"
-                                 "\n<i>(operator diagnostic — type only; full "
-                                 "trace in the server log)</i>")
+                        # For a narrow allowlist of Telegram API errors, the
+                        # MESSAGE too. The class alone left a live BadRequest
+                        # unresolved: it names dozens of different faults, and
+                        # "BadRequest · update 732736899" says which none of
+                        # them. Telegram's own description does.
+                        _detail = _operator_exc_detail(exc)
+                        text += (f"\n\n<code>{html.escape(_name[:120])}</code>{_uid}")
+                        if _detail:
+                            text += (f"\n<code>{html.escape(_detail)}</code>"
+                                     "\n<i>(operator diagnostic — Telegram's own "
+                                     "reason, redacted; full trace in the server "
+                                     "log)</i>")
+                        else:
+                            text += ("\n<i>(operator diagnostic — type only; full "
+                                     "trace in the server log)</i>")
                         _html = True
                 except Exception:
                     pass
