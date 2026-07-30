@@ -446,4 +446,19 @@ jobs:
       # a directory CI had never looked at.
       - name: Tests
         working-directory: app
-        run: npm test
+        # The suite's TAP stream is ~350KB and the Actions log API serves only
+        # the LAST ~344KB — so when an EARLY test fails, its `not ok` line and
+        # error sit beyond reach of anything that reads logs programmatically.
+        # PR #993 hit exactly this: "1929 pass / 1 fail" with the failing
+        # test's NAME unreachable. Re-print failures at the end, where the
+        # tail always lands. PIPESTATUS keeps the job's verdict from `npm
+        # test` itself, not from tee/grep.
+        run: |
+          set +e
+          npm test 2>&1 | tee test-output.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "=== FAILING TESTS (re-printed so the log tail reaches them) ==="
+            grep -n -A 25 "^not ok" test-output.log | tail -300
+          fi
+          exit $code

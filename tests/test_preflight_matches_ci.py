@@ -82,7 +82,12 @@ def _ci_local_commands() -> list[str]:
 # ── it runs what CI runs ──────────────────────────────────────────────────
 
 def test_every_ci_gate_is_in_the_plan():
-    planned = {cmd for _, cmd, _ in preflight.steps(fast=False)}
+    # Compare NORMALIZED on both sides. The plan carries commands verbatim —
+    # a `run: |` block is a multi-line script whose newlines are semantic,
+    # and flattening it for execution broke it (see _flatten's docstring) —
+    # so parity is judged on whitespace-normalized text, not on the exact
+    # bytes preflight must preserve to run correctly.
+    planned = {" ".join(cmd.split()) for _, cmd, _ in preflight.steps(fast=False)}
     missing = [c for c in _ci_local_commands() if c not in planned]
     assert missing == [], f"CI runs these and preflight does not:\n  " + "\n  ".join(missing)
 
@@ -122,8 +127,12 @@ def test_guard_lint_is_included_even_though_it_lives_in_another_job():
 def test_the_web_suite_is_covered_and_runs_in_its_own_directory():
     """The first version of this script omitted it while printing "this is
     what CI will run" — the exact overclaim it exists to prevent, in itself."""
-    hits = [(c, wd) for _, c, wd in preflight.steps(fast=False) if c == "npm test"]
-    assert hits == [("npm test", "app")], (
+    # The step is now a script that re-prints failures within log-tail reach
+    # (PR #993's flake failed with its NAME beyond the log API's window) —
+    # so "covered" means the script still runs `npm test`, from app/.
+    hits = [(c, wd) for _, c, wd in preflight.steps(fast=False)
+            if "npm test" in c]
+    assert [(True, wd) for c, wd in hits] == [(True, "app")], (
         "the web app suite runs in app/, and running it from the repo root "
         "would fail for a reason that has nothing to do with the code")
 

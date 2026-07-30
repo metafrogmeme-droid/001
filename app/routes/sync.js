@@ -563,13 +563,21 @@ router.post('/scan', async (req, res) => {
     }
     // Update portfolio summary from circuit_breaker if present
     const cb = latestScan.circuit_breaker;
-    if (cb && (cb.equity != null || cb.total_trades != null)) {
+    if (cb && (cb.equity != null || cb.total_trades != null || cb.live_unavailable)) {
+      // Same contract as the GET cold-start path below — and it matters MORE
+      // here: this ingest runs on every bot scan sync and overwrites the
+      // in-memory summary, so a careful null on the cold path was being
+      // stamped back to `equity: 0` seconds later by this one. A live account
+      // whose balance cannot be read must render "—", never "$0.00" — zero
+      // reads as "account wiped", which is a fabricated (and alarming) number.
       latestPortfolio = {
-        equity: cb.equity || 0,
+        equity: cb.live_unavailable ? null : (cb.equity || 0),
         open_count: cb.open_count || 0,
         net_pnl: cb.net_pnl || 0,
         total_trades: cb.total_trades || 0,
         win_rate: cb.win_rate || 0,
+        mode: cb.live_mode ? 'LIVE' : 'PAPER',
+        live_unavailable: !!cb.live_unavailable,
         updated_at: latestScan.received_at,
       };
     }

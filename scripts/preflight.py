@@ -65,7 +65,16 @@ EXTRA = [("Guard reachability (structural)", "python3 scripts/guard_lint.py", ".
 
 
 def _flatten(cmd: str) -> str:
-    """A YAML folded scalar arrives with newlines; CI runs it as one line."""
+    """DISPLAY ONLY. Never execute the flattened form.
+
+    The original docstring claimed folded scalars "arrive with newlines; CI
+    runs it as one line" — wrong on both counts. YAML folds `>` scalars into
+    spaces AT PARSE, so by the time this sees the string there is nothing
+    left to flatten; and a literal `|` block is a multi-line SCRIPT whose
+    newlines are semantic (if/fi, loops). Space-joining one produces a
+    command that cannot run — which surfaced the moment the web-app test
+    step grew an if-block. Execution uses the raw string; the shell handles
+    newlines exactly as the CI runner does."""
     return " ".join(cmd.split())
 
 
@@ -86,7 +95,7 @@ def steps(fast: bool) -> list[tuple[str, str, str]]:
                 continue
             if fast and any(s in low for s in FAST_SKIP):
                 continue
-            out.append((f"{job['name']} — {name}", _flatten(run),
+            out.append((f"{job['name']} — {name}", run,
                         step.get("working-directory") or "."))
     out.extend(EXTRA)
     return out
@@ -115,22 +124,34 @@ def main() -> int:
 
     if args.list:
         for name, cmd, wd in plan:
-            print(f"{name}\n    ({wd}) {cmd}\n")
+            print(f"{name}\n    ({wd}) {_flatten(cmd)}\n")
         print("NOT covered locally: " + ", ".join(uncovered()))
         return 0
 
     results: list[tuple[str, bool, float, bool]] = []
+    SHELL_BUILTINS = ("set", "if", "for", "while", "cd", "export", "true")
     for name, cmd, wd in plan:
         tool = cmd.split()[0]
-        if shutil.which(tool) is None and tool not in ("python", "python3"):
+        # A multi-line `run: |` script's first token is usually a shell
+        # builtin (`set -e`…), which which() cannot find — that must not
+        # read as "tool not installed". The script's own commands fail
+        # loudly under the shell if genuinely missing.
+        if tool in SHELL_BUILTINS or "\n" in cmd.strip():
+            pass
+        elif shutil.which(tool) is None and tool not in ("python", "python3"):
             # Absent is not passing. Say so and keep going, so one missing
             # tool does not hide the state of everything after it.
             print(f"\n\033[33m— SKIP\033[0m {name}\n  {tool!r} is not installed")
             results.append((name, False, 0.0, True))
             continue
-        print(f"\n\033[36m▶ {name}\033[0m\n  $ ({wd}) {cmd}")
+        print(f"\n\033[36m▶ {name}\033[0m\n  $ ({wd}) {_flatten(cmd)}")
         t0 = time.monotonic()
-        rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd)
+        # bash, not /bin/sh: the GitHub runner executes `run:` blocks with
+        # bash, and CI steps legitimately use bashisms (PIPESTATUS). Running
+        # them under dash would fail a step CI passes — the exact class of
+        # false signal this script exists to remove.
+        rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd,
+                             executable="/bin/bash")
         results.append((name, rc == 0, time.monotonic() - t0, False))
 
     print("\n" + "─" * 68)
