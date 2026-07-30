@@ -773,6 +773,45 @@ class RuneClawEngine:
                 )
         except Exception as _lo_exc:
             logger.debug("Learning outcome record skipped: %s", _lo_exc)
+        # ── Trade journal (audit CRITICAL, same shape as the breakers below)
+        # The journal was written from ONE place: the paper portfolio's
+        # check_stops loop. In pure-live mode the paper portfolio is never
+        # updated — the exchange is the source of truth — so `closed` there is
+        # always empty and the journal never received a single entry. The
+        # comment beside that call already said "Live closes already record
+        # via _on_live_position_closed", and this function did no such thing:
+        # a claim the code did not enforce, sitting next to the code that
+        # would have had to enforce it.
+        #
+        # Live effect: /portfolio showed 104 trades and five recent closes
+        # while /journal said "No trades in the last 7 days" — two operator
+        # surfaces flatly contradicting each other, on 2026-07-30.
+        #
+        # Fail-open like every other recorder on this path: a journal write
+        # must never cost a close its breaker feed below.
+        try:
+            _jpnl = getattr(pos, "pnl_usd", None)
+            if _jpnl is not None:
+                _opened = getattr(pos, "opened_at", None)
+                _closed = getattr(pos, "closed_at", None)
+                _hold = ((_closed - _opened).total_seconds() / 3600.0
+                         if _opened and _closed else 0.0)
+                self.journal.record_trade(
+                    trade_id=getattr(pos, "trade_id", "") or "",
+                    symbol=getattr(pos, "symbol", ""),
+                    direction=str(getattr(pos, "direction", "") or ""),
+                    strategy_type=getattr(pos, "strategy_type", "") or "",
+                    entry_price=float(getattr(pos, "entry_price", 0) or 0),
+                    exit_price=float(getattr(pos, "exit_price", 0) or 0),
+                    stop_loss=float(getattr(pos, "stop_loss", 0) or 0),
+                    take_profit=float(getattr(pos, "take_profit", 0) or 0),
+                    pnl=float(_jpnl),
+                    regime=self._outcome_regime(getattr(pos, "symbol", "")),
+                    holding_hours=_hold,
+                    exit_reason=str(getattr(pos, "close_reason", "") or ""),
+                )
+        except Exception as _j_exc:
+            logger.debug("Journal record skipped for live close: %s", _j_exc)
         # ── Feed the ACCOUNT-LEVEL loss breakers (audit CRITICAL) ──────────
         # In pure-live mode the paper portfolio is never updated, so the
         # consecutive-loss breaker, live-performance governor, equity throttle
@@ -6071,8 +6110,10 @@ class RuneClawEngine:
                 except Exception:
                     pass
                 # Feed the paper/sim close into the learning loop's WRITE side
-                # (opt-in, default OFF). Live closes already record via
-                # _on_live_position_closed; this lets the simulation-first
+                # (opt-in, default OFF). Live closes record via
+                # _on_live_position_closed — which now also journals them;
+                # for a long time that claim was made here and nowhere
+                # enforced, leaving /journal empty in pure-live mode. this lets the simulation-first
                 # majority of closes accumulate learning history, tagged
                 # source="paper_outcome" so live evidence stays distinguishable.
                 try:
