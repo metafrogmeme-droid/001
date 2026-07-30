@@ -400,6 +400,11 @@ async def health():
         "uptime_seconds": uptime,
         "simulation_mode": CONFIG.simulation_mode,
         "circuit_breaker_active": engine.risk.circuit_breaker_active if engine else False,
+        # circuit_breaker_active covers daily_loss/drawdown/streak/manual and
+        # NOT the warning-rate breaker, so it read "clear" while that breaker
+        # was rejecting live trades. This field answers the question the
+        # narrow one was being read as: is trading blocked, and by what.
+        "trading_blocked_by": engine.risk.trading_blocked_by if engine else "",
         "open_positions": len(engine.portfolio.open_positions) if engine else 0,
         # Named for what it IS. `universe_size` alone read as the engine's
         # trading universe and was used that way in a live diagnosis; it is
@@ -695,6 +700,10 @@ async def risk_status(_token: str = Depends(require_dashboard_token)):
     if engine is None: raise HTTPException(status_code=503, detail="Engine not initialized")
     return {
         "circuit_breaker_active": engine.risk.circuit_breaker_active,
+        "warning_rate_breaker_active": engine.risk.warning_rate_breaker_active,
+        # The single field to read when asking "can we trade right now": ""
+        # when trades are going through, otherwise the reason they are not.
+        "trading_blocked_by": engine.risk.trading_blocked_by,
         "consecutive_losses": engine.risk.consecutive_losses,
         "stats": engine.risk.stats,
         "rejection_history": engine.risk.rejection_history[-10:],

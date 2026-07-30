@@ -869,7 +869,12 @@ class TelegramHandler:
     # ── Banner / Footer ───────────────────────────────────────
 
     def _banner(self) -> str:
-        cb = self.engine.risk.circuit_breaker_active
+        # "running" has to mean trades are actually going through. The
+        # warning-rate breaker rejects them without opening the circuit, so
+        # reading only circuit_breaker_active printed "running" while nothing
+        # could trade.
+        cb = bool(getattr(self.engine.risk, "trading_blocked_by", "")
+                  or self.engine.risk.circuit_breaker_active)
         combined = self.engine.user_portfolios.combined_snapshot() if self.engine.user_portfolios.all_portfolios() else None
         open_pos = self.engine.user_portfolios.total_open_positions() if self.engine.user_portfolios.all_portfolios() else 0
         macro = self.engine.macro_calendar.evaluate()
@@ -1124,6 +1129,13 @@ class TelegramHandler:
             cb = self.engine.risk.circuit_breaker_active
             mode = "LIVE" if not CONFIG.simulation_mode else "PAPER"
             engine_state = f"{mode} mode, CB={'ON' if cb else 'OFF'}"
+            # CB=OFF alone let the LLM tell a user trading was fine while the
+            # warning-rate breaker was rejecting every entry. That breaker is
+            # not part of circuit_breaker_active, so state it separately
+            # rather than redefining the CB= field under existing readers.
+            _blocked = getattr(self.engine.risk, "trading_blocked_by", "") or ""
+            if _blocked:
+                engine_state += f", TRADING BLOCKED ({_blocked})"
 
             # Inject actual open positions
             # NEVER leave this section blank when is_live -- an LLM given no
@@ -8196,7 +8208,11 @@ class TelegramHandler:
         # Visual stats card (guarded — falls back to text + same keyboard).
         try:
             from bot.formatters.signal_card import render_stats_card
-            cb = self.engine.risk.circuit_breaker_active
+            # Same widening as /status: this tile read OK while the
+            # warning-rate breaker was rejecting trades, because that breaker
+            # is not part of circuit_breaker_active.
+            cb = bool(getattr(self.engine.risk, "trading_blocked_by", "")
+                      or self.engine.risk.circuit_breaker_active)
             dd = data["current_drawdown"]
             _png = render_stats_card({
                 "title": t("lbl_risk_title", lang),
@@ -8223,7 +8239,14 @@ class TelegramHandler:
         # Show per-user equity in status
         user_portfolio = self.engine.user_portfolios.get(user_id)
         state = user_portfolio.snapshot()
-        cb = self.engine.risk.circuit_breaker_active
+        # The headline must answer "can we trade", not "is one specific
+        # breaker open". circuit_breaker_active covers daily_loss / drawdown /
+        # streak / manual and NOT the warning-rate breaker, so this card
+        # printed a green ACTIVE while WARNING_RATE_BREAKER was rejecting live
+        # trades. trading_blocked_by is "" exactly when trades are going
+        # through, so it is the honest input for a green/red headline.
+        blocked_by = getattr(self.engine.risk, "trading_blocked_by", "") or ""
+        cb = bool(blocked_by)
         macro = self.engine.macro_calendar.evaluate()
         mode = "PAPER" if CONFIG.simulation_mode else "LIVE"
         # LIVE FIX: show real exchange equity and live position count.
@@ -8305,6 +8328,24 @@ class TelegramHandler:
             phase_headroom=(self.engine.phase_headroom()
                             if hasattr(self.engine, "phase_headroom") else None),
         )
+        # A red headline with no reason sends the operator hunting. Name the
+        # blocker. The warning-rate breaker in particular had no operator
+        # surface at all, so trades were rejected with the card reading green
+        # and /health reporting the breaker clear.
+        if blocked_by:
+            if blocked_by.startswith("warning_rate:"):
+                _key = blocked_by.split(":", 1)[1]
+                msg += (f"\n⛔ Trading blocked: <b>warning-rate breaker</b> — "
+                        f"infrastructure warnings firing too often "
+                        f"(<code>{_key}</code>). Clears once the rate drops.")
+            elif blocked_by.startswith("loss_streak:"):
+                # The dedicated streak line below carries the probe timing;
+                # this one only has to make the red headline legible.
+                msg += ("\n⛔ Trading blocked: <b>loss-streak gate</b> — "
+                        "see the streak line below for when a probe is due.")
+            else:
+                msg += (f"\n⛔ Trading blocked: <b>circuit breaker</b> "
+                        f"(<code>{blocked_by}</code>).")
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).
         if mode == "LIVE":

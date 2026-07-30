@@ -359,6 +359,53 @@ class RiskEngine:
         """True if infrastructure warnings are firing too frequently."""
         return self._warning_rate_tripped
 
+    @property
+    def trading_blocked_by(self) -> str:
+        """Why trades are being REJECTED right now, or "" if they are not.
+
+        `circuit_breaker_active` answers a narrower question than its name
+        suggests: it covers daily_loss / drawdown / streak / manual, and NOT
+        the warning-rate breaker, which is a separate flag. Every operator
+        surface showed the narrow one.
+
+        On 2026-07-29 the warning-rate breaker rejected a live trade while
+        /health reported `circuit_breaker_active: false`, and the operator
+        relayed "circuit breaker clear" twice while trades were being turned
+        away. A breaker that stops trading and appears nowhere is not a
+        breaker anyone can act on.
+
+        This is the question people actually mean. Deliberately additive:
+        circuit_breaker_active keeps its meaning, because a dozen call sites
+        drive alerts and resume logic off that exact definition and widening
+        it underneath them would trade one wrong answer for another.
+
+        Covers the three gates in evaluate() that reject regardless of the
+        idea — circuit, warning-rate, loss-streak. It deliberately does NOT
+        cover the idea-dependent checks (size, confidence, correlation, …):
+        those turn away one trade, not all trading, and folding them in would
+        make this field the same kind of overclaim it exists to fix.
+
+        One edge it cannot see: the loss-streak probe additionally requires a
+        FLAT book, and a property has no live open count. When a probe is due
+        this returns "" — trading is conditionally open — which is the safer
+        direction to be wrong in, since it never reports blocked while trades
+        are going through.
+        """
+        if self._circuit_open:
+            return self._circuit_trip_cause or "circuit"
+        if self._warning_rate_tripped:
+            return f"warning_rate:{self._warning_rate_trip_key or 'unknown'}"
+        # The soft loss-streak latch turns away every new entry until a probe
+        # comes due. It is below the visible hard breaker by design, which is
+        # exactly why it needs to be named here.
+        try:
+            _ss = self.streak_state()
+            if _ss.get("latched") and _ss.get("probe_in_seconds") != 0:
+                return f"loss_streak:{_ss.get('consecutive_losses')}"
+        except Exception:
+            pass
+        return ""
+
     def record_warning(self, key: str) -> None:
         """Record an infrastructure warning event (EXCEPTION, CRITICAL_FAIL, etc).
 

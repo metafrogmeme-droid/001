@@ -360,8 +360,17 @@ def _build_scan_payload(results: list[dict], engine=None,
             portfolio = engine.portfolio
             state = portfolio.snapshot()
             cb_active = risk.circuit_breaker_active
+            # This chip is read as "can we trade". circuit_breaker_active
+            # answers something narrower — daily_loss / drawdown / streak /
+            # manual — so the dashboard showed a green ✓ Circuit Breaker while
+            # the warning-rate breaker was rejecting every live entry. Drive it
+            # from trading_blocked_by, which is "" exactly when trades are
+            # going through, and name the blocker in the label so the chip is
+            # actionable rather than merely red.
+            _blocked = getattr(risk, "trading_blocked_by", "") or ""
             cb_rules = [
-                {"label": "Circuit Breaker", "active": cb_active},
+                {"label": f"Blocked: {_blocked}" if _blocked else "Circuit Breaker",
+                 "active": bool(_blocked) or cb_active},
                 {"label": f"Daily PnL: ${state.daily_pnl:+.2f}", "active": state.daily_pnl < -state.equity_usd * 0.05},
                 {"label": f"Open Positions: {cb_open_count}/{CONFIG.risk.max_open_positions}", "active": cb_open_count >= CONFIG.risk.max_open_positions},
             ]
