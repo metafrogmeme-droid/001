@@ -8341,6 +8341,12 @@ class TelegramHandler:
             "max_open_trades": _max_trades,
             "open_trades": open_count,
             "leverage_cap": CONFIG.exchange.default_leverage,
+            # WHY trades are being rejected, or "" — so this card cannot score
+            # a halted engine as HEALTHY. Without it the text renderer knew
+            # only the drawdown reading, and a restart-erased high-water mark
+            # made that read 0.0% while the breaker was open.
+            "trading_blocked_by": getattr(
+                self.engine.risk, "trading_blocked_by", "") or "",
         }
         rendered = wr_risk(data)
         kb = InlineKeyboardMarkup([

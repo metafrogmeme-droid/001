@@ -273,12 +273,34 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     open_t = data.get("open_trades", 0)
     lev = data.get("leverage_cap", 5)
 
-    healthy = dd < ddl
+    # A card that scores RISK must know whether trading is BLOCKED.
+    # This computed `healthy` from drawdown alone, so on 2026-07-30 at 17:40
+    # the engine was HALTED on a drawdown breaker while /status said so — and
+    # this card would have printed "Status: HEALTHY, Health 100%", because the
+    # restart had erased the high-water mark and left dd reading 0.0%.
+    #
+    # #990 widened the PNG stats-card tile beside this one and did not widen
+    # this renderer, which is the text fallback the operator gets whenever the
+    # image fails to send. Half a surface fixed is a surface that disagrees
+    # with itself.
+    #
+    # Absent key => unchanged behaviour for any caller that does not supply it.
+    blocked = str(data.get("trading_blocked_by") or "")
+    healthy = dd < ddl and not blocked
     status_icon = _OK if healthy else _BAD
-    status_label = "HEALTHY" if healthy else "WARNING"
+    if blocked:
+        status_label = f"BLOCKED ({blocked})"
+    else:
+        status_label = "HEALTHY" if healthy else "WARNING"
 
     # Risk health score — against the cap that actually governs drawdown.
     risk_score = max(0, 100 - int(dd / ddl * 100)) if ddl > 0 else 100
+    # A blocked engine cannot score 100% "risk health" — that is the number
+    # the operator reads to decide whether anything needs attention, and a
+    # green 100 beside a halted engine is the contradiction this card exists
+    # to avoid.
+    if blocked:
+        risk_score = 0
     health_bar = _bar(risk_score, 100, 14)
 
     text = (

@@ -260,3 +260,58 @@ class TestStaleBalanceIsNeverServedAsCurrent:
         e = NS(_live_balance_cache={"total": 5.0}, _live_balance_cache_ts=0.0)
         e.live_balance_cached = RuneClawEngine.live_balance_cached.__get__(e)
         assert e.live_balance_cached() is None
+
+
+# ── /risk scored HEALTHY while the engine was HALTED ─────────────────────
+
+from bot.warroom.warroom_bot import render_risk
+
+
+def _risk(**over):
+    base = dict(current_drawdown=0.0, drawdown_limit=7.0, daily_loss_limit=5.0,
+                max_open_trades=5, open_trades=1, leverage_cap=10)
+    base.update(over)
+    return render_risk(base)["text"]
+
+
+class TestRiskCardKnowsWhenTradingIsBlocked:
+    """The 17:40 state, exactly. The engine was HALTED on a drawdown breaker,
+    /status said so — and this card computed `healthy` from the drawdown
+    reading alone, which the restart-erased high-water mark had left at 0.0%.
+    It would have printed HEALTHY at 100%.
+
+    #990 widened the PNG stats-card tile beside this one and missed this
+    renderer — the text fallback the operator gets whenever the image fails.
+    Half a surface fixed is a surface that disagrees with itself."""
+
+    def test_the_exact_1740_state_is_not_scored_healthy(self):
+        out = _risk(current_drawdown=0.0, trading_blocked_by="drawdown")
+        assert "HEALTHY" not in out
+        assert "BLOCKED (drawdown)" in out
+
+    def test_a_blocked_engine_never_scores_full_health(self):
+        # 100% risk health beside a halted engine is the contradiction this
+        # card exists to avoid.
+        out = _risk(current_drawdown=0.0, trading_blocked_by="drawdown")
+        assert "100%" not in out
+
+    def test_the_warning_rate_breaker_reaches_this_card_too(self):
+        out = _risk(trading_blocked_by="warning_rate:engine_tick_failure")
+        assert "engine_tick_failure" in out
+        assert "HEALTHY" not in out
+
+    def test_a_clear_engine_still_reads_healthy(self):
+        out = _risk()
+        assert "HEALTHY" in out
+        assert "BLOCKED" not in out
+
+    def test_drawdown_over_its_limit_still_warns_without_a_blocker(self):
+        # The pre-existing behaviour must survive: a drawdown at/over the cap
+        # is a WARNING even when nothing is formally blocked yet.
+        out = _risk(current_drawdown=8.0)
+        assert "WARNING" in out
+        assert "HEALTHY" not in out
+
+    def test_an_absent_key_leaves_old_callers_unchanged(self):
+        # No trading_blocked_by supplied => byte-identical to before.
+        assert "HEALTHY" in _risk()
