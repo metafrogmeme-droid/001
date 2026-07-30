@@ -70,6 +70,37 @@ def filter_adopted_messages(sync_msgs: list[str]) -> list[str]:
     return [m for m in sync_msgs if "Adopted" in m]
 
 
+#: The prose shapes exchange_sync emits for an adoption. The callback's
+#: parameter is named `adopted_symbols` and for a long time received THESE
+#: instead — so the per-position SL/TP detail (#999) looked up
+#: "Adopted orphan: UNI" as a symbol, matched nothing, and silently rendered
+#: nothing. Observed live on 2026-07-30: the card printed
+#: "• Adopted orphan: UNI" with no levels beside it.
+_ADOPTED_PREFIXES = ("Adopted orphan limit order:", "Adopted orphan:")
+
+
+def adopted_symbols_from_messages(sync_msgs: list[str]) -> list[str]:
+    """The SYMBOLS in the adoption messages, so the card can look them up.
+
+    Longest prefix first: "Adopted orphan limit order: X" also starts with
+    "Adopted orphan", and stripping the shorter one would leave
+    "limit order: X" as the "symbol".
+
+    A message in neither shape is passed through unchanged rather than
+    dropped — the notification must still name it, even if the position
+    lookup then finds nothing. Losing an adoption notice is worse than
+    rendering it without levels.
+    """
+    out: list[str] = []
+    for m in filter_adopted_messages(sync_msgs):
+        for pre in _ADOPTED_PREFIXES:
+            if m.startswith(pre):
+                m = m[len(pre):].strip()
+                break
+        out.append(m)
+    return out
+
+
 def _build_signal_sync_payloads(ideas: list, regime_fn) -> list[dict]:
     """Shape a batch of newly-generated TradeIdeas into website signal-stream rows.
 
@@ -5889,7 +5920,10 @@ class RuneClawEngine:
                 # position(s)" where 41 was the CHARACTER COUNT of one
                 # message, each letter its own bullet). Collect all "Adopted"
                 # messages first and notify once with the real list.
-                adopted_msgs = filter_adopted_messages(sync_msgs)
+                # SYMBOLS, not the prose messages — the callback renders a
+                # per-position SL/TP outcome and needs something it can match
+                # against the executor's positions.
+                adopted_msgs = adopted_symbols_from_messages(sync_msgs)
                 if adopted_msgs and self._adopt_notify_callback:
                     try:
                         await self._adopt_notify_callback(adopted_msgs)

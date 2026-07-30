@@ -444,7 +444,13 @@ _STRINGS: dict[str, dict[str, str]] = {
     "hdr_pending_limits": {"en": "Pending Limit Orders:", "zh": "掛單限價單:"},
     "hdr_recent_trades": {"en": "Recent Trades:", "zh": "近期交易:"},
     "hdr_recent_trades_net": {"en": "Recent Trades (net of fees):", "zh": "近期交易（已扣手續費）:"},
-    "lbl_session": {"en": "Session:", "zh": "本期:"},
+    # NOT "Session". Both paths behind this label read PERSISTED stores —
+    # the live executor's closed_trades.json (F-14) and the paper portfolio's
+    # state file — so the tallies survive restarts and are lifetime, not
+    # since-boot. The old wording told an operator these numbers reset with
+    # the process; on 2026-07-30 a card read "Session 62W/42L" minutes after
+    # a restart that closed one trade.
+    "lbl_session": {"en": "All-time:", "zh": "累計:"},
     "portfolio_no_trades": {
         "en": "No trades yet. Say \"scan\" to find signals.",
         "zh": "尚無交易。輸入「掃描」來尋找信號。",

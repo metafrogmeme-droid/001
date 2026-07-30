@@ -696,7 +696,14 @@ class GetPortfolioSkill(BaseSkill):
                 "<b>Portfolio</b> (LIVE)\n",
                 f"Equity: <code>${display_equity:,.2f}</code>",
                 f"Open: <code>{len(live_open)}</code> | Exposure: <code>${live_exposure:,.2f}</code>",
-                f"Realized PnL: {pnl_icon} <code>${live_total_pnl:+,.2f}</code>",
+                # WINDOW STATED. This sums the executor's PERSISTED closed
+                # trades (F-14), so it is lifetime — but it renders directly
+                # above a "Recent:" list, and an unlabelled red total there
+                # reads as "today went badly" when today was green. The admin
+                # card already qualified the same number with its trade
+                # count; these two disagreed about the same figure.
+                f"Realized PnL (all-time): {pnl_icon} "
+                f"<code>${live_total_pnl:+,.2f}</code>",
             ]
             if total_closed > 0:
                 lines.append(f"Trades: <code>{total_closed}</code> | Win rate: <code>{wr:.0f}%</code>")

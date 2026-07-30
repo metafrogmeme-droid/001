@@ -3105,12 +3105,21 @@ class RiskEngine:
             recorded_loss = max(0.0, -self._live_daily_pnl)
             if recorded_loss >= 0.5 * drop:
                 return ""
-            return (f" — equity is ${drop:,.2f} below the session peak but "
-                    f"recorded trade PnL only accounts for ${recorded_loss:,.2f} "
-                    f"of it. If you deposited earlier or withdrew funds, this "
-                    f"is the high-water mark seeing the transfer as a loss: "
-                    f"confirm and /resume to re-seed the peak at current "
-                    f"equity. If you did NOT move funds, treat this as real.")
+            # THREE explanations, not two. The comparison is against
+            # REALIZED PnL only — this engine has no view of open positions —
+            # so an unrealized mark-to-market drawdown produces exactly the
+            # same arithmetic as a withdrawal. Naming only "transfer" would
+            # point a losing book at the wrong cause, and this hint exists
+            # because pointing at the wrong cause is expensive.
+            return (f" — equity is ${drop:,.2f} below the session peak while "
+                    f"REALIZED trade PnL accounts for only "
+                    f"${recorded_loss:,.2f} of it. Three things look like "
+                    f"this: (1) a deposit/withdrawal — confirm it was yours "
+                    f"and /resume to re-seed the peak at current equity; "
+                    f"(2) OPEN positions marked to market, which this "
+                    f"comparison cannot see — check /positions before "
+                    f"resuming; (3) a genuinely wrong balance reading. Do "
+                    f"not resume until you know which.")
         except Exception:
             return ""
 

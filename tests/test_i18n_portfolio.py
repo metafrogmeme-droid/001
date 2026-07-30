@@ -41,7 +41,15 @@ PORTFOLIO_EN = {
     "hdr_pending_limits": "Pending Limit Orders:",
     "hdr_recent_trades": "Recent Trades:",
     "hdr_recent_trades_net": "Recent Trades (net of fees):",
-    "lbl_session": "Session:",
+    # DELIBERATELY CHANGED from "Session:" (2026-07-30), and pinned to the
+    # new wording so the guard keeps working. Both stores behind this label
+    # persist across restarts — the live executor's closed_trades.json (F-14)
+    # and the paper portfolio's state file — so "Session" told the operator
+    # the tallies reset with the process. A card read "Session 62W/42L"
+    # minutes after a restart that had closed one trade. This guard exists to
+    # stop wording drifting SILENTLY; a corrected factual error is the case
+    # it should be updated for, not the case it should block.
+    "lbl_session": "All-time:",
     "portfolio_no_trades": 'No trades yet. Say "scan" to find signals.',
     "portfolio_no_live_trades": 'No live trades yet. Say "scan" to find signals.',
 }

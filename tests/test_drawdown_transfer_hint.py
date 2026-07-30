@@ -45,7 +45,7 @@ class TestWhenTheHintFires:
     def test_the_live_incident_shape_gets_the_hint(self):
         # Peak $883, equity $522 after a transfer, ~no recorded trade PnL.
         out = _hint(883.18, 522.44, live_daily_pnl=-0.50)
-        assert "transfer" in out
+        assert "withdrawal" in out
         assert "/resume" in out
         # Both numbers the operator needs to check the arithmetic themselves.
         assert "360.74" in out          # the drop from peak
@@ -60,13 +60,19 @@ class TestWhenTheHintFires:
         assert _hint(1000.0, 800.0, live_daily_pnl=-100.0) == ""
 
     def test_losses_explaining_less_than_half_get_the_hint(self):
-        assert "transfer" in _hint(1000.0, 800.0, live_daily_pnl=-99.0)
+        assert "withdrawal" in _hint(1000.0, 800.0, live_daily_pnl=-99.0)
 
-    def test_it_warns_the_other_direction_too(self):
-        # "If you did NOT move funds, treat this as real" — the hint must
-        # never read as permission to dismiss.
+    def test_it_names_all_three_causes_not_just_a_transfer(self):
+        # The comparison is against REALIZED PnL only, so an unrealized
+        # mark-to-market drawdown produces identical arithmetic to a
+        # withdrawal. Naming only "transfer" would point a losing book at the
+        # wrong cause — and this hint exists because that is expensive.
         out = _hint(883.18, 522.44, live_daily_pnl=0.0)
-        assert "treat this as real" in out
+        assert "withdrawal" in out          # (1)
+        assert "OPEN positions" in out      # (2) the one it cannot see
+        assert "balance reading" in out     # (3)
+        # And it must never read as permission to dismiss.
+        assert "Do not resume until you know which" in out
 
 
 class TestWhenItStaysSilent:

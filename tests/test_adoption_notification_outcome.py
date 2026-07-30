@@ -52,3 +52,43 @@ def test_a_failed_lookup_degrades_to_the_bare_symbol():
     assert re.search(r"except Exception:\s*\n\s*_detail = \"\"", block), (
         "the per-symbol detail must fail to empty, not raise"
     )
+
+
+# ── the callback receives SYMBOLS, not prose ─────────────────────────────
+
+from bot.core.engine import adopted_symbols_from_messages
+
+
+def test_the_symbol_is_extracted_from_the_adoption_message():
+    # Observed live 2026-07-30: the card printed "• Adopted orphan: UNI" with
+    # no levels, because the per-position lookup was handed the whole message
+    # as if it were a symbol. The parameter was even named adopted_symbols.
+    assert adopted_symbols_from_messages(["Adopted orphan: UNI/USDT"]) == ["UNI/USDT"]
+
+
+def test_the_longer_prefix_wins():
+    # "Adopted orphan limit order: X" also starts with "Adopted orphan", so a
+    # shortest-first strip would yield "limit order: X" as the "symbol".
+    assert adopted_symbols_from_messages(
+        ["Adopted orphan limit order: SOL/USDT"]) == ["SOL/USDT"]
+
+
+def test_non_adoption_messages_are_filtered_out():
+    msgs = ["Ghost position cleared: BTC/USDT", "Adopted orphan: UNI/USDT"]
+    assert adopted_symbols_from_messages(msgs) == ["UNI/USDT"]
+
+
+def test_an_unknown_adoption_shape_is_passed_through_not_dropped():
+    # Losing an adoption notice is worse than rendering one without levels.
+    out = adopted_symbols_from_messages(["Adopted something new: XYZ"])
+    assert out == ["Adopted something new: XYZ"]
+
+
+def test_the_engine_passes_symbols_to_the_callback():
+    import inspect
+    from bot.core.engine import RuneClawEngine
+    src = code_only(inspect.getsource(RuneClawEngine))
+    assert "adopted_symbols_from_messages(sync_msgs)" in src, (
+        "the callback renders a per-position SL/TP outcome and needs "
+        "something it can match against the executor's positions"
+    )
