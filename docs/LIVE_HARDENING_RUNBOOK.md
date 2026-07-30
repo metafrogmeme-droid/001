@@ -179,8 +179,32 @@ live operators:
 
 ## Website triage — is it the app, or the host?
 
-The web app exposes two probes. They answer different questions, and the
-difference is the whole diagnosis:
+**Step zero, before reading any reason code: did the app answer at all?**
+Everything below assumes the probes RESPOND. On 2026-07-30 they did not, and
+the tell was the byte count, not the status:
+
+```
+/healthz  → 200 in ~1.3s   x-envoy-upstream-service-time: 0
+/readyz   → timeout, ZERO bytes
+/         → timeout, ZERO bytes
+static js → timeout, ZERO bytes
+```
+
+`/readyz` touches nothing but memory — if Node were executing requests it
+would answer instantly, 200 or 503. **Zero bytes on `/readyz` means the
+container is not running your code** (cold-start stuck, or crash-looping
+while the edge holds connections). And the `/healthz` 200 was the PLATFORM's
+envoy layer answering, not the app — `x-envoy-upstream-service-time: 0` is
+the giveaway, so a green healthz alone must never be read as "the app is up".
+
+The fix is at the host, not in the repo: restart the web container from the
+console and look for the one boot line that settles it —
+`RUNECLAW app running on port 8080`. Present → it booted; absent → the lines
+just above the end of the log name where startup died. It is NOT the
+database (the app listens before migrating and serves static pages through a
+DB outage by design), so do not start at the allowlist.
+
+Once the probes respond at all, the reason codes below take over:
 
 | Probe | Means | Touches |
 |---|---|---|
