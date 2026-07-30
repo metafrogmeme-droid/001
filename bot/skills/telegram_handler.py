@@ -700,6 +700,17 @@ class TelegramHandler:
 
     # ── Centralized send ──────────────────────────────────────
 
+    async def _reply(self, update: Update, text: str,
+                     reply_markup=None) -> None:
+        """Alias of _send. Three commands (/leverage, /backup, /mystrategy)
+        were written against this name across 21 call sites and it was never
+        defined — every invocation raised AttributeError, found live when
+        `/leverage set 10` (high-conviction step 2) crashed on 2026-07-30
+        (update 732737136). Defined rather than renamed at the call sites:
+        the idiom exists in three commands already, and a structural test now
+        pins that every self-method the class calls is actually defined."""
+        await self._send(update, text, reply_markup=reply_markup)
+
     async def _send(self, update: Update, text: str,
                     reply_markup=None, edit: bool = False) -> None:
         # Audit F-15: scrub secrets from every outgoing message. Many handlers
