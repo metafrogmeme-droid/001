@@ -559,6 +559,38 @@ class RuneClawEngine:
                 system_log.debug("Live balance fetch failed (no cache): %s", exc)
         return self._live_balance_cache if self._live_balance_cache else None
 
+    def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
+        """The cached live balance ONLY when fresh enough to state as current.
+
+        Five call sites read ``_live_balance_cache`` directly, and none of
+        them consulted ``_live_balance_cache_ts``. get_live_equity() enforces
+        its TTL on the FETCH side, but when fetches keep failing the
+        timestamp stops advancing while the dict keeps its last value — and
+        every direct reader then presents an hours-old number as the live
+        account: the website's equity fallback, the /yield free-margin row,
+        the admin card's "Available".
+
+        None means "do not know". Downstream surfaces already render that
+        honestly (unavailable / row omitted); a stale dollar figure they
+        cannot detect at all. 900s default: generous against the ~60s tick
+        cadence that refreshes the cache, far below the hours a dead venue
+        connection can leave it dark.
+        """
+        if not self._live_balance_cache:
+            return None
+        # ts <= 0 means never stamped. This must be its own check: monotonic's
+        # epoch is UNSPECIFIED, and on a freshly booted host it starts near
+        # zero — so "monotonic() - 0.0" is NOT enormous by construction, it is
+        # the host's uptime, and for the first max_age_s of uptime a
+        # never-stamped cache would have read as fresh. CI's just-booted
+        # runner caught exactly that.
+        if self._live_balance_cache_ts <= 0.0:
+            return None
+        age = time.monotonic() - self._live_balance_cache_ts
+        if age > max_age_s:
+            return None
+        return self._live_balance_cache
+
     def _invalidate_live_balance_cache(self) -> None:
         """Force a fresh balance fetch on the next equity check."""
         self._live_balance_cache = {}

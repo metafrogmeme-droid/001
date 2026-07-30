@@ -5043,11 +5043,15 @@ class TelegramHandler:
                     "🔴 No operator Bitget keys configured — "
                     "<code>/setexchange</code> first.")
                 return
-            # Free futures margin from the engine's venue-aware balance cache
-            # (refreshed every tick by the authenticated executor).
+            # Free futures margin from the engine's venue-aware balance cache.
+            # Age-gated: "refreshed every tick" is only true while venue
+            # fetches succeed — on repeated failures the cache keeps its last
+            # value indefinitely, and this row then sizes yield suggestions
+            # off margin that may no longer exist. Stale/absent → 0.0: the
+            # report omits the row rather than inventing one.
             free_usdt = 0.0
             try:
-                cache = getattr(self.engine, "_live_balance_cache", None) or {}
+                cache = self.engine.live_balance_cached() or {}
                 free_usdt = float(cache.get("free", 0) or 0)
             except Exception:
                 pass
@@ -5092,7 +5096,10 @@ class TelegramHandler:
         try:
             if not CONFIG.is_live():
                 return 0.0
-            cache = getattr(self.engine, "_live_balance_cache", None)
+            # Age-gated: a stale cache is the SAME "we do not know" as an
+            # empty one, and returning its old number here would present a
+            # dead venue connection as a live margin figure.
+            cache = self.engine.live_balance_cached()
             if not cache:
                 return None
             free = cache.get("free")

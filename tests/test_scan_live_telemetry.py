@@ -77,7 +77,9 @@ def test_engine_cache_fallback_when_parallel_readout_fails():
     from types import SimpleNamespace
     cfg = _live_cfg()
     engine = MagicMock()
-    engine._live_balance_cache = {"total": 123.45, "free": 100.0}
+    # The payload now reads through the age-gated accessor (a stale cache is
+    # "we do not know", not a current balance). These tests mean a FRESH one.
+    engine.live_balance_cached.return_value = {"total": 123.45, "free": 100.0}
     engine.live_executor.open_positions = [
         SimpleNamespace(symbol="HOOD/USDT", direction="LONG",
                         entry_price=115.37, quantity=0.25),
@@ -98,7 +100,7 @@ def test_engine_cache_overrides_zero_equity_readout():
     # cache is venue-aware; its real total must win.
     cfg = _live_cfg()
     engine = MagicMock()
-    engine._live_balance_cache = {"total": 852.10}
+    engine.live_balance_cached.return_value = {"total": 852.10}
     live = {
         "equity": 0, "net_pnl": 0, "win_rate": 0,
         "total_trades": 0, "open_count": 0,
@@ -119,7 +121,7 @@ def test_still_unavailable_when_cache_empty_too():
     # fabricated number.
     cfg = _live_cfg()
     engine = MagicMock()
-    engine._live_balance_cache = {}
+    engine.live_balance_cached.return_value = None
     with patch("bot.config.CONFIG", cfg), \
          patch.object(ss, "_fetch_live_exchange_data", return_value=None), \
          patch.object(ss, "_build_features_block", return_value={}):

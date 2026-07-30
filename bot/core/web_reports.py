@@ -81,7 +81,12 @@ def _yield_section(engine) -> Optional[dict]:
         return None
     free_usdt = 0.0
     try:
-        cache = getattr(engine, "_live_balance_cache", None) or {}
+        # Age-gated (engine.live_balance_cached): a stale cache here told the
+        # yield radar there was idle margin that may no longer exist. Stale
+        # or absent reads as 0.0 — the report omits the margin row rather
+        # than sizing suggestions off an old number.
+        _fn = getattr(engine, "live_balance_cached", None)
+        cache = (_fn() if callable(_fn) else None) or {}
         free_usdt = float(cache.get("free") or 0.0)
     except Exception:
         pass

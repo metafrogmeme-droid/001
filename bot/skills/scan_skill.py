@@ -301,7 +301,13 @@ def _build_scan_payload(results: list[dict], engine=None,
         # the dashboard stuck on "balance unavailable" while the bot traded
         # fine. Never fabricates: an empty cache still reports unavailable.
         try:
-            cache = getattr(engine, "_live_balance_cache", None) if engine else None
+            # Age-gated: a direct _live_balance_cache read presented an
+            # hours-old number as the live account when venue fetches kept
+            # failing (the tick stops advancing the timestamp but the dict
+            # keeps its last value). Stale → None → the unavailable path
+            # below, which the dashboard renders honestly.
+            _fn = getattr(engine, "live_balance_cached", None) if engine else None
+            cache = _fn() if callable(_fn) else None
             total = float(cache.get("total", 0) or 0) if isinstance(cache, dict) else 0.0
             if total > 0:
                 cb_equity = round(total, 2)

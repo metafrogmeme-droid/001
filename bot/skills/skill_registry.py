@@ -2549,10 +2549,18 @@ class PlaybookSkill(BaseSkill):
             closed_trades = executor.closed_positions
             realized_pnl = sum(p.pnl_usd or 0 for p in closed_trades)
             utilization_pct = (total_exposure / display_equity * 100) if display_equity > 0 else 0
-            free_bal = engine._live_balance_cache.get("free", 0.0) if engine._live_balance_cache else 0.0
+            # Age-gated (engine.live_balance_cached): the direct cache read
+            # showed an hours-old "Available" as current when venue fetches
+            # kept failing. Unknown renders as "unavailable", never $0.00 —
+            # zero reads as "no margin left", a different (alarming) claim.
+            _bal_fn = getattr(engine, "live_balance_cached", None)
+            _bal = _bal_fn() if callable(_bal_fn) else None
+            free_bal = _bal.get("free") if isinstance(_bal, dict) else None
 
             lines.append(f"- Equity: <code>{_money(display_equity)}</code>")
-            lines.append(f"- Available: <code>{_money(free_bal)}</code>")
+            lines.append("- Available: <code>"
+                         + (_money(float(free_bal)) if free_bal is not None
+                            else "unavailable") + "</code>")
             lines.append(f"- Open Positions: <code>{live_open_count}</code>")
             lines.append(f"- Total Exposure: <code>{_money(total_exposure)}</code>")
             lines.append(f"- Utilization: <code>{utilization_pct:.1f}%</code>")
