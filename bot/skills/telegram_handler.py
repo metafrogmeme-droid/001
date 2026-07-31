@@ -110,12 +110,30 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
             _syms = [html.escape(str(s)) for s in (at.get("symbols") or [])[:5]]
             _who = (" (" + ", ".join(f"<code>{s}</code>" for s in _syms) + ")"
                     if _syms else "")
+            # One batch names WHAT hung. It cannot say whether the same
+            # symbols hang every time -- that record is overwritten each
+            # batch -- and the two call for opposite responses: a few bad
+            # symbols get dropped, capacity pressure gets a smaller universe
+            # or a longer budget. The running tally carries the distribution;
+            # it describes the shape and stops short of naming the cause,
+            # because a tally cannot see one.
+            _shape = ""
+            try:
+                from bot.core import analysis_timeout_tally as _att
+                _t = getattr(engine, "_analysis_timeout_tally", None)
+                if _t:
+                    _line = _att.render(_t)
+                    if _line:
+                        _shape = ("\n\n📊 <b>Across this run:</b> "
+                                  + html.escape(_line))
+            except Exception:
+                _shape = ""
             return ("\n\n⚠️ <b>Analyses are hanging</b> — the last background "
                     f"sweep gave up on {at['skipped']} of {at['of']} symbols "
                     f"after {float(at['cap_s']):.0f}s each{_who}. LLM health "
                     "is green, so the stall is in a per-symbol dependency "
                     "(exchange fetch or a single provider call), not the "
-                    "fallback chain. See <code>/status</code>.")
+                    "fallback chain. See <code>/status</code>." + _shape)
         # The interactive scan runs through the same batched analyzer, so the
         # engine's in-flight progress record covers the batch this deadline
         # just cancelled. Report what it MEASURED — "got through 12 of 40 in

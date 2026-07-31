@@ -3825,6 +3825,9 @@ class RuneClawEngine:
         # 0 disables the cap.
         _cap = float(getattr(CONFIG, "analysis_timeout_sec", 0.0) or 0.0)
         _timed_out: list[str] = []
+        # Structured twin of the display list above, so the running
+        # tally never has to parse "FET/USDT (mtf)" back apart.
+        _timed_out_pairs: list[tuple[str, str]] = []
         # Progress, so a phase that is CANCELLED can still say what it was
         # doing. Without this the analyze phase died silently: the operator
         # saw "exceeded its 300s" and nothing about whether it had finished 4
@@ -3896,6 +3899,7 @@ class RuneClawEngine:
                     except Exception:
                         _stg = ""
                     _timed_out.append(f"{_sym} ({_stg})" if _stg else _sym)
+                    _timed_out_pairs.append((_sym, _stg))
                     return None
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
@@ -3982,6 +3986,25 @@ class RuneClawEngine:
                 # few, not all: the record rides /status-adjacent surfaces.
                 "symbols": list(_timed_out[:5]),
             }
+            # ...and fold this batch into the running distribution. The record
+            # above is overwritten every batch, so it answers "what timed out
+            # most recently" while the question being asked is "what keeps
+            # timing out". Telling three bad symbols from capacity pressure
+            # took reading /status by hand across several ticks and noticing
+            # the names had rotated -- a real finding reached by a method that
+            # gives the opposite answer to anyone who looks only once.
+            #
+            # getattr-guarded like every instrument on this path: several
+            # suites drive this batch with SimpleNamespace stubs, and a
+            # diagnostic must never be the reason an analysis cannot finish.
+            try:
+                from bot.core import analysis_timeout_tally as _att
+                _t = getattr(self, "_analysis_timeout_tally", None)
+                if _t is None:
+                    _t = self._analysis_timeout_tally = _att.new_tally()
+                _att.record(_t, _timed_out_pairs)
+            except Exception:
+                pass
             audit(scan_log,
                   f"Analysis timed out for "
                   f"{len(_timed_out)} of {len(signals)} signals "
