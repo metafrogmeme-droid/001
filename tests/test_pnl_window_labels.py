@@ -37,10 +37,41 @@ HANDLER = pathlib.Path("bot/skills/telegram_handler.py").read_text(encoding="utf
 
 
 class TestTheWindowIsStated:
+    """RENDERED, not grepped. A source scan sees the label; only a render
+    sees what sits NEXT to it — and the defect was a lifetime total printed
+    directly above a "Recent:" list of green closes."""
+
+    def _card(self, **over):
+        from bot.formatters.rich_cards import render_live_portfolio_summary
+        base = dict(equity=545.29, open_count=1, exposure=51.18,
+                    realized_pnl=-3.25, total_closed=104, win_rate=59.0)
+        base.update(over)
+        return "\n".join(render_live_portfolio_summary(**base))
+
     def test_the_live_portfolio_card_names_its_window(self):
-        assert "Realized PnL (all-time)" in REG, (
+        # The exact 2026-07-30 card.
+        out = self._card()
+        assert "Realized PnL (all-time)" in out, (
             "an unlabelled lifetime total above a 'Recent:' list reads as today"
         )
+
+    def test_a_negative_total_is_never_shown_without_its_window(self):
+        # The red number is the one that gets misread, so it is the one the
+        # label matters most for.
+        out = self._card(realized_pnl=-3.25)
+        assert "🔴" in out
+        assert "(all-time)" in out
+
+    def test_a_positive_total_carries_the_window_too(self):
+        out = self._card(realized_pnl=12.40)
+        assert "🟢" in out and "(all-time)" in out
+
+    def test_the_trade_count_is_omitted_rather_than_shown_as_zero(self):
+        # No closed trades is not "0 trades at 0% win rate" — that reads as
+        # a measured record of failure rather than an absence of one.
+        out = self._card(total_closed=0)
+        assert "Trades:" not in out
+        assert "Win rate" not in out
 
     def test_the_admin_card_still_qualifies_its_own(self):
         # It always did; the two must not drift apart again.

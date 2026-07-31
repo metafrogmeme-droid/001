@@ -691,6 +691,35 @@ def render_multi_analysis(
 
 # ── Open positions card ──────────────────────────────────────────
 
+def render_live_portfolio_summary(equity: float, open_count: int,
+                                  exposure: float, realized_pnl: float,
+                                  total_closed: int, win_rate: float) -> List[str]:
+    """The /portfolio (LIVE) header block, as a PURE function.
+
+    Extracted so the WINDOW on each number can be asserted by rendering the
+    card rather than by grepping the file that builds it. On 2026-07-30 this
+    block printed an unlabelled lifetime total directly above a "Recent:"
+    list of four green closes, on a day the exchange put at about +$6.36 —
+    every figure correct, one wrong conclusion invited. A source scan can see
+    the string; only a render can see what sits next to it.
+
+    `realized_pnl` is LIFETIME: it sums the executor's PERSISTED closed
+    trades (F-14), which survive restarts. The label says so.
+    """
+    pnl_icon = "\U0001f7e2" if realized_pnl >= 0 else "\U0001f534"
+    lines = [
+        "<b>Portfolio</b> (LIVE)\n",
+        f"Equity: <code>${equity:,.2f}</code>",
+        f"Open: <code>{open_count}</code> | Exposure: <code>${exposure:,.2f}</code>",
+        f"Realized PnL (all-time): {pnl_icon} <code>${realized_pnl:+,.2f}</code>",
+    ]
+    if total_closed > 0:
+        lines.append(
+            f"Trades: <code>{total_closed}</code> | "
+            f"Win rate: <code>{win_rate:.0f}%</code>")
+    return lines
+
+
 def render_adoption_card(adopted_symbols: List[str],
                          positions: Optional[List[Any]] = None) -> str:
     """The "Adopted Exchange Positions" notice, as a PURE function.

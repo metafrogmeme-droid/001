@@ -690,23 +690,16 @@ class GetPortfolioSkill(BaseSkill):
             total_closed = _stats["total"]
             wr = _stats["win_rate"]
 
-            pnl_icon = "\U0001f7e2" if live_total_pnl >= 0 else "\U0001f534"
-
-            lines = [
-                "<b>Portfolio</b> (LIVE)\n",
-                f"Equity: <code>${display_equity:,.2f}</code>",
-                f"Open: <code>{len(live_open)}</code> | Exposure: <code>${live_exposure:,.2f}</code>",
-                # WINDOW STATED. This sums the executor's PERSISTED closed
-                # trades (F-14), so it is lifetime — but it renders directly
-                # above a "Recent:" list, and an unlabelled red total there
-                # reads as "today went badly" when today was green. The admin
-                # card already qualified the same number with its trade
-                # count; these two disagreed about the same figure.
-                f"Realized PnL (all-time): {pnl_icon} "
-                f"<code>${live_total_pnl:+,.2f}</code>",
-            ]
-            if total_closed > 0:
-                lines.append(f"Trades: <code>{total_closed}</code> | Win rate: <code>{wr:.0f}%</code>")
+            # PURE renderer, so the window on each number can be asserted by
+            # rendering the card instead of grepping this file. A source scan
+            # sees the label; only a render sees what sits NEXT to it — and
+            # the defect was an unlabelled lifetime total printed above a
+            # "Recent:" list of green closes.
+            from bot.formatters.rich_cards import render_live_portfolio_summary
+            lines = render_live_portfolio_summary(
+                equity=display_equity, open_count=len(live_open),
+                exposure=live_exposure, realized_pnl=live_total_pnl,
+                total_closed=total_closed, win_rate=wr)
 
             if live_open:
                 lines.append("")
