@@ -298,12 +298,53 @@ router.post('/', async (req, res) => {
  * Called by the bot when a single trade opens or closes.
  * Body: { event: "open"|"close", trade: {...}, equity }
  */
+// Event ids seen recently, so a RETRY of a delivery whose response was lost
+// does not append a second trade. This endpoint inserts unconditionally: a
+// replayed `open` would create a phantom position, and a replayed `close`
+// would delete another OPEN row and fabricate a closed trade to sit beside
+// it -- corrupting the P&L history with a trade that never happened. Until
+// this guard existed the bot could not retry a trade sync at all, so a single
+// 503 dropped the event permanently.
+//
+// Deliberately in-process and bounded. It covers the RETRY WINDOW -- seconds,
+// per _RETRY_BACKOFF on the bot side -- not a cross-restart replay, and it is
+// per-container. That is the honest scope: it makes retrying safe, and it is
+// not a durable idempotency ledger. A restart between the original and its
+// retry can still double-insert; that window is milliseconds wide and is the
+// price of not adding a schema migration to a hot path.
+const SEEN_EVENTS = new Map();          // event_id -> ms timestamp
+const SEEN_EVENT_TTL_MS = 10 * 60 * 1000;
+const SEEN_EVENT_MAX = 2000;
+
+function _seenEvent(id) {
+  if (!id) return false;                // no id supplied: cannot dedupe
+  const now = Date.now();
+  const at = SEEN_EVENTS.get(id);
+  if (at !== undefined && now - at < SEEN_EVENT_TTL_MS) return true;
+  SEEN_EVENTS.set(id, now);
+  if (SEEN_EVENTS.size > SEEN_EVENT_MAX) {
+    // Oldest-first eviction; Map preserves insertion order.
+    for (const k of SEEN_EVENTS.keys()) {
+      SEEN_EVENTS.delete(k);
+      if (SEEN_EVENTS.size <= SEEN_EVENT_MAX) break;
+    }
+  }
+  return false;
+}
+
 router.post('/trade-event', async (req, res) => {
   try {
     const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced
-    const { event, trade, equity } = req.body;
+    const { event, trade, equity, event_id } = req.body;
     if (!event || !trade) {
       return res.status(400).json({ error: 'event and trade required' });
+    }
+
+    // ok:true, because from the bot's side this delivery DID succeed -- the
+    // event is recorded. Reporting a failure here would send a correct client
+    // into a retry loop over work that is already done.
+    if (_seenEvent(event_id)) {
+      return res.json({ ok: true, duplicate: true });
     }
 
     if (event === 'open') {

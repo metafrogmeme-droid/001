@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import threading
+import time as _t
+import uuid
 import urllib.request
 import urllib.error
 from typing import Optional
@@ -32,8 +34,35 @@ def _attr(obj, key, default=None):
     return val if val is not None else default
 
 
-def _post(path: str, data: dict) -> Optional[dict]:
-    """POST JSON to the website API. Returns response dict or None on error."""
+#: Status codes worth trying again. A 5xx and a dropped connection mean "this
+#: server could not answer right now"; a 4xx means "this request will never be
+#: accepted", and retrying it is noise that hides the real fault. The live 503
+#: on 2026-07-31 was BOT_SYNC_SECRET being unset — a 401-shaped problem
+#: wearing a 5xx code — so the log line below has to name the code either way.
+_RETRY_STATUS = frozenset({500, 502, 503, 504, 408, 429})
+
+#: Backoff between attempts, seconds. Short: this runs on the trading path and
+#: a sync is never worth delaying an order.
+_RETRY_BACKOFF = (0.5, 2.0, 5.0)
+
+
+def _post(path: str, data: dict, *, retries: int = 0) -> Optional[dict]:
+    """POST JSON to the website API. Returns response dict or None on error.
+
+    ``retries`` DEFAULTS TO ZERO, and that default is a safety property rather
+    than a conservative guess. Retrying a POST is only sound when the endpoint
+    can recognise the second delivery of the same event. /api/bot/sync/trade-event
+    appends with a bare INSERT: a retry of an `open` whose response was merely
+    lost inserts a phantom second trade, and a retry of a `close` deletes
+    another OPEN row and fabricates a closed trade with it. Losing an event is
+    bad; inventing one is worse, and it is the failure this repo's §4 exists to
+    prevent.
+
+    So callers opt in, and only after making their payload replayable — either
+    because the endpoint replaces state wholesale (portfolio, scan, signals,
+    tiers: the next push heals the gap anyway, and a retry just heals it
+    sooner) or because it carries an event_id the server dedupes on.
+    """
     url = f"{WEBSITE_URL}{path}"
     payload = json.dumps(data, default=str).encode()
     req = urllib.request.Request(
@@ -49,24 +78,45 @@ def _post(path: str, data: dict) -> Optional[dict]:
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            parsed = json.loads(resp.read().decode())
-            # isinstance narrows the json.loads Any for mypy (this module is
-            # now transitively type-checked via live_executor -> agent_feed)
-            # and guards against a non-object JSON body from a proxy/CDN.
-            return parsed if isinstance(parsed, dict) else None
-    except urllib.error.HTTPError as e:
-        body = ""
+    attempts = max(0, int(retries)) + 1
+    for attempt in range(attempts):
+        _last = attempt == attempts - 1
         try:
-            body = e.read().decode()
-        except Exception:
-            pass
-        log.error(f"Sync HTTP error {e.code}: {body}")
-        return None
-    except Exception as exc:
-        log.error(f"Sync error: {exc}")
-        return None
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                parsed = json.loads(resp.read().decode())
+                # isinstance narrows the json.loads Any for mypy (this module
+                # is now transitively type-checked via live_executor ->
+                # agent_feed) and guards against a non-object JSON body from a
+                # proxy/CDN.
+                return parsed if isinstance(parsed, dict) else None
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode()
+            except Exception:
+                pass
+            retryable = e.code in _RETRY_STATUS
+            if retryable and not _last:
+                log.warning("Sync HTTP error %s (attempt %d/%d, retrying): %s",
+                            e.code, attempt + 1, attempts, body)
+            else:
+                # Say WHY this is the end of the road: a 4xx that was never
+                # going to succeed reads very differently from a 5xx that ran
+                # out of attempts, and the old single line said neither.
+                log.error("Sync HTTP error %s (%s): %s", e.code,
+                          "gave up after %d attempts" % attempts if retryable
+                          else "not retryable", body)
+                return None
+        except Exception as exc:
+            if _last:
+                log.error("Sync error (%s): %s",
+                          "gave up after %d attempts" % attempts if retries
+                          else "no retry configured", exc)
+                return None
+            log.warning("Sync error (attempt %d/%d, retrying): %s",
+                        attempt + 1, attempts, exc)
+        _t.sleep(_RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)])
+    return None
 
 
 def sync_portfolio(user_id: int, equity: float,
@@ -107,12 +157,16 @@ def sync_portfolio(user_id: int, equity: float,
             "closed_at": str(_attr(t, "closed_at", "")),
         })
 
+    # Replace-all: this endpoint overwrites the user's website state with the
+    # snapshot in this payload, so a second delivery is a no-op rather than a
+    # duplicate. Retrying only closes the gap sooner than the next scheduled
+    # push would.
     result = _post("/api/bot/sync", {
         "user_id": user_id,
         "equity": equity,
         "positions": open_list,
         "closed_trades": closed_list,
-    })
+    }, retries=2)
 
     if result and result.get("ok"):
         log.info(f"Synced to website: user={user_id} equity={equity} "
@@ -140,12 +194,21 @@ def sync_trade_event(user_id: int, event: str, trade, equity: float) -> bool:
         trade_data["opened_at"] = str(_attr(trade, "opened_at", ""))
         trade_data["closed_at"] = str(_attr(trade, "closed_at", ""))
 
+    # One id per LOGICAL event, minted here rather than derived from the
+    # trade's fields. A hash of the fields would be stable across retries but
+    # would also collide with a genuinely separate, identical event — two opens
+    # of the same symbol at the same price would look like one. A uuid minted
+    # once and reused by every retry of THIS call is stable where it must be
+    # and unique where it must be. Without it a retry of a lost `open` inserts
+    # a phantom trade, which is why this sync had no retry at all until now.
+    event_id = uuid.uuid4().hex
     result = _post("/api/bot/sync/trade-event", {
         "user_id": user_id,
         "event": event,
+        "event_id": event_id,
         "trade": trade_data,
         "equity": equity,
-    })
+    }, retries=2)
 
     if result and result.get("ok"):
         log.info(f"Trade event synced: user={user_id} event={event} "
@@ -189,7 +252,7 @@ def sync_scan_data(scan_payload: dict) -> bool:
         timestamp: "2026-06-18 11:28 CST"
     }
     """
-    result = _post("/api/bot/sync/scan", scan_payload)
+    result = _post("/api/bot/sync/scan", scan_payload, retries=2)
     if result and result.get("ok"):
         log.info("Scan data synced to website dashboard")
         return True
@@ -250,7 +313,7 @@ def sync_signals(signals: list[dict]) -> bool:
     """Push a batch of signal-stream rows to the website (UPSERT by signal_key)."""
     if not signals:
         return True
-    result = _post("/api/bot/sync/signals", {"signals": signals})
+    result = _post("/api/bot/sync/signals", {"signals": signals}, retries=2)
     if result and result.get("ok"):
         log.info(f"Synced {result.get('upserted', 0)} signal(s) to website")
         return True
@@ -357,10 +420,11 @@ def sync_tiers(tier_map: dict) -> bool:
         _json.dumps(tier_map, sort_keys=True).encode()).hexdigest()
     if digest == _last_tiers_sent:
         return True
+    # UPDATE-by-key, so replaying it lands the same rows on the same users.
     result = _post("/api/bot/sync/tiers", {
         "tiers": [{"telegram_id": k, "tier": v}
                   for k, v in tier_map.items()],
-    })
+    }, retries=2)
     if result and result.get("ok"):
         _last_tiers_sent = digest
         log.info(f"Synced {result.get('updated', 0)} user tier(s) to website")

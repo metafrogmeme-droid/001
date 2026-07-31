@@ -10,7 +10,7 @@ import bot.utils.website_sync as ws
 
 def _capture(monkeypatch):
     calls = []
-    monkeypatch.setattr(ws, "_post", lambda path, body: (calls.append((path, body)) or {"ok": True, "stored": 0}))
+    monkeypatch.setattr(ws, "_post", lambda path, body, **kw: (calls.append((path, body)) or {"ok": True, "stored": 0}))
     return calls
 
 

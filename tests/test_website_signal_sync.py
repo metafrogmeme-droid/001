@@ -84,7 +84,7 @@ class TestSyncSignalsPost:
     def test_posts_envelope(self, monkeypatch):
         captured = {}
 
-        def _fake_post(path, data):
+        def _fake_post(path, data, **kw):
             captured["path"] = path
             captured["data"] = data
             return {"ok": True, "upserted": len(data.get("signals", []))}
@@ -97,6 +97,6 @@ class TestSyncSignalsPost:
 
     def test_empty_is_noop_true(self, monkeypatch):
         called = {"n": 0}
-        monkeypatch.setattr(ws, "_post", lambda p, d: called.__setitem__("n", called["n"] + 1))
+        monkeypatch.setattr(ws, "_post", lambda p, d, **kw: called.__setitem__("n", called["n"] + 1))
         assert ws.sync_signals([]) is True
         assert called["n"] == 0
