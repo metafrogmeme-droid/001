@@ -56,7 +56,13 @@
     // PnL); older cached payloads still carry size/pnl, so derive as before.
     if (trade.pnl_pct != null) return Number(trade.pnl_pct);
     const size = Number(trade.size_usd) || 0;
-    const pnl = Number(trade.pnl) || 0;                 // legacy payloads only
+    const pnl = Number(trade.pnl);                      // legacy payloads only
+    // Both halves must be readable. With `|| 0` an unreadable P&L over a
+    // known size returned 0/size = 0, and the caller renders a non-null
+    // return as "+0.00%" -- a measured break-even derived from a value that
+    // was never read. null routes to the outcome word instead, which now
+    // admits when it does not know either.
+    if (!Number.isFinite(pnl)) return null;
     return size > 0 ? (pnl / size) * 100 : null;
   }
 
@@ -123,8 +129,14 @@
     const x = t => PAD.l + (t - t0) / (t1 - t0 || 1) * (W - PAD.l - PAD.r);
     const y = v => PAD.t + (max - v) / span * (H - PAD.t - PAD.b);
     const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.c).toFixed(1)}`).join('');
-    const win = trade.result ? trade.result === 'win' : (Number(trade.pnl) || 0) >= 0;
-    const col = win ? 'var(--up)' : 'var(--down)';
+    // Three states, not two. `(Number(trade.pnl) || 0) >= 0` painted a replay
+    // GREEN whenever a legacy payload carried neither a result nor a readable
+    // P&L -- NaN became 0, and 0 >= 0 is true. Colour is a claim: a green
+    // curve says "this one won" as loudly as a label would.
+    const _p = Number(trade.pnl);
+    const win = trade.result ? trade.result === 'win'
+      : (Number.isFinite(_p) ? _p >= 0 : null);
+    const col = win == null ? 'var(--muted)' : win ? 'var(--up)' : 'var(--down)';
     const dirUp = trade.direction === 'LONG';
 
     stage.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img"
@@ -157,10 +169,19 @@
 
   function animate(trade, parts) {
     const token = ++animToken;
-    const pnl = Number(trade.pnl) || 0;                 // legacy payloads only
+    const pnl = Number(trade.pnl);                     // legacy payloads only
     const pct = retPct(trade);
     // No size on record -> no percent derivable -> outcome word, never dollars.
-    const finalTxt = pct != null ? fmtRet(pct) : ((trade.result ? trade.result === 'win' : pnl >= 0) ? 'WIN' : 'LOSS');
+    //
+    // ...and no readable P&L either -> no outcome WORD. The old `|| 0` made
+    // `pnl >= 0` true for a legacy payload carrying neither, so an unknown
+    // replay printed "WIN". Same coercion as the curve colour above, three
+    // lines apart, which is how the half-fixed surface keeps happening: the
+    // fix has to follow the VALUE, not the line.
+    const _res = trade.result ? trade.result === 'win'
+      : (Number.isFinite(pnl) ? pnl >= 0 : null);
+    const finalTxt = pct != null ? fmtRet(pct)
+      : (_res == null ? 'RESULT UNKNOWN' : _res ? 'WIN' : 'LOSS');
     const DUR = 4200;
     pnlEl.textContent = pct != null ? '+0.00%' : '';
     pnlEl.className = 'num';

@@ -771,6 +771,13 @@ window.addEventListener('unhandledrejection', rcReportPageError);
           ? fill(T('arena.disc_vs', 'Planned exits won {a}% of the time; improvised closes won {b}%.'),
             { a: disc.win_rate_planned_pct, b: disc.win_rate_manual_pct })
           : null,
+        // A close with no recorded P&L is excluded from both win rates. Saying
+        // so is the difference between "won 60% of 20" and "won 60% of the 12
+        // we could score" — silent exclusion reads as the first.
+        disc.unscored_closes > 0
+          ? fill(T('arena.disc_unscored', '{n} of those closes carry no recorded P&L, so they are counted in the totals above but scored as neither a win nor a loss.'),
+            { n: disc.unscored_closes })
+          : null,
       ].filter(Boolean);
       de.innerHTML = '<div class="starter"><div class="t">'
         + esc(T('arena.disc_h', 'Your exit discipline · a read, not a verdict')) + ' <span class="badge-chip">' + esc(lvl) + '</span></div>'

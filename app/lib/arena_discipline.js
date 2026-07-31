@@ -15,6 +15,9 @@
  *     same heuristic-flags-not-verdicts doctrine the safety reads follow.
  *   - Below MIN_CLOSES the read declines to exist. Five closes is noise;
  *     grading noise would be invention.
+ *   - A close with no readable P&L is not a loss. It is excluded from both
+ *     win rates and counted in `unscored_closes`, because scoring a trade
+ *     the record cannot price is the same invention one line down.
  *
  * Pure: rows in, read out. Dual-consumed by the route and the tests.
  */
@@ -36,12 +39,29 @@ function computeDiscipline(trades) {
 
   const by = { tp: 0, sl: 0, trail: 0, manual: 0, liquidated: 0, other: 0 };
   let planned = 0, plannedWins = 0, manualWins = 0, manualN = 0;
+  // Scored counts are the win-rate denominators. They exist because a close
+  // whose P&L cannot be read is not a loss.
+  //
+  // `(parseFloat(t.pnl) || 0) > 0` made it one: NaN became 0, and 0 > 0 is
+  // false, so every unrecorded close was quietly filed as a defeat and both
+  // win rates below were depressed by it. `rows` filters on `reason != null`
+  // and never on pnl, so nothing upstream prevented that. Three lines under a
+  // docstring promising nothing is estimated.
+  //
+  // Reason-based figures (planned_rate_pct, liquidation_rate_pct) still use
+  // every row -- those read the close REASON, which is present, and dropping
+  // rows there would understate how many closes happened.
+  let plannedScored = 0, manualScored = 0, unscored = 0;
   for (const t of rows) {
     const r = String(t.reason);
     if (by[r] == null) by.other += 1; else by[r] += 1;
-    const win = (parseFloat(t.pnl) || 0) > 0;
-    if (PLANNED.has(r)) { planned += 1; if (win) plannedWins += 1; }
-    if (r === 'manual') { manualN += 1; if (win) manualWins += 1; }
+    if (PLANNED.has(r)) planned += 1;
+    if (r === 'manual') manualN += 1;
+    const p = parseFloat(t.pnl);
+    if (!Number.isFinite(p)) { unscored += 1; continue; }
+    const win = p > 0;
+    if (PLANNED.has(r)) { plannedScored += 1; if (win) plannedWins += 1; }
+    if (r === 'manual') { manualScored += 1; if (win) manualWins += 1; }
   }
 
   const pct = (a, b) => (b > 0 ? Math.round(a / b * 1000) / 10 : null);
@@ -67,8 +87,13 @@ function computeDiscipline(trades) {
     // The comparison that teaches: do your planned exits win more often than
     // your improvised ones? null when either side has no sample — a
     // comparison with nothing on one side is not a comparison.
-    win_rate_planned_pct: planned > 0 ? pct(plannedWins, planned) : null,
-    win_rate_manual_pct: manualN > 0 ? pct(manualWins, manualN) : null,
+    win_rate_planned_pct: plannedScored > 0 ? pct(plannedWins, plannedScored) : null,
+    win_rate_manual_pct: manualScored > 0 ? pct(manualWins, manualScored) : null,
+    // How many closes carried no readable P&L and so could not be scored
+    // either way. Surfaced rather than swallowed: a win rate over 12 of 20
+    // closes and one over 20 of 20 are different readings, and only this
+    // number tells them apart.
+    unscored_closes: unscored,
     level,
   };
 }
