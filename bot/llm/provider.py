@@ -1043,6 +1043,13 @@ async def llm_complete(
                     citations_out.extend(_collect_web_citations(response))
                 except Exception:
                     pass
+            # MEASURED usage, straight off the provider response. Discarding
+            # it is why nobody could say what raising the universe 70->85 cost.
+            try:
+                from bot.llm import usage as _usage
+                _usage.record_from_response(config.model, response)
+            except Exception:
+                pass
             return raw_text or ""
 
         else:
@@ -1068,6 +1075,11 @@ async def llm_complete(
             # content can be None (content-filter finish, tool-call-only, or
             # empty completion); normalize to "" so callers that .strip() it
             # don't hit AttributeError — mirrors the Anthropic branch above.
+            try:
+                from bot.llm import usage as _usage
+                _usage.record_from_response(config.model, response)
+            except Exception:
+                pass
             return response.choices[0].message.content or ""
 
     # Apply timeout — prevents hanging scan cycle

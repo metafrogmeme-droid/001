@@ -421,7 +421,21 @@ async def health():
         # number. `shortfall` is how many signals will not be looked at.
         **({"analyze_capacity": _analyze_capacity(engine)}
            if _analyze_capacity(engine) is not None else {}),
+        # What the brain has cost since this process started. Tokens are
+        # MEASURED (reported by the provider); `cost_usd` appears only when
+        # the operator supplied $/1M rates, because a hardcoded price table
+        # is a stale number wearing the authority of a measured one.
+        "llm_usage": _llm_usage(),
     }
+
+
+def _llm_usage() -> dict:
+    """Measured LLM token usage. Empty dict if the accountant is unavailable."""
+    try:
+        from bot.llm import usage as _u
+        return _u.snapshot()
+    except Exception:
+        return {}
 
 
 def _analyze_capacity(engine) -> "dict | None":

@@ -7532,11 +7532,33 @@ class TelegramHandler:
                                       for k, v in _ovs.items()))
         except Exception:
             override_block = ""
+        # What the brain has COST since this process started. Tokens are
+        # measured (the provider reports them); the dollar line appears only
+        # if the operator supplied $/1M rates, because a hardcoded price table
+        # is a stale number wearing the authority of a measured one.
+        usage_block = ""
+        try:
+            from bot.llm import usage as _usage
+            _u = _usage.snapshot()
+            if _u.get("calls"):
+                usage_block = (
+                    f"\n\n📊 <b>Since start</b>: <code>{_u['calls']:,}</code> calls · "
+                    f"<code>{_u['tokens_in']:,}</code> in / "
+                    f"<code>{_u['tokens_out']:,}</code> out")
+                if "cost_usd" in _u:
+                    usage_block += (f" · <code>${_u['cost_usd']:,.4f}</code> "
+                                    f"<i>({html.escape(_u['cost_basis'])})</i>")
+                else:
+                    usage_block += ("\n<i>Set LLM_PRICE_PER_1M_IN / "
+                                    "LLM_PRICE_PER_1M_OUT for a cost figure — "
+                                    "unset, no price is invented.</i>")
+        except Exception:
+            usage_block = ""
         await self._send(update,
             f"🤖 {t('llm_status_title', self._lang(update))}\n"
             f"{SEP}\n"
             f"<pre>{html.escape(status)}</pre>"
-            f"{health_line}{slots_block}{override_block}")
+            f"{health_line}{slots_block}{override_block}{usage_block}")
 
     @guard("mode")
     async def _cmd_llmreset(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
