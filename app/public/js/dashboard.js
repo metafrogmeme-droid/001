@@ -3641,10 +3641,17 @@
       mustRead(r);
       const trades = (r.data?.trades || []).filter(t => t.closed_at);
       if (!trades.length) return null;
+      // Same rule as the edge metrics below: an unrecorded P&L is not a zero.
+      // Summed as one it turned a day of unknown trades into a green "+"
+      // cell, because the renderer paints v >= 0 as profit. A day with
+      // nothing readable stays null and renders grey -- the shade this grid
+      // already uses for "no trades", and the honest one for "no answer".
       const byDay = {};
       trades.forEach(t => {
+        const v = parseFloat(t.pnl);
+        if (!Number.isFinite(v)) return;
         const d = new Date(t.closed_at).toISOString().slice(0, 10);
-        byDay[d] = (byDay[d] || 0) + (parseFloat(t.pnl) || 0);
+        byDay[d] = (byDay[d] || 0) + v;
       });
       let cells = '';
       for (let i = 27; i >= 0; i--) {
@@ -3666,7 +3673,21 @@
       mustRead(r);
       const trades = (r.data?.trades || []).filter(t => t.closed_at);
       if (trades.length < 2) return null;
-      const pnls = trades.map(t => parseFloat(t.pnl) || 0);
+      // `parseFloat(t.pnl) || 0` turned an UNRECORDED P&L into a measured
+      // zero, three lines under a comment promising nothing is invented. That
+      // zero was incoherent as well as untrue: it entered the expectancy mean
+      // through the denominator, counted as neither a win nor a loss, broke
+      // whatever streak it landed in, and could win Math.max as "best trade".
+      //
+      // A trade whose result was never recorded is not a break-even trade. It
+      // is a trade this panel cannot speak about, so it is excluded and the
+      // exclusion is disclosed -- which is what makes the comment above true.
+      const _readable = trades
+        .map(t => parseFloat(t.pnl))
+        .filter(p => Number.isFinite(p));
+      const _unreadable = trades.length - _readable.length;
+      if (_readable.length < 2) return null;
+      const pnls = _readable;
       const wins = pnls.filter(p => p > 0), losses = pnls.filter(p => p < 0);
       const expectancy = pnls.reduce((a, b) => a + b, 0) / pnls.length;
       const avgWin = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
@@ -3692,7 +3713,8 @@
         <div class="stat"><div class="k">Avg hold</div><div class="v">${holdTxt}</div></div>
         <div class="stat"><div class="k">Best / worst</div><div class="v num"><span class="${pnlClass(best)}">${signed(best)}</span> / <span class="${pnlClass(worst)}">${signed(worst)}</span></div></div>
       </div>
-      <p class="muted small mt-2">Positive expectancy with payoff ≥ 1 is a durable edge. Ask the AI analyst to review any of it.</p>`;
+      <p class="muted small mt-2">Positive expectancy with payoff ≥ 1 is a durable edge. Ask the AI analyst to review any of it.</p>
+      ${_unreadable ? `<p class="muted small">⚠️ ${_unreadable} closed trade${_unreadable === 1 ? '' : 's'} had no recorded P&amp;L and ${_unreadable === 1 ? 'is' : 'are'} excluded — these figures cover ${pnls.length} of ${trades.length}.</p>` : ''}`;
     }, { empty: { icon: 'icon-bolt', text: 'Edge metrics unlock after a couple of closed trades.' } });
 
     renderPanel(C('hist'), async () => {
@@ -3734,10 +3756,21 @@
       const btn = e.target.closest('.ask-ai');
       if (!btn || !window.RCChat) return;
       const { sym, dir, entry, exit, pnl } = btn.dataset;
-      const won = (parseFloat(pnl) || 0) >= 0;
+      // `(parseFloat(pnl) || 0) >= 0` made an UNREADABLE result a win: null
+      // became 0, and 0 >= 0 is true. The prompt then told the analyst the
+      // trade won, and it would have coached on that premise without ever
+      // being told the outcome was unknown. A fabricated fact is worse fed to
+      // a model than printed on a card, because the model reasons onward from
+      // it.
+      const _pnl = parseFloat(pnl);
+      const _outcome = Number.isFinite(_pnl)
+        ? `It ${_pnl >= 0 ? 'won' : 'lost'}.`
+        : 'Its recorded P&L is missing, so do NOT assume it won or lost — '
+          + 'reason from the entry, exit and direction alone, and say so.';
       window.RCChat.ask(
         `Post-mortem my ${dir} ${sym} trade: entry ${entry}, exit ${exit}, ` +
-        `PnL ${pnl}. It ${won ? 'won' : 'lost'} — what did I do right or wrong, ` +
+        `PnL ${Number.isFinite(_pnl) ? pnl : 'not recorded'}. ${_outcome} ` +
+        `What did I do right or wrong, ` +
         `and what should I look for before taking this setup again?`);
     });
 
