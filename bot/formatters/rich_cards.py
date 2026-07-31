@@ -698,7 +698,8 @@ def render_multi_analysis(
 
 def render_live_portfolio_summary(equity: float, open_count: int,
                                   exposure: float, realized_pnl: float,
-                                  total_closed: int, win_rate: float) -> List[str]:
+                                  total_closed: int, win_rate: float,
+                                  unscored: int = 0) -> List[str]:
     """The /portfolio (LIVE) header block, as a PURE function.
 
     Extracted so the WINDOW on each number can be asserted by rendering the
@@ -710,6 +711,12 @@ def render_live_portfolio_summary(equity: float, open_count: int,
 
     `realized_pnl` is LIFETIME: it sums the executor's PERSISTED closed
     trades (F-14), which survive restarts. The label says so.
+
+    `unscored` is the same problem in miniature, one line down. "Trades: 20"
+    and "Win rate: 60%" sit side by side, so the pair implies the rate ran
+    over all twenty -- and after #1020 it runs over however many carried a
+    recorded P&L. Defaults to 0 so callers that genuinely have none say
+    nothing extra.
     """
     pnl_icon = "\U0001f7e2" if realized_pnl >= 0 else "\U0001f534"
     lines = [
@@ -722,6 +729,17 @@ def render_live_portfolio_summary(equity: float, open_count: int,
         lines.append(
             f"Trades: <code>{total_closed}</code> | "
             f"Win rate: <code>{win_rate:.0f}%</code>")
+        # Coerced here rather than trusted: this is a display path, and a
+        # card that raises is worse than one that omits a caveat.
+        try:
+            _u = max(0, int(unscored or 0))
+        except (TypeError, ValueError):
+            _u = 0
+        from bot.utils.win_rate import coverage_note as _wr_note
+        _note = _wr_note({"unscored": _u, "total": total_closed,
+                          "scored": max(0, total_closed - _u)})
+        if _note:
+            lines.append(_note.strip())
     return lines
 
 

@@ -704,7 +704,8 @@ class GetPortfolioSkill(BaseSkill):
             lines = render_live_portfolio_summary(
                 equity=display_equity, open_count=len(live_open),
                 exposure=live_exposure, realized_pnl=live_total_pnl,
-                total_closed=total_closed, win_rate=wr)
+                total_closed=total_closed, win_rate=wr,
+                unscored=_stats.get("unscored", 0))
 
             if live_open:
                 lines.append("")

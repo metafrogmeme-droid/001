@@ -67,6 +67,23 @@ def _background_scan_is_fresh(
 ANALYSIS_TIMEOUT_HINT_WINDOW_S = 900.0
 
 
+
+def _unpriced_tag(stats: dict) -> str:
+    """" (+N unpriced)" for a W/L line, or "" when everything scored.
+
+    #1020 corrected the arithmetic on ten win counts and then showed the
+    corrected rate with no hint that it covers fewer trades than the total
+    beside it -- a field written and never read, which is the exact rule
+    #1018 added ("a tally nothing reads answers nothing"). Silent on a clean
+    set, because a caveat on every healthy line is how a real one is skipped.
+    """
+    try:
+        n = int((stats or {}).get("unscored", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        return ""
+    return f" <i>(+{n} unpriced)</i>" if n > 0 else ""
+
+
 def _scan_timeout_hint(analyzer, engine=None) -> str:
     """One diagnostic line for the interactive-scan timeout message.
 
@@ -1282,8 +1299,11 @@ class TelegramHandler:
                     f"{len(live_open)} open positions, "
                     f"equity {_eq_ctx}, "
                     f"net PnL ${total_pnl:+,.2f} (fees ${total_fees:.2f}), "
-                    f"win rate {win_rate_val:.0%}, "
-                    f"total trades {total_trades}"
+                    f"win rate {win_rate_val:.0%}"
+                    + (f" (over {_ws['scored']} of {total_trades} — "
+                       f"{_ws['unscored']} have no recorded P&L)"
+                       if _ws["unscored"] else "")
+                    + f", total trades {total_trades}"
                 )
             else:
                 eq_display = state.equity_usd
@@ -8215,9 +8235,10 @@ class TelegramHandler:
                 wr = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
                 lines.extend([
                     "", sep, "",
-                    f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L | "
-                    f"{t('lbl_net', lang)}: <code>${live_total_pnl:+,.2f}</code> | "
-                    f"{t('lbl_win_rate_lc', lang)}: <code>{wr:.0f}%</code>",
+                    f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L"
+                    + _unpriced_tag(_ws) + " | "
+                    + f"{t('lbl_net', lang)}: <code>${live_total_pnl:+,.2f}</code> | "
+                    + f"{t('lbl_win_rate_lc', lang)}: <code>{wr:.0f}%</code>",
                 ])
                 if adopted_trades:
                     adopted_pnl = sum((t.pnl_usd or 0) for t in adopted_trades)
@@ -10536,6 +10557,12 @@ class TelegramHandler:
                 "week_pnl": round(week_pnl, 2),
                 "total_pnl": round(total_pnl, 2),
                 "win_rate": win_rate,
+                # How many closes the rate actually covers. The card shows
+                # "Win Rate" and "Trades" as neighbouring tiles, so without
+                # this the two together imply a denominator the rate never
+                # used.
+                "win_rate_scored": _ws["scored"],
+                "win_rate_unscored": _ws["unscored"],
                 "trades_today": trades_today,
                 "total_trades": total_trades,
                 "best_pair": best_pair,
@@ -10576,7 +10603,9 @@ class TelegramHandler:
                  "color": "green" if data.get("today_pnl", 0.0) >= 0 else "red"},
                 {"label": "Week PnL", "value": f"${data.get('week_pnl', 0.0):+,.2f}",
                  "color": "green" if data.get("week_pnl", 0.0) >= 0 else "red"},
-                {"label": "Win Rate", "value": f"{_wr:.0f}%", "color": "cyan"},
+                {"label": ("Win Rate" if not data.get("win_rate_unscored")
+                           else f"Win Rate (of {data.get('win_rate_scored', 0)})"),
+                 "value": f"{_wr:.0f}%", "color": "cyan"},
                 {"label": "Trades", "value": str(data.get("total_trades", data.get("trades_today", 0))), "color": "white"},
                 {"label": "Best", "value": str(data.get("best_pair", "N/A")), "color": "green"},
                 {"label": "Worst", "value": str(data.get("worst_pair", "N/A")), "color": "red"},
