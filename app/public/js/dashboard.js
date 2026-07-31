@@ -198,29 +198,14 @@
       el.className = `chip ${cls}`;
       el.title = title;
     };
+    // The verdict is computed by a PURE model (engine-status-model.js) so it
+    // can be scenario-tested. Inline here it had no seam, which is how a
+    // surface ships a claim nobody ever asserts.
     const syncTime = cache.scan?.received_at || cache.scan?.timestamp;
-    if (!syncTime) {
-      if (cache.scanOk === false) {
-        return set('● ENGINE STATUS UNKNOWN', 'chip--warn',
-          'The site could not read its own engine feed, so it cannot tell you '
-          + 'whether the engine is running. This is a website problem, not '
-          + 'evidence of a trading outage.');
-      }
-      if (cache.scanOk === null) {
-        return set('● CONNECTING', 'chip--offline', 'Reading the engine feed…');
-      }
-      return set('● NO ENGINE DATA', 'chip--offline',
-        'The feed was read successfully and holds no scan yet.');
-    }
-    const ageSec = (Date.now() - new Date(syncTime).getTime()) / 1000;
-    // We have a payload, so age is real evidence and the verdict stands on it.
-    // A failed REFRESH is noted rather than allowed to overwrite what we know.
-    const stale = cache.scanOk === false
-      ? ' The latest refresh failed, so this may be older than it looks.' : '';
-    const ago = `Last engine scan ${Math.round(ageSec / 60)}m ago.`;
-    if (ageSec < 900) set('● ENGINE LIVE', 'chip--up', ago + stale);
-    else if (ageSec < 1800) set('● ENGINE STALE', 'chip--warn', ago + stale);
-    else set('● ENGINE OFFLINE', 'chip--offline', ago + stale);
+    const v = (self.EngineStatusModel || {}).engineChipState;
+    if (!v) return;
+    const s = v(syncTime, cache.scanOk, Date.now());
+    set(s.text, s.cls, s.title);
   }
   function updateModeChip(pf) {
     const el = document.getElementById('modeChip');

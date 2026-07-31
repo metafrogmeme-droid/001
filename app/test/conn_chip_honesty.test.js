@@ -29,32 +29,27 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 
+const { engineChipState } = require('../public/js/engine-status-model.js');
+
+// Still needed by the getScan tests below: THOSE assert how dashboard.js
+// RECORDS the read outcome (cache.scanOk), which is not part of the verdict
+// model and correctly stayed where it is.
 const SRC = fs.readFileSync(
   path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
 
-/** Run updateConnChip against a fake element and a supplied cache. */
+/**
+ * The verdict now lives in a PURE model, so this harness calls it directly
+ * instead of slicing updateConnChip's body out of dashboard.js and running it
+ * in a VM. That workaround existed only because the logic had no seam — the
+ * extraction is what removed the need for it. Every scenario below is
+ * unchanged; only how the verdict is obtained changed.
+ */
 function chip(cacheState, nowMs = 1_700_000_000_000) {
-  const start = SRC.indexOf('function updateConnChip()');
-  const end = SRC.indexOf('function updateModeChip');
-  assert.ok(start > 0 && end > start, 'updateConnChip block not found');
-
-  const el = { textContent: '', className: '', title: '' };
-  const sandbox = {
-    cache: Object.assign({ scan: null, scanAt: 0, scanOk: null }, cacheState),
-    document: { getElementById: (id) => (id === 'connChip' ? el : null) },
-    Date: class extends Date {
-      constructor(...a) { super(...(a.length ? a : [nowMs])); }
-      static now() { return nowMs; }
-    },
-    Math,
-    module: {},
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(SRC.slice(start, end) + '\nmodule.exports = updateConnChip;', sandbox);
-  sandbox.module.exports();
-  return el;
+  const c = Object.assign({ scan: null, scanAt: 0, scanOk: null }, cacheState);
+  const syncTime = c.scan && (c.scan.received_at || c.scan.timestamp);
+  const s = engineChipState(syncTime || null, c.scanOk, nowMs);
+  return { textContent: s.text, className: `chip ${s.cls}`, title: s.title };
 }
 
 const iso = (msAgo, now = 1_700_000_000_000) => new Date(now - msAgo).toISOString();

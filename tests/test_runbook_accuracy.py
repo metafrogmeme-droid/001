@@ -128,9 +128,22 @@ def test_the_breaker_key_it_quotes_is_the_real_one():
     "Live updates disconnected",
 ])
 def test_documented_dashboard_states_are_strings_the_app_can_show(phrase):
-    dash = Path("app/public/js/dashboard.js").read_text(encoding="utf-8")
+    # Search every script the dashboard PAGE loads, not one file. The chip's
+    # verdict moved to engine-status-model.js so it could be scenario-tested,
+    # and a single-file grep reported that the app had stopped rendering
+    # states it renders identically — the third source-scanning test in one
+    # evening to fail on a behaviour-preserving extraction.
+    #
+    # The invariant is unchanged: a phrase the runbook teaches an operator to
+    # recognise must exist SOMEWHERE the page can show it.
+    sources = [
+        Path("app/public/js/dashboard.js"),
+        Path("app/public/js/engine-status-model.js"),
+    ]
+    shown = "\n".join(p.read_text(encoding="utf-8")
+                      for p in sources if p.exists())
     assert phrase in RUNBOOK, f"{phrase} dropped out of the runbook"
-    assert phrase in dash, (
+    assert phrase in shown, (
         f"the runbook teaches an operator to recognise {phrase!r}, which the "
         f"dashboard never renders")
 
