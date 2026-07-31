@@ -531,7 +531,12 @@ class CheckRiskSkill(BaseSkill):
             display_open = len(live_open)
             display_total_trades = len(live_closed)
             display_pnl = sum((p.pnl_usd or 0) for p in live_closed)
-            display_win_rate = (sum(1 for t in live_closed if (t.pnl_usd or 0) > 0) / len(live_closed)) if live_closed else 0.0
+            # Scored over scorable: pnl_usd is Optional, and `or 0` filed
+            # every unpriced close as a defeat while len() kept it in the
+            # denominator.
+            from bot.utils.win_rate import win_stats as _win_stats
+            _ws = _win_stats(live_closed)
+            display_win_rate = _ws["rate"] if _ws["rate"] is not None else 0.0
         else:
             display_equity = state.equity_usd
             total_exp = sum(p.entry_price * p.quantity for p in portfolio.open_positions)

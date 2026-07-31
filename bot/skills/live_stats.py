@@ -38,18 +38,31 @@ def real_closed_trades(closed) -> list:
 
 def _trade_sign(t) -> str:
     """'win' (pnl>0), 'loss' (pnl<0) or 'flat' (breakeven / unknown)."""
-    p = getattr(t, "pnl_usd", 0) or 0
+    # pnl_usd is Optional, and `or 0` made an unpriced close read "flat" --
+    # a claim that it broke even. A streak walk then treats it as a real
+    # boundary, ending a run that may never have ended. "unknown" is its own
+    # outcome: it ends the streak (we cannot say the run continued) without
+    # asserting the trade was break-even.
+    from bot.utils.win_rate import _pnl as _read_pnl
+    p = _read_pnl(t)
+    if p is None:
+        return "unknown"
     return "win" if p > 0 else ("loss" if p < 0 else "flat")
 
 
 def _streak_from_trades(trades) -> dict:
     """The run of consecutive same-outcome trades ending at the most recent one.
     Assumes `trades` is chronological (oldest first) and walks back from the
-    newest. A breakeven trade (pnl==0) ends any streak. Pure."""
+    newest. A breakeven trade (pnl==0) ends any streak, and so does one whose
+    P&L was never recorded -- for a different reason: the first is a measured
+    boundary, the second is the absence of a measurement, and neither lets a
+    run continue through it. Pure."""
     if not trades:
         return {"kind": None, "count": 0}
     newest = _trade_sign(trades[-1])
-    if newest == "flat":
+    if newest in ("flat", "unknown"):
+        # No streak claimable off an unpriced newest trade either -- the run
+        # it would head is unmeasured, not zero-length-by-measurement.
         return {"kind": None, "count": 0}
     count = 0
     for t in reversed(trades):
@@ -83,7 +96,13 @@ def live_win_stats(closed) -> dict:
     """
     trades = real_closed_trades(closed)
     total = len(trades)
-    wins = sum(1 for t in trades if (getattr(t, "pnl_usd", 0) or 0) > 0)
-    win_rate = (wins / total * 100.0) if total else 0.0
+    # Live shape: pnl_usd is Optional, so `or 0` filed every unpriced close
+    # as a defeat while `total` kept it in the denominator. Score over what
+    # can be priced, and carry the unscored count so the rate can be judged.
+    from bot.utils.win_rate import win_stats as _win_stats
+    _ws = _win_stats(trades)
+    wins = _ws["wins"]
+    win_rate = (_ws["rate"] * 100.0) if _ws["rate"] is not None else 0.0
     return {"trades": trades, "total": total, "wins": wins,
-            "win_rate": win_rate, "streak": _streak_from_trades(trades)}
+            "win_rate": win_rate, "unscored": _ws["unscored"],
+            "streak": _streak_from_trades(trades)}

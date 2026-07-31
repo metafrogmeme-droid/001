@@ -65,8 +65,13 @@ def _fetch_live_exchange_data() -> Optional[dict]:
 
     total = len(closed_trades)
     total_pnl = sum(float(t.get("net_pnl", t.get("pnl", 0)) or 0) for t in closed_trades)
-    wins = sum(1 for t in closed_trades if float(t.get("net_pnl", t.get("pnl", 0)) or 0) > 0)
-    win_rate = (wins / total * 100) if total > 0 else 0
+    # Scored over SCORABLE, not over every row: a trade with no recorded
+    # pnl was previously a non-win in a full-set denominator, which pushed
+    # this rate down for every unpriced close.
+    from bot.utils.win_rate import win_stats as _win_stats
+    _ws = _win_stats(closed_trades)
+    wins = _ws["wins"]
+    win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
 
     # Format closed trades for dashboard (last 20)
     for t in closed_trades[-20:]:
@@ -360,8 +365,13 @@ def _build_scan_payload(results: list[dict], engine=None,
             # Compute stats from portfolio history
             history = list(portfolio._history) if hasattr(portfolio, '_history') else []
             cb_total_trades = len(history)
-            wins = sum(1 for t in history if getattr(t, 'net_pnl', 0) > 0)
-            cb_win_rate = (wins / cb_total_trades * 100) if cb_total_trades > 0 else 0
+            # getattr(..., 0) makes an ABSENT net_pnl a non-win in a full-set
+            # denominator -- the same shape as the live sites, one attribute
+            # over.
+            from bot.utils.win_rate import win_stats as _win_stats
+            _ws = _win_stats(history)
+            wins = _ws["wins"]
+            cb_win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
             cb_net_pnl = sum(getattr(t, 'net_pnl', 0) for t in history)
         except Exception as exc:
             log.warning("Paper portfolio data unavailable: %s", exc)

@@ -392,6 +392,7 @@ from bot.nlp.sanitize import (
 # +10.19 over 50 trades here, -10.74 over 95 there, same account, same day.
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.site_url import site_url
+from bot.utils.win_rate import win_stats as _win_stats
 from bot.skills.scan_coverage import coverage_note
 
 
@@ -1266,8 +1267,13 @@ class TelegramHandler:
                                if not any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)
                                and getattr(t, "close_reason", "") not in _non_trade_reasons_pane]
                 total_trades = len(live_closed)
-                wins = sum(1 for t in live_closed if (t.pnl_usd or 0) > 0)
-                win_rate_val = wins / total_trades if total_trades > 0 else 0
+                # pnl_usd is Optional. `(t.pnl_usd or 0) > 0` filed every
+                # unpriced close as a defeat while len() kept it in the
+                # denominator, so each one pushed this rate DOWN. Score what
+                # can be priced; a rate of None means nothing could be.
+                _ws = _win_stats(live_closed)
+                wins = _ws["wins"]
+                win_rate_val = _ws["rate"] if _ws["rate"] is not None else 0
                 total_pnl = sum(t.pnl_usd or 0 for t in live_closed)
                 total_fees = sum(t.commission or 0 for t in live_closed)
                 _eq_ctx = (f"~${eq_display:,.2f}" if eq_display is not None
@@ -8200,9 +8206,13 @@ class TelegramHandler:
 
             # Session tally from LiveExecutor
             if live_closed:
-                wins = sum(1 for t in live_closed if (t.pnl_usd or 0) > 0)
-                losses = len(live_closed) - wins
-                wr = wins / len(live_closed) * 100 if live_closed else 0
+                # `losses = len(...) - wins` is the same defect in its
+                # second form: a close nobody could price was displayed as an
+                # L. Losses are now the scored non-wins.
+                _ws = _win_stats(live_closed)
+                wins = _ws["wins"]
+                losses = _ws["scored"] - wins
+                wr = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
                 lines.extend([
                     "", sep, "",
                     f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L | "
@@ -10475,8 +10485,9 @@ class TelegramHandler:
             adopted_pnl = sum((t.pnl_usd or 0) for t in adopted_trades)
 
             total_trades = len(user_trades)
-            wins = sum(1 for t in user_trades if (t.pnl_usd or 0) > 0)
-            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+            _ws = _win_stats(user_trades)
+            wins = _ws["wins"]
+            win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
             total_pnl = sum((t.pnl_usd or 0) for t in user_trades)
 
             # ── Date-filtered PnL ──
@@ -10672,8 +10683,9 @@ class TelegramHandler:
                                   for p in _ORPHAN_PREFIXES)
                        and getattr(t, "close_reason", "") not in _non_trade_reasons_daily]
             today_trades = len(closed)
-            wins = sum(1 for t in closed if (t.pnl_usd or 0) > 0)
-            losses = today_trades - wins
+            _ws = _win_stats(closed)
+            wins = _ws["wins"]
+            losses = _ws["scored"] - wins
             net_pnl = sum((t.pnl_usd or 0) for t in closed)
             best_trade = "N/A"
             best_pnl = 0.0
@@ -10693,8 +10705,14 @@ class TelegramHandler:
             portfolio = self.engine.user_portfolios.get(user_id)
             trades = portfolio.trade_history
             today_trades = len(trades)
-            wins = sum(1 for t in trades if t.pnl > 0)
-            losses = today_trades - wins
+            # The PAPER twin of the live branch above, and it carried the same
+            # two defects in a different shape: `t.pnl > 0` raises rather than
+            # mis-scores when pnl is None, and `today_trades - wins` shows an
+            # unpriced close as an L. Found by the source test written for the
+            # live sites -- a grep for `pnl_usd` never reached this one.
+            _ws = _win_stats(trades)
+            wins = _ws["wins"]
+            losses = _ws["scored"] - wins
             net_pnl = sum(t.pnl for t in trades)
             best_trade = "N/A"
             best_pnl = 0.0

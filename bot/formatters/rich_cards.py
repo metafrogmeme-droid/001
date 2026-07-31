@@ -621,8 +621,13 @@ def render_pnl_report(
     ])
 
     if closed_trades:
-        wins = sum(1 for t in closed_trades if t.get("pnl", 0) > 0)
-        losses = len(closed_trades) - wins
+        # Dict rows here rather than positions, same rule: a row with no
+        # recorded pnl is scored neither way, and `len(...) - wins` would
+        # have shown it as an L.
+        from bot.utils.win_rate import win_stats as _win_stats
+        _ws = _win_stats(closed_trades)
+        wins = _ws["wins"]
+        losses = _ws["scored"] - wins
         lines.append(
             f"{'Today was green.' if session_pnl > 0 else 'Today was red.' if session_pnl < 0 else 'Flat session.'} "
             f"{wins}W/{losses}L, net {_fmt_price(session_pnl)}."
