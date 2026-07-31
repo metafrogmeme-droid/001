@@ -329,19 +329,25 @@
       var yTop = Y(Math.max(b.o, b.c)), yBot = Y(Math.min(b.o, b.c));
       s += '<rect x="' + (x - cw / 2).toFixed(1) + '" y="' + yTop.toFixed(1) + '" width="' + cw.toFixed(1) + '" height="' + Math.max(0.8, yBot - yTop).toFixed(1) + '" fill="' + col + '"/>';
     }
-    // Position geometry: entry solid, TP/SL dashed, liq dotted — each labeled.
-    function level(price, color, dash, label) {
+    // Position geometry: entry solid, TP/SL dashed, liq dotted — each labeled
+    // with its price AND what reaching it does to the position. A bare
+    // "tp 100.914" beside "entry 100.660" leaves the reader to do the
+    // arithmetic, and on a 10x position the answer is 25x bigger than the
+    // price move suggests.
+    function level(price, color, dash, label, moveOf) {
       var p = Number(price);
       if (!(p > 0) || p < lo || p > hi) return;
       var y = Y(p).toFixed(1);
+      var mv = moveOf ? levelMove(opts.entry, p, opts.direction, opts.leverage) : null;
       s += '<line x1="' + PAD + '" y1="' + y + '" x2="' + (PAD + iw) + '" y2="' + y + '" stroke="' + color + '" stroke-width="1.2"' + (dash ? ' stroke-dasharray="' + dash + '"' : '') + '/>';
-      s += '<text x="' + (PAD + iw + 3) + '" y="' + (Number(y) + 3.5) + '" font-size="9.5" font-family="monospace" fill="' + color + '">' + label + ' ' + fmt(p) + '</text>';
+      s += '<text x="' + (PAD + iw + 3) + '" y="' + (Number(y) + 3.5) + '" font-size="9.5" font-family="monospace" fill="' + color + '">'
+        + label + ' ' + fmt(p) + (mv ? ' ' + mv.text : '') + '</text>';
     }
     level(opts.entry, '#e6b03c', '', 'entry');
-    level(opts.exit, '#3fb6ff', '', 'exit');
-    level(opts.tp, '#2fbf71', '6 4', 'tp');
-    level(opts.sl, '#e05252', '6 4', 'sl');
-    level(opts.liq, '#a33', '2 3', 'liq');
+    level(opts.exit, '#3fb6ff', '', 'exit', true);
+    level(opts.tp, '#2fbf71', '6 4', 'tp', true);
+    level(opts.sl, '#e05252', '6 4', 'sl', true);
+    level(opts.liq, '#a33', '2 3', 'liq', true);
     // Elliott wave labels — circled numbers at the bars where the engine's
     // wave extremes printed (matchWaveBars: honest placement or none).
     matchWaveBars(candles, opts.waves || []).forEach(function (w) {
@@ -362,7 +368,47 @@
     return s;
   }
 
-  var api = { parseCandles: parseCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
+
+  // What reaching a level does to the position, as a percentage.
+  //
+  // Two numbers live here and only one of them is usually the one asked for.
+  // The PRICE move (entry -> level) is a market fact. The POSITION move is
+  // that times leverage, and it is what the account actually feels: a 0.25%
+  // price move on a 10x position is 2.5% of margin. The chart used to print
+  // neither -- just two prices, with the arithmetic left to the reader.
+  //
+  // Leverage is applied ONLY when it is known. There is no default multiplier
+  // and no assumed 1x dressed up as a measurement: a signal row carries no
+  // leverage (nobody has sized it yet), so it gets the price move alone, and
+  // the label says so by omitting the multiplier rather than by printing a
+  // number nobody supplied.
+  //
+  // Sign is relative to the DIRECTION, not to the price axis. On a SHORT a
+  // take-profit sits below entry and is still a gain; rendering that as a
+  // negative percentage would invert the meaning of every short on the board.
+  function levelMove(entry, level, direction, leverage) {
+    var e = Number(entry), p = Number(level);
+    if (!(e > 0) || !(p > 0)) return null;
+    var short = String(direction || '').toUpperCase().indexOf('SHORT') === 0;
+    var pct = (short ? (e - p) : (p - e)) / e * 100;
+    var lev = Number(leverage);
+    var known = isFinite(lev) && lev > 0;
+    var out = known ? pct * lev : pct;
+    var sign = out >= 0 ? '+' : '';
+    // Two decimals below 10%, one above: a 0.25% move and a 25.0% move both
+    // need to read at a glance on a 9.5px monospace label.
+    var body = sign + (Math.abs(out) < 10 ? out.toFixed(2) : out.toFixed(1)) + '%';
+    return {
+      pct: pct,
+      leveraged: known ? pct * lev : null,
+      leverage: known ? lev : null,
+      // The multiplier is part of the label, not decoration: without it the
+      // reader cannot tell a 2.5% price move from a 0.25% move at 10x.
+      text: known ? body + ' @' + (Number.isInteger(lev) ? lev : lev.toFixed(1)) + '\u00d7' : body
+    };
+  }
+
+  var api = { parseCandles: parseCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
   if (typeof window !== 'undefined') window.RCChartRead = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

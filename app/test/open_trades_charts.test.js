@@ -183,8 +183,12 @@ test('symbol modal: timeframe switcher refetches candles, keeps the 4h engine re
 
 test('signals (public): every signal row opens its chart with its own levels', () => {
   assert.match(dash, /data-geo='\$\{esc\(JSON\.stringify\(\{ e: s\.entry_price, sl: s\.stop_loss, tp: s\.take_profit, d: s\.direction \}\)\)\}'/);
-  // Position rows pass geometry too (Trade table + Portfolio/Home items).
-  assert.match(dash, /\{ e: p\.entry_price, sl: p\.stop_loss, tp: p\.take_profit, d: p\.direction \}/);
+  // Position rows pass geometry too (Trade table + Portfolio/Home items),
+  // AND their leverage — the modal's level labels show what reaching a level
+  // does to the position, which is the price move times the multiplier. The
+  // signal row above deliberately carries no leverage: nobody has sized that
+  // trade yet, and an assumed 1x would be an invented number.
+  assert.match(dash, /\{ e: p\.entry_price, sl: p\.stop_loss, tp: p\.take_profit, d: p\.direction, l: p\.leverage \}/);
 });
 
 test('markets (public): at-a-glance read chips under the big chart', () => {

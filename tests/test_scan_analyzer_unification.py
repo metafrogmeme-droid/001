@@ -36,11 +36,15 @@ def _sig(price):
                         volume_usd_24h=1e6, timestamp=datetime.now(UTC))
 
 
+# asyncio.run(), never asyncio.get_event_loop(): the latter raises once
+# any earlier test in the session has closed the loop, so these five
+# passed or failed according to WHICH OTHER FILES ran first. A test
+# whose result depends on its neighbours is not evidence of anything.
 class TestScanRead:
     def test_returns_direction_score_regime(self):
         a = Analyzer()
         c = _candles()
-        read = asyncio.get_event_loop().run_until_complete(
+        read = asyncio.run(
             a.scan_read(_sig(c[-1][4]), c))
         assert read is not None
         assert set(("direction", "score", "regime", "confluence")) <= set(read)
@@ -53,19 +57,19 @@ class TestScanRead:
         c = _candles()
         hist_before = list(a._regime_history)
         regimes_before = dict(a._current_regimes)
-        asyncio.get_event_loop().run_until_complete(a.scan_read(_sig(c[-1][4]), c))
+        asyncio.run(a.scan_read(_sig(c[-1][4]), c))
         assert a._regime_history == hist_before
         assert a._current_regimes == regimes_before
 
     def test_insufficient_data_returns_none(self):
         a = Analyzer()
-        read = asyncio.get_event_loop().run_until_complete(
+        read = asyncio.run(
             a.scan_read(_sig(100.0), _candles(n=5)))
         assert read is None
 
     def test_malformed_candles_return_none(self):
         a = Analyzer()
-        read = asyncio.get_event_loop().run_until_complete(
+        read = asyncio.run(
             a.scan_read(_sig(100.0), [[1, 2, 3]] * 60))  # too few columns
         assert read is None
 
@@ -74,7 +78,7 @@ class TestScanRead:
         — not a separate heuristic — so it cannot contradict the engine."""
         a = Analyzer()
         c = _candles(seed=3)
-        read = asyncio.get_event_loop().run_until_complete(
+        read = asyncio.run(
             a.scan_read(_sig(c[-1][4]), c))
         # Rebuild the same inputs the way scan_read does and confirm the thesis
         # direction agrees with what scan_read reported.

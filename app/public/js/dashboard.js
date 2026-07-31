@@ -1044,7 +1044,7 @@
       <thead><tr><th>Pair</th><th>Side</th><th class="r">Entry</th><th class="r">Stop / Target</th><th class="r">Size</th></tr></thead>
       <tbody>${rows.map(p => `
         <tr data-sym="${esc(String(p.symbol).split('/')[0])}" role="button" tabindex="0"
-            data-geo='${esc(JSON.stringify({ e: p.entry_price, sl: p.stop_loss, tp: p.take_profit, d: p.direction }))}'
+            data-geo='${esc(JSON.stringify({ e: p.entry_price, sl: p.stop_loss, tp: p.take_profit, d: p.direction, l: p.leverage }))}'
             title="Chart, patterns & structure" style="cursor:pointer">
           <td data-label="Pair"><b>${esc(String(p.symbol).split('/')[0])}</b> <span class="muted small">📈</span></td>
           <td data-label="Side">${dirChip(p.direction)}</td>
@@ -1079,7 +1079,7 @@
       const lev = p.leverage ? ` · <span class="muted small">${p.leverage}×</span>` : '';
       const base = esc(p.pair || String(p.symbol || '').split('/')[0]);
       return `<div class="lpos-item" data-sym="${base}" role="button" tabindex="0"
-        data-geo='${esc(JSON.stringify({ e: p.entry_price, sl: p.stop_loss, tp: p.take_profit, d: p.direction }))}'
+        data-geo='${esc(JSON.stringify({ e: p.entry_price, sl: p.stop_loss, tp: p.take_profit, d: p.direction, l: p.leverage }))}'
         title="Chart, patterns & structure" style="cursor:pointer">
         <div class="row" style="justify-content:space-between;gap:var(--s2);flex-wrap:wrap">
           <div><b>${base}</b> ${dirChip(p.direction)}${lev} <span class="muted small">📈</span></div>
@@ -2215,6 +2215,7 @@
         <a class="btn btn--sm" href="#markets" id="symGoChart">View in Markets</a>
         <button class="btn btn--sm" type="button" id="symAsk">Ask the AI</button>
         ${LOGGED_IN ? '<button class="btn btn--sm" type="button" id="symStar" aria-pressed="false">☆ Watch</button>' : ''}
+        <button class="btn btn--sm" type="button" id="symShare" title="Share this decision picture">Share</button>
       </div>
       <p class="muted small mt-2">Read-only decision picture · patterns are observations, not signals.</p>`;
     mountDeepScanMinis();
@@ -2261,7 +2262,12 @@
             if (/^Elliott/i.test(cp.name || '')) { ew = cp; break; }
           }
           chartBox.innerHTML = window.RCChartRead.svgChart(parsed, Object.assign(
-            geo ? { entry: geo.e, sl: geo.sl, tp: geo.tp, direction: geo.d } : {},
+            // leverage rides along so the level labels can show what reaching
+            // them does to the POSITION, not only to the price. Absent on
+            // signal rows, where nobody has sized the trade yet -- the label
+            // then shows the price move alone rather than an assumed 1x.
+            geo ? { entry: geo.e, sl: geo.sl, tp: geo.tp, direction: geo.d,
+                    leverage: geo.l } : {},
             { width: Math.max(300, (chartBox.clientWidth || 0) - 4),
               levels: (ins && ins.data && ins.data.levels) || [],
               fvgs: (ins && ins.data && ins.data.fvgs) || [],
@@ -2294,6 +2300,36 @@
     };
     const go = document.getElementById('symGoChart');
     if (go) go.onclick = () => closeSymModal();
+    // Share the decision picture. Same §4 rules as the closed-trade share:
+    // percent only, never a dollar amount, so account size never leaks.
+    //
+    // One rule this share does NOT inherit, because it would be a lie here:
+    // the closed-trade card shares a RESULT. This modal shows a PLAN. A
+    // target rendered in the same voice as a realized return is the oldest
+    // way to mislead with a true number, so the target is labelled as one and
+    // is omitted entirely when no geometry was supplied -- a symbol view with
+    // no levels has no target to quote.
+    const shareBtn = document.getElementById('symShare');
+    if (shareBtn) shareBtn.onclick = async () => {
+      const dirTxt = geo && geo.d ? String(geo.d).toUpperCase() + ' ' : '';
+      let target = '';
+      if (geo && window.RCChartRead && window.RCChartRead.levelMove) {
+        const mv = window.RCChartRead.levelMove(geo.e, geo.tp, geo.d, geo.l);
+        if (mv) target = ` · target ${mv.text}`;
+      }
+      let url = location.origin;
+      try {
+        const rr = await fetchJSON('/api/auth/referrals');
+        if (rr.ok && rr.data?.code) url = `${location.origin}/?ref=${encodeURIComponent(rr.data.code)}`;
+      } catch (_) { /* fall back to the bare origin */ }
+      const text = `${dirTxt}${base}${target} — a RUNECLAW decision picture`
+        + (target ? ' (a plan, not a result).' : '.');
+      if (navigator.share) {
+        try { await navigator.share({ text, url }); return; } catch (_) { /* cancelled → fall through */ }
+      }
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+        '_blank', 'noopener');
+    };
     // Star toggle — stars feed the watchlist strip AND the engine's
     // pattern-alert pushes (watched symbols, not just held ones).
     const star = document.getElementById('symStar');

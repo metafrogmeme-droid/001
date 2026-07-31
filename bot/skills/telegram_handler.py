@@ -374,6 +374,7 @@ from bot.nlp.sanitize import (
 # +10.19 over 50 trades here, -10.74 over 95 there, same account, same day.
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.site_url import site_url
+from bot.skills.scan_coverage import coverage_note
 
 
 # ── War Room main menu keyboard ─────────────────────────────
@@ -8062,11 +8063,34 @@ class TelegramHandler:
             live_total_pnl = sum((p.pnl_usd or 0) for p in live_closed)
             live_total_fees = sum((p.commission or 0) for p in live_closed)
             live_total_gross = sum((p.gross_pnl or p.pnl_usd or 0) for p in live_closed)
+            # Unrealized P&L for open positions -- the SAME rule /open_positions
+            # now enforces, because this surface was left with the disease
+            # after that one was cured. Two bugs sat in the old two lines:
+            #
+            #   `and lp.pnl_usd` is a falsiness test, so a position marked at
+            #   exactly break-even was skipped alongside one that was never
+            #   marked at all; and an unmarked position then contributed 0 to
+            #   the sum, so the survivors were rendered as THE unrealized
+            #   total with a colour on it.
+            #
+            # A partial sum presented as a whole one is a wrong number wearing
+            # a measured number's authority. Count what marked, and say so
+            # when the count is short.
+            #
+            # Scope, stated rather than implied: this separates "no mark" from
+            # "a mark", not "fresh" from "stale". A position carrying an old
+            # pnl_usd still counts here. Detecting staleness needs a mark
+            # timestamp the executor does not currently carry, and claiming
+            # more than that would be the defect one level up.
             live_unrealized = 0.0
-            # Unrealized PnL for open positions
+            _marked = 0
             for lp in live_open:
-                if hasattr(lp, 'pnl_usd') and lp.pnl_usd:
-                    live_unrealized += lp.pnl_usd
+                _u = getattr(lp, "pnl_usd", None)
+                if _u is None:
+                    continue
+                live_unrealized += float(_u)
+                _marked += 1
+            _unmarked = len(live_open) - _marked
 
             # Live exposure
             live_exposure = sum(lp.cost_usd for lp in live_open)
@@ -8088,8 +8112,20 @@ class TelegramHandler:
                 f"- {t('lbl_net_pnl', lang)}: <code>${live_total_pnl:+,.2f}</code> {'🟢' if live_total_pnl >= 0 else '🔴'}",
                 f"- {t('lbl_fees_paid', lang)}: <code>${live_total_fees:,.2f}</code>",
             ]
-            if live_unrealized != 0:
-                lines.append(f"- {t('lbl_unrealized_pnl', lang)}: <code>${live_unrealized:+,.2f}</code> {'🟢' if live_unrealized >= 0 else '🔴'}")
+            if live_open and _marked == 0:
+                # Every mark missing. A "$0.00" here, or the old silent
+                # omission, both read as "nothing is riding on the book".
+                lines.append(
+                    f"- {t('lbl_unrealized_pnl', lang)}: "
+                    f"<code>{t('pnl_unknown', lang)}</code> \u26a0\ufe0f")
+            elif _marked:
+                _u_line = (f"- {t('lbl_unrealized_pnl', lang)}: "
+                           f"<code>${live_unrealized:+,.2f}</code> "
+                           f"{'🟢' if live_unrealized >= 0 else '🔴'}")
+                if _unmarked:
+                    _u_line += (f" \u26a0\ufe0f <i>"
+                                f"{t('total_partial', lang, n=_unmarked)}</i>")
+                lines.append(_u_line)
 
             # Open positions from LiveExecutor
             # Separate filled positions from pending limit orders
@@ -9190,6 +9226,8 @@ class TelegramHandler:
         # Filter to stock symbols — try exact match first, then fuzzy
         stock_set = set(US_STOCK_SYMBOLS)
         stock_signals = []
+        # How many stock perps the venue listed, against how many priced.
+        _stock_seen = 0
 
         # Also detect any symbol with stock-like naming (ON suffix or R prefix)
         stock_name_patterns = {
@@ -9210,11 +9248,16 @@ class TelegramHandler:
                         break
             if not is_stock:
                 continue
+            _stock_seen += 1
             try:
                 price = float(tick.get("last", 0) or 0)
                 change = float(tick.get("percentage", 0) or 0)
                 volume = float(tick.get("quoteVolume", 0) or 0)
                 if price <= 0:
+                    # Recognised as a stock perp, but the venue served no
+                    # price for it. Dropping it silently and then heading the
+                    # card with the surviving count presents a partial read as
+                    # the whole board.
                     continue
                 stock_signals.append({
                     "symbol": sym,
@@ -9250,7 +9293,8 @@ class TelegramHandler:
         # Build output
         lines = [
             f"\U0001f4c8 <b>US STOCK SCAN</b> \u2014 {len(stock_signals)} symbols  |  "
-            f"{datetime.now(UTC).strftime('%H:%M')} UTC\n",
+            f"{datetime.now(UTC).strftime('%H:%M')} UTC\n"
+            + coverage_note(_stock_seen, len(stock_signals)),
             format_stock_scan_header(session),
             "",
         ]

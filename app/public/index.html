@@ -1119,9 +1119,16 @@ async function showWalletQr(){
 async function resendVerification(){
   const res=await apiAuth('/auth/send-verification',{});
   const t=document.getElementById('verify-text');
+  const btn=document.getElementById('verify-resend');
   if(res.error){t.textContent=res.error;return;}
-  if(res.already_verified){t.textContent='✓ Email verified.';document.getElementById('verify-resend').classList.add('hidden');return;}
-  t.textContent=res.sent?'Verification email sent — check your inbox.':'Email delivery is not configured yet; ask the operator to set up SMTP.';
+  if(res.already_verified){t.textContent=T('acc.verify_done','\u2713 Email verified.');if(btn)btn.classList.add('hidden');return;}
+  if(res.sent){t.textContent=T('acc.verify_sent','Verification email sent \u2014 check your inbox.');return;}
+  // No mail server, so pressing this again does exactly nothing. The button
+  // stayed live and kept inviting a press that could never succeed -- an
+  // offer the app cannot honour is worse than no offer. Disable it and say
+  // what has to change, and by whom.
+  t.textContent=T('acc.verify_no_smtp','Email delivery is not configured yet, so this cannot be sent. The operator has to set up SMTP first \u2014 nothing you press here will change that.');
+  if(btn){btn.disabled=true;btn.classList.add('is-disabled');btn.setAttribute('aria-disabled','true');}
 }
 async function getToken(){
   if(!SESSION?.token)return;
