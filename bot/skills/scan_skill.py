@@ -16,6 +16,11 @@ from bot.formatters.rich_cards import (
     compute_atr as _compute_atr,
 )
 from bot.utils.site_url import site_url
+from bot.skills.scan_coverage import (
+    coverage_note,
+    empty_result_line,
+    unreadable_verdict,
+)
 
 log = logging.getLogger("runeclaw.scan_skill")
 
@@ -753,7 +758,10 @@ def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | No
         log.warning("Dashboard scan push failed: %s", exc)
 
 
-# ── Symbol universe (67) ───────────────────────────────────────────
+# ── Symbol universe ────────────────────────────────────────────────
+# No count in this banner on purpose. The bridge's twin of this list once
+# said 66 while holding 70; prose counts drift the first time a symbol is
+# added. Everything user-facing derives from len(UNIVERSE).
 _SYMS = (
     "BTC ETH SOL TON XRP DOGE BNB SUI ADA LINK BCH AVAX DOT ICP NEAR "
     "LTC AAVE UNI OP WLD WIF ORDI ARB TRX XLM ETC APT HBAR BONK PENDLE "
@@ -886,9 +894,11 @@ async def cmd_scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if mode == "quick":
         await _scan_batch(update, context, engine, top_n=10, patterns=False, ai=False)
     elif mode == "deep":
-        await _scan_batch(update, context, engine, top_n=67, patterns=False, ai=False)
+        await _scan_batch(update, context, engine, top_n=len(UNIVERSE),
+                          patterns=False, ai=False)
     elif mode == "deepall":
-        await _scan_batch(update, context, engine, top_n=67, patterns=True, ai=True)
+        await _scan_batch(update, context, engine, top_n=len(UNIVERSE),
+                          patterns=True, ai=True)
     elif mode == "swing":
         await _scan_filtered(update, context, engine, filter_type="swing")
     elif mode == "scalp":
@@ -897,7 +907,7 @@ async def cmd_scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "<b>Usage:</b>\n"
             "/scan — quick top 10\n"
-            "/scan deep — full 67 symbols\n"
+            f"/scan deep — full {len(UNIVERSE)} symbols\n"
             "/scan deepall — full + patterns + AI\n"
             "/scan swing — swing filter\n"
             "/scan scalp — scalp filter\n"
@@ -912,9 +922,15 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     exchange = await engine.scanner._get_exchange()
     _analyzer = getattr(engine, "analyzer", None)
     raw = await asyncio.gather(*[_scan_symbol(exchange, s, _analyzer) for s in UNIVERSE])
+    # How much of the universe actually answered. The list comprehension below
+    # deletes every symbol the exchange would not serve, and without this count
+    # a pass that read half the universe renders exactly like a whole one.
+    _readable = sum(1 for r in raw if r)
     results = sorted((r for r in raw if r), key=lambda x: x["score"], reverse=True)[:top_n]
     if not results:
-        await msg.edit_text("No scannable symbols found."); return
+        await msg.edit_text(unreadable_verdict("Scan", len(UNIVERSE)),
+                            parse_mode="HTML")
+        return
 
     # ── BTC Gate Check ──
     btc_gate = ""
@@ -994,9 +1010,14 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
             buf.name = "scan.png"
             chat_id = update.effective_chat.id if update.effective_chat else None
             if chat_id:
+                # The caption carries the coverage disclosure too: when the
+                # card renders, `body` is never sent, so a note that lives
+                # only on the fallback path never appears on the surface
+                # people actually screenshot.
                 await context.bot.send_photo(
                     chat_id=chat_id, photo=buf,
-                    caption=f"\u2694\ufe0f <b>RUNECLAW Live Scan</b> — {now_str}",
+                    caption=(f"\u2694\ufe0f <b>RUNECLAW Live Scan</b> — {now_str}"
+                             + coverage_note(len(UNIVERSE), _readable)),
                     parse_mode="HTML")
                 card_sent = True
     except Exception as exc:
@@ -1047,6 +1068,11 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     if skipped:
         body += f"\n\n<i>{len(skipped)} symbols below gate threshold</i>"
+
+    # "Below threshold" and "never read" are different facts. The line above
+    # only ever counted the first one, so a pass that lost 40 symbols to the
+    # exchange looked like a pass where 40 symbols simply scored badly.
+    body += coverage_note(len(UNIVERSE), _readable)
 
     # Provable Calls, where screenshots are born: every setup above is sealed
     # (sha256 over its decision facts) the moment it reaches the platform, so a
@@ -1116,6 +1142,7 @@ async def _scan_filtered(update: Update, context: ContextTypes.DEFAULT_TYPE,
     _analyzer = getattr(engine, "analyzer", None)
     raw = await asyncio.gather(*[_scan_symbol(exchange, s, _analyzer) for s in UNIVERSE])
     results = [r for r in raw if r is not None]
+    _readable = len(results)
     if filter_type == "swing":
         results = [r for r in results if 30 <= r["rsi"] <= 55 and r["dir"] == "LONG" and r["score"] >= 0.3]
         label = "Swing"
@@ -1124,9 +1151,17 @@ async def _scan_filtered(update: Update, context: ContextTypes.DEFAULT_TYPE,
         label = "Scalp"
     results = sorted(results, key=lambda x: x["score"], reverse=True)[:15]
     if not results:
-        await msg.edit_text(f"No {label.lower()} setups found right now."); return
+        # "No swing setups found right now" is a claim about the market. When
+        # zero symbols were readable it is a claim about the network wearing
+        # the market's clothes, and it read identically either way.
+        await msg.edit_text(
+            empty_result_line(label.lower(), len(UNIVERSE), _readable),
+            parse_mode="HTML")
+        return
     header = f"\U0001f3af <b>RUNECLAW {label} Scan</b> -- {len(results)} setups\n"
-    await msg.edit_text(header + "\n" + "\n\n".join(_fmt_detail(r) for r in results), parse_mode="HTML")
+    await msg.edit_text(
+        header + "\n" + "\n\n".join(_fmt_detail(r) for r in results)
+        + coverage_note(len(UNIVERSE), _readable), parse_mode="HTML")
 
     # Push all scan results (not just filtered) to dashboard
     all_results = sorted((r for r in raw if r is not None), key=lambda x: x["score"], reverse=True)

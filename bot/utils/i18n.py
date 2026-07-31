@@ -729,6 +729,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "No open positions right now.\nSay \"scan\" or \"analyze BTC\" to find setups.",
         "zh": "目前沒有持倉。\n輸入「掃描」或「分析 BTC」來尋找機會。",
     },
+    # A mark that could not be fetched is UNKNOWN, never break-even. These
+    # three keys exist so the position card can say so instead of printing
+    # "+0.0% ($0.00)" over a price it never read.
+    "pnl_unknown": {"en": "P&L unknown", "zh": "盈虧未知"},
+    "price_unread": {"en": "price unavailable", "zh": "無法取得價格"},
+    "total_partial": {
+        "en": "total excludes {n} position(s) with no price",
+        "zh": "總計不含 {n} 個無法取得價格的持倉",
+    },
 
     # ── Account commands (/link, /unlink, /me, /sync) ──
     "link_already_linked": {

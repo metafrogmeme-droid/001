@@ -97,6 +97,42 @@ Prefer exercising a property over matching text: run the function, drive the
 failure, assert the outcome. Source matching is for shapes a unit test cannot
 reach (a guard being *reached* at every call site, a cap being configurable).
 
+**When there is no seam, make one.** That advice is easy to skip because the
+seam is usually the reason the scan was written. Three cases from 2026-07-30:
+
+- The Telegram adoption card was built inline in the handler. #999 added a
+  per-position SL/TP outcome, source-scanned it, shipped it — and it rendered
+  **zero times** in production, because the callback received prose where the
+  lookup expected symbols. The code was *present*. It was never reached, and
+  no scan can tell those apart.
+- The dashboard's engine-status chip was inline in 6k lines of browser script.
+  Its test sliced the function body out with `indexOf` and ran it in a VM.
+- A `/portfolio` label was pinned by grepping the file that builds it. That
+  test passes with the label present *and* the "Recent:" list moved on top of
+  it — which was the entire defect.
+
+Extracting each into a pure renderer took minutes and immediately caught
+things the scans could not: `/risk` scoring `HEALTHY 100%` on a halted
+engine, and a `0 trades at 0% win rate` line that reads as a measured record
+of failure rather than the absence of one.
+
+**Do not convert wholesale.** 47 of 532 test files scan source and most of
+them should — `tests/test_trade_live_mode.py` says so in its own docstring:
+the behaviour is covered elsewhere and the file locks *wiring*. The narrow
+failure mode is a source scan **standing in for behaviour nothing else
+tests**.
+
+Rank candidates by what a wrong claim would cost. The surfaces that still
+build cards inline and make halt/breaker/stop-loss claims — `_status_lines`,
+`_cmd_escape`, `_cmd_open_positions` — are where to look next.
+
+**Plant the state, assert what the card says.** `tests/test_surface_scenarios.py`
+and `app/test/engine_status_scenarios.test.js` hold the pattern: MUST_SAY,
+MUST_NOT_SAY, and a planted **red herring** — a true-but-misleading signal.
+The red herring is the point. A green LLM health check rules *one* cause out
+and names none, and reading it as "the exchange is slow" cost 37 timed-out
+ticks pointed at the wrong subsystem.
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps

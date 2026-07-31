@@ -7687,13 +7687,19 @@ class TelegramHandler:
             self._news_radar = radar
         held = self._held_symbols()
         watch = held or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"]
+        _refresh_failed = False
         try:
             await radar.refresh(symbols=watch)
         except Exception as exc:
+            # Swallowing this into a debug log is what let a total feed
+            # outage render as "No headlines yet". The digest is entitled to
+            # know the difference between a quiet tape and an unread one.
+            _refresh_failed = True
             system_log.debug("news refresh failed: %s", exc)
         now = _t.time()
         return render_news_digest(
-            radar.recent(8), radar.standdown(held, now) if held else [], now)
+            radar.recent(8), radar.standdown(held, now) if held else [], now,
+            refresh_failed=_refresh_failed)
 
     async def _cmd_news(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """NEWS-1b: /news — public-RSS headline radar with high-impact alerts on
@@ -9002,7 +9008,7 @@ class TelegramHandler:
 
     @guard("deepscan")
     async def _cmd_deepscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Deep scan 67+ symbols with chart + candle patterns."""
+        """Deep scan the universe with chart + candle patterns."""
         if await self._token_gate_blocks(update, "deep", "deepscan"):
             return
         # Parse optional timeframe from args: /deepscan 1h  (or /deepscan all
@@ -9132,18 +9138,31 @@ class TelegramHandler:
                        else CONFIG.deepscan_timeout_sec)
             system_log.error("Deepscan timed out after %.0fs (multi=%s)",
                              _budget, _multi)
+            # ...and where the time goes is a question this bot can already
+            # answer. _scan_timeout_hint carries the degraded-LLM streak and
+            # the engine's own analysis-timeout record (symbol AND stage).
+            # Sending the operator to /status for a fact we hold is a
+            # deflection, and it left the diagnostic wired to exactly one of
+            # the four commands that can time out.
             await self._send(update,
                 f"🔴 <b>Deepscan hit its {_budget:.0f}s limit.</b> That is this "
-                f"command's own budget — not a diagnosis of the exchange. "
-                f"<code>/status</code> carries the engine's measured scan "
-                f"timing if you want to know where the time goes.")
+                f"command's own budget — not a diagnosis of the exchange."
+                + (_scan_timeout_hint(getattr(self.engine, "analyzer", None),
+                                      self.engine)
+                   or "\n\n<code>/status</code> carries the engine's measured "
+                      "scan timing if you want to know where the time goes."))
         except Exception as exc:
             system_log.error(f"Deepscan error: {exc}", exc_info=True)
             await self._send(update, f"🔴 <b>Deepscan error:</b> <code>{html.escape(str(exc)[:200])}</code>")
 
     @guard("scan")
     async def _cmd_fullscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Full 67-symbol scan via scan_skill module. /fullscan [deep|deepall|swing|scalp|SYMBOL]"""
+        """Full-universe scan via scan_skill module.
+
+        No symbol count in this line: the count lives in scan_skill.UNIVERSE
+        and every user-facing number derives from len() of it.
+        /fullscan [deep|deepall|swing|scalp|SYMBOL]
+        """
         await _scan_skill_handler(update, ctx)
 
     @guard("scan")
@@ -9332,9 +9351,27 @@ class TelegramHandler:
 
     @guard("patterns")
     async def _cmd_patterns(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/patterns — chart-pattern sweep across the scan universe."""
         if await self._token_gate_blocks(update, "patterns", "patterns"):
             return
-        result = await self.registry.dispatch("patterns", self.engine)
+        # This awaited the dispatch with NO deadline: a stalled fetch left the
+        # operator staring at a command that never answered and never failed.
+        # Its sibling scans have all had a budget for months.
+        _budget = float(getattr(CONFIG, "deepscan_timeout_sec", 120) or 120)
+        try:
+            result = await asyncio.wait_for(
+                self.registry.dispatch("patterns", self.engine),
+                timeout=_budget)
+        except asyncio.TimeoutError:
+            system_log.error("Patterns scan timed out after %.0fs", _budget)
+            await self._send(update,
+                f"🔴 <b>Pattern scan hit its {_budget:.0f}s limit.</b> That is "
+                f"this command's own budget — not a diagnosis of the exchange."
+                + (_scan_timeout_hint(getattr(self.engine, "analyzer", None),
+                                      self.engine)
+                   or "\n\n<code>/status</code> carries the engine's measured "
+                      "scan timing if you want to know where the time goes."))
+            return
         await self._send(update, result)
 
     @guard("proposals")
@@ -9897,7 +9934,17 @@ class TelegramHandler:
                     pass
 
                 for pos in live_positions:
-                    last_price = prices.get(pos.symbol, pos.entry_price)
+                    # A failed ticker fetch used to fall back to the ENTRY
+                    # price, which makes every derived number exactly 0.0:
+                    # the card then printed "+0.0% ($0.00)" on a position
+                    # whose current price was unknown. That is the sentence
+                    # this repo's own doctrine opens with — an unfetchable
+                    # price shown as +0.00% — and 0.0 is indistinguishable
+                    # from a real, measured, break-even position. Carry the
+                    # gap instead of papering over it.
+                    _price_read = prices.get(pos.symbol)
+                    last_price = (_price_read if _price_read is not None
+                                  else pos.entry_price)
                     if pos.direction == "LONG":
                         pnl_pct_raw = ((last_price - pos.entry_price) / pos.entry_price) * 100
                     else:
@@ -9916,21 +9963,26 @@ class TelegramHandler:
                     risk_left = abs(last_price - pos.stop_loss) if pos.stop_loss else 0
                     reward_left = abs(pos.take_profit - last_price) if pos.take_profit else 0
                     rr_live = reward_left / risk_left if risk_left > 0 else 0
+                    # Everything downstream of the mark is None when the mark
+                    # was never read. Absent renders as "unknown"; zero renders
+                    # as a claim.
+                    _unread = _price_read is None
                     positions_data.append({
                         "pair": pos.symbol.replace("/", "").replace(":USDT", ""),
                         "direction": pos.direction,
                         "entry": round(pos.entry_price, 6),
-                        "current": round(last_price, 6),
-                        "pnl_pct": round(pnl_pct, 2),
-                        "pnl_usd": round(upnl_usd, 4),
+                        "price_unavailable": _unread,
+                        "current": None if _unread else round(last_price, 6),
+                        "pnl_pct": None if _unread else round(pnl_pct, 2),
+                        "pnl_usd": None if _unread else round(upnl_usd, 4),
                         "sl": round(pos.stop_loss, 6),
                         "tp": round(pos.take_profit, 6),
-                        "sl_dist_pct": round(sl_dist, 2),
-                        "tp_dist_pct": round(tp_dist, 2),
+                        "sl_dist_pct": None if _unread else round(sl_dist, 2),
+                        "tp_dist_pct": None if _unread else round(tp_dist, 2),
                         "size_usd": round(cost, 2),
                         "notional_usd": round(notional, 2),
                         "leverage": round(leverage, 2),
-                        "rr_live": round(rr_live, 2),
+                        "rr_live": None if _unread else round(rr_live, 2),
                         "quantity": pos.quantity,
                         "comm_pct": CONFIG.risk.commission_pct,
                         "hold_hours": round(hold_h, 1),

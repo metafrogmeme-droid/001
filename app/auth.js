@@ -686,9 +686,18 @@ async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl })
 router.get('/config', (_req, res) => {
   res.json({
     google_client_id: GOOGLE_CLIENT_ID || null,
-    // Telegram widget needs the bot USERNAME (public). Set TELEGRAM_BOT_USERNAME
-    // (without @). Only advertise Telegram login when the verifying token exists.
-    telegram_bot: (TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_USERNAME) || null,
+    // Telegram widget needs the bot USERNAME (public — it is already printed
+    // verbatim on the landing page, in every i18n locale and in the dashboard;
+    // the SECRET is TELEGRAM_BOT_TOKEN, which never leaves the server).
+    // Requiring an env var for a value the site already publishes meant the
+    // login button silently rendered nothing: on 2026-07-31 the operator
+    // registered the domain with BotFather and the widget still would not
+    // have appeared, with no error anywhere to say why. Default to the
+    // published username; TELEGRAM_BOT_USERNAME still overrides for forks.
+    // The token gate stays: without it no login can be VERIFIED, and
+    // advertising a button that cannot complete is worse than hiding it.
+    telegram_bot: (TELEGRAM_BOT_TOKEN
+      && (process.env.TELEGRAM_BOT_USERNAME || 'HTRUNECLAW_bot')) || null,
     // Redirect-based providers (Discord, X) — advertised only when configured.
     oauth_providers: oauth2.configuredProviders(),
     // Self-custody wallet sign-in is available when the verifier is installed.

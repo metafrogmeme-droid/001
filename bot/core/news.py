@@ -237,9 +237,18 @@ def _esc(s: str) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def render_news_digest(recent, standdown_recs, now, limit=6) -> str:
+def render_news_digest(recent, standdown_recs, now, limit=6,
+                       refresh_failed: bool = False) -> str:
     """Pure Telegram-HTML digest: stand-down nudges for held positions first
-    (advisory), then the freshest headlines with their impact flag. No I/O."""
+    (advisory), then the freshest headlines with their impact flag. No I/O.
+
+    ``refresh_failed`` exists because an empty radar has two causes and only
+    one of them is "nothing happened". The caller swallows a refresh error
+    into a debug log, so a total feed outage rendered as "No headlines yet —
+    the radar fills on the next refresh": a promise, printed at the moment
+    the refresh had just failed, and repeated forever while the feeds stayed
+    down. Absent is never a measurement.
+    """
     lines = ["📰 <b>News radar</b>"]
 
     if standdown_recs:
@@ -262,7 +271,20 @@ def render_news_digest(recent, standdown_recs, now, limit=6) -> str:
                 f"{icon} {_esc(it.title)[:130]}"
                 f"\n    <i>{_esc(it.source)}{syms} · {_fmt_age(it.age_sec(now))}</i>")
     elif not standdown_recs:
-        lines.append("\nNo headlines yet — the radar fills on the next refresh.")
+        if refresh_failed:
+            lines.append(
+                "\n\u26a0\ufe0f <b>The feeds could not be read this pass.</b> "
+                "That is a fetch failure, not a quiet news day — nothing here "
+                "says whether anything happened.")
+        else:
+            lines.append(
+                "\nNo headlines yet — the radar fills on the next refresh.")
+    elif refresh_failed:
+        # Stand-down nudges rendered from CACHED items while the refresh
+        # failed: they are real, but they are not current.
+        lines.append(
+            "\n\u26a0\ufe0f <i>Feeds could not be refreshed this pass — the "
+            "above is the last successful read, not the current tape.</i>")
 
     return "\n".join(lines)
 

@@ -785,24 +785,49 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
     if not positions:
         return t("open_pos_empty", lang)
 
-    total_pnl = sum(p.get("pnl_pct", 0) for p in positions)
-    pnl_icon = "\U0001f7e2" if total_pnl > 0 else "\U0001f534" if total_pnl < 0 else ""
+    # A row whose mark could not be read contributes NOTHING to the total —
+    # not a zero. Summing an unknown as 0 quietly drags the headline toward
+    # break-even and paints a colour on the result, and colour is a claim as
+    # loud as the number. Test `is None`, not falsiness: 0.0 is a real,
+    # measured, break-even position and must still count.
+    _priced = [p for p in positions if p.get("pnl_pct") is not None]
+    _unpriced = len(positions) - len(_priced)
+    total_pnl = sum(p["pnl_pct"] for p in _priced)
 
-    lines = [
-        f"<b>{t('open_positions_n', lang, n=len(positions))}</b> {pnl_icon} {_pct(total_pnl)} {t('lbl_total', lang)}",
-        "",
-    ]
+    if not _priced:
+        # Every mark failed. There is no total, and a "0.0%" here would be
+        # the whole defect in one line.
+        header = (f"<b>{t('open_positions_n', lang, n=len(positions))}</b> "
+                  f"\u26a0\ufe0f {t('pnl_unknown', lang)}")
+    else:
+        pnl_icon = "\U0001f7e2" if total_pnl > 0 else "\U0001f534" if total_pnl < 0 else ""
+        header = (f"<b>{t('open_positions_n', lang, n=len(positions))}</b> "
+                  f"{pnl_icon} {_pct(total_pnl)} {t('lbl_total', lang)}")
+        if _unpriced:
+            header += f" \u26a0\ufe0f {t('total_partial', lang, n=_unpriced)}"
+
+    lines = [header, ""]
 
     for p in positions:
         pair = p.get("pair", "N/A").replace("/", "")
         direction = p.get("direction", "LONG")
         d_icon = "\U0001f7e2" if direction == "LONG" else "\U0001f534"
         entry = p.get("entry", 0)
-        current = p.get("current", entry)
-        pnl = p.get("pnl_pct", 0)
-        pnl_icon = "\U0001f7e2" if pnl > 0 else "\U0001f534" if pnl < 0 else ""
+        pnl = p.get("pnl_pct")
+        _unread = pnl is None or p.get("price_unavailable")
+        current = p.get("current")
         size_usd = p.get("size_usd", 0)
-        pnl_usd_val = p.get("pnl_usd", size_usd * pnl / 100 if pnl else 0)
+        if _unread:
+            # No mark, so no P&L, no direction-of-travel, and NO COLOUR. A
+            # green stripe beside an unknown says "in profit" as loudly as
+            # a number would.
+            pnl_icon = "\u26aa"
+            pnl_usd_val = None
+        else:
+            pnl_icon = "\U0001f7e2" if pnl > 0 else "\U0001f534" if pnl < 0 else ""
+            pnl_usd_val = p.get("pnl_usd")
+            if pnl_usd_val is None:
+                pnl_usd_val = size_usd * pnl / 100
         leverage = p.get("leverage")
         rr_live = p.get("rr_live")
         sl = p.get("sl", 0)
@@ -831,9 +856,15 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
         strategy_type = p.get("strategy_type", "").upper()
         st_tag = f" [{strategy_type}]" if strategy_type else ""
 
+        if _unread:
+            _pnl_cell = f"{pnl_icon} {t('pnl_unknown', lang)}"
+            _mark_cell = f"<i>{t('price_unread', lang)}</i>"
+        else:
+            _pnl_cell = f"{pnl_icon} {_pct(pnl)} (${pnl_usd_val:+,.2f})"
+            _mark_cell = _fmt_price(current)
         lines.extend([
-            f"{d_icon} <b>{pair}</b> {direction}{st_tag} | {pnl_icon} {_pct(pnl)} (${pnl_usd_val:+,.2f})",
-            f"  {_fmt_price(entry)} -> {_fmt_price(current)} | ${size_usd:.0f}{lev_str}{rr_str} | {hold_str}",
+            f"{d_icon} <b>{pair}</b> {direction}{st_tag} | {_pnl_cell}",
+            f"  {_fmt_price(entry)} -> {_mark_cell} | ${size_usd:.0f}{lev_str}{rr_str} | {hold_str}",
             f"  {t('lbl_sl', lang)} {sl_str} / {t('lbl_tp', lang)} {tp_str}{sl_tag}",
         ])
         if untracked:
