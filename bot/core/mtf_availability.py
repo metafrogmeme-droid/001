@@ -70,6 +70,23 @@ CONSECUTIVE_FAILURES = 3
 #: without a restart.
 SUPPRESS_SECONDS = 3600.0
 
+#: WALL CLOCK, not time.monotonic(). This is the one decision persistence
+#: forces, and getting it wrong is worse than not persisting at all.
+#:
+#: monotonic() counts from an arbitrary origin that RESETS on restart. A
+#: persisted `until` of ~1e6 (a machine up for eleven days) reloads against a
+#: fresh monotonic clock reading ~0, so every stored suppression looks like it
+#: expires eleven days from now. The learned state would come back as a
+#: PERMANENT blacklist — the exact failure this module's thresholds are built
+#: to avoid, reintroduced by the act of saving them.
+#:
+#: The cost of wall clock is that a system clock jump can expire a suppression
+#: early or late by the size of the jump. For an advisory one-hour skip whose
+#: worst case is "we fetch a timeframe we could have skipped", that is a good
+#: trade. Named here because the two clocks are interchangeable everywhere
+#: else in this file and a future edit could silently swap it back.
+_CLOCK = "wall"
+
 
 def new_state() -> dict:
     """A fresh record. Plain dict so it survives being logged as JSON."""
@@ -90,7 +107,7 @@ def record_failure(state: dict, symbol: str, timeframe: str,
     try:
         if not isinstance(state, dict):
             return False
-        t = float(now if now is not None else time.monotonic())
+        t = float(now if now is not None else time.time())
         k = _key(symbol, timeframe)
         fails = state.setdefault("fails", {})
         n = int(fails.get(k, 0)) + 1
@@ -130,7 +147,7 @@ def is_suppressed(state: dict, symbol: str, timeframe: str,
     try:
         if not isinstance(state, dict):
             return False
-        t = float(now if now is not None else time.monotonic())
+        t = float(now if now is not None else time.time())
         exp = (state.get("until") or {}).get(_key(symbol, timeframe))
         if exp is None:
             return False
@@ -165,10 +182,88 @@ def filter_specs(state: dict, symbol: str, specs,
         return specs
 
 
+def load(path: str, *, now: float | None = None) -> dict:
+    """Read a persisted state, dropping anything already expired.
+
+    Every restart re-learned from zero: three consecutive failures per pair,
+    each costing up to the per-call timeout, on ~25 symbols x 4 timeframes.
+    That was paid again on all fifteen-plus deploys in a single day.
+
+    Expired entries are dropped ON LOAD rather than carried and filtered
+    later, so a file that sat on disk over a weekend cannot come back as a
+    long list of suppressions nobody measured. Returns a FRESH state on any
+    problem — a corrupt or unreadable file must cost re-learning, never
+    correctness.
+    """
+    fresh = new_state()
+    try:
+        import json
+        import os
+        if not path or not os.path.exists(path):
+            return fresh
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        if not isinstance(raw, dict):
+            return fresh
+        t = float(now if now is not None else time.time())
+        until = {}
+        for k, v in (raw.get("until") or {}).items():
+            try:
+                if isinstance(k, str) and float(v) > t:
+                    until[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+        # Failure COUNTS are deliberately not restored for pairs that are not
+        # suppressed. A count is a run of CONSECUTIVE failures, and a restart
+        # breaks the run — carrying two forward would let one post-restart
+        # blip latch a suppression that no observed run justified.
+        fails = {k: CONSECUTIVE_FAILURES for k in until}
+        fresh["until"] = until
+        fresh["fails"] = fails
+        return fresh
+    except Exception:
+        return fresh
+
+
+def save(state: dict, path: str, *, now: float | None = None) -> bool:
+    """Persist live suppressions. Returns True on success. Never raises.
+
+    Writes via a temporary file and os.replace so a crash mid-write cannot
+    leave a truncated file that load() would then discard — losing the state
+    this exists to keep.
+    """
+    try:
+        import json
+        import os
+        import tempfile
+        if not path:
+            return False
+        t = float(now if now is not None else time.time())
+        until = {k: float(v) for k, v in (state or {}).get("until", {}).items()
+                 if float(v) > t}
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=d or ".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"until": until, "saved_at": t}, fh)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+            raise
+        return True
+    except Exception:
+        return False
+
+
 def summarize(state: dict, *, now: float | None = None) -> dict:
     """Counts of what is currently suppressed. {} when nothing is."""
     try:
-        t = float(now if now is not None else time.monotonic())
+        t = float(now if now is not None else time.time())
         until = dict((state or {}).get("until", {}) or {})
         live = {k: v for k, v in until.items() if float(v) > t}
         if not live:

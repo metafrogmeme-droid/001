@@ -158,6 +158,113 @@ class TestTheFailureModeIsAlwaysToFetch:
         assert ma.is_suppressed(st, None, None, now=0.0)  # type: ignore[arg-type]
 
 
+class TestItSurvivesARestart:
+    """In-memory only meant every restart re-learned from zero.
+
+    Three consecutive failures per pair, each costing up to the per-call
+    timeout, across ~25 symbols x 4 timeframes — re-paid on every one of
+    fifteen-plus deploys in a single day.
+    """
+
+    def _path(self, tmp_path):
+        return str(tmp_path / "sub" / "mtf_availability.json")
+
+    def test_a_live_suppression_survives(self, tmp_path):
+        p = self._path(tmp_path)
+        st = ma.new_state()
+        _fail(st, ma.CONSECUTIVE_FAILURES, now=1000.0)
+        assert ma.save(st, p, now=1000.0) is True
+        back = ma.load(p, now=1000.0)
+        assert ma.is_suppressed(back, SYM, "4h", now=1000.0)
+
+    def test_an_expired_one_does_not_come_back(self, tmp_path):
+        # A file that sat over a weekend must not reload as a long list of
+        # suppressions nobody measured.
+        p = self._path(tmp_path)
+        st = ma.new_state()
+        _fail(st, ma.CONSECUTIVE_FAILURES, now=1000.0)
+        ma.save(st, p, now=1000.0)
+        back = ma.load(p, now=1000.0 + ma.SUPPRESS_SECONDS + 1)
+        assert ma.summarize(back, now=1000.0 + ma.SUPPRESS_SECONDS + 1) == {}
+
+    def test_a_partial_failure_run_is_not_restored(self, tmp_path):
+        # A count is a run of CONSECUTIVE failures and a restart breaks the
+        # run. Carrying two forward would let ONE post-restart blip latch a
+        # suppression no observed run justified.
+        p = self._path(tmp_path)
+        st = ma.new_state()
+        _fail(st, ma.CONSECUTIVE_FAILURES - 1, now=1000.0)
+        ma.save(st, p, now=1000.0)
+        back = ma.load(p, now=1000.0)
+        assert _fail(back, 1, now=1000.0) is False
+        assert not ma.is_suppressed(back, SYM, "4h", now=1000.0)
+
+    def test_a_missing_file_is_a_fresh_state(self, tmp_path):
+        back = ma.load(str(tmp_path / "nope.json"))
+        assert back == ma.new_state()
+
+    def test_a_corrupt_file_costs_relearning_never_correctness(self, tmp_path):
+        p = tmp_path / "bad.json"
+        p.write_text("{ this is not json", encoding="utf-8")
+        back = ma.load(str(p))
+        assert back == ma.new_state()
+        assert ma.filter_specs(back, SYM, SPECS) == list(SPECS)
+
+    def test_a_file_of_the_wrong_shape_is_ignored(self, tmp_path):
+        p = tmp_path / "list.json"
+        p.write_text('["not", "a", "dict"]', encoding="utf-8")
+        assert ma.load(str(p)) == ma.new_state()
+
+    def test_junk_entries_are_dropped_individually(self, tmp_path):
+        p = tmp_path / "mixed.json"
+        p.write_text('{"until": {"A|4h": "soon", "B|1d": 9e12}}',
+                     encoding="utf-8")
+        back = ma.load(str(p), now=1000.0)
+        assert ma.is_suppressed(back, "B", "1d", now=1000.0)
+        assert not ma.is_suppressed(back, "A", "4h", now=1000.0)
+
+    def test_saving_never_raises_on_a_bad_path(self):
+        assert ma.save(ma.new_state(), "") is False
+        assert ma.save(ma.new_state(), "/proc/cannot/write/here.json") is False
+
+    def test_the_write_is_atomic(self, tmp_path):
+        # A crash mid-write must not leave a truncated file, which load()
+        # would then discard — losing the state this exists to keep.
+        import pathlib
+        p = self._path(tmp_path)
+        st = ma.new_state()
+        _fail(st, ma.CONSECUTIVE_FAILURES, now=1000.0)
+        ma.save(st, p, now=1000.0)
+        leftovers = list(pathlib.Path(p).parent.glob("*.tmp"))
+        assert leftovers == [], f"temp file left behind: {leftovers}"
+
+    def test_the_clock_is_wall_not_monotonic(self):
+        """The one decision persistence forces, and the costly one to get wrong.
+
+        monotonic() counts from an arbitrary origin that RESETS on restart, so
+        a persisted `until` of ~1e6 reloads against a fresh clock reading ~0
+        and every stored suppression looks like it expires days from now — the
+        learned state coming back as a PERMANENT blacklist, which is exactly
+        what this module's thresholds exist to prevent.
+        """
+        from tests.source_scan import code_only
+        src = code_only(
+            open("bot/core/mtf_availability.py", encoding="utf-8").read())
+        assert "time.monotonic()" not in src
+        assert src.count("time.time()") >= 3
+
+    def test_a_restart_shaped_round_trip_does_not_blacklist(self):
+        # The end-to-end property, not just the absence of a symbol.
+        import time as _t
+        st = ma.new_state()
+        _fail(st, ma.CONSECUTIVE_FAILURES, now=_t.time())
+        # A "restart" reloads with the wall clock barely advanced.
+        assert ma.is_suppressed(st, SYM, "4h", now=_t.time() + 1)
+        # ...and the window still ends when it should.
+        assert not ma.is_suppressed(
+            st, SYM, "4h", now=_t.time() + ma.SUPPRESS_SECONDS + 1)
+
+
 class TestItIsVisible:
     """Suppression nobody can see is the same defect as the silent fail-open."""
 
@@ -270,13 +377,15 @@ class TestTheEngineUsesIt:
     def test_the_note_appears_when_something_is_suppressed(self):
         from bot.core.engine import RuneClawEngine
 
-        # Real clock: the note calls summarize() with no `now`, so failures
-        # stamped at 0.0 would already have expired against time.monotonic().
+        # Real clock, and it must be the SAME clock the module uses. This
+        # stamped with monotonic() while the module moved to wall clock, and
+        # every suppression read as already expired — the two-clock trap that
+        # persistence forced into the open, reproduced in its own test.
         import time as _t
         st = ma.new_state()
         for tf, _ in SPECS:
             _fail(st, ma.CONSECUTIVE_FAILURES, symbol="RNVDA/USDT", tf=tf,
-                  now=_t.monotonic())
+                  now=_t.time())
 
         class Stub:
             _stage_totals = {"mtf": 90.0, "fetch": 10.0}

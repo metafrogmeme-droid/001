@@ -167,6 +167,25 @@ def _stage_enter_guarded(engine, symbol, stage) -> None:
         pass
 
 
+#: Where the learned timeframe availability survives a restart.
+MTF_AVAILABILITY_PATH = "data/mtf_availability.json"
+
+
+def _mtf_state(engine):
+    """The engine's availability state, LOADED from disk on first use.
+
+    In-memory only, every restart re-learned from zero: three consecutive
+    failures per pair, each costing up to the per-call timeout, across ~25
+    symbols x 4 timeframes. That was paid again on every one of fifteen-plus
+    deploys in a single day.
+    """
+    from bot.core import mtf_availability as _ma
+    st = getattr(engine, "_mtf_availability", None)
+    if st is None:
+        st = engine._mtf_availability = _ma.load(MTF_AVAILABILITY_PATH)
+    return st
+
+
 def _mtf_filter_specs(engine, symbol, specs):
     """Drop timeframes currently suppressed for ``symbol``. Guarded.
 
@@ -177,10 +196,7 @@ def _mtf_filter_specs(engine, symbol, specs):
     """
     try:
         from bot.core import mtf_availability as _ma
-        st = getattr(engine, "_mtf_availability", None)
-        if st is None:
-            st = engine._mtf_availability = _ma.new_state()
-        return _ma.filter_specs(st, symbol, specs)
+        return _ma.filter_specs(_mtf_state(engine), symbol, specs)
     except Exception:
         return specs
 
@@ -189,13 +205,16 @@ def _mtf_note(engine, symbol, timeframe, *, ok: bool) -> None:
     """Record one timeframe outcome. Guarded like every mark on this path."""
     try:
         from bot.core import mtf_availability as _ma
-        st = getattr(engine, "_mtf_availability", None)
-        if st is None:
-            st = engine._mtf_availability = _ma.new_state()
+        st = _mtf_state(engine)
         if ok:
             _ma.record_success(st, symbol, timeframe)
         else:
-            _ma.record_failure(st, symbol, timeframe)
+            # Persist only when a suppression NEWLY latches — record_failure
+            # returns True exactly then. Saving on every failure would write
+            # on every tick for every thin pair; saving never would lose the
+            # learning this exists to keep.
+            if _ma.record_failure(st, symbol, timeframe):
+                _ma.save(st, MTF_AVAILABILITY_PATH)
     except Exception:
         pass
 
