@@ -171,8 +171,16 @@
   if (months.length) {
     $('monthly').innerHTML = months.map(([m, v]) => {
       const c = v.result === 'green' ? 'pos' : v.result === 'red' ? 'neg' : '';
-      const word = v.result === 'green' ? T('tk.m_green', 'green') : v.result === 'red' ? T('tk.m_red', 'red') : T('tk.m_flat', 'flat');
-      return `<tr><td>${esc(m)}</td><td class="num ${c}">${esc(word)} · ${v.trades} (${v.wins}W/${v.losses}L)</td></tr>`;
+      const word = v.result === 'green' ? T('tk.m_green', 'green')
+        : v.result === 'red' ? T('tk.m_red', 'red')
+        : v.result === 'unknown' ? T('tk.m_unknown', 'not priced')
+        : T('tk.m_flat', 'flat');
+      // The unpriced count is published so W + L + unpriced = trades. Without
+      // it a reader adding up "12 (7W/4L)" finds a trade that is neither, and
+      // nothing on the page accounts for it.
+      const un = (v.unpriced || 0) > 0
+        ? `, ${v.unpriced} ${esc(T('tk.m_unpriced', 'unpriced'))}` : '';
+      return `<tr><td>${esc(m)}</td><td class="num ${c}">${esc(word)} · ${v.trades} (${v.wins}W/${v.losses}L${un})</td></tr>`;
     }).join('');
   } else { $('monthlyEmpty').hidden = false; }
 

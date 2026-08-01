@@ -95,8 +95,16 @@ test('aggregates PF, win rate, monthly buckets, drawdown from synced data', asyn
   assert.strictEqual(s.return_pct, 41);
   assert.strictEqual(r.data.mode, 'LIVE');                // from scan cache, not guessed
   // Monthly buckets: counts and the month's sign, never an amount.
-  assert.deepStrictEqual(r.data.monthly['2026-06'], { trades: 1, wins: 1, losses: 0, result: 'green' });
-  assert.deepStrictEqual(r.data.monthly['2026-07'], { trades: 2, wins: 1, losses: 1, result: 'green' });
+  //
+  // `unpriced` joined the shape when trades.pnl turned out to be nullable:
+  // W + L used to fall short of `trades` with nothing on the public page
+  // accounting for the difference. Zero here on purpose — every row in this
+  // fixture carries a recorded P&L, so the count that reconciles them is 0
+  // and the page prints nothing extra.
+  assert.deepStrictEqual(r.data.monthly['2026-06'],
+    { trades: 1, wins: 1, losses: 0, unpriced: 0, result: 'green' });
+  assert.deepStrictEqual(r.data.monthly['2026-07'],
+    { trades: 2, wins: 1, losses: 1, unpriced: 0, result: 'green' });
   // Drawdown: peak 140 -> trough 120 = 14.29%.
   assert.ok(Math.abs(s.max_drawdown_pct - 14.29) < 0.01);
   assert.strictEqual(r.data.recent_trades[0].symbol, 'SOL/USDT'); // newest first

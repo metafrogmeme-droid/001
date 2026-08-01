@@ -78,7 +78,12 @@ router.get('/track-record', async (req, res) => {
     for (const t of trades) {
       const d = new Date(t.closed_at);
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-      monthly[key] = round2((monthly[key] || 0) + (parseFloat(t.pnl) || 0));
+      // Skip, never add 0: an unreadable row must not drag the month's sign
+      // toward flat. The `|| 0` here is the accumulator's seed, reached only
+      // once a finite value exists.
+      const v = parseFloat(t.pnl);
+      if (!Number.isFinite(v)) continue;
+      monthly[key] = round2((monthly[key] || 0) + v);
     }
 
     const curve = snaps.map(s => ({
@@ -105,18 +110,41 @@ router.get('/track-record', async (req, res) => {
       ? round2((segEnd / segStart - 1) * 100) : null;
 
     // Monthly: counts and the sign of the month, never an amount.
+    //
+    // `trades.pnl` is DECIMAL(14,2) with no NOT NULL, so a closed row can
+    // genuinely carry no recorded P&L. Two claims used to come out of that:
+    //
+    //   `m.trades += 1` counted every row while wins/losses only incremented
+    //   on a readable one, so the public record could render "12 (7W/4L)" --
+    //   a visitor doing the arithmetic finds a twelfth trade that is neither,
+    //   with nothing on the page to explain it; and
+    //
+    //   `result` is the SIGN of the dollar sum, and an unreadable row adds 0
+    //   to that sum, so a month whose trades were ALL unpriced summed to 0
+    //   and published itself as "flat" -- break-even, asserted about a month
+    //   nobody could price.
+    //
+    // Both are the same rule this codebase now applies everywhere: absent is
+    // not zero. Count it separately, publish the count so the figures
+    // reconcile, and refuse the verdict when nothing was scorable.
     const monthlyOut = {};
     for (const t of trades) {
       const d = new Date(t.closed_at);
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-      const m = monthlyOut[key] || (monthlyOut[key] = { trades: 0, wins: 0, losses: 0 });
+      const m = monthlyOut[key] || (monthlyOut[key] = {
+        trades: 0, wins: 0, losses: 0, unpriced: 0 });
       m.trades += 1;
-      const p = parseFloat(t.pnl) || 0;
+      const p = parseFloat(t.pnl);
+      if (!Number.isFinite(p)) { m.unpriced += 1; continue; }
       if (p > 0) m.wins += 1; else if (p < 0) m.losses += 1;
     }
     for (const key of Object.keys(monthlyOut)) {
+      const m = monthlyOut[key];
       const net = monthly[key] || 0;
-      monthlyOut[key].result = net > 0 ? 'green' : net < 0 ? 'red' : 'flat';
+      // 'unknown' is its own outcome. It is not 'flat': one is a measured
+      // break-even and the other is the absence of a measurement.
+      m.result = m.unpriced === m.trades ? 'unknown'
+        : net > 0 ? 'green' : net < 0 ? 'red' : 'flat';
     }
 
     // The curve keeps its SHAPE but not the account size: indexed to 100 at
