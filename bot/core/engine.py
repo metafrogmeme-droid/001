@@ -167,6 +167,39 @@ def _stage_enter_guarded(engine, symbol, stage) -> None:
         pass
 
 
+def _mtf_filter_specs(engine, symbol, specs):
+    """Drop timeframes currently suppressed for ``symbol``. Guarded.
+
+    Returns ``specs`` UNCHANGED on any error. The failure mode of this
+    instrumentation must be "fetched something we could have skipped", never
+    "silently stopped fetching" — the second one degrades analysis quality
+    with nothing to show for it.
+    """
+    try:
+        from bot.core import mtf_availability as _ma
+        st = getattr(engine, "_mtf_availability", None)
+        if st is None:
+            st = engine._mtf_availability = _ma.new_state()
+        return _ma.filter_specs(st, symbol, specs)
+    except Exception:
+        return specs
+
+
+def _mtf_note(engine, symbol, timeframe, *, ok: bool) -> None:
+    """Record one timeframe outcome. Guarded like every mark on this path."""
+    try:
+        from bot.core import mtf_availability as _ma
+        st = getattr(engine, "_mtf_availability", None)
+        if st is None:
+            st = engine._mtf_availability = _ma.new_state()
+        if ok:
+            _ma.record_success(st, symbol, timeframe)
+        else:
+            _ma.record_failure(st, symbol, timeframe)
+    except Exception:
+        pass
+
+
 def _stage_profile_record(engine, stage, symbol, seconds) -> None:
     """Per-symbol duration for ONE stage, guarded like the stage mark above.
 
@@ -4263,6 +4296,19 @@ class RuneClawEngine:
             # and it sat under a 300s phase cap. The order-flow fetches beside
             # it were already gathered; this now matches them.
             _tf_specs = (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200))
+            # ttl=180 caches SUCCESSES; a failure caches nothing, so a symbol
+            # whose extra timeframes this venue will not serve failed all four
+            # and was asked again on the very next tick — every tick, each
+            # attempt costing up to the per-call timeout, and fail-open so it
+            # never surfaced as an error. That is the mtf stall: mtf overtook
+            # fetch (~59-64% vs ~36-41%) with 22-27 signals skipped per cycle.
+            #
+            # Remember the failures too. Suppression needs CONSECUTIVE
+            # failures (a blip cannot latch it), expires on its own, and
+            # clears on any success — the cost of a needless fetch is
+            # latency, the cost of a wrongly-skipped timeframe is a worse
+            # decision on real money.
+            _tf_specs = _mtf_filter_specs(self, signal.symbol, _tf_specs)
             _t0 = time.monotonic()
             _stage_enter_guarded(self, signal.symbol, "mtf")
             _tf_results = await asyncio.gather(
@@ -4277,9 +4323,18 @@ class RuneClawEngine:
                 # one bad timeframe degrades that leg to absent, never the rest.
                 if isinstance(_c, BaseException):
                     system_log.debug("Elliott MTF fetch %s failed: %s", _tf, _c)
+                    _mtf_note(self, signal.symbol, _tf, ok=False)
                     continue
                 if _c:
                     mtf_candles[_tf] = self._drop_forming_candle(_c, _tf)
+                    _mtf_note(self, signal.symbol, _tf, ok=True)
+                else:
+                    # An EMPTY result is not an exception, but it is also not
+                    # data. A venue that answers "no candles" instantly is
+                    # cheap to re-ask; one that answers it after a timeout is
+                    # the exact case this exists for. Counted either way —
+                    # the pair still produced nothing usable.
+                    _mtf_note(self, signal.symbol, _tf, ok=False)
 
         _t0 = time.monotonic()
         _stage_enter_guarded(self, signal.symbol, "analyze")
