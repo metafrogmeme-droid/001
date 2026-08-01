@@ -171,6 +171,36 @@ The red herring is the point. A green LLM health check rules *one* cause out
 and names none, and reading it as "the exchange is slow" cost 37 timed-out
 ticks pointed at the wrong subsystem.
 
+## Deploying so a dead bot cannot look like a live one
+
+`python -m bot.main` defaults to `--mode telegram`. It used to default to
+`cli`, which finds no TTY and **exits zero** — so a launcher that forgot the
+flag printed `DEPLOY_DONE` and left nothing running. That happened on ~15
+consecutive redeploys on 2026-08-01, because `git reset --hard` restored the
+flagless launcher every time.
+
+Two habits stop it recurring:
+
+- **Keep the launcher outside the repo.** Anything inside it is one
+  `git reset --hard` away from reverting. `deploy.sh` in here only symlinks
+  persistent `.env`/`data` back in; it is not the entry point.
+- **Gate `DEPLOY_DONE` on the process still being alive**, not on it having
+  started:
+
+  ```bash
+  nohup python -m bot.main >> bot.log 2>&1 &
+  scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
+  echo "DEPLOY_DONE"
+  ```
+
+  Prefer `--pid`: the launcher knows what it started, and `pgrep -f` matching
+  a *pattern* also matches the checking script's own command line. The first
+  draft of that script reported OK for a process that had never existed.
+
+  It also treats a **zombie as dead** — `kill -0` succeeds on a defunct
+  process, and since the deploy script is the parent that has not reaped it,
+  the naive check passes on exactly the failure it exists to catch.
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps

@@ -464,7 +464,21 @@ async def run_backtest() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="RUNECLAW AI Trading Command Core")
     parser.add_argument(
-        "--mode", choices=["telegram", "cli", "scan", "backtest"], default="cli",
+        # DEFAULT IS telegram, and that is an incident fix rather than a
+        # preference. It used to be "cli": a deploy that forgot the flag
+        # started run_cli(), found no TTY, and EXITED ZERO. The process
+        # reported success, the bot was not running, and nothing in the
+        # deploy output said so -- the operator hit this on ~15 consecutive
+        # redeploys because `git reset --hard` kept restoring a launcher
+        # missing the flag.
+        #
+        # scripts/health_check.sh already assumed telegram
+        # (RUNECLAW_MODE:-telegram) and docker-compose.yml passes it
+        # explicitly. Two of the three entry points already agreed; the
+        # default was the odd one out, and it was the one a bare invocation
+        # got. `--mode cli` still works for anyone who wants the REPL.
+        "--mode", choices=["telegram", "cli", "scan", "backtest"],
+        default="telegram",
         help="Run mode: telegram (bot), cli (interactive), scan (one-shot), backtest")
     args = parser.parse_args()
 
