@@ -2791,7 +2791,19 @@ class RuneClawEngine:
                     _supp = _sn() or ""
             except Exception:
                 _supp = ""
+            # Per-call fetch attribution. Appended ALWAYS, not only when
+            # fetch dominates: the point is to say which of the five calls
+            # owns the time, and that is worth knowing on the ticks where
+            # fetch is NOT dominant too — that is how you see it change.
+            _calls = ""
+            try:
+                _cn_fn = getattr(self, "_fetch_call_note", None)
+                if _cn_fn is not None:
+                    _calls = _cn_fn() or ""
+            except Exception:
+                _calls = ""
             return (_line + (f"; {_shape}" if _shape else "")
+                    + (f"; {_calls}" if _calls else "")
                     + (f"; {_supp}" if _supp else ""))
         except Exception:
             return ""
@@ -2825,6 +2837,50 @@ class RuneClawEngine:
                     f"{_ma.CONSECUTIVE_FAILURES} consecutive failures each, "
                     f"re-probed within {int(_ma.SUPPRESS_SECONDS / 60)}min"
                     + (f": {_top}" if _top else ""))
+        except Exception:
+            return ""
+
+    def _fetch_call_note(self) -> str:
+        """Which of the five fetch calls actually owns the time.
+
+        #1045 recorded per-call durations as pseudo-stages (fetch:book,
+        fetch:trades, fetch:funding, fetch:oi) and NOTHING READ THEM.
+        `_stage_report` picks the dominant stage from `_stage_totals`, which
+        holds only the four real ANALYSIS_STAGES, so `_stage_shape_note` was
+        never once called with a `fetch:` key. The data was collected every
+        tick and printed nowhere.
+
+        Fourth time this session a mechanism landed with no surface —
+        live_auth_healthy, the halt, the mtf suppression, and this. The
+        previous three were caught by asking "who reads it"; this one was
+        caught by writing out the grep command for the operator and checking
+        it could match.
+
+            RECORDING IT IS NOT REPORTING IT. THE QUESTION IS ALWAYS WHO
+            READS THE FIELD.
+
+        One line, because _stage_report's callers embed it in a single-line
+        audit string. Silent when no per-call data exists, so the lightweight
+        path (which fires no order-flow calls) adds nothing.
+        """
+        try:
+            from bot.core import stage_profile as _sp
+            profs = getattr(self, "_stage_profiles", None) or {}
+            parts = []
+            for _name in ("book", "trades", "funding", "oi"):
+                prof = profs.get(f"fetch:{_name}")
+                if not prof:
+                    continue
+                s = _sp.summarize(prof)
+                if not s:
+                    continue
+                _bit = f"{_name} mean {s['mean_s']}s/max {s['max_s']}s"
+                if s.get("worst_symbol"):
+                    _bit += f" ({s['worst_symbol']})"
+                parts.append(_bit)
+            if not parts:
+                return ""
+            return "fetch calls: " + " · ".join(parts)
         except Exception:
             return ""
 

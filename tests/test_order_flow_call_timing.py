@@ -88,6 +88,93 @@ class TestTheEngineRecordsThem:
         assert src.count('f"fetch:{_cn}"') == 1
 
 
+class TestThePerCallDataActuallyReachesTheLog:
+    """#1045 recorded it and nothing read it.
+
+    `_stage_report` picks the dominant stage from `_stage_totals`, which holds
+    only the four real ANALYSIS_STAGES, so `_stage_shape_note` was never once
+    called with a `fetch:` key. The per-call durations were collected every
+    tick and printed nowhere — and the grep command written for the operator
+    would have matched nothing.
+
+    Fourth time this session a mechanism landed with no surface. The previous
+    three were caught by asking "who reads it"; this one was caught by
+    checking whether the command handed to the operator could match.
+
+        RECORDING IT IS NOT REPORTING IT.
+    """
+
+    def _engine_src(self):
+        return code_only(open("bot/core/engine.py", encoding="utf-8").read())
+
+    def test_a_reader_exists(self):
+        assert "_fetch_call_note" in self._engine_src()
+
+    def test_the_stage_report_calls_it(self):
+        src = self._engine_src()
+        i = src.index("def _stage_report(")
+        j = src.index("\n    def ", i + 10)
+        assert "_fetch_call_note" in src[i:j], (
+            "recorded per-call durations must reach the line the operator reads"
+        )
+
+    def test_it_reads_the_keys_that_are_written(self):
+        # The join that was missing: engine writes f"fetch:{_cn}" where _cn
+        # comes from OrderFlowSignal.call_seconds, whose keys are set by the
+        # _timed() wrappers. If those drift apart the note goes silent.
+        src = self._engine_src()
+        i = src.index("def _fetch_call_note(")
+        body = src[i:i + 1800]
+        for name in ("book", "trades", "funding", "oi"):
+            assert f'"{name}"' in body, f"the note never looks for fetch:{name}"
+            assert f'_timed("{name}"' in SRC, f"nothing ever writes fetch:{name}"
+
+    def test_it_produces_a_line_from_real_profiles(self):
+        from bot.core.engine import RuneClawEngine
+        from bot.core import stage_profile as sp
+
+        profs = {}
+        for name, dur in (("book", 2.0), ("trades", 72.8)):
+            p = sp.new_profile()
+            sp.record(p, "WLD/USDT" if name == "trades" else "ETH/USDT", dur)
+            profs[f"fetch:{name}"] = p
+
+        class Stub:
+            _stage_profiles = profs
+            _fetch_call_note = RuneClawEngine._fetch_call_note
+
+        out = Stub()._fetch_call_note()
+        assert "trades" in out and "72.8" in out
+        assert "WLD/USDT" in out, "the culprit symbol must be named per call"
+
+    def test_it_is_silent_with_no_per_call_data(self):
+        # The lightweight path fires no order-flow calls at all.
+        from bot.core.engine import RuneClawEngine
+
+        class Stub:
+            _stage_profiles = {}
+            _fetch_call_note = RuneClawEngine._fetch_call_note
+
+        assert Stub()._fetch_call_note() == ""
+
+    def test_it_stays_on_one_line(self):
+        src = self._engine_src()
+        i = src.index("def _fetch_call_note(")
+        body = src[i:src.index("\n    def ", i + 10)]
+        assert "\\n" not in body, "both callers embed this in one audit line"
+
+    def test_it_cannot_break_the_report(self):
+        # Same hazard that once made _stage_report return "" for every stub.
+        from bot.core.engine import RuneClawEngine
+
+        class Stub:
+            _stage_totals = {"fetch": 60.0, "mtf": 40.0}
+            _stage_report = RuneClawEngine._stage_report
+
+        out = Stub()._stage_report(120.0)
+        assert out and "fetch 60s" in out
+
+
 class TestFundingIsCachedAsALevel:
     def test_the_ttl_is_far_below_the_funding_interval(self):
         # Funding updates every 8h. Anything under that is safe; this is
