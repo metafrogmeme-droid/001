@@ -199,10 +199,21 @@ class OrderFlowConfig:
 
 # ── Output schema ──────────────────────────────────────────────────────────
 
+#: How long a funding rate stays valid. It updates every eight hours, so
+#: fifteen minutes is conservative by a factor of thirty-two.
+FUNDING_TTL_S = 900.0
+
+
 class OrderFlowSignal(BaseModel):
     """Microstructure snapshot for one symbol. All scores are signed [-1, 1]
     where positive = bullish/accumulation pressure."""
     symbol: str
+    #: Seconds each venue call took, keyed by call name. The fetch stage
+    #: records ONE duration for five concurrent calls, so a slow symbol named
+    #: nothing about WHICH call was slow — and book/trades/funding/OI need
+    #: opposite fixes. Attached to the signal rather than kept on the analyzer
+    #: because analyses run concurrently and an instance dict would race.
+    call_seconds: dict[str, float] = {}
 
     # Order book
     book_imbalance: float = 0.0          # (bid_depth - ask_depth) / total, [-1, 1]
@@ -270,6 +281,16 @@ class OrderFlowAnalyzer:
         self._ws_feed = None  # BitgetWSFeed for tape CVD (set_ws_feed)
         self._price_history: dict[str, deque] = {}  # symbol -> deque[float] mid prices (for divergence)
         self._oi_history: dict[str, float] = {}     # symbol -> last open_interest_usd
+        # Funding is an 8-HOURLY value that was re-fetched every tick, per
+        # symbol, from a venue measured at 15-20s per call. Cached as a LEVEL,
+        # which is the only way it is read (w_funding / funding_vote_fixed_scale).
+        #
+        # Open interest is deliberately NOT cached. It feeds a DELTA —
+        # `prev = self._oi_history.get(deriv_sym)` — so serving a repeat value
+        # would make prev == current and silently zero the OI-divergence
+        # voter. A cache that quietly neuters a signal is worse than the
+        # latency it saves.
+        self._funding_cache: dict[str, tuple[float, Any]] = {}
         # Gate 2: Taker 3-bar ratios (buy_vol/sell_vol per bar)
         self._taker_bar_ratios: dict[str, deque] = {}  # symbol -> deque[float] recent bar ratios
         # Spot vs Futures: rolling spot volume history for divergence detection
@@ -358,10 +379,58 @@ class OrderFlowAnalyzer:
         # Parallelize all independent exchange fetches
         deriv_sym = derivatives_symbol or symbol
 
-        book_task = exchange.fetch_order_book(symbol, limit=self.config.book_depth_levels)
-        trades_task = exchange.fetch_trades(symbol, limit=self.config.trades_window)
-        funding_task = exchange.fetch_funding_rate(deriv_sym)
-        oi_task = exchange.fetch_open_interest(deriv_sym)
+        async def _timed(name, coro):
+            """Run one venue call and record how long it took.
+
+            The fetch stage records ONE duration for all of these together, so
+            a symbol at 74s named nothing about which call was slow — and an
+            order book, a trade window and a funding rate need entirely
+            different fixes. Never raises on its own account: the timing is
+            recorded even when the call fails, because a call that fails
+            SLOWLY is the interesting one.
+            """
+            _t0 = time.monotonic()
+            try:
+                return await coro
+            finally:
+                try:
+                    sig.call_seconds[name] = time.monotonic() - _t0
+                except Exception:
+                    pass
+
+        async def _funding(deriv):
+            """Funding rate, cached. It updates every EIGHT HOURS.
+
+            It was re-fetched every tick, per symbol, against a venue measured
+            at 15-20s per call. Read only as a LEVEL, so a cached value is the
+            same answer. Contrast open interest below, which is left live
+            because it feeds a delta.
+            """
+            try:
+                hit = self._funding_cache.get(deriv)
+                if hit and (time.time() - hit[0]) < FUNDING_TTL_S:
+                    return hit[1]
+            except Exception:
+                pass
+            out = await exchange.fetch_funding_rate(deriv)
+            try:
+                self._funding_cache[deriv] = (time.time(), out)
+                if len(self._funding_cache) > 500:
+                    _cut = time.time() - FUNDING_TTL_S
+                    self._funding_cache = {
+                        k: v for k, v in self._funding_cache.items() if v[0] > _cut}
+            except Exception:
+                pass
+            return out
+
+        book_task = _timed("book", exchange.fetch_order_book(
+            symbol, limit=self.config.book_depth_levels))
+        trades_task = _timed("trades", exchange.fetch_trades(
+            symbol, limit=self.config.trades_window))
+        funding_task = _timed("funding", _funding(deriv_sym))
+        # NOT cached — see _funding_cache in __init__: open interest feeds the
+        # divergence delta, and repeating a value would zero that voter.
+        oi_task = _timed("oi", exchange.fetch_open_interest(deriv_sym))
 
         # Pre-annotated: mypy cannot infer the unpacked tuple types from
         # gather(..., return_exceptions=True) (each slot is result-or-exception).

@@ -4340,6 +4340,23 @@ class RuneClawEngine:
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
             of_signal = results[1] if not isinstance(results[1], Exception) else None
 
+            # Per-CALL attribution for the fetch stage. `_stage_add("fetch")`
+            # records ONE duration for five concurrent venue calls, so a
+            # symbol at 74s named nothing about WHICH call was slow — and an
+            # order book, a trade window, a funding rate and an open-interest
+            # read need entirely different fixes. Production, 2026-08-01: the
+            # recurring max was correctly traced to a symbol and then stalled
+            # there, because the profile could not say more.
+            #
+            # Recorded as pseudo-stages so the existing per-symbol shape
+            # analysis applies unchanged: fetch:book, fetch:trades,
+            # fetch:funding, fetch:oi.
+            try:
+                for _cn, _cv in (getattr(of_signal, "call_seconds", None) or {}).items():
+                    _stage_profile_record(self, f"fetch:{_cn}", signal.symbol, _cv)
+            except Exception:
+                pass
+
             # Seed the exchange-flow cache with the funding rate this pass just
             # fetched — funding_rate_provider (the macro LIQUIDATION_RISK
             # check) reads that cache, and nothing else fills it. Fail-open.
