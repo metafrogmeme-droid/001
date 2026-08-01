@@ -236,6 +236,70 @@ class TestTheEngineUsesIt:
             i = src.index(fn)
             assert "except Exception:" in src[i:i + 1400], fn
 
+    def test_the_suppression_actually_reaches_a_surface(self):
+        """render() existed, was tested, and NOTHING called it.
+
+        So the suppression it reports was invisible — the precise defect this
+        module's own docstring is written against. Third time this session a
+        mechanism landed with no surface: live_auth_healthy in #1030, the
+        halt in #1031, and this. Writing the renderer is not wiring it.
+        """
+        src = self._src()
+        assert "_mtf_suppression_note" in src, (
+            "a skip nobody can see is the silent fail-open it replaced"
+        )
+        i = src.index("def _stage_report(")
+        j = src.index("\n    def ", i + 10)
+        assert "_mtf_suppression_note" in src[i:j], (
+            "it must be reached from the line the operator actually reads"
+        )
+
+    def test_the_note_survives_a_lightweight_stub(self):
+        # Same hazard that made _stage_report return "" once already: a
+        # diagnostic that requires its caller to grow an attribute deletes
+        # the line it was meant to enrich.
+        from bot.core.engine import RuneClawEngine
+
+        class Stub:
+            _stage_totals = {"mtf": 90.0, "fetch": 10.0}
+            _stage_report = RuneClawEngine._stage_report
+
+        out = Stub()._stage_report(120.0)
+        assert out and "mtf 90s" in out
+
+    def test_the_note_appears_when_something_is_suppressed(self):
+        from bot.core.engine import RuneClawEngine
+
+        # Real clock: the note calls summarize() with no `now`, so failures
+        # stamped at 0.0 would already have expired against time.monotonic().
+        import time as _t
+        st = ma.new_state()
+        for tf, _ in SPECS:
+            _fail(st, ma.CONSECUTIVE_FAILURES, symbol="RNVDA/USDT", tf=tf,
+                  now=_t.monotonic())
+
+        class Stub:
+            _stage_totals = {"mtf": 90.0, "fetch": 10.0}
+            _mtf_availability = st
+            _stage_report = RuneClawEngine._stage_report
+            _mtf_suppression_note = RuneClawEngine._mtf_suppression_note
+
+        out = Stub()._stage_report(120.0)
+        assert "mtf skipping 4 timeframe(s)" in out
+        assert "RNVDA/USDT" in out
+
+    def test_the_note_is_silent_when_nothing_is_suppressed(self):
+        from bot.core.engine import RuneClawEngine
+
+        class Stub:
+            _stage_totals = {"mtf": 90.0}
+            _mtf_availability = ma.new_state()
+            _mtf_suppression_note = RuneClawEngine._mtf_suppression_note
+
+        assert Stub()._mtf_suppression_note() == "", (
+            "a healthy run must not grow a diagnostic it does not need"
+        )
+
     def test_the_leg_is_still_fail_open_per_timeframe(self):
         # The pre-existing guarantee this must not have cost: one bad
         # timeframe degrades that leg to absent, never the rest.

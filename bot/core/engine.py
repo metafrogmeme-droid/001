@@ -2724,7 +2724,51 @@ class RuneClawEngine:
                     _shape = _note(_top[0]) or ""
             except Exception:
                 _shape = ""
-            return _line + (f"; {_shape}" if _shape else "")
+            # Always appended, not only when a stage dominates: the whole
+            # point is that a skipped timeframe is otherwise invisible, and
+            # it is most worth seeing on the ticks that now look healthy
+            # BECAUSE work is being skipped.
+            _supp = ""
+            try:
+                _sn = getattr(self, "_mtf_suppression_note", None)
+                if _sn is not None:
+                    _supp = _sn() or ""
+            except Exception:
+                _supp = ""
+            return (_line + (f"; {_shape}" if _shape else "")
+                    + (f"; {_supp}" if _supp else ""))
+        except Exception:
+            return ""
+
+    def _mtf_suppression_note(self) -> str:
+        """How many timeframe(s) are currently not being requested, or "".
+
+        mtf_availability.render exists and was TESTED, and nothing called it —
+        so the suppression it reports was invisible, which is the precise
+        defect its own docstring is written against ("suppression that nobody
+        can see is the same defect as the silent fail-open it replaces").
+
+        Third time this session a mechanism landed with no surface:
+        live_auth_healthy in #1030, the halt in #1031, and this. Writing the
+        renderer is not wiring it.
+
+        One line, because _stage_report's callers embed it in a single-line
+        audit string.
+        """
+        try:
+            from bot.core import mtf_availability as _ma
+            st = getattr(self, "_mtf_availability", None)
+            if not st:
+                return ""
+            s = _ma.summarize(st)
+            if not s:
+                return ""
+            _top = ", ".join(f"{sym} x{n}" for sym, n in s["top"][:3])
+            return (f"mtf skipping {s['pairs']} timeframe(s) on "
+                    f"{s['symbols']} symbol(s) after "
+                    f"{_ma.CONSECUTIVE_FAILURES} consecutive failures each, "
+                    f"re-probed within {int(_ma.SUPPRESS_SECONDS / 60)}min"
+                    + (f": {_top}" if _top else ""))
         except Exception:
             return ""
 
