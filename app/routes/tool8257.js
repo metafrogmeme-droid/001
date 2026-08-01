@@ -15,6 +15,8 @@ const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const t8257 = require('../lib/tool8257');
 
+const { safeErrorText } = require('../lib/safe_error');
+
 const router = express.Router();
 const limited = rateLimit({ windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' });
 
@@ -52,9 +54,16 @@ router.post('/api/tool/invoke', limited, express.json({ limit: '64kb' }), async 
     const result = await tool.handler(body.args || {});
     res.json({ tool: name, result });
   } catch (e) {
+    // F-15: this endpoint is PUBLIC and unauthenticated, and these handlers
+    // do pool.execute and getGateway calls — a database error carries
+    // connection and schema detail, a gateway error carries the internal URL
+    // it tried. Truncating to 200 chars bounded the SIZE of a leak, not
+    // whether one happened. Scrubbed rather than blanked: tools throw real
+    // validation errors ("text is required") a caller needs to see.
+    console.error('Tool invoke error:', name, e.stack || e.message);
     res.status(502).json({
       tool: name,
-      error: `Tool failed: ${String(e.message || e).slice(0, 200)}`,
+      error: `Tool failed: ${safeErrorText(e)}`,
     });
   }
 });
