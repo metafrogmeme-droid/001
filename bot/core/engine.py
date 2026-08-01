@@ -186,6 +186,43 @@ def _mtf_state(engine):
     return st
 
 
+#: Floor for any multi-timeframe cache entry, matching the original fixed ttl.
+MTF_TTL_FLOOR_S = 180
+
+
+def _mtf_ttl(timeframe: str) -> int:
+    """How long a CLOSED candle set for ``timeframe`` stays valid.
+
+    Every mtf leg used ttl=180 regardless of timeframe, so a 1d candle set was
+    re-fetched every three minutes — 480 times a day for data that changes
+    once. Production, 2026-08-01: mtf dominant at ~60%, mean 20-23s per
+    symbol, max 74.94s, and ticks breaching the 300s cap at 310-314s with
+    every signal analysed. The calls were not failing; they were SUCCEEDING
+    slowly, and most of them were asking again for a candle that had not
+    moved.
+
+    `_drop_forming_candle` removes the still-forming bar, so the set this
+    caches contains CLOSED bars only. A closed 4h bar cannot change until the
+    next one closes, four hours later. A quarter of the period is therefore
+    conservative by a wide margin:
+
+        15m -> 225s      1h -> 900s      4h -> 3600s      1d -> 21600s
+
+    Three of the four legs go from "every tick" to "rarely", which is where
+    the wall-clock is. Floored at the original 180s so no timeframe is cached
+    for LESS than it was before, and an unparseable timeframe falls back to
+    exactly the old behaviour rather than to something invented.
+    """
+    try:
+        from bot.utils.candles import timeframe_to_ms
+        period_s = int(timeframe_to_ms(timeframe)) // 1000
+    except Exception:
+        return MTF_TTL_FLOOR_S
+    if period_s <= 0:
+        return MTF_TTL_FLOOR_S
+    return max(MTF_TTL_FLOOR_S, period_s // 4)
+
+
 def _mtf_filter_specs(engine, symbol, specs):
     """Drop timeframes currently suppressed for ``symbol``. Guarded.
 
@@ -4375,7 +4412,8 @@ class RuneClawEngine:
             _t0 = time.monotonic()
             _stage_enter_guarded(self, signal.symbol, "mtf")
             _tf_results = await asyncio.gather(
-                *[self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim, ttl=180)
+                *[self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim,
+                                     ttl=_mtf_ttl(_tf))
                   for _tf, _lim in _tf_specs],
                 return_exceptions=True)
             _mtf_dt = time.monotonic() - _t0
