@@ -1317,7 +1317,12 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
                              reasoning=f"Scan signal for {symbol} with custom limit",
                              source="scan_skill", order_type="limit")
         except ValueError as e:
-            await query.message.reply_text(f"\u26a0\ufe0f Invalid trade: {e}", parse_mode="HTML")
+            # F-15: deferred import — scan_skill has no module-level
+            # dependency on telegram_handler and adding one would be circular.
+            from bot.skills.telegram_handler import _safe_exc_text
+            await query.message.reply_text(
+                f"\u26a0\ufe0f Invalid trade: {_safe_exc_text(e)}",
+                parse_mode="HTML")
             return
 
         engine._pending_ideas[idea.id] = idea

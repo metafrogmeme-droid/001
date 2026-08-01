@@ -115,6 +115,67 @@ class TestNoRawExceptionReachesAUser:
             assert not RAW_EXC.search(good), good
 
 
+class TestEveryModuleThatTalksToAUser:
+    """The guard covered ONE file. The rule is about every user-facing send.
+
+    #1038 enumerated `self._send(...)` in telegram_handler.py and stopped
+    there — which is the same "fixed the sites someone thought of" shape it
+    was written to close, one level up. scan_skill.py was sending
+
+        reply_text(f"Invalid trade: {e}", parse_mode="HTML")
+
+    on the trade path, in a different module, unescaped.
+
+    A guard scoped to one file is a guard that names its own blind spot.
+    """
+
+    import pathlib
+
+    SEND = re.compile(r"(?:reply_text|_send|send_message|reply_html)\s*\(")
+
+    def _modules(self):
+        import pathlib
+        root = pathlib.Path("bot")
+        return [p for p in root.rglob("*.py") if "__pycache__" not in str(p)]
+
+    def _calls(self, src: str):
+        out = []
+        for m in self.SEND.finditer(src):
+            i, depth, j = m.end(), 1, m.end()
+            while j < len(src) and depth:
+                if src[j] == "(":
+                    depth += 1
+                elif src[j] == ")":
+                    depth -= 1
+                j += 1
+            out.append(src[m.start():j])
+        return out
+
+    def test_it_scans_more_than_one_module(self):
+        hits = [p for p in self._modules()
+                if self.SEND.search(code_only(p.read_text(encoding="utf-8")))]
+        assert len(hits) >= 4, f"only {len(hits)} modules send to users"
+
+    def test_no_module_sends_a_raw_exception(self):
+        offenders = []
+        for p in self._modules():
+            src = code_only(p.read_text(encoding="utf-8"))
+            for call in self._calls(src):
+                if RAW_EXC.search(call):
+                    offenders.append(str(p))
+        assert offenders == [], (
+            "F-15: an unredacted exception reaches a user from "
+            f"{sorted(set(offenders))} — use _safe_exc_text(exc)"
+        )
+
+    def test_scan_skill_specifically(self):
+        # Named because it was the one outside telegram_handler.
+        src = code_only(
+            open("bot/skills/scan_skill.py", encoding="utf-8").read())
+        i = src.index("Invalid trade")
+        assert "_safe_exc_text(" in src[i - 100:i + 200]
+
+
 class TestTheRiskiestPathsSpecifically:
     """Named because these are ccxt calls, the class the docstring calls out.
 
