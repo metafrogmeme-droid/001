@@ -40,62 +40,7 @@ const { safeErrorText } = require('../lib/safe_error');
 const SEND = /res\.(?:status\(\s*\d+\s*\)\.)?(?:json|send)\s*\(/g;
 const LEAK = /\b(?:err|e|error|exc)\.(?:message|stack)\b|String\(\s*(?:err|e|error)\s*\)/;
 
-/**
- * Blank comments IN PLACE so line numbers survive — STRING-AWARE.
- *
- * The regex version shipped in #1040 destroyed 68% of server.js. A `/*`
- * inside a string literal opened a fake comment that ran to the next `*\/`
- * anywhere later in the file, blanking real code in between. Measured on the
- * files this guard scans, it kept 32% of server.js — so the guard was
- * inspecting a third of the file and reporting the whole thing clean. It
- * found the tool8257 leak only because that leak happened to fall inside a
- * surviving stretch.
- *
- *     A SCANNER THAT SILENTLY SKIPS MOST OF THE FILE IS THE "CHECK THAT
- *     INSPECTS NOTHING" IN ITS MOST CONVINCING FORM: IT REPORTS ON REAL
- *     CODE, JUST NOT ALL OF IT.
- *
- * Walking the source with string state costs a few lines and cannot be
- * fooled by punctuation inside a quote. Caught by injecting a leak into
- * server.js and watching the guard stay green.
- */
-function codeOnly(src) {
-  let out = '';
-  let i = 0;
-  const n = src.length;
-  while (i < n) {
-    const c = src[i];
-    const d = src[i + 1];
-    if (c === '/' && d === '*') {
-      const end = src.indexOf('*/', i + 2);
-      const stop = end === -1 ? n : end + 2;
-      out += src.slice(i, stop).replace(/[^\n]/g, ' ');
-      i = stop;
-      continue;
-    }
-    if (c === '/' && d === '/') {
-      let j = i;
-      while (j < n && src[j] !== '\n') j += 1;
-      out += ' '.repeat(j - i);
-      i = j;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') {
-      let j = i + 1;
-      while (j < n) {
-        if (src[j] === '\\') { j += 2; continue; }
-        if (src[j] === c) { j += 1; break; }
-        j += 1;
-      }
-      out += src.slice(i, j);          // string contents kept verbatim
-      i = j;
-      continue;
-    }
-    out += c;
-    i += 1;
-  }
-  return out;
-}
+const { codeOnly } = require('./helpers/code_only');
 
 function responseCalls(src) {
   const out = [];

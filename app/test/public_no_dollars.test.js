@@ -75,12 +75,7 @@ function publicRouteFiles() {
       .includes('authMiddleware'));
 }
 
-/** Strip // and block comments so prose about §4 cannot trip the scan. */
-function codeOnly(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
-}
+const { codeOnly } = require('./helpers/code_only');
 
 test('the public route set is non-trivial', () => {
   const files = publicRouteFiles();
