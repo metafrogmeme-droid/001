@@ -166,6 +166,35 @@ def _stage_enter_guarded(engine, symbol, stage) -> None:
     except Exception:
         pass
 
+
+def _stage_profile_record(engine, stage, symbol, seconds) -> None:
+    """Per-symbol duration for ONE stage, guarded like the stage mark above.
+
+    `_stage_add(stage, …)` keeps a SUM. A sum cannot tell 85 symbols at 15s
+    apart from 3 symbols at 300s, and those call for opposite fixes — the
+    2026-08-01 tick stall was argued from that one number twice.
+
+    Keyed by STAGE because the bottleneck moves: the same day's later data had
+    fetch at ~36-41% and mtf at ~59-64%, so a profiler wired to `fetch` alone
+    would already have been pointed at the wrong stage.
+
+    Same getattr-guard as _stage_enter_guarded: _analyze_signal runs under
+    lightweight stubs in several suites, and instrumentation that requires
+    the caller to grow an attribute is how that hazard broke five suites once.
+    """
+    try:
+        from bot.core import stage_profile as _sp
+        profs = getattr(engine, "_stage_profiles", None)
+        if profs is None:
+            profs = engine._stage_profiles = {}
+        key = str(stage or "?")
+        prof = profs.get(key)
+        if prof is None:
+            prof = profs[key] = _sp.new_profile()
+        _sp.record(prof, symbol, seconds)
+    except Exception:
+        pass
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -2635,9 +2664,82 @@ class RuneClawEngine:
             parts = " · ".join(
                 f"{k} {acc[k]:.0f}s ({acc[k] / total:.0%})"
                 for k in ANALYSIS_STAGES if acc.get(k, 0) > 0)
-            return (f"{parts} — {total:.0f}s of work across {wall_s:.0f}s "
-                    f"wall-clock at {int(CONFIG.scan_analysis_concurrency)} "
-                    f"concurrent")
+            _line = (f"{parts} — {total:.0f}s of work across {wall_s:.0f}s "
+                     f"wall-clock at {int(CONFIG.scan_analysis_concurrency)} "
+                     f"concurrent")
+            # This exact line is where "fetch dominating, ~1086s cumulative,
+            # 192s wall-clock" came from, and it is where the diagnosis
+            # stopped: a percentage says fetch owns the tick and nothing says
+            # whether that is 70 symbols at 15s or 3 at 300s. Appended only
+            # when fetch actually dominates, so a healthy tick gains nothing.
+            # Follow the DOMINANT stage, not a hardcoded one. Within a day
+            # of the fetch-stall report the same engine had fetch at ~36-41%
+            # and mtf at ~59-64% — a note bolted to `fetch` would already
+            # have been describing the wrong stage.
+            # getattr-guarded like every other mark on this path. Calling
+            # self._stage_shape_note directly made _stage_report return ""
+            # for every lightweight stub that has _stage_totals and nothing
+            # else — the outer except swallowed the AttributeError and took
+            # the WHOLE breakdown with it. Three tests caught it. This file's
+            # own _stage_profile_record docstring warns about exactly this,
+            # and it was written two hours earlier.
+            _top = max(acc.items(), key=lambda kv: kv[1], default=("", 0.0))
+            _shape = ""
+            try:
+                _note = getattr(self, "_stage_shape_note", None)
+                if _note is not None and _top[1] >= total * 0.5:
+                    _shape = _note(_top[0]) or ""
+            except Exception:
+                _shape = ""
+            return _line + (f"; {_shape}" if _shape else "")
+        except Exception:
+            return ""
+
+    def _stage_shape_note(self, stage: str) -> str:
+        """One compact line naming the SHAPE of this run's durations for STAGE.
+
+        Deliberately per-RUN while the breakdown above is per-batch, and
+        labelled as such: the question a single slow tick raises is whether it
+        keeps happening, which one batch cannot answer. Same choice, and the
+        same wording, as the analysis-timeout tally.
+
+        Both call sites of _stage_report embed it in a ONE-LINE audit string,
+        so this must never wrap. The full multi-line rendering lives in
+        stage_profile.render for surfaces that have the room.
+
+        The per-call ceiling is only meaningful for the stages that are
+        EXCHANGE I/O. fetch and mtf are both _cached_ohlcv against the same
+        rate-limited ccxt instance, so MARKET_DATA_TIMEOUT_MS bounds their
+        calls; analyze is an LLM call bounded by something else entirely, and
+        testing it against a market-data timeout would invent a finding.
+        """
+        try:
+            from bot.core import stage_profile as _sp
+            prof = (getattr(self, "_stage_profiles", None) or {}).get(stage)
+            if not prof:
+                return ""
+            _ceil = 0.0
+            if stage in ("fetch", "mtf"):
+                _ceil = float(
+                    getattr(CONFIG, "market_data_timeout_ms", 0) or 0) / 1000.0
+            s = _sp.summarize(prof, ceiling_s=_ceil)
+            if not s or not s.get("shape"):
+                return ""
+            head = (f"{stage} shape across this run: {s['shape']} "
+                    f"({s['count']} sample(s), {s['distinct_symbols']} symbol(s), "
+                    f"mean {s['mean_s']}s, max {s['max_s']}s")
+            if s["shape"] == "at_ceiling":
+                head += (f", {s['near_ceiling']}/{s['near_ceiling_of']} at or "
+                         f"above {round(s['ceiling_s'] * _sp.CEILING_TOLERANCE, 1)}s "
+                         f"of a {s['ceiling_s']}s per-call limit")
+            elif s["shape"] == "slow_subset":
+                head += (f", {s['near_ceiling']}/{s['near_ceiling_of']} near "
+                         f"the {s['ceiling_s']}s limit: "
+                         + ", ".join(s.get("subset", [])[:5]))
+            elif s["shape"] == "concentrated" and s.get("top_symbols"):
+                _sym, _tot, _n = s["top_symbols"][0]
+                head += f", slowest {_sym} {_tot}s over {_n}"
+            return head + ")"
         except Exception:
             return ""
 
@@ -4081,7 +4183,9 @@ class RuneClawEngine:
                 _t0 = time.monotonic()
                 _stage_enter_guarded(self, signal.symbol, "fetch")
                 results = list(await asyncio.gather(ohlcv_task, return_exceptions=True))
-                self._stage_add("fetch", time.monotonic() - _t0)
+                _fetch_dt = time.monotonic() - _t0
+                self._stage_add("fetch", _fetch_dt)
+                _stage_profile_record(self, "fetch", signal.symbol, _fetch_dt)
                 results.append(None)
             else:
                 of_task = self.order_flow.analyze(exchange, signal.symbol,
@@ -4089,7 +4193,9 @@ class RuneClawEngine:
                 _t0 = time.monotonic()
                 _stage_enter_guarded(self, signal.symbol, "fetch")
                 results = list(await asyncio.gather(ohlcv_task, of_task, return_exceptions=True))
-                self._stage_add("fetch", time.monotonic() - _t0)
+                _fetch_dt = time.monotonic() - _t0
+                self._stage_add("fetch", _fetch_dt)
+                _stage_profile_record(self, "fetch", signal.symbol, _fetch_dt)
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
             of_signal = results[1] if not isinstance(results[1], Exception) else None
 
@@ -4163,7 +4269,9 @@ class RuneClawEngine:
                 *[self._cached_ohlcv(exchange, signal.symbol, _tf, limit=_lim, ttl=180)
                   for _tf, _lim in _tf_specs],
                 return_exceptions=True)
-            self._stage_add("mtf", time.monotonic() - _t0)
+            _mtf_dt = time.monotonic() - _t0
+            self._stage_add("mtf", _mtf_dt)
+            _stage_profile_record(self, "mtf", signal.symbol, _mtf_dt)
             for (_tf, _lim), _c in zip(_tf_specs, _tf_results):
                 # Fail-open per timeframe, exactly as the sequential loop did:
                 # one bad timeframe degrades that leg to absent, never the rest.
@@ -4176,7 +4284,9 @@ class RuneClawEngine:
         _t0 = time.monotonic()
         _stage_enter_guarded(self, signal.symbol, "analyze")
         idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe)
-        self._stage_add("analyze", time.monotonic() - _t0)
+        _an_dt = time.monotonic() - _t0
+        self._stage_add("analyze", _an_dt)
+        _stage_profile_record(self, "analyze", signal.symbol, _an_dt)
         if idea is None:
             audit(scan_log, f"Analysis produced no idea for {signal.symbol}",
                   action="analyze_signal", result="NO_IDEA",
