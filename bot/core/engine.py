@@ -2862,9 +2862,17 @@ class RuneClawEngine:
                     f"({s['count']} sample(s), {s['distinct_symbols']} symbol(s), "
                     f"mean {s['mean_s']}s, max {s['max_s']}s")
             if s["shape"] == "at_ceiling":
+                # NAME the worst symbol. This branch is the one that fires
+                # under load, and it was the only shape that printed no
+                # symbol at all — the operator read "max 74.94s" recurring
+                # across three cycles, correctly inferred one symbol was
+                # serially responsible, and had to ask which. The profile
+                # knew the whole time.
                 head += (f", {s['near_ceiling']}/{s['near_ceiling_of']} at or "
                          f"above {round(s['ceiling_s'] * _sp.CEILING_TOLERANCE, 1)}s "
-                         f"of a {s['ceiling_s']}s per-call limit")
+                         f"of a {s['ceiling_s']}s per-call limit"
+                         f"; slowest {s.get('worst_symbol')} at "
+                         f"{s.get('worst_symbol_max_s')}s")
             elif s["shape"] == "slow_subset":
                 head += (f", {s['near_ceiling']}/{s['near_ceiling_of']} near "
                          f"the {s['ceiling_s']}s limit: "

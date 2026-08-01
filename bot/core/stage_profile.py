@@ -174,6 +174,15 @@ def summarize(profile: dict, *, ceiling_s: float = 0.0,
 
     ranked = sorted(by_sym.items(),
                     key=lambda kv: (-float(kv[1].get("total_s", 0.0)), kv[0]))
+    # WHICH symbol holds the overall max, not just what the max was.
+    #
+    # The operator read "max 74.94s" recurring identically across three
+    # cycles, correctly inferred one symbol was serially responsible, and had
+    # to ask which — the profile knew and never said. `top_symbols` ranks by
+    # TOTAL time, which answers a different question: a symbol called often
+    # can out-total the one symbol that parks for 75s once.
+    worst = sorted(by_sym.items(),
+                   key=lambda kv: (-float(kv[1].get("max_s", 0.0)), kv[0]))
     out = {
         "count": count,
         "total_s": round(total, 1),
@@ -182,6 +191,9 @@ def summarize(profile: dict, *, ceiling_s: float = 0.0,
         "distinct_symbols": len(by_sym),
         "top_symbols": [(s, round(float(v.get("total_s", 0.0)), 1),
                          int(v.get("n", 0))) for s, v in ranked[:5]],
+        "worst_symbol": worst[0][0] if worst else None,
+        "worst_symbol_max_s": (round(float(worst[0][1].get("max_s", 0.0)), 2)
+                               if worst else None),
     }
 
     # Coerce before comparing: a caller passing "15" (or None) must get the
@@ -249,7 +261,9 @@ def render(profile: dict, *, ceiling_s: float = 0.0,
     if s["shape"] == "at_ceiling":
         tail = (f"{s['near_ceiling']}/{s['near_ceiling_of']} finished at or "
                 f"above {round(s['ceiling_s'] * CEILING_TOLERANCE, 1)}s, "
-                f"against a {s['ceiling_s']}s per-call limit. Durations "
+                f"against a {s['ceiling_s']}s per-call limit. Slowest single "
+                f"call: {s.get('worst_symbol')} at "
+                f"{s.get('worst_symbol_max_s')}s. Durations "
                 f"piling up just under a limit is what calls reaching that "
                 f"limit look like — though queueing behind a full rate-limit "
                 f"bucket can park a fetch there too, so this narrows where to "

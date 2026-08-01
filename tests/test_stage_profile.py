@@ -182,6 +182,86 @@ class TestTheOperatorsRealShape:
         assert fp.summarize(build(at), ceiling_s=CEILING)["shape"] == "slow_subset"
 
 
+class TestItNamesTheWorstSymbol:
+    """"max 74.94s" recurring across three cycles, and no symbol attached.
+
+    The operator read that number in production, correctly inferred one
+    symbol was serially responsible, and had to ask WHICH. The profile held
+    the answer per-symbol the whole time and never printed it — and
+    at_ceiling, the shape that fires under load, was the one branch that
+    named no symbol at all.
+
+    `top_symbols` does not answer this. It ranks by TOTAL time, so a symbol
+    called often out-totals the one symbol that parks for 75 seconds once —
+    which is precisely the case worth finding.
+    """
+
+    def _mixed(self):
+        p = fp.new_profile()
+        # BUSIEST by total: many moderate calls.
+        for _ in range(40):
+            fp.record(p, "BUSY/USDT", 5.0)          # 200s total, max 5s
+        # WORST single call, seen once.
+        fp.record(p, "CULPRIT/USDT", 74.94)         # 74.94s total, max 74.94s
+        for i in range(30):
+            fp.record(p, f"SYM{i}/USDT", 1.0)
+        return p
+
+    def test_it_names_the_symbol_holding_the_max(self):
+        s = fp.summarize(self._mixed(), ceiling_s=CEILING)
+        assert s["worst_symbol"] == "CULPRIT/USDT"
+        assert s["worst_symbol_max_s"] == 74.94
+
+    def test_that_is_not_the_same_as_the_biggest_total(self):
+        # The reason a separate field is needed at all.
+        s = fp.summarize(self._mixed(), ceiling_s=CEILING)
+        assert s["top_symbols"][0][0] == "BUSY/USDT"
+        assert s["worst_symbol"] != s["top_symbols"][0][0]
+
+    def test_the_max_it_reports_is_the_profile_max(self):
+        s = fp.summarize(self._mixed(), ceiling_s=CEILING)
+        assert s["worst_symbol_max_s"] == s["max_s"]
+
+    def test_the_at_ceiling_rendering_names_it(self):
+        # at_ceiling is the shape that fires under load and named nothing.
+        p = fp.new_profile()
+        for i in range(70):
+            fp.record(p, f"SYM{i}/USDT", 14.5)
+        fp.record(p, "CULPRIT/USDT", 74.94)
+        out = fp.render(p, ceiling_s=CEILING)
+        assert fp.summarize(p, ceiling_s=CEILING)["shape"] == "at_ceiling"
+        assert "CULPRIT/USDT" in out
+
+    def test_the_engine_note_names_it_too(self):
+        # The line the operator actually reads is _stage_report's suffix.
+        src = code_only(open("bot/core/engine.py", encoding="utf-8").read())
+        i = src.index('if s["shape"] == "at_ceiling":')
+        window = src[i:i + 800]
+        assert "worst_symbol" in window, (
+            "the branch that fires under load must name the culprit"
+        )
+
+    def test_an_empty_profile_has_no_worst(self):
+        assert fp.summarize(fp.new_profile(), ceiling_s=CEILING) == {}
+
+    def test_a_single_sample_is_its_own_worst(self):
+        p = fp.new_profile()
+        fp.record(p, "ONLY/USDT", 3.0)
+        s = fp.summarize(p, ceiling_s=CEILING)
+        assert s["worst_symbol"] == "ONLY/USDT"
+
+    def test_ties_are_broken_deterministically(self):
+        # Two symbols at the same max must not make the report flap between
+        # runs — a diagnostic that changes without the system changing is
+        # read as movement that did not happen.
+        def build(order):
+            p = fp.new_profile()
+            for sym in order:
+                fp.record(p, sym, 10.0)
+            return fp.summarize(p, ceiling_s=CEILING)["worst_symbol"]
+        assert build(["B/USDT", "A/USDT"]) == build(["A/USDT", "B/USDT"])
+
+
 class TestItRefusesToClaimAShapeFromTooLittle:
     def test_below_min_sample_says_insufficient(self):
         s = fp.summarize(_spread(3, 15.0), ceiling_s=CEILING)
