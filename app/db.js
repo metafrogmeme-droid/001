@@ -2096,6 +2096,17 @@ async function migrate() {
         INDEX idx_learn_prog_user (user_id)
       )
     `);
+    // Durable idempotency for bot trade-event delivery (#1015 follow-up).
+    // The in-process guard there covers the retry window -- seconds, per
+    // container -- and a restart landing between an attempt and its retry
+    // could still double-insert. This makes the database the authority.
+    //
+    // NULLABLE on purpose: MySQL permits many NULLs in a UNIQUE index, so
+    // every pre-existing row keeps working untouched and only rows that
+    // carry an id are constrained. An additive column plus an index; no
+    // backfill, no rewrite of history.
+    try { await pool.execute('ALTER TABLE trades ADD COLUMN event_id VARCHAR(64) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE trades ADD UNIQUE INDEX idx_trades_event_id (event_id)'); } catch (e) { /* present */ }
     // Provable Calls v2 — the seal rides the position onto the closed trade.
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN trade_key VARCHAR(40) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN seal VARCHAR(64) NULL'); } catch (e) { /* present */ }

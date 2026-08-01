@@ -316,6 +316,17 @@ const SEEN_EVENTS = new Map();          // event_id -> ms timestamp
 const SEEN_EVENT_TTL_MS = 10 * 60 * 1000;
 const SEEN_EVENT_MAX = 2000;
 
+// mysql2 reports a unique-constraint violation as ER_DUP_ENTRY / errno 1062.
+// Matched on both because the code is the stable API and the errno is the one
+// that survives a driver that forgets to set it. Anything else re-throws --
+// swallowing an unknown database error as "duplicate" would report success for
+// a trade that was never written, which is the failure this whole path exists
+// to prevent.
+function _isDuplicateKey(err) {
+  if (!err) return false;
+  return err.code === 'ER_DUP_ENTRY' || err.errno === 1062;
+}
+
 function _seenEvent(id) {
   if (!id) return false;                // no id supplied: cannot dedupe
   const now = Date.now();
@@ -347,28 +358,57 @@ router.post('/trade-event', async (req, res) => {
       return res.json({ ok: true, duplicate: true });
     }
 
-    if (event === 'open') {
-      await pool.execute(
-        `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit)
-         VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)`,
-        [user_id, trade.symbol, trade.direction, trade.entry_price,
-         trade.size_usd, trade.fees || 0, trade.pattern || null,
-         trade.stop_loss || null, trade.take_profit || null]
-      );
-    } else if (event === 'close') {
-      // Remove from open, add as closed
-      await pool.execute(
-        "DELETE FROM trades WHERE user_id = ? AND symbol = ? AND status = 'OPEN' LIMIT 1",
-        [user_id, trade.symbol]
-      );
-      await pool.execute(
-        `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?)`,
-        [user_id, trade.symbol, trade.direction, trade.entry_price, trade.exit_price,
-         trade.size_usd, trade.pnl, trade.fees || 0, trade.pattern || null,
-         trade.opened_at ? new Date(trade.opened_at) : new Date(),
-         trade.closed_at ? new Date(trade.closed_at) : new Date()]
-      );
+    const eid = event_id ? String(event_id).slice(0, 64) : null;
+    try {
+      if (event === 'open') {
+        await pool.execute(
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, event_id)
+           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)`,
+          [user_id, trade.symbol, trade.direction, trade.entry_price,
+           trade.size_usd, trade.fees || 0, trade.pattern || null,
+           trade.stop_loss || null, trade.take_profit || null, eid]
+        );
+      } else if (event === 'close') {
+        // INSERT BEFORE DELETE, and the order is the whole safety argument.
+        //
+        // The old order deleted the OPEN row first. Add a unique constraint to
+        // that and a replayed close becomes strictly worse than the duplicate
+        // it prevents: the DELETE has already removed a live position when the
+        // INSERT is rejected, so the position vanishes and no close replaces
+        // it. Insert first and a rejection costs nothing -- the open row is
+        // still there, untouched.
+        //
+        // A transaction would also solve it, but the in-memory pool this app
+        // falls back to without DATABASE_URL has no transaction support, and a
+        // safety property that only holds on one of two backends is not one.
+        // Ordering holds on both.
+        //
+        // If the process dies between the two statements the open row lingers
+        // beside its close; the next full portfolio sync is replace-all and
+        // heals it. A lingering open row is visible and self-correcting. A
+        // deleted position is neither.
+        await pool.execute(
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, event_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
+          [user_id, trade.symbol, trade.direction, trade.entry_price, trade.exit_price,
+           trade.size_usd, trade.pnl, trade.fees || 0, trade.pattern || null,
+           trade.opened_at ? new Date(trade.opened_at) : new Date(),
+           trade.closed_at ? new Date(trade.closed_at) : new Date(), eid]
+        );
+        await pool.execute(
+          "DELETE FROM trades WHERE user_id = ? AND symbol = ? AND status = 'OPEN' LIMIT 1",
+          [user_id, trade.symbol]
+        );
+      }
+    } catch (err) {
+      // The database recognised this delivery. Same answer as the in-process
+      // guard above, for the same reason: from the client's side the event IS
+      // recorded, and reporting a failure would send a correct client into a
+      // retry loop over work already done.
+      if (_isDuplicateKey(err)) {
+        return res.json({ ok: true, duplicate: true, durable: true });
+      }
+      throw err;
     }
 
     // Record equity snapshot only for a real reading — never a coerced
