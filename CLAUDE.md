@@ -55,6 +55,44 @@ Corollaries that come up constantly:
 - **Test `is None`, not falsiness.** `0.0` is falsy and `0.0` is a real,
   measured, break-even position.
 
+### Knowing the rule has not been enough
+
+Everything above was already written here on 2026-07-31, and that day the
+same rule was broken in twenty-plus places across ten PRs — win rates,
+an edge-metrics panel whose own comment promised "nothing is invented", a
+public track record that published `12 (7W/4L)`. A principle is not
+searchable. The **shapes** it takes are, so here they are:
+
+| shape | what it silently asserts |
+|---|---|
+| `parseFloat(x) \|\| 0` · `float(x or 0)` | unreadable is break-even |
+| `(x \|\| 0) >= 0` | unreadable **won** (`0 >= 0` is true) |
+| `(x or 0) > 0` | unreadable **lost** |
+| `losses = len(all) - wins` | unscorable rows are losses |
+| `.get("pnl", 0)` · `getattr(o, "pnl", 0)` | absent field is zero |
+| `sum(...)` over a set that includes unreadable rows | a partial total, printed as whole |
+| `if total != 0:` guarding a display | all-missing and genuinely-flat hidden alike |
+
+Two practices found these; the rule alone found none of them.
+
+**Ask which OTHER surface makes the same claim — before calling the fix
+done.** Five of those ten PRs came from auditing the previous one. `/portfolio`
+still had the defect `/open_positions` had just been cured of. A `theater.js`
+value flowed through three renderings and fixing two left the third.
+
+**Write the assertion, then re-run the search.** Three separate times the
+source test written for the known sites failed on sites the original grep
+could not reach — they used `t.pnl`, `getattr(t, 'net_pnl', 0)`, a streak
+helper. No search for `pnl_usd` was ever going to find them. The grep tells
+you where you looked; the test tells you where you didn't.
+
+**Then check reachability before fixing.** Not every match is a defect, and a
+refactor bought with no safety is a real cost: `track.js` filters on
+`isFinite` upstream, `arena_trades.pnl` is `NOT NULL`, and the paper `Trade`
+sets `pnl` and `closed_at` in one atomic `model_copy`. All three look exactly
+like the bug. None of them are. `tests/test_paper_pnl_default_is_safe.py`
+pins the third rather than refactoring twenty call sites to fix nothing.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

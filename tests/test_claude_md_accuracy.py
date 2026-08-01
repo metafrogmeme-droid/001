@@ -110,6 +110,34 @@ def test_the_honesty_rule_has_a_guard_behind_it():
         "still be that")
 
 
+def test_the_three_look_alikes_it_clears_are_still_clear():
+    """The doc names three sites that LOOK like the absent-is-zero bug and
+    are not, so a future reader can skip them. If one ever becomes the bug,
+    that sentence stops being a time-saver and starts steering someone past
+    a real defect -- the most expensive kind of wrong documentation.
+
+    The third (the paper Trade's atomic close) has its own file. These two
+    do not, so they are pinned here.
+    """
+    assert "None of them are." in DOC
+
+    track = (ROOT / "app" / "routes" / "track.js").read_text(encoding="utf-8")
+    assert "isFinite(parseFloat(t.pnl))" in track, (
+        "the doc says track.js filters on isFinite upstream, which is why "
+        "its `|| 0` is unreachable — if that filter is gone the `|| 0` is "
+        "now live and the doc is telling people to ignore it"
+    )
+
+    db = (ROOT / "app" / "db.js").read_text(encoding="utf-8")
+    i = db.index("CREATE TABLE IF NOT EXISTS arena_trades")
+    schema = db[i:i + 1200]
+    assert "pnl DOUBLE NOT NULL" in schema, (
+        "the doc says arena_trades.pnl is NOT NULL, which is why the public "
+        "Arena win rate cannot meet an unpriced close — if it became "
+        "nullable that surface needs the same treatment the others got"
+    )
+
+
 def test_the_baseline_gate_behaviour_it_describes_is_real():
     assert "starts *passing* is a hard failure" in DOC
     gate = (ROOT / "scripts" / "ci_test_gate.py").read_text(encoding="utf-8")
