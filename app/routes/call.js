@@ -102,7 +102,20 @@ async function lookupCall(key) {
         pattern: s.pattern || null, regime: s.regime || null,
         created_at: s.created_at,
       },
-      outcome: { status: s.status, pnl: s.pnl == null ? null : Number(s.pnl), resolved_at: s.resolved_at },
+      // §4: this receipt is PUBLIC, so no dollar amounts. `pnl` was emitted
+      // raw here and read as null only because nothing populates it: the sole
+      // production caller of build_signal_payload (engine.py) posts
+      // status="NEW" and never passes pnl. The whole path is built —
+      // build_signal_payload accepts it, sync.js writes it — and that
+      // function's own docstring names status/pnl as the intended outcome
+      // channel, so the first caller to fill it in would have put dollars on
+      // a public receipt with nothing in the way.
+      //
+      // The receipt's job is to prove WHAT was called and WHEN, sealed before
+      // the outcome existed. status and resolved_at carry that. A signal row
+      // has entry_price but no exit, so there is no honest percentage to put
+      // here either — omit, never invent.
+      outcome: { status: s.status, resolved_at: s.resolved_at },
     } };
   }
 }

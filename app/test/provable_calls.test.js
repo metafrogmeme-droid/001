@@ -100,7 +100,20 @@ test('/api/call serves the receipt; the browser-side verify math holds', async (
   for (const f of ['symbol', 'direction', 'entry_price', 'stop_loss', 'take_profit']) {
     assert.deepEqual(p[f], d.current[f], `no drift on ${f}`);
   }
-  assert.equal(Number(d.outcome.pnl), 420.5);
+  // §4: this receipt is PUBLIC, so no dollar amount. It used to assert
+  // `outcome.pnl === 420.5`, which tested the breach IN — the fixture had to
+  // populate a field that production never fills, because the sole caller of
+  // build_signal_payload posts status="NEW" and passes no pnl. So the rule
+  // held only because a parameter was never passed, and a test guaranteed
+  // dollars would be served the moment one was.
+  //
+  // The receipt's job is to prove WHAT was called and WHEN, sealed before the
+  // outcome existed; status and resolved_at carry that. A signal row has
+  // entry_price but no exit, so there is no honest percentage to put here
+  // either — omit, never invent.
+  assert.ok(!('pnl' in d.outcome), 'a dollar amount on a public receipt');
+  assert.equal(d.outcome.status, 'WIN');
+  assert.ok('resolved_at' in d.outcome);
 });
 
 test('tampering with the live row becomes VISIBLE through the receipt', async () => {

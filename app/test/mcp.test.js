@@ -96,8 +96,20 @@ test('tools/call: track record + what-if from the seeded history', async () => {
   const tr = toolResult(await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call',
     params: { name: 'get_track_record', arguments: {} } }));
   assert.equal(tr.trades, 1);
-  assert.equal(tr.net_pnl_usd, 100);
   assert.equal(tr.win_rate_pct, 100);
+  // §4 was already DECIDED for this data: track_record.test.js bans
+  // net_pnl_usd from the public /track payload ("no dollar field may exist"),
+  // and this tool's own `source` claimed to serve "the same data as the
+  // public /track page" while publishing it. /mcp is unauthenticated — the
+  // router.use above the tool registry is a 64 KB body cap, not auth — so the
+  // tool was strictly more revealing than the page it said it mirrored.
+  assert.ok(!('net_pnl_usd' in tr), 'net_pnl_usd is back on a public payload');
+  assert.equal(tr.profit_factor, null);   // no losing trade in the fixture
+  // Recent trades report an OUTCOME. The query has no margin or notional
+  // column, so there is no honest denominator for a per-trade percentage;
+  // inventing one would be worse than reporting the category.
+  assert.equal(tr.recent_trades[0].result, 'win');
+  assert.ok(!('pnl' in tr.recent_trades[0]));
 
   const wi = toolResult(await rpc({ jsonrpc: '2.0', id: 4, method: 'tools/call',
     params: { name: 'run_what_if', arguments: { stake_usd: 500 } } }));

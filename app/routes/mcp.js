@@ -371,10 +371,26 @@ const TOOLS = {
   },
 
   get_track_record: {
+    // §4: this endpoint is PUBLIC (mounted with rate limiting only — the
+    // router.use above it is a body-size cap, not auth), so it carries
+    // percent / ratio / count and no dollar amounts. It used to return
+    // `net_pnl_usd` and a per-trade `pnl` in dollars while its own `source`
+    // claimed "same data as the public /track page" — /track publishes equity
+    // INDEXED TO 100 precisely to avoid this, so the tool was strictly more
+    // revealing than the page it said it mirrored.
+    //
+    // The query has no margin or notional column, so there is no honest
+    // denominator for a per-trade return percentage. Rather than invent one,
+    // each recent trade reports its OUTCOME — a category, which §4 permits
+    // and which is what a track record is actually read for. Omit, never
+    // invent.
+    //
+    // The description also promised drawdown, monthly PnL and an equity curve
+    // that this handler has never returned. Corrected to what it emits.
     description: "RUNECLAW's public verifiable track record: closed-trade "
-      + 'stats (win rate, profit factor, net PnL, drawdown), monthly PnL, '
-      + 'equity curve and recent trades — all from recorded history, nothing '
-      + 'hand-entered.',
+      + 'stats (win rate, profit factor) and recent trade outcomes — all from '
+      + 'recorded history, nothing hand-entered. Percent/ratio/count only: no '
+      + 'dollar amounts are published.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       // Reuse the public route's aggregation by querying the same tables it
@@ -392,13 +408,19 @@ const TOOLS = {
         trades: trades.length,
         wins: wins.length,
         win_rate_pct: trades.length ? Math.round(wins.length / trades.length * 10000) / 100 : null,
-        net_pnl_usd: Math.round(pnls.reduce((a, b) => a + b, 0) * 100) / 100,
+        // profit_factor is gross-win / gross-loss — a RATIO, so it carries the
+        // performance signal net_pnl_usd used to, without the dollar figure.
         profit_factor: grossLoss > 0 ? Math.round(grossWin / grossLoss * 100) / 100 : null,
         recent_trades: trades.slice(-10).reverse().map(t => ({
           symbol: t.symbol, direction: t.direction,
-          pnl: Math.round((parseFloat(t.pnl) || 0) * 100) / 100, closed_at: t.closed_at,
+          // Outcome, not amount. `flat` is its own answer rather than being
+          // folded into a loss — a scratch is not a losing trade.
+          result: (parseFloat(t.pnl) || 0) > 0 ? 'win'
+            : (parseFloat(t.pnl) || 0) < 0 ? 'loss' : 'flat',
+          closed_at: t.closed_at,
         })),
-        source: 'recorded closed trades (same data as the public /track page)',
+        source: 'recorded closed trades (same data as the public /track page, '
+          + 'which is likewise published without dollar amounts)',
       };
     },
   },
