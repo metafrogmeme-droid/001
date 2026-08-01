@@ -62,7 +62,7 @@ def test_concurrent_same_symbol_places_one(_live):
         return await asyncio.gather(eng.confirm_trade("A"),
                                     eng.confirm_trade("B"))
 
-    results = asyncio.get_event_loop().run_until_complete(run())
+    results = asyncio.run(run())
     # Exactly one order placed; the other suppressed as a duplicate.
     assert len(eng.inner_calls) == 1
     assert sum("duplicate suppressed" in r for r in results) == 1
@@ -76,14 +76,14 @@ def test_different_symbols_both_place(_live):
         return await asyncio.gather(eng.confirm_trade("A"),
                                     eng.confirm_trade("B"))
 
-    asyncio.get_event_loop().run_until_complete(run())
+    asyncio.run(run())
     assert len(eng.inner_calls) == 2  # distinct symbols never collide
 
 
 def test_flagged_pyramid_add_is_allowed(_live):
     eng = _FakeEngine({"A": _idea(), "B": _idea()})
     eng._pending_pyramid["B"] = True  # deliberate pyramid add
-    asyncio.get_event_loop().run_until_complete(eng.confirm_trade("A"))
-    asyncio.get_event_loop().run_until_complete(eng.confirm_trade("B"))
+    asyncio.run(eng.confirm_trade("A"))
+    asyncio.run(eng.confirm_trade("B"))
     # A places; B is a flagged pyramid so it is NOT suppressed by the guard.
     assert eng.inner_calls == ["A", "B"]

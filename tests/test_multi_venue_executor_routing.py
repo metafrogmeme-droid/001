@@ -81,7 +81,7 @@ def test_hyperliquid_venue_builds_exchange_from_user_wallet(tmp_path):
     try:
         assert exch.walletAddress == HL_WALLET  # the USER's wallet, not the operator's
     finally:
-        asyncio.get_event_loop().run_until_complete(exch.close())
+        asyncio.run(exch.close())
 
 
 def test_hyperliquid_user_trading_executor_routes_to_hyperliquid(tmp_path):
@@ -119,7 +119,7 @@ def test_bybit_user_routes_to_bybit_with_keysecret(tmp_path):
     try:
         assert exch.apiKey == "BY" + "K" * 14
     finally:
-        asyncio.get_event_loop().run_until_complete(exch.close())
+        asyncio.run(exch.close())
 
 
 def test_bitget_user_still_routes_to_bitget(tmp_path):

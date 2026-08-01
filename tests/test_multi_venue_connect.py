@@ -132,7 +132,7 @@ def test_hyperliquid_create_exchange_uses_per_user_credentials():
     try:
         assert ex.walletAddress == HL_WALLET  # per-user wallet, not the operator's
     finally:
-        asyncio.get_event_loop().run_until_complete(ex.close())
+        asyncio.run(ex.close())
 
 
 def test_hyperliquid_create_exchange_missing_per_user_creds_raises():

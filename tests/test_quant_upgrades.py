@@ -205,7 +205,7 @@ class TestAnalyzeLive(unittest.TestCase):
 
     def test_demo_mode_no_exchange(self):
         """With exchange=None, should fall back to synthetic data and succeed."""
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             analyze_live("BTC/USDT", exchange=None)
         )
         self.assertIsInstance(result, dict)
@@ -216,7 +216,7 @@ class TestAnalyzeLive(unittest.TestCase):
 
     def test_demo_mode_returns_valid_score(self):
         """Score from demo mode should be between 0 and 1."""
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             analyze_live("ETH/USDT")
         )
         self.assertGreaterEqual(result["quant_score"], 0.0)

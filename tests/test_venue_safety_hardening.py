@@ -41,6 +41,10 @@ def _executor(tmp_path):
 
 # ── 1. self-heal naked-window gate ────────────────────────────────────
 
+# asyncio.run(), never asyncio.get_event_loop(): the latter raises once
+# any earlier test in the session has closed the loop, so these passed
+# alone and failed inside a -k subset. Same fix as #1016 applied to its
+# twin — the pattern was in two files, and only one was converted.
 class TestStopLiveOnExchange:
     def _run(self, ex, positions, tmp_path):
         import asyncio
@@ -50,7 +54,7 @@ class TestStopLiveOnExchange:
             return _FakeExchange(positions)
 
         lx._get_exchange = _fake_get_exchange
-        return asyncio.get_event_loop().run_until_complete(
+        return asyncio.run(
             lx._stop_live_on_exchange(_FakePos()))
 
     def test_stop_present_returns_true(self, tmp_path):

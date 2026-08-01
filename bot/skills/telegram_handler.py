@@ -84,6 +84,44 @@ def _unpriced_tag(stats: dict) -> str:
     return f" <i>(+{n} unpriced)</i>" if n > 0 else ""
 
 
+
+def _safe_exc_text(exc: BaseException, *, limit: int = 200) -> str:
+    """An exception's message with secrets scrubbed, HTML-escaped, for a user.
+
+    F-15 says no secret or internal config ever reaches user-facing text.
+    Ten command handlers were sending `html.escape(str(exc))` straight into a
+    reply -- escaping stops MARKUP injection and does nothing whatever about
+    a credential. A ccxt error carries the request URL, an LLM provider error
+    can echo the Authorization header, and a KeyError on config names the key
+    it could not find.
+
+    This is deliberately NOT `_operator_exc_detail`. That one is an ALLOWLIST
+    built for Telegram's own errors, where the token rides in the URL and the
+    only safe answer for an unknown class is silence. Here the class is
+    almost never on that list, so the allowlist would return "" and the
+    operator would learn nothing about why their scan failed. Different
+    question, different tool: show the message, but scrub it first.
+
+    Order matters. The bot-token shape goes first because the shared
+    key=value redactor does not know it, then the shared chokepoint, then
+    escaping -- escaping first would break the patterns the redactors match.
+    """
+    try:
+        msg = str(exc)
+    except Exception:
+        return ""
+    if not msg:
+        return ""
+    msg = _TG_TOKEN_RE.sub("***REDACTED***", msg)
+    msg = _redact_string(msg)
+    # A bare URL can carry credentials in its query string, and no key=value
+    # pattern catches "?apiKey=..." once it is one token. Keep the host, drop
+    # the rest -- "which venue" is the diagnostic; the path rarely is.
+    msg = _URL_QUERY_RE.sub(r"\1?***", msg)
+    msg = " ".join(msg.split())
+    return html.escape(msg[:limit])
+
+
 def _scan_timeout_hint(analyzer, engine=None) -> str:
     """One diagnostic line for the interactive-scan timeout message.
 
@@ -286,6 +324,11 @@ _SYMBOL_RE = re.compile(r'^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15})?$')
 # pattern matched nothing and passed the whole token through. The optional
 # `bot` prefix is consumed so the replacement swallows it too.
 _TG_TOKEN_RE = re.compile(r"(?:bot)?\d{6,12}:[A-Za-z0-9_-]{20,}")
+
+#: A URL with a query string. Credentials ride there as often as in a
+#: key=value pair, and once they are a single token no key=value regex
+#: sees them. The host answers "which service"; the query never has to.
+_URL_QUERY_RE = re.compile(r"(https?://[^\s?]+)\?[^\s]*")
 
 # Exception classes whose MESSAGE may be shown to the operator.
 #
@@ -5595,7 +5638,7 @@ class TelegramHandler:
                 await self._send(update, "No policy to change. Set one with <code>/policy set …</code>")
                 return
             except Exception as exc:
-                await self._send(update, f"Couldn't change mode: {html.escape(str(exc))}")
+                await self._send(update, f"Couldn't change mode: {_safe_exc_text(exc)}")
                 return
             enabled = bool(getattr(CONFIG.risk, "intent_policy_enabled", False))
             tail = ("" if enabled else
@@ -6181,7 +6224,7 @@ class TelegramHandler:
                 vw = _vw.VoterWeightLearner.load() or _vw.VoterWeightLearner()
                 action = ""
         except Exception as exc:
-            await self._send(update, f"🔴 Learning overlay error: {html.escape(str(exc))}")
+            await self._send(update, f"🔴 Learning overlay error: {_safe_exc_text(exc)}")
             return
 
         cal_on = getattr(CONFIG.analyzer, "confidence_calibration_enabled", False)
@@ -8699,7 +8742,7 @@ class TelegramHandler:
                     return
             await self._send(update, format_alpha_card(data))
         except Exception as exc:
-            await self._send(update, f"⚠️ Alpha card failed: {html.escape(str(exc)[:160])}")
+            await self._send(update, f"⚠️ Alpha card failed: {_safe_exc_text(exc, limit=160)}")
 
     async def _cmd_readiness(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/readiness — is the learning loop validated enough to apply?"""
@@ -8709,7 +8752,7 @@ class TelegramHandler:
             from bot.learning.readiness import assess_readiness, render_report
             await self._send(update, render_report(assess_readiness()))
         except Exception as exc:
-            await self._send(update, f"⚠️ Readiness assessment failed: {str(exc)[:160]}")
+            await self._send(update, f"⚠️ Readiness assessment failed: {_safe_exc_text(exc, limit=160)}")
 
     async def _cmd_gates(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/gates — per-gate pass/fail/skip telemetry (threshold tuning evidence)."""
@@ -9038,7 +9081,7 @@ class TelegramHandler:
                 await self._send(update, result)
         except Exception as exc:
             system_log.error(f"Scalp scan error: {exc}", exc_info=True)
-            await self._send(update, f"🔴 <b>Scalp scan error:</b> <code>{html.escape(str(exc)[:200])}</code>")
+            await self._send(update, f"🔴 <b>Scalp scan error:</b> <code>{_safe_exc_text(exc)}</code>")
 
     @guard("scan")
     async def _cmd_intraday(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9055,7 +9098,7 @@ class TelegramHandler:
                 await self._send(update, result)
         except Exception as exc:
             system_log.error(f"Intraday scan error: {exc}", exc_info=True)
-            await self._send(update, f"🔴 <b>Intraday scan error:</b> <code>{html.escape(str(exc)[:200])}</code>")
+            await self._send(update, f"🔴 <b>Intraday scan error:</b> <code>{_safe_exc_text(exc)}</code>")
 
     @guard("scan")
     async def _cmd_swing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9078,7 +9121,7 @@ class TelegramHandler:
                 "(SL too close to entry). Try again or use /scan.")
         except Exception as exc:
             system_log.error(f"Swing scan error: {exc}", exc_info=True)
-            await self._send(update, f"\U0001f534 <b>Swing scan error:</b> <code>{html.escape(str(exc)[:200])}</code>")
+            await self._send(update, f"\U0001f534 <b>Swing scan error:</b> <code>{_safe_exc_text(exc)}</code>")
 
     @guard("playbook")
     async def _cmd_playbook(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9089,7 +9132,7 @@ class TelegramHandler:
             await self._send(update, result)
         except Exception as exc:
             system_log.error(f"Playbook error: {exc}")
-            await self._send(update, f"🔴 <b>Playbook error:</b> <code>{html.escape(str(exc)[:200])}</code>")
+            await self._send(update, f"🔴 <b>Playbook error:</b> <code>{_safe_exc_text(exc)}</code>")
 
     @guard("deepscan")
     async def _cmd_deepscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9238,7 +9281,7 @@ class TelegramHandler:
                       "scan timing if you want to know where the time goes."))
         except Exception as exc:
             system_log.error(f"Deepscan error: {exc}", exc_info=True)
-            await self._send(update, f"🔴 <b>Deepscan error:</b> <code>{html.escape(str(exc)[:200])}</code>")
+            await self._send(update, f"🔴 <b>Deepscan error:</b> <code>{_safe_exc_text(exc)}</code>")
 
     @guard("scan")
     async def _cmd_fullscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9269,7 +9312,7 @@ class TelegramHandler:
             exchange = await self.engine.get_exchange()
             tickers = await exchange.fetch_tickers()
         except Exception as exc:
-            await self._send(update, f"\U0001f534 <b>Exchange error:</b> {html.escape(str(exc)[:200])}")
+            await self._send(update, f"\U0001f534 <b>Exchange error:</b> {_safe_exc_text(exc)}")
             return
 
         # Filter to stock symbols — try exact match first, then fuzzy
