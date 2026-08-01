@@ -392,6 +392,25 @@ async def require_dashboard_token(
 
 # ── Endpoints ────────────────────────────────────────────────────
 
+def _health_gate_fields() -> dict:
+    """`trading_blocked_by` (+ an unknown flag) for the public /health body.
+
+    Kept as a function so /health stays one dict literal and so the "never
+    raises" promise is enforced in one place rather than repeated inline.
+    """
+    if engine is None:
+        return {"trading_blocked_by": "", "trading_gate_unknown": True}
+    try:
+        from bot.core.trade_gate import entry_gate
+        g = entry_gate(engine, include_detail=False)
+        return {"trading_blocked_by": "; ".join(g["reasons"]),
+                "trading_gate_unknown": bool(g["unknown"])}
+    except Exception:
+        # Never let the status field be the reason /health fails. Absent-ish
+        # rather than a fabricated "", which would read as "trading is fine".
+        return {"trading_blocked_by": "", "trading_gate_unknown": True}
+
+
 @app.get("/health")
 async def health():
     uptime = round(time.time() - _start_time, 1) if _start_time else 0
@@ -404,7 +423,22 @@ async def health():
         # NOT the warning-rate breaker, so it read "clear" while that breaker
         # was rejecting live trades. This field answers the question the
         # narrow one was being read as: is trading blocked, and by what.
-        "trading_blocked_by": engine.risk.trading_blocked_by if engine else "",
+        #
+        # `engine.risk.trading_blocked_by` was only PART of that answer. The
+        # kill switch and the venue auth halt sit outside it, so /health --
+        # THE surface the operator checked during the 2026-07-29 incident --
+        # would have reported "" while the bot's own cards said Paused. Every
+        # bot surface routes through entry_gate; this one has to as well or
+        # the divergence just moves to HTTP.
+        #
+        # include_detail=False: this endpoint takes no token. That trading is
+        # halted and which class of gate did it is the kind of status /health
+        # already publishes; the venue's raw error text is not.
+        #
+        # entry_gate also never raises, where reading the property directly
+        # could -- a health endpoint that 500s on a risk-engine hiccup reports
+        # the wrong outage.
+        **_health_gate_fields(),
         "open_positions": len(engine.portfolio.open_positions) if engine else 0,
         # Named for what it IS. `universe_size` alone read as the engine's
         # trading universe and was used that way in a live diagnosis; it is
@@ -728,6 +762,17 @@ async def close_position(symbol: str, _token: str = Depends(require_dashboard_to
     }
 
 
+def _risk_status_gate_fields() -> dict:
+    """As `_health_gate_fields`, but token-gated so the detail is kept."""
+    try:
+        from bot.core.trade_gate import entry_gate
+        g = entry_gate(engine)
+        return {"trading_blocked_by": "; ".join(g["reasons"]),
+                "trading_gate_unknown": bool(g["unknown"])}
+    except Exception:
+        return {"trading_blocked_by": "", "trading_gate_unknown": True}
+
+
 @app.get("/risk/status")
 async def risk_status(_token: str = Depends(require_dashboard_token)):
     """Return risk engine state."""
@@ -737,7 +782,16 @@ async def risk_status(_token: str = Depends(require_dashboard_token)):
         "warning_rate_breaker_active": engine.risk.warning_rate_breaker_active,
         # The single field to read when asking "can we trade right now": ""
         # when trades are going through, otherwise the reason they are not.
-        "trading_blocked_by": engine.risk.trading_blocked_by,
+        #
+        # That sentence was written about `engine.risk.trading_blocked_by` and
+        # was false by the time three more gates were found -- the kill
+        # switch, the CALLER's own breaker and the venue auth halt all sit
+        # outside it, so the field promised a completeness it did not have.
+        # Sourced from entry_gate, the sentence is true again.
+        #
+        # This endpoint IS token-gated, so it keeps the venue detail that
+        # public /health drops.
+        **_risk_status_gate_fields(),
         "consecutive_losses": engine.risk.consecutive_losses,
         "stats": engine.risk.stats,
         "rejection_history": engine.risk.rejection_history[-10:],

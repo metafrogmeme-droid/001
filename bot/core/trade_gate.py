@@ -132,7 +132,7 @@ def _risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
 
 
 def entry_gate(engine: Any, user_id: str = "", *,
-               live: bool | None = None) -> dict:
+               live: bool | None = None, include_detail: bool = True) -> dict:
     """What the pre-execute gate would do for ``user_id`` right now.
 
     Returns ``{"blocked": bool, "unknown": bool, "reasons": [str, ...]}``.
@@ -141,6 +141,13 @@ def entry_gate(engine: Any, user_id: str = "", *,
     ``unknown`` is True when some condition could not be read, and the two are
     independent: a confirmed breaker plus one unreadable field is still
     blocked, and the caller has no reason to hedge about it.
+
+    ``include_detail=False`` drops the venue's own error text and keeps the
+    CATEGORY. /health is unauthenticated: that trading is halted, and which
+    class of gate did it, is operational status of the kind that endpoint
+    already publishes, but the venue's raw response is not — it is the one
+    part of a reason that is externally sourced and unbounded in content.
+    Scrubbed is not the same as public.
 
     Never raises. A status helper that can take down /start is a worse defect
     than the one it fixes.
@@ -180,9 +187,19 @@ def entry_gate(engine: Any, user_id: str = "", *,
                 unknown = True
             continue
         if blocked_by:
-            # Mostly internal tokens (daily_loss, warning_rate:…), but a
-            # manual trip carries `/halt <reason>` — operator-typed text that
-            # would otherwise reach the website chip verbatim.
+            # These are internal tokens today — `_circuit_trip_cause` is only
+            # ever daily_loss / drawdown / streak / manual, plus
+            # `warning_rate:<key>` and `loss_streak:<n>`.
+            #
+            # An earlier version of this comment claimed a manual trip carried
+            # the operator's `/halt <reason>` text. It does not:
+            # `emergency_halt(reason)` passes `reason` to the AUDIT LOG and
+            # lets `cause` default to "manual", so the free text never reaches
+            # this field. The scrub stays — it is a no-op on a fixed token and
+            # the cheapest possible insurance if a future caller starts
+            # passing `cause` through — but it is defence in depth, not a
+            # response to a live exposure, and saying otherwise would leave a
+            # rationale in the tree that the code does not support.
             reasons.append(_safe_detail(blocked_by, limit=120) or "blocked")
     if not saw_a_risk_engine:
         unknown = True
@@ -196,11 +213,12 @@ def entry_gate(engine: Any, user_id: str = "", *,
             unknown = True
         elif not healthy:
             detail = ""
-            try:
-                detail = _safe_detail((engine._live_auth_detail or {}).get(
-                    str(user_id or ""), ""))
-            except Exception:
-                detail = ""
+            if include_detail:
+                try:
+                    detail = _safe_detail((engine._live_auth_detail or {}).get(
+                        str(user_id or ""), ""))
+                except Exception:
+                    detail = ""
             # The recovery route travels WITH the reason. The flag is only
             # cleared by the preflight, so a surface that reports the halt
             # without saying that is a diagnosis with no next step — which is
