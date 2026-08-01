@@ -2113,9 +2113,40 @@
     m.classList.add('hidden'); m.hidden = true;
     if (symA11y) { try { symA11y.close(); } catch (e) { /* fine */ } symA11y = null; }
   }
-  function _insightBlock(d) {
-    if (!d || d.error || typeof d.confluence !== 'number') {
-      return '<p class="muted small">No live decision picture right now (the analysis bridge may be offline).</p>';
+  // Takes the WHOLE fetch result, not just `.data`, because three different
+  // situations used to collapse into one sentence that named one cause:
+  //
+  //   the request failed           -> "the analysis bridge may be offline" -- fair
+  //   the bridge answered an error -> it TOLD us why, and we threw that away
+  //   the bridge answered 200 with no confluence -> the bridge is UP and has
+  //                                   no read for this symbol
+  //
+  // The third is what the operator screenshotted on SGOV, a stock perp: the
+  // same bridge had just served the candles, the VWAP chip, the structure
+  // chip and the pattern read that were rendering directly beneath the
+  // message claiming it might be offline. A verdict inferred from an absence,
+  // pointing at a dependency that was demonstrably working.
+  //
+  // `res` is fetchJSON's {ok, data}. A caller passing only `.data` cannot
+  // distinguish any of this, which is why both call sites now pass the lot.
+  function _insightBlock(res) {
+    const d = res && res.data;
+    const reached = !!(res && res.ok);
+    if (!reached) {
+      return '<p class="muted small">Could not reach the analysis bridge for '
+        + 'this symbol just now. The rest of this card is live market data '
+        + 'and is unaffected.</p>';
+    }
+    if (d && d.error) {
+      // The bridge said why. Repeating it beats replacing it with a guess.
+      return '<p class="muted small">The analysis bridge declined this '
+        + 'symbol: <i>' + esc(String(d.error).slice(0, 160)) + '</i></p>';
+    }
+    if (!d || typeof d.confluence !== 'number') {
+      return '<p class="muted small">No directional read for this symbol — '
+        + 'the bridge answered, it just has no confluence score here (stock '
+        + 'and newly-listed perps often have none). The chart, structure and '
+        + 'pattern reads below are unaffected.</p>';
     }
     const dir = (d.confluence - 0.5) * 2;
     const lean = dir > 0.1 ? 'Bullish' : dir < -0.1 ? 'Bearish' : 'Neutral';
@@ -2205,7 +2236,7 @@
       card = deepScanCard(hit);
     }
     body.innerHTML = `
-      <section class="mt-1">${_insightBlock(ins && ins.data)}</section>
+      <section class="mt-1">${_insightBlock(ins)}</section>
       <div id="symTf" class="row mt-2" style="gap:6px" role="group" aria-label="${T('aria.chart_timeframe', 'Chart timeframe')}"></div>
       <div id="symChart" class="mt-2"></div>
       <div id="symReadChips" class="row mt-2" style="gap:6px;flex-wrap:wrap"></div>
@@ -2680,8 +2711,9 @@
     // Decision picture beside the ticket: the engine's live directional read
     // for the typed symbol, so the "why" sits next to the "buy". Read-only
     // context (same confluence/voters as the market view) — never an order
-    // path. Debounced on the symbol, and degrades to an honest "offline" note
-    // via _insightBlock when the analysis bridge is unavailable.
+    // path. Debounced on the symbol; _insightBlock distinguishes "could not
+    // reach the bridge" from "the bridge has no read for this symbol", which
+    // are different facts and used to share one sentence.
     let _tiSym = null, _tiTimer = null;
     async function drawTicketInsight() {
       const el = document.getElementById('c-tinsight');
@@ -2694,7 +2726,7 @@
       const r = await fetchJSON('/api/insight?symbol=' + encodeURIComponent(sym + '/USDT') + '&timeframe=4h&limit=200',
         { auth: false, timeoutMs: 14000 }).catch(() => null);
       if (_tiSym !== sym || document.getElementById('c-tinsight') !== el) return; // stale / re-rendered
-      el.innerHTML = _insightBlock(r && r.data);
+      el.innerHTML = _insightBlock(r);
     }
     $('tSym').addEventListener('input', () => { clearTimeout(_tiTimer); _tiTimer = setTimeout(drawTicketInsight, 500); });
 

@@ -23,7 +23,12 @@ test('the trade view renders a decision-picture panel', () => {
 test('it fetches the live insight for the ticket symbol and reuses _insightBlock', () => {
   assert.match(dash, /async function drawTicketInsight/);
   assert.match(dash, /\/api\/insight\?symbol=/);
-  assert.match(dash, /_insightBlock\(r && r\.data\)/);
+  // Was `_insightBlock(r && r.data)`. Passing only `.data` collapsed a failed
+  // fetch and a successful one with an empty payload into the same undefined,
+  // so the block could not tell "could not reach the bridge" from "the bridge
+  // has no read for this symbol" — and named the first for both. It takes the
+  // whole result now.
+  assert.match(dash, /_insightBlock\(r\)/);
 });
 
 test('it refreshes debounced on the symbol input and on deep-link arrival', () => {
