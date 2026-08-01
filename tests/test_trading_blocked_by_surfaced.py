@@ -160,17 +160,34 @@ class TestItReachesTheOperator:
             "both /health and /risk/status should answer 'can we trade'"
         )
 
+    # NOTE — these two asserted the exact EXPRESSIONS this fix introduced
+    # (`cb = bool(blocked_by)`, `bool(_blocked) or cb_active`). Both surfaces
+    # were later widened again: trading_blocked_by turned out to be only part
+    # of the answer, since the kill switch, the CALLER's own breaker and the
+    # venue auth halt all sit outside it. bot/core/trade_gate.entry_gate now
+    # carries every condition the pre-execute gate checks, and both surfaces
+    # read that.
+    #
+    # The rule these tests encode — the headline is not driven by the narrow
+    # field — is unchanged and now holds more strongly. Only the expression
+    # they pinned has moved, so they are re-pointed rather than relaxed:
+    # entry_gate is asserted to be a STRICT SUPERSET, not merely different.
+
     def test_status_card_headline_is_not_driven_by_the_narrow_field(self):
         src = code_only(
             open("bot/skills/telegram_handler.py", encoding="utf-8").read())
-        assert "trading_blocked_by" in src, (
+        assert "active=not cb" in src
+        i = src.index("active=not cb")
+        # Window sized by MEASURING the gap (3666 chars), not guessed. A 2500
+        # guess put the anchor outside the window and failed on correct code —
+        # the same window-slicing error as the overrun that made a different
+        # test pass on wrong code. Both directions come from picking a number.
+        window = src[max(0, i - 4200):i]
+        assert 'cb = bool(_g["blocked"])' in window, (
             "the /status headline printed a green ACTIVE while the "
             "warning-rate breaker was rejecting every entry"
         )
-        # The green/red headline is computed from `blocked_by`, not from
-        # circuit_breaker_active alone.
-        assert "active=not cb" in src
-        assert "cb = bool(blocked_by)" in src
+        assert "entry_gate(self.engine" in window
 
     def test_the_web_dashboard_chip_is_not_driven_by_the_narrow_field(self):
         # The website is the primary surface. Its "Circuit Breaker" chip is
@@ -178,9 +195,37 @@ class TestItReachesTheOperator:
         # warning-rate breaker was rejecting every live entry.
         src = code_only(
             open("bot/skills/scan_skill.py", encoding="utf-8").read())
-        assert "trading_blocked_by" in src
+        assert "entry_gate(engine)" in src
         # The chip must go red on ANY blocker, not just the narrow one.
         assert 'bool(_blocked) or cb_active' in src
+
+    def test_the_widening_still_covers_the_breaker_this_file_is_about(self):
+        """The re-point above must not have dropped the original coverage.
+
+        A test rewritten around a refactor is the easiest place to lose the
+        property it was protecting. This asserts the warning-rate breaker —
+        the 2026-07-29 cause, and the whole reason this file exists — still
+        blocks through the helper both surfaces now read.
+        """
+        from types import SimpleNamespace as NS
+
+        from bot.core.trade_gate import entry_gate
+        clear = NS(trading_blocked_by="", circuit_breaker_active=False)
+        tripped = NS(trading_blocked_by="warning_rate:api_errors",
+                     circuit_breaker_active=False)   # NOT the narrow flag
+        engine = NS(_halted=False, risk=tripped,
+                    risk_for=lambda uid="": tripped,
+                    live_auth_healthy=lambda uid="": True,
+                    _live_auth_detail={})
+        g = entry_gate(engine, live=True)
+        assert g["blocked"], "the warning-rate breaker must still turn it red"
+        assert "warning_rate:api_errors" in g["reasons"], (
+            "and must still be NAMED — a red chip with no cause sends the "
+            "operator hunting, which is the other half of the original fix"
+        )
+        engine.risk = clear
+        engine.risk_for = lambda uid="": clear
+        assert not entry_gate(engine, live=True)["blocked"]
 
     def test_a_blocked_status_card_names_the_reason(self):
         src = code_only(

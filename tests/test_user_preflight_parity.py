@@ -181,27 +181,56 @@ class TestTheHaltIsNoLongerSilent:
     out was to attempt a trade and have it refused.
     """
 
+    # These four rules were first enforced against the hand-rolled block that
+    # lived inline in _build_chat_system_prompt. That block has since moved
+    # into bot/core/trade_gate.py, so the SOURCE WINDOWS stopped finding it —
+    # the assertions were about where the code sat, not about what it did.
+    #
+    # Re-pointed at the behaviour instead, which is what they always meant and
+    # is stronger: they now hold whichever surface asks the question.
+
     def test_the_prompt_reports_the_auth_halt(self):
         src = _src_handler()
         assert "NEW ENTRIES HALTED" in src, (
             "the auth gate must reach the same surface the other two do"
         )
+        i = src.index("NEW ENTRIES HALTED")
+        assert "entry_gate(self.engine" in src[max(0, i - 600):i]
 
     def test_it_only_reports_when_live_and_unhealthy(self):
-        src = _src_handler()
-        i = src.index("NEW ENTRIES HALTED")
-        window = src[max(0, i - 700):i]
-        assert "CONFIG.is_live()" in window
-        assert "live_auth_healthy" in window
-        assert "not self.engine.live_auth_healthy" in window, (
+        from types import SimpleNamespace as NS
+
+        from bot.core.trade_gate import entry_gate
+
+        def engine(auth_ok):
+            return NS(_halted=False,
+                      risk=NS(trading_blocked_by="", circuit_breaker_active=False),
+                      risk_for=lambda uid="": NS(trading_blocked_by="",
+                                                 circuit_breaker_active=False),
+                      live_auth_healthy=lambda uid="": auth_ok,
+                      _live_auth_detail={})
+
+        assert entry_gate(engine(False), live=True)["blocked"]
+        assert not entry_gate(engine(True), live=True)["blocked"], (
             "a healthy account must say nothing extra"
+        )
+        assert not entry_gate(engine(False), live=False)["blocked"], (
+            "there is no venue to authenticate against in paper"
         )
 
     def test_it_tells_the_operator_how_to_clear_it(self):
-        src = _src_handler()
-        i = src.index("NEW ENTRIES HALTED")
-        window = src[i:i + 400]
-        assert "restart" in window.lower(), (
+        from types import SimpleNamespace as NS
+
+        from bot.core.trade_gate import entry_gate
+        g = entry_gate(NS(_halted=False,
+                          risk=NS(trading_blocked_by="",
+                                  circuit_breaker_active=False),
+                          risk_for=lambda uid="": NS(
+                              trading_blocked_by="",
+                              circuit_breaker_active=False),
+                          live_auth_healthy=lambda uid="": False,
+                          _live_auth_detail={}), live=True)
+        assert "restart" in " ".join(g["reasons"]).lower(), (
             "the flag only resets when the preflight re-runs; saying so is "
             "the difference between a diagnosis and a dead end"
         )
@@ -209,7 +238,7 @@ class TestTheHaltIsNoLongerSilent:
     def test_it_cannot_break_the_prompt(self):
         # Instrumentation on the chat path must never be the reason chat
         # fails. Same rule as every other diagnostic added this session.
-        src = _src_handler()
-        i = src.index("NEW ENTRIES HALTED")
-        window = src[max(0, i - 800):i + 400]
-        assert "except Exception:" in window
+        from bot.core.trade_gate import entry_gate
+        for bad in (None, object(), 7):
+            g = entry_gate(bad, live=True)
+            assert g["unknown"] and not g["blocked"]

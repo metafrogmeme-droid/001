@@ -343,6 +343,7 @@ from telegram.ext import (
 )
 
 from bot.config import CONFIG
+from bot.core.trade_gate import entry_gate, gate_label, gate_sentence
 
 # SEC-H3 FIX: strict symbol regex — applied at every Telegram entry point
 # before symbols reach CCXT or the LLM.
@@ -1132,13 +1133,15 @@ class TelegramHandler:
         # warning-rate breaker rejects them without opening the circuit, so
         # reading only circuit_breaker_active printed "running" while nothing
         # could trade.
-        cb = bool(getattr(self.engine.risk, "trading_blocked_by", "")
-                  or self.engine.risk.circuit_breaker_active)
+        # ...and neither did the kill switch or the venue auth halt, which is
+        # why this now asks the one helper that carries all five conditions.
+        _g = entry_gate(self.engine)
+        cb = bool(_g["blocked"])
         combined = self.engine.user_portfolios.combined_snapshot() if self.engine.user_portfolios.all_portfolios() else None
         open_pos = self.engine.user_portfolios.total_open_positions() if self.engine.user_portfolios.all_portfolios() else 0
         macro = self.engine.macro_calendar.evaluate()
         mode = "SIM" if CONFIG.simulation_mode else "LIVE"
-        cb_s = "paused" if cb else "running"
+        cb_s = "paused" if cb else ("unknown" if _g["unknown"] else "running")
         macro_s = macro.state.value.replace("_", " ").lower()
         return f"{mode} | {open_pos} open | {cb_s} | macro: {macro_s}"
 
@@ -1395,43 +1398,27 @@ class TelegramHandler:
                 )
             cb = self.engine.risk.circuit_breaker_active
             mode = "LIVE" if not CONFIG.simulation_mode else "PAPER"
+            # CB= keeps its exact old meaning: a dozen readers drive alerts and
+            # resume logic off `circuit_breaker_active`, and widening the field
+            # under them would trade one wrong answer for another.
             engine_state = f"{mode} mode, CB={'ON' if cb else 'OFF'}"
-            # CB=OFF alone let the LLM tell a user trading was fine while the
-            # warning-rate breaker was rejecting every entry. That breaker is
-            # not part of circuit_breaker_active, so state it separately
-            # rather than redefining the CB= field under existing readers.
-            _blocked = getattr(self.engine.risk, "trading_blocked_by", "") or ""
-            if _blocked:
-                engine_state += f", TRADING BLOCKED ({_blocked})"
-
-            # ...and the AUTH gate, which is a THIRD one the two fields above
-            # cannot see. The comment overhead describes this exact failure
-            # happening once already: CB=OFF let chat say trading was fine
-            # while the warning-rate breaker rejected every entry. The venue
-            # auth halt sits outside circuit_breaker_active AND outside
-            # trading_blocked_by, so it recurred -- on 2026-08-01 a transport
-            # blip halted entries and NOTHING surfaced it. The operator's own
-            # /start reported "Active | LIVE" while every execution would have
-            # been refused, and the only way to discover it was to attempt a
-            # trade.
+            # The claim the LLM actually makes to a user is "you can trade", and
+            # CB= answers a narrower question than that. Twice now a gate
+            # outside it stopped every entry while this prompt said things were
+            # fine: the warning-rate breaker on 2026-07-29, and the venue auth
+            # halt on 2026-08-01. Both were fixed HERE and nowhere else.
             #
-            # A gate nothing can see is a gate that fails silently, which is
-            # worse than a noisy one.
-            try:
-                if CONFIG.is_live() and not self.engine.live_auth_healthy(
-                        str(user_id or "")):
-                    _d = ""
-                    try:
-                        _d = (self.engine._live_auth_detail or {}).get(
-                            str(user_id or ""), "")
-                    except Exception:
-                        _d = ""
-                    engine_state += (", NEW ENTRIES HALTED (venue auth marked "
-                                     "down at startup"
-                                     + (f": {_d[:80]}" if _d else "")
-                                     + " — restart re-runs the check)")
-            except Exception:
-                pass
+            # So the full list lives in bot/core/trade_gate.py and every
+            # surface reads it, instead of each one growing its own subset.
+            _g = entry_gate(self.engine, str(user_id or ""))
+            if _g["blocked"]:
+                engine_state += (", NEW ENTRIES HALTED ("
+                                 + "; ".join(_g["reasons"])[:200] + ")")
+            elif _g["unknown"]:
+                # Do not let the model round this to "trading is fine".
+                engine_state += (", ENTRY GATE STATUS UNKNOWN (do not tell the "
+                                 "user trading is open — say it could not be "
+                                 "confirmed)")
 
             # Inject actual open positions
             # NEVER leave this section blank when is_live -- an LLM given no
@@ -2490,7 +2477,16 @@ class TelegramHandler:
         mode_str = "PAPER" if CONFIG.simulation_mode else "LIVE"
         user_portfolio = self.engine.user_portfolios.get(tg_id)
         state = user_portfolio.snapshot()
-        cb_active = self.engine.risk.circuit_breaker_active
+        # The headline answers "would a new entry be accepted", not "is one
+        # specific breaker open". This card read
+        # `self.engine.risk.circuit_breaker_active` alone — ONE of the five
+        # conditions the pre-execute gate checks, and not the one that fired
+        # in either of the two incidents this rule was written after. It also
+        # read the SHARED breaker, so a user whose OWN daily-loss breaker was
+        # open saw a green "Active". bot/core/trade_gate.py carries the whole
+        # list once so this cannot drift from the gate again.
+        _gate = entry_gate(self.engine, str(tg_id or ""))
+        cb_active = bool(_gate["blocked"])
 
         # Displayed counts — defined for BOTH branches (the paper branch
         # previously never set them and the template references both).
@@ -2573,8 +2569,13 @@ class TelegramHandler:
             _streak_badge = ""
 
         SEP = "\u2500" * 16
-        status_icon = "\U0001f7e2" if not cb_active else "\U0001f534"
-        status_label = "Active" if not cb_active else "Paused"
+        # Unknown gets its own icon and word. Rounding an unreadable gate up to
+        # a green "Active" is the bug; rounding it down to "Paused" is the
+        # false alarm. Neither is the honest answer, so it says which it is.
+        _gate_label = gate_label(_gate)
+        status_icon = {"Active": "\U0001f7e2", "Paused": "\U0001f534"}.get(
+            _gate_label, "⚪")
+        status_label = _gate_label
         mode = mode_str
         # display_equity is None only in LIVE mode when the balance is
         # unreadable \u2014 show that plainly, never the paper baseline. The
@@ -2592,7 +2593,15 @@ class TelegramHandler:
         lang = get_user_lang(self.users, tg_id)
 
         # Bilingual status labels
-        status_label_zh = t("status_active", "zh") if not cb_active else t("status_paused", "zh")
+        # The bilingual line must not disagree with the English one. It said
+        # 活躍 whenever the breaker was closed, which for an unreadable gate is
+        # a green claim the English half no longer makes.
+        if cb_active:
+            status_label_zh = t("status_paused", "zh")
+        elif _gate_label != "Active":
+            status_label_zh = status_label
+        else:
+            status_label_zh = t("status_active", "zh")
         trade_mode_zh = t("mode_live", "zh") if can_live else t("mode_paper", "zh")
         pending_str = f' | Pending orders: <code>{_pending_count}</code>' if _pending_count > 0 else ''
         pending_str_zh = f' | 掛單: <code>{_pending_count}</code>' if _pending_count > 0 else ''
@@ -2620,6 +2629,13 @@ class TelegramHandler:
                  time=time)
 
         msg = f"<b>RUNECLAW</b>\n{SEP}\n\n{body}"
+        # A one-word headline cannot say WHY, and "Paused" without a cause is
+        # a dead end — the operator's only route to the answer during the
+        # 2026-08-01 auth halt was to attempt a trade and read the rejection.
+        # Named causes, straight from the fields the gate reads.
+        _why = gate_sentence(_gate)
+        if _why:
+            msg += f"\n\n⚠️ <i>{html.escape(_why)}</i>"
         await self._send(update, msg, reply_markup=_KB_WARROOM)
 
     async def _handle_unknown_command(self, update: Update,
@@ -8566,8 +8582,13 @@ class TelegramHandler:
             # a halted engine as HEALTHY. Without it the text renderer knew
             # only the drawdown reading, and a restart-erased high-water mark
             # made that read 0.0% while the breaker was open.
-            "trading_blocked_by": getattr(
-                self.engine.risk, "trading_blocked_by", "") or "",
+            # WHY entries are being refused, or "" — from the full gate, not
+            # the shared engine's breaker field alone. The text renderer scored
+            # a HALTED engine as HEALTHY when the cause was the caller's own
+            # breaker or the venue auth halt, neither of which appears in
+            # self.engine.risk.trading_blocked_by.
+            "trading_blocked_by": "; ".join(
+                entry_gate(self.engine, str(user_id or ""))["reasons"]),
         }
         rendered = wr_risk(data)
         kb = InlineKeyboardMarkup([
@@ -8578,11 +8599,12 @@ class TelegramHandler:
         # Visual stats card (guarded — falls back to text + same keyboard).
         try:
             from bot.formatters.signal_card import render_stats_card
-            # Same widening as /status: this tile read OK while the
-            # warning-rate breaker was rejecting trades, because that breaker
-            # is not part of circuit_breaker_active.
-            cb = bool(getattr(self.engine.risk, "trading_blocked_by", "")
-                      or self.engine.risk.circuit_breaker_active)
+            # Same widening as /status, and now from the same helper: this
+            # tile read OK while the warning-rate breaker was rejecting
+            # trades, because that breaker is not part of
+            # circuit_breaker_active — and it kept reading OK for the two
+            # gates discovered after that fix.
+            cb = bool(data["trading_blocked_by"])
             dd = data["current_drawdown"]
             _png = render_stats_card({
                 "title": t("lbl_risk_title", lang),
@@ -8613,10 +8635,12 @@ class TelegramHandler:
         # breaker open". circuit_breaker_active covers daily_loss / drawdown /
         # streak / manual and NOT the warning-rate breaker, so this card
         # printed a green ACTIVE while WARNING_RATE_BREAKER was rejecting live
-        # trades. trading_blocked_by is "" exactly when trades are going
-        # through, so it is the honest input for a green/red headline.
-        blocked_by = getattr(self.engine.risk, "trading_blocked_by", "") or ""
-        cb = bool(blocked_by)
+        # trades. That fix named ONE more gate; two others were found later.
+        # entry_gate carries every condition the pre-execute gate checks, for
+        # THIS caller's account rather than only the shared one.
+        _g = entry_gate(self.engine, str(user_id or ""))
+        blocked_by = "; ".join(_g["reasons"])
+        cb = bool(_g["blocked"])
         macro = self.engine.macro_calendar.evaluate()
         mode = "PAPER" if CONFIG.simulation_mode else "LIVE"
         # LIVE FIX: show real exchange equity and live position count.

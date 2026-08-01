@@ -389,7 +389,12 @@ def _build_scan_payload(results: list[dict], engine=None,
             # from trading_blocked_by, which is "" exactly when trades are
             # going through, and name the blocker in the label so the chip is
             # actionable rather than merely red.
-            _blocked = getattr(risk, "trading_blocked_by", "") or ""
+            #
+            # trading_blocked_by was itself only PART of the answer — the kill
+            # switch, the caller's own breaker and the venue auth halt are all
+            # outside it. entry_gate carries the whole list.
+            from bot.core.trade_gate import entry_gate
+            _blocked = "; ".join(entry_gate(engine)["reasons"])
             cb_rules = [
                 {"label": f"Blocked: {_blocked}" if _blocked else "Circuit Breaker",
                  "active": bool(_blocked) or cb_active},
