@@ -1404,6 +1404,35 @@ class TelegramHandler:
             if _blocked:
                 engine_state += f", TRADING BLOCKED ({_blocked})"
 
+            # ...and the AUTH gate, which is a THIRD one the two fields above
+            # cannot see. The comment overhead describes this exact failure
+            # happening once already: CB=OFF let chat say trading was fine
+            # while the warning-rate breaker rejected every entry. The venue
+            # auth halt sits outside circuit_breaker_active AND outside
+            # trading_blocked_by, so it recurred -- on 2026-08-01 a transport
+            # blip halted entries and NOTHING surfaced it. The operator's own
+            # /start reported "Active | LIVE" while every execution would have
+            # been refused, and the only way to discover it was to attempt a
+            # trade.
+            #
+            # A gate nothing can see is a gate that fails silently, which is
+            # worse than a noisy one.
+            try:
+                if CONFIG.is_live() and not self.engine.live_auth_healthy(
+                        str(user_id or "")):
+                    _d = ""
+                    try:
+                        _d = (self.engine._live_auth_detail or {}).get(
+                            str(user_id or ""), "")
+                    except Exception:
+                        _d = ""
+                    engine_state += (", NEW ENTRIES HALTED (venue auth marked "
+                                     "down at startup"
+                                     + (f": {_d[:80]}" if _d else "")
+                                     + " — restart re-runs the check)")
+            except Exception:
+                pass
+
             # Inject actual open positions
             # NEVER leave this section blank when is_live -- an LLM given no
             # explicit statement about position status will happily invent

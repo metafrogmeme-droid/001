@@ -266,6 +266,7 @@ async def _per_user_credential_preflight(engine, bot) -> None:
         if not ids:
             return
         failures = []
+        unreachable: list = []
         for uid in ids:
             try:
                 ex = engine._executor_for(uid)
@@ -279,10 +280,48 @@ async def _per_user_credential_preflight(engine, bot) -> None:
                 bal = {"error": str(_exc)}
             _err = bal.get("error") if isinstance(bal, dict) else None
             if _err:
-                engine.set_live_auth_status(False, str(_err)[:120], user_id=uid)
-                failures.append((uid, str(_err)[:100]))
+                # SAME CLASSIFICATION AS THE OPERATOR PATH ABOVE. This branch
+                # had none, and it is the worse place to lack it: it halts a
+                # USER's entries and tells them to re-<code>/connect</code> --
+                # to re-enter their API credentials -- which does nothing for a
+                # transport failure and asks them to handle a secret for no
+                # reason.
+                #
+                # The operator path was fixed first and this was left behind
+                # for an hour, in the same file. Fixing a surface is not
+                # finishing a defect; the question is always which OTHER
+                # surface makes the same claim.
+                if _is_transport_failure(str(_err)):
+                    engine.set_live_auth_status(True, user_id=uid)
+                    unreachable.append((uid, str(_err)[:100]))
+                else:
+                    engine.set_live_auth_status(False, str(_err)[:120],
+                                                user_id=uid)
+                    failures.append((uid, str(_err)[:100]))
             else:
                 engine.set_live_auth_status(True, user_id=uid)
+        if unreachable:
+            # Reported, not silenced -- a repeated blip is worth knowing about
+            # -- but nobody is told to touch a key and no entries are halted.
+            _u = "\n".join(f"• <code>{u}</code>: {e}" for u, e in unreachable)
+            audit(system_log,
+                  f"Per-user preflight: {len(unreachable)} account(s) "
+                  f"unreachable (transport, not auth)",
+                  action="cred_preflight_users", result="UNREACHABLE")
+            _note = ("\u26a0\ufe0f <b>STARTUP: %d linked account(s) could not "
+                     "be reached</b>\nTransport failure, not a credential "
+                     "rejection \u2014 their keys were never judged and their "
+                     "entries are NOT halted:\n%s"
+                     % (len(unreachable), _u))
+            _admin0 = CONFIG.telegram.chat_id or ""
+            _ids0 = [i.strip() for i in
+                     (CONFIG.telegram.admin_ids or "").split(",") if i.strip()]
+            for _t in ([_admin0] if _admin0 else []) + _ids0:
+                try:
+                    await bot.send_message(chat_id=_t, text=_note,
+                                           parse_mode="HTML")
+                except Exception:
+                    continue
         if failures:
             _lines = "\n".join(f"• <code>{u}</code>: {e}" for u, e in failures)
             _msg = ("\U0001f6a8 <b>STARTUP: %d linked account(s) failed venue "
