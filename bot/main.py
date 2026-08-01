@@ -53,6 +53,74 @@ def _banner() -> str:
     return banner
 
 
+
+#: Substrings that mean THE VENUE REJECTED OUR CREDENTIALS, as opposed to
+#: "the venue could not be reached". Bitget codes plus the generic words every
+#: exchange uses for a signature/key problem.
+_AUTH_REJECTION_MARKERS = (
+    "40006", "40012", "40099", "40009", "40037",
+    "access_key", "accesskey", "apikey", "api key", "api_key",
+    "passphrase", "signature", "unauthorized", "authentication failed",
+    "invalid key", "permission denied", "forbidden",
+)
+
+
+def _is_auth_rejection(err: str) -> bool:
+    """True when the venue rejected the CREDENTIALS, not merely the request.
+
+    On 2026-08-01 a live bot reported "STARTUP: exchange auth FAILED — open
+    positions cannot be protected" and halted new entries. The venue string
+    was:
+
+        bitget GET .../api/v3/market/instruments?category=USDC-FUTURES
+
+    A PUBLIC market-data endpoint, for a product category this bot does not
+    trade. `fetch_balance()` is authenticated, but ccxt calls load_markets()
+    first, so a transient failure fetching instruments propagated out and was
+    classified as a credential rejection. The operator's own /start a minute
+    later read equity $388.33 and two open positions -- both authenticated
+    calls, both fine.
+
+    The cost of conflating them is asymmetric and runs BOTH ways, which is why
+    this is a classifier and not a loosened guard:
+
+      calling a network blip an auth failure  -> entries halted while the
+          account is healthy, for as long as it takes someone to notice;
+      calling an auth failure a network blip  -> a live position with no stop
+          and nobody told.
+
+    So: an explicit auth marker halts. Anything else is treated as
+    reachability. AMBIGUITY STILL HALTS -- see the caller, which only takes
+    the non-halting path when it can positively identify a transport failure.
+    """
+    low = (err or "").lower()
+    return any(m in low for m in _AUTH_REJECTION_MARKERS)
+
+
+#: Substrings that positively identify a TRANSPORT/reachability failure. Kept
+#: as an allowlist rather than "not an auth marker", so an unrecognised error
+#: still fails closed and halts.
+_TRANSPORT_MARKERS = (
+    "timeout", "timed out", "connection", "econnreset", "econnrefused",
+    "network", "temporarily unavailable", "service unavailable",
+    "bad gateway", "gateway timeout", "dns", "ssl", "certificate",
+    "/market/instruments", "load_markets", "loadmarkets",
+    "502", "503", "504", "429", "too many requests",
+)
+
+
+def _is_transport_failure(err: str) -> bool:
+    """True when the error names a reachability problem and NOT a credential.
+
+    Positive identification only. An error this cannot place is not treated as
+    transport -- it keeps the old fail-closed behaviour.
+    """
+    low = (err or "").lower()
+    if _is_auth_rejection(low):
+        return False
+    return any(m in low for m in _TRANSPORT_MARKERS)
+
+
 async def _credential_preflight(engine, bot) -> None:
     """Authenticate against the venue at boot and alert loudly on failure.
 
@@ -119,15 +187,47 @@ async def _credential_preflight(engine, bot) -> None:
                 elif "passphrase" in _e.lower() or "40012" in _e:
                     _hint = ("\n<b>Passphrase mismatch.</b> BITGET_PASSPHRASE "
                              "must match the one set when the key was created.")
-                _msg = (f"\U0001f6a8 <b>STARTUP: exchange auth FAILED</b>\n"
-                        f"Live trading is on but the venue rejected "
-                        f"authentication — open positions cannot be "
-                        f"protected until this is fixed.\n"
-                        f"Venue said: <code>{_e[:160]}</code>{_hint}")
-                # Mark operator auth DOWN → the pre-execute gate halts new live
-                # entries (open positions stay monitored) until a restart with
-                # fixed credentials re-runs this preflight OK.
-                engine.set_live_auth_status(False, _e[:120])
+                if _is_transport_failure(_e):
+                    # The venue could not be REACHED. That says nothing about
+                    # the credentials, and halting entries on it is a false
+                    # negative that costs trades while the account is healthy.
+                    #
+                    # fetch_balance() is authenticated, but ccxt calls
+                    # load_markets() first -- so a failure fetching the PUBLIC
+                    # instruments endpoint lands in the same except clause as a
+                    # rejected key. On 2026-08-01 that reported "auth FAILED"
+                    # and halted entries while /start read equity and two open
+                    # positions a minute later.
+                    #
+                    # Entries are NOT halted here. The venue-auth probe re-runs,
+                    # and every order path still has its own fail-closed checks.
+                    _msg = (f"\u26a0\ufe0f <b>STARTUP: could not reach the "
+                            f"venue</b>\nThis is a transport failure, not a "
+                            f"credential rejection \u2014 the key was never "
+                            f"judged. New entries are NOT halted; open "
+                            f"positions keep being monitored.\n"
+                            f"Venue said: <code>{_e[:160]}</code>\n"
+                            f"<i>If this repeats, check connectivity to the "
+                            f"venue before touching the API key.</i>")
+                    audit(system_log,
+                          f"Credential preflight: transport failure, not auth "
+                          f"({_e[:120]})",
+                          action="cred_preflight", result="UNREACHABLE")
+                else:
+                    _msg = (f"\U0001f6a8 <b>STARTUP: exchange auth FAILED</b>\n"
+                            f"Live trading is on but the venue rejected "
+                            f"authentication — open positions cannot be "
+                            f"protected until this is fixed.\n"
+                            f"Venue said: <code>{_e[:160]}</code>{_hint}")
+                    # Mark operator auth DOWN → the pre-execute gate halts new
+                    # live entries (open positions stay monitored) until a
+                    # restart with fixed credentials re-runs this preflight OK.
+                    #
+                    # Reached for an explicit auth marker AND for anything this
+                    # cannot classify: an unrecognised error still fails closed,
+                    # because an unprotected live position costs more than a
+                    # missed entry.
+                    engine.set_live_auth_status(False, _e[:120])
         audit(system_log, f"Credential preflight FAILED: {_msg[:200]}",
               action="cred_preflight", result="FAIL", level=logging.CRITICAL)
         _admin = CONFIG.telegram.chat_id or ""
