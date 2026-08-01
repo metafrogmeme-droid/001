@@ -40,11 +40,61 @@ const { safeErrorText } = require('../lib/safe_error');
 const SEND = /res\.(?:status\(\s*\d+\s*\)\.)?(?:json|send)\s*\(/g;
 const LEAK = /\b(?:err|e|error|exc)\.(?:message|stack)\b|String\(\s*(?:err|e|error)\s*\)/;
 
-/** Blank comments IN PLACE so line numbers survive. */
+/**
+ * Blank comments IN PLACE so line numbers survive — STRING-AWARE.
+ *
+ * The regex version shipped in #1040 destroyed 68% of server.js. A `/*`
+ * inside a string literal opened a fake comment that ran to the next `*\/`
+ * anywhere later in the file, blanking real code in between. Measured on the
+ * files this guard scans, it kept 32% of server.js — so the guard was
+ * inspecting a third of the file and reporting the whole thing clean. It
+ * found the tool8257 leak only because that leak happened to fall inside a
+ * surviving stretch.
+ *
+ *     A SCANNER THAT SILENTLY SKIPS MOST OF THE FILE IS THE "CHECK THAT
+ *     INSPECTS NOTHING" IN ITS MOST CONVINCING FORM: IT REPORTS ON REAL
+ *     CODE, JUST NOT ALL OF IT.
+ *
+ * Walking the source with string state costs a few lines and cannot be
+ * fooled by punctuation inside a quote. Caught by injecting a leak into
+ * server.js and watching the guard stay green.
+ */
 function codeOnly(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(m.length - p1.length));
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '/' && d === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const stop = end === -1 ? n : end + 2;
+      out += src.slice(i, stop).replace(/[^\n]/g, ' ');
+      i = stop;
+      continue;
+    }
+    if (c === '/' && d === '/') {
+      let j = i;
+      while (j < n && src[j] !== '\n') j += 1;
+      out += ' '.repeat(j - i);
+      i = j;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < n) {
+        if (src[j] === '\\') { j += 2; continue; }
+        if (src[j] === c) { j += 1; break; }
+        j += 1;
+      }
+      out += src.slice(i, j);          // string contents kept verbatim
+      i = j;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 function responseCalls(src) {
@@ -67,17 +117,45 @@ function responseCalls(src) {
   return out;
 }
 
-function routeFiles() {
-  return fs.readdirSync(ROUTES).filter((f) => f.endsWith('.js'));
+/**
+ * Every server file that can write a response — NOT just app/routes.
+ *
+ * The first version scanned app/routes only, which is the same "covered the
+ * files someone thought of" shape this guard exists to close: server.js,
+ * auth.js, proxy.js and app/lib all send responses too, and 144 response
+ * calls live outside app/routes. They are clean today; nothing was checking
+ * them, so a future leak there would have passed.
+ *
+ * public/ is excluded deliberately — it is browser code, where `res` is not
+ * an Express response and a match would be a false positive.
+ */
+function serverFiles() {
+  const out = [];
+  const APP = path.join(__dirname, '..');
+  for (const f of fs.readdirSync(APP)) {
+    if (f.endsWith('.js')) out.push(path.join(APP, f));
+  }
+  for (const dir of ['routes', 'lib']) {
+    const d = path.join(APP, dir);
+    if (!fs.existsSync(d)) continue;
+    for (const f of fs.readdirSync(d)) {
+      if (f.endsWith('.js')) out.push(path.join(d, f));
+    }
+  }
+  return out;
+}
+
+function rel(p) {
+  return path.relative(path.join(__dirname, '..'), p);
 }
 
 test('the scan reaches a real number of response calls', () => {
   // A check that inspects nothing passes everything.
   let n = 0;
-  for (const f of routeFiles()) {
-    n += responseCalls(codeOnly(fs.readFileSync(path.join(ROUTES, f), 'utf8'))).length;
+  for (const f of serverFiles()) {
+    n += responseCalls(codeOnly(fs.readFileSync(f, 'utf8'))).length;
   }
-  assert.ok(n > 300, `only ${n} res.json/send calls found — scan is broken`);
+  assert.ok(n > 700, `only ${n} res.json/send calls found — scan is broken`);
 });
 
 test('the scan spans multiple lines', () => {
@@ -88,10 +166,10 @@ test('the scan spans multiple lines', () => {
 
 test('no route returns a raw exception to a caller', () => {
   const offenders = [];
-  for (const f of routeFiles()) {
-    const src = codeOnly(fs.readFileSync(path.join(ROUTES, f), 'utf8'));
+  for (const f of serverFiles()) {
+    const src = codeOnly(fs.readFileSync(f, 'utf8'));
     for (const c of responseCalls(src)) {
-      if (LEAK.test(c.text)) offenders.push(`${f}:${c.line}`);
+      if (LEAK.test(c.text)) offenders.push(`${rel(f)}:${c.line}`);
     }
   }
   assert.deepStrictEqual(offenders, [],
@@ -167,3 +245,56 @@ test('it never throws', () => {
   assert.equal(safeErrorText(null), '');
   assert.equal(safeErrorText(undefined), '');
 });
+
+test('the scan reaches beyond app/routes', () => {
+  // It covered app/routes only — the same "files someone thought of" shape
+  // this guard closes. server.js, auth.js, proxy.js and app/lib send
+  // responses too; 144 response calls live outside app/routes.
+  const outside = serverFiles().filter((f) => !f.includes(`${path.sep}routes${path.sep}`));
+  assert.ok(outside.length >= 3, 'the widening did not take');
+  const names = outside.map((f) => path.basename(f));
+  assert.ok(names.includes('server.js'), 'server.js writes responses');
+});
+
+test('browser code is not scanned', () => {
+  // app/public is client-side; `res` there is not an Express response and a
+  // match would be a false positive that gets silenced by an exemption.
+  assert.ok(!serverFiles().some((f) => f.includes(`${path.sep}public${path.sep}`)));
+});
+
+test('an unclosed comment marker in a string does not blank the file', () => {
+  // THE #1040 BUG, reproduced exactly.
+  //
+  // A first draft of this test used `'/**/*.js'` — self-closing, so the old
+  // scanner handled it and the test passed against the very code it was
+  // meant to indict. The damage needs an UNMATCHED `/*` in one string
+  // closing against a `*/` somewhere later: everything between them,
+  // including real response calls, was blanked.
+  //
+  // Verified directly: the #1040 scanner loses the call below; this one
+  // keeps it. That is why server.js retained 32% and reported clean.
+  const src = [
+    "const open = '/*';",
+    'res.status(500).json({ error: err.message });',
+    "const close = '*/';",
+  ].join('\n');
+  const calls = responseCalls(codeOnly(src));
+  assert.equal(calls.length, 1, 'the response call was swallowed');
+  assert.ok(LEAK.test(calls[0].text));
+});
+test('a real block comment is still blanked', () => {
+  const src = '/* res.json({ error: e.message }) */\nres.json({ ok: true });';
+  const calls = responseCalls(codeOnly(src));
+  assert.equal(calls.length, 1, 'commented-out code must not be flagged');
+  assert.ok(!LEAK.test(calls[0].text));
+});
+
+// A retained-density FLOOR was tried here and removed. It cannot do the job:
+// the broken scanner kept 32% of server.js, and lib/arena_discipline.js —
+// which is 52% comment LINES and perfectly fine — retains 37%. The two
+// numbers are not separable by a threshold, and tuning one until it passed
+// would be silencing a check rather than fixing it.
+//
+// The two tests above test the actual defect instead: a comment marker
+// inside a string must not blank the file, and a real block comment must
+// still be blanked. Both were verified to fail against the #1040 scanner.
