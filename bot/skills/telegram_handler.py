@@ -122,6 +122,42 @@ def _safe_exc_text(exc: BaseException, *, limit: int = 200) -> str:
     return html.escape(msg[:limit])
 
 
+def _each_executor(engine):
+    """The operator executor plus any per-user ones, de-duplicated by id."""
+    seen: set = set()
+    for ex in (getattr(engine, "live_executor", None),
+               *(getattr(engine, "_user_executors", None) or {}).values()):
+        if ex is not None and id(ex) not in seen:
+            seen.add(id(ex))
+            yield ex
+
+
+def _journal_gap_closes(engine, *, days: int = 7) -> int:
+    """Closes the EXECUTOR recorded in the window, for a journal that has none.
+
+    The two stores answer different questions, and the journal's emptiness has
+    never been evidence about the other one. Returns 0 on any error: this
+    exists to make a message more honest and must never be why /journal fails.
+    """
+    try:
+        from datetime import datetime, timedelta
+        from bot.compat import UTC
+        cutoff = datetime.now(UTC) - timedelta(days=max(1, int(days)))
+        n = 0
+        for ex in _each_executor(engine):
+            for pos in (getattr(ex, "closed_positions", None) or []):
+                closed = getattr(pos, "closed_at", None)
+                if closed is None:
+                    continue
+                if getattr(closed, "tzinfo", None) is None:
+                    closed = closed.replace(tzinfo=UTC)
+                if closed >= cutoff:
+                    n += 1
+        return n
+    except Exception:
+        return 0
+
+
 def _scan_timeout_hint(analyzer, engine=None) -> str:
     """One diagnostic line for the interactive-scan timeout message.
 
@@ -8835,7 +8871,45 @@ class TelegramHandler:
             review = self.engine.journal.get_weekly_review()
 
             if review.get("trades", 0) == 0:
-                await ctx.bot.send_message(chat_id=chat_id, text="\u26a0\ufe0f No trades in the last 7 days.")
+                # "No trades in the last 7 days" is a claim about TRADING,
+                # derived from the emptiness of the JOURNAL. Two different
+                # stores: the journal is fed by _on_live_position_closed and
+                # persists to data/trade_journal.json, while /portfolio counts
+                # the executor's closed_positions. The operator saw this pair
+                # on one screen -- /journal saying no trades in a week beside
+                # /portfolio saying 104 -- and only one was talking about
+                # trades.
+                #
+                # The bot holds both, so it can check rather than assert.
+                #
+                # Deliberately NOT back-filled. An entry carries the regime
+                # and strategy that were live at the close; those cannot be
+                # recovered afterwards, and inventing them would put
+                # fabricated context under a heading that reads as recorded
+                # fact. Explain the gap, never paper over it.
+                _gap = _journal_gap_closes(self.engine, days=7)
+                if _gap > 0:
+                    await ctx.bot.send_message(
+                        chat_id=chat_id, parse_mode="HTML",
+                        text=(
+                            "\u26a0\ufe0f <b>The journal has no entries for the "
+                            "last 7 days</b> \u2014 but "
+                            f"<b>{_gap}</b> position(s) closed in that "
+                            "window.\n\n"
+                            "That is a recording gap, not a quiet week. The "
+                            "journal is written when a position closes, so "
+                            "closes from before it was wired \u2014 or while "
+                            "the bot was down \u2014 have no entry.\n\n"
+                            "<i>Not back-filled on purpose: an entry carries "
+                            "the regime and strategy that were live at the "
+                            "close, and those cannot be recovered later. "
+                            "<code>/portfolio</code> and "
+                            "<code>/performance</code> read the executor "
+                            "directly and cover the whole history.</i>"))
+                    return
+                await ctx.bot.send_message(
+                    chat_id=chat_id,
+                    text="\u26a0\ufe0f No trades in the last 7 days.")
                 return
 
             lines = [
