@@ -3133,7 +3133,8 @@ class TelegramHandler:
         try:
             rows = await self.engine.account_risk_overview()
         except Exception as exc:
-            await self._send(update, f"❌ Account overview failed: {exc}")
+            await self._send(update,
+                             f"❌ Account overview failed: {_safe_exc_text(exc)}")
             return
         if not rows:
             await self._send(update, "📋 No active trading accounts.")
@@ -3550,7 +3551,8 @@ class TelegramHandler:
                     f"{CONFIG.self_audit_hour_utc:02d}:00 UTC, or start one "
                     "now with /audit run.")
         except Exception as exc:
-            await self._send(update, f"Self-audit unavailable: {exc}")
+            await self._send(update,
+                             f"Self-audit unavailable: {_safe_exc_text(exc)}")
 
     # ── Live↔backtest parity ──────────────────────────────────
 
@@ -3565,7 +3567,8 @@ class TelegramHandler:
             from bot.core.shadow_book import SHADOW_BOOK
             await self._send(update, SHADOW_BOOK.render_report())
         except Exception as exc:
-            await self._send(update, f"Shadow book unavailable: {exc}")
+            await self._send(update,
+                             f"Shadow book unavailable: {_safe_exc_text(exc)}")
 
     # ── Web-parity commands: /networth /exposure /research /rwa ─────────────
     # One brain, one implementation: exposure/research/rwa render the SAME
@@ -4448,7 +4451,7 @@ class TelegramHandler:
             result = await self.engine.force_scan()
         except Exception as exc:
             await self._send(update,
-                f"\u274c <b>Force scan failed:</b> {exc}")
+                f"\u274c <b>Force scan failed:</b> {_safe_exc_text(exc)}")
             return
 
         if result.get("error"):
@@ -4475,7 +4478,8 @@ class TelegramHandler:
             from bot.core.session_aware import get_current_session
             session = get_current_session()
         except Exception as exc:
-            await self._send(update, f"\u274c Session check failed: {exc}")
+            await self._send(update,
+                             f"\u274c Session check failed: {_safe_exc_text(exc)}")
             return
 
         # Session name styling
@@ -6049,7 +6053,7 @@ class TelegramHandler:
             bound = self.engine.write_intent_policy(policy)
         except Exception as exc:
             await self._send(update,
-                f"Couldn't save policy: {html.escape(str(exc))}", edit=True)
+                f"Couldn't save policy: {_safe_exc_text(exc)}", edit=True)
             return
         enabled = bool(getattr(CONFIG.risk, "intent_policy_enabled", False))
         if enabled and bound:
@@ -6469,7 +6473,8 @@ class TelegramHandler:
 
             await self._send(update, "\n".join(lines))
         except Exception as exc:
-            await self._send(update, f"\u274c Balance fetch failed: {exc}")
+            await self._send(update,
+                             f"\u274c Balance fetch failed: {_safe_exc_text(exc)}")
 
     @guard("portfolio")
     async def _cmd_livepositions(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -8489,7 +8494,7 @@ class TelegramHandler:
         try:
             idea = build_manual_idea(direction, symbol, entry, sl, tp)
         except ValueError as e:
-            await self._send(update, f"\u26a0\ufe0f {t('trade_invalid', lang, detail=html.escape(str(e)))}")
+            await self._send(update, f"\u26a0\ufe0f {t('trade_invalid', lang, detail=_safe_exc_text(e))}")
             return
 
         register_manual_idea(self.engine, idea, margin_usd)
@@ -9734,7 +9739,8 @@ class TelegramHandler:
                     return
             except Exception as exc:
                 await self._send(update,
-                    f"Scan failed: {exc}\nTry <code>/fullscan</code> instead.")
+                    f"Scan failed: {_safe_exc_text(exc)}\n"
+                    f"Try <code>/fullscan</code> instead.")
                 return
 
         uid = update.effective_user.id if update.effective_user else ""
@@ -10856,7 +10862,9 @@ class TelegramHandler:
                 lines.extend(f"• {m[:120]}" for m in acct["messages"][:10])
             await self._send(update, "\n".join(lines), edit=True)
         except Exception as exc:
-            await self._send(update, f"❌ Close all failed: {exc}", edit=True)
+            await self._send(update,
+                             f"❌ Close all failed: {_safe_exc_text(exc)}",
+                             edit=True)
 
     @guard("halt")
     async def _cmd_emergency_stop(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -12187,7 +12195,8 @@ class TelegramHandler:
                 audit(system_log, f"confirm_trade raised: {exc}",
                       action="confirm_trade", result="ERROR")
                 await self._send(update,
-                    f"\u274c <b>Trade execution failed:</b> {exc}", edit=True)
+                    f"\u274c <b>Trade execution failed:</b> {_safe_exc_text(exc)}",
+                    edit=True)
                 return
 
             # ── Auto re-analyze on price drift ──
@@ -12306,7 +12315,8 @@ class TelegramHandler:
                 audit(system_log, f"reject_trade raised: {exc}",
                       action="reject_trade", result="ERROR")
                 await self._send(update,
-                    f"\u274c <b>Trade execution failed:</b> {exc}", edit=True)
+                    f"\u274c <b>Trade execution failed:</b> {_safe_exc_text(exc)}",
+                    edit=True)
                 return
             msg = f"\u274c Got it, trade skipped.\n\n{result}"
             try:
