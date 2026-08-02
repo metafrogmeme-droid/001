@@ -570,7 +570,25 @@ const TOOLS = {
       const src = recent.length ? recent : [usable[usable.length - 1]];
       const pick = src.reduce((a, b) =>
         Math.abs(parseFloat(b.pnl)) > Math.abs(parseFloat(a.pnl)) ? b : a);
-      return { trade: pick };
+      // §4: prices are public market facts; the SIZE and the dollar PnL are
+      // not. The route this tool mirrors converts to pnl_pct under exactly
+      // that comment — this one returned the raw row, so size_usd and pnl
+      // went out on the unauthenticated surface. Selecting the largest
+      // absolute pnl still uses the dollar figure; it just never leaves.
+      const _size = parseFloat(pick.size_usd);
+      const _pnl = parseFloat(pick.pnl);
+      return { trade: {
+        symbol: pick.symbol,
+        direction: pick.direction,
+        entry_price: pick.entry_price,
+        exit_price: pick.exit_price,
+        // Absent, not zero: a missing size has no honest percentage.
+        pnl_pct: (isFinite(_size) && _size > 0 && isFinite(_pnl))
+          ? Math.round((_pnl / _size) * 10000) / 100 : null,
+        result: _pnl > 0 ? 'win' : _pnl < 0 ? 'loss' : 'flat',
+        opened_at: pick.opened_at,
+        closed_at: pick.closed_at,
+      } };
     },
   },
 
@@ -604,8 +622,14 @@ const TOOLS = {
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const letters = require('../lib/letter');
-      const r = await letters.getLetter(letters.lastCompletedWeek());
-      return r.letter;
+      // §4: /mcp is UNAUTHENTICATED (the router.use above the tool registry
+      // is a 64 KB body cap, not auth). getLetter composes the PRIVATE
+      // letter — equity start->end and "Net PnL $…". composePublicLetter
+      // exists for exactly this surface and the verify_call tool one block
+      // down already uses getPublicLetter; this one reached for the private
+      // composer instead.
+      const week = letters.lastCompletedWeek();
+      return await letters.getPublicLetter(week.key || week);
     },
   },
 
