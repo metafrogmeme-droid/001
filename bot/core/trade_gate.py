@@ -188,8 +188,8 @@ def entry_gate(engine: Any, user_id: str = "", *,
             continue
         if blocked_by:
             # These are internal tokens today — `_circuit_trip_cause` is only
-            # ever daily_loss / drawdown / streak / manual, plus
-            # `warning_rate:<key>` and `loss_streak:<n>`.
+            # ever daily_loss / drawdown / streak / manual / state_unreadable,
+            # plus `warning_rate:<key>` and `loss_streak:<n>`.
             #
             # An earlier version of this comment claimed a manual trip carried
             # the operator's `/halt <reason>` text. It does not:

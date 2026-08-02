@@ -2913,16 +2913,67 @@ class RiskEngine:
                       action="state_restore", result="LOADED")
         except (json.JSONDecodeError, ValueError, KeyError):
             # Corrupt file (non-empty but invalid) → fail-closed: assume breaker was tripped
-            self._circuit_open = True
-            self._circuit_breaker_trips += 1
-            audit(risk_log, "Corrupt state file — assuming circuit breaker ACTIVE (fail-closed)",
-                  action="state_restore", result="CORRUPT_FAIL_CLOSED")
+            self._fail_closed_restore("Corrupt state file", "CORRUPT_FAIL_CLOSED")
         except Exception:
             # Other I/O errors (permissions, etc.) → also fail-closed
-            self._circuit_open = True
-            self._circuit_breaker_trips += 1
-            audit(risk_log, "State file unreadable — assuming circuit breaker ACTIVE (fail-closed)",
-                  action="state_restore", result="IO_FAIL_CLOSED")
+            self._fail_closed_restore("State file unreadable", "IO_FAIL_CLOSED")
+
+    def _fail_closed_restore(self, what: str, result: str) -> None:
+        """Open the breaker because the risk state could not be read.
+
+        Halting is right — an unknown risk state is not a safe one. Two things
+        about HOW it halted were not.
+
+        THE HALT WAS ANONYMOUS. The breaker opened with `_circuit_trip_cause`
+        and `_circuit_trip_day` left at "". `trading_blocked_by` returns
+        `self._circuit_trip_cause or "circuit"`, so every operator surface
+        said the bare word "circuit" — an operator restarting into a halt had
+        no way to tell "you lost 5% today" from "the disk hiccuped". It also
+        meant no auto-reset predicate could ever match: `daily_loss` and
+        `streak` both compare against a cause that was never recorded, so a
+        transient EINTR at startup latched trading off until a human noticed.
+
+        That last part does NOT change here. An infrastructure halt stays
+        manual-reset: `state_unreadable` matches no auto-reset branch either,
+        and deliberately so — the streak and drawdown history this file held
+        is exactly what was just lost, so there is nothing left to judge a
+        safe resume against. What changes is that the halt is now dated and
+        says why.
+
+        THE EVIDENCE WAS DESTROYED. `_save_state` overwrites unconditionally,
+        so the next state change replaced the unreadable file — taking the
+        consecutive-loss count, the live equity peak and the trip history with
+        it. Same shape as the credential store (#1048): an unreadable file is
+        not an empty one, and the difference is everything in it.
+
+        The remedy differs, though, and the difference matters. The credential
+        store REFUSES to save while the load failed. This one must not: the
+        open breaker itself has to reach disk, or the next restart resumes
+        trading. So the damaged file is moved aside first and the save is then
+        allowed to proceed into a clean path.
+        """
+        self._circuit_open = True
+        self._circuit_breaker_trips += 1
+        self._circuit_trip_cause = "state_unreadable"
+        self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
+        kept = ""
+        try:
+            damaged = self._state_file + ".corrupt"
+            if os.path.exists(self._state_file) and not os.path.exists(damaged):
+                # Only the FIRST rescue is kept: a second failure overwriting
+                # it would lose the good copy on the second restart.
+                os.replace(self._state_file, damaged)
+                kept = f" Original preserved at {os.path.basename(damaged)}."
+        except OSError:
+            kept = " Could not preserve the original."
+        audit(risk_log,
+              f"{what} — assuming circuit breaker ACTIVE (fail-closed). "
+              f"Trading is halted and stays halted until /reset: the loss "
+              f"streak and drawdown peak this file held are gone, so there is "
+              f"nothing to judge a safe resume against.{kept}",
+              action="state_restore", result=result,
+              data={"cause": self._circuit_trip_cause,
+                    "day": self._circuit_trip_day})
 
     def _save_state(self) -> None:
         """Persist safety-critical state to disk. Called on every state change.

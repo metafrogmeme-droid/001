@@ -2293,9 +2293,17 @@ class TestFailClosedFaultInjection:
             risk = RiskEngine(portfolio, state_file=state_path)
             assert risk.circuit_breaker_active, \
                 "Corrupt state file should cause circuit breaker to assume ACTIVE"
+            # The corrupt bytes are now MOVED aside rather than left in place
+            # to be overwritten by the next save — they are the only record of
+            # the streak, the equity peak and the trip history. So the state
+            # path no longer exists, and the cleanup below removes both.
+            import os
+            assert os.path.exists(state_path + ".corrupt")
         finally:
             import os
-            os.unlink(state_path)
+            for _p in (state_path, state_path + ".corrupt"):
+                if os.path.exists(_p):
+                    os.unlink(_p)
 
     def test_missing_state_file_starts_fresh(self):
         """Missing state file should start with breaker OFF (no prior state)."""
