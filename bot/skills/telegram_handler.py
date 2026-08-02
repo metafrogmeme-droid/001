@@ -10416,10 +10416,17 @@ class TelegramHandler:
         # ── SECTION 1: Open Positions (filled) ──
         _pos_lang = self._lang(update)
         if filled_positions:
-            total_pnl = sum(p.get("pnl_pct", 0) for p in filled_positions)
-            pnl_icon = "\U0001f7e2" if total_pnl > 0 else "\U0001f534" if total_pnl < 0 else ""
-            header = (f"\U0001f4ca <b>{t('hdr_open_positions_title', _pos_lang)} ({len(filled_positions)})</b> "
-                      f"{pnl_icon} {total_pnl:+.2f}% {t('lbl_total', _pos_lang)}")
+            from bot.utils.portfolio_return import coverage_note, open_book_return
+            _book = open_book_return(filled_positions)
+            total_pnl = _book["pct"]
+            pnl_icon = ("" if total_pnl is None
+                        else "\U0001f7e2" if total_pnl > 0
+                        else "\U0001f534" if total_pnl < 0 else "")
+            _total = ("\u2014" if total_pnl is None
+                      else f"{total_pnl:+.2f}% {t('lbl_total', _pos_lang)}")
+            header = (f"\U0001f4ca <b>{t('hdr_open_positions_title', _pos_lang)} "
+                      f"({len(filled_positions)})</b> {pnl_icon} {_total}")
+            header += coverage_note(_book)
             await self._send(update, header)
         elif not pending_orders:
             await self._send(update, t("positions_none_short", _pos_lang))

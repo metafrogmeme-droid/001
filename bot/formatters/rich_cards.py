@@ -813,21 +813,18 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
     # break-even and paints a colour on the result, and colour is a claim as
     # loud as the number. Test `is None`, not falsiness: 0.0 is a real,
     # measured, break-even position and must still count.
-    _priced = [p for p in positions if p.get("pnl_pct") is not None]
-    _unpriced = len(positions) - len(_priced)
-    total_pnl = sum(p["pnl_pct"] for p in _priced)
+    from bot.utils.portfolio_return import coverage_note, open_book_return
+    _book = open_book_return(positions)
+    total_pnl = _book["pct"]
 
-    if not _priced:
-        # Every mark failed. There is no total, and a "0.0%" here would be
-        # the whole defect in one line.
+    if total_pnl is None:
         header = (f"<b>{t('open_positions_n', lang, n=len(positions))}</b> "
                   f"\u26a0\ufe0f {t('pnl_unknown', lang)}")
     else:
         pnl_icon = "\U0001f7e2" if total_pnl > 0 else "\U0001f534" if total_pnl < 0 else ""
         header = (f"<b>{t('open_positions_n', lang, n=len(positions))}</b> "
                   f"{pnl_icon} {_pct(total_pnl)} {t('lbl_total', lang)}")
-        if _unpriced:
-            header += f" \u26a0\ufe0f {t('total_partial', lang, n=_unpriced)}"
+        header += coverage_note(_book)
 
     lines = [header, ""]
 
