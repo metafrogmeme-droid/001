@@ -4151,6 +4151,10 @@ class RuneClawEngine:
             "of": len(signals), "done": 0, "started": time.monotonic(),
             "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
+        # Per-symbol duration profiles: reset each batch so a resolved slow
+        # episode (e.g. one 77s FIL fetch) does not persist as the reported
+        # max in every subsequent cycle. Same epoch discipline as _stage_totals.
+        self._stage_profiles: dict = {}
         # Per-symbol in-flight stage, read by the per-analysis timeout handler.
         # Reset per batch so a cancelled batch's leftovers cannot be read as
         # this one's — the same epoch discipline the progress record uses.

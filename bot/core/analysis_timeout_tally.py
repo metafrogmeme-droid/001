@@ -28,6 +28,8 @@ the coverage note, the position mark, and the edge metrics now make.
 """
 from __future__ import annotations
 
+import datetime
+
 #: Below this many recorded timeouts, no shape is claimed. Three events can
 #: look concentrated or spread purely by chance, and an operator who acts on
 #: that reads a coin flip as a diagnosis.
@@ -41,7 +43,8 @@ CONCENTRATION_SHARE = 0.5
 
 def new_tally() -> dict:
     """A fresh accumulator. Plain dict so it survives being logged as JSON."""
-    return {"total": 0, "batches": 0, "by_symbol": {}, "by_stage": {}}
+    return {"total": 0, "batches": 0, "by_symbol": {}, "by_stage": {},
+            "started_at": datetime.datetime.utcnow().isoformat() + "Z"}
 
 
 def record(tally: dict, events: list) -> None:
@@ -121,8 +124,10 @@ def render(tally: dict, *, min_sample: int = MIN_SAMPLE) -> str:
         return ""
     names = ", ".join(f"{sym} ×{n}" for sym, n in s["top_symbols"][:3])
     stages = ", ".join(f"{st} ×{n}" for st, n in s["top_stages"][:2])
+    _since = (tally or {}).get("started_at", "")
+    _since_str = f" since {_since}" if _since else ""
     head = (f"{s['total']} analysis timeout(s) across {s['distinct_symbols']} "
-            f"symbol(s) in {s['batches']} batch(es)")
+            f"symbol(s) in {s['batches']} batch(es){_since_str}")
     if s["shape"] == "insufficient":
         return (f"{head}. Too few to characterise — no pattern is claimed "
                 f"from this many.\nMost seen: {names}"
