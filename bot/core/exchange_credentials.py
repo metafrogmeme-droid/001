@@ -151,6 +151,8 @@ class ExchangeCredentialStore:
         #   LEGACY: { telegram_id: { field: ct } }  (implicitly Bitget)
         # _read_record() normalizes both; legacy files decrypt with zero rewrite.
         self._enc: dict[str, dict] = {}
+        #: True when _load could not read an EXISTING file. Blocks _save.
+        self._load_failed: bool = False
         self._load()
 
     # -- crypto ---------------------------------------------------------------
@@ -164,18 +166,61 @@ class ExchangeCredentialStore:
     # -- persistence ----------------------------------------------------------
 
     def _load(self) -> None:
+        """Read the encrypted store, or refuse to write if it cannot be read.
+
+        This used to swallow the failure into ``self._enc = {}`` and carry on.
+        Nothing else changed — but ``_save`` writes ``self._enc`` wholesale
+        through tmp+rename, so the NEXT /connect by ANY user replaced the real
+        file with an empty one. Every BYOK user's encrypted venue keys and
+        every stored agent private key, gone, with no .bak anywhere in this
+        module.
+
+        The catch included OSError, which is the part that makes it likely
+        rather than exotic: a transient read failure — disk full, a
+        permissions blip, EINTR — was enough. The old log line ("will need to
+        /connect again") shows the data loss was anticipated; the silent
+        overwrite that made it permanent was not.
+
+            AN UNREADABLE STORE IS NOT AN EMPTY STORE, AND THE DIFFERENCE IS
+            EVERY KEY IN IT.
+
+        A missing file IS legitimately empty — first boot — and still saves.
+        """
+        self._load_failed = False
         if not self._path.exists():
             self._enc = {}
             return
         try:
             with open(self._path) as f:
                 self._enc = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            log.error("exchange_creds file unreadable — starting empty (existing "
-                      "linked accounts will need to /connect again)")
+        except (json.JSONDecodeError, OSError) as exc:
+            # Preserve the bytes before anything can touch the path again.
+            _kept = ""
+            try:
+                _damaged = self._path.with_suffix(
+                    self._path.suffix + ".corrupt")
+                if not _damaged.exists():
+                    os.replace(str(self._path), str(_damaged))
+                    _kept = f" Original preserved at {_damaged.name}."
+            except OSError:
+                _kept = " Could not preserve the original."
+            self._load_failed = True
             self._enc = {}
+            log.critical(
+                "exchange_creds unreadable (%s) — REFUSING to write this store "
+                "until it is repaired, so a save cannot overwrite the real "
+                "keys with an empty file.%s Linked accounts cannot be used "
+                "until this is resolved.", exc.__class__.__name__, _kept)
 
     def _save(self) -> None:
+        # Fail-closed: never persist an in-memory map that was built from a
+        # FAILED read. Writing here is what turned an unreadable file into
+        # permanent key loss.
+        if getattr(self, "_load_failed", False):
+            log.critical("refusing to save exchange_creds: the store failed to "
+                         "load, so writing would destroy the real keys")
+            raise RuntimeError(
+                "credential store is unreadable — refusing to overwrite it")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
         with open(tmp, "w") as f:
