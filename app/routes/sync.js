@@ -15,7 +15,7 @@ const { pool } = require('../db');
 // require, so this costs one map lookup per request and keeps the coupling
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
-const { scrub } = require('../lib/flight');
+const { scrub, DOLLAR_KEY } = require('../lib/flight');
 const { broadcast } = require('./stream');
 
 /**
@@ -70,18 +70,70 @@ const DEEPSCAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 /**
  * GET /api/bot/sync/scan
- * Dashboard fetches latest scan data (no auth required — data is public market info).
+ *
+ * DOLLARS ARE AUTHENTICATED — the same rule, and the same mechanism, as
+ * /portfolio-summary below.
+ *
+ * This used to say "no auth required — data is public market info". Most of
+ * the payload is: regime, symbols, entry cards, macro, the deep-scan block.
+ * But the handler returns `{...incoming}`, a verbatim echo of whatever the bot
+ * posted, and `_build_scan_payload`'s `circuit_breaker` section carries
+ * `equity` — the operator's live account balance — and `net_pnl`, cumulative
+ * dollar P&L.
+ *
+ * So the redaction /portfolio-summary was given was reachable around: the same
+ * two numbers, from the same source object, served unauthenticated under a
+ * different key. `curl /api/bot/sync/scan | jq .scan.circuit_breaker.equity`
+ * needed no session at all.
+ *
+ * The echo is the deeper half. An endpoint that republishes an ingested blob
+ * cannot be audited by reading it, because its shape is defined in another
+ * repo and changes without review here. So the top level also drops anything
+ * `DOLLAR_KEY` names — a no-op against today's keys (regime, symbols,
+ * entry_cards, key_call, features, macro, deepscan, timestamp), and the point
+ * is precisely that: a money field the engine adds later is redacted by
+ * default rather than leaking until somebody remembers.
+ *
+ * WHY NOT `scrub(scan)` WHOLESALE. It was written that way first. `DOLLAR_KEY`
+ * matches /usd/i against the KEY, and `symbols` is keyed by TICKER — so it
+ * deleted BTCUSDT, ETHUSDT and every other pair, which is the entire market
+ * payload. `deepscan.test.js` caught it. The rule is built for field names and
+ * cannot be pointed at a map whose keys are instruments.
+ *
+ * It also blanks `$` inside free text, which would have turned `key_call`'s
+ * "BTC RSI: 52 | Price: $63,500.00" into "Price: ⋯" — a public market fact
+ * redacted only for sharing a format with an account figure. `key_call` is
+ * built from bias, ticker names, BTC RSI/price and a timestamp; it carries no
+ * account figure, so it is left whole.
+ *
+ * NOT A GATE. `optionalAuth` never 401s. Anonymous readers keep the scan and
+ * the connection chip keeps working — the standing test that /scan must stay
+ * reachable is honoured, because breaking the panel was never the fix.
  */
-router.get('/scan', async (req, res) => {
+function scanFor(req, scan) {
+  if (!scan || req.user) return scan;
+  const out = {};
+  for (const k of Object.keys(scan)) {
+    if (DOLLAR_KEY.test(k)) continue;
+    out[k] = scan[k];
+  }
+  // The one section that is an ACCOUNT read rather than a market read.
+  if (scan.circuit_breaker) out.circuit_breaker = scrub(scan.circuit_breaker);
+  out.disclosure = 'Anonymous view — market data, counts and rates. Account '
+    + 'equity and dollar P&L are removed. Sign in for the full read.';
+  return out;
+}
+
+router.get('/scan', optionalAuth, async (req, res) => {
   if (latestScan) {
-    return res.json({ scan: latestScan });
+    return res.json({ scan: scanFor(req, latestScan) });
   }
   // Cold start: try to load from DB
   try {
     const [rows] = await pool.execute('SELECT scan_json, updated_at FROM scan_cache WHERE id = 1');
     if (rows.length > 0 && rows[0].scan_json) {
       latestScan = JSON.parse(rows[0].scan_json);
-      return res.json({ scan: latestScan });
+      return res.json({ scan: scanFor(req, latestScan) });
     }
   } catch (err) {
     console.error('Scan cache load error:', err.stack || err.message);
@@ -1053,3 +1105,6 @@ module.exports.getLatestFlight = getLatestFlight;
 // therefore passed with the real function reverted to returning the raw
 // summary — a vacuous test of the exact kind this audit keeps finding.
 module.exports.summaryFor = summaryFor;
+// Same reason, same lesson: `scanFor` is exported so its test calls the
+// SHIPPED function rather than re-deriving the answer next to it.
+module.exports.scanFor = scanFor;

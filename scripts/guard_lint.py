@@ -399,10 +399,17 @@ RULES: list[Rule] = [
             # "public curated radar (no user data, IP-rate-limited)".
             "airdrops.js:GET /",
             # sync.js authenticates with its own botAuth (shared secret). Its
-            # one remaining pre-guard route is documented public market data —
-            # /portfolio-summary was the OTHER one, and it served the operator's
-            # equity to anyone until it was moved onto optionalAuth + the
-            # scrubber. That is why this rule now knows the name `botAuth`.
+            # two pre-guard routes are now BOTH optionalAuth + the scrubber:
+            # reachable without a session, redacted without one.
+            #
+            # This entry used to read "documented public market data". It was
+            # not. `GET /scan` returns `{...incoming}` — a verbatim echo of the
+            # bot's payload — whose `circuit_breaker` section carries `equity`
+            # and `net_pnl`. sync.js builds /portfolio-summary's redacted
+            # fields FROM that very object, so fixing one route and exempting
+            # the other here left its supply reachable. The exemption stands
+            # because a hard gate would take the market data from anonymous
+            # readers; it is not a claim that the payload is all public.
             "sync.js:GET /scan",
             # app/auth.js — the routes that CANNOT require a session, because
             # they are how a session is obtained or recovered. Listed one by one

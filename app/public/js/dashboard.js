@@ -137,7 +137,13 @@
   async function getScan(maxAgeMs = 45000) {
     // Served from cache — no read happened, so the read state is unchanged.
     if (cache.scan && Date.now() - cache.scanAt < maxAgeMs) return cache.scan;
-    const r = await fetchJSON('/api/bot/sync/scan', { auth: false })
+    // Send the session when there is one. /scan is optionalAuth: it never
+    // 401s, and logged-out readers still get the market data — but the
+    // circuit-breaker figures below (Engine equity, Net PnL) are redacted for
+    // anonymous callers, so the operator's own dashboard has to identify
+    // itself to see them. `authHeaders()` is a no-op without a token, so the
+    // logged-out path is unchanged.
+    const r = await fetchJSON('/api/bot/sync/scan')
       .catch(() => ({ ok: false, status: 0, data: null }));
     cache.scanOk = !!(r && r.ok);
     if (r.ok && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
@@ -812,7 +818,7 @@
         const [pf, hist, scanR, meR, prof] = await Promise.all([
           getPortfolio(),
           fetchJSON('/api/trades/history?limit=50', { timeoutMs: 12000 }).catch(() => null),
-          fetchJSON('/api/bot/sync/scan', { auth: false, timeoutMs: 10000 }).catch(() => null),
+          fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 }).catch(() => null),
           fetchJSON('/api/auth/me', { timeoutMs: 10000 }).catch(() => null),
           getUserProfile().catch(() => ({ risk_pref: null, watchlist: [], prefs: {} })),
         ]);

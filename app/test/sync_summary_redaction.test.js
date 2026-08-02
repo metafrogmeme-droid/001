@@ -142,11 +142,70 @@ test('the misleading comment is gone', () => {
     'the comment that justified serving equity to anyone is back');
 });
 
-test('/scan stays public — the fix must not over-correct', () => {
-  // Public market info, documented as such, and the dashboard depends on it.
-  // Gating it would break the panel to solve a problem it does not have.
-  assert.match(syncSrc, /router\.get\('\/scan', async/,
-    '/scan gained a guard it does not need');
+test('/scan stays REACHABLE without a session — the fix must not over-correct', () => {
+  // This test used to read: "Public market info, documented as such, and the
+  // dashboard depends on it. Gating it would break the panel to solve a
+  // problem it does not have." The second sentence still holds. The first was
+  // wrong, and sync.js says so in its own code eleven lines below the route:
+  //
+  //     latestPortfolio = { equity: cb.live_unavailable ? null : (cb.equity || 0),
+  //                         net_pnl: cb.net_pnl || 0, ... }   // cb = latestScan.circuit_breaker
+  //
+  // /portfolio-summary's redacted fields are BUILT FROM the object /scan
+  // echoed verbatim. The same two numbers, from the same source, served with
+  // no session under a different key — `curl .../sync/scan | jq
+  // .scan.circuit_breaker.equity`. This file fixed one route and left its
+  // supply reachable.
+  //
+  // So the assertion changes from "no middleware" to what it was protecting:
+  // an anonymous caller must still GET the scan. optionalAuth never 401s, so
+  // the panel and the connection chip are untouched.
+  assert.match(syncSrc, /router\.get\('\/scan', optionalAuth, async/,
+    '/scan must use optionalAuth — a hard gate WOULD break the panel');
+  assert.doesNotMatch(syncSrc, /router\.get\('\/scan',\s*(?:botAuth|authMiddleware|requireAuth)/,
+    '/scan was hard-gated; anonymous readers lose the market data entirely');
+});
+
+test('the anonymous scan keeps the market and loses the account', () => {
+  const { scanFor } = require('../routes/sync');
+  const SCAN = {
+    regime: 'TREND_UP',
+    symbols: { BTCUSDT: { price: 63500 }, ETHUSDT: { price: 3000 } },
+    key_call: 'BTC RSI: 52 | Price: $63,500.00',
+    circuit_breaker: { equity: 141.22, net_pnl: 812.4, win_rate: 62.5,
+                       total_trades: 8, open_count: 2, live_mode: true,
+                       strategy_mode: 'balanced' },
+  };
+  const anon = scanFor({}, SCAN);
+  assert.equal(anon.circuit_breaker.equity, undefined, 'equity served anonymously');
+  assert.equal(anon.circuit_breaker.net_pnl, undefined, 'net_pnl served anonymously');
+  // Ratios and counts are the whole point of a summary — they must survive.
+  assert.equal(anon.circuit_breaker.win_rate, 62.5);
+  assert.equal(anon.circuit_breaker.total_trades, 8);
+  assert.equal(anon.circuit_breaker.strategy_mode, 'balanced');
+  // Market data is public and must come through untouched. `symbols` is keyed
+  // by TICKER, and DOLLAR_KEY matches /usd/i against the key — scrubbing the
+  // whole payload deleted every pair. That is why only circuit_breaker is
+  // scrubbed, and this is the assertion that keeps it that way.
+  assert.equal(anon.symbols.BTCUSDT.price, 63500, 'the market payload was scrubbed away');
+  assert.equal(anon.symbols.ETHUSDT.price, 3000);
+  assert.equal(anon.key_call, SCAN.key_call, 'a public price was blanked as if it were an account figure');
+  assert.match(anon.disclosure, /equity and dollar P&L are removed/i);
+
+  const authed = scanFor({ user: { user_id: 1 } }, SCAN);
+  assert.equal(authed.circuit_breaker.equity, 141.22, 'the operator lost their own equity');
+  assert.equal(authed.disclosure, undefined);
+  assert.equal(authed, SCAN, 'the authed path must not copy — it is the hot path');
+});
+
+test('a money field added to the scan later is redacted by default', () => {
+  // The echo is the reason: `{...incoming}` republishes whatever the bot
+  // posts, and that shape is defined in another repo.
+  const { scanFor } = require('../routes/sync');
+  const anon = scanFor({}, { regime: 'CHOP', account_value: 9999, margin_usd: 12 });
+  assert.equal(anon.account_value, undefined);
+  assert.equal(anon.margin_usd, undefined);
+  assert.equal(anon.regime, 'CHOP');
 });
 
 test('THE REAL summaryFor redacts for anonymous and not for authed', () => {
