@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
 
 from bot.compat import UTC
+from bot.marketing.public_text import scrub_money
 from bot.utils.logger import audit, system_log
 
 # Persistent config file for group chat IDs
@@ -109,6 +111,19 @@ class ChannelForwarder:
         """Post to all registered groups."""
         if not self._bot or not self._enabled or not self._group_ids:
             return
+        # Every method in this class writes to a PUBLIC group, so the §4
+        # constraint belongs here rather than at each caller — a new post
+        # method inherits it instead of having to remember it. Prices survive
+        # (post_signal publishes Entry/SL/TP, and those are market facts);
+        # anything else carrying a dollar sign does not.
+        text, _removed = scrub_money(text)
+        if _removed:
+            # Not a success. The scrubber is the backstop; a caller that
+            # composed private text is the actual defect, and it stays visible.
+            system_log.critical(
+                "Marketing post carried %d dollar amount(s) to a PUBLIC group "
+                "and they were stripped before sending. The caller is composing "
+                "private text — fix it there.", _removed)
         for gid in list(self._group_ids):
             try:
                 await self._bot.send_message(
@@ -182,7 +197,11 @@ class ChannelForwarder:
             return
         try:
             lines = close_msg.strip().split("\n")
-            is_win = "+$" in close_msg or "+" in close_msg.split("PnL")[-1] if "PnL" in close_msg else False
+            # The win/loss emoji used to key off "+$", which is exactly the
+            # substring §4 removes from this surface — so the trophy would have
+            # silently become a chart-down on every winning trade. The percent
+            # survives the scrub and carries the same sign.
+            is_win = bool(re.search(r"\+\s?\d[\d,]*(?:\.\d+)?\s?%", close_msg))
             emoji = "\U0001f3c6" if is_win else "\U0001f4c9"
             now = datetime.now(UTC).strftime("%H:%M UTC")
 

@@ -428,6 +428,7 @@ from bot.nlp.intent_router import IntentRouter
 from bot.nlp.conversation_store import ConversationStore
 from bot.core.proactive_monitor import ProactiveMonitor
 from bot.marketing.channel_forwarder import ChannelForwarder
+from bot.marketing.public_text import public_close_line
 from bot.formatters.rich_cards import (
     display_symbol,
     fetch_analysis_data,
@@ -7190,9 +7191,15 @@ class TelegramHandler:
             except Exception as exc:
                 system_log.debug("Close notify send failed: %s", exc)
 
-            # Forward trade close to marketing channels
+            # Forward trade close to marketing channels — those groups are
+            # PUBLIC, and `msg` is the private close text: "PnL: +$12.3456
+            # (+1.23%)". Compose the public line from close_data instead, in
+            # percent. close_data is None here when the shared last-write-wins
+            # slot did not match this close (see the guard above) or on a
+            # failure message; the forwarder's own scrubber covers that path.
             try:
-                await _forwarder.post_trade_closed(msg)
+                await _forwarder.post_trade_closed(
+                    public_close_line(close_data) or msg)
             except Exception:
                 pass
 
@@ -10946,19 +10953,41 @@ class TelegramHandler:
         rendered = wr_daily_report(data)
         await self._send(update, rendered["text"])
 
-        # Forward daily report to marketing channels
+        # Forward daily report to marketing channels. §4: those groups are
+        # PUBLIC, so percent / ratio / count only — Net PnL, Best and Worst
+        # were all dollar amounts. The private reply above (rendered["text"])
+        # keeps them; this copy names the symbols and drops the figures.
+        #
+        # Two other things were wrong in the same six lines:
+        #
+        #   * `wins / today_trades` counted every close in the denominator,
+        #     while `losses` came from `_ws["scored"]`. An unpriced close was
+        #     therefore excluded from the W/L pair but included in the rate —
+        #     the two numbers on one line disagreed about the same day.
+        #     win_rate.py exists to settle that; use its rate.
+        #   * a day with zero closes posted "W/L: 0/0 | Win Rate: 0%". A 0%
+        #     win rate is a claim that everything lost. Nothing traded is a
+        #     different statement, and it does not need a post at all.
         try:
-            win_rate = (wins / today_trades * 100) if today_trades > 0 else 0
-            report_summary = (
-                f"Trades: <code>{today_trades}</code> | "
-                f"W/L: <code>{wins}/{losses}</code> | "
-                f"Win Rate: <code>{win_rate:.0f}%</code>\n"
-                f"Net PnL: <code>${net_pnl:+,.2f}</code>\n"
-                f"Best: <code>{best_trade}</code> (${best_pnl:+,.2f})\n"
-                f"Worst: <code>{worst_trade}</code> (${worst_pnl:+,.2f})\n"
-                f"Risk: {risk_status}"
-            )
-            await self.forwarder.post_daily_report(report_summary)
+            if today_trades > 0:
+                _rate = _ws.get("rate")
+                _lines = [
+                    f"Trades: <code>{today_trades}</code> | "
+                    f"W/L: <code>{wins}/{losses}</code> | "
+                    f"Win Rate: <code>"
+                    f"{'n/a' if _rate is None else format(_rate * 100, '.0f') + '%'}"
+                    f"</code>"
+                ]
+                if _ws.get("unscored"):
+                    _lines.append(
+                        f"<i>Rate covers {_ws.get('scored', 0)} of "
+                        f"{today_trades} closes — {_ws['unscored']} carry no "
+                        f"recorded P&amp;L and are scored neither way.</i>")
+                if best_trade != "N/A":
+                    _lines.append(f"Best: <code>{html.escape(best_trade)}</code> | "
+                                  f"Worst: <code>{html.escape(worst_trade)}</code>")
+                _lines.append(f"Risk: {html.escape(str(risk_status))}")
+                await self.forwarder.post_daily_report("\n".join(_lines))
         except Exception:
             pass
 
