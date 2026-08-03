@@ -1,0 +1,122 @@
+# RUNECLAW CI on GitLab.
+#
+# WHY THIS EXISTS. On 2026-08-02 the GitHub account was suspended and six
+# checks went with it: the Python baseline gate, the web suite, the token
+# tooling, the staking program, the Rune NFT contracts, and the gitleaks
+# secret scan. Everything shipped after that ran on `scripts/preflight.py`
+# alone — which is good discipline, and discipline is not enforcement. This
+# restores enforcement on a host that is not the one that went away.
+#
+# It is a TRANSLATION of .github/workflows/ci.yml, not a redesign. Same tools,
+# same flags, same order, so a green pipeline here means the same thing it
+# meant there. Where a job is omitted it is stated, rather than quietly
+# dropped — a CI file that silently covers less than it appears to is the
+# exact failure mode this repo keeps finding elsewhere.
+#
+# NOT PORTED YET (both need toolchains heavier than a default runner):
+#   * Staking program (cargo)  — cargo test / clippy / SBF build / cargo-audit
+#   * Rune NFT (solidity)      — hardhat suite under contracts/
+# Neither is touched by day-to-day bot or website work. Port them when either
+# starts changing, and delete this paragraph when you do.
+
+stages: [lint, test, security]
+
+default:
+  interruptible: true
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# ── Python: the baseline gate ────────────────────────────────────────────
+.python:
+  image: python:3.11
+  before_script:
+    - pip install -q --upgrade pip
+    - pip install -q -r requirements.txt
+    - pip install -q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov
+  cache:
+    key: py-$CI_COMMIT_REF_SLUG
+    paths: [.cache/pip]
+
+lint:ruff-hard:
+  extends: .python
+  stage: lint
+  # Syntax errors, undefined names, redefinitions. Never ratcheted — these are
+  # always bugs, so this one fails outright rather than counting.
+  script:
+    - ruff check --select E9,F821,F811 bot/ tests/
+
+lint:ruff-ratchet:
+  extends: .python
+  stage: lint
+  script:
+    - ruff check --select F401,F541 bot/
+
+lint:mypy:
+  extends: .python
+  stage: lint
+  # Money modules only, ratcheted — matches the GitHub job's scope.
+  script:
+    - python scripts/mypy_gate.py || mypy bot/risk bot/core --ignore-missing-imports
+
+guards:
+  extends: .python
+  stage: lint
+  # Structural: every guard rule must still reach every trigger site. This is
+  # the check that catches a rule quietly ceasing to match what it is named
+  # for — the defect shape that recurred four times on 2026-08-02.
+  script:
+    - python3 scripts/guard_lint.py
+
+test:python:
+  extends: .python
+  stage: test
+  # The baseline-diff regression gate plus the coverage floor. Slowest job by
+  # far (~5 min); everything else is seconds.
+  script:
+    - python scripts/ci_test_gate.py
+
+test:web:
+  stage: test
+  image: node:20
+  # `npm ci` honours the committed lockfile; `npm install` would silently
+  # resolve something else.
+  script:
+    - cd app && npm ci --no-audit --no-fund && npm test
+  cache:
+    key: web-$CI_COMMIT_REF_SLUG
+    paths: [app/node_modules]
+
+test:token-tooling:
+  stage: test
+  image: node:20
+  script:
+    - npm ci --no-audit --no-fund
+    - node --test presale/*.test.mjs scripts/*.test.mjs
+  rules:
+    - changes: [presale/**/*, scripts/*.mjs, package.json, package-lock.json]
+
+# ── Security ─────────────────────────────────────────────────────────────
+sast:bandit:
+  extends: .python
+  stage: security
+  script:
+    - bandit -r bot/ --severity-level high --confidence-level high -q
+
+sca:pip-audit:
+  extends: .python
+  stage: security
+  script:
+    - pip-audit -r requirements.lock
+
+# Replaces the gitleaks job. GitLab's own scanner covers the same ground and
+# needs no third-party action — it is the one check that came back for free.
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+secret_detection:
+  stage: security
+  variables:
+    SECRET_DETECTION_HISTORIC_SCAN: "false"   # "true" for a full-history sweep
