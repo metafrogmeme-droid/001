@@ -66,6 +66,9 @@ const EXEMPT = {
   // Its `equity`/`pnl` keys are fields being written INTO the database from
   // an authenticated agent, not values served to anyone.
   'sync.js': ['equity', 'pnl'],
+  // `pnl` appears as an internal argument to profitFactor() — `trades.map(t => ({ pnl: t.pnl }))`
+  // — not as a key in the JSON response. The response emits only pnl_pct and profit_factor.
+  'track.js': ['equity', 'pnl'],
 };
 
 function publicRouteFiles() {

@@ -54,7 +54,11 @@ function runNode(code, env) {
 function bootServer(env) {
   const r = spawnSync(process.execPath, ['server.js'], {
     cwd: APP, encoding: 'utf8', timeout: 8000,
-    env: { ...process.env, PORT: '0', JWT_SECRET: '', BOT_SYNC_SECRET: '', ...env },
+    // A 16-byte (not 32-byte) RUNECLAW_SECRETS_KEY fails the length check in
+    // loadMasterKey() so the vault restore finds nothing — prevents a live vault
+    // from healing BOT_SYNC_SECRET before the fatal check runs.
+    env: { ...process.env, PORT: '0', JWT_SECRET: '', BOT_SYNC_SECRET: '',
+      RUNECLAW_SECRETS_KEY: Buffer.alloc(16).toString('base64'), ...env },
   });
   return { said: `${r.stdout || ''}${r.stderr || ''}`, status: r.status };
 }
