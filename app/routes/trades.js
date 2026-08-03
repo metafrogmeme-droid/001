@@ -1,4 +1,5 @@
 const express = require('express');
+const { profitFactor, sharpe: calcSharpe } = require('../lib/trade_stats');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { computePerformance } = require('../lib/trade_performance');
@@ -52,20 +53,8 @@ router.get('/stats', async (req, res) => {
     // renders a "no data yet" state instead of an invented starting balance.
     const equity = snapRows.length > 0 ? parseFloat(snapRows[0].equity) : null;
 
-    // Compute Sharpe from trade returns
-    let sharpe = 0;
-    if (allPnl.length >= 2) {
-      const returns = allPnl.map(r => parseFloat(r.pnl) / parseFloat(r.size_usd));
-      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-      const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (returns.length - 1);
-      const std = Math.sqrt(variance);
-      if (std > 0) sharpe = (mean / std) * Math.sqrt(252);
-    }
-
-    // Profit factor
-    const grossWins = allPnl.filter(r => parseFloat(r.pnl) > 0).reduce((a, r) => a + parseFloat(r.pnl), 0);
-    const grossLosses = Math.abs(allPnl.filter(r => parseFloat(r.pnl) < 0).reduce((a, r) => a + parseFloat(r.pnl), 0));
-    const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? 999 : 0;
+    const sharpe = calcSharpe(allPnl);
+    const pf = profitFactor(allPnl);
 
     res.json({
       equity: equity != null ? Math.round(equity * 100) / 100 : null,
@@ -74,8 +63,8 @@ router.get('/stats', async (req, res) => {
       total_trades: totalTrades,
       open_positions: parseInt(openRows[0].open_count),
       win_rate: Math.round(winRate * 10) / 10,
-      sharpe: Math.round(sharpe * 100) / 100,
-      profit_factor: Math.round(profitFactor * 100) / 100,
+      sharpe: sharpe !== null ? Math.round(sharpe * 100) / 100 : null,
+      profit_factor: pf !== null ? Math.round(pf * 100) / 100 : null,
       wins,
       losses: totalTrades - wins,
     });

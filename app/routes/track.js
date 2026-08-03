@@ -28,6 +28,7 @@ function round2(v) { return Math.round(v * 100) / 100; }
 // the capital-event rationale (the "98.7% drawdown" bug class).
 const { maxDrawdownPct, segmentByCapitalEvents, segmentedMaxDrawdownPct } =
   require('../lib/equity_basis');
+const { profitFactor } = require('../lib/trade_stats');
 
 // Downsample to at most n points, always keeping the first and last.
 function downsample(rows, n) {
@@ -163,7 +164,7 @@ router.get('/track-record', async (req, res) => {
         losses: losses.length,
         win_rate_pct: trades.length ? round2(wins.length / trades.length * 100) : null,
         return_pct: returnPct,
-        profit_factor: grossLoss > 0 ? round2(grossWin / grossLoss) : null,
+        profit_factor: (() => { const pf = profitFactor(trades.map(t => ({ pnl: t.pnl }))); return pf !== null ? round2(pf) : null; })(),
         // avg win over avg loss — the payoff shape of the system, as a ratio.
         payoff_ratio: wins.length && losses.length
           ? round2((grossWin / wins.length) / (grossLoss / losses.length)) : null,
