@@ -53,9 +53,8 @@ link_persistent() {
   echo "  $name -> linked to persistent store"
 }
 
-# data/ must exist as a directory in the store so the symlink resolves.
-mkdir -p "$PERSIST_DIR/data"
 link_persistent "data"
+mkdir -p "$PERSIST_DIR/data"     # AFTER the move, never before
 link_persistent ".env"
 
 if [ ! -e "$PERSIST_DIR/.env" ]; then
