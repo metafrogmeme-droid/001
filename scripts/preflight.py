@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -150,8 +151,9 @@ def main() -> int:
         # bash, and CI steps legitimately use bashisms (PIPESTATUS). Running
         # them under dash would fail a step CI passes — the exact class of
         # false signal this script exists to remove.
+        _env = {**os.environ, "PATH": "/home/mulerun/bin:" + os.environ.get("PATH", "")}
         rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd,
-                             executable="/bin/bash")
+                             executable="/bin/bash", env=_env)
         results.append((name, rc == 0, time.monotonic() - t0, False))
 
     print("\n" + "─" * 68)
