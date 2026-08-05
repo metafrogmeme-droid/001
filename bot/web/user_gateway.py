@@ -3085,6 +3085,29 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
                 _sign_kw[_k] = int(body.get(_bk))
         except (TypeError, ValueError):
             pass
+    # Measure the ACTUAL transaction before signing it. This is the first point
+    # in the flow that knows both `dest` and `value_wei`: /web3/sign/prepare runs
+    # before a destination is entered, so the gas it returned is the chain's
+    # intrinsic floor — exact for a transfer to an EOA, and short for a transfer
+    # to a CONTRACT, whose receive/fallback runs on arrival. The two differ only
+    # in what code lives at the destination, which is not knowable from a table.
+    #
+    # Refuse rather than silently raise the limit: the operator reviewed a
+    # specific transaction, and re-preparing is one click. When the estimate is
+    # unavailable (no RPC, or the endpoint refused) we proceed — build_and_sign
+    # still enforces the floor — because signing offline without an RPC is a
+    # supported path and must not become collateral damage.
+    _est = await _signer.estimate_tx_gas(network=network,
+                                         from_address=_signer.signer_address() or "",
+                                         to=dest, value_wei=value_wei)
+    if _est is not None and int(_sign_kw["gas"]) < int(_est):
+        return web.json_response(
+            {"error": "gas_below_estimate",
+             "reason": "the destination needs more gas than was prepared — it is "
+                       "probably a contract, not a wallet. Re-run prepare.",
+             "gas_supplied": int(_sign_kw["gas"]), "gas_required": int(_est)},
+            status=400)
+
     signed = _signer.build_and_sign(network=network, to=dest, value_wei=value_wei,
                                     nonce=nonce, **_sign_kw)
     if not signed.get("ok"):

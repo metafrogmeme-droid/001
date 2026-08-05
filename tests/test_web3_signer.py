@@ -604,3 +604,161 @@ async def test_MUTATION_a_resurrected_deploy_constant_would_be_caught(monkeypatc
         network="megaeth-testnet", from_address=_TEST_ADDR, bytecode="0x60806040",
         env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
     assert got is None, f"estimation failure produced a fabricated gas limit: {got}"
+
+
+# ── real gas estimation for the ACTUAL transaction ──────────────────────
+# prepare_tx runs before a destination is entered, so the gas it returns is the
+# chain's intrinsic FLOOR. That floor is exact for a bare transfer to an EOA and
+# SHORT for a transfer to a CONTRACT, whose receive/fallback runs on arrival —
+# on every chain in the table, not just the storage-metered ones. The two cases
+# differ only in what code lives at the destination, which no table can know.
+#
+# So: measure when a destination is known, and label which of the two you got.
+
+_CONTRACT_EST = 0xC350           # 50,000 — a contract that does work on receive
+
+
+def _rpc_with_estimate(est_hex):
+    async def _stub(rpc_url, method, params):
+        return {
+            "eth_getTransactionCount": {"ok": True, "result": "0x7"},
+            "eth_maxPriorityFeePerGas": {"ok": True, "result": "0x0"},
+            "eth_getBlockByNumber": {"ok": True, "result": {"baseFeePerGas": "0xf4240"}},
+            "eth_gasPrice": {"ok": True, "result": "0xf4240"},
+            "eth_estimateGas": {"ok": True, "result": est_hex},
+        }.get(method, {"ok": False, "error": "unexpected method"})
+    return _stub
+
+
+_MEGA_ENV = dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega")
+
+
+async def test_prepare_without_a_destination_returns_the_floor_and_says_so(monkeypatch):
+    # The existing UI flow, unchanged. The number is the floor — and it is
+    # LABELLED the floor, so nothing downstream can mistake it for a measurement.
+    monkeypatch.setattr(signer, "_rpc_call", _stub_rpc_healthy)
+    out = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                  env=_MEGA_ENV)
+    assert out["ok"] is True
+    assert out["gas"] == 60000
+    assert out["gas_basis"] == "floor"
+
+
+async def test_prepare_with_a_destination_measures_it(monkeypatch):
+    # 50,000 estimate + 25% = 62,500, above MegaETH's 60,000 floor.
+    monkeypatch.setattr(signer, "_rpc_call", _rpc_with_estimate(hex(_CONTRACT_EST)))
+    out = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                  to=_DEST, value_wei=1, env=_MEGA_ENV)
+    assert out["ok"] is True
+    assert out["gas_basis"] == "estimated"
+    assert out["gas"] == _CONTRACT_EST * 5 // 4
+
+
+async def test_an_estimate_below_the_floor_never_goes_under_it(monkeypatch):
+    # The floor is a protocol minimum the RPC enforces. An estimate under it is
+    # not permission to go under it — Sepolia estimating 21,000 for a plain
+    # transfer must not produce 21,000 * 0.8 on a chain whose floor is higher.
+    monkeypatch.setattr(signer, "_rpc_call", _rpc_with_estimate(hex(21000)))
+    out = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                  to=_DEST, value_wei=1, env=_MEGA_ENV)
+    assert out["ok"] is True
+    assert out["gas"] >= 60000, "went below the chain's intrinsic floor"
+
+
+async def test_a_failed_estimate_falls_back_to_the_floor_and_relabels(monkeypatch):
+    # Honest degradation: the gas is still usable, but it is no longer a
+    # measurement and must not claim to be one.
+    async def no_estimate(rpc_url, method, params):
+        if method == "eth_estimateGas":
+            return {"ok": False, "error": "rpc call failed"}
+        return await _stub_rpc_healthy(rpc_url, method, params)
+    monkeypatch.setattr(signer, "_rpc_call", no_estimate)
+    out = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                  to=_DEST, value_wei=1, env=_MEGA_ENV)
+    assert out["ok"] is True
+    assert out["gas"] == 60000
+    assert out["gas_basis"] == "floor", "an unavailable estimate claimed to be one"
+
+
+async def test_estimate_tx_gas_returns_none_when_unavailable(monkeypatch):
+    # No RPC configured.
+    assert await signer.estimate_tx_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR, to=_DEST,
+        value_wei=1, env=_ON) is None
+
+    async def fails(*a, **k):
+        return {"ok": False, "error": "rpc call failed"}
+    monkeypatch.setattr(signer, "_rpc_call", fails)
+    assert await signer.estimate_tx_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR, to=_DEST,
+        value_wei=1, env=_MEGA_ENV) is None
+
+    async def garbage(*a, **k):
+        return {"ok": True, "result": "not-a-number"}
+    monkeypatch.setattr(signer, "_rpc_call", garbage)
+    assert await signer.estimate_tx_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR, to=_DEST,
+        value_wei=1, env=_MEGA_ENV) is None
+
+
+async def test_estimate_omits_to_for_a_contract_creation(monkeypatch):
+    # to=None must produce a CREATION-shaped call (no "to" key), not a call to
+    # the zero address — those are different transactions with different gas.
+    seen = {}
+
+    async def capture(rpc_url, method, params):
+        if method == "eth_estimateGas":
+            seen.update(params[0])
+            return {"ok": True, "result": hex(500000)}
+        return {"ok": False, "error": "unexpected"}
+    monkeypatch.setattr(signer, "_rpc_call", capture)
+    got = await signer.estimate_tx_gas(network="megaeth-testnet",
+                                       from_address=_TEST_ADDR, to=None,
+                                       data="0x6080", env=_MEGA_ENV)
+    assert got == 500000 * 5 // 4
+    assert "to" not in seen, "a creation was estimated as a call to an address"
+    assert seen.get("data") == "0x6080"
+
+
+def test_the_sign_handler_refuses_gas_below_the_measured_estimate():
+    # Source-level: the guard has to sit in handle_web3_sign, between the
+    # envelope check and build_and_sign, because that is the first point in the
+    # flow holding BOTH the destination and the value.
+    src = inspect.getsource(user_gateway.handle_web3_sign)
+    assert "estimate_tx_gas" in src, "the sign path does not measure the real tx"
+    assert "gas_below_estimate" in src
+    # Anchor on the CALL, not the bare name: the comment above the guard
+    # mentions build_and_sign by name, and matching that made this assertion
+    # compare a prose reference against a call site.
+    assert src.index("estimate_tx_gas(") < src.index("_signer.build_and_sign("), \
+        "the estimate must be taken BEFORE the transaction is signed"
+
+
+# ── MUTATION: prove each new guard is load-bearing ──
+
+async def test_MUTATION_dropping_the_floor_clamp_would_under_gas(monkeypatch):
+    """If max(est, floor) became just est, a low estimate would sign a tx the
+    RPC rejects outright. Prove the clamp is what prevents it."""
+    monkeypatch.setattr(signer, "_rpc_call", _rpc_with_estimate(hex(1000)))
+    out = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                  to=_DEST, value_wei=1, env=_MEGA_ENV)
+    # 1000 * 1.25 = 1250, far under MegaETH's 60,000 floor.
+    assert out["gas"] == 60000, (
+        f"the floor clamp is gone — signed {out['gas']} against a 60,000 minimum")
+
+
+async def test_MUTATION_a_floor_mislabelled_as_estimated_is_visible(monkeypatch):
+    """gas_basis is the whole point: without it a floor and a measurement are
+    the same integer and nothing downstream can tell them apart."""
+    monkeypatch.setattr(signer, "_rpc_call", _stub_rpc_healthy)   # no eth_estimateGas
+    out = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                  to=_DEST, value_wei=1, env=_MEGA_ENV)
+    assert out["gas"] == 60000
+    assert out["gas_basis"] == "floor"
+    # …and the same 60,000 arrived at by measurement is labelled differently.
+    monkeypatch.setattr(signer, "_rpc_call", _rpc_with_estimate(hex(48000)))
+    out2 = await signer.prepare_tx(network="megaeth-testnet", address=_TEST_ADDR,
+                                   to=_DEST, value_wei=1, env=_MEGA_ENV)
+    assert out2["gas"] == 60000 and out2["gas_basis"] == "estimated"
+    assert out["gas"] == out2["gas"] and out["gas_basis"] != out2["gas_basis"], \
+        "identical numbers must still be distinguishable by basis"

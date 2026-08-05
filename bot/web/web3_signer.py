@@ -271,18 +271,67 @@ async def _rpc_call(rpc_url: str, method: str, params: list) -> dict:
         return {"ok": False, "error": "rpc call failed"}
 
 
-async def prepare_tx(*, network: str, address: str, env: Optional[dict] = None) -> dict:
+async def estimate_tx_gas(*, network: str, from_address: str, to: Optional[str],
+                          value_wei: int = 0, data: str = "0x",
+                          env: Optional[dict] = None) -> Optional[int]:
+    """eth_estimateGas for an ACTUAL transfer or call, plus a 25% buffer.
+
+    Returns None when the estimate is unavailable — no RPC, the call failed, or
+    the result was unusable. A gas figure that cannot be measured is absent,
+    never guessed; the caller decides what to do with the absence.
+
+    This is what the intrinsic floor in the network table is NOT. The floor is
+    exact only for a bare value transfer to an EOA. A transfer to a CONTRACT
+    runs that contract's receive/fallback and costs more — on every chain in
+    the table, not just the storage-metered ones. Without this call there is no
+    way to tell those two cases apart, because they differ only in what code
+    lives at the destination.
+
+    The chain's own RPC is the only correct source: on chains that meter
+    storage separately the returned estimate already includes it, so do NOT
+    post-multiply by a chain-specific factor."""
+    rpc_url = rpc_url_for(network, env)
+    if not rpc_url:
+        return None
+    call = {"from": from_address, "value": hex(int(value_wei))}
+    _to = str(to).strip() if to else ""
+    if _to:
+        call["to"] = _to
+    # else: omit — a contract CREATION, same shape estimate_deploy_gas uses.
+    if data and data != "0x":
+        call["data"] = data if str(data).startswith("0x") else "0x" + str(data)
+    res = await _rpc_call(rpc_url, "eth_estimateGas", [call])
+    if res.get("ok"):
+        try:
+            est = int(str(res["result"]), 16)
+            if est > 0:
+                return int(est * 5 // 4)           # +25% headroom
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+async def prepare_tx(*, network: str, address: str, to: Optional[str] = None,
+                     value_wei: int = 0, env: Optional[dict] = None) -> dict:
     """Auto-fetch the next nonce + EIP-1559 gas fees for ``address`` on a testnet,
     so the signer form never needs a hand-computed nonce. TESTNET-ONLY, read-only
     RPC (getTransactionCount + gasPrice/baseFee). Returns
-    ``{ok, nonce, max_fee_wei, max_priority_wei, base_fee_wei, gas}`` or
-    ``{ok: False, error}``. Never signs, never touches the key.
+    ``{ok, nonce, max_fee_wei, max_priority_wei, base_fee_wei, gas, gas_basis}``
+    or ``{ok: False, error}``. Never signs, never touches the key.
 
-    ``gas`` is NOT fetched — it is the chain's intrinsic FLOOR from the network
-    table. This function takes neither ``to`` nor ``value``, and the UI calls it
-    before a destination has been entered, so a real eth_estimateGas is not
-    available here. The floor is exact for a plain transfer to an EOA and
-    INSUFFICIENT for a transfer to a contract, on every chain in the table."""
+    ``gas_basis`` says how ``gas`` was derived and must be carried through to
+    anything that displays it:
+
+      "estimated"  a real eth_estimateGas against ``to``/``value_wei``.
+      "floor"      the chain's intrinsic floor from the network table, because
+                   no destination was supplied (the UI calls this before one is
+                   entered) or the estimate could not be obtained. Exact for a
+                   bare transfer to an EOA; INSUFFICIENT for a transfer to a
+                   contract, on every chain in the table.
+
+    Passing ``to`` is therefore strictly better, and optional only so the
+    existing UI flow — which prepares first and asks for a destination second —
+    keeps working unchanged."""
     net = gate.resolve_network(network)
     if not net or not net.get("testnet"):
         return {"ok": False, "error": "prepare is testnet-only"}
@@ -342,13 +391,23 @@ async def prepare_tx(*, network: str, address: str, env: Optional[dict] = None) 
     # base fee and is passed through rather than replaced with an invented one.
     max_fee = base_fee * 2 + priority
     priority = min(priority, max_fee)
-    # gas: the chain's declared intrinsic FLOOR, not an estimate — this function
-    # has neither `to` nor `value`, so it cannot estimate the real transaction.
     min_gas = net.get("min_tx_gas")
     if not min_gas:
         return {"ok": False, "error": "network is missing its intrinsic gas floor"}
-    return {"ok": True, "nonce": nonce, "gas": int(min_gas), "base_fee_wei": base_fee,
-            "max_fee_wei": max_fee, "max_priority_wei": priority}
+    # Measure the real transaction when we have a destination; fall back to the
+    # chain's floor when we do not — and SAY WHICH, because the two are not
+    # interchangeable and a caller cannot tell them apart from the number.
+    gas, basis = int(min_gas), "floor"
+    if to:
+        est = await estimate_tx_gas(network=network, from_address=addr, to=to,
+                                    value_wei=value_wei, env=env)
+        if est is not None:
+            # The floor is a protocol minimum the RPC enforces; an estimate below
+            # it is not a reason to go under it.
+            gas, basis = max(int(est), int(min_gas)), "estimated"
+    return {"ok": True, "nonce": nonce, "gas": gas, "gas_basis": basis,
+            "base_fee_wei": base_fee, "max_fee_wei": max_fee,
+            "max_priority_wei": priority}
 
 
 async def broadcast(raw_hex: str, rpc_url: str, chain_id: int) -> dict:
