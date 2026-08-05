@@ -59,7 +59,7 @@ jobs:
         run: pip-audit -r requirements.lock
 
       - name: Tests — baseline-diff regression gate (+ coverage floor)
-        run: python scripts/ci_test_gate.py
+        run: python3 scripts/ci_test_gate.py
 
   staking:
     name: Staking program (cargo)

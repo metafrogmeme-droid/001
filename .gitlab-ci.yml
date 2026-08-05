@@ -59,7 +59,7 @@ lint:mypy:
   stage: lint
   # Money modules only, ratcheted — matches the GitHub job's scope.
   script:
-    - python scripts/mypy_gate.py || mypy bot/risk bot/core --ignore-missing-imports
+    - python3 scripts/mypy_gate.py || mypy bot/risk bot/core --ignore-missing-imports
 
 guards:
   extends: .python
@@ -76,7 +76,7 @@ test:python:
   # The baseline-diff regression gate plus the coverage floor. Slowest job by
   # far (~5 min); everything else is seconds.
   script:
-    - python scripts/ci_test_gate.py
+    - python3 scripts/ci_test_gate.py
 
 test:web:
   stage: test
