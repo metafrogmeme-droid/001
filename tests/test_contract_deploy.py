@@ -10,6 +10,8 @@ signing happy-path is exercised only for its fail-closed guards; the pure logic
 is fully tested.
 """
 
+import inspect
+
 from bot.web import web3_signer as signer
 from bot.web import web3_exec_gate as gate
 from bot.guardian.authority import authorize
@@ -20,20 +22,28 @@ class TestSignerContractCreation:
         # With eth-account absent (CI), we still prove it fails CLOSED with a clear
         # reason rather than raising on a contract-creation (to=None) request.
         r = signer.build_and_sign(network="sepolia", to=None, value_wei=0, nonce=0,
-                                  data="0x6001600155")
+                                  gas=1_500_000, data="0x6001600155")
         assert r["ok"] is False
         assert "error" in r  # library/key gate — never a stack trace (F-15)
 
     def test_deploy_is_testnet_only(self):
         r = signer.build_and_sign(network="ethereum", to=None, value_wei=0, nonce=0,
-                                  data="0x60")
+                                  gas=1_500_000, data="0x60")
         assert r["ok"] is False
         assert "testnet" in r["error"]
 
-    def test_deploy_gas_fallback_is_deploy_sized_not_transfer_sized(self):
-        # The hardcoded 21000 is a transfer amount; a deploy fallback must be far
-        # larger so a real deploy is never under-gassed.
-        assert signer._DEPLOY_GAS_FALLBACK > 100000
+    def test_deploy_gas_is_never_fabricated(self):
+        # This assertion used to read `_DEPLOY_GAS_FALLBACK > 100000`, which
+        # enshrined the fabricated constant rather than testing anything: the
+        # value it guarded (1_500_000) covers ~150 bytes of contract on a chain
+        # that meters storage gas, so it satisfied the assertion while
+        # guaranteeing the out-of-gas revert its docstring promised to prevent.
+        # A deploy gas limit that cannot be measured must be ABSENT.
+        assert not hasattr(signer, "_DEPLOY_GAS_FALLBACK"), (
+            "a fabricated deploy-gas constant has been reintroduced")
+        import re
+        assert not re.search(r"^_DEPLOY_GAS_FALLBACK\s*=",
+                             inspect.getsource(signer), re.M)
 
     def test_create_contract_address_is_deterministic_or_empty(self):
         # With the helper libs present it's a stable checksummed address; without

@@ -719,7 +719,9 @@ async def handle_contract_deploy(request: web.Request) -> web.Response:
     nonce = int(prep["nonce"])
     signed = _signer.build_and_sign(
         network=network, to=None, value_wei=0, nonce=nonce, data=bytecode,
-        gas=int(prep.get("gas") or _signer._DEPLOY_GAS_FALLBACK),
+        # prepare_deploy guarantees a measured gas when ok is true, and returns
+        # ok:False otherwise (checked above) — so there is nothing to fall back to.
+        gas=int(prep["gas"]),
         max_fee_wei=int(prep.get("max_fee_wei") or 2_000_000_000),
         max_priority_wei=int(prep.get("max_priority_wei") or 1_000_000_000))
     if not signed.get("ok"):
@@ -3067,7 +3069,16 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
                                  status=400)
     # Prefer the prepared EIP-1559 fees (from /web3/sign/prepare) when present; the
     # signer falls back to its safe defaults otherwise.
-    _sign_kw = {"gas": int(body.get("gas") or 21000)}
+    #
+    # gas is REQUIRED, never defaulted. A hardcoded 21000 here is Ethereum's
+    # intrinsic floor, not every chain's — MegaETH rejects anything under 60000
+    # — so a missing gas is a client bug to surface, not a number to invent.
+    # The only caller already sends the prepared value.
+    try:
+        _sign_kw = {"gas": int(body["gas"])}
+    except (KeyError, TypeError, ValueError):
+        return web.json_response(
+            {"error": "gas is required — run /web3/sign/prepare first"}, status=400)
     for _k, _bk in (("max_fee_wei", "max_fee_wei"), ("max_priority_wei", "max_priority_wei")):
         try:
             if body.get(_bk) is not None:

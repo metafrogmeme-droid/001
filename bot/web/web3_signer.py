@@ -178,7 +178,7 @@ def evaluate_sign(*, is_admin: bool, network: str, envelope_enforcing: bool,
 
 
 def build_and_sign(*, network: str, to: Optional[str], value_wei: int, nonce: int,
-                   gas: int = 21000, max_fee_wei: int = 2_000_000_000,
+                   gas: int, max_fee_wei: int = 2_000_000_000,
                    max_priority_wei: int = 1_000_000_000, data: str = "0x",
                    env: Optional[dict] = None) -> dict:
     """Build + sign an EIP-1559 testnet transaction. Returns
@@ -187,7 +187,13 @@ def build_and_sign(*, network: str, to: Optional[str], value_wei: int, nonce: in
     When ``to`` is empty/None the ``to`` field is OMITTED — an EVM contract
     CREATION — and ``data`` carries the init bytecode (that's how Contract Studio
     deploys a drafted contract). NEVER returns or logs the signing key. Refuses
-    off-testnet chains and a missing library/key — fail-closed."""
+    off-testnet chains and a missing library/key — fail-closed.
+
+    ``gas`` is REQUIRED. It used to default to 21,000, which is Ethereum's
+    intrinsic floor and not every chain's: MegaETH meters compute AND storage
+    against the same field and rejects anything under 60,000. A default that is
+    right on most chains and silently wrong on one is worse than no default —
+    an omitted gas is now a TypeError at the call site."""
     # Refuse a non-testnet chain FIRST — before the library/key checks — so a
     # mainnet request is rejected even when the signing library is absent
     # (fail-closed: the testnet-only guarantee never depends on an optional dep).
@@ -197,6 +203,13 @@ def build_and_sign(*, network: str, to: Optional[str], value_wei: int, nonce: in
     chain_id = int(net["chain_id"])
     if chain_id not in _TESTNET_CHAIN_IDS:
         return {"ok": False, "error": "not a testnet chain"}
+    # The chain's protocol intrinsic floor, from the table. A row without one
+    # denies rather than assuming Ethereum's. FLOOR ONLY: clearing it does not
+    # mean the gas suffices to execute the transaction — a transfer to a
+    # contract needs more than the floor on every chain here.
+    min_gas = net.get("min_tx_gas")
+    if not min_gas or int(gas) < int(min_gas):
+        return {"ok": False, "error": "gas is below the chain's intrinsic minimum"}
     account = _signing_lib()
     if account is None:
         return {"ok": False, "error": "signing library not installed"}
@@ -263,7 +276,13 @@ async def prepare_tx(*, network: str, address: str, env: Optional[dict] = None) 
     so the signer form never needs a hand-computed nonce. TESTNET-ONLY, read-only
     RPC (getTransactionCount + gasPrice/baseFee). Returns
     ``{ok, nonce, max_fee_wei, max_priority_wei, base_fee_wei, gas}`` or
-    ``{ok: False, error}``. Never signs, never touches the key."""
+    ``{ok: False, error}``. Never signs, never touches the key.
+
+    ``gas`` is NOT fetched — it is the chain's intrinsic FLOOR from the network
+    table. This function takes neither ``to`` nor ``value``, and the UI calls it
+    before a destination has been entered, so a real eth_estimateGas is not
+    available here. The floor is exact for a plain transfer to an EOA and
+    INSUFFICIENT for a transfer to a contract, on every chain in the table."""
     net = gate.resolve_network(network)
     if not net or not net.get("testnet"):
         return {"ok": False, "error": "prepare is testnet-only"}
@@ -311,12 +330,24 @@ async def prepare_tx(*, network: str, address: str, env: Optional[dict] = None) 
                 base_fee = int(str(gres["result"]), 16)
             except (TypeError, ValueError):
                 base_fee = 0
-    # maxFee = 2×base + tip (headroom for the next few blocks), tip capped ≤ maxFee.
+    if base_fee <= 0:
+        # Both fee reads failed. A fee we could not read is UNKNOWN, not zero.
+        # The old code fell back to `max_fee = priority`, which rescues nothing
+        # when the tip is legitimately 0 (MegaETH's eth_maxPriorityFeePerGas
+        # always returns 0x0, and _rpc_call treats "0x0" as success because it
+        # tests `is not None`, not truthiness). That path returned ok=True with
+        # a zero fee — fail-OPEN in a fail-closed module. Deny instead.
+        return {"ok": False, "error": "could not read the network gas price"}
+    # maxFee = 2×base + tip. A zero tip is legitimate on a chain with a flat
+    # base fee and is passed through rather than replaced with an invented one.
     max_fee = base_fee * 2 + priority
-    if max_fee <= 0:
-        max_fee = priority
     priority = min(priority, max_fee)
-    return {"ok": True, "nonce": nonce, "gas": 21000, "base_fee_wei": base_fee,
+    # gas: the chain's declared intrinsic FLOOR, not an estimate — this function
+    # has neither `to` nor `value`, so it cannot estimate the real transaction.
+    min_gas = net.get("min_tx_gas")
+    if not min_gas:
+        return {"ok": False, "error": "network is missing its intrinsic gas floor"}
+    return {"ok": True, "nonce": nonce, "gas": int(min_gas), "base_fee_wei": base_fee,
             "max_fee_wei": max_fee, "max_priority_wei": priority}
 
 
@@ -350,20 +381,33 @@ async def broadcast(raw_hex: str, rpc_url: str, chain_id: int) -> dict:
 
 # ── Contract deployment (Contract Studio slice 5) ──────────────────────────
 # A deploy is a contract-CREATION tx: `to` omitted, `data` = init bytecode. Gas
-# for a deploy is far above a 21000 transfer and varies by contract, so it must
-# be ESTIMATED (never hardcoded). All testnet-only, key never touched here.
-
-_DEPLOY_GAS_FALLBACK = 1_500_000       # conservative when estimation is unavailable
+# for a deploy is far above the intrinsic transfer floor and varies by contract
+# AND by chain, so it must be ESTIMATED against the target chain's own RPC —
+# never hardcoded and never computed by hand. All testnet-only, key never
+# touched here.
+#
+# There is deliberately NO fallback constant. There used to be one
+# (_DEPLOY_GAS_FALLBACK = 1_500_000) whose docstring promised "a deploy is never
+# under-gassed into an out-of-gas revert". On MegaETH it guaranteed the
+# opposite: code deposit alone costs ~10,000 gas per byte there, so 1.5M covers
+# roughly 150 bytes of contract and every real deploy reverts. A gas limit that
+# cannot be derived is ABSENT, not guessed — the deploy is refused with a reason
+# the operator can act on.
 
 
 async def estimate_deploy_gas(*, network: str, from_address: str, bytecode: str,
-                              env: Optional[dict] = None) -> int:
+                              env: Optional[dict] = None) -> Optional[int]:
     """eth_estimateGas for a contract creation (``to`` omitted), plus a 25% buffer.
-    Returns a conservative fallback on any failure so a deploy is never under-
-    gassed into an out-of-gas revert. Read-only; never signs."""
+    Returns None when the estimate is unavailable — no RPC, the call failed, or
+    the result was unusable. Read-only; never signs.
+
+    The chain's RPC is the only correct source: on chains that meter storage
+    separately, a local simulation under-counts, and the estimate returned by
+    the chain's own endpoint already includes it. Do NOT post-multiply this by a
+    chain-specific factor — that double-counts."""
     rpc_url = rpc_url_for(network, env)
     if not rpc_url:
-        return _DEPLOY_GAS_FALLBACK
+        return None
     data = bytecode if str(bytecode).startswith("0x") else "0x" + str(bytecode)
     res = await _rpc_call(rpc_url, "eth_estimateGas",
                           [{"from": from_address, "data": data}])
@@ -374,19 +418,28 @@ async def estimate_deploy_gas(*, network: str, from_address: str, bytecode: str,
                 return int(est * 5 // 4)           # +25% headroom
         except (TypeError, ValueError):
             pass
-    return _DEPLOY_GAS_FALLBACK
+    return None
 
 
 async def prepare_deploy(*, network: str, address: str, bytecode: str,
                          env: Optional[dict] = None) -> dict:
     """Nonce + EIP-1559 fees (via :func:`prepare_tx`) with a deploy-sized ``gas``
     from :func:`estimate_deploy_gas`. Returns the prepare_tx shape with the gas
-    overridden, or its ``{ok: False, error}`` on any RPC failure. Never signs."""
+    overridden, or ``{ok: False, error}`` on any RPC failure — INCLUDING a failed
+    estimate. A deploy whose gas could not be measured is refused, not guessed:
+    the caller would otherwise sign a transaction destined to revert while the
+    UI reports a deterministic contract address for code that never lands.
+    Never signs."""
     base = await prepare_tx(network=network, address=address, env=env)
     if not base.get("ok"):
         return base
     gas = await estimate_deploy_gas(network=network, from_address=address,
                                     bytecode=bytecode, env=env)
+    if gas is None:
+        return {"ok": False,
+                "error": "could not estimate deploy gas — configure the network's "
+                         "RPC, or the contract may exceed the endpoint's "
+                         "estimation limits"}
     out = dict(base)
     out["gas"] = int(gas)
     return out

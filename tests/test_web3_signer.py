@@ -152,7 +152,7 @@ def test_signer_source_never_returns_resolved_key():
 def test_build_and_sign_produces_a_recoverable_testnet_signature():
     Account = pytest.importorskip("eth_account").Account
     out = signer.build_and_sign(network="sepolia", to=_DEST, value_wei=10**15,
-                                nonce=0, env=_ON)
+                                nonce=0, gas=21000, env=_ON)
     assert out["ok"] is True
     assert out["from"].lower() == _TEST_ADDR.lower()
     assert out["chain_id"] == 11155111
@@ -167,13 +167,13 @@ def test_build_and_sign_produces_a_recoverable_testnet_signature():
 def test_build_and_sign_refuses_mainnet():
     pytest.importorskip("eth_account")
     out = signer.build_and_sign(network="ethereum", to=_DEST, value_wei=1,
-                                nonce=0, env=_ON)
+                                nonce=0, gas=21000, env=_ON)
     assert out["ok"] is False and "testnet" in out["error"].lower()
 
 
 def test_build_and_sign_refuses_without_key():
     out = signer.build_and_sign(network="sepolia", to=_DEST, value_wei=1,
-                                nonce=0, env={})
+                                nonce=0, gas=21000, env={})
     assert out["ok"] is False
 
 
@@ -320,3 +320,287 @@ def test_sign_handler_returns_an_explorer_url():
     # only when the broadcast actually succeeded — never a link to a tx that
     # never hit the chain.
     assert 'if bcast.get("ok") else ""' in src
+
+
+# ── MegaETH network gate ────────────────────────────────────────────────
+# Adding a chain to NETWORKS is not a data edit — it moves real money paths.
+# MegaETH is the first chain in the table that does NOT cost 21,000 gas for a
+# bare transfer: it meters compute AND storage against the same gasLimit field,
+# so a transfer is 21,000 + 39,000 = 60,000 and the RPC rejects anything under.
+# Every hardcoded 21,000 in the signer was therefore a silent under-gas, and the
+# deploy-gas fallback of 1,500,000 covered ~150 bytes of contract.
+#
+# The chain ids below are a DELIBERATE independent literal, not derived from
+# NETWORKS. _TESTNET_CHAIN_IDS is built by filtering the same `testnet` boolean
+# it is meant to double-check, so it cannot detect a mistyped flag — only a
+# constant written down separately can.
+
+from bot.web import web3_exec_gate as gate                          # noqa: E402
+
+_KNOWN_MAINNET_CHAIN_IDS = frozenset({1, 10, 137, 8453, 42161, 4326})
+
+
+async def _stub_rpc_healthy(rpc_url, method, params):
+    """A MegaETH-shaped endpoint: flat base fee, zero priority tip."""
+    return {
+        "eth_getTransactionCount": {"ok": True, "result": "0x7"},
+        "eth_maxPriorityFeePerGas": {"ok": True, "result": "0x0"},   # real MegaETH value
+        "eth_getBlockByNumber": {"ok": True, "result": {"baseFeePerGas": "0xf4240"}},
+        "eth_gasPrice": {"ok": True, "result": "0xf4240"},
+    }.get(method, {"ok": False, "error": "unexpected method"})
+
+
+# ── mainnet containment ──
+
+def test_no_mainnet_chain_id_is_in_the_testnet_broadcast_set():
+    # Catches a mistyped `"testnet": True` on any mainnet row — the single most
+    # likely mistake when editing this table, and one every existing test misses
+    # because they all read the very field the typo corrupts.
+    assert not (_KNOWN_MAINNET_CHAIN_IDS & signer._TESTNET_CHAIN_IDS)
+
+
+async def test_megaeth_mainnet_is_refused_by_every_signer_entrypoint():
+    # Catches the megaeth row becoming reachable by any path. It is in the table
+    # ONLY so this denial is explicit rather than an unknown-network accident.
+    d = signer.evaluate_sign(is_admin=True, network="megaeth", envelope_enforcing=True,
+                             env=dict(_ON, WEB3_LIVE_EXEC_ALLOW_MAINNET="1"))
+    assert d.allowed is False and "testnet" in d.reason.lower()
+
+    b = signer.build_and_sign(network="megaeth", to=_DEST, value_wei=1, nonce=0,
+                              gas=60000, env=_ON)
+    assert b["ok"] is False and "testnet" in b["error"].lower()
+
+    p = await signer.prepare_tx(network="megaeth", address=_TEST_ADDR, env=_ON)
+    assert p["ok"] is False and "testnet" in p["error"].lower()
+
+    c = await signer.broadcast("0x02aa", "http://rpc.example", 4326)
+    assert c["ok"] is False and "testnet" in c["error"].lower()
+
+
+def test_megaeth_chain_ids_are_pinned():
+    # Catches a transposed digit — 6343 and 4326 share their digits.
+    assert gate.NETWORKS["megaeth-testnet"]["chain_id"] == 6343
+    assert gate.NETWORKS["megaeth"]["chain_id"] == 4326
+    assert gate.NETWORKS["megaeth-testnet"]["testnet"] is True
+    assert gate.NETWORKS["megaeth"]["testnet"] is False
+
+
+# ── table self-consistency ──
+
+def test_no_two_networks_share_a_chain_id():
+    ids = [n["chain_id"] for n in gate.NETWORKS.values()]
+    assert len(set(ids)) == len(ids), "duplicate chain_id — a row was copy-pasted"
+
+
+def test_every_network_row_is_complete():
+    # Catches the missing-`label` bug (signer_status reads .get("label") and the
+    # UI renders it, so a null label is a blank, unselectable dropdown option)
+    # and a missing min_tx_gas (which now denies rather than defaulting).
+    for name, n in gate.NETWORKS.items():
+        assert isinstance(n.get("label"), str) and n["label"], f"{name}: no label"
+        assert isinstance(n.get("chain_id"), int), f"{name}: chain_id not an int"
+        assert isinstance(n.get("testnet"), bool), f"{name}: testnet not a bool"
+        exp = n.get("explorer", "")
+        assert exp.startswith("https://"), f"{name}: explorer not https"
+        assert not exp.endswith("/"), f"{name}: explorer has a trailing slash"
+        assert isinstance(n.get("min_tx_gas"), int) and n["min_tx_gas"] > 0, \
+            f"{name}: no positive min_tx_gas"
+
+
+def test_ui_testnet_dropdown_matches_the_python_table():
+    # app/public/js/dashboard.js keeps a SECOND copy of the testnet list for the
+    # Contract Studio deploy dropdown. Copies drift: without this test, adding a
+    # chain server-side leaves one the API accepts but the UI never offers.
+    import pathlib
+    import re
+    js = pathlib.Path(__file__).resolve().parents[1] / "app/public/js/dashboard.js"
+    src = js.read_text()
+    block = src[src.index("const TESTNETS = ["):]
+    block = block[:block.index("];")]
+    in_ui = set(re.findall(r"\['([a-z0-9-]+)',", block))
+    in_py = {k for k, v in gate.NETWORKS.items() if v.get("testnet")}
+    assert in_ui == in_py, (
+        f"dashboard.js TESTNETS drifted from NETWORKS: "
+        f"missing in UI={sorted(in_py - in_ui)}, stale in UI={sorted(in_ui - in_py)}")
+
+
+# ── the gas floor ──
+
+async def test_prepare_returns_the_chains_floor_not_a_hardcoded_21000(monkeypatch):
+    # Catches reintroduction of the literal. The whole point: two chains, two
+    # different correct answers from the same code path.
+    monkeypatch.setattr(signer, "_rpc_call", _stub_rpc_healthy)
+    mega = await signer.prepare_tx(
+        network="megaeth-testnet", address=_TEST_ADDR,
+        env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
+    assert mega["ok"] is True and mega["gas"] == 60000
+
+    sep = await signer.prepare_tx(
+        network="sepolia", address=_TEST_ADDR,
+        env=dict(_ON, WEB3_RPC_SEPOLIA="https://rpc.example/sepolia"))
+    assert sep["ok"] is True and sep["gas"] == 21000
+
+
+def test_build_and_sign_refuses_gas_below_the_chain_floor():
+    # Catches a caller passing Ethereum's 21,000 to MegaETH. Runs before the
+    # library check, so it holds whether or not eth-account is installed.
+    out = signer.build_and_sign(network="megaeth-testnet", to=_DEST, value_wei=1,
+                                nonce=0, gas=21000, env=_ON)
+    assert out["ok"] is False
+    assert "minimum" in out["error"].lower() or "gas" in out["error"].lower()
+    # …and the same call at the real floor clears the gas gate (it may still
+    # fail later on the optional library — that is a different gate).
+    ok = signer.build_and_sign(network="megaeth-testnet", to=_DEST, value_wei=1,
+                               nonce=0, gas=60000, env=_ON)
+    assert ok.get("error") != "gas is below the chain's intrinsic minimum"
+
+
+def test_build_and_sign_requires_an_explicit_gas():
+    # Catches re-adding the default. A gas that is right on 16 chains and wrong
+    # on one is worse than no default at all.
+    with pytest.raises(TypeError):
+        signer.build_and_sign(network="sepolia", to=_DEST, value_wei=1, nonce=0,
+                              env=_ON)
+
+
+# ── the deploy fallback ──
+
+async def test_estimate_deploy_gas_returns_none_when_unestimatable(monkeypatch):
+    # Catches any resurrected constant, on all three failure paths.
+    assert await signer.estimate_deploy_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR,
+        bytecode="0x6080", env=_ON) is None                       # no RPC set
+
+    async def fails(*a, **k):
+        return {"ok": False, "error": "rpc call failed"}
+    monkeypatch.setattr(signer, "_rpc_call", fails)
+    env = dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega")
+    assert await signer.estimate_deploy_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR,
+        bytecode="0x6080", env=env) is None                       # rpc failed
+
+    async def garbage(*a, **k):
+        return {"ok": True, "result": "not-a-number"}
+    monkeypatch.setattr(signer, "_rpc_call", garbage)
+    assert await signer.estimate_deploy_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR,
+        bytecode="0x6080", env=env) is None                       # unusable result
+
+
+async def test_prepare_deploy_fails_closed_when_gas_cannot_be_estimated(monkeypatch):
+    # Catches a silent guess reaching the signer. Without this, the operator
+    # gets a deterministic contract address and an explorer link for code that
+    # never lands.
+    monkeypatch.setattr(signer, "_rpc_call", _stub_rpc_healthy)
+
+    async def no_estimate(**kwargs):
+        return None
+    monkeypatch.setattr(signer, "estimate_deploy_gas", no_estimate)
+    out = await signer.prepare_deploy(
+        network="megaeth-testnet", address=_TEST_ADDR, bytecode="0x6080",
+        env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
+    assert out["ok"] is False and "estimate" in out["error"].lower()
+
+
+def test_no_hardcoded_deploy_gas_constant_survives():
+    # Matches an ASSIGNMENT, not a mention: the module comment names the deleted
+    # constant on purpose, to explain why it must not come back. A test that
+    # forbade the name outright would force the removal of its own rationale.
+    import re
+    for mod in (signer, user_gateway):
+        assert not re.search(r"^_DEPLOY_GAS_FALLBACK\s*=", inspect.getsource(mod),
+                             re.M), f"{mod.__name__}: fabricated constant reintroduced"
+    # and nothing may read it back off the signer module either
+    assert "_signer._DEPLOY_GAS_FALLBACK" not in inspect.getsource(user_gateway)
+
+
+# ── the zero-fee fail-open ──
+
+async def test_prepare_denies_when_the_base_fee_cannot_be_read(monkeypatch):
+    # Catches the `max_fee = priority` self-referential rescue. Before the fix
+    # this returned {"ok": True, "max_fee_wei": 0} — a signable transaction with
+    # no fee. MegaETH is the first chain whose real tip is 0x0, which is what
+    # made the dead branch reachable.
+    async def no_fees(rpc_url, method, params):
+        return {
+            "eth_getTransactionCount": {"ok": True, "result": "0x7"},
+            "eth_maxPriorityFeePerGas": {"ok": True, "result": "0x0"},
+            "eth_getBlockByNumber": {"ok": True, "result": {}},      # no baseFeePerGas
+            "eth_gasPrice": {"ok": False, "error": "rate limited"},
+        }.get(method, {"ok": False, "error": "unexpected"})
+    monkeypatch.setattr(signer, "_rpc_call", no_fees)
+    out = await signer.prepare_tx(
+        network="megaeth-testnet", address=_TEST_ADDR,
+        env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
+    assert out["ok"] is False
+    assert out.get("max_fee_wei") in (None, )
+
+
+async def test_prepare_accepts_a_legitimate_zero_tip(monkeypatch):
+    # Catches over-correcting the above by rejecting MegaETH's real 0x0 tip.
+    monkeypatch.setattr(signer, "_rpc_call", _stub_rpc_healthy)
+    out = await signer.prepare_tx(
+        network="megaeth-testnet", address=_TEST_ADDR,
+        env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
+    assert out["ok"] is True
+    assert out["max_fee_wei"] == 2_000_000          # 2 × 1_000_000 + 0
+    assert out["max_priority_wei"] == 0
+
+
+# ── explorer links ──
+
+def test_explorer_urls_for_megaeth():
+    from bot.web.web3_exec_gate import explorer_tx_url, explorer_address_url
+    h = "0x" + "a" * 64
+    assert explorer_tx_url("megaeth-testnet", h) == \
+        f"https://testnet-mega.etherscan.io/tx/{h}"
+    assert explorer_address_url("megaeth", "0x" + "b" * 40) == \
+        "https://megaeth.blockscout.com/address/0x" + "b" * 40
+
+
+def test_explorer_url_rejects_non_hex_and_wrong_length():
+    # Catches the docstring/code gap: both claimed hex validation, both checked
+    # only the 0x prefix and len >= 6, so a traversal-shaped value produced a
+    # link a browser normalises to the explorer root.
+    from bot.web.web3_exec_gate import explorer_tx_url, explorer_address_url
+    assert explorer_tx_url("megaeth-testnet", "0x" + "Z" * 64) == ""   # not hex
+    assert explorer_tx_url("sepolia", "0x../../foo") == ""             # traversal
+    assert explorer_tx_url("sepolia", "0x" + "a" * 63) == ""           # short
+    assert explorer_address_url("sepolia", "0x" + "a" * 64) == ""      # tx hash != address
+
+
+# ── MUTATION tests: break the fix on purpose, prove a guard notices ──
+
+def test_MUTATION_flipping_megaeth_to_testnet_is_caught(monkeypatch):
+    """_TESTNET_CHAIN_IDS is derived from the same boolean it double-checks, so
+    it structurally cannot detect this typo. Prove the independent literal can."""
+    monkeypatch.setitem(gate.NETWORKS["megaeth"], "testnet", True)
+    mutated = frozenset(n["chain_id"] for n in gate.NETWORKS.values() if n.get("testnet"))
+    assert 4326 in mutated, "the mutation did not take hold"
+    assert _KNOWN_MAINNET_CHAIN_IDS & mutated, "the guard did not fire"
+
+
+async def test_MUTATION_removing_min_tx_gas_denies_instead_of_defaulting(monkeypatch):
+    """Break the TABLE, not the code: a chain with no declared floor must deny,
+    never silently inherit Ethereum's 21,000."""
+    monkeypatch.setattr(signer, "_rpc_call", _stub_rpc_healthy)
+    monkeypatch.delitem(gate.NETWORKS["megaeth-testnet"], "min_tx_gas")
+    out = await signer.prepare_tx(
+        network="megaeth-testnet", address=_TEST_ADDR,
+        env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
+    assert out["ok"] is False, "a missing floor produced a gas anyway"
+    assert out.get("gas") != 21000
+    signed = signer.build_and_sign(network="megaeth-testnet", to=_DEST, value_wei=1,
+                                   nonce=0, gas=60000, env=_ON)
+    assert signed["ok"] is False, "signing proceeded without a declared floor"
+
+
+async def test_MUTATION_a_resurrected_deploy_constant_would_be_caught(monkeypatch):
+    """Simulate a future contributor re-adding a 'conservative' fallback."""
+    async def fails(*a, **k):
+        return {"ok": False, "error": "rpc call failed"}
+    monkeypatch.setattr(signer, "_rpc_call", fails)
+    got = await signer.estimate_deploy_gas(
+        network="megaeth-testnet", from_address=_TEST_ADDR, bytecode="0x60806040",
+        env=dict(_ON, WEB3_RPC_MEGAETH_TESTNET="https://rpc.example/mega"))
+    assert got is None, f"estimation failure produced a fabricated gas limit: {got}"

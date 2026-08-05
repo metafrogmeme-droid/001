@@ -5689,12 +5689,18 @@
     // One-click TESTNET deploy of a compiled contract. Admin + signer + enforcing
     // envelope are all re-checked server-side (a non-admin just gets a clear
     // refusal); mainnet is hard-blocked. TESTNET-ONLY — real value is never at risk.
+    // MIRRORS bot/web/web3_exec_gate.py NETWORKS (the testnet rows). This list is
+    // a second copy and copies drift — tests/test_web3_signer.py parses this
+    // array and asserts set-equality with the Python table, so adding a chain
+    // there without adding it here fails the suite rather than silently leaving
+    // a chain the server accepts but the UI never offers.
     const TESTNETS = [
       ['sepolia', 'Ethereum Sepolia'], ['base-sepolia', 'Base Sepolia'],
       ['arbitrum-sepolia', 'Arbitrum Sepolia'], ['optimism-sepolia', 'Optimism Sepolia'],
       ['polygon-amoy', 'Polygon Amoy'], ['avalanche-fuji', 'Avalanche Fuji'],
       ['scroll-sepolia', 'Scroll Sepolia'], ['linea-sepolia', 'Linea Sepolia'],
       ['blast-sepolia', 'Blast Sepolia'], ['bsc-testnet', 'BNB Testnet'],
+      ['megaeth-testnet', 'MegaETH Testnet'],
     ];
     function showDeployBar(contract) {
       const bar = document.getElementById('cs-deploybar');
