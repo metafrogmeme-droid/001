@@ -44,9 +44,22 @@ link_persistent() {
     mv "$repo_path" "$store_path"
     echo "  $name -> moved into persistent store"
   elif [ -e "$repo_path" ] && [ -e "$store_path" ]; then
-    # Both exist (fresh clone brought a copy): the store is authoritative.
-    rm -rf "$repo_path"
-    echo "  $name -> repo copy discarded; persistent store kept"
+    # Both exist. Normally this is a fresh clone laying its committed copy over
+    # a populated store, and the store is authoritative — discard the clone's.
+    #
+    # But an EMPTY store directory next to a POPULATED repo directory is not
+    # that. It is the signature of a store that was created rather than
+    # migrated, and discarding the repo copy there destroys the only copy.
+    if [ -d "$repo_path" ] && [ -d "$store_path" ] \
+       && [ -z "$(ls -A "$store_path" 2>/dev/null)" ] \
+       && [ -n "$(ls -A "$repo_path" 2>/dev/null)" ]; then
+      ( shopt -s dotglob nullglob; mv "$repo_path"/* "$store_path"/ )
+      rm -rf "$repo_path"
+      echo "  $name -> store was empty; repo contents migrated into it"
+    else
+      rm -rf "$repo_path"
+      echo "  $name -> repo copy discarded; persistent store kept"
+    fi
   fi
 
   ln -sfn "$store_path" "$repo_path"
