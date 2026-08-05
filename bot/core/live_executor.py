@@ -8362,7 +8362,7 @@ class LiveExecutor:
                 os.fsync(f.fileno())
             os.replace(tmp, str(path))
         except Exception as exc:
-            logger.debug("Failed to save closed trades: %s", exc)
+            logger.warning("Failed to save closed trades: %s", exc)
 
     def _load_closed_trades(self) -> None:
         """Load persisted closed trades on startup."""
