@@ -1,39 +1,30 @@
-"""deploy.sh deleted the live trading state it exists to protect.
+"""deploy.sh must never destroy live state.
 
-On 2026-08-02, on the production box, its FIRST run removed `data/` —
-`secrets_vault.enc`, `runeclaw.db`, `live_positions.json`, `shadow_book.json`.
-The only reason it was recoverable is that a snapshot had been taken minutes
-earlier for an unrelated reason.
+deploy.sh's header promises "Idempotent and non-destructive". On 2026-08-02 it
+was neither: the first run on the production box deleted secrets_vault.enc,
+runeclaw.db, live_positions.json and shadow_book.json, and was only recoverable
+because a snapshot happened to have been taken minutes earlier.
 
-THE BUG WAS AN ORDERING ONE, THREE LINES APART:
+The mechanism was ordering. link_persistent migrates the repo copy into the
+persistent store only when the store path does not yet exist:
 
-    # data/ must exist as a directory in the store so the symlink resolves.
-    mkdir -p "$PERSIST_DIR/data"      <- creates the store FIRST
-    link_persistent "data"
-    link_persistent ".env"
+    [ -e "$repo_path" ] && [ ! -e "$store_path" ]   -> mv
 
-`link_persistent` moves the repo copy only when the store does NOT yet exist:
+A `mkdir -p "$PERSIST_DIR/data"` placed ABOVE the call made that test
+permanently false for data/, so the next branch fired instead — "the store is
+authoritative" — and rm -rf'd the repo copy. Nothing pre-created
+$PERSIST_DIR/.env, so .env took the migrate branch and moved correctly. That
+asymmetry is what hid it: the script printed success for both paths and only
+one was telling the truth.
 
-    if [ -e "$repo_path" ] && [ ! -e "$store_path" ]; then
-        mv "$repo_path" "$store_path"          # unreachable for data/
-    elif [ -e "$repo_path" ] && [ -e "$store_path" ]; then
-        rm -rf "$repo_path"                    # what actually ran
-
-Because `mkdir -p` guaranteed the store existed, the move branch could never
-fire for `data/` and the discard branch always did.
-
-`.env` moved correctly the entire time — it had no pre-created store path.
-That asymmetry is what hid it: the script reports success for both, and only
-one of them is telling the truth.
-
-    THE SCRIPT WRITTEN TO PREVENT THE 2026-07-14 DATA-LOSS INCIDENT CAUSED
-    ONE ITSELF, WHILE ITS OWN HEADER PROMISED "non-destructive".
-
-The fix moves the mkdir BELOW link_persistent "data". This file exists because
-no test would have caught the original — the failure needed a real directory
-with real files in it, which is exactly what these tests build.
+These tests run the real script against a throwaway repo and store, so they
+fail on the broken ordering rather than on a description of it. They also cover
+the SECOND layer, which the first version of this fix did not have: an EMPTY
+store beside a POPULATED repo directory is migrated, never discarded. That
+layer would have contained the incident on its own, with the ordering bug still
+in place — so it also covers a store created by hand, and a future
+reintroduction of the same ordering mistake.
 """
-from __future__ import annotations
 
 import os
 import shutil
@@ -45,120 +36,223 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SH = REPO_ROOT / "deploy.sh"
 
+# The files the incident actually destroyed. Named explicitly so a regression
+# reads as "the vault is gone" rather than "a file count changed".
+LIVE_STATE = {
+    "secrets_vault.enc": b"\x00encrypted-operator-keys",
+    "runeclaw.db": b"SQLite format 3\x00",
+    "live_positions.json": b'[{"symbol": "MSFT", "size_usd": 12.51}]',
+    "shadow_book.json": b'{"open": []}',
+}
 
-def _fake_repo(tmp_path: Path, *, with_data=True, with_env=True) -> Path:
-    """A stand-in deploy checkout: deploy.sh plus live state beside it."""
+
+def _make_repo(tmp_path: Path, *, with_data: bool = True, with_env: bool = True) -> Path:
+    """A minimal checkout: deploy.sh plus whatever state the case needs."""
     repo = tmp_path / "runeclaw"
     repo.mkdir()
-    shutil.copy(DEPLOY_SH, repo / "deploy.sh")
-    (repo / "deploy.sh").chmod(0o755)
+    shutil.copy2(DEPLOY_SH, repo / "deploy.sh")
+    os.chmod(repo / "deploy.sh", 0o755)
     if with_data:
-        d = repo / "data"
-        (d / "benchmark").mkdir(parents=True)
-        # The four files the real incident destroyed.
-        (d / "secrets_vault.enc").write_text("ENCRYPTED OPERATOR KEYS")
-        (d / "runeclaw.db").write_text("TRADE DATABASE")
-        (d / "live_positions.json").write_text('[{"symbol":"BTC/USDT"}]')
-        (d / "shadow_book.json").write_text("{}")
-        (d / "benchmark" / "BTC.csv.gz").write_text("tracked benchmark data")
+        data = repo / "data"
+        data.mkdir()
+        for name, blob in LIVE_STATE.items():
+            (data / name).write_bytes(blob)
+        # A tracked file too — data/ holds committed benchmark CSVs, which is
+        # why a fresh clone always brings a copy of this directory.
+        (data / "benchmark.csv").write_text("date,close\n2026-01-01,100\n")
     if with_env:
-        (repo / ".env").write_text("BITGET_API_KEY=REAL\nJWT_SECRET=REAL\n")
+        (repo / ".env").write_text(
+            "BITGET_API_KEY=fixture-not-a-real-key\nJWT_SECRET=fixture-not-a-real-secret\n")
     return repo
 
 
-def _run(repo: Path, persist: Path):
+def _run(repo: Path, persist: Path) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PERSIST_DIR": str(persist)}
     return subprocess.run(
-        ["bash", str(repo / "deploy.sh")],
-        cwd=str(repo), env={**os.environ, "PERSIST_DIR": str(persist), "HOME": str(repo.parent)},
+        ["bash", "./deploy.sh"], cwd=repo, env=env,
         capture_output=True, text=True, timeout=60,
     )
 
 
-class TestTheFirstRunMustNotDestroyAnything:
-    """The exact incident. Every assertion here failed before the fix."""
+def _assert_state_intact(repo: Path, persist: Path) -> None:
+    """Every byte of live state is still reachable, through the symlink."""
+    assert (repo / "data").is_symlink(), "data/ should be a symlink into the store"
+    assert (repo / "data").resolve() == persist.resolve() / "data"
+    for name, blob in LIVE_STATE.items():
+        through_link = repo / "data" / name
+        in_store = persist / "data" / name
+        assert in_store.exists(), f"{name} was destroyed — it is not in the store"
+        assert in_store.read_bytes() == blob, f"{name} was corrupted"
+        assert through_link.read_bytes() == blob, f"{name} unreachable via the symlink"
 
-    def test_the_secrets_vault_survives(self, tmp_path):
-        repo, persist = _fake_repo(tmp_path), tmp_path / "persist"
+
+class TestFirstRunMigratesLiveState:
+    """The incident case: real state in the repo, nothing in the store yet."""
+
+    def test_data_directory_survives(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
+        r = _run(repo, persist)
+        assert r.returncode == 0, r.stderr
+        _assert_state_intact(repo, persist)
+
+    def test_secrets_vault_specifically_survives(self, tmp_path):
+        # Called out on its own: losing this one costs the operator their
+        # exchange keys, and re-entering them by hand is what produced the
+        # quoted-key 40006 auth failure the script was written to prevent.
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
         _run(repo, persist)
-        kept = persist / "data" / "secrets_vault.enc"
-        assert kept.exists(), "deploy.sh deleted the encrypted operator keys"
-        assert kept.read_text() == "ENCRYPTED OPERATOR KEYS"
+        vault = persist / "data" / "secrets_vault.enc"
+        assert vault.exists(), "secrets_vault.enc destroyed on first deploy"
+        assert vault.read_bytes() == LIVE_STATE["secrets_vault.enc"]
 
-    @pytest.mark.parametrize("name,body", [
-        ("runeclaw.db", "TRADE DATABASE"),
-        ("live_positions.json", '[{"symbol":"BTC/USDT"}]'),
-        ("shadow_book.json", "{}"),
-        ("benchmark/BTC.csv.gz", "tracked benchmark data"),
-    ])
-    def test_every_state_file_survives(self, tmp_path, name, body):
-        repo, persist = _fake_repo(tmp_path), tmp_path / "persist"
+    def test_tracked_files_move_too(self, tmp_path):
+        # data/ is not purely runtime state — the benchmark CSVs are committed.
+        # A migration that moved only the untracked files would leave the repo
+        # copy behind for the next run's rm -rf.
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
         _run(repo, persist)
-        moved = persist / "data" / name
-        assert moved.exists(), f"deploy.sh deleted {name}"
-        assert moved.read_text() == body
+        assert (persist / "data" / "benchmark.csv").exists()
 
-    def test_the_env_survives(self, tmp_path):
-        # This one always passed — .env had no pre-created store path. Kept so
-        # a future change cannot break the half that was working.
-        repo, persist = _fake_repo(tmp_path), tmp_path / "persist"
+    def test_env_survives(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
         _run(repo, persist)
-        assert (persist / ".env").read_text().startswith("BITGET_API_KEY=REAL")
+        assert (repo / ".env").is_symlink()
+        assert (persist / ".env").read_text().startswith(
+            "BITGET_API_KEY=fixture-not-a-real-key")
 
-    def test_the_repo_paths_become_symlinks(self, tmp_path):
-        repo, persist = _fake_repo(tmp_path), tmp_path / "persist"
+    def test_reports_migration_not_discard(self, tmp_path):
+        # The output has to match what happened. The bug's whole shape was a
+        # success message printed over a deletion.
+        repo = _make_repo(tmp_path)
+        r = _run(repo, tmp_path / "persist")
+        assert "discarded" not in r.stdout, f"claimed a discard on first run:\n{r.stdout}"
+
+
+class TestRedeployOverPopulatedStore:
+    """The steady state: a fresh clone lays its committed copy over live data."""
+
+    def test_store_wins_and_live_state_is_kept(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
+        _run(repo, persist)                      # first deploy: migrate
+        # Simulate the re-clone: symlinks replaced by the committed copy.
+        (repo / "data").unlink()
+        (repo / ".env").unlink()
+        (repo / "data").mkdir()
+        (repo / "data" / "benchmark.csv").write_text("date,close\n2026-01-01,100\n")
+        (repo / ".env").write_text("BITGET_API_KEY=placeholder\n")
+
+        r = _run(repo, persist)
+        assert r.returncode == 0, r.stderr
+        _assert_state_intact(repo, persist)
+        # The clone's placeholder .env must not overwrite the operator's real one.
+        assert "fixture-not-a-real-key" in (persist / ".env").read_text()
+
+    def test_repeated_deploys_never_erode_state(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
+        for _ in range(3):
+            r = _run(repo, persist)
+            assert r.returncode == 0, r.stderr
+            _assert_state_intact(repo, persist)
+
+
+class TestEmptyStoreIsNeverAuthoritative:
+    """An empty store beside populated data is a bug signature, not a fresh clone.
+
+    THIS is the layer the first version of the fix lacked. With only the
+    ordering corrected, a store that exists but is empty — created by hand, or
+    by any future reintroduction of the hoisted mkdir — still routes to the
+    "store is authoritative" branch and deletes the only copy of the data.
+    """
+
+    def test_populated_repo_wins_over_empty_store(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
+        (persist / "data").mkdir(parents=True)   # store exists but is empty
+        r = _run(repo, persist)
+        assert r.returncode == 0, r.stderr
+        _assert_state_intact(repo, persist)
+
+    def test_dotfiles_migrate_too(self, tmp_path):
+        # `mv src/* dst/` silently skips dotfiles; data/ carries them.
+        repo = _make_repo(tmp_path)
+        (repo / "data" / ".cursor").write_text("1738000000")
+        persist = tmp_path / "persist"
+        (persist / "data").mkdir(parents=True)
         _run(repo, persist)
-        for name in ("data", ".env"):
-            p = repo / name
-            assert p.is_symlink(), f"{name} is not a symlink — redeploy would wipe it"
-            assert Path(os.readlink(p)).resolve() == (persist / name).resolve()
+        assert (persist / "data" / ".cursor").read_text() == "1738000000"
 
 
-class TestTheOrderingIsTheFix:
-    def test_mkdir_comes_after_the_move(self):
-        """Guards the specific line order. Reverse it and the tests above fail,
-        but this says WHY in one line when they do."""
-        src = DEPLOY_SH.read_text().splitlines()
-        link = next(i for i, l in enumerate(src)
-                    if 'link_persistent "data"' in l and not l.strip().startswith("#"))
-        mkdir = next(i for i, l in enumerate(src)
-                     if 'mkdir -p "$PERSIST_DIR/data"' in l and not l.strip().startswith("#"))
-        assert mkdir > link, (
-            "mkdir -p runs BEFORE link_persistent \"data\" — that makes the move "
-            "branch unreachable and the rm -rf branch inevitable. This is the "
-            "2026-08-02 data-loss bug."
+class TestBareBox:
+    """No repo state, no store — the symlink still has to resolve."""
+
+    def test_data_symlink_resolves_to_a_directory(self, tmp_path):
+        repo = _make_repo(tmp_path, with_data=False, with_env=False)
+        persist = tmp_path / "persist"
+        r = _run(repo, persist)
+        assert r.returncode == 0, r.stderr
+        assert (repo / "data").is_symlink()
+        assert (repo / "data").is_dir(), "data/ symlink dangles — the bot cannot write"
+
+    def test_missing_env_is_reported_not_invented(self, tmp_path):
+        repo = _make_repo(tmp_path, with_data=False, with_env=False)
+        r = _run(repo, tmp_path / "persist")
+        assert "No .env in the persistent store yet" in r.stdout
+
+
+class TestAlreadyLinked:
+    def test_existing_symlink_is_repointed_not_followed(self, tmp_path):
+        repo = _make_repo(tmp_path)
+        persist = tmp_path / "persist"
+        _run(repo, persist)
+        # Point it somewhere else, as a half-finished manual fix would.
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (repo / "data").unlink()
+        (repo / "data").symlink_to(elsewhere)
+        r = _run(repo, persist)
+        assert r.returncode == 0, r.stderr
+        _assert_state_intact(repo, persist)
+        # And the stray directory was not deleted on the way past.
+        assert elsewhere.is_dir()
+
+
+class TestTheGuardWouldCatchTheOriginalBug:
+    """Mutation check — reintroduce the ordering and confirm a test fails.
+
+    Without this, the suite above proves only that today's script is correct,
+    not that it would have caught the thing that actually happened.
+    """
+
+    def test_hoisting_the_mkdir_destroys_state(self, tmp_path):
+        broken = DEPLOY_SH.read_text().replace(
+            'link_persistent "data"\n'
+            'mkdir -p "$PERSIST_DIR/data"     # AFTER the move, never before',
+            'mkdir -p "$PERSIST_DIR/data"     # AFTER the move, never before\nlink_persistent "data"',
+            1,
+        )
+        assert broken != DEPLOY_SH.read_text(), (
+            "could not reintroduce the bug — the ordering block was edited; "
+            "update this mutation before trusting the suite"
+        )
+        # Also drop the empty-store guard, so this reproduces the original
+        # single-layer script rather than being saved by the later defence.
+        broken = broken.replace('[ -z "$(ls -A "$store_path" 2>/dev/null)" ]', "false", 1)
+
+        repo = _make_repo(tmp_path)
+        (repo / "deploy.sh").write_text(broken)
+        persist = tmp_path / "persist"
+        _run(repo, persist)
+        assert not (persist / "data" / "secrets_vault.enc").exists(), (
+            "the mutation did not destroy state — this suite is not testing "
+            "what it claims to test"
         )
 
 
-class TestTheOtherStatesStillWork:
-    """The fix must not cost the cases that were already correct."""
-
-    def test_a_redeploy_keeps_the_store_and_discards_the_clone(self, tmp_path):
-        # Second run: a fresh clone brought its own data/, the store holds the
-        # REAL state. The store must win — that is the whole point.
-        persist = tmp_path / "persist"
-        repo = _fake_repo(tmp_path)
-        _run(repo, persist)                     # first deploy: moves state out
-        shutil.rmtree(repo / "data", ignore_errors=True)
-        (repo / "data").unlink(missing_ok=True)
-        (repo / "data" / "benchmark").mkdir(parents=True)   # the clone's copy
-        (repo / "data" / "benchmark" / "BTC.csv.gz").write_text("from the clone")
-        _run(repo, persist)
-        assert (persist / "data" / "secrets_vault.enc").exists(), \
-            "a redeploy discarded the persistent store"
-        assert (repo / "data").is_symlink()
-
-    def test_rerunning_is_idempotent(self, tmp_path):
-        repo, persist = _fake_repo(tmp_path), tmp_path / "persist"
-        for _ in range(3):
-            assert _run(repo, persist).returncode == 0
-        assert (persist / "data" / "secrets_vault.enc").read_text() == \
-            "ENCRYPTED OPERATOR KEYS"
-
-    def test_a_bare_box_gets_a_resolvable_symlink(self, tmp_path):
-        # No data/ anywhere. The symlink must still resolve, which is what the
-        # mkdir was originally for — it just cannot run before the move.
-        repo = _fake_repo(tmp_path, with_data=False, with_env=False)
-        persist = tmp_path / "persist"
-        assert _run(repo, persist).returncode == 0
-        assert (repo / "data").is_symlink()
-        assert (repo / "data").resolve().is_dir(), "dangling symlink on a fresh box"
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(pytest.main([__file__, "-v"]))
