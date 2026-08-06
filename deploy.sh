@@ -70,6 +70,20 @@ link_persistent "data"
 mkdir -p "$PERSIST_DIR/data"     # AFTER the move, never before
 link_persistent ".env"
 
+# logs/ persists for the same reason data/ does, and it is NOT optional.
+# logs/audit_chain.jsonl is a TAMPER-EVIDENT chain: losing it does not just
+# lose history, it breaks the chain's continuity, which is unrecoverable and
+# indistinguishable from tampering. logs/trade.jsonl is the forensic record of
+# every decision the bot made.
+#
+# These were protected only by accident until 2026-08-06 — they were tracked in
+# git, so a re-clone restored them. Untracking them (correct: runtime state does
+# not belong in the redeploy path) removed that accident without replacing it.
+# Same ordering rule as above: link BEFORE the mkdir, or the migrate branch is
+# unreachable and the first run deletes what it claims to preserve.
+link_persistent "logs"
+mkdir -p "$PERSIST_DIR/logs"
+
 if [ ! -e "$PERSIST_DIR/.env" ]; then
   echo ""
   echo "  ⚠  No .env in the persistent store yet."
