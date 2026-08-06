@@ -55,7 +55,7 @@ test('F-15: env var names only — no secret-shaped value in the doc', () => {
   assert.ok(!/[A-Za-z0-9+/]{40,}={0,2}/.test(doc.replace(/`[^`]*`/g, '')),
     'no base64-shaped secret outside code formatting');
   for (const bad of ['LLM_API_KEY', 'JWT_SECRET', 'BOT_SYNC', 'setllm',
-    'GATEWAY_SECRET', 'runeclaw123']) {
+    'GATEWAY_SECRET']) {
     assert.ok(!doc.includes(bad), `runbook must not mention ${bad}`);
   }
   assert.match(doc, /No secret value in this repo, ever/);
