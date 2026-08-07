@@ -55,11 +55,25 @@ jobs:
       - name: SAST — bandit (high severity, high confidence)
         run: bandit -r bot/ --severity-level high --confidence-level high -q
 
-      - name: SCA — dependency vulnerability audit (pip-audit)
-        run: pip-audit -r requirements.lock
-
       - name: Tests — baseline-diff regression gate (+ coverage floor)
         run: python3 scripts/ci_test_gate.py
+
+      # Ordered AFTER the test gate, and `always()`, so neither gate can hide
+      # the other. A failed step skips the rest of the job by default, and
+      # pip-audit used to sit directly above this suite — so three advisories
+      # against a pinned transitive dependency meant 6,000 tests never ran and
+      # the job reported "Lint + tests ❌" having executed neither the tests
+      # nor anything after them. The reviewer reads that as a test failure. It
+      # was the ABSENCE of a test result, which is a different thing, and
+      # printing a subset's verdict as the whole run's is the defect this
+      # repository spends most of its guard tests preventing.
+      #
+      # This changes ordering only. pip-audit still fails the job, so a real
+      # advisory is not suppressed — it simply no longer costs the suite its
+      # voice on the way past.
+      - name: SCA — dependency vulnerability audit (pip-audit)
+        if: always()
+        run: pip-audit -r requirements.lock
 
   staking:
     name: Staking program (cargo)
