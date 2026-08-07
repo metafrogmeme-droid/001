@@ -34,6 +34,8 @@ import time
 import uuid
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
@@ -79,13 +81,8 @@ class ShadowBook:
             live = [t for t in self._trades if t["status"] in ("pending", "open")]
             done = [t for t in self._trades if t["status"] not in ("pending", "open")]
             self._trades = done[-_MAX_CLOSED:] + live[-_MAX_LIVE:]
-            os.makedirs(os.path.dirname(self.state_file) or ".", exist_ok=True)
-            tmp = self.state_file + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"trades": self._trades}, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.state_file)
+            atomic_write_json(self.state_file, {"trades": self._trades},
+                              indent=None)
         except Exception as exc:
             logger.debug("shadow book save failed: %s", exc)
 

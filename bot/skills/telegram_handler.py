@@ -2555,7 +2555,11 @@ class TelegramHandler:
             # 38%-vs-52% mismatch.
             from bot.skills.live_stats import live_win_stats, streak_badge
             _start_stats = live_win_stats(executor.closed_positions if executor else [])
-            if _start_stats["total"]:
+            # "N/A" covers both absences: no closes at all, and closes that
+            # none of which carried a readable P&L. `win_rate` is None in the
+            # second case — formatting it as 0 would put a measured total
+            # defeat on the card in place of "we could not price these".
+            if _start_stats["total"] and _start_stats["win_rate"] is not None:
                 win_rate = f"{_start_stats['win_rate']:.0f}"
             else:
                 win_rate = "N/A"

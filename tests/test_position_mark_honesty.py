@@ -94,6 +94,58 @@ class TestARealZeroIsStillAMeasurement:
                 != render_open_positions([_unread()]))
 
 
+class TestTheHeaderAndTheRowsCannotDisagree:
+    """One card, one answer about whether a mark was read.
+
+    `render_open_positions` derives a row's dollars from `pnl_pct * size_usd`
+    when no `pnl_usd` is supplied; `open_book_return` used to require the
+    dollars outright. A position carrying only a percentage therefore rendered
+
+        <b>Open Positions (1)</b> ⚠️ P&L unknown
+        🟢 <b>ETHUSDT</b> LONG | 🟢 +10.0% ($+50.00)
+
+    — the warning and its own refutation, two lines apart. "Absent is never a
+    measurement" is symmetric: calling a mark we read unknown is a false claim
+    too, and it is the one that teaches an operator to ignore the warning.
+    """
+
+    def _pct_only(self, pnl_pct=10.0, size=500.0):
+        return {"pair": "ETHUSDT", "direction": "LONG", "entry": 100.0,
+                "current": 110.0, "pnl_pct": pnl_pct, "size_usd": size,
+                "sl": 0, "tp": 0, "hold_hours": 2}
+
+    def test_a_percentage_only_row_is_measured_not_unknown(self):
+        out = render_open_positions([self._pct_only()])
+        assert "P&L unknown" not in out
+        assert "total" in out
+
+    def test_the_derived_total_matches_the_row(self):
+        from bot.utils.portfolio_return import open_book_return
+        book = open_book_return([self._pct_only(pnl_pct=10.0, size=500.0)])
+        assert book["pnl_usd"] == 50.0     # what the row prints
+        assert round(book["pct"], 6) == 10.0
+        assert book["measured"] == 1 and book["unmeasured"] == 0
+
+    def test_an_explicitly_unavailable_price_is_still_unknown(self):
+        # The derivation must not resurrect a row the caller flagged dead.
+        p = self._pct_only()
+        p["price_unavailable"] = True
+        from bot.utils.portfolio_return import open_book_return
+        assert open_book_return([p])["unmeasured"] == 1
+
+    def test_a_row_with_neither_dollars_nor_percent_stays_unknown(self):
+        from bot.utils.portfolio_return import open_book_return
+        p = self._pct_only()
+        p.pop("pnl_pct")
+        assert open_book_return([p])["unmeasured"] == 1
+
+    def test_explicit_dollars_still_win_over_the_derivation(self):
+        from bot.utils.portfolio_return import open_book_return
+        p = self._pct_only(pnl_pct=10.0, size=500.0)
+        p["pnl_usd"] = 7.25          # the venue's own figure
+        assert open_book_return([p])["pnl_usd"] == 7.25
+
+
 class TestTheTotalDoesNotAbsorbTheUnknown:
     def test_an_unread_row_contributes_nothing_to_the_total(self):
         both = render_open_positions([_read(100.0, 50.0, 110.0), _unread(pair="ETHUSDT")])
@@ -102,12 +154,21 @@ class TestTheTotalDoesNotAbsorbTheUnknown:
 
     def test_a_partial_total_discloses_what_it_omitted(self):
         both = render_open_positions([_read(100.0, 50.0, 110.0), _unread(pair="ETHUSDT")])
-        assert "excludes 1 position" in both
+        # Asserted against the ONE place the sentence lives, not a retyped
+        # copy of it. This test asserted the literal "excludes 1 position"
+        # and went red when the disclosure moved into the shared helper —
+        # the card was correct throughout.
+        from bot.utils.portfolio_return import coverage_note
+        assert coverage_note({"measured": 1, "unmeasured": 1, "total": 2},
+                             html=False).strip() in both
 
     def test_a_complete_total_says_nothing_extra(self):
         # A caveat on every healthy card is how a real one gets skipped.
         out = render_open_positions([_read(100.0, 50.0, 110.0)])
-        assert "excludes" not in out
+        # "excludes" was the OLD wording, so this assertion had become
+        # vacuous — passing because the word no longer exists anywhere
+        # rather than because the card is quiet. Match what a caveat says now.
+        assert "Covers" not in out and "no readable mark" not in out
 
     def test_all_marks_unread_produces_no_total_at_all(self):
         out = render_open_positions([_unread(), _unread(pair="ETHUSDT")])

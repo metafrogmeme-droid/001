@@ -31,6 +31,8 @@ import sys
 import time
 from typing import Any, Callable, Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
@@ -180,11 +182,7 @@ class SelfAudit:
 
     def _save_state(self, state: dict) -> None:
         try:
-            os.makedirs(os.path.dirname(self.state_file) or ".", exist_ok=True)
-            tmp = self.state_file + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(state, f)
-            os.replace(tmp, self.state_file)
+            atomic_write_json(self.state_file, state, indent=None)
         except Exception as exc:
             logger.debug("self-audit state save failed: %s", exc)
 

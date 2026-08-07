@@ -139,30 +139,68 @@ class TestAnUnreadableStoreIsNeverOverwritten:
 class TestEveryWriterIsCovered:
     """_save is the single chokepoint — every mutation must go through it."""
 
-    def test_all_mutations_route_through_save(self):
+    # Named rather than spelled inline: this scan asserts that ONE write
+    # path exists, and it used to do so by matching `json.dump`. Moving the
+    # write behind bot.utils.atomic_write kept the property exactly and broke
+    # the match — the failure mode source scans have here. Adding a spelling
+    # to this tuple is the deliberate act; forgetting to is a red test, not a
+    # silent hole.
+    WRITE_CALLS = ("atomic_write_json(", "json.dump(", ".write_text(",
+                   ".writelines(")
+
+    def _src(self):
         from tests.source_scan import code_only
-        src = code_only(
+        return code_only(
             open("bot/core/exchange_credentials.py", encoding="utf-8").read())
+
+    def _save_body(self, src):
+        i = src.index("def _save(")
+        return src[i:src.index("\n    def ", i + 10)]
+
+    def test_all_mutations_route_through_save(self):
+        src = self._src()
         assert src.count("self._save()") >= 4, (
             "a mutation that writes the file directly would bypass the guard"
         )
-        # No direct write of the creds path outside _save.
-        i = src.index("def _save(")
-        j = src.index("\n    def ", i + 10)
-        body = src[i:j]
-        assert "json.dump" in body
-        assert src.count("json.dump") == 1, (
-            "json.dump outside _save would be an unguarded write path"
+        body = self._save_body(src)
+        in_body = sum(body.count(w) for w in self.WRITE_CALLS)
+        in_module = sum(src.count(w) for w in self.WRITE_CALLS)
+        assert in_body == 1, "there must be exactly one write, inside _save"
+        assert in_module == in_body, (
+            "a write outside _save would be an unguarded path"
         )
 
     def test_the_guard_is_checked_before_any_filesystem_work(self):
-        from tests.source_scan import code_only
-        src = code_only(
-            open("bot/core/exchange_credentials.py", encoding="utf-8").read())
-        i = src.index("def _save(")
-        body = src[i:i + 700]
+        src = self._src()
+        body = self._save_body(src)
         guard = body.index("_load_failed")
-        mkdir = body.index("mkdir")
-        assert guard < mkdir, (
+        write = min(body.index(w) for w in self.WRITE_CALLS if w in body)
+        assert guard < write, (
             "the refusal must come before the store is touched at all"
         )
+
+    def test_nothing_touches_the_store_once_the_guard_trips(self, tmp_path,
+                                                            monkeypatch):
+        """The property the scan above approximates, exercised rather than
+        matched. `mkdir` moved inside the write helper, so an ordering check
+        that names it can pass while the store is being clobbered."""
+        (tmp_path / "creds.json").write_text("{not json", encoding="utf-8")
+        s = _store(tmp_path)
+        assert s._load_failed is True
+
+        import bot.core.exchange_credentials as mod
+        touched: list = []
+        monkeypatch.setattr(mod, "atomic_write_json",
+                            lambda *a, **k: touched.append(a))
+        with pytest.raises(RuntimeError):
+            s._save()
+        assert touched == [], "the store was written after the refusal"
+
+    def test_the_vault_is_never_briefly_world_readable(self, tmp_path):
+        """0600 must land on the scratch file BEFORE the rename, not after —
+        the old shape wrote, chmod'd, then renamed, leaving a window where
+        the ciphertext sat under a 0644 path."""
+        s = _store(tmp_path)
+        s._enc = {"1": {"venue": "bitget", "fields": {}}}
+        s._save()
+        assert oct(os.stat(tmp_path / "creds.json").st_mode & 0o777) == oct(0o600)

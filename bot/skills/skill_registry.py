@@ -690,7 +690,12 @@ class GetPortfolioSkill(BaseSkill):
                 portfolio = _get_portfolio(engine, **kwargs)
                 display_equity = portfolio.snapshot().equity_usd
 
-            live_total_pnl = sum((p.pnl_usd or 0) for p in live_closed)
+            # NOT sum(p.pnl_usd or 0 ...): that books every unpriced close as
+            # a measured break-even and prints the partial result as a whole
+            # total, and on an empty book prints $+0.00 in green. The canonical
+            # stats carry the tri-state; None means "no measurement" and the
+            # renderer paints neither a figure nor an accent for it.
+            live_total_pnl = _stats["realized_pnl"]
             live_exposure = sum(lp.cost_usd for lp in live_open)
             total_closed = _stats["total"]
             wr = _stats["win_rate"]
@@ -705,7 +710,9 @@ class GetPortfolioSkill(BaseSkill):
                 equity=display_equity, open_count=len(live_open),
                 exposure=live_exposure, realized_pnl=live_total_pnl,
                 total_closed=total_closed, win_rate=wr,
-                unscored=_stats.get("unscored", 0))
+                unscored=_stats.get("unscored", 0),
+                read_failed=bool(getattr(
+                    executor, "closed_trades_read_failed", False)))
 
             if live_open:
                 lines.append("")
@@ -2553,7 +2560,11 @@ class PlaybookSkill(BaseSkill):
             live_open_count = len(live_pos)
             total_exposure = executor.total_exposure_usd
             closed_trades = executor.closed_positions
-            realized_pnl = sum(p.pnl_usd or 0 for p in closed_trades)
+            # Tri-state, not a sum: `or 0` books an unpriced close as a
+            # measured break-even, and an empty book as $+0.00.
+            from bot.utils.win_rate import pnl_stats as _pnl_stats
+            _rp = _pnl_stats(closed_trades)
+            realized_pnl = _rp["total"]
             utilization_pct = (total_exposure / display_equity * 100) if display_equity > 0 else 0
             # Age-gated (engine.live_balance_cached): the direct cache read
             # showed an hours-old "Available" as current when venue fetches
@@ -2570,7 +2581,15 @@ class PlaybookSkill(BaseSkill):
             lines.append(f"- Open Positions: <code>{live_open_count}</code>")
             lines.append(f"- Total Exposure: <code>{_money(total_exposure)}</code>")
             lines.append(f"- Utilization: <code>{utilization_pct:.1f}%</code>")
-            lines.append(f"- Realized PnL: <code>{_money(realized_pnl, sign=True)}</code> ({len(closed_trades)} trades)")
+            # An em-dash where nothing could be priced. This card already
+            # qualifies its denominator with "(N trades)"; printing $+0.00
+            # beside "(0 trades)" made the pair read as a measured flat book.
+            _rp_cell = "—" if realized_pnl is None else _money(realized_pnl, sign=True)
+            lines.append(f"- Realized PnL: <code>{_rp_cell}</code> ({len(closed_trades)} trades)")
+            if _rp["unscored"]:
+                lines.append(
+                    f"  <i>covers {_rp['scored']} of {_rp['count']} closes — "
+                    f"{_rp['unscored']} carry no recorded P&L</i>")
             from bot.core.live_executor import MICRO_MAX_POSITION_USD, MICRO_MAX_TOTAL_EXPOSURE, MICRO_MAX_OPEN_POSITIONS
             lines.append(f"- Micro Limits: <code>${MICRO_MAX_POSITION_USD:.0f}/pos · ${MICRO_MAX_TOTAL_EXPOSURE:.0f} total · {MICRO_MAX_OPEN_POSITIONS} max</code>")
         else:

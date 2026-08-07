@@ -41,6 +41,8 @@ from typing import Any, Optional
 
 import ccxt.async_support as ccxt
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 # Runtime venue override — set by the admin /venue command, survives
@@ -755,13 +757,7 @@ def set_venue_override(venue_id: Optional[str]) -> None:
     if vid not in _VENUES:
         raise ValueError(f"unknown venue '{venue_id}' "
                          f"(valid: {', '.join(sorted(_VENUES))})")
-    os.makedirs(os.path.dirname(VENUE_OVERRIDE_FILE) or ".", exist_ok=True)
-    tmp = VENUE_OVERRIDE_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"venue": vid}, f)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, VENUE_OVERRIDE_FILE)
+    atomic_write_json(VENUE_OVERRIDE_FILE, {"venue": vid}, indent=None)
 
 
 def get_venue(venue_id: Optional[str] = None) -> Venue:

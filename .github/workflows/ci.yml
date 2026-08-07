@@ -55,11 +55,25 @@ jobs:
       - name: SAST — bandit (high severity, high confidence)
         run: bandit -r bot/ --severity-level high --confidence-level high -q
 
-      - name: SCA — dependency vulnerability audit (pip-audit)
-        run: pip-audit -r requirements.lock
-
       - name: Tests — baseline-diff regression gate (+ coverage floor)
         run: python3 scripts/ci_test_gate.py
+
+      # Ordered AFTER the test gate, and `always()`, so neither gate can hide
+      # the other. A failed step skips the rest of the job by default, and
+      # pip-audit used to sit directly above this suite — so three advisories
+      # against a pinned transitive dependency meant 6,000 tests never ran and
+      # the job reported "Lint + tests ❌" having executed neither the tests
+      # nor anything after them. The reviewer reads that as a test failure. It
+      # was the ABSENCE of a test result, which is a different thing, and
+      # printing a subset's verdict as the whole run's is the defect this
+      # repository spends most of its guard tests preventing.
+      #
+      # This changes ordering only. pip-audit still fails the job, so a real
+      # advisory is not suppressed — it simply no longer costs the suite its
+      # voice on the way past.
+      - name: SCA — dependency vulnerability audit (pip-audit)
+        if: always()
+        run: pip-audit -r requirements.lock
 
   staking:
     name: Staking program (cargo)
@@ -197,6 +211,20 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The workflow declares no permissions, so GITHUB_TOKEN arrives with the
+    # repository default — contents only. gitleaks-action calls
+    # GET /repos/{o}/{r}/pulls/{n}/commits to compute the PR's commit range and
+    # died on `403 Resource not accessible by integration`, the response naming
+    # `pull_requests=read` as what it wanted. Read-only, and scoped to this job
+    # rather than the workflow, so no other job's token widens.
+    #
+    # This surfaced on the repo's FIRST pull request. The step is gated on
+    # `github.event_name == 'pull_request'`, and every prior run was a push or
+    # a workflow_dispatch — so the PR-scoped scan had never once executed. A
+    # gate that has never run is not a gate that passes.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

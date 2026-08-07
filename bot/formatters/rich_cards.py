@@ -697,9 +697,12 @@ def render_multi_analysis(
 # ── Open positions card ──────────────────────────────────────────
 
 def render_live_portfolio_summary(equity: float, open_count: int,
-                                  exposure: float, realized_pnl: float,
-                                  total_closed: int, win_rate: float,
-                                  unscored: int = 0) -> List[str]:
+                                  exposure: float,
+                                  realized_pnl: Optional[float],
+                                  total_closed: int,
+                                  win_rate: Optional[float],
+                                  unscored: int = 0,
+                                  read_failed: bool = False) -> List[str]:
     """The /portfolio (LIVE) header block, as a PURE function.
 
     Extracted so the WINDOW on each number can be asserted by rendering the
@@ -717,18 +720,51 @@ def render_live_portfolio_summary(equity: float, open_count: int,
     over all twenty -- and after #1020 it runs over however many carried a
     recorded P&L. Defaults to 0 so callers that genuinely have none say
     nothing extra.
+
+    `realized_pnl` and `win_rate` are BOTH Optional, and None means "no
+    measurement", never zero. An empty closed-trades file used to reach this
+    function as 0.0 and render `🟢 $+0.00` -- a green accent and a signed
+    figure, two independent claims of a measured break-even, on the number
+    an operator reads first. It is what turned a UI artifact into a day-long
+    data-loss investigation. `total_closed == 0` forces that path too: with
+    no closed trades there is nothing a total COULD have measured, whatever
+    the caller passed, so a legacy caller still cannot print a fake zero.
+
+    `read_failed` separates the two absences. An unreadable store also
+    arrives here as an empty list, and "No closed trades recorded" over a
+    failed read is a confident negative standing in for a missing
+    measurement — the same shape as a 503 rendered "No venues found".
     """
-    pnl_icon = "\U0001f7e2" if realized_pnl >= 0 else "\U0001f534"
+    # A total nothing could price gets neither digits nor a colour -- the
+    # accent is a claim in its own right, so "unknown" owns the muted one.
+    if realized_pnl is None or total_closed <= 0:
+        pnl_cell = "⚪ <code>—</code>"
+    else:
+        pnl_icon = "\U0001f7e2" if realized_pnl >= 0 else "\U0001f534"
+        pnl_cell = f"{pnl_icon} <code>${realized_pnl:+,.2f}</code>"
     lines = [
         "<b>Portfolio</b> (LIVE)\n",
         f"Equity: <code>${equity:,.2f}</code>",
         f"Open: <code>{open_count}</code> | Exposure: <code>${exposure:,.2f}</code>",
-        f"Realized PnL (all-time): {pnl_icon} <code>${realized_pnl:+,.2f}</code>",
+        f"Realized PnL (all-time): {pnl_cell}",
     ]
+    if read_failed:
+        # An unreadable store is not an empty one. Saying "no closed trades
+        # recorded" over a failed read is the 503-as-"No venues found" shape:
+        # a confident negative standing in for a missing measurement.
+        lines.append("<i>Closed-trade records could not be read — "
+                     "figures here are incomplete, not zero.</i>")
+    elif total_closed <= 0:
+        # Says which absence it is. A bare em-dash reads as a render fault;
+        # "no closed trades recorded" is the actual state of the book.
+        lines.append("<i>No closed trades recorded.</i>")
     if total_closed > 0:
+        # None is not 0% -- "everything lost" and "nothing could be priced"
+        # are different findings and only one of them is a measurement.
+        wr_cell = "—" if win_rate is None else f"{win_rate:.0f}%"
         lines.append(
             f"Trades: <code>{total_closed}</code> | "
-            f"Win rate: <code>{win_rate:.0f}%</code>")
+            f"Win rate: <code>{wr_cell}</code>")
         # Coerced here rather than trusted: this is a display path, and a
         # card that raises is worse than one that omits a caveat.
         try:

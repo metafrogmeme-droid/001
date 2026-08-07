@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 # Free users get this many AI questions per UTC day. Operator-overridable so the
 # limit can be tuned to the funded budget without a code change.
 DEFAULT_FREE_DAILY_LIMIT = 5
@@ -90,11 +92,7 @@ def _load() -> dict:
 
 def _save(data: dict) -> None:
     try:
-        _STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _STORE_PATH.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
-        os.replace(tmp, _STORE_PATH)
+        atomic_write_json(_STORE_PATH, data, indent=None)
     except Exception:
         pass                                    # never let a write error break chat
 

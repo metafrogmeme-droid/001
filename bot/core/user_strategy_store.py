@@ -35,6 +35,8 @@ def _path() -> str:
 import re
 from datetime import datetime, timezone
 
+from bot.utils.atomic_write import atomic_write_json
+
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
@@ -45,11 +47,7 @@ def _now_iso() -> str:
 def _save(d: dict) -> bool:
     """Atomic write. Never raises; False means nothing changed on disk."""
     try:
-        os.makedirs(os.path.dirname(_path()) or ".", exist_ok=True)
-        tmp = _path() + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(d, f)
-        os.replace(tmp, _path())
+        atomic_write_json(_path(), d, indent=None)
         return True
     except Exception as exc:
         log.warning("user_strategy write failed: %s", exc)

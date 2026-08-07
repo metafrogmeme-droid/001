@@ -15,13 +15,14 @@ Design constraints:
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from bot.utils.atomic_write import atomic_write_text
 
 
 
@@ -343,18 +344,16 @@ class ConversationStore:
             retained = sum(len(v) for v in self._conversations.values())
             if raw_lines <= max(self.COMPACT_THRESHOLD_LINES, retained):
                 return
-            tmp = self._persist_path.with_suffix(".jsonl.tmp")
-            with open(tmp, "w") as f:
-                for uid, msgs in self._conversations.items():
-                    for msg in msgs:
-                        f.write(json.dumps({
-                            "user_id": uid,
-                            "role": msg.role,
-                            "content": msg.content[:2000],
-                            "timestamp": msg.timestamp,
-                            "metadata": msg.metadata,
-                        }) + "\n")
-            os.replace(tmp, self._persist_path)
+            atomic_write_text(self._persist_path, "".join(
+                json.dumps({
+                    "user_id": uid,
+                    "role": msg.role,
+                    "content": msg.content[:2000],
+                    "timestamp": msg.timestamp,
+                    "metadata": msg.metadata,
+                }) + "\n"
+                for uid, msgs in self._conversations.items()
+                for msg in msgs))
         except OSError:
             pass  # compaction is an optimization, never a requirement
 

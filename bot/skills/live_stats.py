@@ -90,19 +90,32 @@ def streak_badge(streak: dict) -> str:
 def live_win_stats(closed) -> dict:
     """Canonical live stats for a closed-position list.
 
-    Returns {trades, total, wins, win_rate, streak} where win_rate is a
-    percentage (0–100) over the filtered real-trade set — identical everywhere
-    it is used. `streak` is {kind, count} for the current win/loss run.
+    Returns {trades, total, wins, win_rate, realized_pnl, scored, unscored,
+    streak}. `win_rate` is a percentage (0–100) over the filtered real-trade
+    set — identical everywhere it is used — and `realized_pnl` is the summed
+    P&L of the same set. `streak` is {kind, count} for the current run.
+
+    BOTH figures are None when nothing could be priced, and that is the
+    contract callers must honour. `win_stats` was written to return
+    ``rate=None`` for exactly this case, its docstring spelling out that "a
+    0% win rate is a claim that everything lost" — and this function, the one
+    place every card actually calls, collapsed it straight back to 0.0. The
+    cure was applied one layer down and undone one layer up, so every card
+    kept printing the claim the fix existed to stop. A tri-state that is
+    flattened by its only consumer is not a tri-state.
     """
     trades = real_closed_trades(closed)
     total = len(trades)
     # Live shape: pnl_usd is Optional, so `or 0` filed every unpriced close
     # as a defeat while `total` kept it in the denominator. Score over what
     # can be priced, and carry the unscored count so the rate can be judged.
+    from bot.utils.win_rate import pnl_stats as _pnl_stats
     from bot.utils.win_rate import win_stats as _win_stats
     _ws = _win_stats(trades)
+    _ps = _pnl_stats(trades)
     wins = _ws["wins"]
-    win_rate = (_ws["rate"] * 100.0) if _ws["rate"] is not None else 0.0
+    win_rate = (_ws["rate"] * 100.0) if _ws["rate"] is not None else None
     return {"trades": trades, "total": total, "wins": wins,
-            "win_rate": win_rate, "unscored": _ws["unscored"],
+            "win_rate": win_rate, "realized_pnl": _ps["total"],
+            "scored": _ws["scored"], "unscored": _ws["unscored"],
             "streak": _streak_from_trades(trades)}

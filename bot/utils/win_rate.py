@@ -26,6 +26,20 @@ Three rules, all of them the same rule:
   * how many were unscorable travels WITH the rate, because "60% of 20" and
     "60% of the 12 we could price" are different readings and only that
     count tells them apart.
+
+The RATE was cured and the TOTAL printed beside it was not. `pnl_stats`
+below is the same three rules applied to the sum, added after the /portfolio
+card was found rendering
+
+    Realized PnL (all-time): 🟢 $+0.00
+
+off `sum(p.pnl_usd or 0 for p in closed)` — which is two claims, not one. On
+an empty set it is `$0.00`, asserting a measured break-even where the truth
+is "no closed trades recorded"; on a partial set it books every unpriced
+close as break-even and prints the result as a whole total. The green accent
+says "not down" as loudly as the digits do, so both come from the same
+tri-state: a total nothing could price is None, and None renders as neither
+a number nor a colour.
 """
 from __future__ import annotations
 
@@ -86,11 +100,54 @@ def win_stats(trades: Iterable[Any]) -> dict:
 
 def win_rate(trades: Iterable[Any]) -> Optional[float]:
     """Convenience: the rate alone, or None when nothing was scorable."""
-    return win_stats(trades)["rate"]
+    rate = win_stats(trades)["rate"]
+    return None if rate is None else float(rate)
+
+
+def pnl_stats(trades: Iterable[Any]) -> dict:
+    """The realized total, and how much of the set it actually covers.
+
+    ``total`` is None when NOTHING could be priced — including the empty set.
+    That is the whole point: `sum(())` is `0.0`, and a card that prints it
+    says the book is flat when the truth is that there is no book. A total
+    over zero measurements is not a measurement.
+
+    A partial set still gets a total, because the sum of what we could read
+    is a real quantity and hiding it would lose information. It travels with
+    ``scored``/``unscored`` so the caller can disclose the window — the same
+    contract as ``win_stats``, deliberately, since both run over the same
+    reader and must agree about which rows were legible.
+    """
+    total = 0.0
+    scored = unscored = 0
+    for t in trades or ():
+        p = _pnl(t)
+        if p is None:
+            unscored += 1
+            continue
+        scored += 1
+        total += p
+    return {
+        "total": total if scored > 0 else None,
+        "scored": scored,
+        "unscored": unscored,
+        "count": scored + unscored,
+    }
+
+
+def realized_total(trades: Iterable[Any]) -> Optional[float]:
+    """Convenience: the total alone, or None when nothing was scorable."""
+    total = pnl_stats(trades)["total"]
+    return None if total is None else float(total)
 
 
 def coverage_note(stats: dict, *, html: bool = True) -> str:
-    """A disclosure for a rate computed over less than the whole set.
+    """A disclosure for figures computed over less than the whole set.
+
+    Names the TOTAL as well as the rate: they run over the same reader and
+    therefore share a window, and the card prints them two lines apart. A
+    note that qualified only the rate left the total beside it reading as
+    complete — the half-fixed surface, one line down.
 
     Empty when everything was scorable — a caveat printed on every healthy
     surface is how a real one gets skipped, the same reason the scan coverage
@@ -104,6 +161,6 @@ def coverage_note(stats: dict, *, html: bool = True) -> str:
         return ""
     if unscored <= 0 or total <= 0:
         return ""
-    body = (f"Win rate covers {scored} of {total} closes — {unscored} carry "
-            f"no recorded P&L and are scored neither way.")
+    body = (f"Win rate and realized P&L cover {scored} of {total} closes — "
+            f"{unscored} carry no recorded P&L and are scored neither way.")
     return f"\n<i>{body}</i>" if html else f"\n{body}"

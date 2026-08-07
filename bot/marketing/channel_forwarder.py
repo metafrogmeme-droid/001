@@ -19,6 +19,8 @@ from bot.compat import UTC
 from bot.marketing.public_text import scrub_money
 from bot.utils.logger import audit, system_log
 
+from bot.utils.atomic_write import atomic_write_json
+
 # Persistent config file for group chat IDs
 _CONFIG_PATH = Path("data/channel_config.json")
 
@@ -46,14 +48,10 @@ class ChannelForwarder:
                 pass
 
     def _save_config(self) -> None:
-        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _CONFIG_PATH.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump({
-                "group_ids": list(self._group_ids),
-                "enabled": self._enabled,
-            }, f, indent=2)
-        tmp.rename(_CONFIG_PATH)
+        atomic_write_json(_CONFIG_PATH, {
+            "group_ids": list(self._group_ids),
+            "enabled": self._enabled,
+        })
 
     # ── Setup ─────────────────────────────────────────────────
 

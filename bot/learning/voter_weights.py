@@ -32,6 +32,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 log = logging.getLogger("runeclaw.voter_weights")
 
 _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
@@ -244,12 +246,7 @@ class VoterWeightLearner:
         return self
 
     def save(self, path: str = _FILE) -> None:
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
-        tmp.rename(p)
+        atomic_write_json(path, self.to_dict())
 
     @classmethod
     def load(cls, path: str = _FILE) -> Optional["VoterWeightLearner"]:

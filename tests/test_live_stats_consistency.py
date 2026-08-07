@@ -38,9 +38,40 @@ class TestLiveWinStats:
         s = live_win_stats(trades)
         assert s["total"] == 1 and s["win_rate"] == 100.0
 
-    def test_empty_is_zero_not_crash(self):
+    def test_empty_does_not_crash_and_is_not_scored_as_zero(self):
+        """The original assertion here was `win_rate == 0.0`, and the intent
+        it was written for was "does not crash on an empty list". The 0.0 was
+        incidental — and it pinned the exact collapse `win_stats` exists to
+        prevent: a 0% win rate claims everything lost, which is a measurement
+        nobody took. Crash-safety is still asserted; the value is now None."""
         s = live_win_stats([])
-        assert s["total"] == 0 and s["win_rate"] == 0.0
+        assert s["total"] == 0
+        assert s["win_rate"] is None
+        assert s["realized_pnl"] is None
+
+    def test_a_set_nothing_can_price_is_unknown_not_a_wipeout(self):
+        """Trades exist, none carry a P&L. `total` counts them, but neither
+        the rate nor the total may be stated — 0% / $0.00 here reads as a
+        measured record of total failure rather than the absence of one."""
+        s = live_win_stats([_t(trade_id="TI-a", pnl=None),
+                            _t(trade_id="TI-b", pnl=None)])
+        assert s["total"] == 2 and s["unscored"] == 2 and s["scored"] == 0
+        assert s["win_rate"] is None
+        assert s["realized_pnl"] is None
+
+    def test_a_partial_set_totals_what_it_could_read_and_says_so(self):
+        s = live_win_stats([_t(trade_id="TI-a", pnl=5.0),
+                            _t(trade_id="TI-b", pnl=None),
+                            _t(trade_id="TI-c", pnl=-2.0)])
+        assert s["realized_pnl"] == 3.0     # the two it could price
+        assert s["scored"] == 2 and s["unscored"] == 1 and s["total"] == 3
+
+    def test_a_recorded_zero_is_a_measurement_and_stays_scored(self):
+        """0.0 is falsy and real. It must not be swept in with the unpriced —
+        the whole reason the doctrine says `is None`, not falsiness."""
+        s = live_win_stats([_t(pnl=0.0)])
+        assert s["realized_pnl"] == 0.0
+        assert s["win_rate"] == 0.0 and s["scored"] == 1 and s["unscored"] == 0
 
     def test_two_cards_same_input_same_number(self):
         """The core guarantee: identical input → identical win rate, so /start
