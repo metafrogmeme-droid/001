@@ -621,6 +621,19 @@ def main() -> None:
         help="Run mode: telegram (bot), cli (interactive), scan (one-shot), backtest")
     args = parser.parse_args()
 
+    # STATE GUARD — before the mode dispatch, because scan and backtest write
+    # state too. Every state path here is relative to the process CWD, so a
+    # launch from the wrong directory silently writes the vault, the positions
+    # and the audit chain somewhere the next redeploy deletes.
+    from bot.utils.state_guard import assert_state_paths_are_safe, StateGuardError
+    try:
+        assert_state_paths_are_safe()
+    except StateGuardError as exc:
+        print(f"ERROR: {exc}")
+        audit(system_log, str(exc).splitlines()[0], action="startup",
+              result="STATE_PATHS_UNSAFE")
+        sys.exit(1)
+
     if args.mode == "telegram":
         # Loud env preflight: name EVERY missing secret at once (not just the
         # first check that trips), so a wiped-.env redeploy is diagnosed in one
