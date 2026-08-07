@@ -72,21 +72,82 @@ class TestTheResolverPrefersTheCommittableHome:
 
 
 class TestNoConsumerPinsTheOldPath:
-    """Four constants pointed at `data/benchmark`. A fifth would silently
-    reintroduce the symlink trap for whichever surface added it."""
+    """DISCOVERS the consumers instead of listing them.
 
-    CONSUMERS = ("bot/api/lab.py", "bot/skills/skill_registry.py",
-                 "scripts/gen_agent_scorecards.py")
+    The first version of this test named the three files my grep for
+    `data/benchmark` had found. It passed, and a fifth consumer was still
+    pinned: strategy_catalog.py builds the path as
 
-    @pytest.mark.parametrize("rel", CONSUMERS)
-    def test_it_resolves_rather_than_hardcodes(self, rel):
+        os.path.join(REPO, "data", "benchmark", "scorecards")
+
+    — split across string literals, so no search for `data/benchmark` could
+    ever reach it, and a hand-written CONSUMERS list inherits exactly the
+    blindness of the search that produced it. A test failure found it, which
+    is the point CLAUDE.md makes: the grep tells you where you looked, the
+    test tells you where you didn't.
+
+    So this scans every source file and matches both spellings.
+    """
+
+    # The joined form, and the split form the first search could not see.
+    PINNED = (
+        '"data/benchmark',
+        "'data/benchmark",
+        '"data", "benchmark"',
+        "'data', 'benchmark'",
+    )
+
+    # The two modules that DEFINE the fallback have to name the old path in
+    # order to fall back to it — the same exemption bot/utils/atomic_write.py
+    # carries in the .tmp scan, and for the same reason: the one file allowed
+    # to spell the forbidden shape is the one implementing the cure.
+    RESOLVERS = {"bot/backtest/snapshot.py", "bot/core/strategy_catalog.py"}
+
+    def _sources(self):
+        for base in ("bot", "scripts"):
+            for path in (REPO / base).rglob("*.py"):
+                if str(path.relative_to(REPO)) in self.RESOLVERS:
+                    continue
+                yield path
+
+    def test_the_exemptions_still_exist(self):
+        # An exemption for a file that has been renamed silently widens the
+        # scan's blind spot back out.
+        for rel in self.RESOLVERS:
+            assert (REPO / rel).is_file(), f"exempted {rel} no longer exists"
+
+    def test_nothing_hardcodes_the_symlinked_location(self):
         from tests.source_scan import code_only
-        src = code_only((REPO / rel).read_text(encoding="utf-8"))
-        assert 'Path("data/benchmark")' not in src
-        assert '"data/benchmark/majors_1h"' not in src
-        assert ("benchmark_root" in src or "default_benchmark_dir" in src), (
-            f"{rel} must resolve the benchmark root, not pin it"
-        )
+        offenders = []
+        for path in self._sources():
+            src = code_only(path.read_text(encoding="utf-8"))
+            for shape in self.PINNED:
+                if shape in src:
+                    offenders.append(
+                        f"{path.relative_to(REPO)}: {shape}")
+        assert not offenders, (
+            "resolve via bot.backtest.snapshot.benchmark_root instead — a "
+            "path under the data/ symlink cannot be committed:\n  "
+            + "\n  ".join(offenders))
+
+    def test_the_scan_sees_the_split_literal_form(self):
+        """The shape that defeated the original search. If this stops
+        matching, the scan has quietly narrowed back to what a naive grep
+        would have found anyway."""
+        from tests.source_scan import code_only
+        sample = code_only(
+            'p = os.path.join(ROOT, "data", "benchmark", "scorecards")\n')
+        assert any(shape in sample for shape in self.PINNED)
+
+    def test_the_known_consumers_resolve(self):
+        from tests.source_scan import code_only
+        for rel in ("bot/api/lab.py", "bot/skills/skill_registry.py",
+                    "scripts/gen_agent_scorecards.py",
+                    "bot/core/strategy_catalog.py"):
+            src = code_only((REPO / rel).read_text(encoding="utf-8"))
+            assert ("benchmark_root" in src or "default_benchmark_dir" in src
+                    or "_scorecard_dir" in src), (
+                f"{rel} must resolve the benchmark root, not pin it")
 
 
 class TestTheNewHomeIsActuallyCommittable:

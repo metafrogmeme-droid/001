@@ -126,6 +126,14 @@ def parse_llm_json(text: str) -> list:
         return []
 
 
+def _benchmark_root():
+    """Where the frozen snapshots live. Resolved per call — they moved out from
+    under the data/ symlink so they could be committed (see
+    bot.backtest.snapshot.benchmark_root); the old path still resolves."""
+    from bot.backtest.snapshot import benchmark_root
+    return benchmark_root()
+
+
 def _parse_metrics(stdout: str) -> dict:
     """Pull the runner's headline metrics out of its stdout."""
     out: dict[str, float] = {}
@@ -151,7 +159,7 @@ def run_benchmark(dataset: str, env_overrides: Optional[dict] = None) -> dict:
         env.update({k: str(v) for k, v in (env_overrides or {}).items()})
         proc = subprocess.run(  # nosec B603 — fixed argv, no shell
             [sys.executable, "-m", "bot.backtest.runner",
-             "--dataset", os.path.join("data", "benchmark", dataset),
+             "--dataset", str(_benchmark_root() / dataset),
              "--honest"],
             capture_output=True, text=True, env=env,
             timeout=_BACKTEST_TIMEOUT_SEC)

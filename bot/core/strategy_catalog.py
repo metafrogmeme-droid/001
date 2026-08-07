@@ -23,9 +23,33 @@ from typing import Any, Optional
 # scripts/gen_agent_scorecards.py). Percent/ratio only, stamped with the dataset
 # hash — see that script. Loaded fail-soft so a missing scorecard just omits the
 # stats from the card, never breaks the catalogue.
-_SCORECARD_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "data", "benchmark", "scorecards")
+# Repo-root anchored, not CWD-relative: the catalogue is imported from the web
+# gateway and the bridge as well as the bot, and a scorecard that silently
+# vanishes just omits stats from a public card rather than raising.
+#
+# Tries both homes. The snapshot moved out from under the data/ symlink so it
+# could be committed at all (bot.backtest.snapshot.benchmark_root has the
+# reasoning); the old path stays readable so a box that has not moved its copy
+# keeps its cards populated.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# An OVERRIDE, not the location. None means "resolve at call time". Kept
+# settable because a test points it at a nonexistent path to prove the loader
+# fails soft; replacing it with a bare function removed that seam.
+_SCORECARD_DIR = None
+
+
+def _scorecard_dir() -> str:
+    """Resolved per call — a module-level constant cannot see which of the two
+    locations exists, and this one is imported before either is guaranteed."""
+    if _SCORECARD_DIR is not None:
+        return str(_SCORECARD_DIR)
+    for parts in (("benchmark", "scorecards"), ("data", "benchmark", "scorecards")):
+        cand = os.path.join(_REPO_ROOT, *parts)
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(_REPO_ROOT, "benchmark", "scorecards")
 
 # Editorial, marketplace-facing metadata keyed by the real preset id. Kept
 # deliberately small — the substance (how it trades) is derived, not authored.
@@ -112,7 +136,7 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
     by construction (the generator writes percent/ratio only); we still strip any
     non-metric/dollar-ish keys defensively before it reaches a card."""
     try:
-        path = os.path.join(_SCORECARD_DIR, f"{agent_id}.json")
+        path = os.path.join(_scorecard_dir(), f"{agent_id}.json")
         with open(path, encoding="utf-8") as fh:
             card = json.load(fh)
     except Exception:
