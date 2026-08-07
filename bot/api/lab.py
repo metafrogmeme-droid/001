@@ -12,7 +12,7 @@ a shell. This router exposes it to the web app in a tightly-bounded way:
 Bounded on purpose:
   - one job at a time, process-wide (a backtest saturates a core; a queue of
     them would starve the live engine sharing the host);
-  - dataset names are whitelisted against data/benchmark/ (no path input);
+  - dataset names are whitelisted against benchmark/ (no path input);
   - symbols must exist in the chosen snapshot's manifest, max 4 per run;
   - last_bars/balance/confidence are clamped to sane ranges;
   - the run happens in a SUBPROCESS (python -m bot.backtest.runner) with a
@@ -40,7 +40,12 @@ from pydantic import BaseModel, Field
 
 lab_router = APIRouter()
 
-_BENCH_DIR = Path("data/benchmark")
+# Resolved per call, not pinned at import: the snapshots moved out from under
+# the data/ symlink (see bot/backtest/snapshot.benchmark_root) and the old
+# location still works.
+def _bench_dir() -> Path:
+    from bot.backtest.snapshot import benchmark_root
+    return benchmark_root()
 _OUT_DIR = Path(os.environ.get("RUNECLAW_STATE_DIR", "data")) / "lab"
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 _TIMEOUT_SEC = float(os.environ.get("LAB_TIMEOUT_SEC", "600"))
@@ -70,9 +75,9 @@ class LabRunRequest(BaseModel):
 def _datasets() -> dict[str, dict]:
     """{name: manifest-summary} for every valid snapshot under data/benchmark."""
     out: dict[str, dict] = {}
-    if not _BENCH_DIR.is_dir():
+    if not _bench_dir().is_dir():
         return out
-    for d in sorted(_BENCH_DIR.iterdir()):
+    for d in sorted(_bench_dir().iterdir()):
         man_path = d / "manifest.json"
         if not d.is_dir() or not _NAME_RE.match(d.name) or not man_path.exists():
             continue
@@ -151,7 +156,7 @@ async def lab_run(req: LabRunRequest):
     out_file = _OUT_DIR / f"{job_id}.json"
     cmd = [
         sys.executable, "-m", "bot.backtest.runner",
-        "--dataset", str(_BENCH_DIR / req.dataset),
+        "--dataset", str(_bench_dir() / req.dataset),
         "--symbols", ",".join(symbols),
         "--last-bars", str(last_bars),
         "--confidence-threshold", str(confidence),

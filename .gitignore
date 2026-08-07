@@ -88,14 +88,26 @@ docker-compose.override.yml
 # -- Project-specific --
 *.db
 *.sqlite3
-# Ignore data/ contents via data/* (not data/) so the negation below can
-# re-include a subtree — git prunes a directory excluded as `data/` before it
-# ever considers a re-include.
+# Everything under data/ is runtime state and stays out of git.
+#
+# There used to be a `!data/benchmark/` negation here, to let the FROZEN
+# benchmark snapshot be committed. It never once worked. On a deployed box
+# deploy.sh makes data/ a SYMLINK into ~/runeclaw-persist/, and git does not
+# traverse symlinks — so `git add -f data/benchmark/...` silently adds nothing,
+# and every fresh clone (CI included) got a repository whose own benchmark data
+# could not be committed into it. Five tests failed on main for that reason
+# alone, and the negation read like the problem was already solved.
+#
+# The snapshot now lives at top-level benchmark/, which is tracked. That is the
+# right split rather than a workaround: data/ holds runtime state that must
+# never be committed — which is why it is a symlink — while the frozen
+# benchmark is a version-controlled build input that must always be. One
+# directory could not be both. See bot/backtest/snapshot.benchmark_root.
+#
+# `data/*` rather than `data/`: a directory excluded as `data/` is pruned
+# before git considers any re-include, so this form is kept in case a subtree
+# ever needs re-including again.
 data/*
-# ...except the FROZEN benchmark snapshot: committing it makes every A/B read
-# byte-identical candles and survives ephemeral container rebuilds (see
-# bot/backtest/snapshot.py). Runtime state under data/ stays ignored.
-!data/benchmark/
 # Auto-generated auth secret (never commit; regenerated per-deployment if absent)
 **/.jwt_secret
 # .github/ is intentionally tracked now (CI workflows live here). Only the

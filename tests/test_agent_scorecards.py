@@ -12,9 +12,16 @@ import os
 from bot.core import strategy_catalog as sc
 from bot.skills.skill_registry import RunStrategySkill
 
-_SC_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data", "benchmark", "scorecards")
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Absolute, and tries both homes: the snapshots moved out from under the data/
+# symlink so they could be committed at all (bot.backtest.snapshot has the
+# reasoning). Falls back to the old path so a checkout that has not moved its
+# copy still finds them.
+_SC_DIR = next(
+    (p for p in (os.path.join(_REPO, "benchmark", "scorecards"),
+                 os.path.join(_REPO, "data", "benchmark", "scorecards"))
+     if os.path.isdir(p)),
+    os.path.join(_REPO, "benchmark", "scorecards"))
 
 # Metric KEYS that would leak an absolute dollar figure onto a public card (§4).
 # Checked as JSON keys, never as raw substrings (symbols like BTC/USDT contain
