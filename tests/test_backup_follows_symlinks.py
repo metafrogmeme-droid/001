@@ -330,8 +330,31 @@ class TestNoGuardIsDefeatedBySIGPIPE:
         'no future guard is written this way', which no single run can show.
         """
         src = SCRIPT.read_text(encoding="utf-8")
-        offenders = [ln.strip() for ln in src.splitlines()
-                     if "| grep -q" in ln and not ln.strip().startswith("#")]
+        offenders = []
+        for line in src.splitlines():
+            stripped = line.strip()
+            if "| grep -q" not in stripped or stripped.startswith("#"):
+                continue
+            # Two safe forms, and the distinction is the whole point:
+            #   (set +o pipefail; tar ... | grep -q ...) && found=1 || true
+            # disables the propagation for that pipeline only — af3211f's
+            # approach, correct and surgical. An UNGUARDED pipe is the defect.
+            if "set +o pipefail" in stripped:
+                continue
+            offenders.append(stripped)
         assert not offenders, (
-            "pipe into grep -q — SIGPIPE + pipefail inverts the result:\n  "
-            + "\n  ".join(offenders))
+            "unguarded pipe into grep -q — SIGPIPE + pipefail inverts the "
+            "result. Either wrap it in `(set +o pipefail; ...)` or capture the "
+            "output first:\n  " + "\n  ".join(offenders))
+
+    def test_the_scan_still_rejects_the_bare_form(self):
+        """An exemption that swallows the defect is worse than no scan. Prove
+        the unguarded shape is still caught now that a guarded one is allowed."""
+        guarded = '(set +o pipefail; tar -tzf "$A" | grep -q X) && f=1 || true'
+        bare = 'if tar -tvzf "$ARCHIVE" | grep -q \'^l\'; then'
+        def flagged(line):
+            st = line.strip()
+            return ("| grep -q" in st and not st.startswith("#")
+                    and "set +o pipefail" not in st)
+        assert not flagged(guarded), "the guarded form must be accepted"
+        assert flagged(bare), "the bare form must still be rejected"
