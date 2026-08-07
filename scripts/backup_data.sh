@@ -53,11 +53,22 @@ if [ "${1:-}" = "--verify-restore" ]; then
     # containing no data whatsoever. Observed 2026-08-07: this drill passed on
     # a 138-byte archive. A restore test that reads the thing it is supposed to
     # be independent of is not a test.
-    if tar -tvzf "$ARCHIVE" | grep -q '^l'; then
+    # The remaining SIGPIPE site, and the one that failed OPEN. af3211f fixed
+    # the vault and chain checks (which false-FAILED, loudly); this one reads
+    # 141 as "no symlinks found" and passes silently — so a pointer-only
+    # archive sails through the guard that exists to reject it. A guard that
+    # reports nothing wrong is worse than no guard.
+    #
+    # `grep` WITHOUT -q here rather than a `set +o pipefail` subshell: it
+    # drains its input, so the writer never meets a closed pipe at all, and
+    # the output is needed below anyway. `|| true` because grep exits 1 on
+    # no-match and set -e would abort the healthy case.
+    SYMLINK_MEMBERS="$(tar -tvzf "$ARCHIVE" | grep '^l' || true)"
+    if [ -n "$SYMLINK_MEMBERS" ]; then
         echo "[verify] FAILED: archive contains symlink members — it stores"
         echo "[verify] pointers, not content. Backing up a symlinked data/"
         echo "[verify] without tar -h produces exactly this."
-        tar -tvzf "$ARCHIVE" | grep '^l' | sed 's/^/[verify]   /'
+        printf '%s\n' "$SYMLINK_MEMBERS" | sed 's/^/[verify]   /'
         exit 1
     fi
 
