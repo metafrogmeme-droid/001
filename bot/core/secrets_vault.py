@@ -35,6 +35,8 @@ import logging
 import os
 from pathlib import Path
 
+from bot.utils.atomic_write import atomic_write_json
+
 log = logging.getLogger("runeclaw.secrets_vault")
 
 # Basename of the shared Fernet master key (matches bot.core.exchange_credentials
@@ -135,14 +137,9 @@ def _load_vault(cipher) -> dict[str, str]:
 def _save_vault(cipher, plain: dict[str, str]) -> None:
     p = Path(_vault_file())
     enc = {k: cipher.encrypt(v.encode()).decode() for k, v in plain.items()}
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(enc, indent=2), encoding="utf-8")
-    try:
-        os.chmod(str(tmp), 0o600)
-    except OSError:
-        pass
-    tmp.rename(p)
+    # 0600 lands on the scratch file before the rename, so the vault is
+    # never briefly world-readable under its final name.
+    atomic_write_json(p, enc, indent=2, mode=0o600)
 
 
 def store_secrets(mapping: dict[str, str]) -> list[str]:

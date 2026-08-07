@@ -30,6 +30,8 @@ from typing import Any, Optional
 from bot.proofofpnl import csf
 from bot.proofofpnl.assemble import is_public_safe
 
+from bot.utils.atomic_write import atomic_write_json
+
 PUBLICATION_FORMAT = "runeclaw.proofofpnl.publication.v0"
 DEFAULT_MAX_AGE_S = 86_400          # a day-old statement is stale
 
@@ -117,11 +119,8 @@ class PublicationStore:
     def write(self, publication: dict) -> bool:
         try:
             with self._lock:
-                os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
-                tmp = self._path + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(publication, fh, separators=(",", ":"))
-                os.replace(tmp, self._path)
+                atomic_write_json(self._path, publication,
+                                  separators=(",", ":"))
             return True
         except OSError:
             return False

@@ -36,6 +36,8 @@ from typing import Any, Callable, Optional, Set
 from bot.config import CONFIG
 from bot.utils.logger import audit, system_log
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -221,17 +223,11 @@ class ProactiveMonitor:
             logger.debug("proactive watch-list load skipped: %s", exc)
 
     def _save_enabled_chats(self) -> None:
-        import json
-        import os
         path = self._watch_state_path()
         try:
-            d = os.path.dirname(path)
-            if d:
-                os.makedirs(d, exist_ok=True)
-            tmp = f"{path}.tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump({"enabled_chats": sorted(self._enabled_chats)}, fh)
-            os.replace(tmp, path)  # atomic
+            atomic_write_json(
+                path, {"enabled_chats": sorted(self._enabled_chats)},
+                indent=None)
         except Exception as exc:
             logger.debug("proactive watch-list save skipped: %s", exc)
 

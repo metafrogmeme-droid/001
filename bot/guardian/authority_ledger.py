@@ -27,6 +27,8 @@ import os
 import threading
 from typing import Any, Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 DEFAULT_WINDOW_S = 86_400   # 24h rolling window
 
 
@@ -100,13 +102,7 @@ class AuthoritySpendLedger:
         if not self._path:
             return
         try:
-            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
-            tmp = self._path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"book": self._book}, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self._path)   # atomic on POSIX
+            atomic_write_json(self._path, {"book": self._book})
         except OSError:
             pass   # best-effort; the in-memory book is still authoritative this run
 

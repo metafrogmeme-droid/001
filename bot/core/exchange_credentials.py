@@ -32,6 +32,8 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 log = logging.getLogger("runeclaw.exchange_creds")
 
 _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
@@ -221,15 +223,9 @@ class ExchangeCredentialStore:
                          "load, so writing would destroy the real keys")
             raise RuntimeError(
                 "credential store is unreadable — refusing to overwrite it")
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump(self._enc, f, indent=2)
-        try:
-            os.chmod(str(tmp), 0o600)
-        except OSError:
-            pass
-        tmp.rename(self._path)
+        # 0600 is applied to the scratch file BEFORE the rename, so the
+        # ciphertext is never briefly world-readable under the final name.
+        atomic_write_json(self._path, self._enc, mode=0o600)
 
     # -- record normalization -------------------------------------------------
 

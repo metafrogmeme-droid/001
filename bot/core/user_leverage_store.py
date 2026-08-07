@@ -18,6 +18,8 @@ import os
 import threading
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 log = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 
@@ -67,11 +69,7 @@ def set_pref(user_id, value) -> Optional[int]:
         d = _load()
         d[uid] = n
         try:
-            os.makedirs(os.path.dirname(_path()) or ".", exist_ok=True)
-            tmp = _path() + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(d, f)
-            os.replace(tmp, _path())
+            atomic_write_json(_path(), d, indent=None)
         except Exception as exc:
             log.warning("user_leverage write failed: %s", exc)
             return None

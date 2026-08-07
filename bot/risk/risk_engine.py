@@ -77,6 +77,8 @@ from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log
 from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
 
+from bot.utils.atomic_write import atomic_write_json
+
 
 # RC-AUD-007: explicit VaR result type, replacing the former magic-tuple
 # sentinels ((-1,-1) = skip / (0.0,100.0) = zero-equity reject).  The dual-meaning
@@ -2991,14 +2993,8 @@ class RiskEngine:
     def _save_state_individual(self) -> None:
         """Write risk state to its own file (legacy path or fallback)."""
         try:
-            os.makedirs(os.path.dirname(self._state_file) or ".", exist_ok=True)
             data = self._export_state_dict()
-            tmp = self._state_file + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(data, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self._state_file)  # atomic on POSIX
+            atomic_write_json(self._state_file, data, indent=None)
             # Persist the rename itself (not just the tmp contents) so the
             # circuit-breaker state survives a crash/power loss. Best-effort.
             fsync_dir(self._state_file)

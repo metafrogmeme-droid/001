@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +26,8 @@ from bot.utils.models import (
     Direction, PortfolioState, TradeExecution, TradeIdea, TradeStatus,
 )
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
+
+from bot.utils.atomic_write import atomic_write_json
 
 
 @dataclass
@@ -532,14 +533,9 @@ class PortfolioTracker:
                     shutil.copy2(str(target_path), str(backup))
                 except Exception as e:
                     trade_log.debug("Best-effort backup copy failed: %s", e)
-            tmp = str(target_path) + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(state, f, indent=2, default=str)
-                # C2-33 FIX: Flush + fsync before os.replace to prevent
-                # partial writes on crash. Matches risk_engine.py pattern.
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, str(target_path))
+            # C2-33: fsync before the rename (inside the helper) so a crash
+            # cannot publish a rename the data has not landed behind.
+            atomic_write_json(str(target_path), state, indent=2, default=str)
             # Persist the rename itself (not just the tmp contents) so it
             # survives a crash/power loss. Best-effort.
             fsync_dir(str(target_path))

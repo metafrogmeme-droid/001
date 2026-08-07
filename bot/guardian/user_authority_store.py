@@ -22,6 +22,8 @@ from typing import Optional
 
 from bot.guardian.authority import VALID_MODES, revoke as _revoke_env
 
+from bot.utils.atomic_write import atomic_write_json
+
 _DEFAULT_PATH = os.environ.get(
     "USER_AUTHORITY_STORE_PATH", "data/user_authority.json")
 
@@ -47,11 +49,8 @@ class UserAuthorityStore:
 
     def _save(self) -> None:
         try:
-            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
-            tmp = self._path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._envelopes, fh, separators=(",", ":"))
-            os.replace(tmp, self._path)
+            atomic_write_json(self._path, self._envelopes,
+                              separators=(",", ":"))
         except OSError:
             pass
 

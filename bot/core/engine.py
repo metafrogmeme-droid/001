@@ -56,6 +56,8 @@ from bot.utils.models import (
 )
 from bot.core.smart_exits import TimeOfDayEdge, AdaptiveLimitDistance
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -1191,14 +1193,8 @@ class RuneClawEngine:
         the operator enables + restarts). Fail-open: a write/reload fault raises
         so the caller can surface it, but never leaves the engine half-bound.
         """
-        import json as _json
-        import os as _os
         path = self._intent_policy_path()
-        _os.makedirs(_os.path.dirname(path) or ".", exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            _json.dump(policy, fh, indent=2, sort_keys=False)
-        _os.replace(tmp, path)   # atomic
+        atomic_write_json(path, policy, indent=2, sort_keys=False)
         return self.reload_intent_policy()
 
     def set_intent_policy_mode(self, mode: str) -> Optional[dict]:
@@ -2323,7 +2319,6 @@ class RuneClawEngine:
         same account and risk write-skew between the two; keep this file
         operator-only. The test suite guards this intent
         (tests/test_combined_state_per_user_intent.py)."""
-        import json as _json
         combined = {
             "version": 1,
             "portfolio": self.portfolio._export_state_dict(),
@@ -2340,12 +2335,7 @@ class RuneClawEngine:
                 shutil.copy2(str(combined_path), str(backup))
             except Exception:
                 pass  # best-effort
-        tmp = str(combined_path) + ".tmp"
-        with open(tmp, "w") as f:
-            _json.dump(combined, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, str(combined_path))
+        atomic_write_json(str(combined_path), combined, indent=2, default=str)
         # Persist the rename itself (not just the tmp contents) — best-effort.
         fsync_dir(str(combined_path))
 

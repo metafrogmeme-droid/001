@@ -32,6 +32,8 @@ import logging
 import os
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
@@ -66,15 +68,10 @@ class CatalogWatch:
 
     def _save(self) -> None:
         try:
-            os.makedirs(os.path.dirname(self.state_file) or ".", exist_ok=True)
-            tmp = self.state_file + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"seen": sorted(self._seen),
-                           "pending": self._pending[-100:],
-                           "recent": self._recent[-20:]}, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.state_file)
+            atomic_write_json(self.state_file,
+                              {"seen": sorted(self._seen),
+                               "pending": self._pending[-100:],
+                               "recent": self._recent[-20:]}, indent=None)
         except Exception as exc:
             logger.debug("catalog watch save failed: %s", exc)
 

@@ -28,6 +28,8 @@ from typing import Any, Iterable, Optional
 
 from bot.proofofpnl.publish import verify_publication
 
+from bot.utils.atomic_write import atomic_write_json
+
 HANDLE_MAX = 20
 
 
@@ -138,11 +140,7 @@ class LeaderboardRegistry:
 
     def _write_raw(self, data: dict) -> bool:
         try:
-            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
-            tmp = self._path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, separators=(",", ":"))
-            os.replace(tmp, self._path)
+            atomic_write_json(self._path, data, separators=(",", ":"))
             return True
         except OSError:
             return False

@@ -80,12 +80,31 @@ def open_book_return(positions: Iterable[Any]) -> dict:
         try:
             raw_pnl = p.get("pnl_usd")
             raw_margin = p.get("size_usd")
+            raw_pct = p.get("pnl_pct")
+            unavailable = bool(p.get("price_unavailable"))
         except AttributeError:
             unmeasured += 1
             continue
 
         v = _finite(raw_pnl)
         m = _finite(raw_margin)
+        # A row can carry its P&L as a PERCENTAGE and no dollar figure —
+        # several callers build the dicts that way. `render_open_positions`
+        # already derives the dollars for the row (`size_usd * pnl / 100`),
+        # so requiring `pnl_usd` here made one card contradict itself: the
+        # row printed `🟢 +10.0% ($+50.00)` under a header reading
+        # `⚠️ P&L unknown`. Deriving it in the SHARED helper is what stops
+        # the two halves disagreeing — the same reason the win rate has one
+        # source rather than five.
+        #
+        # "Absent is never a measurement" runs both ways. Reporting a mark
+        # we DID read as unknown is equally a false claim, and the more
+        # corrosive one: a card that cries unknown while showing the number
+        # teaches the operator to scroll past the warning that matters.
+        if v is None and not unavailable:
+            pct = _finite(raw_pct)
+            if pct is not None and m is not None and m > 0:
+                v = m * pct / 100.0
         # A zero or negative margin has no honest denominator of its own and
         # contributes nothing to a shared one.
         if v is None or m is None or m <= 0:

@@ -35,6 +35,8 @@ from typing import Optional
 
 from bot.guardian.authority import _addr, _base_symbol, envelope_hash
 
+from bot.utils.atomic_write import atomic_write_json
+
 
 # ── numeric helper (mirrors authority._num semantics) ─────────────────
 
@@ -189,11 +191,8 @@ class ReviewQueue:
 
     def _save(self) -> None:
         try:
-            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
-            tmp = self._path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._items, fh, separators=(",", ":"))
-            os.replace(tmp, self._path)
+            atomic_write_json(self._path, self._items,
+                              separators=(",", ":"))
         except OSError:
             pass
 

@@ -23,6 +23,8 @@ from typing import Optional
 
 from bot.utils.logger import audit, system_log
 
+from bot.utils.atomic_write import atomic_write_json
+
 # ── Roles: access control ──────────────────────────────────────
 ROLES = ("admin", "trader", "viewer", "pending")
 
@@ -169,11 +171,7 @@ class UserStore:
             self._users = {}
 
     def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump(self._users, f, indent=2, default=str)
-        tmp.rename(self._path)
+        atomic_write_json(self._path, self._users, indent=2, default=str)
 
     # ── Public API ─────────────────────────────────────────────
 

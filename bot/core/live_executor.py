@@ -42,6 +42,8 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 
+from bot.utils.atomic_write import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -464,6 +466,12 @@ class LiveExecutor:
         self._exchange: Optional[ccxt.Exchange] = None
         self._positions: dict[str, LivePosition] = {}
         self._closed_trades: list[LivePosition] = []  # F-14: persisted closed trades
+        # A failed read of closed_trades.json used to be indistinguishable
+        # from an empty book: both left the list at []. "No closed trades
+        # recorded" is a claim about the book; a corrupt or unreadable file
+        # supports no claim at all, so the two get told apart here rather
+        # than collapsing into the same reassuring sentence downstream.
+        self._closed_trades_read_failed: bool = False
         self._order_history: list[LiveOrder] = []
         self._hedge_mode: Optional[bool] = None  # None=unknown, True=hedge, False=one-way
         self._is_uta: Optional[bool] = None  # None=unknown, cached after first detection
@@ -7964,18 +7972,36 @@ class LiveExecutor:
         return merged
 
     @property
+    def closed_trades_read_failed(self) -> bool:
+        """True when the persisted closed-trade store could not be read.
+
+        Cards must not describe the resulting list as the book. An empty
+        list here means "we do not know", and the two readings — "no trades"
+        and "no reading" — are the difference between a fact and a guess.
+        """
+        return bool(getattr(self, "_closed_trades_read_failed", False))
+
+    @property
     def total_exposure_usd(self) -> float:
         return sum(p.cost_usd for p in self.open_positions)
 
     def status_summary(self) -> str:
-        """Human-readable status."""
+        """Human-readable status.
+
+        Realized PnL is an em-dash when nothing in the book could be priced
+        (including the empty book): `sum(p.pnl_usd or 0 ...)` returned 0.0
+        there and rendered `$0.0000`, which is a measurement this line was
+        never entitled to make.
+        """
+        from bot.utils.win_rate import pnl_stats as _pnl_stats
         open_pos = self.open_positions
         closed = self.closed_positions
-        total_pnl = sum(p.pnl_usd or 0 for p in closed)
+        total_pnl = _pnl_stats(closed)["total"]
+        pnl_cell = "—" if total_pnl is None else f"${total_pnl:.4f}"
         return (
             f"Open: {len(open_pos)} | Closed: {len(closed)} | "
             f"Exposure: ${self.total_exposure_usd:.2f} | "
-            f"Realized PnL: ${total_pnl:.4f}"
+            f"Realized PnL: {pnl_cell}"
         )
 
     # ── Balance cache invalidation callback ────────────────────────
@@ -8186,13 +8212,8 @@ class LiveExecutor:
                 except Exception:
                     pass
 
-            tmp = str(path) + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(data, f, indent=2, default=str)
-                # H-05 FIX: fsync before atomic rename to guarantee durability
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, str(path))
+            # H-05: the helper fsyncs before the atomic rename.
+            atomic_write_json(path, data, indent=2, default=str)
             # M-06 FIX: prune closed entries from in-memory dict. "closing" MUST
             # survive the prune: close_position saves right after setting that
             # status, and evicting the in-flight record here meant a FAILED close
@@ -8352,21 +8373,22 @@ class LiveExecutor:
                     "strategy_type": pos.strategy_type,
                     "signal_type": pos.signal_type,
                 })
-            path = Path(self._closed_trades_file)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = str(path) + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(data, f, indent=2, default=str)
-                # H-05 FIX: fsync before atomic rename to guarantee durability
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, str(path))
+            # H-05: the helper fsyncs before the atomic rename.
+            atomic_write_json(self._closed_trades_file, data,
+                              indent=2, default=str)
         except Exception as exc:
             logger.warning("Failed to save closed trades: %s", exc)
 
     def _load_closed_trades(self) -> None:
-        """Load persisted closed trades on startup."""
+        """Load persisted closed trades on startup.
+
+        An absent file is a genuine "no trades recorded yet" and leaves the
+        read-failed flag clear. Anything that raises does NOT: a partially
+        parsed or unreadable store leaves the list short, and every total and
+        count downstream would otherwise be printed as though it were whole.
+        """
         path = Path(self._closed_trades_file)
+        self._closed_trades_read_failed = False
         if not path.exists():
             return
         try:
@@ -8386,7 +8408,16 @@ class LiveExecutor:
                     take_profit=float(item.get("take_profit") or 0),
                     leverage=int(item.get("leverage") or 1),
                     close_price=float(item.get("close_price") or 0),
-                    pnl_usd=float(item.get("pnl_usd") or 0),
+                    # `is None`, not falsiness. _save_closed_trades writes
+                    # pos.pnl_usd verbatim, so an unpriced close persists as
+                    # JSON null — and `float(x or 0)` read it back as a
+                    # measured 0.0. The round trip silently converted "we
+                    # could not price this" into "this broke even", which is
+                    # precisely the signal win_rate.py exists to preserve:
+                    # after one restart the unscored count read zero and the
+                    # trade was scored as a non-win against the operator.
+                    pnl_usd=(None if item.get("pnl_usd") is None
+                             else float(item["pnl_usd"])),
                     gross_pnl=float(item.get("gross_pnl") or 0) if item.get("gross_pnl") is not None else None,
                     commission=float(item.get("commission") or 0) if item.get("commission") is not None else None,
                     opened_at=opened_at,
@@ -8420,11 +8451,22 @@ class LiveExecutor:
                             len(self._closed_trades), _MAX_CLOSED_TRADES)
                 self._closed_trades = self._closed_trades[-_MAX_CLOSED_TRADES:]
             if self._closed_trades:
-                total_pnl = sum(p.pnl_usd or 0 for p in self._closed_trades)
+                from bot.utils.win_rate import pnl_stats as _pnl_stats
+                _ps = _pnl_stats(self._closed_trades)
+                _tp = _ps["total"]
+                # This line is read during incidents, so it may not round an
+                # unpriced set to $0.0000 either — that reading is what sent
+                # a day into a data-loss investigation.
+                _tp_txt = "unpriced" if _tp is None else f"${_tp:.4f}"
+                _cov = ("" if not _ps["unscored"]
+                        else f", {_ps['unscored']} unpriced")
                 audit(trade_log,
-                      f"Loaded {len(self._closed_trades)} closed trades from disk (total PnL: ${total_pnl:.4f})",
+                      f"Loaded {len(self._closed_trades)} closed trades from disk (total PnL: {_tp_txt}{_cov})",
                       action="load_closed_trades", result="OK")
         except Exception as exc:
+            # The list may hold a PARTIAL parse at this point. Flag it so no
+            # surface prints that partial set as a complete book.
+            self._closed_trades_read_failed = True
             audit(trade_log, f"Failed to load closed trades: {exc}",
                   action="load_closed_trades", result="ERROR")
 
