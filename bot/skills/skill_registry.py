@@ -829,7 +829,20 @@ class RunBacktestSkill(BaseSkill):
     name = "run_backtest"
     description = "Backtest a symbol on a frozen benchmark snapshot (chat: 'backtest SOL')"
 
-    _BENCH_DIR = Path("data/benchmark")
+    # An OVERRIDE, not the location. None means "resolve at call time" — see
+    # bot.backtest.snapshot.benchmark_root for why the snapshots had to move
+    # out from under the data/ symlink. Kept as a settable class attribute
+    # because tests point it at a tmp_path; replacing it with a bare function
+    # removed that seam and broke six of them.
+    _BENCH_DIR = None
+
+    @classmethod
+    def _bench_dir(cls) -> Path:
+        if cls._BENCH_DIR is not None:
+            return Path(cls._BENCH_DIR)
+        from bot.backtest.snapshot import benchmark_root
+        return benchmark_root()
+
     _TIMEOUT_SEC = 240.0
     _LAST_BARS = 600           # ~25 days of 1h — fast enough for a chat reply
     _running = False           # single-flight: a backtest saturates a core
@@ -845,7 +858,7 @@ class RunBacktestSkill(BaseSkill):
         if not want:
             return None
         try:
-            for d in sorted(cls._BENCH_DIR.iterdir()):
+            for d in sorted(cls._bench_dir().iterdir()):
                 man_path = d / "manifest.json"
                 if not d.is_dir() or not man_path.exists():
                     continue
@@ -869,7 +882,7 @@ class RunBacktestSkill(BaseSkill):
         out_file.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
             _sys.executable, "-m", "bot.backtest.runner",
-            "--dataset", str(self._BENCH_DIR / dataset),
+            "--dataset", str(self._bench_dir() / dataset),
             "--symbols", symbol,
             "--last-bars", str(self._LAST_BARS),
             "--honest", "--strict-data",

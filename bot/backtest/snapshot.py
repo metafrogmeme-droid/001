@@ -20,7 +20,7 @@ arm reads byte-identical candles:
     instead of the live exchange, and stamps the ``dataset_hash`` into the saved
     result so a run is self-describing about *which* frozen data it measured.
 
-Committed under ``data/benchmark/``, the snapshot survives container rebuilds, so a
+Committed under ``benchmark/``, the snapshot survives container rebuilds, so a
 fresh cloud sandbox runs the IDENTICAL benchmark instead of silently re-fetching a
 new window and quietly changing the answer.
 """
@@ -50,7 +50,52 @@ DEFAULT_BENCHMARK_SYMBOLS = [
     "DOGE/USDT:USDT", "ADA/USDT:USDT", "LINK/USDT:USDT", "AVAX/USDT:USDT",
     "LTC/USDT:USDT", "BNB/USDT:USDT",
 ]
-DEFAULT_BENCHMARK_DIR = "data/benchmark/majors_1h"
+# Where the frozen snapshots live, in preference order.
+#
+# `benchmark/` is the committed home. `data/benchmark/` was the original one,
+# and the move is not cosmetic: on a deployed box `data/` is a SYMLINK into
+# ~/runeclaw-persist/, and git will not traverse a symlink. So the negation in
+# .gitignore — `!data/benchmark/`, written to let the snapshot be committed —
+# could never fire there, and `git add -f` under it silently does nothing. The
+# snapshot was not forgotten; it was unreachable, and every fresh clone
+# (including CI) got a repository whose own benchmark data could not exist.
+#
+# The two requirements were contradictory in one directory. Everything else
+# under data/ is runtime state that must NEVER be committed, which is exactly
+# why the symlink is there; the frozen benchmark is a version-controlled build
+# INPUT that must always be. Splitting them resolves it and leaves deploy.sh —
+# and the 19 tests pinning its state-preservation layers — untouched.
+#
+# The old location stays as a fallback so a box that has not yet moved its
+# copy keeps working, and so the move needs no flag-day ordering.
+BENCHMARK_DIR_NAMES = ("benchmark", "data/benchmark")
+DEFAULT_BENCHMARK_NAME = "majors_1h"
+
+
+def benchmark_root() -> Path:
+    """The directory holding the frozen snapshots, resolved at call time.
+
+    Relative, matching every other path in this codebase (all of them are
+    CWD-relative and correct only because the bot is launched from the repo
+    root — which bot/utils/state_guard.py now checks rather than assumes).
+
+    Returns the preferred name when neither exists, so an error message names
+    where the data SHOULD be rather than where it used to be.
+    """
+    for name in BENCHMARK_DIR_NAMES:
+        if Path(name).is_dir():
+            return Path(name)
+    return Path(BENCHMARK_DIR_NAMES[0])
+
+
+def default_benchmark_dir() -> str:
+    """The canonical majors snapshot path, resolved at call time."""
+    return str(benchmark_root() / DEFAULT_BENCHMARK_NAME)
+
+
+# Legacy constant, kept because it is part of this module's public surface.
+# Prefer default_benchmark_dir(): this one cannot see which location exists.
+DEFAULT_BENCHMARK_DIR = "benchmark/majors_1h"
 
 
 def safe_symbol(symbol: str) -> str:
@@ -277,13 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   # Freeze the canonical honest-benchmark universe (10 majors, 6000x 1h bars):
-  python -m bot.backtest.snapshot --limit 6000 --out data/benchmark/majors_1h
+  python -m bot.backtest.snapshot --limit 6000 --out benchmark/majors_1h
 
   # Verify a committed snapshot's integrity (no fetch):
-  python -m bot.backtest.snapshot --verify --out data/benchmark/majors_1h
+  python -m bot.backtest.snapshot --verify --out benchmark/majors_1h
 
   # Then run any A/B against it — both arms read byte-identical data:
-  python -m bot.backtest.runner --dataset data/benchmark/majors_1h \\
+  python -m bot.backtest.runner --dataset benchmark/majors_1h \\
       --symbols BTC/USDT:USDT,ETH/USDT:USDT --honest --walk-forward 6
         """,
     )
@@ -291,8 +336,9 @@ Examples:
                         help="Comma-separated symbols (default: the 10 benchmark majors)")
     parser.add_argument("--timeframe", type=str, default="1h", help="Candle timeframe (default: 1h)")
     parser.add_argument("--limit", type=int, default=6000, help="Bars per symbol (default: 6000)")
-    parser.add_argument("--out", type=str, default=DEFAULT_BENCHMARK_DIR,
-                        help=f"Output directory (default: {DEFAULT_BENCHMARK_DIR})")
+    _default_out = default_benchmark_dir()
+    parser.add_argument("--out", type=str, default=_default_out,
+                        help=f"Output directory (default: {_default_out})")
     parser.add_argument("--min-bars", type=int, default=220,
                         help="Skip a symbol returning fewer than this many bars (default: 220)")
     parser.add_argument("--verify", action="store_true",

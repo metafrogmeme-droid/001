@@ -4,7 +4,7 @@
 For each real marketplace Strategy-Agent (``RunStrategySkill.PRESETS``) this runs
 the engine's HONEST frozen-benchmark backtester with that agent's real entry
 gates (confidence / symbols / volume-spike / regime / RSI — see Phase 2a) and
-writes a percent/ratio-only scorecard to ``data/benchmark/scorecards/<slug>.json``.
+writes a percent/ratio-only scorecard to ``benchmark/scorecards/<slug>.json``.
 
 §4-safe by construction: only percent/ratio metrics are recorded — never a
 dollar figure. Every scorecard is stamped with the dataset name + ``dataset_hash``
@@ -13,7 +13,7 @@ the web Strategy Lab or via ``python -m bot.backtest.runner``) and reproduce it.
 
 Usage:
     python -m scripts.gen_agent_scorecards            # default dataset/symbols
-    python -m scripts.gen_agent_scorecards --dataset data/benchmark/majors_1h \
+    python -m scripts.gen_agent_scorecards --dataset benchmark/majors_1h \
         --symbols BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT --last-bars 1500
 
 This is an OFFLINE batch (frozen data, no network). Regenerate + commit whenever
@@ -135,7 +135,8 @@ def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--dataset", default="data/benchmark/majors_1h")
+    from bot.backtest.snapshot import default_benchmark_dir
+    ap.add_argument("--dataset", default=default_benchmark_dir())
     ap.add_argument("--symbols",
                     default="BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT")
     ap.add_argument("--last-bars", type=int, default=1500)
