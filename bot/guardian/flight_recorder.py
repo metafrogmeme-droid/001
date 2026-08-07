@@ -244,7 +244,17 @@ def outcome_event_payload(pos: Any) -> dict:
         "symbol": _trim(_get(pos, "symbol", ""), 32),
         "direction": _enum_str(_get(pos, "direction")),
         "pnl_usd": _round(_get(pos, "pnl_usd"), 4),
-        "exit_price": _round(_get(pos, "exit_price")),
+        # LivePosition names this `close_price`. Asking for `exit_price` meant
+        # getattr returned None and every OUTCOME record carried
+        # "exit_price": null — 119 of them by 2026-08-07, in a hash-chained log
+        # that cannot be amended. The price was measured and present on the
+        # object; only the lookup was wrong, so the loss is permanent for every
+        # record already written.
+        #
+        # `exit_price` stays first for the dict-shaped callers that really do
+        # use that key; close_price is the live path.
+        "exit_price": _round(_get(pos, "exit_price") if _get(pos, "exit_price") is not None
+                             else _get(pos, "close_price")),
         "entry_price": _round(_get(pos, "entry_price")),
         "close_reason": _trim(_get(pos, "close_reason", ""), 48),
     }

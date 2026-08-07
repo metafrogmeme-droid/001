@@ -8,20 +8,69 @@
 # months of accumulated evidence.
 #
 # Usage:
-#   ./scripts/backup_data.sh [backup_dir]     # default: ./backups
+#   ./scripts/backup_data.sh [backup_dir]      # default: ~/runeclaw-backups
+#   ./scripts/backup_data.sh --verify-restore  # drill: prove an archive restores
 #
-# Cron example (daily at 04:10, keep the retention below):
-#   10 4 * * * cd /path/to/RUNECLAW && ./scripts/backup_data.sh >> backups/backup.log 2>&1
+# Cron example (daily at 04:10):
+#   10 4 * * * cd /path/to/RUNECLAW && ./scripts/backup_data.sh >> ~/runeclaw-backups/backup.log 2>&1
 #
 # Restore:
-#   tar -xzf backups/runeclaw-data-<stamp>.tar.gz     # extracts data/
+#   tar -xzf ~/runeclaw-backups/runeclaw-data-<stamp>.tar.gz    # extracts data/
 #
-# Ship the backup directory offsite (rsync/rclone/object storage) — a backup
-# on the same disk as the bot only protects against fat fingers, not the host.
+# The default lives OUTSIDE the repo, and that is deliberate. It used to be
+# ./backups — inside a working tree whose deploy path runs `git reset --hard`,
+# one `git clean -fdx` from gone, and on a box where data/ is itself a symlink
+# into a persistent store the repo does not own. On 2026-08-07 the operator's
+# box was found with the entire runtime state deleted and NO archive on any
+# path: not ./backups, not the persist dir. The only recovery mechanism did
+# not exist, which is worse than the "never restored" the runbook recorded.
+#
+# Still ship it offsite (rsync/rclone/object storage) — an archive on the same
+# disk as the bot only protects against fat fingers, not the host.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-BACKUP_DIR="${1:-backups}"
+
+# --verify-restore: the drill. Extracts the newest archive into a temp dir and
+# proves the files that matter come back, WITHOUT touching live state. A backup
+# that has never been restored is a hypothesis, not a recovery plan.
+if [ "${1:-}" = "--verify-restore" ]; then
+    BACKUP_DIR="${RUNECLAW_BACKUP_DIR:-$HOME/runeclaw-backups}"
+    ARCHIVE="$(ls -1t "$BACKUP_DIR"/runeclaw-data-*.tar.gz 2>/dev/null | head -1 || true)"
+    if [ -z "$ARCHIVE" ]; then
+        echo "[verify] no archive in $BACKUP_DIR — nothing to restore FROM."
+        echo "[verify] that is the finding, not an error: run a backup first."
+        exit 1
+    fi
+    PROBE="$(mktemp -d)"
+    trap 'rm -rf "$PROBE"' EXIT
+    echo "[verify] restoring $ARCHIVE into $PROBE"
+    tar -xzf "$ARCHIVE" -C "$PROBE"
+    rc=0
+    for f in data/secrets_vault.enc data/runeclaw.db; do
+        if [ -s "$PROBE/$f" ]; then
+            echo "[verify]   OK      $f ($(wc -c < "$PROBE/$f") bytes)"
+        else
+            echo "[verify]   MISSING $f"
+            rc=1
+        fi
+    done
+    # Byte-identity, not just presence: a restore that returns a truncated
+    # vault looks like a success until the day it is needed.
+    for f in data/secrets_vault.enc data/runeclaw.db; do
+        if [ -f "$f" ] && [ -f "$PROBE/$f" ]; then
+            if cmp -s "$f" "$PROBE/$f"; then
+                echo "[verify]   IDENTICAL to live: $f"
+            else
+                echo "[verify]   differs from live (expected if changed since backup): $f"
+            fi
+        fi
+    done
+    [ "$rc" -eq 0 ] && echo "[verify] restore drill PASSED" || echo "[verify] restore drill FAILED"
+    exit "$rc"
+fi
+
+BACKUP_DIR="${1:-${RUNECLAW_BACKUP_DIR:-$HOME/runeclaw-backups}}"
 KEEP=14                      # retain this many most-recent archives
 
 if [ ! -d data ]; then
@@ -46,7 +95,21 @@ ARCHIVE="$BACKUP_DIR/runeclaw-data-$STAMP.tar.gz"
 chmod 600 "$ARCHIVE"   # belt and braces; the umask above already did it
 
 SIZE=$(du -h "$ARCHIVE" | cut -f1)
-echo "[backup] wrote $ARCHIVE ($SIZE)"
+
+# Verify the archive READS BACK before reporting success and before retention
+# prunes an older one. A tar that wrote without error but cannot be listed is a
+# backup in name only, and the pruning below would trade a good archive for it.
+if ! tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
+    echo "[backup] FAILED: $ARCHIVE was written but does not read back — keeping"
+    echo "[backup] older archives; not pruning."
+    exit 1
+fi
+if [ -e data/secrets_vault.enc ] && ! tar -tzf "$ARCHIVE" | grep -q 'data/secrets_vault.enc'; then
+    echo "[backup] FAILED: vault exists on disk but is absent from $ARCHIVE"
+    exit 1
+fi
+
+echo "[backup] wrote $ARCHIVE ($SIZE), verified readable"
 
 # Retention: drop archives beyond the newest $KEEP.
 ls -1t "$BACKUP_DIR"/runeclaw-data-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
