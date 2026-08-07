@@ -153,14 +153,25 @@ if ! tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
     exit 1
 fi
 # Content checks, not just "tar exited 0". A symlink-only archive lists fine.
-if [ -e data/secrets_vault.enc ] && ! tar -tzf "$ARCHIVE" | grep -q 'data/secrets_vault.enc'; then
-    echo "[backup] FAILED: vault exists on disk but is absent from $ARCHIVE"
-    echo "[backup] (a symlinked data/ archived without -h produces exactly this)"
-    exit 1
+if [ -e data/secrets_vault.enc ]; then
+    # grep -q exits early on first match, causing tar to get SIGPIPE (141).
+    # pipefail would propagate that as failure even though the grep succeeded.
+    # Disable pipefail for this check only.
+    vault_found=0
+    (set +o pipefail; tar -tzf "$ARCHIVE" 2>/dev/null | grep -q 'data/secrets_vault.enc') && vault_found=1 || true
+    if [ "$vault_found" -eq 0 ]; then
+        echo "[backup] FAILED: vault exists on disk but is absent from $ARCHIVE"
+        echo "[backup] (a symlinked data/ archived without -h produces exactly this)"
+        exit 1
+    fi
 fi
-if [ -n "$CHAIN_ARG" ] && ! tar -tzf "$ARCHIVE" | grep -q 'audit_chain.jsonl'; then
-    echo "[backup] FAILED: audit chain exists but is absent from $ARCHIVE"
-    exit 1
+if [ -n "$CHAIN_ARG" ]; then
+    chain_found=0
+    (set +o pipefail; tar -tzf "$ARCHIVE" 2>/dev/null | grep -q 'audit_chain.jsonl') && chain_found=1 || true
+    if [ "$chain_found" -eq 0 ]; then
+        echo "[backup] FAILED: audit chain exists but is absent from $ARCHIVE"
+        exit 1
+    fi
 fi
 
 echo "[backup] wrote $ARCHIVE ($SIZE), verified readable"
