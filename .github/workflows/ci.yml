@@ -197,6 +197,20 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The workflow declares no permissions, so GITHUB_TOKEN arrives with the
+    # repository default — contents only. gitleaks-action calls
+    # GET /repos/{o}/{r}/pulls/{n}/commits to compute the PR's commit range and
+    # died on `403 Resource not accessible by integration`, the response naming
+    # `pull_requests=read` as what it wanted. Read-only, and scoped to this job
+    # rather than the workflow, so no other job's token widens.
+    #
+    # This surfaced on the repo's FIRST pull request. The step is gated on
+    # `github.event_name == 'pull_request'`, and every prior run was a push or
+    # a workflow_dispatch — so the PR-scoped scan had never once executed. A
+    # gate that has never run is not a gate that passes.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
