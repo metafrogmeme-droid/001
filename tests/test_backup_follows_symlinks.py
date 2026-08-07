@@ -145,6 +145,84 @@ class TestTheRestoreDrill:
         assert "MISSING data/secrets_vault.enc" in r.stdout
 
 
+class TestTheDrillCannotPassOnAnEmptyArchive:
+    """The drill gave a FALSE PASS, and the mechanism is worth spelling out.
+
+    An archive holding only the `data` symlink extracts, into the probe dir, an
+    ABSOLUTE pointer straight back at the live store. Every check then read the
+    live files, compared them with themselves, and printed
+
+        [verify]   IDENTICAL to live: data/secrets_vault.enc
+        [verify] restore drill PASSED
+
+    over 138 bytes containing no data at all. A restore test that reads the
+    thing it exists to be independent of is not a test — it is the live store
+    wearing the archive's name. Same defect as a card reading a stale cache and
+    calling it current.
+    """
+
+    def _symlink_only_archive(self, repo, home):
+        """Reproduce the pre-fix backup: no -h, so tar stores the pointer."""
+        script = repo / "scripts" / "backup_data.sh"
+        original = script.read_text(encoding="utf-8")
+        script.write_text(
+            original.replace("tar -h --ignore-failed-read", "tar --ignore-failed-read"),
+            encoding="utf-8")
+        _run(repo, home)                       # fails the content check, still writes
+        script.write_text(original, encoding="utf-8")
+        return _newest_archive(home)
+
+    def test_the_archive_really_does_hold_a_pointer_for_the_data_tree(self, deployed):
+        repo, home = deployed
+        archive = self._symlink_only_archive(repo, home)
+        with tarfile.open(archive) as tf:
+            names = tf.getnames()
+            # `data` is archived as a LINK — the whole store reduced to a
+            # pointer. logs/audit_chain.jsonl survives as content because it is
+            # named as an explicit file path, so tar resolves the directory
+            # component on the way to it. That asymmetry is worth pinning: it
+            # is exactly what made the failure look partial and plausible.
+            assert "data" in names
+            assert tf.getmember("data").issym(), "expected data/ stored as a link"
+            assert not any(n.startswith("data/") for n in names), (
+                f"no file under data/ should be present: {names}")
+            assert "logs/audit_chain.jsonl" in names
+
+    def test_the_drill_refuses_it_instead_of_passing(self, deployed):
+        repo, home = deployed
+        self._symlink_only_archive(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 1, (
+            "the drill passed on an archive containing no data:\n" + r.stdout)
+        assert "symlink members" in r.stdout
+        assert "PASSED" not in r.stdout
+
+    def test_it_names_the_offending_member(self, deployed):
+        repo, home = deployed
+        self._symlink_only_archive(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert "data ->" in r.stdout, r.stdout
+
+    def test_an_absolute_symlink_is_the_dangerous_case(self, tmp_path):
+        """A RELATIVE pointer dangles in the probe and fails naturally; an
+        ABSOLUTE one resolves back to live data. Only the second produces a
+        confident false pass, so it is the one pinned here."""
+        persist = tmp_path / "persist" / "data"
+        persist.mkdir(parents=True)
+        (persist / "secrets_vault.enc").write_bytes(VAULT_BYTES)
+        probe = tmp_path / "probe"
+        probe.mkdir()
+        os.symlink(persist, probe / "data")     # absolute
+        target = probe / "data" / "secrets_vault.enc"
+        assert target.is_file() and target.read_bytes() == VAULT_BYTES, (
+            "an absolute link reads live data from inside the probe — which is "
+            "why presence alone could never be the check"
+        )
+        assert not str(os.path.realpath(target)).startswith(str(probe)), (
+            "and realpath escaping the probe is what detects it"
+        )
+
+
 class TestTheArchiveLivesOutsideTheRepo:
     def test_no_backups_directory_is_created_in_the_working_tree(self, deployed):
         repo, home = deployed

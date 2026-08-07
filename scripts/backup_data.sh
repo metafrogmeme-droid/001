@@ -45,11 +45,37 @@ if [ "${1:-}" = "--verify-restore" ]; then
     PROBE="$(mktemp -d)"
     trap 'rm -rf "$PROBE"' EXIT
     echo "[verify] restoring $ARCHIVE into $PROBE"
+
+    # A symlink member is fatal BEFORE anything is checked. An archive holding
+    # only the data/ symlink extracts an ABSOLUTE pointer back to the live
+    # store, and every check below then reads the live files, compares them
+    # with themselves, and prints "IDENTICAL to live / PASSED" over an archive
+    # containing no data whatsoever. Observed 2026-08-07: this drill passed on
+    # a 138-byte archive. A restore test that reads the thing it is supposed to
+    # be independent of is not a test.
+    if tar -tvzf "$ARCHIVE" | grep -q '^l'; then
+        echo "[verify] FAILED: archive contains symlink members — it stores"
+        echo "[verify] pointers, not content. Backing up a symlinked data/"
+        echo "[verify] without tar -h produces exactly this."
+        tar -tvzf "$ARCHIVE" | grep '^l' | sed 's/^/[verify]   /'
+        exit 1
+    fi
+
     tar -xzf "$ARCHIVE" -C "$PROBE"
     rc=0
     for f in data/secrets_vault.enc data/runeclaw.db logs/audit_chain.jsonl; do
         if [ ! -e "$f" ]; then continue; fi
-        if [ -s "$PROBE/$f" ]; then
+        # Confine to the probe. realpath resolves any link chain; if the
+        # result sits outside $PROBE the "restored" file is the live one.
+        realf="$(realpath "$PROBE/$f" 2>/dev/null || true)"
+        case "$realf" in
+            "$PROBE"/*) ;;
+            *)  echo "[verify]   ESCAPED $f -> ${realf:-unresolvable}"
+                echo "[verify]           (read the LIVE file, not the archive)"
+                rc=1
+                continue ;;
+        esac
+        if [ -f "$PROBE/$f" ] && [ ! -L "$PROBE/$f" ] && [ -s "$PROBE/$f" ]; then
             echo "[verify]   OK      $f ($(wc -c < "$PROBE/$f") bytes)"
         else
             echo "[verify]   MISSING $f"
