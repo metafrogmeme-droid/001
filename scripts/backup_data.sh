@@ -45,10 +45,37 @@ if [ "${1:-}" = "--verify-restore" ]; then
     PROBE="$(mktemp -d)"
     trap 'rm -rf "$PROBE"' EXIT
     echo "[verify] restoring $ARCHIVE into $PROBE"
+
+    # A symlink member is fatal BEFORE anything is checked. An archive holding
+    # only the data/ symlink extracts an ABSOLUTE pointer back to the live
+    # store, and every check below then reads the live files, compares them
+    # with themselves, and prints "IDENTICAL to live / PASSED" over an archive
+    # containing no data whatsoever. Observed 2026-08-07: this drill passed on
+    # a 138-byte archive. A restore test that reads the thing it is supposed to
+    # be independent of is not a test.
+    if tar -tvzf "$ARCHIVE" | grep -q '^l'; then
+        echo "[verify] FAILED: archive contains symlink members — it stores"
+        echo "[verify] pointers, not content. Backing up a symlinked data/"
+        echo "[verify] without tar -h produces exactly this."
+        tar -tvzf "$ARCHIVE" | grep '^l' | sed 's/^/[verify]   /'
+        exit 1
+    fi
+
     tar -xzf "$ARCHIVE" -C "$PROBE"
     rc=0
-    for f in data/secrets_vault.enc data/runeclaw.db; do
-        if [ -s "$PROBE/$f" ]; then
+    for f in data/secrets_vault.enc data/runeclaw.db logs/audit_chain.jsonl; do
+        if [ ! -e "$f" ]; then continue; fi
+        # Confine to the probe. realpath resolves any link chain; if the
+        # result sits outside $PROBE the "restored" file is the live one.
+        realf="$(realpath "$PROBE/$f" 2>/dev/null || true)"
+        case "$realf" in
+            "$PROBE"/*) ;;
+            *)  echo "[verify]   ESCAPED $f -> ${realf:-unresolvable}"
+                echo "[verify]           (read the LIVE file, not the archive)"
+                rc=1
+                continue ;;
+        esac
+        if [ -f "$PROBE/$f" ] && [ ! -L "$PROBE/$f" ] && [ -s "$PROBE/$f" ]; then
             echo "[verify]   OK      $f ($(wc -c < "$PROBE/$f") bytes)"
         else
             echo "[verify]   MISSING $f"
@@ -57,7 +84,7 @@ if [ "${1:-}" = "--verify-restore" ]; then
     done
     # Byte-identity, not just presence: a restore that returns a truncated
     # vault looks like a success until the day it is needed.
-    for f in data/secrets_vault.enc data/runeclaw.db; do
+    for f in data/secrets_vault.enc data/runeclaw.db logs/audit_chain.jsonl; do
         if [ -f "$f" ] && [ -f "$PROBE/$f" ]; then
             if cmp -s "$f" "$PROBE/$f"; then
                 echo "[verify]   IDENTICAL to live: $f"
@@ -78,10 +105,31 @@ if [ ! -d data ]; then
     exit 0
 fi
 
+# The audit chain rides along. It lives under logs/ (also symlinked), is
+# hash-chained from genesis, and does NOT rotate — which made it the only
+# surviving record of 119 closes once data/closed_trades.json was deleted. A
+# backup that omits the one file capable of reconstructing the others is not a
+# backup of the state that matters. trade.jsonl is deliberately NOT included:
+# it rotates at 10MB x 5 and would dominate every archive.
+CHAIN_ARG=""
+if [ -e logs/audit_chain.jsonl ]; then
+    CHAIN_ARG="logs/audit_chain.jsonl"
+fi
+
 mkdir -p "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ARCHIVE="$BACKUP_DIR/runeclaw-data-$STAMP.tar.gz"
 
+# -h (--dereference) is LOAD-BEARING, not a tweak. On a deployed box data/ is
+# a symlink into ~/runeclaw-persist/, and `tar -czf ... data/` archives the
+# SYMLINK — a 138-byte archive containing one pointer and no data. It exits 0.
+# Observed on the operator's box 2026-08-07: a backup that reported success and
+# held nothing, on the same day its only recovery mechanism was needed.
+#
+# The vault check below caught it (the archive listed `data` and not
+# `data/secrets_vault.enc`) and failed the run, which is why this is a fix
+# rather than a second silent loss. But refusing is not backing up.
+#
 # --ignore-failed-read: a file mid-rotation must not kill the backup.
 # umask BEFORE tar, not chmod after it. `chmod 600` on the following line
 # closes the permissions but not the window: tar creates the archive with
@@ -91,7 +139,7 @@ ARCHIVE="$BACKUP_DIR/runeclaw-data-$STAMP.tar.gz"
 # data/attestation_key.bin, the Ed25519 signing key that is 0600 in place
 # and would be world-readable inside a 0644 tarball.
 (umask 077
- tar --ignore-failed-read -czf "$ARCHIVE" data/)
+ tar -h --ignore-failed-read -czf "$ARCHIVE" data/ $CHAIN_ARG)
 chmod 600 "$ARCHIVE"   # belt and braces; the umask above already did it
 
 SIZE=$(du -h "$ARCHIVE" | cut -f1)
@@ -104,8 +152,14 @@ if ! tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
     echo "[backup] older archives; not pruning."
     exit 1
 fi
+# Content checks, not just "tar exited 0". A symlink-only archive lists fine.
 if [ -e data/secrets_vault.enc ] && ! tar -tzf "$ARCHIVE" | grep -q 'data/secrets_vault.enc'; then
     echo "[backup] FAILED: vault exists on disk but is absent from $ARCHIVE"
+    echo "[backup] (a symlinked data/ archived without -h produces exactly this)"
+    exit 1
+fi
+if [ -n "$CHAIN_ARG" ] && ! tar -tzf "$ARCHIVE" | grep -q 'audit_chain.jsonl'; then
+    echo "[backup] FAILED: audit chain exists but is absent from $ARCHIVE"
     exit 1
 fi
 
