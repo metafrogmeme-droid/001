@@ -53,7 +53,19 @@ if [ "${1:-}" = "--verify-restore" ]; then
     # containing no data whatsoever. Observed 2026-08-07: this drill passed on
     # a 138-byte archive. A restore test that reads the thing it is supposed to
     # be independent of is not a test.
-    if tar -tvzf "$ARCHIVE" | grep -q '^l'; then
+    # NO PIPE into an early-exiting reader. `tar | grep -q` makes grep exit on
+    # the first match, tar then writes into a closed pipe, takes SIGPIPE and
+    # exits 141 — and `set -o pipefail` reports 141 for the whole pipeline. So
+    # FINDING a symlink returned non-zero and this guard read it as "none
+    # found": it failed OPEN, silently, on exactly the archives it exists to
+    # reject. It only bites once tar has more to write after the match, i.e.
+    # on a real store — which is why small fixtures never showed it.
+    ARCHIVE_MEMBERS_V="$(tar -tvzf "$ARCHIVE")"
+    # `grep` without -q reads its input to the end, so the writer never meets a
+    # closed pipe. `|| true` because grep exits 1 on no-match and set -e would
+    # abort on the healthy case.
+    SYMLINK_MEMBERS="$(printf '%s\n' "$ARCHIVE_MEMBERS_V" | grep '^l' || true)"
+    if [ -n "$SYMLINK_MEMBERS" ]; then
         echo "[verify] FAILED: archive contains symlink members — it stores"
         echo "[verify] pointers, not content. Backing up a symlinked data/"
         echo "[verify] without tar -h produces exactly this."
@@ -153,12 +165,19 @@ if ! tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
     exit 1
 fi
 # Content checks, not just "tar exited 0". A symlink-only archive lists fine.
-if [ -e data/secrets_vault.enc ] && ! tar -tzf "$ARCHIVE" | grep -q 'data/secrets_vault.enc'; then
+# Same SIGPIPE trap, pointed the other way: here a SUCCESSFUL find returned
+# 141, `!` inverted it to true, and the script declared the vault missing from
+# an archive that contained it — while blaming the -h bug, which is a specific,
+# confident, wrong diagnosis. Capture first; never pipe into `grep -q`.
+ARCHIVE_MEMBERS="$(tar -tzf "$ARCHIVE")"
+case "$ARCHIVE_MEMBERS" in *"data/secrets_vault.enc"*) _vault_in_archive=1 ;; *) _vault_in_archive=0 ;; esac
+if [ -e data/secrets_vault.enc ] && [ "$_vault_in_archive" -eq 0 ]; then
     echo "[backup] FAILED: vault exists on disk but is absent from $ARCHIVE"
     echo "[backup] (a symlinked data/ archived without -h produces exactly this)"
     exit 1
 fi
-if [ -n "$CHAIN_ARG" ] && ! tar -tzf "$ARCHIVE" | grep -q 'audit_chain.jsonl'; then
+case "$ARCHIVE_MEMBERS" in *"audit_chain.jsonl"*) _chain_in_archive=1 ;; *) _chain_in_archive=0 ;; esac
+if [ -n "$CHAIN_ARG" ] && [ "$_chain_in_archive" -eq 0 ]; then
     echo "[backup] FAILED: audit chain exists but is absent from $ARCHIVE"
     exit 1
 fi

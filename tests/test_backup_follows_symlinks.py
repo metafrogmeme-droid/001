@@ -237,3 +237,101 @@ class TestTheArchiveLivesOutsideTheRepo:
         _run(repo, home)
         mode = os.stat(_newest_archive(home)).st_mode & 0o777
         assert mode == 0o600, oct(mode)
+
+
+class TestNoGuardIsDefeatedBySIGPIPE:
+    """Both content guards failed at scale, in opposite directions, and every
+    small-fixture test in this file passed while they did.
+
+        tar -tzf ARCHIVE | grep -q PATTERN
+
+    `grep -q` exits on the first match. `tar` then writes into a closed pipe,
+    takes SIGPIPE and exits 141, and `set -o pipefail` reports 141 for the
+    whole pipeline. So a SUCCESSFUL find returns non-zero:
+
+      * the vault check read that as "vault absent" and failed a good backup —
+        while blaming the -h bug, a specific, confident, WRONG diagnosis;
+      * the drill's symlink check read it as "no symlinks found" and failed
+        OPEN, passing exactly the archives it exists to reject.
+
+    It only fires once tar still has output to write after the match, i.e. on a
+    store with many members. The fixtures above hold three files, so tar always
+    finished first and neither bug could appear. Found on the operator's box,
+    at 4000+ members — production was the first environment large enough.
+
+    Hence PAD_COUNT: these fixtures are deliberately big. A future tidy-up that
+    shrinks them silently removes the only coverage of this failure mode.
+    """
+
+    PAD_COUNT = 3000
+
+    @pytest.fixture
+    def big_deployed(self, tmp_path):
+        persist = tmp_path / "persist"
+        (persist / "data").mkdir(parents=True)
+        (persist / "logs").mkdir(parents=True)
+        (persist / "data" / "secrets_vault.enc").write_bytes(VAULT_BYTES)
+        (persist / "data" / "runeclaw.db").write_bytes(b"DB")
+        (persist / "logs" / "audit_chain.jsonl").write_bytes(CHAIN_BYTES)
+        # Sort AFTER secrets_vault.enc so tar is still emitting when grep quits.
+        for i in range(self.PAD_COUNT):
+            (persist / "data" / f"zz_pad_{i}.json").write_bytes(b"{}")
+
+        repo = tmp_path / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        (repo / "scripts" / "backup_data.sh").write_bytes(SCRIPT.read_bytes())
+        os.symlink(persist / "data", repo / "data")
+        os.symlink(persist / "logs", repo / "logs")
+        home = tmp_path / "home"
+        home.mkdir()
+        return repo, home
+
+    def test_a_good_backup_is_not_failed_by_its_own_success(self, big_deployed):
+        repo, home = big_deployed
+        r = _run(repo, home)
+        assert r.returncode == 0, (
+            "a backup CONTAINING the vault was reported as missing it:\n"
+            + r.stdout + r.stderr)
+        assert "absent from" not in r.stdout
+
+    def test_the_vault_really_is_in_that_archive(self, big_deployed):
+        repo, home = big_deployed
+        _run(repo, home)
+        with tarfile.open(_newest_archive(home)) as tf:
+            assert tf.extractfile("data/secrets_vault.enc").read() == VAULT_BYTES
+
+    def test_the_symlink_guard_still_fires_at_scale(self, big_deployed):
+        """The fail-open half. With many members the guard silently passed."""
+        repo, home = big_deployed
+        script = repo / "scripts" / "backup_data.sh"
+        script.write_text(script.read_text(encoding="utf-8")
+                          .replace("tar -h --ignore-failed-read",
+                                   "tar --ignore-failed-read"),
+                          encoding="utf-8")
+        _run(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 1, (
+            "the symlink guard failed OPEN on a pointer-only archive:\n" + r.stdout)
+        assert "symlink members" in r.stdout
+        assert "PASSED" not in r.stdout
+
+    def test_the_drill_still_passes_on_a_good_big_archive(self, big_deployed):
+        repo, home = big_deployed
+        _run(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 0, r.stdout
+        assert "restore drill PASSED" in r.stdout
+
+    def test_no_guard_pipes_into_an_early_exiting_reader(self):
+        """The shape itself, so a new check cannot reintroduce it.
+
+        `grep -q`/`head` after a pipe is the hazard; `grep` without -q drains
+        its input and is safe. Asserted on the source because the property is
+        'no future guard is written this way', which no single run can show.
+        """
+        src = SCRIPT.read_text(encoding="utf-8")
+        offenders = [ln.strip() for ln in src.splitlines()
+                     if "| grep -q" in ln and not ln.strip().startswith("#")]
+        assert not offenders, (
+            "pipe into grep -q — SIGPIPE + pipefail inverts the result:\n  "
+            + "\n  ".join(offenders))
