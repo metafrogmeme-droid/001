@@ -30,7 +30,8 @@ function diaryStreak(daysDesc, now = new Date()) {
 }
 
 // Facts: { closes, sealed, disciplineLevel, diaryTotal, diaryStreak,
-//          lessonsDone, lessonsTotal, runeMinted, questsDone, pairedWeek }
+//          lessonsDone, lessonsTotal, runeMinted, questsDone, pairedWeek,
+//          duelCalls, duelBeats, duelScored, duelCorrect }
 const ACHIEVEMENTS = [
   { id: 'first_close', icon: '🎯',
     en: 'First paper trade closed.',
@@ -62,6 +63,17 @@ const ACHIEVEMENTS = [
   { id: 'both_halves', icon: '🪞',
     en: 'Trades and words about them, in the same week.',
     test: (f) => Boolean(f.pairedWeek) },
+  { id: 'first_call', icon: '📣',
+    en: 'First call made in the Daily Duel.',
+    test: (f) => f.duelCalls >= 1 },
+  { id: 'beat_the_claw', icon: '⚔️',
+    en: 'Called it right on a round the agent got wrong.',
+    test: (f) => f.duelBeats >= 1 },
+  { id: 'read_the_tape', icon: '🎯',
+    // Deliberately over RESOLVED calls, not calls made: a week of unreadable
+    // settles is not a week of being right, and this glyph claims accuracy.
+    test: (f) => f.duelScored >= 10 && f.duelCorrect * 2 > f.duelScored,
+    en: 'Ten calls settled, and more than half of them right.' },
 ];
 
 function computeAchievements(facts) {

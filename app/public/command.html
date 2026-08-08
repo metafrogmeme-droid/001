@@ -136,7 +136,15 @@
           d.arena.discipline_level ? T('arena.disc_' + d.arena.discipline_level, d.arena.discipline_level) : '')
         + stat(T('cd.s_diary', 'Diary streak'), '📖 ' + d.study.diary_streak,
           fill(T('cd.s_entries', '{t} entries'), { t: d.study.diary_total }))
-        + stat(T('cd.s_lessons', 'Lessons'), d.study.lessons_done + ' / ' + d.study.lessons_total, '');
+        + stat(T('cd.s_lessons', 'Lessons'), d.study.lessons_done + ' / ' + d.study.lessons_total, '')
+        // A duel accuracy of null means nothing has settled yet — shown as a
+        // dash, never as 0%, which would report a measured failure instead of
+        // an absence.
+        + stat(T('duel.acc_k', 'Accuracy'),
+          d.duel && d.duel.accuracy_pct != null ? d.duel.accuracy_pct + '%' : '—',
+          d.duel && d.duel.calls
+            ? fill(T('duel.acc_of', 'of {n} settled calls'), { n: d.duel.settled })
+            : T('duel.acc_none', 'No calls have resolved yet'));
       $('statsPanel').hidden = false;
 
       $('quests').innerHTML = (d.arena.quests || []).map(function (q) {
