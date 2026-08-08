@@ -754,6 +754,7 @@ class TelegramHandler:
             ("mystrategy", self._cmd_mystrategy),
             ("backup", self._cmd_backup),
             ("exposure", self._cmd_exposure),
+            ("duel", self._cmd_duel),
             ("research", self._cmd_research),
             ("rwa", self._cmd_rwa),
         ]:
@@ -4252,6 +4253,74 @@ class TelegramHandler:
             await self._send(update, self._WEB_LINK_HINT)
             return
         await self._send(update, self._format_exposure(data))
+
+    def _duel_keyboard(self, rounds) -> "InlineKeyboardMarkup | None":
+        """One row of buttons per uncalled round.
+
+        The callback data is `duel:<round_id>:<pick>` — ids and enum tokens,
+        never prose. #999 shipped a card whose callback carried a human-readable
+        label where the lookup expected a symbol, and it rendered zero times in
+        production while looking perfectly correct in the source.
+        """
+        from bot.formatters.duel_card import pick_callback_data
+        rows = []
+        for r in rounds or []:
+            if r.get("my_call") or not r.get("callable"):
+                continue
+            rid = r.get("id")
+            if rid is None:
+                continue
+            sym = str(r.get("symbol") or "?")
+            rows.append([
+                InlineKeyboardButton(f"{sym} LONG", callback_data=pick_callback_data(rid, "long")),
+                InlineKeyboardButton("SHORT", callback_data=pick_callback_data(rid, "short")),
+                InlineKeyboardButton("PASS", callback_data=pick_callback_data(rid, "pass")),
+            ])
+        return InlineKeyboardMarkup(rows) if rows else None
+
+    async def _cmd_duel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/duel — today's Daily Duel card: call LONG, SHORT or PASS before the
+        agent's own call is shown, and the market settles it 24h later.
+
+        The duel is scored in the web app. This surface reads the card and posts
+        a call through the same code the website uses; scoring it again here
+        would be a second set of rules that agreed only until one changed."""
+        import asyncio as _aio
+        from bot.utils.duel_pull import fetch_card
+        from bot.formatters.duel_card import render_card
+        status, data = await _aio.to_thread(fetch_card, self._get_tg_id(update))
+        if status == 404:
+            await self._send(update, self._WEB_LINK_HINT)
+            return
+        # A failed read is stated as a failed read. Sending an empty card would
+        # say "no rounds today", which is a claim about the game that an
+        # unreadable feed does not support.
+        if status != 200 or not data:
+            await self._send(update, render_card(None))
+            return
+        await self._send(update, render_card(data),
+                         reply_markup=self._duel_keyboard(data.get("rounds")))
+
+    async def _handle_duel_callback(self, update, data: str) -> None:
+        """A tap on one of the duel buttons: `duel:<round_id>:<pick>`."""
+        import asyncio as _aio
+        from bot.utils.duel_pull import place_pick, fetch_card
+        from bot.formatters.duel_card import (
+            render_pick_result, render_card, parse_callback_data)
+        parsed = parse_callback_data(data)
+        if parsed is None:
+            return
+        round_id, pick = parsed
+        tg_id = self._get_tg_id(update)
+        status, result = await _aio.to_thread(place_pick, tg_id, round_id, pick)
+        await self._send(update, render_pick_result(result, status))
+        # Redraw so the called round loses its buttons and the agent's stance
+        # appears; a stale card still offering a call that was just recorded
+        # invites a second tap that can only be refused.
+        c_status, card = await _aio.to_thread(fetch_card, tg_id)
+        if c_status == 200 and card:
+            await self._send(update, render_card(card),
+                             reply_markup=self._duel_keyboard(card.get("rounds")))
 
     @guard("research")
     async def _cmd_research(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -11392,6 +11461,11 @@ class TelegramHandler:
                         parse_mode="HTML")
                 except Exception:
                     pass
+            return
+
+        # ── Daily Duel: a call on one of today's rounds ──
+        if data.startswith("duel:"):
+            await self._handle_duel_callback(update, data)
             return
 
         # ── Guardian intent-policy authoring confirm buttons ──

@@ -1131,6 +1131,66 @@ async function getLatestFlight() {
   return latestFlight;
 }
 
+/**
+ * Daily Duel over the bot channel.
+ *
+ * The Telegram surface is deliberately THIN: it reads the card and records a
+ * call through lib/duel_service, the same code the web route uses. Scoring the
+ * duel a second time in Python would be a second set of rules that agreed with
+ * the first only until one of them changed.
+ *
+ * Identity is resolved here from the linked Telegram id, never trusted from
+ * the body — the bot says who is asking, and the mapping to a web account is
+ * this side's to make.
+ */
+async function duelUserFor(req) {
+  const tg = String(req.query.telegram_id || (req.body || {}).telegram_id || '').slice(0, 32);
+  if (!tg) return { error: 'telegram_id required', status: 400 };
+  const [rows] = await pool.execute('SELECT id FROM users WHERE telegram_id = ?', [tg]);
+  if (!rows.length) return { error: 'No linked web account', status: 404 };
+  return { id: rows[0].id };
+}
+
+router.get('/duel', async (req, res) => {
+  try {
+    const who = await duelUserFor(req);
+    if (who.error) return res.status(who.status).json({ error: who.error });
+    const svc = require('../lib/duel_service');
+    const [card, rec] = [await svc.cardFor(who.id), await svc.recordFor(who.id)];
+    res.json({
+      day: card.day,
+      horizon_hours: card.horizon_hours,
+      rounds: card.rounds,
+      open: card.open,
+      accuracy: rec.accuracy,
+      marks: rec.marks,
+      streak: rec.streak,
+      counts_only: true,
+    });
+  } catch (err) {
+    console.error('Sync duel error:', err.stack || err.message);
+    res.status(503).json({ error: 'The duel card is unavailable', reason: err.rcReason || null });
+  }
+});
+
+router.post('/duel/pick', async (req, res) => {
+  try {
+    const who = await duelUserFor(req);
+    if (who.error) return res.status(who.status).json({ error: who.error });
+    const body = req.body || {};
+    const out = await require('../lib/duel_service')
+      .placePick(who.id, Number(body.round_id), body.pick);
+    if (!out.ok) {
+      const { status, ...rest } = out;
+      return res.status(status).json(rest);
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('Sync duel pick error:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not record your call' });
+  }
+});
+
 module.exports = router;
 // Named accessor for routes/reports.js (in-memory + DB cold-start fallback).
 module.exports.getLatestReports = getLatestReports;

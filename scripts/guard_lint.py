@@ -331,6 +331,12 @@ RULES: list[Rule] = [
             "public_agent", "public_chat", "public_flight", "public_invite",
             "public_leaderboard", "public_letter", "public_proofofpnl",
             "public_status", "public_strategies", "public_user_strategies",
+            "public_duel",         # mounted under /api/public — the duel board and
+                                   # squad standings. Opt-in handles only (a player
+                                   # who never chose one cannot appear), and a duel
+                                   # has no stake, so there is no amount to leak;
+                                   # §4-tested end to end, including that the
+                                   # agent's pending stance never rides it.
             "agent_record",        # mounted under /api/public — cross-user aggregate
                                    # of already-sealed paper receipts, §4-tested:
                                    # percent/count only, no identity, no vUSDT.
