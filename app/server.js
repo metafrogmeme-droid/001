@@ -309,6 +309,7 @@ app.use('/api/public/strategies', require('./routes/public_strategies'));
 app.use('/api/public/letter', require('./routes/public_letter'));
 app.use('/api/public/agent', require('./routes/public_agent'));
 app.use('/api/public/invite', require('./routes/public_invite'));
+app.use('/api/public/duel', require('./routes/public_duel'));
 app.use('/api/public', trackRouter);
 app.use('/api/lab', labRouter);
 app.use('/api/feed', feedRouter);
