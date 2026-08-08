@@ -509,6 +509,57 @@ router.post('/tiers', async (req, res) => {
 });
 
 /**
+ * POST /api/bot/sync/telegram-unlink
+ * Body: { user_id, chat_id }
+ *
+ * The other half of the bot's /unlink. It used to be a one-sided operation:
+ * the bot deleted its local user_telegram row and told the person "Unlinked
+ * from you@example.com. Your data is preserved." — while this database still
+ * held telegram_linked = TRUE and their telegram_id. Every consumer of the
+ * link (routes/credentials.js, routes/controls.js) gates on exactly that pair,
+ * so a user who had disconnected their Telegram could still have exchange-key
+ * submissions and live-trading controls routed to that chat. The message
+ * asserted a disconnection that had happened on one side only.
+ *
+ * It clears the FLAG and NOT telegram_id, deliberately. That column does double
+ * duty as the Telegram OAuth identity (_PROVIDER_ID_COLUMN in auth.js): a user
+ * who signed in with the Telegram widget would be locked out of their own
+ * account by a "tidier" unlink that nulled it. Since every consumer requires
+ * `telegram_linked && telegram_id`, dropping the flag is sufficient and is the
+ * whole job.
+ *
+ * chat_id must match the stored telegram_id. The bot supplies both from its
+ * own record; requiring agreement means a stale or wrong user_id unlinks
+ * nothing rather than unlinking somebody else. (X-Bot-Secret authed.)
+ */
+router.post('/telegram-unlink', async (req, res) => {
+  try {
+    const userId = Number(req.body?.user_id);
+    const chatId = String(req.body?.chat_id || '').trim();
+    if (!Number.isInteger(userId) || userId <= 0 || !chatId) {
+      return res.status(400).json({ error: 'user_id and chat_id required' });
+    }
+    const [rows] = await pool.execute(
+      'SELECT id, telegram_id, telegram_linked FROM users WHERE id = ?', [userId]);
+    const u = rows && rows[0];
+    if (!u) return res.status(404).json({ error: 'No such user' });
+    if (String(u.telegram_id || '') !== chatId) {
+      // Not an error the user can fix, and not something to paper over: say
+      // which way it disagreed so the bot can report honestly instead of
+      // claiming a disconnection it did not make.
+      return res.status(409).json({ error: 'chat_id does not match this account',
+                                    linked: !!u.telegram_linked });
+    }
+    await pool.execute('UPDATE users SET telegram_linked = ? WHERE id = ?',
+                       [false, userId]);
+    res.json({ ok: true, unlinked: true, user_id: userId });
+  } catch (err) {
+    console.error('Telegram unlink error:', err.stack || err.message);
+    res.status(500).json({ error: 'Unlink failed' });
+  }
+});
+
+/**
  * POST /api/bot/sync/reports
  * Bot pushes the hourly intelligence reports payload (funding scan, arb
  * paper tracker, parity headline, yield radar) built by bot/core/web_reports.

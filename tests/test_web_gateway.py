@@ -55,6 +55,26 @@ class FakeUsers:
     def has_permission(self, tg, cmd):
         return self._perms
 
+    def permission_denial(self, tg, cmd):
+        """Mirrors UserStore.permission_denial: None when allowed, else the
+        REASON. The gateway needs the reason because "role" and
+        "stale_session" have different fixes and used to print the same
+        message — a user idle for a day was told their role could not do
+        something their role can."""
+        return None if self._perms else "role"
+
+    def get_tier(self, tg):
+        """The tier gate reads this; a double that omits it survives only
+        because _web_skill_denied wraps the gate in try/except — i.e. by
+        accident, on a path that swallows the AttributeError."""
+        return "basic"
+
+    def is_admitted(self, tg):
+        """An admin's /approve is the second door into the allowlist, next to
+        the env vars. This fake has no admissions, so the allowlist behaves
+        exactly as it did before admission existed."""
+        return False
+
     def can_trade_live(self, tg):
         if str(tg).startswith("web:"):
             return False

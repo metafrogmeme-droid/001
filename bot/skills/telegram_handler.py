@@ -550,7 +550,10 @@ def guard(command: str = ""):
     def _decorate(func):
         @functools.wraps(func)
         async def _wrapped(self, update, ctx, *args, **kwargs):
-            if not await self._guard(update, command):
+            # ctx is forwarded so a refusal can reach the operator: a person the
+            # allowlist turns away otherwise gets a dead end, and nobody learns
+            # they showed up.
+            if not await self._guard(update, command, ctx):
                 return
             return await func(self, update, ctx, *args, **kwargs)
         return _wrapped
@@ -1947,23 +1950,49 @@ class TelegramHandler:
         if not text:
             return
 
-        # Unregistered users get onboarding
+        # ── First contact ────────────────────
+        # This replied "I don't recognize you yet ... Use /start to register,
+        # then wait for approval" on the line AFTER register() created the
+        # record. Every clause was false: it did recognise them, /start was not
+        # needed, and on a bot with no allowlist there is no approval step at
+        # all. People duly waited for a message that could not come.
         if not user:
-            self.users.register(tg_id, name=(
-                update.effective_user.first_name if update.effective_user else ""))
-            await self._send(update,
-                f"\u2694\ufe0f <b>RUNECLAW</b>\n\n"
-                f"I don't recognize you yet.\n\n"
-                f"Your ID: <code>{tg_id}</code>\n\n"
-                f"Use /start to register, then wait for approval.")
+            _name = (update.effective_user.first_name
+                     if update.effective_user else "")
+            self.users.register(tg_id, name=_name)
+            self._seed_lang_from_telegram(update, tg_id)
+            from bot.formatters.onboarding import welcome_notice
+            access = self._access_state(tg_id)
+            notified = False
+            if access == "needs_approval":
+                notified = await self._request_operator_admission(
+                    tg_id, _name, ctx)
+            await self._send(update, welcome_notice(
+                html.escape(_name or "Trader"), tg_id, access=access,
+                operator_notified=notified, lang=self._lang(update)))
             return
 
-        # Pending users get a clear message
+        # Registered but not authorized — /revoke is the only way to be here.
+        # "pending approval" read as "we have not got to you yet" to someone
+        # whose access had been deliberately withdrawn, and named no next step.
         if not user.get("authorized", False):
-            await self._send(update,
-                "\U0001f512 Your account is pending approval.\n\n"
-                "Once approved, just talk to me naturally.\n"
-                "No commands needed — the Claw understands.")
+            from bot.formatters.onboarding import access_denied_notice
+            notified = await self._request_operator_admission(
+                tg_id, user.get("name", ""), ctx)
+            await self._send(update, access_denied_notice(
+                tg_id, operator_notified=notified, lang=self._lang(update)))
+            return
+
+        # A registered, authorized caller may still be outside the allowlist.
+        # Free text skipped the gate every command enforces, so a stranger the
+        # bot refused for /scan could still hold an LLM conversation on the
+        # operator's API key — the F-2 lockdown with one door left open.
+        if not self._is_allowlisted(update):
+            from bot.formatters.onboarding import access_denied_notice
+            notified = await self._request_operator_admission(
+                tg_id, user.get("name", ""), ctx)
+            await self._send(update, access_denied_notice(
+                tg_id, operator_notified=notified, lang=self._lang(update)))
             return
 
         # Rate limit check
@@ -2262,6 +2291,28 @@ class TelegramHandler:
             return str(update.effective_chat.id)
         return ""
 
+    def _seed_lang_from_telegram(self, update: Update, tg_id: str) -> bool:
+        """On FIRST registration, adopt the client's own language. True if set.
+
+        The bot ships a complete 繁體中文 translation that a new user only ever
+        saw by knowing /lang existed and running it — so a Chinese-language
+        Telegram client was greeted, and onboarded, in English. Telegram already
+        tells us: ``effective_user.language_code``.
+
+        Only ever seeds an UNSET preference (``get_user_lang_raw`` returns None),
+        so it can never overwrite a deliberate /lang choice with a client locale.
+        Anything that is not a recognised Chinese locale is left alone rather
+        than guessed at: English is the store's default, and an unset value is
+        the signal /lang and this function both read.
+        """
+        if get_user_lang_raw(self.users, tg_id) is not None:
+            return False
+        code = (getattr(getattr(update, "effective_user", None),
+                        "language_code", "") or "").lower()
+        if not code.startswith("zh"):
+            return False
+        return bool(set_user_lang(self.users, tg_id, "zh"))
+
     def _lang(self, update: Update) -> str:
         """Resolve the caller's UI language ('en'/'zh') for i18n t() calls.
 
@@ -2309,11 +2360,83 @@ class TelegramHandler:
     def _is_allowlisted(self, update: Update) -> bool:
         """True if the caller may use the bot. Audit F-2: closes the
         open-self-registration hole where any /start made a stranger an
-        authorized trader (able to /halt, /reset, /mode, emergency-stop)."""
+        authorized trader (able to /halt, /reset, /mode, emergency-stop).
+
+        Two ways in, and the difference between them is the whole point:
+
+        * the **env** allowlist (TELEGRAM_CHAT_ID / ADMIN_TELEGRAM_IDS /
+          LIVE_TRADER_TELEGRAM_IDS) — operators and live traders, set at deploy;
+        * an **admin's /approve** (``UserStore.is_admitted``) — a deliberate,
+          attributed, audited act from the chat.
+
+        The second exists because there was previously no first-class way to add
+        a user: /approve announced "Access Granted" to the person and "USER
+        APPROVED" to the admin while this method still refused them on the very
+        next command, since it read env vars alone. Two surfaces claiming an
+        access the gate did not recognise.
+
+        F-2 stays closed. Admission needs ``admitted_by``, which only
+        ``authorize(by=...)`` writes and only the ``_is_admin``-gated /approve
+        calls — ``register()`` cannot set it, so self-registration still admits
+        nobody. And admission is BOT access only: ``_can_trade_live`` and the
+        engine's ``_is_operator_user`` read the env allowlist alone, so an
+        admitted user is a paper trader with no operator identity.
+        """
         allow = self._allowlist_ids()
         if not allow:
             return True  # no allowlist configured -> preserve open/demo behavior
-        return self._get_tg_id(update) in allow
+        tg_id = self._get_tg_id(update)
+        if tg_id in allow:
+            return True
+        return self.users.is_admitted(tg_id)
+
+    def _access_state(self, tg_id: str) -> str:
+        """"open" / "granted" / "needs_approval" — see formatters/onboarding."""
+        allow = self._allowlist_ids()
+        if not allow:
+            return "open"
+        if tg_id in allow or self.users.is_admitted(tg_id):
+            return "granted"
+        return "needs_approval"
+
+    async def _request_operator_admission(self, tg_id: str, name: str,
+                                          ctx) -> bool:
+        """Ping the operator that someone was turned away. True if it landed.
+
+        Returns the RESULT, because the caller prints "I've told the operator"
+        from it — a message that must not be shown when the send failed or when
+        there is nobody to send to. Fires at most once per person
+        (``mark_access_requested``), so a stranger working through the menu does
+        not page the operator once per command.
+        """
+        bot = getattr(ctx, "bot", None)
+        if bot is None:
+            return False
+        if not self.users.mark_access_requested(tg_id):
+            # Already asked on their behalf. The operator has the request; the
+            # caller is still legitimately "notified", so say so rather than
+            # sending them to find a human who has already been told.
+            record = self.users.get(tg_id) or {}
+            return bool(record.get("access_requested_at"))
+        from bot.formatters.onboarding import admin_access_request
+        text = admin_access_request(html.escape(name or "Unknown"), tg_id)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+            t("reg_admin_approve_button", "en"), callback_data=f"admit:{tg_id}")]])
+        delivered = False
+        for admin_id in self._operator_chat_ids():
+            try:
+                await bot.send_message(chat_id=int(admin_id), text=text,
+                                       parse_mode="HTML", reply_markup=markup)
+                delivered = True
+            except Exception as exc:
+                system_log.warning("access request to admin %s failed: %s",
+                                   admin_id, exc)
+        if not delivered:
+            # Nothing was sent, so nothing may claim it was. Let them ask again.
+            record = self.users.get(tg_id)
+            if isinstance(record, dict):
+                record.pop("access_requested_at", None)
+        return delivered
 
     def _can_trade_live(self, tg_id) -> bool:
         """THE single authority for 'may this Telegram user place LIVE orders'.
@@ -2403,47 +2526,75 @@ class TelegramHandler:
         tg_id = self._get_tg_id(update)
         return self.users.is_authorized(tg_id)
 
-    async def _guard(self, update: Update, command: str = "") -> bool:
-        """Auth + rate limit + role permission check."""
+    async def _guard(self, update: Update, command: str = "", ctx=None) -> bool:
+        """Auth + rate limit + role permission check.
+
+        ``ctx`` is optional and only used to reach the operator when someone is
+        turned away; the @guard decorator passes it, the few inline callers do
+        not, and without it the refusal simply points the caller at a human
+        instead of claiming a notification that never went out.
+        """
         tg_id = self._get_tg_id(update)
         user = self.users.get(tg_id)
+        lang = self._lang(update)
 
-        # Audit F-2: hard allowlist gate. Only TELEGRAM_CHAT_ID / ADMIN_TELEGRAM_IDS
-        # may reach any privileged command; the user store's auto-approval can no
-        # longer grant a stranger access to a live bot.
+        # Audit F-2: hard allowlist gate. Only the env allowlist (operator /
+        # admins / live traders) or an admin's explicit /approve may reach a
+        # privileged command; the user store's AUTO-approval still grants
+        # nothing, which is the hole F-2 closed.
         if not self._is_allowlisted(update):
-            await self._send(update,
-                "\U0001f512 <b>Access restricted</b>\n\n"
-                "This bot is locked to its configured operator.\n"
-                f"Your Telegram ID: <code>{tg_id}</code>")
+            # Register first: an access request needs a record to hang the
+            # once-only flag on, and the person should exist in /users so the
+            # operator can see who is knocking.
+            if not user:
+                self.users.register(tg_id, name=(
+                    update.effective_user.first_name
+                    if update.effective_user else ""))
+            notified = await self._request_operator_admission(
+                tg_id,
+                (update.effective_user.first_name
+                 if update.effective_user else ""),
+                ctx)
+            from bot.formatters.onboarding import access_denied_notice
+            await self._send(update, access_denied_notice(
+                tg_id, operator_notified=notified, lang=lang))
             return False
 
         if not user or not user.get("authorized", False):
-            await self._send(update,
-                "\U0001f512 <b>Access restricted</b>\n\n"
-                "I don't recognize you yet.\n"
-                f"Your Telegram ID: <code>{tg_id}</code>\n\n"
-                "Use /start to register, then wait for approval.")
+            from bot.formatters.onboarding import welcome_notice
+            # They are allowlisted, so registering is all that stands between
+            # them and the command. Do it, and say what actually happened \u2014
+            # the old copy told an allowlisted operator to "wait for approval".
+            self.users.register(tg_id, name=(
+                update.effective_user.first_name if update.effective_user else ""))
+            await self._send(update, welcome_notice(
+                html.escape(update.effective_user.first_name
+                            if update.effective_user else "Trader"),
+                tg_id, access="granted", lang=lang))
             return False
 
-        # Role-based permission check
-        if command and not self.users.has_permission(tg_id, command):
-            role = user.get("role", "pending")
-            await self._send(update,
-                "\U0001f512 <b>Insufficient permissions</b>\n\n"
-                f"Your role (<code>{role}</code>) cannot use <code>/{command}</code>.\n"
-                "Contact an admin for access.")
-            return False
+        # Role-based permission check. The REASON matters: "role" is permanent
+        # and needs an admin, "stale_session" clears with /start. Printing the
+        # role wording for both told idle traders their role was insufficient
+        # for a command their role holds.
+        if command:
+            denial = self.users.permission_denial(tg_id, command)
+            if denial:
+                from bot.formatters.onboarding import permission_denied_notice
+                await self._send(update, permission_denied_notice(
+                    command, user.get("role", "pending"), denial, lang=lang))
+                return False
 
         uid = update.effective_user.id if update.effective_user else 0
         if not self._limiter.allow(uid):
             await self._send(update, f"\u26a0\ufe0f {t('rate_limit', self._lang(update))}")
             return False
 
-        # Refresh last_seen for session timeout
-        user_record = self.users.get(tg_id)
-        if user_record:
-            user_record["last_seen"] = datetime.now(UTC).isoformat()
+        # Refresh last_seen for the F-14 session window \u2014 and PERSIST it. This
+        # used to mutate the in-memory dict only, so every restart reverted
+        # active users to their registration timestamp and the first sensitive
+        # command after a redeploy was refused as stale.
+        self.users.touch(tg_id)
 
         return True
 
@@ -2461,16 +2612,26 @@ class TelegramHandler:
         user_name = html.escape(user_tg.first_name) if user_tg else "Trader"
 
         # Auto-register on first contact
+        _first_contact = self.users.get(tg_id) is None
         record = self.users.register(tg_id, name=user_name)
+        if _first_contact:
+            self._seed_lang_from_telegram(update, tg_id)
 
-        if not record.get("authorized", False):
+        # /start is one of the few UNGUARDED commands, so it used to hand a
+        # stranger the full status card — equity, positions, win rate — and the
+        # next command they tried answered "locked to its configured operator".
+        # A welcome that promises what the following tap refuses is the reason
+        # people concluded the bot was broken and left. Check the same gate the
+        # commands check, and say the same thing about it.
+        _access = self._access_state(tg_id)
+        if _access == "needs_approval" or not record.get("authorized", False):
+            from bot.formatters.onboarding import welcome_notice
             lang = get_user_lang(self.users, tg_id)
-            msg = t("welcome_pending", lang, name=user_name, tg_id=tg_id)
-            await self._send(update, msg)
-            await self._notify_admins(
-                f"New user: <b>{user_name}</b> (<code>{tg_id}</code>)\n"
-                f"Approve: <code>/approve {tg_id}</code>",
-                ctx)
+            notified = await self._request_operator_admission(
+                tg_id, (user_tg.first_name if user_tg else ""), ctx)
+            await self._send(update, welcome_notice(
+                user_name, tg_id, access="needs_approval",
+                operator_notified=notified, lang=lang))
             return
 
         # Authorized user — GetClaw ready
@@ -2681,14 +2842,33 @@ class TelegramHandler:
         lang = get_user_lang(self.users, tg_id)
 
         _sep = "\u2500" * 20
-        _pending_zh = "等待審核中 \u2014 請使用 /start 註冊"
-        _pending_en = "Status: pending approval \u2014 use /start to register"
 
-        if not is_auth:
+        # /help is the one command a refused user is pointed at, so it has to
+        # be TRUE for them. The grouped catalogue below already hides
+        # operator-only groups on the grounds that "a command you are refused
+        # looks exactly like a command that is broken" — that argument covers
+        # the allowlist exactly, and 125 refused commands is the strongest
+        # possible version of it. Someone not admitted gets the access notice
+        # and the three commands that genuinely work for them
+        # (ROLE_PERMISSIONS["pending"]: start, help, lang).
+        if not is_auth or self._access_state(tg_id) == "needs_approval":
+            from bot.formatters.onboarding import access_denied_notice
+            if not user:
+                self.users.register(tg_id, name=(
+                    update.effective_user.first_name
+                    if update.effective_user else ""))
+                self._seed_lang_from_telegram(update, tg_id)
+                lang = get_user_lang(self.users, tg_id)
+            _notified = await self._request_operator_admission(
+                tg_id,
+                (update.effective_user.first_name
+                 if update.effective_user else ""),
+                ctx)
             await self._send(update,
-                f"\u2694\ufe0f <b>RUNECLAW</b>\n"
-                f"{_sep}\n"
-                f"<i>{_pending_zh if lang == 'zh' else _pending_en}</i>")
+                access_denied_notice(tg_id, operator_notified=_notified,
+                                     lang=lang)
+                + f"\n{_sep}\n"
+                + t("help_pending_available", lang))
             return
 
         tier_label = self.users.tier_label(tg_id)
@@ -2811,7 +2991,12 @@ class TelegramHandler:
                 f"\U0001f534 {t('invalid_role', self._lang(update), role=html.escape(role))}")
             return
 
-        ok = self.users.authorize(target_id, role=role)
+        # `by=` is what makes this stick. Without it the store records an
+        # authorization the allowlist does not read, and /approve announces
+        # "USER APPROVED" to the admin and "Access Granted" to the user while
+        # the very next command still answers "not approved yet".
+        ok = self.users.authorize(target_id, role=role,
+                                  by=self._get_tg_id(update))
         if ok:
             target = self.users.get(target_id)
             name = target.get("name", "Unknown") if target else "Unknown"
@@ -11100,11 +11285,21 @@ class TelegramHandler:
             return  # rate limited
 
         if not self._check_auth(update):
+            # "Your account is not linked. Use /start to register." was wrong
+            # for the common case: they usually ARE registered — /start created
+            # the record — and the allowlist is what refused them. Sending them
+            # to re-run the command that already worked reads as a broken bot.
+            from bot.formatters.onboarding import access_denied_notice
+            _cb_id = self._get_tg_id(update)
+            _notified = await self._request_operator_admission(
+                _cb_id,
+                (update.effective_user.first_name
+                 if update.effective_user else ""),
+                ctx)
             try:
                 await query.edit_message_text(
-                    "\U0001f512 <b>Access restricted</b>\n\n"
-                    "Your account is not linked.\n"
-                    "Use /start to register.",
+                    access_denied_notice(_cb_id, operator_notified=_notified,
+                                         lang=self._lang(update)),
                     parse_mode="HTML")
             except Exception:
                 pass
@@ -11137,6 +11332,52 @@ class TelegramHandler:
             audit(system_log, f"Destructive callback denied: {data}",
                   action="callback_denied", result="DENIED",
                   data={"data": data, "role": role})
+            return
+
+        # ── Admit a user who was turned away (admin only) ────
+        # The operator's half of the access request. Same authority as
+        # /approve — _is_admin-gated, attributed, audited — so a person can be
+        # let in with one tap instead of an env edit and a redeploy, which is
+        # what "add a user" used to cost.
+        if data.startswith("admit:"):
+            target_id = data.split(":", 1)[1].strip()
+            if not self._is_admin(update):
+                await self._send(update,
+                                 f"\U0001f512 {t('admin_only', self._lang(update))}",
+                                 edit=True)
+                return
+            if not target_id.isdigit():
+                await self._send(update,
+                                 f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}",
+                                 edit=True)
+                return
+            granted = self.users.authorize(target_id, role="trader",
+                                           by=self._get_tg_id(update))
+            if not granted:
+                await self._send(update,
+                                 f"\U0001f534 {t('approve_failed', self._lang(update), id=html.escape(target_id))}",
+                                 edit=True)
+                return
+            _target = self.users.get(target_id) or {}
+            await self._send(update,
+                f"✅ <b>{html.escape(_target.get('name') or 'User')}</b> "
+                f"(<code>{target_id}</code>) is in — role <code>trader</code>, "
+                f"paper trading.\n"
+                f"<i>Live trading is separate: it still needs the env "
+                f"allowlist.</i>", edit=True)
+            try:
+                await ctx.bot.send_message(
+                    chat_id=int(target_id),
+                    text=t("reg_admitted_notice",
+                           get_user_lang(self.users, target_id), role="trader"),
+                    parse_mode="HTML")
+            except Exception as exc:
+                # Say the ping failed rather than letting the operator assume
+                # the person knows. The admission itself already succeeded.
+                system_log.warning("admit notice to %s failed: %s", target_id, exc)
+                await self._send(update,
+                    "⚠️ Approved, but I couldn't message them — "
+                    "they may not have opened a chat with me yet.")
             return
 
         # ── Language switch callback ─────────────────────────

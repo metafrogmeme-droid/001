@@ -14,10 +14,12 @@ class _FakeHandler:
     def __init__(self, allow):
         self._allow = allow
         self.checked_command = None
+        self.checked_ctx = None
         self.body_ran = False
 
-    async def _guard(self, update, command=""):
+    async def _guard(self, update, command="", ctx=None):
         self.checked_command = command
+        self.checked_ctx = ctx
         return self._allow
 
     @guard("trade")
@@ -52,3 +54,12 @@ def test_short_circuits_when_gate_denies():
 
 def test_preserves_name_via_wraps():
     assert _FakeHandler.cmd.__name__ == "cmd"
+
+
+def test_forwards_ctx_to_the_gate():
+    """The gate needs ctx to reach the operator when it turns someone away.
+    Without it a refused stranger gets a dead end and nobody learns they
+    showed up — which is exactly what the message used to be."""
+    h = _FakeHandler(allow=True)
+    _run(h.cmd("update", "ctx"))
+    assert h.checked_ctx == "ctx"

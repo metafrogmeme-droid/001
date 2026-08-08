@@ -48,9 +48,28 @@ class _Users:
     def get(self, uid):
         return {"role": self.role, "authorized": True}
 
+    def register(self, tg, name="", auto_role=""):
+        return self.get(tg)
+
+    def get_tier(self, uid):
+        return "basic"
+
+    def is_admitted(self, uid):
+        """An admin's /approve — the second door into the allowlist beside the
+        env vars. No admissions here: this fixture is about ROLE parity between
+        the web and Telegram, and admission is a different gate."""
+        return False
+
     def has_permission(self, uid, cmd):
+        return self.permission_denial(uid, cmd) is None
+
+    def permission_denial(self, uid, cmd):
+        """The gateway asks for the REASON, not just yes/no: "role" and
+        "stale_session" need different messages and different fixes. This
+        fixture only models the role half, which is what the role-parity test
+        below is about."""
         perms = ROLE_PERMISSIONS.get(self.role, set())
-        return "*" in perms or cmd in perms
+        return None if ("*" in perms or cmd in perms) else "role"
 
 
 class _Handler:

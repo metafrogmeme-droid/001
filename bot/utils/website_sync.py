@@ -119,6 +119,30 @@ def _post(path: str, data: dict, *, retries: int = 0) -> Optional[dict]:
     return None
 
 
+def unlink_telegram_on_website(user_id: int, chat_id: str) -> Optional[bool]:
+    """Clear the website's telegram_linked flag. True / False / None.
+
+    TRI-STATE ON PURPOSE, and the reason is the whole point of this function:
+
+      True   the website confirmed it cleared the link
+      False  the website answered, and refused (no such user, chat mismatch)
+      None   the website could not be reached, so NOTHING IS KNOWN
+
+    /unlink used to delete the bot's local row and report "Unlinked from
+    {email}. Your data is preserved." — while the website still had
+    telegram_linked = TRUE and kept routing exchange-credential submissions and
+    live-trading controls to that chat. Collapsing an unreachable website to
+    False (or to True) reinstates that: an unreadable result is not a result,
+    and the person deserves to be told which half actually happened.
+    """
+    result = _post("/api/bot/sync/telegram-unlink",
+                   {"user_id": int(user_id), "chat_id": str(chat_id)},
+                   retries=2)   # idempotent: clearing a flag replays safely
+    if result is None:
+        return None
+    return bool(result.get("ok") and result.get("unlinked"))
+
+
 def sync_portfolio(user_id: int, equity: float,
                    positions: list, closed_trades: list) -> bool:
     """Full sync: replace all website data for a user with current bot state."""
