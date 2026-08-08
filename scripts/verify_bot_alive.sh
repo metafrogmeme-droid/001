@@ -30,6 +30,27 @@
 #
 # WHY THE PID FORM IS THE DEFAULT ADVICE
 #
+# INVOKE IT ON ITS OWN LINE. `&` binds looser than `&&`, so
+#
+#     cd ~/runeclaw && nohup python3 -m bot.main ... &  scripts/verify_bot_alive.sh --pid $!
+#
+# parses as `(cd ~/runeclaw && nohup ...) &  scripts/...` — the cd goes into
+# the BACKGROUND subshell and the gate runs in whatever directory the shell
+# started in, where the relative path does not resolve. Observed 2026-08-08:
+# the gate never executed and the deploy was accepted on visual inspection of
+# the ports instead. A launcher that reports success while its verification
+# silently did not run is the failure this script exists to prevent, arriving
+# through shell grammar rather than through a missing flag.
+#
+# Correct:
+#     cd ~/runeclaw
+#     nohup python3 -m bot.main --mode telegram >> logs/bot.log 2>&1 &
+#     scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
+#
+# python3, not python — the box has no `python`. And logs/bot.log, not
+# bot.log: logs/ is symlinked into the persistent store, the repo root is not,
+# so a log written there is lost on the next `git reset --hard`.
+#
 # `pgrep -f` matches whole command lines, and this script's own command line
 # contains whatever pattern it was given. The first draft reported SMOKE OK
 # for a process that had never existed -- it was matching itself. That is the
