@@ -2925,7 +2925,7 @@ class TelegramHandler:
         args = ctx.args or []
         if len(args) < 2:
             from bot.utils.user_store import TIERS
-            tiers_str = " / ".join(f"<code>{t}</code>" for t in TIERS)
+            tiers_str = " / ".join(f"<code>{_tier}</code>" for _tier in TIERS)
             await self._send(update,
                 f"\U0001f4cb {t('set_tier_usage', self._lang(update), tiers=tiers_str)}")
             return
