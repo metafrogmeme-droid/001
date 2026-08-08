@@ -15,6 +15,8 @@ Only admins (or users explicitly granted) can trade live.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 from datetime import datetime
 from bot.compat import UTC
@@ -151,6 +153,9 @@ DEFAULT_TIER = "basic"
 DEFAULT_AUTO_ROLE = "trader"
 
 
+log = logging.getLogger("runeclaw.user_store")
+
+
 class UserStore:
     """JSON-file backed user database with roles and tiers."""
 
@@ -161,16 +166,73 @@ class UserStore:
         self._load()
 
     def _load(self) -> None:
-        if self._path.exists():
-            try:
-                with open(self._path) as f:
-                    self._users = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                self._users = {}
-        else:
+        """An unreadable store is not an empty one.
+
+        This carried the exact defect bot/core/exchange_credentials.py was
+        fixed for, and which tests/test_credential_store_never_self_destructs
+        documents: an unreadable file became `{}`, and the next `_save()` —
+        triggered by the very next person to message the bot, since register()
+        saves — wrote that empty map over the real one. Every user gone, on a
+        single transient read.
+
+        The catch includes **OSError**, which is what moves this from exotic to
+        likely: a disk-full, a permissions blip, an EINTR. No corruption
+        required, and the loss is silent because registering a user looks like
+        it worked.
+
+        A MISSING file is legitimately empty — first boot — and still saves.
+        """
+        self._load_failed = False
+        if not self._path.exists():
             self._users = {}
+            return
+        # A ZERO-BYTE file counts as fresh, not damaged. It is ambiguous in
+        # principle — a truncated write looks identical to a `touch` — but
+        # _save() now goes through atomic_write (temp file + rename), so the
+        # destination is never partially written and 0 bytes means nobody has
+        # written it yet. Callers legitimately create the path first:
+        # tests/test_web_live_gate.py hands UserStore an mkstemp path, and
+        # treating that as corruption moved the file aside mid-test.
+        try:
+            if self._path.stat().st_size == 0:
+                self._users = {}
+                return
+        except OSError:
+            pass
+        try:
+            with open(self._path) as f:
+                self._users = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            # Preserve the bytes before anything can touch the path again.
+            _kept = ""
+            try:
+                _damaged = self._path.with_suffix(self._path.suffix + ".corrupt")
+                if not _damaged.exists():
+                    os.replace(str(self._path), str(_damaged))
+                    _kept = f" Original preserved at {_damaged.name}."
+            except OSError:
+                _kept = " Could not preserve the original."
+            self._load_failed = True
+            self._users = {}
+            log.critical(
+                "users.json unreadable (%s) — REFUSING to write this store "
+                "until it is repaired, so a registration cannot overwrite the "
+                "real user list with an empty file.%s Users will appear "
+                "unregistered until this is resolved.",
+                exc.__class__.__name__, _kept)
 
     def _save(self) -> None:
+        # Fail-closed: never persist a map built from a FAILED read. Writing
+        # here is what turns one unreadable file into permanent user loss.
+        #
+        # Unlike the credential store this does NOT raise. register() runs on
+        # the message path for every user, and an exception there would take
+        # the bot down rather than degrade it. Refusing the write preserves the
+        # file on disk; the CRITICAL log is the alarm.
+        if getattr(self, "_load_failed", False):
+            log.critical("refusing to save users.json: the store failed to "
+                         "load, so writing would destroy the real user list")
+            return
         atomic_write_json(self._path, self._users, indent=2, default=str)
 
     # ── Public API ─────────────────────────────────────────────
