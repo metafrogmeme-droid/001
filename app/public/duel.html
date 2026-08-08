@@ -90,6 +90,10 @@
   <section class="panel" id="recPanel" hidden>
     <h2 data-i18n="duel.rec_h">Your record</h2>
     <div class="statrow" id="record"></div>
+    <p id="shareRow" hidden style="margin-top:var(--s3)">
+      <button class="d-btn" id="shareBtn" style="flex:0 0 auto" data-i18n="duel.share">Share your record</button>
+      <span class="note" id="shareHint" hidden data-i18n="duel.share_optin">Join the board with a handle to share a card.</span>
+    </p>
   </section>
 
   <section class="panel" id="boardPanel" hidden>
@@ -144,6 +148,8 @@
     $('cardPanel').hidden = false;
   }
 
+  var MY_HANDLE = null;
+
   function drawRecord(me) {
     var streak = { text: '🔥 ' + me.streak.current, tone: 'muted', sub: '' };
     $('record').innerHTML =
@@ -151,6 +157,47 @@
       + stat(T('duel.marks_k', 'Marks'), D.marksLabel(me.marks, T))
       + stat(T('duel.streak_k', 'Streak'), streak);
     $('recPanel').hidden = false;
+    MY_HANDLE = me.handle || null;
+    $('shareRow').hidden = false;
+    // A card needs a handle to be addressed by, and the handle is opt-in.
+    $('shareBtn').hidden = !MY_HANDLE;
+    $('shareHint').hidden = Boolean(MY_HANDLE);
+  }
+
+  // Share carries the invite link, which is the whole growth loop: the same
+  // hook the closed-trade share uses. Text is counts only — a duel has no
+  // stake, so there is no amount that could leak.
+  function shareRecord() {
+    if (!MY_HANDLE) return;
+    var url = location.origin + '/duel';
+    fetch('/api/auth/referrals', { headers: { Authorization: 'Bearer ' + tok } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (ref) {
+        if (ref && ref.code) url = location.origin + '/?ref=' + encodeURIComponent(ref.code);
+        var text = T('duel.share_text', 'I am calling the market against RUNECLAW’s AI agent.');
+        var img = location.origin + '/api/frame/duel/' + encodeURIComponent(MY_HANDLE) + '/image';
+        if (navigator.share) {
+          // The image is a bonus; if it cannot be fetched the text and link
+          // must still go, and the Telegram fallback after that.
+          return fetch(img).then(function (r) { return r.ok ? r.blob() : null; })
+            .catch(function () { return null; })
+            .then(function (blob) {
+              var file = blob ? new File([blob], 'duel.png', { type: 'image/png' }) : null;
+              if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+                return navigator.share({ text: text, url: url, files: [file] });
+              }
+              return navigator.share({ text: text, url: url });
+            })
+            .catch(function () { openTelegram(text, url); });
+        }
+        openTelegram(text, url);
+      });
+  }
+
+  function openTelegram(text, url) {
+    window.open('https://t.me/share/url?url=' + encodeURIComponent(url)
+      + '&text=' + encodeURIComponent(text), '_blank', 'noopener');
   }
 
   function boardTable(rows, cols) {
@@ -204,6 +251,8 @@
     ]) + warming(d);
     $('squadPanel').hidden = false;
   }).catch(function () { /* omitted, not faked */ });
+
+  $('shareBtn').addEventListener('click', shareRecord);
 
   // One delegated listener rather than one per button, so a redraw cannot
   // accumulate duplicates.
