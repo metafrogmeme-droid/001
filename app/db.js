@@ -101,6 +101,10 @@ class MemoryDB {
     this.arenaFollows = {};   // user_id -> practice-follow prefs (paper only)
     this.watchlist = [];      // { user_id, symbol, created_at } (starred symbols)
     this.sealRoots = [];      // { day, root, seal_count, computed_at } — immutable daily Merkle roots
+    this.duelRounds = [];     // Daily Duel rounds, unique on (day, idx)
+    this._nextDuelRoundId = 1;
+    this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
+    this._nextDuelPickId = 1;
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
@@ -1444,6 +1448,85 @@ class MemoryDB {
       return [rec ? [{ message: rec.message, expires_at: rec.expires_at }] : [], []];
     }
 
+    // -- DAILY DUEL --
+    // Both tables carry a UNIQUE key in the real schema and BOTH are enforced
+    // here. They are not conveniences: (day, idx) is what makes lazy round
+    // creation race-safe, and (user_id, round_id) IS the write-once anti-cheat.
+    // A shim that let a second pick through would keep the suite green while
+    // production let players revise a call after seeing the outcome.
+    if (cmd.includes('INSERT INTO DUEL_ROUNDS') || cmd.includes('INSERT IGNORE INTO DUEL_ROUNDS')) {
+      const [day, idx] = params;
+      if (this.duelRounds.some(r => r.day === day && Number(r.idx) === Number(idx))) {
+        // INSERT IGNORE: the row already exists, nothing inserted, no error.
+        return [{ affectedRows: 0, insertId: 0 }, []];
+      }
+      this.duelRounds.push({
+        id: this._nextDuelRoundId++, day, idx: Number(idx), symbol: params[2],
+        entry_price: params[3],
+        agent_direction: params[4] == null ? null : params[4],
+        signal_key: params[5] == null ? null : params[5],
+        locks_at: params[6], resolves_at: params[7],
+        settle_price: null, settle_state: null, settled_at: null,
+        created_at: new Date().toISOString(),
+      });
+      return [{ affectedRows: 1, insertId: this._nextDuelRoundId - 1 }, []];
+    }
+    if (cmd.startsWith('UPDATE DUEL_ROUNDS SET SETTLE')) {
+      // params: settle_price, settle_state, settled_at, id
+      const r = this.duelRounds.find(x => Number(x.id) === Number(params[3]));
+      if (r) {
+        r.settle_price = params[0] == null ? null : params[0];
+        r.settle_state = params[1] == null ? null : params[1];
+        r.settled_at = params[2];
+      }
+      return [{ affectedRows: r ? 1 : 0 }, []];
+    }
+    if (cmd.includes('FROM DUEL_ROUNDS')) {
+      // '>=' is checked first: 'WHERE DAY >= ?' does not contain 'WHERE DAY = ?',
+      // but keeping the wider window ahead of the exact match documents intent.
+      let rows;
+      if (cmd.includes('WHERE DAY >=')) {
+        rows = this.duelRounds.filter(r => r.day >= params[0]);
+      } else if (cmd.includes('WHERE DAY =')) {
+        rows = this.duelRounds.filter(r => r.day === params[0]);
+      } else {
+        rows = this.duelRounds.slice();
+      }
+      rows = rows.slice().sort((a, b) =>
+        (a.day < b.day ? -1 : a.day > b.day ? 1 : a.idx - b.idx));
+      return [rows.map(r => ({ ...r })), []];
+    }
+    if (cmd.includes('INSERT INTO DUEL_PICKS')) {
+      const [user_id, round_id] = params;
+      if (this.duelPicks.some(p => Number(p.user_id) === Number(user_id)
+        && Number(p.round_id) === Number(round_id))) {
+        const err = new Error("Duplicate entry for key 'uniq_duel_pick'");
+        err.code = 'ER_DUP_ENTRY';
+        err.errno = 1062;
+        throw err;
+      }
+      this.duelPicks.push({
+        id: this._nextDuelPickId++, user_id: Number(user_id), round_id: Number(round_id),
+        pick: params[2],
+        seal: params[3] == null ? null : params[3],
+        seal_payload: params[4] == null ? null : params[4],
+        created_at: params[5] || new Date().toISOString(),
+      });
+      return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
+    }
+    if (cmd.includes('FROM DUEL_PICKS')) {
+      let rows;
+      if (cmd.includes('WHERE USER_ID =')) {
+        rows = this.duelPicks.filter(p => Number(p.user_id) === Number(params[0]));
+      } else if (cmd.includes('WHERE CREATED_AT >=')) {
+        rows = this.duelPicks.filter(p =>
+          new Date(p.created_at).getTime() >= new Date(params[0]).getTime());
+      } else {
+        rows = this.duelPicks.slice();
+      }
+      return [rows.map(p => ({ ...p })), []];
+    }
+
     return [[], []];
   }
 }
@@ -1492,6 +1575,8 @@ const EXPECTED_TABLES = Object.freeze([
   'arena_seasons',
   'arena_follows',
   'user_watchlist',
+  'duel_rounds',
+  'duel_picks',
 ]);
 
 /**
@@ -2162,6 +2247,49 @@ async function migrate() {
         symbol VARCHAR(30) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id, symbol)
+      )
+    `);
+    // Daily Duel — the prediction game. Rounds are shared by everyone, so the
+    // unique (day, idx) key is what makes lazy creation race-safe: concurrent
+    // first-readers all INSERT IGNORE and then read the same three rows.
+    //
+    // settle_price NULL means "not settled yet"; settle_state 'unresolved' is
+    // the terminal "we never got a price". Both are absences and both are
+    // excluded from accuracy — neither is ever written as a zero.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS duel_rounds (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        day CHAR(10) NOT NULL,
+        idx TINYINT NOT NULL,
+        symbol VARCHAR(20) NOT NULL,
+        entry_price DOUBLE NOT NULL,
+        agent_direction VARCHAR(5) NULL,
+        signal_key VARCHAR(128) NULL,
+        locks_at TIMESTAMP NOT NULL,
+        resolves_at TIMESTAMP NOT NULL,
+        settle_price DOUBLE NULL,
+        settle_state VARCHAR(12) NULL,
+        settled_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_duel_round (day, idx),
+        INDEX idx_duel_rounds_day (day)
+      )
+    `);
+    // One pick per player per round, write-once: the unique key is the
+    // anti-cheat. A pick cannot be revised after the outcome is visible
+    // because a second write simply has nowhere to land.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS duel_picks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        round_id INT NOT NULL,
+        pick VARCHAR(5) NOT NULL,
+        seal VARCHAR(64) NULL,
+        seal_payload TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_duel_pick (user_id, round_id),
+        INDEX idx_duel_picks_user (user_id),
+        INDEX idx_duel_picks_round (round_id)
       )
     `);
   }
