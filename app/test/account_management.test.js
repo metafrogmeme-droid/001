@@ -25,11 +25,15 @@ const mailer = require('../lib/mailer');
 // Keep a handle to the real sender — the integration section below monkeypatches
 // mailer.sendMail, and that patch runs at load time (before any test executes).
 const realSendMail = mailer.sendMail;
+// Same for isConfigured: the integration section below reports the mailer as
+// configured, and that assignment runs at LOAD time — before any test body —
+// so the no-op unit test has to hold its own handle to the real predicate.
+const realIsConfigured = mailer.isConfigured;
 
 // --- Mailer unit tests (pure) ---
 
 test('mailer is a no-op when SMTP is unconfigured', async () => {
-  assert.strictEqual(mailer.isConfigured(), false);
+  assert.strictEqual(realIsConfigured(), false);
   const r = await realSendMail({ to: 'a@b.com', subject: 'Hi', text: 'body' });
   assert.strictEqual(r.skipped, true);
   assert.strictEqual(r.reason, 'not_configured');
@@ -69,6 +73,14 @@ mailer.sendMail = async ({ to, subject, text, html }) => {
   sentEmails.push({ to, subject, text, html });
   return { skipped: false };
 };
+// …and report the mailer as CONFIGURED for the integration section. The unit
+// tests above deliberately unset SMTP_HOST/MAIL_FROM to prove the no-op, and
+// /forgot-password now short-circuits on isConfigured() rather than promising
+// "a reset link is on its way" that no relay could deliver. Without this the
+// integration tests would exercise the unconfigured branch while asserting the
+// configured one — see test/email_onboarding.test.js, which covers the
+// short-circuit itself.
+mailer.isConfigured = () => true;
 // Make baseUrl deterministic for link assertions.
 process.env.APP_BASE_URL = 'https://app.test';
 

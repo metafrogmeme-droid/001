@@ -4679,7 +4679,7 @@
       if (linked) {
         return `<div class="section-note" style="border-style:solid;border-color:var(--up);color:var(--up)">
           <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
-          ${esc(T('dd.tg_linked', 'Telegram linked — exchange-key management and your live controls are unlocked (going live still needs operator approval).'))}</div>`;
+          ${esc(T('dd.tg_linked', 'Telegram linked — exchange-key management and your live controls are unlocked (going live still needs operator approval). To disconnect, send /unlink to the bot; it clears both sides.'))}</div>`;
       }
       // The bot handle and the /link command are IDENTIFIERS — they are typed
       // verbatim into Telegram, so they interpolate rather than translate.

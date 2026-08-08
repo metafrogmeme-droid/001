@@ -32,7 +32,26 @@ class FakeUsers:
         return self._users.setdefault(str(tg), {"authorized": True, "role": "trader"})
 
     def has_permission(self, tg, cmd):
-        return True
+        return self.permission_denial(tg, cmd) is None
+
+    def permission_denial(self, tg, cmd):
+        """UserStore's reason-returning gate: None allows, else "role" /
+        "stale_session". The web gateway asks for the REASON because the two
+        need different messages — one needs an admin, the other clears with
+        /start — and both used to print the role wording."""
+        return None
+
+    def get_tier(self, tg):
+        """The tier gate reads this; a double that omits it survives only
+        because _web_skill_denied wraps the gate in try/except — i.e. by
+        accident, on a path that swallows the AttributeError."""
+        return "basic"
+
+    def is_admitted(self, tg):
+        """Whether an admin's /approve admitted this id — the second door into
+        the allowlist beside the env vars. No admissions here, so the allowlist
+        behaves exactly as it did before admission existed."""
+        return False
 
 
 class FakeHandler:

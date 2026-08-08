@@ -40,9 +40,18 @@ def test_link_messages():
     _eq(t("link_other_account", L),
         "This Telegram account is already linked to another RUNECLAW account.\n"
         "Use /unlink first, then link the correct account.")
-    _eq(t("link_success", L, email="a@b.c", plan="pro"),
-        "Linked successfully!\n\nAccount: a@b.c\nPlan: pro\n\n"
-        "You now have full access to RUNECLAW.\nTry: /scan /portfolio /fullscan")
+    # The old copy ended "You now have full access to RUNECLAW. Try: /scan
+    # /portfolio /fullscan" — false on every deployment with an allowlist
+    # (i.e. every live one). Linking joins a WEBSITE account to this chat and
+    # grants no bot command; all three were refused on the next tap. What it
+    # must now do is name what linking IS for and keep bot access separate.
+    # tests/test_account_linking.py holds the properties; this pins the bytes.
+    _eq(t("link_success", L, email="a@b.c", plan="pro", url=URL),
+        "Linked.\n\nAccount: a@b.c\nPlan: pro\n\n"
+        f"Your dashboard at {URL} now mirrors this chat. /me shows the account,"
+        " /sync pushes an update.\n\n"
+        "Bot commands are separate — if /scan says you're not approved,"
+        " that's the operator's allowlist, not this link.")
 
 
 def test_unlink_messages():

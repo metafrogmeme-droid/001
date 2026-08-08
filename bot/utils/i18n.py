@@ -42,6 +42,146 @@ _STRINGS: dict[str, dict[str, str]] = {
             "審核通過後，直接跟我對話就行了。"
         ),
     },
+    # ── Registration / admission ──
+    # Every string below replaced one that asserted something the code had just
+    # contradicted: "I don't recognize you yet" sent AFTER register() created
+    # the record, "wait for approval" on a bot with no approval step, and
+    # "locked to its configured operator" with no way to ask. See
+    # bot/formatters/onboarding.py for which one is picked when.
+    "reg_welcome_ready": {
+        "en": (
+            "<b>Welcome, {name}.</b>\n\n"
+            "I'm RUNECLAW — I scan the market, size the risk, and talk you "
+            "through trades.\n\n"
+            "✅ You're registered. Nothing to wait for.\n"
+            "Your ID: <code>{tg_id}</code>\n\n"
+            "<b>Start here:</b> /start for your dashboard - /scan for setups - "
+            "/help for everything else.\n"
+            "Or just tell me what you want in plain language."
+        ),
+        "zh": (
+            "<b>歡迎，{name}。</b>\n\n"
+            "我是 RUNECLAW — 我會掃描市場、評估風險，並陪你走完每一筆交易。\n\n"
+            "✅ 你已完成註冊，不需要等待任何審核。\n"
+            "你的 ID: <code>{tg_id}</code>\n\n"
+            "<b>從這裡開始：</b>/start 查看儀表板 - /scan 尋找機會 - /help 看全部指令。\n"
+            "或直接用日常語言告訴我你想做什麼。"
+        ),
+    },
+    "reg_welcome_needs_approval": {
+        "en": (
+            "<b>Welcome, {name}.</b>\n\n"
+            "I'm RUNECLAW — an AI trading assistant.\n\n"
+            "\U0001f4dd You're on the list. This bot admits people by hand, so "
+            "the operator has to let you in before the commands unlock.\n"
+            "Your ID: <code>{tg_id}</code>\n\n"
+            "{next_step}"
+        ),
+        "zh": (
+            "<b>歡迎，{name}。</b>\n\n"
+            "我是 RUNECLAW — 一個 AI 交易助理。\n\n"
+            "\U0001f4dd 你已在名單上。這個機器人採人工放行，需要操作員先讓你進來，"
+            "指令才會解鎖。\n"
+            "你的 ID: <code>{tg_id}</code>\n\n"
+            "{next_step}"
+        ),
+    },
+    "reg_notified_wait": {
+        "en": ("I've told the operator. You'll get a message here the moment "
+               "you're in — nothing else for you to do."),
+        "zh": "我已經通知操作員了。一旦放行，你會在這裡收到訊息，你不需要再做任何事。",
+    },
+    "reg_ask_operator": {
+        "en": ("Ask whoever runs this bot to approve you — they run "
+               "<code>/approve {tg_id}</code>."),
+        "zh": "請聯絡這個機器人的管理者為你放行 — 他們執行 <code>/approve {tg_id}</code> 即可。",
+    },
+    "reg_access_denied": {
+        "en": (
+            "\U0001f512 <b>Not approved yet</b>\n\n"
+            "This bot admits people by hand, and you're not through yet — so "
+            "that command is locked, not broken.\n"
+            "Your ID: <code>{tg_id}</code>\n\n"
+            "{next_step}"
+        ),
+        "zh": (
+            "\U0001f512 <b>尚未通過審核</b>\n\n"
+            "這個機器人採人工放行，你還沒被放行 — 所以這個指令是被鎖住，不是壞掉。\n"
+            "你的 ID: <code>{tg_id}</code>\n\n"
+            "{next_step}"
+        ),
+    },
+    "reg_session_expired": {
+        "en": (
+            "⏳ <b>Session expired</b>\n\n"
+            "<code>/{command}</code> can move money, so it locks after 24 hours "
+            "of quiet. Your role is fine — the session isn't.\n\n"
+            "Send /start, then run it again. That's the whole fix."
+        ),
+        "zh": (
+            "⏳ <b>工作階段已逾時</b>\n\n"
+            "<code>/{command}</code> 會動到資金，因此閒置 24 小時後會自動上鎖。"
+            "你的角色沒有問題，是工作階段過期了。\n\n"
+            "送出 /start，然後再執行一次即可。"
+        ),
+    },
+    "reg_role_denied": {
+        "en": (
+            "\U0001f512 <b>Not on your account</b>\n\n"
+            "<code>/{command}</code> needs a higher role than <code>{role}</code>.\n\n"
+            "/help lists everything you can use right now."
+        ),
+        "zh": (
+            "\U0001f512 <b>你的帳號沒有這項功能</b>\n\n"
+            "<code>/{command}</code> 需要比 <code>{role}</code> 更高的角色權限。\n\n"
+            "/help 會列出你現在可以使用的所有功能。"
+        ),
+    },
+    "reg_admin_request": {
+        "en": (
+            "\U0001f6ce️ <b>Access request</b>\n\n"
+            "<b>{name}</b> (<code>{tg_id}</code>) tried to use the bot and was "
+            "turned away by the allowlist.\n\n"
+            "Approve below, or run <code>/approve {tg_id}</code>.\n"
+            "<i>Approval grants bot access on PAPER only — live trading still "
+            "needs the env allowlist.</i>"
+        ),
+        "zh": (
+            "\U0001f6ce️ <b>存取申請</b>\n\n"
+            "<b>{name}</b>（<code>{tg_id}</code>）嘗試使用機器人，但被白名單擋下。\n\n"
+            "可直接按下方按鈕，或執行 <code>/approve {tg_id}</code>。\n"
+            "<i>放行只會給予「模擬倉」的機器人存取權；實盤交易仍需環境變數白名單。</i>"
+        ),
+    },
+    "reg_admin_approve_button": {"en": "✅ Approve as trader", "zh": "✅ 放行為交易者"},
+    "help_pending_available": {
+        "en": ("<b>What works right now</b>\n"
+               "/start — check whether you're through yet\n"
+               "/lang — English / 繁體中文\n"
+               "/help — this\n\n"
+               "<i>The full command list unlocks when you're approved. Showing "
+               "it now would just be 120 commands that answer 'no'.</i>"),
+        "zh": ("<b>你現在可以用的</b>\n"
+               "/start — 查看你是否已被放行\n"
+               "/lang — English / 繁體中文\n"
+               "/help — 本說明\n\n"
+               "<i>通過審核後就會解鎖完整指令列表。現在顯示的話，"
+               "只會是 120 個都回答「不行」的指令。</i>"),
+    },
+    "reg_admitted_notice": {
+        "en": (
+            "\U0001f7e2 <b>You're in.</b>\n\n"
+            "The operator approved your account — role <code>{role}</code>, "
+            "paper trading.\n\n"
+            "Send /start to see your dashboard."
+        ),
+        "zh": (
+            "\U0001f7e2 <b>你已被放行。</b>\n\n"
+            "操作員已核准你的帳號 — 角色 <code>{role}</code>，模擬倉交易。\n\n"
+            "送出 /start 查看你的儀表板。"
+        ),
+    },
+
     "welcome_ready": {
         "en": (
             "Hey {name}, here's where things stand:\n\n"
@@ -764,9 +904,36 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "This Telegram account is already linked to another RUNECLAW account.\nUse /unlink first, then link the correct account.",
         "zh": "此 Telegram 帳號已連結到另一個 RUNECLAW 帳號。\n請先使用 /unlink，再連結正確的帳號。",
     },
+    # "You now have full access to RUNECLAW. Try: /scan /portfolio /fullscan"
+    # was the same defect as the old registration welcome, one file over.
+    # Linking joins a WEBSITE account to this chat; it grants no bot commands
+    # at all. On any bot with an allowlist configured — which is every live
+    # deployment, since is_live() requires TELEGRAM_CHAT_ID — the three
+    # commands it named were refused on the next tap. Say what linking is for,
+    # and keep bot access as the separate thing it is.
     "link_success": {
-        "en": "Linked successfully!\n\nAccount: {email}\nPlan: {plan}\n\nYou now have full access to RUNECLAW.\nTry: /scan /portfolio /fullscan",
-        "zh": "連結成功！\n\n帳號: {email}\n方案: {plan}\n\n你現在擁有 RUNECLAW 的完整存取權。\n試試: /scan /portfolio /fullscan",
+        "en": "Linked.\n\nAccount: {email}\nPlan: {plan}\n\nYour dashboard at {url} now"
+              " mirrors this chat. /me shows the account, /sync pushes an update.\n\n"
+              "Bot commands are separate — if /scan says you're not approved,"
+              " that's the operator's allowlist, not this link.",
+        "zh": "已連結。\n\n帳號: {email}\n方案: {plan}\n\n你在 {url} 的儀表板現在會同步這個對話。"
+              "/me 查看帳號，/sync 推送更新。\n\n"
+              "機器人指令是另一回事 — 如果 /scan 顯示尚未通過審核，那是操作員的白名單，與這個連結無關。",
+    },
+    "unlink_partial_unknown": {
+        "en": "Unlinked from {email} on the bot.\n\nI could not reach the website to"
+              " clear its half, so it may still show this Telegram as connected."
+              " Disconnect it there too, or run /unlink again once the site is back.",
+        "zh": "已在機器人端解除與 {email} 的連結。\n\n但我無法連線到網站清除它那一半，"
+              "所以網站可能仍顯示此 Telegram 為已連結。請一併在網站上解除，"
+              "或等網站恢復後再執行一次 /unlink。",
+    },
+    "unlink_partial_refused": {
+        "en": "Unlinked from {email} on the bot.\n\nThe website declined to clear its"
+              " half — its records disagree with mine. Disconnect Telegram in your"
+              " account settings there as well.",
+        "zh": "已在機器人端解除與 {email} 的連結。\n\n但網站拒絕清除它那一半 —"
+              "它的紀錄與我的不一致。請另外到網站的帳號設定中解除 Telegram 連結。",
     },
     "unlink_not_linked": {
         "en": "This Telegram is not linked to any account.",

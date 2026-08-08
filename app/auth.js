@@ -288,7 +288,47 @@ const RESET_TTL_MS = 30 * 60 * 1000;       // 30m
 
 // Issue a verification token for a user and email the link. Best-effort: a
 // mailer failure never breaks the calling flow (registration still succeeds).
-async function sendVerificationEmail(userId, email) {
+// The welcome half of the first email. Kept as ONE message rather than two:
+// a fresh account receiving a "welcome" and a "verify" back to back reads as a
+// mailing list, and the verify link is the only thing either of them needs the
+// reader to do.
+//
+// It states what the account actually gets, in the order it becomes true —
+// paper now, Telegram link next, live only with operator approval. A welcome
+// that implies live trading is one tap away is the same promise-then-refuse
+// the bot's own onboarding was fixed for; the person just finds out later.
+function _welcomeBlocks(link) {
+  const text =
+    'Welcome to RUNECLAW.\n\n'
+    + 'Confirm your email to finish setting up (link valid 24h):\n'
+    + `${link}\n\n`
+    + 'What you can do straight away:\n'
+    + '  - Paper trading and the dashboard — no setup, no exchange keys.\n'
+    + '  - Ask the assistant about any market from the chat panel.\n\n'
+    + 'Optional next steps:\n'
+    + '  - Link Telegram from the dashboard to manage exchange keys and your\n'
+    + '    live-trading controls, and to get alerts in Telegram.\n'
+    + '  - Live trading additionally needs the operator to approve your\n'
+    + '    account. Paper works without any of this.\n\n'
+    + "If you didn't create an account, ignore this message.";
+  const html =
+    '<p>Welcome to <b>RUNECLAW</b>.</p>'
+    + `<p><a href="${link}">Confirm your email</a> to finish setting up (valid 24h).</p>`
+    + '<p><b>Straight away:</b> paper trading and the dashboard — no setup, no '
+    + 'exchange keys — plus the assistant in the chat panel.</p>'
+    + '<p><b>Optional:</b> link Telegram from the dashboard for exchange-key '
+    + 'management, your live-trading controls and alerts. Live trading also '
+    + 'needs operator approval; paper works without any of it.</p>'
+    + '<p style="color:#888;font-size:12px">If you didn\'t create an account, '
+    + 'ignore this message.</p>';
+  return { text, html };
+}
+
+// Issue a verification token for a user and email the link. Best-effort: a
+// mailer failure never breaks the calling flow (registration still succeeds).
+// `welcome` sends the fuller first-contact version (registration); the resend
+// path keeps the short one, since by then they know what the product is.
+async function sendVerificationEmail(userId, email, { welcome = false } = {}) {
   try {
     const raw = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + VERIFY_TTL_MS);
@@ -298,13 +338,18 @@ async function sendVerificationEmail(userId, email) {
     );
     const base = mailer.baseUrl();
     const link = `${base}/verify?token=${raw}`;
-    await mailer.sendMail({
-      to: email,
-      subject: 'Verify your RUNECLAW email',
+    const body = welcome ? _welcomeBlocks(link) : {
       text: `Confirm your email to finish setting up RUNECLAW.\n\nOpen this link (valid 24h):\n${link}\n\nIf you didn't create an account, ignore this message.`,
       html: `<p>Confirm your email to finish setting up <b>RUNECLAW</b>.</p>`
         + `<p><a href="${link}">Verify my email</a> (valid 24h)</p>`
         + `<p style="color:#888;font-size:12px">If you didn't create an account, ignore this message.</p>`,
+    };
+    await mailer.sendMail({
+      to: email,
+      subject: welcome ? 'Welcome to RUNECLAW — confirm your email'
+                       : 'Verify your RUNECLAW email',
+      text: body.text,
+      html: body.html,
     });
     return true;
   } catch (err) {
@@ -364,7 +409,7 @@ router.post('/register', async (req, res) => {
     // Best-effort verification email (no-op when SMTP unconfigured). Fired
     // before responding so the token is persisted; never blocks on delivery
     // errors (sendVerificationEmail swallows them).
-    await sendVerificationEmail(userId, normalizedEmail);
+    await sendVerificationEmail(userId, normalizedEmail, { welcome: true });
     res.json(await sessionResponse({ id: userId, email: normalizedEmail },
       { email_pending: mailer.isConfigured() }));
   } catch (err) {
@@ -1063,6 +1108,25 @@ router.post('/change-password', authMiddleware, async (req, res) => {
 // to avoid account enumeration. Rate-limited per IP (shared login limiter).
 router.post('/forgot-password', async (req, res) => {
   const generic = { ok: true, message: 'If that email has an account, a reset link is on its way.' };
+  // "a reset link is on its way" is false when the mailer is a no-op, and the
+  // person then waits, re-checks spam, and concludes the account is broken.
+  //
+  // Saying so leaks NOTHING. The generic body exists to hide whether an
+  // account exists; whether this deployment has SMTP configured is a property
+  // of the server and is identical for every address, including addresses that
+  // have no account. So the unconfigured branch can be honest, while the
+  // configured branch keeps the generic wording — including when a send
+  // throws, since only accounts with a password attempt one and a distinct
+  // error there WOULD be an enumeration oracle.
+  if (!mailer.isConfigured()) {
+    return res.json({
+      ok: false,
+      error: 'email_not_configured',
+      message: 'Password reset by email is not available on this deployment — '
+        + 'no mail server is configured, so no link can be sent. Ask the '
+        + 'operator to set up SMTP, or sign in with a linked social account.',
+    });
+  }
   try {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
     if (!checkRateLimit(clientIp)) {

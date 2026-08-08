@@ -161,7 +161,14 @@ def _web_skill_denied(tg_handler, tg_id: str, skill_name: str):
         return web.json_response(
             {"reply_html": "That is not available from the web chat.",
              "error": "skill_not_web_enabled"}, status=403)
-    if not tg_handler.users.has_permission(tg_id, perm):
+    _denial = tg_handler.users.permission_denial(tg_id, perm)
+    if _denial == "stale_session":
+        return web.json_response(
+            {"reply_html": ("That one can move money, so it locks after 24 hours "
+                            "of inactivity. Send /start to the bot in Telegram, "
+                            "then try again."),
+             "error": "session_expired"}, status=403)
+    if _denial:
         role = (tg_handler.users.get(tg_id) or {}).get("role", "pending")
         return web.json_response(
             {"reply_html": f"Your role ({role}) cannot use that.",
@@ -201,11 +208,18 @@ def _guard_user(tg_handler, tg_id: str, command: str = "", name: str = ""):
         # register() never overwrites role/tier on existing users.
         tg_handler.users.register(tg_id, name=name)
     else:
+        # Same two doors as TelegramHandler._is_allowlisted: the env allowlist,
+        # or an admin's /approve (UserStore.is_admitted). Reading env alone here
+        # would mean an approved user works in Telegram and is refused on the
+        # web — the same claim, answered two ways, which is the divergence this
+        # repo keeps paying for.
         allow = tg_handler._allowlist_ids()
-        if allow and tg_id not in allow:
+        if allow and tg_id not in allow and not tg_handler.users.is_admitted(tg_id):
             return web.json_response(
                 {"error": "not_allowlisted",
-                 "detail": "This bot is locked to its configured operator."},
+                 "detail": ("Not approved for this bot yet. Send /start to it in "
+                            "Telegram — the operator gets a request and you'll "
+                            "hear back there.")},
                 status=403)
     user = tg_handler.users.get(tg_id)
     if not user or not user.get("authorized", False):
@@ -213,11 +227,22 @@ def _guard_user(tg_handler, tg_id: str, command: str = "", name: str = ""):
             {"error": "not_authorized",
              "detail": "Not registered/approved on the bot. Use /start in Telegram."},
             status=403)
-    if command and not tg_handler.users.has_permission(tg_id, command):
-        return web.json_response(
-            {"error": "no_permission",
-             "detail": f"Your role cannot use {command}."},
-            status=403)
+    if command:
+        # "role" and "stale_session" are different problems with different
+        # fixes; both used to print the role wording, so a user idle for a day
+        # was told their role could not do something their role can.
+        _denial = tg_handler.users.permission_denial(tg_id, command)
+        if _denial == "stale_session":
+            return web.json_response(
+                {"error": "session_expired",
+                 "detail": (f"{command} can move money, so it locks after 24h "
+                            "of inactivity. Send /start in Telegram, then retry.")},
+                status=403)
+        if _denial:
+            return web.json_response(
+                {"error": "no_permission",
+                 "detail": f"Your role cannot use {command}."},
+                status=403)
     if not tg_handler._limiter.allow(f"web:{tg_id}"):
         return web.json_response({"error": "rate_limited"}, status=429)
     return None

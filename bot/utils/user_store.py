@@ -152,6 +152,16 @@ DEFAULT_TIER = "basic"
 # Default role for new auto-approved users
 DEFAULT_AUTO_ROLE = "trader"
 
+# F-14: a SENSITIVE command (trade/halt/reset/mode/golive/approve/revoke) is
+# refused after this much inactivity, so a hijacked-but-idle chat cannot move
+# money. Named because it was an unexplained 86400 inside has_permission and
+# the message it produced named neither the rule nor the remedy.
+SESSION_MAX_AGE_SECONDS = 86400
+
+# `touch()` writes to disk at most this often. Every guarded command records
+# activity; without a floor that is a users.json rewrite per message.
+TOUCH_PERSIST_SECONDS = 300
+
 
 log = logging.getLogger("runeclaw.user_store")
 
@@ -264,8 +274,19 @@ class UserStore:
                 if "tier" not in self._users[key]:
                     role = self._users[key].get("role", "pending")
                     self._users[key]["tier"] = "admin" if role == "admin" else DEFAULT_TIER
-                # Auto-upgrade legacy pending users on interaction
-                if self._users[key].get("role") == "pending":
+                # Auto-upgrade legacy PENDING users on interaction — users who
+                # registered before auto-approve existed and never had a
+                # decision made about them.
+                #
+                # NOT users an admin revoked. Both states are `role: "pending",
+                # authorized: False`, so this branch could not tell them apart
+                # and cheerfully re-authorized anyone /revoke had just removed:
+                # /start called register(), so revoking someone lasted exactly
+                # until their next message. `revoked_at` is the distinction —
+                # written by revoke(), absent on a legacy record — and a
+                # deliberate decision outranks a migration.
+                if (self._users[key].get("role") == "pending"
+                        and not self._users[key].get("revoked_at")):
                     self._users[key]["role"] = auto_role
                     self._users[key]["authorized"] = True
                     self._users[key]["can_trade_live"] = False
@@ -296,8 +317,23 @@ class UserStore:
                   action="user_auto_approve", result="OK")
             return user
 
-    def authorize(self, telegram_id: int | str, role: str = "trader") -> bool:
-        """Promote a user to an authorized role. Returns True on success."""
+    def authorize(self, telegram_id: int | str, role: str = "trader",
+                  by: str = "") -> bool:
+        """Promote a user to an authorized role. Returns True on success.
+
+        ``by`` is the Telegram id of the ADMIN performing the approval. When it
+        is given, the record is also stamped ``admitted_at``/``admitted_by`` —
+        the flag ``is_admitted()`` reads and the only thing besides the env
+        allowlist that opens the bot's gate (see TelegramHandler._is_allowlisted).
+
+        The parameter is not cosmetic and it is not optional by accident. F-2
+        closed the hole where any /start made a stranger an authorized trader,
+        by gating access on env vars alone. That left `authorized: True` — which
+        register() sets for everyone — meaning nothing, and left /approve unable
+        to grant the access it announces. Splitting the two restores /approve
+        while keeping the hole shut: register() cannot name an approving admin,
+        so it cannot admit anyone.
+        """
         key = str(telegram_id)
         if role not in ROLES or role == "pending":
             return False
@@ -322,8 +358,16 @@ class UserStore:
                 if role == "admin":
                     self._users[key]["tier"] = "admin"
                     self._users[key]["can_trade_live"] = True
+            # Approving somebody clears a previous revocation — otherwise
+            # /revoke followed by /approve leaves a record that reads as both.
+            self._users[key].pop("revoked_at", None)
+            if by:
+                self._users[key]["admitted_at"] = datetime.now(UTC).isoformat()
+                self._users[key]["admitted_by"] = str(by)
             self._save()
-            audit(system_log, f"User authorized: {key} as {role}",
+            audit(system_log,
+                  f"User authorized: {key} as {role}"
+                  + (f" by {by}" if by else " (no admitting admin recorded)"),
                   action="user_authorize", result="OK")
             return True
 
@@ -336,6 +380,17 @@ class UserStore:
             self._users[key]["role"] = "pending"
             self._users[key]["authorized"] = False
             self._users[key]["can_trade_live"] = False
+            # Mark this as a DECISION, not an un-migrated legacy record.
+            # Without it, register()'s legacy-pending auto-upgrade cannot tell
+            # the two apart and re-authorizes them on their next message.
+            self._users[key]["revoked_at"] = datetime.now(UTC).isoformat()
+            # Drop the admission too, or /revoke would leave the gate open: the
+            # allowlist reads admitted_by, not role.
+            self._users[key].pop("admitted_at", None)
+            self._users[key].pop("admitted_by", None)
+            # Let them ask again — the one-shot request flag is what stops a
+            # stranger spamming the operator, not a permanent ban.
+            self._users[key].pop("access_requested_at", None)
             self._save()
             audit(system_log, f"User revoked: {key}",
                   action="user_revoke", result="OK")
@@ -345,6 +400,69 @@ class UserStore:
         """Check if user exists and is authorized."""
         user = self.get(telegram_id)
         return user is not None and user.get("authorized", False)
+
+    # ── Admission: an admin deliberately let this person in ────
+
+    def is_admitted(self, telegram_id: int | str) -> bool:
+        """Whether an ADMIN explicitly approved this user onto the bot.
+
+        Distinct from ``authorized``, which register() sets for every first
+        contact and therefore cannot gate anything. Both stamps are required:
+        a record carrying only ``admitted_at`` names nobody responsible, and an
+        unattributable admission is exactly what F-2 was closed against.
+        """
+        user = self.get(telegram_id)
+        if not user:
+            return False
+        return bool(user.get("admitted_at") and user.get("admitted_by")
+                    and user.get("authorized", False))
+
+    def mark_access_requested(self, telegram_id: int | str) -> bool:
+        """Flag that this user has been turned away; True the FIRST time only.
+
+        The operator gets one notification per person, not one per refused
+        command — a stranger tapping through the menu would otherwise page them
+        twenty times. Cleared by revoke() so a later re-request still lands.
+        """
+        key = str(telegram_id)
+        with self._lock:
+            rec = self._users.get(key)
+            if rec is None or rec.get("access_requested_at"):
+                return False
+            rec["access_requested_at"] = datetime.now(UTC).isoformat()
+            self._save()
+            return True
+
+    def touch(self, telegram_id: int | str) -> None:
+        """Record activity for the F-14 session window, persisting it.
+
+        _guard used to refresh ``last_seen`` by mutating the dict in place with
+        no save, so the timestamp lived only in memory. Every restart reverted
+        each user to whatever was last written — for most people their
+        registration — and the first sensitive command after a redeploy was
+        refused as a permission problem. The window only means "24h of
+        inactivity" if inactivity survives a restart.
+
+        Writes are throttled to TOUCH_PERSIST_SECONDS; a lag of minutes against
+        a 24-hour window changes no decision.
+        """
+        key = str(telegram_id)
+        now = datetime.now(UTC)
+        with self._lock:
+            rec = self._users.get(key)
+            if rec is None:
+                return
+            previous = rec.get("last_seen") or ""
+            rec["last_seen"] = now.isoformat()
+            due = True
+            if previous:
+                try:
+                    due = ((now - datetime.fromisoformat(previous)).total_seconds()
+                           >= TOUCH_PERSIST_SECONDS)
+                except (ValueError, TypeError):
+                    due = True
+            if due:
+                self._save()
 
     # ── Live trading permission ────────────────────────────────
 
@@ -598,20 +716,27 @@ class UserStore:
 
     # ── Command permission check ───────────────────────────────
 
-    def has_permission(self, telegram_id: int | str, command: str) -> bool:
-        """Check if user has permission for a specific command.
+    def permission_denial(self, telegram_id: int | str,
+                          command: str) -> Optional[str]:
+        """Why ``command`` is refused for this user, or None when it is allowed.
 
-        F-14 FIX: Sensitive commands (trade, halt, reset, mode, golive)
-        require the user to have been active within the last 24 hours.
-        If the session is stale, only read-only commands are permitted.
+        ``"role"``           the caller's role does not carry this command
+        ``"stale_session"``  the role DOES carry it, but F-14 expires sensitive
+                             commands after 24h of inactivity
+
+        Split out of has_permission because every caller printed the role reason
+        for both causes. A trader idle for a day was told "your role (trader)
+        cannot use /trade" — which is false, the role can — and the message
+        named no remedy, so /start (the one thing that fixes it) was unguessable.
+        A heuristic is never a verdict; neither is one branch of an `or`.
         """
         user = self.get(telegram_id)
         if not user:
-            return command in ROLE_PERMISSIONS.get("pending", set())
+            return None if command in ROLE_PERMISSIONS.get("pending", set()) else "role"
         role = user.get("role", "pending")
         perms = ROLE_PERMISSIONS.get(role, set())
         if "*" not in perms and command not in perms:
-            return False
+            return "role"
         # F-14: session timeout for sensitive commands
         _SENSITIVE_CMDS = {"trade", "halt", "reset", "mode", "golive", "approve", "revoke"}
         if command in _SENSITIVE_CMDS:
@@ -620,11 +745,20 @@ class UserStore:
                 try:
                     from datetime import datetime as _dt
                     last_dt = _dt.fromisoformat(last_seen)
-                    if (datetime.now(UTC) - last_dt).total_seconds() > 86400:
-                        return False  # stale session — require /start to refresh
+                    if (datetime.now(UTC) - last_dt).total_seconds() > SESSION_MAX_AGE_SECONDS:
+                        return "stale_session"  # /start refreshes it
                 except (ValueError, TypeError):
                     pass
-        return True
+        return None
+
+    def has_permission(self, telegram_id: int | str, command: str) -> bool:
+        """Check if user has permission for a specific command.
+
+        F-14 FIX: Sensitive commands (trade, halt, reset, mode, golive)
+        require the user to have been active within the last 24 hours.
+        If the session is stale, only read-only commands are permitted.
+        """
+        return self.permission_denial(telegram_id, command) is None
 
     # ── Listing and counting ───────────────────────────────────
 
@@ -666,12 +800,17 @@ class UserStore:
         This promotes them to trader/basic with paper trading, matching what
         new users get automatically.
 
+        Skips anyone an admin REVOKED (``revoked_at``). This runs on every
+        startup, so without the check a revocation survived exactly until the
+        next restart — and unlike the register() path, silently, with no
+        message from the person involved to prompt anyone to look.
+
         Returns the number of users migrated.
         """
         migrated = 0
         with self._lock:
             for key, user in self._users.items():
-                if user.get("role") == "pending":
+                if user.get("role") == "pending" and not user.get("revoked_at"):
                     user["role"] = DEFAULT_AUTO_ROLE
                     user["authorized"] = True
                     user["can_trade_live"] = False

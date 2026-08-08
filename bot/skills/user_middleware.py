@@ -29,17 +29,41 @@ WEBSITE_URL = site_url()
 REGISTER_URL = WEBSITE_URL
 
 
+_LANG_STORE_TTL = 60.0     # seconds
+_lang_store: tuple = (0.0, None)
+
+
 def _user_lang(chat_id) -> str:
     """Resolve the user's UI language for i18n. Fails safe to English.
 
     The language preference lives in the JSON UserStore (keyed by Telegram id),
     a separate store from the SQLite records this middleware uses — so we read
     it directly here (read-only; UserStore() just loads data/users.json).
+
+    Cached for a minute rather than constructed per call. This is on the message
+    path and `cmd_sync` alone called it three times, so it was re-reading and
+    re-parsing users.json several times per command — and UserStore._load now
+    moves the file aside on an unreadable read (a disk blip, an EINTR), so every
+    extra construction is another chance to trip a rescue this caller has no
+    business triggering.
+
+    A minute, not forever: /lang writes through the handler's OWN store
+    instance, so a cache here is a second copy that cannot see the change. One
+    minute keeps /lang feeling immediate while cutting the reads by orders of
+    magnitude. This is a display preference; a stale minute costs nothing.
     """
+    global _lang_store
     try:
+        import time as _time
+
         from bot.utils.i18n import get_user_lang
         from bot.utils.user_store import UserStore
-        return get_user_lang(UserStore(), str(chat_id))
+        now = _time.monotonic()
+        stamped_at, store = _lang_store
+        if store is None or (now - stamped_at) > _LANG_STORE_TTL:
+            store = UserStore()
+            _lang_store = (now, store)
+        return get_user_lang(store, str(chat_id))
     except Exception:
         return "en"
 
@@ -193,8 +217,18 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(t("link_unreachable", _user_lang(chat_id)))
         return
 
-    user_id = result["user_id"]
-    email = result["email"]
+    # A 200 with the wrong shape used to raise KeyError straight past every
+    # handler here into the generic "Something went wrong" — which reads as a
+    # bad token and sends the user round the loop again, generating tokens
+    # against a website that is answering but not with this.
+    try:
+        user_id = int(result["user_id"])
+        email = str(result["email"])
+    except (KeyError, TypeError, ValueError):
+        log.error("validate-token returned an unexpected body: %r",
+                  sorted(result) if isinstance(result, dict) else type(result))
+        await update.message.reply_text(t("link_validate_failed", _user_lang(chat_id)))
+        return
     plan = result.get("plan", "free")
 
     # Ensure a matching user record exists in local SQLite (website uses MySQL,
@@ -215,21 +249,55 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as exc:
         log.warning(f"Initial sync failed: {exc}")
 
-    await update.message.reply_text(t("link_success", _user_lang(chat_id), email=email, plan=plan))
+    await update.message.reply_text(
+        t("link_success", _user_lang(chat_id), email=email, plan=plan,
+          url=REGISTER_URL))
 
 
 # -- /unlink command ---------------------------------------------------------
 
 async def cmd_unlink(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Disconnect this Telegram from the linked RUNECLAW account."""
+    """Disconnect this Telegram from the linked RUNECLAW account.
+
+    A link has TWO sides. This used to clear only the bot's local
+    ``user_telegram`` row and then say "Unlinked from {email}. Your data is
+    preserved." — while the website kept ``telegram_linked = TRUE`` and the
+    stored ``telegram_id``, which is exactly the pair its credential and
+    live-control routes gate on. So a user who believed they had disconnected
+    could still have exchange-key submissions pointed at this chat.
+
+    Now the website is told first, and the reply says which halves actually
+    completed. A website that cannot be reached is reported as unknown, not as
+    done: an unreadable result is not a result.
+    """
     chat_id = str(update.effective_chat.id)
+    lang = _user_lang(chat_id)
     user = get_user_by_chat_id(chat_id)
     if not user:
-        await update.message.reply_text(t("unlink_not_linked", _user_lang(chat_id)))
+        await update.message.reply_text(t("unlink_not_linked", lang))
         return
 
+    try:
+        from bot.utils.website_sync import unlink_telegram_on_website
+        website = unlink_telegram_on_website(user.id, chat_id)
+    except Exception as exc:                       # never block the local half
+        log.warning(f"Website unlink failed: {exc}")
+        website = None
+
+    # The local row goes regardless. Leaving the bot linked because the website
+    # was unreachable would mean /unlink did nothing at all — the worse of the
+    # two partial states, since this side is what the bot itself reads.
     unlink_telegram(user.id)
-    await update.message.reply_text(t("unlink_success", _user_lang(chat_id), email=user.email))
+
+    if website is True:
+        await update.message.reply_text(
+            t("unlink_success", lang, email=user.email))
+    elif website is False:
+        await update.message.reply_text(
+            t("unlink_partial_refused", lang, email=user.email))
+    else:
+        await update.message.reply_text(
+            t("unlink_partial_unknown", lang, email=user.email))
 
 
 # -- /me command -------------------------------------------------------------
