@@ -36,12 +36,12 @@ test('outcomeOf: an unreadable price is null, never flat and never a zero', () =
   assert.notEqual(d.outcomeOf(100, 0), 'flat');
 });
 
-test('roundOutcome: a terminally unresolved round answers null even with a price', () => {
+test('pickOutcome: a terminally unresolved call answers null even with a price', () => {
   const settled = { entry_price: 100, settle_price: 110 };
-  assert.equal(d.roundOutcome(settled), 'up');
-  assert.equal(d.roundOutcome({ ...settled, settle_state: 'unresolved' }), null);
-  assert.equal(d.roundOutcome({ entry_price: 100, settle_price: null }), null);
-  assert.equal(d.roundOutcome(null), null);
+  assert.equal(d.pickOutcome(settled), 'up');
+  assert.equal(d.pickOutcome({ ...settled, settle_state: 'unresolved' }), null);
+  assert.equal(d.pickOutcome({ entry_price: 100, settle_price: null }), null);
+  assert.equal(d.pickOutcome(null), null);
 });
 
 // ── scorePick ────────────────────────────────────────────────────────────────
@@ -147,11 +147,12 @@ test('buildRounds: the agent\'s own calls lead, strongest conviction first', () 
 test('buildRounds: a signal with no readable price yields no round, not a guessed one', () => {
   const signals = [{ symbol: 'GHOSTUSDT', direction: 'long', confidence: 0.99 }];
   const rounds = d.buildRounds('2026-08-08', signals, TICKERS);
+  // A symbol nobody could get a price for is a symbol nobody could call, so
+  // it does not go on the card at all.
   assert.ok(!rounds.some(r => r.symbol === 'GHOSTUSDT'),
     'a symbol we cannot price must not become a round');
-  for (const r of rounds) {
-    assert.ok(Number.isFinite(r.entry_price) && r.entry_price > 0);
-  }
+  assert.equal(rounds.length, d.ROUNDS_PER_DAY, 'the card is still filled from the majors');
+  for (const r of rounds) assert.ok(TICKERS[r.symbol].price > 0);
 });
 
 test('buildRounds: unknown confidence ranks below every known one', () => {
@@ -177,11 +178,21 @@ test('buildRounds: deterministic, capped, and never repeats a symbol', () => {
   a.forEach((r, i) => assert.equal(r.idx, i));
 });
 
-test('buildRounds: lock precedes settle, both anchored to the UTC day', () => {
+test('buildRounds: the round carries no price and no horizon — those are the caller\'s', () => {
+  // The fairness property, pinned. A shared entry snapped when the card opened
+  // would hand every later player a free look at how the day had gone.
   const [r] = d.buildRounds('2026-08-08', [], TICKERS);
-  assert.equal(r.locks_at, '2026-08-08T12:00:00.000Z');
-  assert.equal(r.resolves_at, '2026-08-09T00:00:00.000Z');
-  assert.ok(Date.parse(r.locks_at) < Date.parse(r.resolves_at));
+  assert.ok(!('entry_price' in r), 'the entry belongs to whoever calls, when they call');
+  assert.ok(!('resolves_at' in r), 'the horizon runs from the call, not from the card');
+  assert.ok(!('locks_at' in r));
+  assert.deepEqual(Object.keys(r).sort(),
+    ['agent_direction', 'day', 'idx', 'signal_key', 'symbol']);
+});
+
+test('horizonFor runs the stated window from the moment of the call', () => {
+  assert.equal(d.horizonFor(new Date('2026-08-08T18:30:00Z')), '2026-08-09T18:30:00.000Z');
+  assert.equal(d.horizonFor(new Date('2026-08-08T00:00:00Z')), '2026-08-09T00:00:00.000Z');
+  assert.strictEqual(d.horizonFor('nonsense'), null);
 });
 
 test('buildRounds: a malformed day yields nothing rather than an Invalid Date round', () => {
@@ -191,52 +202,67 @@ test('buildRounds: a malformed day yields nothing rather than an Invalid Date ro
 
 // ── lock / settle predicates ────────────────────────────────────────────────
 
-test('isLocked: an unknown lock time is treated as CLOSED, not open', () => {
-  // Fail-closed: the alternative would accept picks on a round whose deadline
-  // we cannot read — i.e. after the outcome may already be visible.
-  assert.equal(d.isLocked({}, new Date('2026-08-08T00:00:00Z')), true);
-  assert.equal(d.isLocked({ locks_at: 'garbage' }, new Date('2026-08-08T00:00:00Z')), true);
-  assert.equal(d.isLocked({ locks_at: '2026-08-08T12:00:00Z' },
-    new Date('2026-08-08T11:59:00Z')), false);
-  assert.equal(d.isLocked({ locks_at: '2026-08-08T12:00:00Z' },
-    new Date('2026-08-08T12:00:01Z')), true);
+test('isCallable: a round is open for its whole day, and shut outside it', () => {
+  const r = { day: '2026-08-08' };
+  // The whole point of per-call entries: the card can stay open all day
+  // because waiting buys nobody an advantage.
+  assert.equal(d.isCallable(r, new Date('2026-08-08T00:00:01Z')), true);
+  assert.equal(d.isCallable(r, new Date('2026-08-08T23:59:59Z')), true);
+  assert.equal(d.isCallable(r, new Date('2026-08-09T00:00:01Z')), false);
+  // Fail-closed on an unreadable day rather than accepting a call we cannot
+  // place in time.
+  assert.equal(d.isCallable({}, new Date('2026-08-08T12:00:00Z')), false);
+  assert.equal(d.isCallable(null, new Date('2026-08-08T12:00:00Z')), false);
 });
 
-test('isDue / isAbandoned mark the two settlement boundaries', () => {
-  const r = { resolves_at: '2026-08-09T00:00:00Z' };
-  assert.equal(d.isDue(r, new Date('2026-08-08T23:59:00Z')), false);
-  assert.equal(d.isDue(r, new Date('2026-08-09T00:00:01Z')), true);
-  assert.equal(d.isAbandoned(r, new Date('2026-08-10T00:00:00Z')), false);
-  assert.equal(d.isAbandoned(r, new Date('2026-08-17T00:00:00Z')), true);
+test('isDue / isAbandoned mark the two settlement boundaries of a call', () => {
+  const p = { resolves_at: '2026-08-09T00:00:00Z' };
+  assert.equal(d.isDue(p, new Date('2026-08-08T23:59:00Z')), false);
+  assert.equal(d.isDue(p, new Date('2026-08-09T00:00:01Z')), true);
+  assert.equal(d.isAbandoned(p, new Date('2026-08-10T00:00:00Z')), false);
+  assert.equal(d.isAbandoned(p, new Date('2026-08-17T00:00:00Z')), true);
+  // An absent horizon is never "due" — it is unknown, and acting on it would
+  // settle a call against a time we never recorded.
+  assert.equal(d.isDue({}, new Date('2030-01-01T00:00:00Z')), false);
 });
 
 // ── publicRound ─────────────────────────────────────────────────────────────
 
 test('publicRound omits the agent stance entirely until it is revealed', () => {
-  const round = {
-    id: 1, day: '2026-08-08', idx: 0, symbol: 'BTCUSDT', entry_price: 60000,
-    agent_direction: 'long', locks_at: '2026-08-08T12:00:00Z',
-    resolves_at: '2026-08-09T00:00:00Z',
-  };
-  const hidden = d.publicRound(round, { revealAgent: false });
+  const round = { id: 1, day: '2026-08-08', idx: 0, symbol: 'BTCUSDT', agent_direction: 'long' };
+  const at = new Date('2026-08-08T09:00:00Z');
+  const hidden = d.publicRound(round, { revealAgent: false, now: at });
   // Absent, NOT null: a null field is indistinguishable from "the agent
   // passed", which is a real answer — so nulling it would leak one fact and
   // lie about another.
   assert.ok(!('agent_direction' in hidden), 'the stance must be absent, not null');
   assert.equal(JSON.stringify(hidden).includes('long'), false);
 
-  const shown = d.publicRound(round, { revealAgent: true });
+  const shown = d.publicRound(round, { revealAgent: true, now: at });
   assert.equal(shown.agent_direction, 'long');
 });
 
-test('publicRound: a due-but-unpriced round says unresolved, not flat', () => {
-  const round = {
-    id: 2, day: '2026-08-08', idx: 1, symbol: 'ETHUSDT', entry_price: 3000,
-    settle_price: null, agent_direction: null,
-    locks_at: '2026-08-08T12:00:00Z', resolves_at: '2026-08-09T00:00:00Z',
-  };
-  const v = d.publicRound(round, { revealAgent: true, now: new Date('2026-08-09T06:00:00Z') });
-  assert.equal(v.outcome, null);
-  assert.equal(v.unresolved, true);
-  assert.ok(!('move_pct' in v), 'no move may be reported for a price we never read');
+test('publicPick keeps pending and unresolved distinct from each other', () => {
+  const base = { pick: 'long', entry_price: 100, resolves_at: '2026-08-09T00:00:00Z' };
+
+  // Horizon not reached: waiting, and it must not read as an outcome.
+  const waiting = d.publicPick(base, { now: new Date('2026-08-08T18:00:00Z') });
+  assert.equal(waiting.pending, true);
+  assert.strictEqual(waiting.outcome, null);
+  assert.ok(!('unresolved' in waiting));
+
+  // Horizon reached, no price: unresolved — a different thing entirely.
+  // Collapsing these two is how a waiting call starts reading as a loss.
+  const dead = d.publicPick(base, { now: new Date('2026-08-09T06:00:00Z') });
+  assert.equal(dead.unresolved, true);
+  assert.strictEqual(dead.outcome, null);
+  assert.ok(!('pending' in dead));
+  assert.ok(!('move_pct' in dead), 'no move may be reported for a price we never read');
+
+  // Settled: a real answer, with the move beside it.
+  const done = d.publicPick({ ...base, settle_price: 110 },
+    { now: new Date('2026-08-09T06:00:00Z') });
+  assert.equal(done.outcome, 'up');
+  assert.equal(done.move_pct, 10);
+  assert.ok(!('pending' in done) && !('unresolved' in done));
 });

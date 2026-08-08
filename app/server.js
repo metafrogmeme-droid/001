@@ -331,6 +331,7 @@ app.use('/api/authority', require('./routes/authority'));
 app.use('/api/sentry', require('./routes/sentry'));
 app.use('/api/positions', require('./routes/positions'));
 app.use('/api/arena', require('./routes/arena'));
+app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));

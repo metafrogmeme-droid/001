@@ -2,9 +2,16 @@
 /**
  * Daily Duel — the player calls the market before the agent's call is shown.
  *
- * Three rounds a UTC day. Each round is a symbol, an entry price snapped at
- * creation, and a 24h horizon. The player calls LONG / SHORT / PASS before the
- * lock; the market settles it. Beating the agent scores double.
+ * Three rounds a UTC day. A round is a SYMBOL and the agent's stance on it;
+ * the player calls LONG / SHORT / PASS, and the 24h horizon is measured from
+ * THEIR call. Beating the agent scores double.
+ *
+ * The entry belongs to the pick, not to the round, and that is a fairness
+ * property rather than an implementation detail. A shared entry snapped at
+ * midnight would hand every later player a free look at how the day had
+ * already gone — and a lock early enough to prevent that would close the game
+ * for most of the day. Scoring each call from the price at the moment it was
+ * made means nobody can profit by waiting, and the card stays open all day.
  *
  * This module is PURE — no I/O, no clock beyond an injectable `now`, no DB. It
  * is the single implementation of the rules: the web routes, the public board
@@ -31,8 +38,8 @@ const { computeStreak, isoWeek, weekStart } = require('./arena_streaks');
 const { SEASON_MAJORS } = require('./arena_seasons');
 
 const ROUNDS_PER_DAY = 3;
-const LOCK_HOURS = 12;      // picks close halfway through the day
-const HORIZON_HOURS = 24;   // ...and settle at the end of it
+/** How long a call runs, measured from the moment it was made. */
+const HORIZON_HOURS = 24;
 /** |move| under this settles FLAT: below it the "direction" is noise. */
 const DEAD_BAND_PCT = 0.05;
 const DAY_MS = 86400000;
@@ -88,14 +95,14 @@ function outcomeOf(entryPrice, settlePrice) {
 }
 
 /**
- * A stored round's outcome. `settle_state === 'unresolved'` is the terminal
- * "we never got a price for this" marker and answers null, same as an
- * unsettled round — both are absences, and neither is a measurement.
+ * A stored call's outcome, over its own window. `settle_state === 'unresolved'`
+ * is the terminal "we never got a price for this" marker and answers null, the
+ * same as an unsettled call — both are absences, and neither is a measurement.
  */
-function roundOutcome(round) {
-  if (!round) return null;
-  if (round.settle_state === 'unresolved') return null;
-  return outcomeOf(round.entry_price, round.settle_price);
+function pickOutcome(pick) {
+  if (!pick) return null;
+  if (pick.settle_state === 'unresolved') return null;
+  return outcomeOf(pick.entry_price, pick.settle_price);
 }
 
 /**
@@ -145,7 +152,7 @@ function scoreEntries(rounds, picks) {
     if (!p) continue;
     const round = byId.get(String(p.round_id));
     if (!round) continue;
-    const outcome = roundOutcome(round);
+    const outcome = pickOutcome(p);
     const res = scorePick(p.pick, outcome, round.agent_direction);
     out.push({
       round_id: round.id,
@@ -154,7 +161,9 @@ function scoreEntries(rounds, picks) {
       pick: normPick(p.pick),
       agent_direction: normDirection(round.agent_direction),
       outcome,
-      move_pct: outcome === null ? null : movePct(round.entry_price, round.settle_price),
+      entry_price: Number(p.entry_price),
+      move_pct: outcome === null ? null : movePct(p.entry_price, p.settle_price),
+      resolves_at: p.resolves_at,
       created_at: p.created_at,
       ...res,
     });
@@ -265,8 +274,7 @@ function weeklyDuelQuests(entries, now = new Date()) {
  * it means nobody can be credited with beating an opinion that was never held.
  */
 function buildRounds(day, signals, tickers) {
-  const start = dayStartMs(day);
-  if (!Number.isFinite(start)) return [];
+  if (!Number.isFinite(dayStartMs(day))) return [];
   const marks = tickers || {};
   const chosen = [];
   const seen = new Set();
@@ -275,19 +283,19 @@ function buildRounds(day, signals, tickers) {
     if (chosen.length >= ROUNDS_PER_DAY) return;
     const sym = String(symbol == null ? '' : symbol).trim().toUpperCase();
     if (!sym || seen.has(sym)) return;
+    // A symbol we cannot price right now is a symbol nobody could call, so it
+    // does not go on the card. The price itself is NOT kept: the entry belongs
+    // to whoever calls it, at the moment they do.
     const m = marks[sym];
     const price = m == null ? NaN : Number(m.price);
-    if (!Number.isFinite(price) || price <= 0) return;   // unreadable -> no round
+    if (!Number.isFinite(price) || price <= 0) return;
     seen.add(sym);
     chosen.push({
       day,
       idx: chosen.length,
       symbol: sym,
-      entry_price: price,
       agent_direction: agentDirection,
       signal_key: signalKey,
-      locks_at: new Date(start + LOCK_HOURS * 3600000).toISOString(),
-      resolves_at: new Date(start + HORIZON_HOURS * 3600000).toISOString(),
     });
   };
 
@@ -313,34 +321,45 @@ function buildRounds(day, signals, tickers) {
   return chosen;
 }
 
-/** Has this round locked? Picks are refused from this moment. */
-function isLocked(round, now = new Date()) {
-  if (!round || !round.locks_at) return true;      // unknown lock => closed
-  const t = Date.parse(round.locks_at);
-  return !Number.isFinite(t) || new Date(now).getTime() >= t;
+/**
+ * Is this round still open to calls? A round belongs to its UTC day and closes
+ * when the day does. There is no earlier lock and none is needed: because each
+ * call is scored from the price at the moment it was made, waiting buys a
+ * player nothing, so the card can stay open for the whole day it belongs to.
+ */
+function isCallable(round, now = new Date()) {
+  if (!round || !round.day) return false;          // unknown day => not open
+  return dayKey(now) === String(round.day);
 }
 
-/** Is this round due to settle? */
-function isDue(round, now = new Date()) {
-  if (!round || !round.resolves_at) return false;
-  const t = Date.parse(round.resolves_at);
+/** The horizon for a call made now. */
+function horizonFor(pickedAt) {
+  const t = new Date(pickedAt).getTime();
+  if (!Number.isFinite(t)) return null;
+  return new Date(t + HORIZON_HOURS * 3600000).toISOString();
+}
+
+/** Is this call due to settle? */
+function isDue(pick, now = new Date()) {
+  if (!pick || !pick.resolves_at) return false;
+  const t = Date.parse(pick.resolves_at);
   return Number.isFinite(t) && new Date(now).getTime() >= t;
 }
 
-/** Past this, a round we still cannot price is marked terminally unresolved
+/** Past this, a call we still cannot price is marked terminally unresolved
  *  rather than left pending forever. */
 const SETTLE_GIVE_UP_MS = 7 * DAY_MS;
-function isAbandoned(round, now = new Date()) {
-  if (!round || !round.resolves_at) return false;
-  const t = Date.parse(round.resolves_at);
+function isAbandoned(pick, now = new Date()) {
+  if (!pick || !pick.resolves_at) return false;
+  const t = Date.parse(pick.resolves_at);
   return Number.isFinite(t) && new Date(now).getTime() >= t + SETTLE_GIVE_UP_MS;
 }
 
 /**
  * The public view of a round. `agent_direction` is OMITTED — not nulled —
- * until the caller has picked or the round has locked: a null field is
- * indistinguishable from "the agent passed", which is a real answer, so
- * showing null early would leak a fact and lie about a different one.
+ * until the caller has committed: a null field is indistinguishable from "the
+ * agent passed", which is a real answer, so showing null early would leak one
+ * fact and lie about another.
  */
 function publicRound(round, { revealAgent, now = new Date() } = {}) {
   const r = round || {};
@@ -349,28 +368,47 @@ function publicRound(round, { revealAgent, now = new Date() } = {}) {
     day: r.day,
     idx: r.idx,
     symbol: r.symbol,
-    entry_price: Number(r.entry_price),
-    locks_at: r.locks_at,
-    resolves_at: r.resolves_at,
+    callable: isCallable(r, now),
   };
-  const outcome = roundOutcome(r);
-  if (outcome !== null) {
-    out.outcome = outcome;
-    out.move_pct = Math.round(movePct(r.entry_price, r.settle_price) * 100) / 100;
-  } else if (isDue(r, now)) {
-    out.outcome = null;
-    out.unresolved = true;
-  }
   if (revealAgent) out.agent_direction = normDirection(r.agent_direction);
   return out;
 }
 
+/**
+ * The public view of one of the caller's OWN calls.
+ *
+ * The three states are kept distinct on purpose. `pending` is "the horizon has
+ * not arrived"; `unresolved` is "it has, and we could not price it". Collapsing
+ * either into an outcome — or into each other — is how a waiting call starts
+ * reading as a settled loss.
+ */
+function publicPick(pick, { now = new Date() } = {}) {
+  const p = pick || {};
+  const out = {
+    pick: normPick(p.pick),
+    entry_price: Number(p.entry_price),
+    resolves_at: p.resolves_at,
+    seal: p.seal || null,
+    outcome: null,
+  };
+  const outcome = pickOutcome(p);
+  if (outcome !== null) {
+    out.outcome = outcome;
+    out.move_pct = Math.round(movePct(p.entry_price, p.settle_price) * 100) / 100;
+  } else if (isDue(p, now)) {
+    out.unresolved = true;
+  } else {
+    out.pending = true;
+  }
+  return out;
+}
+
 module.exports = {
-  ROUNDS_PER_DAY, LOCK_HOURS, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS,
+  ROUNDS_PER_DAY, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS,
   PICKS, DUEL_QUEST_POOL,
-  normPick, normDirection, dayKey, dayStartMs,
-  movePct, outcomeOf, roundOutcome,
+  normPick, normDirection, dayKey, dayStartMs, horizonFor,
+  movePct, outcomeOf, pickOutcome,
   scorePick, scoreEntries, accuracy, computeMarks,
   duelStreak, weeklyDuelQuests,
-  buildRounds, isLocked, isDue, isAbandoned, publicRound,
+  buildRounds, isCallable, isDue, isAbandoned, publicRound, publicPick,
 };

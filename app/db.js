@@ -1462,24 +1462,11 @@ class MemoryDB {
       }
       this.duelRounds.push({
         id: this._nextDuelRoundId++, day, idx: Number(idx), symbol: params[2],
-        entry_price: params[3],
-        agent_direction: params[4] == null ? null : params[4],
-        signal_key: params[5] == null ? null : params[5],
-        locks_at: params[6], resolves_at: params[7],
-        settle_price: null, settle_state: null, settled_at: null,
+        agent_direction: params[3] == null ? null : params[3],
+        signal_key: params[4] == null ? null : params[4],
         created_at: new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelRoundId - 1 }, []];
-    }
-    if (cmd.startsWith('UPDATE DUEL_ROUNDS SET SETTLE')) {
-      // params: settle_price, settle_state, settled_at, id
-      const r = this.duelRounds.find(x => Number(x.id) === Number(params[3]));
-      if (r) {
-        r.settle_price = params[0] == null ? null : params[0];
-        r.settle_state = params[1] == null ? null : params[1];
-        r.settled_at = params[2];
-      }
-      return [{ affectedRows: r ? 1 : 0 }, []];
     }
     if (cmd.includes('FROM DUEL_ROUNDS')) {
       // '>=' is checked first: 'WHERE DAY >= ?' does not contain 'WHERE DAY = ?',
@@ -1508,11 +1495,24 @@ class MemoryDB {
       this.duelPicks.push({
         id: this._nextDuelPickId++, user_id: Number(user_id), round_id: Number(round_id),
         pick: params[2],
-        seal: params[3] == null ? null : params[3],
-        seal_payload: params[4] == null ? null : params[4],
-        created_at: params[5] || new Date().toISOString(),
+        entry_price: params[3],
+        resolves_at: params[4],
+        settle_price: null, settle_state: null, settled_at: null,
+        seal: params[5] == null ? null : params[5],
+        seal_payload: params[6] == null ? null : params[6],
+        created_at: params[7] || new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
+    }
+    if (cmd.startsWith('UPDATE DUEL_PICKS SET SETTLE')) {
+      // params: settle_price, settle_state, settled_at, id
+      const p = this.duelPicks.find(x => Number(x.id) === Number(params[3]));
+      if (p) {
+        p.settle_price = params[0] == null ? null : params[0];
+        p.settle_state = params[1] == null ? null : params[1];
+        p.settled_at = params[2];
+      }
+      return [{ affectedRows: p ? 1 : 0 }, []];
     }
     if (cmd.includes('FROM DUEL_PICKS')) {
       let rows;
@@ -2249,47 +2249,52 @@ async function migrate() {
         PRIMARY KEY (user_id, symbol)
       )
     `);
-    // Daily Duel — the prediction game. Rounds are shared by everyone, so the
-    // unique (day, idx) key is what makes lazy creation race-safe: concurrent
-    // first-readers all INSERT IGNORE and then read the same three rows.
+    // Daily Duel — the prediction game. A round is a SYMBOL and the agent's
+    // stance on it, shared by everyone that UTC day. The unique (day, idx) key
+    // is what makes lazy creation race-safe: concurrent first-readers all
+    // INSERT IGNORE and then read back the same three rows.
     //
-    // settle_price NULL means "not settled yet"; settle_state 'unresolved' is
-    // the terminal "we never got a price". Both are absences and both are
-    // excluded from accuracy — neither is ever written as a zero.
+    // Deliberately no price and no horizon here. Both belong to the pick, so
+    // that a player calling late in the day gets their own 24h window instead
+    // of a free look at how the day has already gone.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS duel_rounds (
         id INT AUTO_INCREMENT PRIMARY KEY,
         day CHAR(10) NOT NULL,
         idx TINYINT NOT NULL,
         symbol VARCHAR(20) NOT NULL,
-        entry_price DOUBLE NOT NULL,
         agent_direction VARCHAR(5) NULL,
         signal_key VARCHAR(128) NULL,
-        locks_at TIMESTAMP NOT NULL,
-        resolves_at TIMESTAMP NOT NULL,
-        settle_price DOUBLE NULL,
-        settle_state VARCHAR(12) NULL,
-        settled_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_round (day, idx),
         INDEX idx_duel_rounds_day (day)
       )
     `);
-    // One pick per player per round, write-once: the unique key is the
-    // anti-cheat. A pick cannot be revised after the outcome is visible
+    // One call per player per round, write-once: the unique key is the
+    // anti-cheat. A call cannot be revised after the outcome is visible
     // because a second write simply has nowhere to land.
+    //
+    // settle_price NULL means "not settled yet"; settle_state 'unresolved' is
+    // the terminal "we never got a price". Both are absences and both are
+    // excluded from accuracy — neither is ever written as a zero.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS duel_picks (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         round_id INT NOT NULL,
         pick VARCHAR(5) NOT NULL,
+        entry_price DOUBLE NOT NULL,
+        resolves_at TIMESTAMP NOT NULL,
+        settle_price DOUBLE NULL,
+        settle_state VARCHAR(12) NULL,
+        settled_at TIMESTAMP NULL,
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_pick (user_id, round_id),
         INDEX idx_duel_picks_user (user_id),
-        INDEX idx_duel_picks_round (round_id)
+        INDEX idx_duel_picks_round (round_id),
+        INDEX idx_duel_picks_due (settle_state, resolves_at)
       )
     `);
   }

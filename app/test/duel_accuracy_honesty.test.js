@@ -18,17 +18,18 @@ const d = require('../lib/duel');
 
 const DAY = '2026-08-08';
 
-/** Build a round/pick pair with an explicit, readable settle. */
+/** Build a round/call pair. The entry and the settle live on the CALL, since
+ *  each player's window runs from the moment they called. */
 function pair(id, { pick, entry = 100, settle, agent = null, state, day = DAY }) {
   return {
-    round: {
-      id, day, idx: id - 1, symbol: 'BTCUSDT', entry_price: entry,
+    round: { id, day, idx: id - 1, symbol: 'BTCUSDT', agent_direction: agent },
+    pick: {
+      round_id: id, pick, entry_price: entry,
       settle_price: settle === undefined ? null : settle,
       settle_state: state || null,
-      agent_direction: agent,
-      locks_at: `${day}T12:00:00.000Z`, resolves_at: `${day}T23:59:59.000Z`,
+      resolves_at: `${day}T23:59:59.000Z`,
+      created_at: `${day}T01:00:00.000Z`,
     },
-    pick: { round_id: id, pick, created_at: `${day}T01:00:00.000Z` },
   };
 }
 

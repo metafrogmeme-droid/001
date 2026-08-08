@@ -89,7 +89,40 @@ function sealArenaTrade(t) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v3 — Daily Duel calls. A call is sealed the moment it is made, long before
+ * the market answers. The seal is what makes the duel board worth reading: it
+ * fixes the direction, the price it was called from and the horizon it runs
+ * to, so a good record cannot be assembled after the fact.
+ *
+ * §4: this payload is servable on a public verify page, so it carries the
+ * round, the call, the market price and the times only — never a balance or an
+ * amount of anything, and never the agent's own stance, which other players
+ * must not be able to read out of somebody else's receipt.
+ */
+function canonicalDuelPayload(p) {
+  return JSON.stringify({
+    v: 3,
+    kind: 'duel_pick',
+    round_id: Number(p.round_id),
+    day: String(p.day),
+    symbol: String(p.symbol),
+    handle: p.handle ? String(p.handle) : null,
+    pick: String(p.pick),
+    entry_price: Number(p.entry_price),
+    resolves_at: new Date(p.resolves_at).toISOString(),
+    picked_at: new Date(p.picked_at || Date.now()).toISOString(),
+  });
+}
+
+/** { seal_payload, seal } for one duel call. */
+function sealDuelPick(p) {
+  const seal_payload = canonicalDuelPayload(p);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 module.exports = {
   canonicalPayload, sealOf, sealCall,
   canonicalArenaPayload, sealArenaTrade, newTradeKey,
+  canonicalDuelPayload, sealDuelPick,
 };
