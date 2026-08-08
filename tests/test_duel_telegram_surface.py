@@ -250,3 +250,12 @@ def test_a_missing_ok_flag_is_not_treated_as_success():
     # A body that arrived without the flag is not a confirmation.
     out = render_pick_result({"round_id": 3, "pick": "long"}, 200)
     assert "✅" not in out
+
+
+def test_an_unreadable_denominator_is_omitted_not_printed_as_zero():
+    # "of 0 settled calls" beside a real percentage is a claim, and a wrong
+    # one. The two optional clauses may be dropped; the denominator may not be
+    # invented.
+    line = accuracy_line({"pct": 80.0})
+    assert "80%" in line
+    assert "0 settled" not in line

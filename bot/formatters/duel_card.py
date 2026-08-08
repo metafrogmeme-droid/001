@@ -94,14 +94,21 @@ def accuracy_line(accuracy: dict | None) -> str:
     """
     acc = accuracy or {}
     pct = _num(acc.get("pct"))
-    scored = int(acc.get("scored") or 0)
-    unresolved = int(acc.get("unresolved") or 0)
+    # Counts we could not read are OMITTED from the sentence rather than
+    # printed as zero. `or 0` would be fine for the two that only gate an
+    # optional clause, but the denominator is a claim of its own: "of 0 settled
+    # calls" beside a real percentage is a statement, and a wrong one.
+    scored = _num(acc.get("scored"))
+    unresolved = _num(acc.get("unresolved"))
     if pct is None:
-        tail = " · nothing has settled yet" if unresolved and not scored else ""
-        return f"Accuracy: — (no calls resolved yet){tail}"
-    line = f"Accuracy: {pct:.0f}% of {scored} settled call{'s' if scored != 1 else ''}"
+        nothing_settled = unresolved and not scored
+        return "Accuracy: — (no calls resolved yet)" + (
+            " · nothing has settled yet" if nothing_settled else "")
+    line = f"Accuracy: {pct:.0f}%"
+    if scored is not None:
+        line += f" of {int(scored)} settled call{'s' if int(scored) != 1 else ''}"
     if unresolved:
-        line += f" · {unresolved} unresolved"
+        line += f" · {int(unresolved)} unresolved"
     return line
 
 
