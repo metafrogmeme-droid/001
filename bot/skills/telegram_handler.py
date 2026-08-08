@@ -8356,13 +8356,17 @@ class TelegramHandler:
             if live_closed:
                 recent = live_closed[-5:]
                 lines.extend(["", sep, "", f"<b>{t('hdr_recent_trades_net', lang)}</b>"])
-                for t in recent:
-                    pnl_val = t.pnl_usd or 0
-                    fee_val = t.commission or 0
+                # `tr`, not `t`: `t` is the module-level i18n function, and a
+                # statement-level `for t in ...` makes Python treat t as LOCAL
+                # for the whole function — so every t('key', lang) call above
+                # raises UnboundLocalError before this loop is ever reached.
+                for tr in recent:
+                    pnl_val = tr.pnl_usd or 0
+                    fee_val = tr.commission or 0
                     pnl_icon = "✅" if pnl_val >= 0 else "❌"
-                    pair = t.symbol.replace("/", "").replace(":USDT", "")
+                    pair = tr.symbol.replace("/", "").replace(":USDT", "")
                     fee_note = f" (fee ${fee_val:.2f})" if fee_val > 0 else ""
-                    lines.append(f"  {pnl_icon} {pair} {t.direction} → <code>${pnl_val:+,.2f}</code>{fee_note}")
+                    lines.append(f"  {pnl_icon} {pair} {tr.direction} → <code>${pnl_val:+,.2f}</code>{fee_note}")
 
             # Session tally from LiveExecutor
             if live_closed:
@@ -8424,9 +8428,9 @@ class TelegramHandler:
 
             if history:
                 lines.extend(["", sep, "", f"<b>{t('hdr_recent_trades', lang)}</b>"])
-                for t in history[-5:]:
-                    pnl_icon = "✅" if t.pnl > 0 else "❌"
-                    lines.append(f"  {pnl_icon} {t.asset} {t.direction.value} → <code>${t.pnl:+.2f}</code>")
+                for tr in history[-5:]:
+                    pnl_icon = "✅" if tr.pnl > 0 else "❌"
+                    lines.append(f"  {pnl_icon} {tr.asset} {tr.direction.value} → <code>${tr.pnl:+.2f}</code>")
 
             # Session tally
             if state.total_trades > 0:
