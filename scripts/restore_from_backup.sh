@@ -76,10 +76,33 @@ _decrypt() {
         --pinentry-mode loopback --decrypt "$ARCHIVE"
 }
 
+# Member paths are NOT always "data/...". The 03:17 job archives the persist
+# directory by name, so its members are "runeclaw-persist/data/...", and a
+# --extract of "data/closed_trades.json" matched nothing at all. The --list
+# summary appeared to work because it substring-matches, so it printed PRESENT
+# for files that could not then be extracted — a check that agreed with the
+# thing it was supposed to verify independently, which is the defect this whole
+# tool exists to avoid. Detected from the listing rather than assumed.
+_detect_prefix() {
+    local listing="$1"
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            data/*|logs/*) printf '%s' ""; return ;;
+            */data/*|*/logs/*)
+                printf '%s' "${line%%/*}/"
+                return ;;
+        esac
+    done <<< "$listing"
+    printf '%s' ""
+}
+
 if [ "$MODE" = "list" ]; then
     echo "[restore] contents (decrypting to a pipe; nothing is written):"
     echo
     LISTING="$(_decrypt | tar -tzf - )"
+    PREFIX="$(_detect_prefix "$LISTING")"
+    [ -n "$PREFIX" ] && echo "[restore] member prefix: ${PREFIX} (paths below are relative to it)"
     printf '%s\n' "$LISTING" | sed 's/^/  /' | head -60
     _total=$(printf '%s\n' "$LISTING" | grep -c . || true)
     [ "$_total" -gt 60 ] && echo "  … $((_total - 60)) more"
@@ -104,10 +127,20 @@ mkdir -p "$PROBE"
 echo "[restore] probe:      $PROBE   (live state is NOT touched)"
 echo
 
+PREFIX="$(_detect_prefix "$(_decrypt | tar -tzf - )")"
+[ -n "$PREFIX" ] && echo "[restore] member prefix: $PREFIX"
+
 if [ "$MODE" = "extract-all" ]; then
     _decrypt | tar -xzf - -C "$PROBE"
 else
-    _decrypt | tar -xzf - -C "$PROBE" "${WANTED[@]}"
+    # --strip-components drops the prefix so the probe always looks like
+    # data/... regardless of how the archive was rooted. Callers then need one
+    # spelling, not one per backup script.
+    PREFIXED=()
+    for w in "${WANTED[@]}"; do PREFIXED+=("${PREFIX}${w}"); done
+    _strip=0
+    [ -n "$PREFIX" ] && _strip=1
+    _decrypt | tar -xzf - -C "$PROBE" --strip-components="$_strip" "${PREFIXED[@]}"
 fi
 
 echo "[restore] extracted:"
@@ -117,3 +150,11 @@ echo "[restore] Nothing has been installed. Review the files above, then copy"
 echo "[restore] what you want into place BY HAND, with the bot stopped — a"
 echo "[restore] running executor rewrites closed_trades.json on the next close"
 echo "[restore] and would overwrite a restore mid-flight."
+echo
+echo "[restore] Installing a DIRECTORY: verify the source before removing the"
+echo "[restore] destination. A restore procedure written as"
+echo "[restore]     rm -rf LIVE/learning && cp -a PROBE/learning LIVE/"
+echo "[restore] destroys the live copy and then copies nothing if PROBE is not"
+echo "[restore] where you assumed — which is what the member-prefix bug above"
+echo "[restore] made likely. Test first, and let the shell enforce the order:"
+echo "[restore]     test -d SRC && rm -rf DEST && cp -a SRC DEST"
