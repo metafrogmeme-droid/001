@@ -20,7 +20,7 @@ const FILE_FOR = {
   '/developers': 'developers.html', '/status': 'status.html', '/guardian': 'guardian.html',
   '/intent': 'intent.html', '/firewall': 'firewall.html', '/escape': 'escape.html',
   '/sentinel': 'sentinel.html', '/stress': 'stress.html', '/flight': 'flight.html',
-  '/strengthmap': 'strengthmap.html', '/arena': 'arena.html',
+  '/strengthmap': 'strengthmap.html', '/arena': 'arena.html', '/duel': 'duel.html',
   '/learn': 'learn.html', '/command': 'command.html', '/rune': 'rune.html',
   '/gas': 'gas.html', '/approvals': 'approvals.html', '/provable': 'provable.html',
   '/roots': 'roots.html',

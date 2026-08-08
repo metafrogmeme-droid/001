@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Daily Duel</title>
+<link rel="canonical" href="https://pmvc58g2.mule.page/duel">
+<meta name="description" content="Call the market before the AI does. Three rounds a day drawn from the agent's own live signals: call LONG, SHORT or PASS, the Claw's call stays hidden until you commit, and the market settles it 24 hours later. Free, no stake, percent and counts only.">
+<meta property="og:title" content="RUNECLAW — Daily Duel">
+<meta property="og:description" content="Three rounds a day. Call it before the Claw shows its hand. Beat the agent and the round is worth double.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pmvc58g2.mule.page/duel">
+<meta property="og:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Daily Duel">
+<meta name="twitter:image" content="https://pmvc58g2.mule.page/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=18">
+<style>
+  .d-wrap { max-width: 940px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .d-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3); }
+  .stat { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); }
+  .stat .k { font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .stat .v { font-family: var(--font-data); font-size: 22px; margin-top: 4px; }
+  .stat .d { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; }
+  /* Colour is a claim: an unknown gets the neutral tone, never the green. */
+  .tone-up { color: var(--up); } .tone-down { color: var(--down); } .tone-muted { color: var(--text-3); }
+  .stat .v.tone-muted { color: var(--text-2); }
+  .d-rounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s3); }
+  .d-round { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--s3); }
+  .d-round-h { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
+  .d-sym { font-family: var(--font-data); font-size: 17px; color: var(--gold-bright); }
+  .d-agent { font-size: var(--fs-xs); color: var(--text-3); }
+  .d-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .d-btn { flex: 1 1 0; min-width: 74px; padding: 10px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+           background: var(--bg); color: var(--text-1); font-family: var(--font-data); font-size: var(--fs-sm); cursor: pointer; }
+  .d-btn:hover { border-color: var(--gold-bright); color: var(--gold-bright); }
+  .d-btn:disabled { opacity: .45; cursor: default; }
+  .d-btn--pass { flex-basis: 100%; }
+  .d-called { display: flex; flex-direction: column; gap: 4px; }
+  .d-mycall { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--text-1); }
+  .d-state { font-size: var(--fs-sm); }
+  .d-note { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.5; }
+  .board { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  .board th { text-align: left; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em;
+              color: var(--text-3); font-weight: 400; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .board td { padding: 8px; border-bottom: 1px solid var(--line); }
+  .board td.n { font-family: var(--font-data); text-align: right; }
+  .muted { color: var(--text-3); } .note { font-size: var(--fs-xs); color: var(--text-3); }
+  .disc { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.6; max-width: 78ch; margin-top: var(--s5); }
+</style>
+</head>
+<body>
+<div class="d-wrap">
+  <nav class="topnav">
+    <a href="/">RUNECLAW</a>
+    <a href="/arena" data-i18n="nav.arena">Arena</a>
+    <a href="/command" data-i18n="nav.command">Command Deck</a>
+    <a href="/learn" data-i18n="nav.learn">Study Room</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+
+  <div class="d-hero">
+    <h1 data-i18n="duel.h">⚔️ Daily Duel</h1>
+  </div>
+  <p class="lede" data-i18n="duel.lede">Three rounds a day, drawn from the agent’s own live signals. Call LONG, SHORT
+  or PASS — the Claw’s call stays hidden until you commit, and the market settles it 24 hours later. Beat the Claw
+  and the round is worth double. Free, no stake, nothing to lose but the argument.</p>
+
+  <p class="note" id="notice" hidden></p>
+
+  <section class="panel" id="cardPanel" hidden>
+    <h2 data-i18n="duel.card_h">Today’s card</h2>
+    <div class="d-rounds" id="rounds"></div>
+  </section>
+
+  <section class="panel" id="recPanel" hidden>
+    <h2 data-i18n="duel.rec_h">Your record</h2>
+    <div class="statrow" id="record"></div>
+  </section>
+
+  <section class="panel" id="boardPanel" hidden>
+    <h2 data-i18n="duel.board_h">This month’s board</h2>
+    <div id="board"></div>
+  </section>
+
+  <section class="panel" id="squadPanel" hidden>
+    <h2 data-i18n="duel.squads_h">Squads — you and everyone who joined on your code</h2>
+    <div id="squads"></div>
+  </section>
+
+  <p class="disc" data-i18n="duel.disc">A duel has no stake and moves no money — counts and percentages only,
+  recomputed from your own calls on every read. An unresolved round is one we could not price; it counts for neither
+  side and is never shown as a loss. Education and practice, not investment advice.</p>
+</div>
+
+<script src="/js/i18n.js?v=106"></script>
+<script src="/js/duel.js?v=1"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var D = window.RCDuel;
+  var esc = D.esc;
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var tok = null;
+  try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+
+  function notice(msg) { $('notice').hidden = false; $('notice').textContent = msg; }
+
+  function get(url, authed) {
+    var opts = authed ? { headers: { Authorization: 'Bearer ' + tok } } : {};
+    return fetch(url, opts).then(function (r) {
+      // Guard, not shrug: a failed read must reach the caller as a failure so
+      // the panel can paint an error state instead of an empty one.
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    });
+  }
+
+  function stat(k, label) {
+    return '<div class="stat"><div class="k">' + esc(k) + '</div>'
+      + '<div class="v tone-' + esc(label.tone) + '">' + esc(label.text) + '</div>'
+      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '') + '</div>';
+  }
+
+  function drawCard(data) {
+    $('rounds').innerHTML = (data.rounds || []).map(function (r) { return D.roundCard(r, T); }).join('');
+    $('cardPanel').hidden = false;
+  }
+
+  function drawRecord(me) {
+    var streak = { text: '🔥 ' + me.streak.current, tone: 'muted', sub: '' };
+    $('record').innerHTML =
+      stat(T('duel.acc_k', 'Accuracy'), D.accuracyLabel(me.accuracy, T))
+      + stat(T('duel.marks_k', 'Marks'), D.marksLabel(me.marks, T))
+      + stat(T('duel.streak_k', 'Streak'), streak);
+    $('recPanel').hidden = false;
+  }
+
+  function boardTable(rows, cols) {
+    return '<table class="board"><thead><tr>' + cols.map(function (c) {
+      return '<th>' + esc(c.h) + '</th>';
+    }).join('') + '</tr></thead><tbody>' + rows.map(function (r) {
+      return '<tr>' + cols.map(function (c) {
+        return '<td' + (c.n ? ' class="n"' : '') + '>' + esc(c.get(r)) + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table>';
+  }
+
+  function warming(d) {
+    if (!d.warming_up) return '';
+    return '<p class="note">' + esc(T('duel.warming', '{n} more still warming up — {m} settled calls to be ranked')
+      .replace('{n}', d.warming_up).replace('{m}', d.min_calls)) + '</p>';
+  }
+
+  // Each panel loads independently and a dead one is simply left out, so a
+  // single failing source cannot blank the others. The card is the exception:
+  // it is this page's single subject, so its failure is stated outright.
+  if (tok) {
+    get('/api/duel/today', true).then(drawCard).catch(function (e) {
+      notice(e.status === 401
+        ? T('duel.signed_out', 'Sign in to make your calls — your record is private to your account.')
+        : T('duel.fail', 'Today’s card could not load — your record is unchanged.'));
+    });
+    get('/api/duel/me', true).then(drawRecord).catch(function () { /* omitted, not faked */ });
+  } else {
+    notice(T('duel.signed_out', 'Sign in to make your calls — your record is private to your account.'));
+  }
+
+  get('/api/public/duel/board').then(function (d) {
+    if (!d.rows.length && !d.warming_up) return;
+    $('board').innerHTML = boardTable(d.rows, [
+      { h: '#', get: function (r) { return r.rank; }, n: true },
+      { h: T('duel.rec_h', 'Player'), get: function (r) { return r.handle; } },
+      { h: T('duel.acc_k', 'Accuracy'), get: function (r) { return r.accuracy_pct + '%'; }, n: true },
+      { h: T('duel.marks_k', 'Marks'), get: function (r) { return r.marks; }, n: true },
+    ]) + warming(d);
+    $('boardPanel').hidden = false;
+  }).catch(function () { /* omitted, not faked */ });
+
+  get('/api/public/duel/squads').then(function (d) {
+    if (!d.rows.length && !d.warming_up) return;
+    $('squads').innerHTML = boardTable(d.rows, [
+      { h: '#', get: function (r) { return r.rank; }, n: true },
+      { h: T('duel.squads_h', 'Squad'), get: function (r) { return r.captain; } },
+      { h: T('duel.streak_k', 'Size'), get: function (r) { return r.size; }, n: true },
+      { h: T('duel.acc_k', 'Accuracy'), get: function (r) { return r.accuracy_pct + '%'; }, n: true },
+    ]) + warming(d);
+    $('squadPanel').hidden = false;
+  }).catch(function () { /* omitted, not faked */ });
+
+  // One delegated listener rather than one per button, so a redraw cannot
+  // accumulate duplicates.
+  $('rounds').addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('.d-btn') : null;
+    if (!btn || btn.disabled) return;
+    var wrap = btn.closest('.d-actions');
+    if (!wrap) return;
+    var body = { round_id: Number(wrap.getAttribute('data-round')), pick: btn.getAttribute('data-pick') };
+    Array.prototype.forEach.call(wrap.querySelectorAll('.d-btn'), function (b) { b.disabled = true; });
+    fetch('/api/duel/pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); })
+      .then(function (r) {
+        if (!r.ok) {
+          notice(r.d && r.d.error ? r.d.error : T('duel.fail', 'Today’s card could not load — your record is unchanged.'));
+          Array.prototype.forEach.call(wrap.querySelectorAll('.d-btn'), function (b) { b.disabled = false; });
+          return;
+        }
+        return get('/api/duel/today', true).then(drawCard)
+          .then(function () { return get('/api/duel/me', true).then(drawRecord); });
+      })
+      .catch(function () {
+        notice(T('duel.fail', 'Today’s card could not load — your record is unchanged.'));
+        Array.prototype.forEach.call(wrap.querySelectorAll('.d-btn'), function (b) { b.disabled = false; });
+      });
+  });
+})();
+</script>
+<script src="/js/palette.js?v=1" defer></script>
+</body>
+</html>

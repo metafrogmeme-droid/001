@@ -401,6 +401,7 @@ app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.
 // /approvals — the Allowance X-ray (read-only; revoke plans the caller sends).
 app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
+app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
 app.get('/call/:key', (req, res) => {
