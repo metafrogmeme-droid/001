@@ -223,6 +223,79 @@ def recalc_sl_tp_for_shifted_entry(
     return new_sl, new_tp, shifted, natural_outcome
 
 
+def sltp_payload_variants(pos_side: str,
+                          margin_mode: str) -> list[tuple[Optional[str], str]]:
+    """The (posSide, marginMode) combinations to try for a v3 SL/TP order.
+
+    ``posSide is None`` means OMIT the field entirely — not "send an empty
+    string". That rung is the whole reason this function exists.
+
+    THE INCIDENT (2026-08-09, TAOUSDT LONG). The SL/TP order was rejected six
+    times running and the position held for 1.8h with no exchange-side stop,
+    protected only by a software level that required the bot to stay alive.
+    It exited at take-profit, so it cost nothing; the next one might not.
+    The audit trail (``logs/trade.jsonl``, action ``sl_tp_v3_retry_cycle``):
+
+        attempt  marginMode  posSide  error
+        1        isolated    net      31008
+        2        crossed     net      40020
+        3        crossed     long     40020
+        4        isolated    long     31008
+        5        isolated    net      31008     <- a repeat of attempt 1
+
+    Two separate defects, both visible in that table:
+
+    * **The missing rung.** The old cycle toggled posSide between ``net`` and
+      the direction, and never omitted it — while this very file states at
+      ``_detect_position_mode``: "One-way mode: tradeSide/posSide must NOT be
+      sent." The failing account is one-way (MSFT places first-try with
+      ``hedge_mode: null``), so the ONE combination the venue would have
+      accepted was the one combination never attempted. The old code's own
+      comment listed it — "attempt 4: toggle posSide + remove" — and no branch
+      implemented the remove. The warning line even formats
+      ``payload.get("posSide", "OMITTED")``, anticipating a state the ladder
+      could not reach. A comment describing behaviour the code does not have.
+
+    * **The wasted rung.** Parity-based toggling of two independent fields
+      cannot enumerate their product. It revisited isolated+net at attempt 5
+      having already failed it at attempt 1, spending a retry on a known-bad
+      combination while two untried ones remained.
+
+    So: enumerate explicitly. Three posSide values x two margin modes = six,
+    which is exactly the attempt budget (``_MAX_31008_RETRIES`` + 1). Every
+    combination is tried exactly once.
+
+    Order is by likelihood, not by convenience — the caller's own detected
+    values first (that path already works for most symbols and must not
+    regress), then the margin flip, then the omit rungs that one-way accounts
+    need, then ``net`` last since it is the value the venue rejected loudest.
+
+    Reading the errors, for whoever meets this next:
+      31008  "no position" — the venue looked under THIS marginMode and found
+             nothing, so the marginMode is wrong.
+      40020  "Parameter posSide error" — the venue found the position, and is
+             objecting to posSide. So a 40020 confirms the marginMode.
+    """
+    other_mode = "isolated" if margin_mode == "crossed" else "crossed"
+    ordered: list[tuple[Optional[str], str]] = [
+        (pos_side, margin_mode),
+        (pos_side, other_mode),
+        (None, margin_mode),
+        (None, other_mode),
+        ("net", margin_mode),
+        ("net", other_mode),
+    ]
+    # A caller that passes pos_side="net" would otherwise duplicate the last
+    # two rungs and lose two attempts, which is the defect this replaces.
+    seen: set[tuple[Optional[str], str]] = set()
+    unique: list[tuple[Optional[str], str]] = []
+    for combo in ordered:
+        if combo not in seen:
+            seen.add(combo)
+            unique.append(combo)
+    return unique
+
+
 def execution_indicates_failure(result: str) -> bool:
     """True when execute()'s result string means NO live position resulted.
 
@@ -4541,6 +4614,17 @@ class LiveExecutor:
         _31008_CODES = ("31008", "31009")  # 31009 = variant on some API versions
         _PRECISION_CODES = ("25606", "25607")  # precision mismatch errors
 
+        # The (posSide, marginMode) rungs, enumerated once up front so the
+        # ladder cannot revisit a combination or skip one. Six rungs, six
+        # attempts. See sltp_payload_variants for the incident this replaces.
+        _variants = sltp_payload_variants(pos_side, position_margin_mode)
+        _variant_idx = 0
+        # Every rung and its venue error, for the one summary line emitted when
+        # the ladder is exhausted. The per-attempt detail was logger.INFO and
+        # the deployed level drops it, so diagnosing this cost five greps
+        # across two files — the evidence existed and could not be read.
+        _ladder: list[str] = []
+
         for attempt in range(_MAX_31008_RETRIES + 1):
             try:
                 # Regenerate clientOid on retries to avoid duplicate rejection
@@ -4595,6 +4679,13 @@ class LiveExecutor:
                     # Error 25606: "trigger price does not meet precision requirements"
                     # Root cause: ccxt precision doesn't match Bitget strategy order API.
                     # Retry with reduced decimal places.
+                    # Record the rung that was actually SENT, before any
+                    # mutation below — the trail must say what failed, not what
+                    # is about to be tried next.
+                    _ladder.append(
+                        f"{attempt + 1}:{payload.get('marginMode', '?')}"
+                        f"/{payload.get('posSide', 'OMITTED')}->{error_code}")
+
                     _RETRYABLE_CODES = ("31008", "31009", "40019", "40020", "25606", "25607")
                     if error_code in _RETRYABLE_CODES and attempt < _MAX_31008_RETRIES:
                         delay = (attempt + 1) * 2  # 2s, 4s, 6s, 8s, 10s
@@ -4619,29 +4710,21 @@ class LiveExecutor:
                                 error_code, bitget_symbol, attempt + 1, _MAX_31008_RETRIES,
                                 tp_final, sl_final)
                         else:
-                            # Cycle through combinations systematically:
-                            #   attempt 0 (initial): pos_side + config marginMode
-                            #   attempt 1: toggle marginMode
-                            #   attempt 2: toggle posSide (net ↔ long/short)
-                            #   attempt 3: toggle marginMode again
-                            #   attempt 4: toggle posSide + remove
-                            if attempt % 2 == 0:
-                                # Even retries: toggle posSide
-                                current_ps = payload.get("posSide", "")
-                                dir_side = "long" if direction == Direction.LONG else "short"
-                                if current_ps == "net":
-                                    payload["posSide"] = dir_side
-                                elif current_ps == dir_side:
-                                    payload["posSide"] = "net"
+                            # Advance to the next (posSide, marginMode) rung.
+                            # A PRECISION retry deliberately does not advance —
+                            # it re-sends the same combination with fewer
+                            # decimals, and burning a rung on it would leave a
+                            # combination untried.
+                            _variant_idx += 1
+                            if _variant_idx < len(_variants):
+                                _ps, _mm = _variants[_variant_idx]
+                                payload["marginMode"] = _mm
+                                if _ps is None:
+                                    payload.pop("posSide", None)   # OMIT — see
+                                    # sltp_payload_variants: one-way accounts
+                                    # reject the field's presence, not its value
                                 else:
-                                    payload["posSide"] = "net"
-                            else:
-                                # Odd retries: toggle marginMode
-                                current_mm = payload.get("marginMode", "")
-                                if current_mm == "isolated":
-                                    payload["marginMode"] = "crossed"
-                                else:
-                                    payload["marginMode"] = "isolated"
+                                    payload["posSide"] = _ps
                         logger.warning(
                             "v3 SL/TP error %s for %s — retry %d/%d in %ds (marginMode=%s, posSide=%s)",
                             error_code, bitget_symbol, attempt + 1, _MAX_31008_RETRIES, delay,
@@ -4658,10 +4741,21 @@ class LiveExecutor:
 
                     self._note_sltp_error(symbol, f"{error_code}: {error_msg}")
                     logger.warning("v3 strategy order failed (code=%s): %s", error_code, error_msg)
+                    # ONE line carrying every rung and its error. Without it the
+                    # ladder's shape is only reconstructable by joining
+                    # trade.jsonl records — which is how the missing rung stayed
+                    # invisible through six identical failures.
+                    logger.warning(
+                        "v3 SL/TP ladder EXHAUSTED for %s — no exchange stop placed. "
+                        "Tried %s. (31008 = wrong marginMode; 40020 = marginMode "
+                        "confirmed, posSide rejected — an all-40020 tail means the "
+                        "venue wants posSide OMITTED.)",
+                        bitget_symbol, " | ".join(_ladder) or "nothing")
                     audit(trade_log, f"v3 SL/TP failed: {error_msg}",
                           action="sl_tp_v3", result="FAIL",
                           data={"symbol": bitget_symbol, "response": str(result)[:300],
                                 "payload": {k: v for k, v in payload.items() if k != "clientOid"},
+                                "ladder": _ladder,
                                 "attempt": attempt + 1})
                     break  # Non-retryable error — exit loop
             except Exception as exc:
