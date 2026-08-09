@@ -17,11 +17,17 @@ const { pool } = require('../db');
 const { computeStreak, weeklyQuests, weekStart } = require('../lib/arena_streaks');
 const { computeDiscipline } = require('../lib/arena_discipline');
 const { diaryStreak, computeAchievements } = require('../lib/achievements');
+const duel = require('../lib/duel');
 const lessons = require('../lib/learn_lessons');
 const nft = require('../lib/nft');
 
 const router = express.Router();
 router.use(authMiddleware);
+
+/** The deck reads the same 90-day duel window the duel page does. */
+const DUEL_WINDOW_DAYS = 90;
+const DUEL_FLOOR = () =>
+  new Date(Date.now() - DUEL_WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
 
 router.get('/', async (req, res) => {
   try {
@@ -38,6 +44,18 @@ router.get('/', async (req, res) => {
     const [userRows] = await pool.execute(
       'SELECT wallet_address FROM users WHERE id = ?', [uid]);
     const wallet = userRows && userRows[0] && userRows[0].wallet_address;
+
+    // Daily Duel. Scored through the same pure engine the duel routes use, so
+    // the deck can never disagree with the page about the player's record.
+    const [duelRounds] = await pool.execute(
+      'SELECT id, day, idx, symbol, agent_direction, signal_key FROM duel_rounds'
+      + ' WHERE day >= ? ORDER BY day, idx', [DUEL_FLOOR()]);
+    const [duelPicks] = await pool.execute(
+      'SELECT id, round_id, pick, entry_price, resolves_at, settle_price, settle_state,'
+      + ' seal, created_at FROM duel_picks WHERE user_id = ?', [uid]);
+    const duelEntries = duel.scoreEntries(duelRounds || [], duelPicks || []);
+    const duelAcc = duel.accuracy(duelEntries);
+    const duelMarks = duel.computeMarks(duelEntries);
 
     const discipline = computeDiscipline(trades);
     const streak = computeStreak(trades);
@@ -71,6 +89,12 @@ router.get('/', async (req, res) => {
       runeMinted: runeId != null && runeId > 0,
       questsDone: quests.filter((q) => q.done).length,
       pairedWeek: thisWeekCloses > 0 && thisWeekEntries > 0,
+      duelCalls: duelPicks ? duelPicks.length : 0,
+      duelBeats: duelMarks.beat_agent,
+      // Scored, not made: an unresolved call is not evidence of anything, so
+      // it can neither earn the accuracy glyph nor count against it.
+      duelScored: duelAcc.scored,
+      duelCorrect: duelAcc.correct,
     };
 
     res.json({
@@ -85,6 +109,18 @@ router.get('/', async (req, res) => {
         diary_total: diaryDays.length,
         lessons_done: lessonsDone,
         lessons_total: lessonsTotal,
+      },
+      duel: {
+        calls: facts.duelCalls,
+        // null until something resolves — never a 0% beside the other figures.
+        accuracy_pct: duelAcc.pct,
+        settled: duelAcc.scored,
+        unresolved: duelAcc.unresolved,
+        beat_agent: duelMarks.beat_agent,
+        marks: duelMarks.marks,
+        pending: duelMarks.pending,
+        streak: duel.duelStreak(duelPicks || []),
+        quests: duel.weeklyDuelQuests(duelEntries),
       },
       rune: {
         minted_token_id: runeId, // 0 = none, null = unknown/unconfigured

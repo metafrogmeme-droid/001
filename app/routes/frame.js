@@ -236,5 +236,80 @@ router.get('/trader/:handle/image', async (req, res) => {
   }
 });
 
+/**
+ * Daily Duel share card.
+ *
+ * The thing a player wants to post is "I beat the Claw 3 times this week", and
+ * this draws exactly that — a handle, a hit rate, a call count and a beat
+ * count. §4 costs nothing here: a duel has no stake, so there is no amount to
+ * leave out in the first place.
+ *
+ * A player whose record is too short to read gets a card that SAYS so. The
+ * alternative — drawing 0% because the number was null — would publish a
+ * confident failure about somebody who has simply not played enough yet, and
+ * publish it as an image, which is the one form nobody can check.
+ */
+const duelCache = new Map();
+
+router.get('/duel/:handle/image', async (req, res) => {
+  try {
+    const handle = String(req.params.handle || '').trim();
+    if (!HANDLE_RE.test(handle)) return res.status(400).json({ error: 'Bad handle' });
+    const hit = duelCache.get(handle);
+    if (hit && Date.now() - hit.at < 60_000) {
+      return res.type('png').set('Cache-Control', 'public, max-age=60').send(hit.png);
+    }
+
+    const { pool } = require('../db');
+    const duel = require('../lib/duel');
+    const { playerStanding, MIN_SCORED } = require('../lib/duel_squads');
+    const c = baseCard('DAILY DUEL - NO STAKE, NO WAGER');
+
+    const [u] = await pool.execute(
+      'SELECT id, leaderboard_handle FROM users WHERE leaderboard_handle = ?', [handle]);
+    if (!u[0]) {
+      c.center('NO SUCH PLAYER', 200, 3, COLORS.down);
+      c.center('HANDLES ARE OPT-IN', 270, 2, COLORS.muted);
+      const miss = c.png();
+      return res.type('png').set('Cache-Control', 'public, max-age=60').send(miss);
+    }
+
+    const season = new Date().toISOString().slice(0, 7);
+    const [rounds] = await pool.execute(
+      'SELECT id, day, idx, symbol, agent_direction, signal_key FROM duel_rounds'
+      + ' WHERE day >= ? ORDER BY day, idx', [season + '-01']);
+    const [picks] = await pool.execute(
+      'SELECT id, round_id, pick, entry_price, resolves_at, settle_price, settle_state,'
+      + ' seal, created_at FROM duel_picks WHERE user_id = ?', [u[0].id]);
+    const entries = duel.scoreEntries(
+      (rounds || []).filter((r) => String(r.day).slice(0, 7) === season), picks || []);
+    const st = playerStanding(handle, entries);
+
+    c.center('#' + handle, 150, 3, COLORS.text);
+    if (st.accuracy_pct == null) {
+      // Not yet readable — said plainly, and in the neutral colour, because a
+      // green or red stripe here would be a verdict on a record that does not
+      // exist yet.
+      c.center('WARMING UP', 210, 4, COLORS.muted);
+      c.center(MIN_SCORED + ' SETTLED CALLS TO RANK', 280, 2, COLORS.muted);
+    } else {
+      c.center(String(st.accuracy_pct) + ' PCT', 205, 6,
+        st.accuracy_pct >= 50 ? COLORS.up : COLORS.down);
+      c.center('OF ' + st.calls + ' CALLS', 285, 2, COLORS.muted);
+      if (st.beat_agent > 0) {
+        c.center('BEAT THE CLAW ' + st.beat_agent + 'X', 325, 2, COLORS.gold);
+      }
+    }
+
+    const png = c.png();
+    if (duelCache.size > CACHE_MAX) duelCache.clear();
+    duelCache.set(handle, { at: Date.now(), png });
+    res.type('png').set('Cache-Control', 'public, max-age=60').send(png);
+  } catch (err) {
+    console.error('Duel card error:', err.stack || err.message);
+    res.status(503).json({ error: 'Card unavailable' });
+  }
+});
+
 module.exports = router;
 

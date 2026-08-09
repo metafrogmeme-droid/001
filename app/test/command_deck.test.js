@@ -31,6 +31,7 @@ test('every achievement is a two-way predicate — unlockable and not-yet', () =
     closes: MIN_CLOSES, sealed: 1, disciplineLevel: 'planned',
     diaryTotal: 10, diaryStreak: 5, lessonsDone: 3, lessonsTotal: 3,
     runeMinted: true, questsDone: 3, pairedWeek: true,
+    duelCalls: 1, duelBeats: 1, duelScored: 10, duelCorrect: 6,
   });
   assert.ok(everything.every((a) => a.unlocked), 'the full record unlocks all');
 
@@ -39,6 +40,7 @@ test('every achievement is a two-way predicate — unlockable and not-yet', () =
     closes: MIN_CLOSES - 1, sealed: 0, disciplineLevel: 'mixed',
     diaryTotal: 1, diaryStreak: 4, lessonsDone: 2, lessonsTotal: 3,
     runeMinted: false, questsDone: 2, pairedWeek: false,
+    duelCalls: 1, duelBeats: 0, duelScored: 10, duelCorrect: 5,
   });
   const by = Object.fromEntries(edges.map((a) => [a.id, a.unlocked]));
   assert.equal(by.readable, false, 'one short of MIN_CLOSES stays locked');
@@ -48,6 +50,32 @@ test('every achievement is a two-way predicate — unlockable and not-yet', () =
   assert.equal(by.quest_week, false);
   assert.equal(by.first_close, true);
   assert.equal(by.first_words, true);
+  assert.equal(by.first_call, true, 'one call made is one call made');
+  assert.equal(by.beat_the_claw, false, 'no beats means no glyph');
+  assert.equal(by.read_the_tape, false, 'exactly half right is not more than half');
+});
+
+test('the duel accuracy glyph counts SETTLED calls, never calls made', () => {
+  // A week of unreadable settles is not a week of being right. Counting calls
+  // made would hand out an accuracy glyph to somebody with no measured
+  // accuracy at all — the exact shape CLAUDE.md warns about, wearing a trophy.
+  const unsettled = computeAchievements({
+    duelCalls: 40, duelBeats: 0, duelScored: 0, duelCorrect: 0,
+  });
+  const by = Object.fromEntries(unsettled.map((a) => [a.id, a.unlocked]));
+  assert.equal(by.read_the_tape, false, 'forty unresolved calls prove nothing');
+  assert.equal(by.first_call, true, 'but they did show up, and that is a fact');
+
+  const settled = computeAchievements({
+    duelCalls: 10, duelBeats: 0, duelScored: 10, duelCorrect: 6,
+  });
+  assert.equal(settled.find((a) => a.id === 'read_the_tape').unlocked, true);
+
+  // Nine settled is not ten, however good the rate.
+  const nearly = computeAchievements({
+    duelCalls: 9, duelBeats: 0, duelScored: 9, duelCorrect: 9,
+  });
+  assert.equal(nearly.find((a) => a.id === 'read_the_tape').unlocked, false);
 });
 
 test('scholar never unlocks on an empty shelf', () => {

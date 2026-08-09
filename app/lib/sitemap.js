@@ -38,6 +38,7 @@ const STATIC_PATHS = [
   { path: '/strengthmap', changefreq: 'daily', priority: '0.7' },
   // Paper Trading Arena — the zero-friction on-ramp (virtual stake, no keys).
   { path: '/arena', changefreq: 'daily', priority: '0.8' },
+  { path: '/duel', changefreq: 'daily', priority: '0.8' },
   // The study room, command deck, rune gallery and live-gas board.
   { path: '/learn', changefreq: 'weekly', priority: '0.8' },
   { path: '/command', changefreq: 'weekly', priority: '0.6' },

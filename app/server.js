@@ -309,6 +309,7 @@ app.use('/api/public/strategies', require('./routes/public_strategies'));
 app.use('/api/public/letter', require('./routes/public_letter'));
 app.use('/api/public/agent', require('./routes/public_agent'));
 app.use('/api/public/invite', require('./routes/public_invite'));
+app.use('/api/public/duel', require('./routes/public_duel'));
 app.use('/api/public', trackRouter);
 app.use('/api/lab', labRouter);
 app.use('/api/feed', feedRouter);
@@ -331,6 +332,7 @@ app.use('/api/authority', require('./routes/authority'));
 app.use('/api/sentry', require('./routes/sentry'));
 app.use('/api/positions', require('./routes/positions'));
 app.use('/api/arena', require('./routes/arena'));
+app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
@@ -399,6 +401,7 @@ app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.
 // /approvals — the Allowance X-ray (read-only; revoke plans the caller sends).
 app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
+app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
 app.get('/call/:key', (req, res) => {
