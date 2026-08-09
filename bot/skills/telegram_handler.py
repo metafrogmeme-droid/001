@@ -4991,6 +4991,7 @@ class TelegramHandler:
         except Exception as exc:
             await self._send_error(update, "the slippage report", exc)
 
+    @guard("scan")
     async def _cmd_sweep(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show liquidity sweep detection for a symbol."""
         args = context.args if context.args else []
@@ -5000,7 +5001,8 @@ class TelegramHandler:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
             if not ohlcv or len(ohlcv) < 20:
-                await update.message.reply_text(f"Not enough data for {symbol}")
+                await self._send(update,
+                    f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
                 return
 
             import numpy as np
@@ -5014,28 +5016,17 @@ class TelegramHandler:
             signals = detect_sweeps(opens, highs, lows, closes, volumes)
 
             if not signals:
-                await update.message.reply_text(f"No liquidity sweeps detected for {symbol}")
+                from bot.formatters.market_cards import render_no_sweeps
+                await self._send(update, render_no_sweeps(symbol))
                 return
 
-            lines = [f"LIQUIDITY SWEEPS -- {symbol}", ""]
-            for s in signals[:5]:
-                emoji = "UP" if "bullish" in s.sweep_type else "DOWN"
-                depth_pct = f"{s.depth_pct:.2f}"
-                rev_str = f"{s.reversal_strength:.0%}"
-                vol_str = f"{s.volume_ratio:.1f}"
-                conf_str = f"{s.confidence:.0%}"
-                lines.append(
-                    f"[{emoji}] {s.sweep_type.upper()}\n"
-                    f"  Level: ${s.level_price:,.4f}\n"
-                    f"  Depth: {depth_pct}%  Rev: {rev_str}\n"
-                    f"  Vol: {vol_str}x  Conf: {conf_str}\n"
-                    f"  Entry: ${s.suggested_entry:,.4f}  SL: ${s.suggested_sl:,.4f}\n"
-                )
-
-            await update.message.reply_text("\n".join(lines))
+            from bot.formatters.market_cards import render_sweeps
+            await self._send(update, render_sweeps(
+                symbol, float(closes[-1]), signals))
         except Exception as exc:
             await self._send_error(update, "the liquidity sweep scan", exc)
 
+    @guard("scan")
     async def _cmd_zones(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show supply/demand zones for a symbol."""
         args = context.args if context.args else []
@@ -5045,7 +5036,8 @@ class TelegramHandler:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=200)
             if not ohlcv or len(ohlcv) < 20:
-                await update.message.reply_text(f"Not enough data for {symbol}")
+                await self._send(update,
+                    f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
                 return
 
             import numpy as np
@@ -5064,26 +5056,17 @@ class TelegramHandler:
             zones = detect_zones(opens, highs, lows, closes, volumes, atr=atr)
 
             if not zones:
-                await update.message.reply_text(f"No active S/D zones for {symbol}")
+                from bot.formatters.market_cards import render_no_zones
+                await self._send(update, render_no_zones(symbol))
                 return
 
-            lines = [f"SUPPLY/DEMAND ZONES -- {symbol}", ""]
-            price = float(closes[-1])
-            for z in zones[:8]:
-                tag = "DEMAND" if z.zone_type == "demand" else "SUPPLY"
-                fresh_label = " [FRESH]" if z.status == "fresh" else f" [{z.status}, {z.retests}x]"
-                dist = abs(price - z.midpoint) / price * 100
-                lines.append(
-                    f"[{tag}]{fresh_label}\n"
-                    f"  Range: ${z.zone_low:,.4f} - ${z.zone_high:,.4f}\n"
-                    f"  Strength: {z.strength:.0%}  Dist: {dist:.1f}%\n"
-                    f"  Departure: {z.departure_pct:.1f}%  Vol: {z.volume_ratio:.1f}x\n"
-                )
-
-            await update.message.reply_text("\n".join(lines))
+            from bot.formatters.market_cards import render_zones
+            await self._send(update, render_zones(
+                symbol, float(closes[-1]), zones))
         except Exception as exc:
             await self._send_error(update, "the supply/demand zone scan", exc)
 
+    @guard("scan")
     async def _cmd_squeeze(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show volatility squeeze status for a symbol."""
         args = context.args if context.args else []
@@ -5093,7 +5076,8 @@ class TelegramHandler:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=200)
             if not ohlcv or len(ohlcv) < 30:
-                await update.message.reply_text(f"Not enough data for {symbol}")
+                await self._send(update,
+                    f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
                 return
 
             import numpy as np
@@ -5105,37 +5089,23 @@ class TelegramHandler:
             sig = detect_squeeze(closes, highs, lows)
 
             if sig is None:
-                await update.message.reply_text(f"Cannot compute squeeze for {symbol}")
+                from bot.formatters.market_cards import render_squeeze_unavailable
+                await self._send(update, render_squeeze_unavailable(symbol))
                 return
 
-            if sig.squeeze_fired:
-                status = "SQUEEZE FIRED!"
-            elif sig.is_squeezing:
-                status = f"SQUEEZING ({sig.squeeze_bars} bars)"
-            else:
-                status = "No squeeze"
-            direction = sig.fire_direction.upper() if sig.squeeze_fired else ""
-
-            lines = [
-                f"VOLATILITY SQUEEZE -- {symbol}",
-                "",
-                f"Status: {status} {direction}",
-                f"BB Width: {sig.bb_width_pct:.2f}% (P{sig.bb_width_percentile:.0f})",
-                f"Momentum: {sig.momentum:+.2f}%",
-                f"Confidence: {sig.confidence:.0%}",
-                "",
-                sig.description,
-            ]
-
-            await update.message.reply_text("\n".join(lines))
+            from bot.formatters.market_cards import render_squeeze
+            await self._send(update, render_squeeze(
+                symbol, float(closes[-1]), sig))
         except Exception as exc:
             await self._send_error(update, "the squeeze scan", exc)
 
+    @guard("journal")
     async def _cmd_holdtime(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show hold-time analytics by strategy type."""
         try:
-            text = self.engine.hold_analytics.summary()
-            await update.message.reply_text(text)
+            from bot.formatters.market_cards import render_holdtime
+            await self._send(update, render_holdtime(
+                self.engine.hold_analytics.summary()))
         except Exception as exc:
             await self._send_error(update, "the hold-time analysis", exc)
 
