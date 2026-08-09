@@ -2292,6 +2292,26 @@ class TelegramHandler:
             return str(update.effective_chat.id)
         return ""
 
+    async def _bot_username(self, bot=None) -> Optional[str]:
+        """This bot's @handle, from Telegram, cached. None if unknown.
+
+        Asked of the API rather than read from config: TELEGRAM_BOT_USERNAME
+        exists only for the website's Login Widget, and a hardcoded handle
+        keeps producing a plausible-looking invite link after a rename — one
+        that sends people to whoever claimed the old name. None means the
+        caller omits the invite rather than minting a wrong one.
+        """
+        cached = getattr(self, "_bot_username_cache", None)
+        if cached is not None:
+            return cached or None
+        try:
+            me = await (bot or self.app.bot).get_me()
+            self._bot_username_cache = str(getattr(me, "username", "") or "")
+        except Exception as exc:
+            system_log.debug("bot username lookup failed: %s", exc)
+            self._bot_username_cache = ""     # cache the failure, do not retry per close
+        return self._bot_username_cache or None
+
     def _seed_lang_from_telegram(self, update: Update, tg_id: str) -> bool:
         """On FIRST registration, adopt the client's own language. True if set.
 
@@ -2617,6 +2637,15 @@ class TelegramHandler:
         record = self.users.register(tg_id, name=user_name)
         if _first_contact:
             self._seed_lang_from_telegram(update, tg_id)
+            # `t.me/<bot>?start=ref_<code>` arrives here as ctx.args[0]. /start
+            # discarded it, so every invite link the website could mint was
+            # inert and no share was ever attributable. Recorded once, on first
+            # contact only — a returning user re-entering via someone else's
+            # link does not get reassigned.
+            from bot.formatters.share_invite import parse_start_payload
+            _ref = parse_start_payload((ctx.args or [None])[0])
+            if _ref:
+                self.users.record_referrer(tg_id, _ref)
 
         # /start is one of the few UNGUARDED commands, so it used to hand a
         # stranger the full status card — equity, positions, win rate — and the
@@ -7383,13 +7412,29 @@ class TelegramHandler:
                     pnl_emoji, reason_short = humanize_close_reason(reason, pnl_usd)
                     cap = (f"{pnl_emoji} <b>{html.escape(sym)}</b> {direction} CLOSED\n"
                            f"PnL: ${pnl_usd:+,.2f} | {html.escape(reason_short)}")
+                    # The share button re-renders in PERCENT; it never forwards
+                    # this caption, which carries dollars and is private by
+                    # design. close_share_button returns None when the close
+                    # cannot be told honestly (no readable percent), and then
+                    # there is simply no button — see formatters/share_invite.
+                    _share_kb = None
+                    try:
+                        from bot.formatters.share_invite import close_share_button
+                        _btn = close_share_button(
+                            close_data, await self._bot_username(bot))
+                        if _btn:
+                            _share_kb = InlineKeyboardMarkup(
+                                [[InlineKeyboardButton(_btn["text"], url=_btn["url"])]])
+                    except Exception as _sx:
+                        system_log.debug("share button skipped: %s", _sx)
                     for _cid in _notify_chat_ids:
                         try:
                             await bot.send_photo(
                                 chat_id=_cid,
                                 photo=close_png,
                                 caption=cap,
-                                parse_mode="HTML")
+                                parse_mode="HTML",
+                                reply_markup=_share_kb)
                         except Exception:
                             pass
                 else:

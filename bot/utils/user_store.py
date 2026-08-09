@@ -433,6 +433,34 @@ class UserStore:
             self._save()
             return True
 
+    def record_referrer(self, telegram_id: int | str, ref_code: str) -> bool:
+        """Attribute this user to whoever invited them. First writer wins.
+
+        Write-once on purpose. A referral is a fact about how someone arrived,
+        so a later `/start ref_<someone-else>` must not rewrite history — and
+        without that rule the field is trivially farmable by resending your own
+        link to an existing user.
+
+        Self-referral is refused: the code is the referrer's, and crediting
+        yourself is the first thing anyone tries.
+        """
+        key = str(telegram_id)
+        code = str(ref_code or "").strip()
+        if not code:
+            return False
+        with self._lock:
+            record = self._users.get(key)
+            if record is None or record.get("referred_by"):
+                return False
+            if code == record.get("referral_code") or code == key:
+                return False
+            record["referred_by"] = code
+            record["referred_at"] = datetime.now(UTC).isoformat()
+            self._save()
+            audit(system_log, f"User {key} attributed to referrer {code}",
+                  action="user_referral", result="OK")
+            return True
+
     def touch(self, telegram_id: int | str) -> None:
         """Record activity for the F-14 session window, persisting it.
 
