@@ -738,6 +738,7 @@ class TelegramHandler:
             ("slippage", self._cmd_slippage),
             ("sweep", self._cmd_sweep),
             ("leaderboard", self._cmd_leaderboard),
+            ("arena", self._cmd_arena),
             ("zones", self._cmd_zones),
             ("squeeze", self._cmd_squeeze),
             ("holdtime", self._cmd_holdtime),
@@ -5090,6 +5091,25 @@ class TelegramHandler:
                 viewer_opted_in=opted_in))
         except Exception as exc:
             await self._send_error(update, "the leaderboard", exc)
+
+    @guard("dashboard")
+    async def _cmd_arena(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/arena — the Paper Arena's season standings and live tape.
+
+        Read over the wire, unlike /leaderboard: the Arena lives entirely in
+        the web app's database and there is deliberately no second copy of the
+        season rules here. The two boards are fetched independently so one
+        timing out does not blank the other.
+        """
+        try:
+            from bot.formatters.arena_cards import render_arena
+            from bot.utils.arena_pull import fetch_arena
+            season, tape = await asyncio.to_thread(fetch_arena)
+            handle, _opted_in = self._viewer_board_handle(self._get_tg_id(update))
+            await self._send(update, render_arena(season, tape,
+                                                  viewer_handle=handle))
+        except Exception as exc:
+            await self._send_error(update, "the arena", exc)
 
     def _viewer_board_handle(self, tg_id: str) -> tuple[Optional[str], Optional[bool]]:
         """This viewer's leaderboard handle, and whether that is a MEASUREMENT.
