@@ -1790,7 +1790,19 @@ def _leaderboard_payload(season: str = "") -> dict:
     With ``season`` (e.g. '2026-07'): the FROZEN standings for that calendar
     month — statements as sealed during the window, ranked through the same
     re-verify-or-exclude path (bot/proofofpnl/seasons.py). An unknown or
-    malformed season yields an empty board, never an error."""
+    malformed season yields an empty board, never an error.
+
+    A FAILED READ, however, is not an empty board and must not be served as
+    one. This used to ``except Exception: rows = []`` and return 200, so a
+    crashed registry read reached /leaderboard as "0 verified agents" — the
+    exact shape CLAUDE.md names (a 503 rendered as "No venues found"). Every
+    consumer already had the honest path wired and unreachable: the proxy
+    relays non-2xx and refuses to cache it, the page shows "temporarily
+    unavailable", board_watch bails rather than reporting that the whole board
+    vanished. So the read is allowed to raise and the handler answers 503.
+
+    The season tab strip is different — it is chrome, and losing it hides no
+    measurement — so it degrades to empty on its own."""
     try:
         floor = int(str(os.environ.get("PROOFOFPNL_LEADERBOARD_MIN_TRIPS", "") or 1))
     except (TypeError, ValueError):
@@ -1799,17 +1811,17 @@ def _leaderboard_payload(season: str = "") -> dict:
     season = str(season or "").strip()
     rows: list = []
     seasons: list = []
+    from bot.proofofpnl.seasons import get_season_store
+    store = get_season_store()
     try:
-        from bot.proofofpnl.seasons import get_season_store
-        store = get_season_store()
         seasons = store.season_ids()[:24]
-        if season:
-            rows = store.ranked(season, min_round_trips=floor, limit=50)
-        else:
-            from bot.proofofpnl.leaderboard import get_leaderboard_registry
-            rows = get_leaderboard_registry().ranked(min_round_trips=floor, limit=50)
-    except Exception:
-        rows = []
+    except Exception as exc:                 # chrome only — no claim is lost
+        system_log.debug("Leaderboard season list unavailable: %s", exc)
+    if season:
+        rows = store.ranked(season, min_round_trips=floor, limit=50)
+    else:
+        from bot.proofofpnl.leaderboard import get_leaderboard_registry
+        rows = get_leaderboard_registry().ranked(min_round_trips=floor, limit=50)
     payload = {"format": "runeclaw.proofofpnl.leaderboard.v0",
                "rows": rows, "count": len(rows), "seasons": seasons}
     if season:
@@ -1826,7 +1838,15 @@ async def handle_leaderboard_public(request: web.Request) -> web.Response:
     season = (request.query.get("season") or "").strip()[:7]
     if season and not re.match(r"^\d{4}-\d{2}$", season):
         season = ""
-    return web.json_response(_leaderboard_payload(season))
+    try:
+        payload = _leaderboard_payload(season)
+    except Exception as exc:
+        # Coarse code only. The driver's message never reaches a caller — same
+        # rule /readyz follows, and this endpoint is unauthenticated.
+        system_log.warning("Leaderboard read failed: %s", exc)
+        return web.json_response({"error": "leaderboard_unavailable"},
+                                 status=503)
+    return web.json_response(payload)
 
 
 async def handle_user_strategy_get(request: web.Request) -> web.Response:

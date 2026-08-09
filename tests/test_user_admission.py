@@ -415,3 +415,43 @@ def test_every_bot_access_gate_consults_admission(path):
     assert not offenders, (
         "these gate bot access on the env allowlist alone, so an admin's "
         "/approve announces access they then refuse:\n  " + "\n  ".join(offenders))
+
+
+class TestTheAdminCheckHasExactlyOneDefinition:
+    """`_is_admin(update)` was split so `_viewer_board_handle` could ask the
+    same question about a bare telegram id. A split is where a rule quietly
+    becomes two rules, so this pins that the Update-taking entry point still
+    answers with the id-taking one — and that both still say yes.
+
+    Nothing pinned `_is_admin` before: stubbing it to `return False` passes all
+    34 auth/guard suites. It fails closed, so it is not a hole; it would just
+    silently lock every admin out of every admin command.
+    """
+
+    def _handler(self, role):
+        import types
+        from bot.skills.telegram_handler import TelegramHandler
+        stub = types.SimpleNamespace(users={"7": {"role": role}})
+        stub._get_tg_id = lambda _u: "7"
+        stub._is_admin_id = types.MethodType(TelegramHandler._is_admin_id, stub)
+        stub._is_admin = types.MethodType(TelegramHandler._is_admin, stub)
+        return stub
+
+    def test_an_admin_is_recognised_by_id(self):
+        assert self._handler("admin")._is_admin_id("7") is True
+
+    def test_an_admin_is_recognised_through_the_update_path(self):
+        """The delegation itself — a `return False` here breaks every admin
+        command and no existing suite notices."""
+        assert self._handler("admin")._is_admin(object()) is True
+
+    def test_a_trader_is_not_an_admin_either_way(self):
+        h = self._handler("trader")
+        assert h._is_admin_id("7") is False
+        assert h._is_admin(object()) is False
+
+    def test_both_entry_points_agree(self):
+        for role in ("admin", "trader", "viewer"):
+            h = self._handler(role)
+            assert h._is_admin(object()) == h._is_admin_id("7"), (
+                f"the two definitions disagree for {role!r}")

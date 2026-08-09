@@ -737,6 +737,7 @@ class TelegramHandler:
             ("crossasset", self._cmd_crossasset),
             ("slippage", self._cmd_slippage),
             ("sweep", self._cmd_sweep),
+            ("leaderboard", self._cmd_leaderboard),
             ("zones", self._cmd_zones),
             ("squeeze", self._cmd_squeeze),
             ("holdtime", self._cmd_holdtime),
@@ -2483,7 +2484,15 @@ class TelegramHandler:
 
     def _is_admin(self, update: Update) -> bool:
         """Check if the user is an admin (user-store role OR ADMIN_TELEGRAM_IDS)."""
-        tg_id = self._get_tg_id(update)
+        return self._is_admin_id(self._get_tg_id(update))
+
+    def _is_admin_id(self, tg_id: str) -> bool:
+        """The same check against a bare telegram id.
+
+        ``_is_admin`` delegates here rather than the two carrying a copy of the
+        rule each — a second definition of "who is an admin" is exactly the
+        kind that drifts silently and grants or denies more than intended.
+        """
         # Primary: user store role
         user = self.users.get(tg_id)
         if user is not None and user.get("role") == "admin":
@@ -5054,6 +5063,61 @@ class TelegramHandler:
                 symbol, float(closes[-1]), signals))
         except Exception as exc:
             await self._send_error(update, "the liquidity sweep scan", exc)
+
+    @guard("dashboard")
+    async def _cmd_leaderboard(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/leaderboard — the public verified board, from the bot's own registry.
+
+        Read locally, not pulled from the web: bot/proofofpnl/leaderboard.py IS
+        the source of truth (the engine publishes each opted-in member's sealed
+        statement into it), so a network hop would add a failure mode and a
+        staleness window for data already on this disk.
+        """
+        try:
+            from bot.formatters.board_cards import render_leaderboard
+            from bot.proofofpnl.leaderboard import (get_leaderboard_registry,
+                                                    rank_entries)
+            # Rank EVERY entry, not the top 50: ranked_total is the card's
+            # denominator, and a capped scan would print "10 of 50" on an
+            # 80-member board — a fabricated total, which is the one thing the
+            # denominator exists to prevent. The display cut happens in the
+            # renderer, where it is stated.
+            entries = get_leaderboard_registry().all_entries()
+            ranked = rank_entries(entries, limit=max(1, len(entries)))
+            handle, opted_in = self._viewer_board_handle(self._get_tg_id(update))
+            await self._send(update, render_leaderboard(
+                ranked, viewer_handle=handle, ranked_total=len(ranked),
+                viewer_opted_in=opted_in))
+        except Exception as exc:
+            await self._send_error(update, "the leaderboard", exc)
+
+    def _viewer_board_handle(self, tg_id: str) -> tuple[Optional[str], Optional[bool]]:
+        """This viewer's leaderboard handle, and whether that is a MEASUREMENT.
+
+        Returns ``(handle, opted_in)`` where ``opted_in`` is tri-state:
+        ``True`` with a handle, ``False`` for a confident "not opted in", and
+        ``None`` when nobody has read the opt-in set yet — which must not be
+        reported to the member as "you are not on the board".
+
+        The opt-in set lives in the website's ``users.leaderboard_handle`` and
+        reaches this process through the engine's desired-state pull, which
+        caches it on ``_user_board_handles`` only after a SUCCESSFUL fetch
+        (a transport failure returns early and leaves it untouched). So its
+        absence genuinely means unknown, and reading it costs no network hop.
+
+        The operator is not in that set — their handle comes from the env var
+        the engine publishes under — so they are resolved separately. Without
+        this they would be told they were not on a board their own row is on.
+        """
+        operator_handle = str(
+            os.environ.get("PROOFOFPNL_LEADERBOARD_HANDLE", "")).strip()
+        if operator_handle and self._is_admin_id(tg_id):
+            return operator_handle, True
+        mapping = getattr(self.engine, "_user_board_handles", None)
+        if not isinstance(mapping, dict):
+            return None, None                    # never pulled — unknown
+        handle = str(mapping.get(str(tg_id)) or "").strip()
+        return (handle, True) if handle else (None, False)
 
     @guard("scan")
     async def _cmd_zones(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
