@@ -132,16 +132,31 @@ def _standings(rows: Sequence[Mapping[str, Any]], me: str) -> list[str]:
     return out
 
 
+def _symbol(raw: Any) -> str:
+    """`NATGASUSDT` → `NATGAS`. The base asset, never a truncated ticker.
+
+    The tape returns symbols WITHOUT a slash (`ZESTUSDT`), unlike the ccxt-style
+    `BTC/USDT:USDT` every fixture used. Stripping only the punctuated forms left
+    the quote currency attached, and the column cut then produced `NATGASUSD`
+    and `FARTCOINU` — which do not read as an abbreviation, they read as a
+    different instrument. Only live data showed it.
+    """
+    text = str(raw or "").upper().replace("/", "").replace(":", "")
+    for quote in ("USDT", "USDC", "USD"):
+        if text.endswith(quote) and len(text) > len(quote):
+            return text[: -len(quote)][:9]
+    return text[:9] or "?"
+
+
 def _tape_lines(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     out = []
     for row in rows[:TAPE_ROWS]:
         handle = str(row.get("handle") or "anon")[:12]
-        symbol = str(row.get("symbol") or "?").replace("/", "").replace(":USDT", "")[:9]
         direction = str(row.get("direction") or "").upper()[:5]
         reason = REASONS.get(str(row.get("reason") or "").lower(), "—")
         seal = "🔏" if row.get("key") else " "
-        out.append(f"  {_mark(row.get('pct'))} {handle:<12} {symbol:<9} "
-                   f"{direction:<5} {_pct_text(row.get('pct')):>8}  {reason:<6}{seal}")
+        out.append(f"  {_mark(row.get('pct'))} {handle:<12} {_symbol(row.get('symbol')):<9} "
+                   f"{direction:<5} {_pct_text(row.get('pct')):>8}  {reason:<6} {seal}")
     return out
 
 

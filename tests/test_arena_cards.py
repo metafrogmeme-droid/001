@@ -357,3 +357,48 @@ class TestTheFetcherReportsFailureAsFailure:
         assert is_virtual({"virtual": True}) is True
         for lie in ({}, {"virtual": False}, {"virtual": "true"}, {"virtual": 1}, None):
             assert is_virtual(lie) is False
+
+
+class TestSymbolsAsTheyActuallyArrive:
+    """Every fixture above used ccxt-style `BTC/USDT:USDT`. The live tape sends
+    `ZESTUSDT` — no slash, no colon — so stripping only the punctuated forms
+    left the quote attached and the column cut turned `NATGASUSDT` into
+    `NATGASUSD` and `FARTCOINUSDT` into `FARTCOINU`.
+
+    That is not an abbreviation a reader forgives; it reads as a different
+    instrument. Caught by rendering the card against production, which is the
+    one thing the whole suite could not do.
+    """
+
+    def _tape(self, symbol):
+        return {"virtual": True, "rows": [{"handle": "a", "symbol": symbol,
+                "direction": "short", "pct": 1.0, "reason": "manual", "key": "k"}]}
+
+    @pytest.mark.parametrize("raw,shown", [
+        ("ZESTUSDT", "ZEST"), ("NATGASUSDT", "NATGAS"),
+        ("FARTCOINUSDT", "FARTCOIN"), ("XRPUSDT", "XRP"),
+        ("BTC/USDT:USDT", "BTC"), ("ETH/USDT", "ETH"), ("SOLUSDC", "SOL"),
+    ])
+    def test_the_base_asset_survives_the_column(self, raw, shown):
+        card = plain(render_arena(None, self._tape(raw)))
+        assert shown in card
+
+    def test_no_truncated_quote_currency_is_left_behind(self):
+        card = plain(render_arena(None, self._tape("NATGASUSDT")))
+        for mangled in ("NATGASUSD", "NATGASU", "NATGASUS"):
+            assert mangled not in card
+
+    def test_a_bare_quote_symbol_is_not_erased(self):
+        """`USDT` alone must not strip to an empty cell."""
+        assert "USDT" in plain(render_arena(None, self._tape("USDT")))
+
+    def test_an_absent_symbol_does_not_crash_or_invent(self):
+        card = plain(render_arena(None, self._tape(None)))
+        assert "?" in card
+
+    def test_the_seal_glyph_does_not_collide_with_the_reason(self):
+        """'manual' is exactly the column width, so it butted straight into the
+        seal — `manual🔏` — on the live card."""
+        card = plain(render_arena(None, self._tape("ZESTUSDT")))
+        assert "manual🔏" not in card
+        assert "manual 🔏" in card
