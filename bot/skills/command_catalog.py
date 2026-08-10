@@ -26,6 +26,8 @@ GROUPS: List[Group] = [
         ("start", "register and see where things stand"),
         ("help", "this reference"),
         ("duel", "call the market before the agent does — free, no stake"),
+        ("leaderboard", "the verified board — ratios and counts, re-derivable"),
+        ("arena", "paper arena — season standings and the live tape"),
         ("dashboard", "open the web dashboard"),
         ("connect", "link your own exchange account"),
         ("exchange", "your linked-account status (never shows keys)"),
@@ -322,6 +324,8 @@ GROUP_TITLES_ZH: Dict[str, str] = {
 DESC_ZH: Dict[str, str] = {
     "start": "註冊並查看目前狀態", "help": "本指令總覽", "dashboard": "開啟網頁儀表板",
     "duel": "搶在代理之前判斷行情 — 免費、無賭注",
+    "leaderboard": "已驗證排行榜 — 僅比率與次數，可重新驗算",
+    "arena": "模擬競技場 — 賽季排名與即時成交紀錄",
     "connect": "連結你自己的交易所帳戶", "exchange": "你的帳戶連結狀態（永不顯示金鑰）",
     "disconnect": "移除已連結的憑證",
     "linkwallet": "連結 Solana 錢包（唯讀）以取得 $RCLAW 等級權限",
