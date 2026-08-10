@@ -59,16 +59,45 @@ def _sha256_file(path):
     return h.hexdigest()
 
 
+def _parse_llama3_text(text):
+    """Role segments of a pre-templated Llama-3 chat string."""
+    segments = []
+    for chunk in text.split("<|start_header_id|>")[1:]:
+        role, sep, rest = chunk.partition("<|end_header_id|>")
+        if not sep:
+            continue
+        segments.append((role.strip(), rest.split("<|eot_id|>")[0].strip()))
+    return segments
+
+
 def normalize(row):
     """Map a raw row onto {instruction, input, output}, or (None, reason).
 
     Rows are DATA in several dialects, not garbage — the first curation pass
     dropped 167K real rows as "malformed" because their prompt lived in
-    `input` with an empty `instruction`. Normalize the known dialects;
+    `input` with an empty `instruction`, and 147,936 more sat in v6 as
+    pre-templated Llama-3 `text` strings. Normalize the known dialects;
     refuse only what genuinely cannot be mapped, with a named reason.
     """
     if not isinstance(row, dict):
         return None, "not_a_dict"
+
+    # Pre-templated Llama-3 dialect: {"text": "<|begin_of_text|>..."}.
+    # The baked-in system prompt is discarded — the trainer applies its own.
+    if isinstance(row.get("text"), str):
+        if "<|start_header_id|>" not in row["text"]:
+            return None, "text_no_structure"
+        segments = _parse_llama3_text(row["text"])
+        user = ""
+        output = ""
+        for role, content in segments:
+            if role == "user" and not user:
+                user = content
+            elif role == "assistant" and user and not output:
+                output = content
+        if not user or not output:
+            return None, "text_unparseable"
+        return {"instruction": user, "input": "", "output": output}, None
 
     # Chat-messages dialect: {"messages": [{role, content}, ...]}
     if isinstance(row.get("messages"), list):
@@ -117,6 +146,7 @@ def curate(rows):
       source) wins.
     """
     drops = {"not_a_dict": 0, "no_prompt": 0, "messages_incomplete": 0,
+             "text_no_structure": 0, "text_unparseable": 0,
              "empty_output": 0, "too_long": 0,
              "exact_dup": 0, "conflicting_dup": 0}
     seen_exact = set()
