@@ -36,7 +36,8 @@ import html
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Sequence
 
-from bot.formatters.share_invite import MoneyLeak, assert_no_money
+from bot.formatters.share_invite import (MoneyLeak, assert_no_money,
+                                         display_handle)
 from bot.utils.arena_pull import is_virtual
 
 #: Chat-window budgets. Both are STATED when they bite, never silently applied.
@@ -119,8 +120,9 @@ def _countdown(target: Any, now: Optional[datetime] = None) -> str:
 def _standings(rows: Sequence[Mapping[str, Any]], me: str) -> list[str]:
     out = [f"  {'#':<3} {'HANDLE':<14} {'RETURN':>8}  ✓"]
     for row in rows[:STANDINGS_ROWS]:
-        handle = str(row.get("handle") or "anon")[:14]
-        mine = "◀" if me and handle.lower() == me else " "
+        full = str(row.get("handle") or "anon")
+        mine = "◀" if me and full.lower() == me else " "   # FULL, never the cut
+        handle = display_handle(full, 14)
         sealed, closes = row.get("sealed"), row.get("closes")
         # "3/8" is how much of this record carries an open-time receipt. Absent
         # counts print as a dash rather than 0/0, which would read as "nothing
@@ -151,7 +153,7 @@ def _symbol(raw: Any) -> str:
 def _tape_lines(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     out = []
     for row in rows[:TAPE_ROWS]:
-        handle = str(row.get("handle") or "anon")[:12]
+        handle = display_handle(row.get("handle") or "anon", 12)
         direction = str(row.get("direction") or "").upper()[:5]
         reason = REASONS.get(str(row.get("reason") or "").lower(), "—")
         seal = "🔏" if row.get("key") else " "

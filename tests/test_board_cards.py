@@ -286,6 +286,67 @@ class TestTheViewerHandleIsActuallyReadable:
         eng = _t.SimpleNamespace(_user_board_handles={"99": "other"})
         assert self._resolve(eng) == (None, False)
 
+    def test_an_over_long_operator_handle_is_normalised_like_the_board(self):
+        """`build_row` truncates every handle to HANDLE_MAX; the env var has no
+        such cap. A 25-character operator handle was told "opted in but not
+        ranked yet" with its own row sitting at rank 1 on the same card — the
+        board's normalisation applied to one side of a comparison only."""
+        import types as _t
+        from bot.proofofpnl.leaderboard import HANDLE_MAX
+        from bot.skills.telegram_handler import TelegramHandler
+        import os
+        long_handle = "RuneclawOperatorPrimary25"
+        assert len(long_handle) > HANDLE_MAX
+        os.environ["PROOFOFPNL_LEADERBOARD_HANDLE"] = long_handle
+        try:
+            stub = _t.SimpleNamespace(engine=object(), users={"7": {"role": "admin"}})
+            stub._is_admin_id = _t.MethodType(TelegramHandler._is_admin_id, stub)
+            got, opted = _t.MethodType(
+                TelegramHandler._viewer_board_handle, stub)("7")
+        finally:
+            os.environ.pop("PROOFOFPNL_LEADERBOARD_HANDLE", None)
+        assert opted is True
+        assert got == long_handle[:HANDLE_MAX], (
+            "the viewer handle must arrive in the form the board's rows carry")
+
+    def test_and_that_handle_then_marks_their_row(self):
+        """The end the normalisation exists for."""
+        import types as _t
+        from bot.proofofpnl.leaderboard import HANDLE_MAX
+        from bot.skills.telegram_handler import TelegramHandler
+        import os
+        long_handle = "RuneclawOperatorPrimary25"
+        os.environ["PROOFOFPNL_LEADERBOARD_HANDLE"] = long_handle
+        try:
+            stub = _t.SimpleNamespace(engine=object(), users={"7": {"role": "admin"}})
+            stub._is_admin_id = _t.MethodType(TelegramHandler._is_admin_id, stub)
+            handle, _ = _t.MethodType(TelegramHandler._viewer_board_handle, stub)("7")
+        finally:
+            os.environ.pop("PROOFOFPNL_LEADERBOARD_HANDLE", None)
+        card = plain(render_leaderboard(
+            [{"rank": 1, "handle": long_handle[:HANDLE_MAX],
+              "profit_factor": "2.0", "round_trips": 9}], handle, ranked_total=1))
+        assert "◀" in card
+        assert "not ranked yet" not in card.lower(), (
+            "told they were unranked with their own row on the card")
+
+    def test_a_map_handle_is_normalised_the_same_way(self, monkeypatch):
+        """Unreachable today — `app/routes/leaderboard.js` caps handles at
+        exactly HANDLE_MAX, so the two agree by coincidence of two numbers
+        matching in two languages. Raising HANDLE_RE to 30 would reopen the
+        operator bug for every member at once, silently. The invariant is that
+        the viewer handle arrives in the board's canonical form whatever its
+        source, so it is pinned on both."""
+        monkeypatch.delenv("PROOFOFPNL_LEADERBOARD_HANDLE", raising=False)
+        import types as _t
+        from bot.proofofpnl.leaderboard import HANDLE_MAX
+        over_long = "M" * (HANDLE_MAX + 6)
+        eng = _t.SimpleNamespace(_user_board_handles={"17": over_long})
+        got, opted = self._resolve(eng)
+        assert opted is True
+        assert got == over_long[:HANDLE_MAX], (
+            f"map handle passed through unnormalised: {got!r}")
+
     def test_the_operator_is_resolved_from_the_env_they_publish_under(self, monkeypatch):
         """They are not in the website's opt-in set, so the map would call them
         not-opted-in while their own row sits on the board."""
@@ -398,3 +459,89 @@ class TestTheCommandIsRegisteredAndGuarded:
         assert "trader" in holders and "viewer" in holders, (
             f"{perm!r} held by {holders} — the command would be invisible to "
             "the roles the catalogue advertises it to")
+
+
+class TestAHandleLongerThanItsColumn:
+    """`app/routes/leaderboard.js` admits handles up to 20 characters. This
+    column is 14. The card truncated for display and then IDENTIFIED on the
+    truncated value, which produced three distinct failures from one root cause
+    — surfaced by a live remark that two members were "2 different Buddys".
+
+    The third is the serious one: it publishes somebody else's verified record
+    as yours, on the one board whose entire pitch is verified identity.
+    """
+
+    def test_a_member_longer_than_the_column_still_sees_their_own_row(self):
+        rows = [{"rank": 1, "handle": "BuddyKingTrader1", "profit_factor": "2.0",
+                 "round_trips": 9},
+                {"rank": 2, "handle": "kestrel", "profit_factor": "1.1",
+                 "round_trips": 4}]
+        card = plain(render_leaderboard(rows, "BuddyKingTrader1", ranked_total=2))
+        assert "◀" in card, (
+            "invisible to themselves in the list they came to find themselves in")
+
+    def test_exactly_one_row_is_ever_marked(self):
+        """The false positive: a 14-char viewer handle that is another member's
+        prefix marked BOTH rows."""
+        viewer = "BuddyKingTrad1"                       # exactly the column width
+        rows = [{"rank": 1, "handle": "BuddyKingTrad1EXTRA",
+                 "profit_factor": "9.9", "round_trips": 30},
+                {"rank": 2, "handle": viewer, "profit_factor": "1.0",
+                 "round_trips": 2}]
+        card = plain(render_leaderboard(rows, viewer, ranked_total=2))
+        assert card.count("◀") == 1, "another member's record marked as yours"
+
+    def test_and_it_is_the_viewers_own_row(self):
+        viewer = "BuddyKingTrad1"
+        rows = [{"rank": 1, "handle": "BuddyKingTrad1EXTRA",
+                 "profit_factor": "9.9", "round_trips": 30},
+                {"rank": 2, "handle": viewer, "profit_factor": "1.0",
+                 "round_trips": 2}]
+        marked = [ln for ln in plain(render_leaderboard(
+            rows, viewer, ranked_total=2)).split("\n") if "◀" in ln]
+        assert marked and marked[0].strip().startswith("2"), (
+            f"marked the wrong rank: {marked}")
+
+    def test_a_shortened_name_is_visibly_shortened(self):
+        """`BuddyKingTrade` reads as a whole handle. `BuddyKingTrad…` does not,
+        and the ellipsis is the only honest claim available at this width."""
+        rows = [{"rank": 1, "handle": "BuddyKingTraderX", "profit_factor": "9.9",
+                 "round_trips": 30}]
+        card = plain(render_leaderboard(rows, None, ranked_total=1))
+        assert "…" in card
+        assert "BuddyKingTrade " not in card
+
+    def test_a_handle_that_fits_is_not_mutilated(self):
+        card = plain(render_leaderboard(
+            [{"rank": 1, "handle": "kestrel", "profit_factor": "1.0",
+              "round_trips": 2}], None, ranked_total=1))
+        assert "kestrel" in card and "…" not in card
+
+    def test_a_handle_exactly_the_column_width_keeps_every_character(self):
+        """Off-by-one guard: 14 fits, so it must not lose its last character."""
+        exact = "BuddyKingTrad1"
+        assert len(exact) == 14
+        card = plain(render_leaderboard(
+            [{"rank": 1, "handle": exact, "profit_factor": "1.0",
+              "round_trips": 2}], None, ranked_total=1))
+        assert exact in card and "…" not in card
+
+    def test_the_shared_helper_is_the_one_the_other_boards_use(self):
+        from bot.formatters import board_cards, share_invite
+        assert board_cards.display_handle is share_invite.display_handle
+
+    def test_it_never_exceeds_the_column_it_was_given(self):
+        """The helper exists to fit a fixed-width `<pre>` table. Appending the
+        ellipsis AFTER a full-width cut returns width+1 and every row below it
+        shears — the table stops being a table, which is the one thing the
+        monospace block buys."""
+        from bot.formatters.share_invite import display_handle
+        for length in range(0, 40):
+            for width in (1, 2, 5, 12, 14, 20):
+                out = display_handle("x" * length, width)
+                assert len(out) <= width, (
+                    f"{length}ch handle in a {width}ch column -> {len(out)}ch")
+
+    def test_a_zero_width_column_returns_empty_not_an_ellipsis(self):
+        from bot.formatters.share_invite import display_handle
+        assert display_handle("kestrel", 0) == ""

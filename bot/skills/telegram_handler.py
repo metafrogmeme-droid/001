@@ -5129,14 +5129,24 @@ class TelegramHandler:
         the engine publishes under — so they are resolved separately. Without
         this they would be told they were not on a board their own row is on.
         """
-        operator_handle = str(
-            os.environ.get("PROOFOFPNL_LEADERBOARD_HANDLE", "")).strip()
+        from bot.proofofpnl.leaderboard import HANDLE_MAX
+
+        def _canon(raw) -> str:
+            # The board's rows carry `build_row`'s normalisation, so the
+            # viewer's handle must arrive in the SAME form or it can never
+            # match. The web caps handles at 20 and agrees already; the
+            # operator's env var has no cap at all, and a 25-character one was
+            # told "you are opted in but not ranked yet" with its own row at
+            # rank 1 on the same card.
+            return str(raw or "").strip()[:HANDLE_MAX]
+
+        operator_handle = _canon(os.environ.get("PROOFOFPNL_LEADERBOARD_HANDLE"))
         if operator_handle and self._is_admin_id(tg_id):
             return operator_handle, True
         mapping = getattr(self.engine, "_user_board_handles", None)
         if not isinstance(mapping, dict):
             return None, None                    # never pulled — unknown
-        handle = str(mapping.get(str(tg_id)) or "").strip()
+        handle = _canon(mapping.get(str(tg_id)))
         return (handle, True) if handle else (None, False)
 
     @guard("scan")
