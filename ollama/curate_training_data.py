@@ -59,8 +59,56 @@ def _sha256_file(path):
     return h.hexdigest()
 
 
+def normalize(row):
+    """Map a raw row onto {instruction, input, output}, or (None, reason).
+
+    Rows are DATA in several dialects, not garbage — the first curation pass
+    dropped 167K real rows as "malformed" because their prompt lived in
+    `input` with an empty `instruction`. Normalize the known dialects;
+    refuse only what genuinely cannot be mapped, with a named reason.
+    """
+    if not isinstance(row, dict):
+        return None, "not_a_dict"
+
+    # Chat-messages dialect: {"messages": [{role, content}, ...]}
+    if isinstance(row.get("messages"), list):
+        users = [m for m in row["messages"]
+                 if isinstance(m, dict) and m.get("role") == "user"]
+        assistants = [m for m in row["messages"]
+                      if isinstance(m, dict) and m.get("role") == "assistant"]
+        if not users or not assistants:
+            return None, "messages_incomplete"
+        return {"instruction": str(users[0].get("content") or ""),
+                "input": "",
+                "output": str(assistants[-1].get("content") or "")}, None
+
+    instruction = str(row.get("instruction") or "")
+    inp = str(row.get("input") or "")
+
+    # prompt/completion and question/answer dialects
+    if not instruction.strip() and not inp.strip():
+        alt = row.get("prompt") or row.get("question")
+        if alt:
+            instruction = str(alt)
+    output = row.get("output")
+    if output is None:
+        output = row.get("completion")
+    if output is None:
+        output = row.get("response") or row.get("answer")
+    output = str(output or "")
+
+    # Prompt-in-`input` dialect: promote it so the trainer's
+    # instruction-first template doesn't lead with a blank line.
+    if not instruction.strip() and inp.strip():
+        instruction, inp = inp, ""
+
+    if not instruction.strip():
+        return None, "no_prompt"
+    return {"instruction": instruction, "input": inp, "output": output}, None
+
+
 def curate(rows):
-    """Filter + dedup. Returns (kept_rows, drop_counts).
+    """Normalize + filter + dedup. Returns (kept_rows, drop_counts).
 
     Two dedup layers:
     - exact: normalized (instruction, input, output) seen before
@@ -68,23 +116,22 @@ def curate(rows):
       conflicting labels for one prompt; the first (usually oldest/cleanest
       source) wins.
     """
-    drops = {"malformed": 0, "empty_output": 0, "too_long": 0,
+    drops = {"not_a_dict": 0, "no_prompt": 0, "messages_incomplete": 0,
+             "empty_output": 0, "too_long": 0,
              "exact_dup": 0, "conflicting_dup": 0}
     seen_exact = set()
     seen_prompt = set()
     kept = []
 
-    for row in rows:
-        if not isinstance(row, dict):
-            drops["malformed"] += 1
+    for raw in rows:
+        row, reason = normalize(raw)
+        if row is None:
+            drops[reason] += 1
             continue
-        instruction = row.get("instruction") or ""
-        inp = row.get("input") or ""
-        output = row.get("output") or ""
+        instruction = row["instruction"]
+        inp = row["input"]
+        output = row["output"]
 
-        if not instruction.strip():
-            drops["malformed"] += 1
-            continue
         if len(output.strip()) < MIN_OUTPUT_CHARS:
             drops["empty_output"] += 1
             continue
