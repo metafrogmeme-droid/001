@@ -262,7 +262,11 @@ def main():
         lr_scheduler_type="cosine",
         seed=42,
         output_dir=CHECKPOINT_DIR,
-        save_strategy="epoch",
+        # Every-N-steps, not per-epoch: a 27h run OOM'd at 52% when another
+        # process claimed VRAM, and per-epoch saves would have cost a full
+        # day of epoch-2 progress. 1000 steps caps the loss at ~4h.
+        save_strategy="steps",
+        save_steps=1000,
         save_total_limit=3,
         report_to="none",
         dataloader_pin_memory=True,
