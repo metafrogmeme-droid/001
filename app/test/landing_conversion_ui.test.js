@@ -17,8 +17,22 @@ test('the hero has a trust-badge objection-killer row', () => {
   assert.match(html, /<ul class="trust-badges"/);
   assert.match(html, /Non-custodial/);
   assert.match(html, /Withdrawal-disabled/);
-  assert.match(html, /Source-available/);
   assert.match(html, /Every fill <a href="\/proof">verifiable<\/a>/);
+  // "Source-available" used to sit in the fourth slot. It linked nowhere, and
+  // the two places that DID link source (index footer, developers.html) return
+  // 403 to a logged-out visitor. On a page whose whole pitch is "don't trust
+  // us, verify", an unverifiable trust badge is the one claim that undermines
+  // the other three. Replaced with a property checked against production:
+  // sha256(seal_payload) equals the published seal, and that payload carries
+  // the entry, stop and target but no outcome.
+  assert.match(html, /Sealed before the outcome/);
+});
+
+test('the hero makes no claim that an admin gates live trading', () => {
+  // True until PER_USER_LIVE_ENABLED ships on; false the moment it does, and
+  // it appeared in three places. Live runs on the trader's OWN keys now, so
+  // "operator approval" would send a member to someone who cannot help them.
+  assert.doesNotMatch(html, /operator approval/i);
 });
 
 test('the hero proof strip is stamped verified', () => {
