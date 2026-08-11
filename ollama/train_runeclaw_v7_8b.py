@@ -111,6 +111,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--resume", action="store_true",
                         help="resume from the latest checkpoint in " + CHECKPOINT_DIR)
+    parser.add_argument("--safe", action="store_true",
+                        help="micro-batch 2 x accum 8 (same effective 16) — several GB "
+                             "lower peak VRAM so training survives sharing the GPU with "
+                             "desktop apps; two daytime OOMs bought this flag")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -121,10 +125,11 @@ def main():
     print("\n[1/6] Reading GPU (honestly)...")
     import torch
     vram_gb = read_vram_gb(torch)
-    profile = training_profile(vram_gb)
+    profile = {"batch": 2, "accum": 8} if args.safe else training_profile(vram_gb)
     print(f"  GPU:  {torch.cuda.get_device_name(0)}")
     print(f"  VRAM: {vram_gb:.1f} GB -> batch {profile['batch']} x accum "
-          f"{profile['accum']} (effective 16)")
+          f"{profile['accum']} (effective 16)"
+          + ("  [--safe: lower peak for a shared GPU]" if args.safe else ""))
     print(f"  PyTorch {torch.__version__}, CUDA {torch.version.cuda}")
 
     # ── [2/6] Dataset (hashed BEFORE training) ────────────────
