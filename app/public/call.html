@@ -51,6 +51,42 @@
   </div>
 </div>
 <script>
+/* Does the live row still match the seal, given what the STORAGE can hold?
+ *
+ * `arena_trades.opened_at` is a MySQL TIMESTAMP — whole seconds, no fractional
+ * part. The seal commits the millisecond value from toISOString(), so the
+ * round-trip through the database drops up to 999ms and the two can never be
+ * byte-equal. Comparing them exactly reported
+ *
+ *     opened_at: sealed 2026-08-10T14:40:06.293Z → now 2026-08-10T14:40:06.000Z
+ *
+ * as tampering, on essentially every arena trade, directly beneath "Seal
+ * verified in your browser". A page that cries wolf on its own flagship claim
+ * is worse than one that makes no claim: it is self-contradictory to a reader,
+ * and it trains everyone to scroll past the warning that would matter.
+ *
+ * So timestamps are compared at the precision the column actually stores. This
+ * is not laxity — no check can distinguish values the storage cannot represent.
+ * A tamper of one second or more is still caught; one of under a second is not
+ * a meaningful attack on a trade record, and is indistinguishable from the
+ * write itself.
+ */
+var STORAGE_TIME_GRANULARITY_MS = 1000;   // MySQL TIMESTAMP, fsp = 0
+function sameAfterStorage(key, sealed, live) {
+  if (key === 'opened_at' || key === 'closed_at' || key === 'sealed_at') {
+    var ta = new Date(sealed).getTime(), tb = new Date(live).getTime();
+    // Unparseable on either side is NOT "equal by default" — that would hide a
+    // field replaced with junk, which is exactly what the check exists to see.
+    if (!isFinite(ta) || !isFinite(tb)) return String(sealed) === String(live);
+    return Math.abs(ta - tb) < STORAGE_TIME_GRANULARITY_MS;
+  }
+  if (typeof sealed === 'number' || typeof live === 'number') {
+    return Math.abs((Number(sealed) || 0) - (Number(live) || 0)) < 1e-9;
+  }
+  return String(sealed) === String(live);
+}
+</script>
+<script>
 (function () {
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
     return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -125,11 +161,9 @@
           var ac = d.current || {};
           ['symbol', 'direction', 'entry', 'leverage', 'tp', 'sl', 'opened_at'].forEach(function (k) {
             if (!(k in ac)) return;
-            var a = p[k], b = ac[k];
-            if (k === 'opened_at') { a = new Date(a).getTime(); b = new Date(b).getTime(); }
-            var same = (typeof a === 'number' || typeof b === 'number')
-              ? Math.abs((Number(a) || 0) - (Number(b) || 0)) < 1e-9 : String(a) === String(b);
-            if (!same) adrift.push(k + ': sealed ' + p[k] + ' → now ' + ac[k]);
+            if (!sameAfterStorage(k, p[k], ac[k])) {
+              adrift.push(k + ': sealed ' + p[k] + ' → now ' + ac[k]);
+            }
           });
           if (adrift.length) {
             html += '<div class="drift">⚠️ The live record DIFFERS from what was sealed: ' + esc(adrift.join(' · ')) + '</div>';
