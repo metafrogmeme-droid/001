@@ -1965,14 +1965,29 @@ class RuneClawEngine:
                 return False, "no linked Bitget account — use /connect to link one"
         except Exception as exc:
             return False, f"credential lookup failed: {exc}"
-        # … AND be on the live ALLOWLIST (admin /grant_live). Staged rollout:
-        # linked keys alone are NOT enough — this is the gate that keeps flipping
-        # PER_USER_LIVE_ENABLED=on from opening live to every key-holder at once.
-        # Fail-CLOSED for real money: if the user store isn't available to confirm
-        # the allowlist, deny rather than assume permission.
+        # … AND clear the live-access policy. Two policies, one switch:
+        #
+        #   LIVE_OPEN_TO_KEY_HOLDERS on  — linked keys ARE the opt-in. Bringing
+        #       your own account is the consent, and nothing of the operator's
+        #       is at risk because the keys check above already routed this
+        #       order to the user's own executor. An explicit revoke still
+        #       denies.
+        #   off — the staged rollout: an admin must /grant_live first.
+        #
+        # Fail-CLOSED for real money either way: if the user store is not
+        # available to answer, deny rather than assume permission. That matters
+        # more under the open policy, not less — "no store" must never read as
+        # "nobody is revoked".
         store = getattr(self, "_user_store", None)
         if store is None:
-            return False, "live allowlist unavailable — denying (fail-closed)"
+            return False, "live access policy unavailable — denying (fail-closed)"
+        if getattr(CONFIG, "live_open_to_key_holders", False):
+            try:
+                if store.live_trading_revoked(user_id):
+                    return False, "live trading revoked for this account"
+            except Exception as exc:
+                return False, f"live access check failed: {exc}"
+            return True, "linked keys (live open to key holders)"
         try:
             if not store.can_trade_live(user_id):
                 return False, ("not on the live allowlist — an admin must "

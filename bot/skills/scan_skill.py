@@ -1416,9 +1416,9 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
                     parse_mode="HTML")
                 return
             if not _h._is_admin(update) and not _h._can_trade_live(caller_uid):
+                from bot.utils.i18n import t as _t
                 await query.message.reply_text(
-                    "\U0001f512 Live trading is not enabled for your account. "
-                    "An admin must grant it with /grant_live.",
+                    "\U0001f512 " + _t(_h._live_refusal_key(), _h._lang(update)),
                     parse_mode="HTML")
                 return
 

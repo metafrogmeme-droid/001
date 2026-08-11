@@ -77,6 +77,11 @@ def _tele_cfg(chat="100", admin="200", live="300"):
     m.telegram.chat_id = chat
     m.telegram.admin_ids = admin
     m.telegram.live_trader_ids = live
+    # Explicit: a MagicMock hands back a truthy Mock for any flag nobody
+    # set, so each new feature switch arrives silently ON in this suite.
+    m.live_open_to_key_holders = False
+    m.per_user_live_enabled = False
+    m.paper_auto_accept = False
     return p
 
 
@@ -89,6 +94,12 @@ class _Users:
 
     def can_trade_live(self, tid):
         return self._live_ok
+
+    def live_trading_revoked(self, tid):
+        """Nobody here is under an explicit ban — the suite is about the
+        ALLOWLIST. A double that omits this answers every question with a
+        truthy Mock and silently bans the users it means to admit."""
+        return False
 
 
 def _handler(users=None):

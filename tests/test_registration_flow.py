@@ -80,6 +80,13 @@ def _locked_bot():
     mc.telegram.admin_ids = OPERATOR
     mc.telegram.live_trader_ids = ""
     mc.simulation_mode = True
+    # EVERY boolean this suite depends on has to be stated. A MagicMock returns
+    # a truthy Mock for any attribute nobody set, so each new feature flag
+    # silently arrives switched ON here — `paper_auto_accept` did, and admitted
+    # the "stranger" these tests turn away before /approve could be what
+    # granted access. The file is about the MANUAL path; the door is shut.
+    mc.paper_auto_accept = False
+    mc.live_open_to_key_holders = False
     return p
 
 
@@ -257,7 +264,15 @@ class TestHelpIsTrueForThePersonReadingIt:
 class TestApprovalActuallyGrantsAccess:
     async def test_approve_then_the_next_command_works(self, tmp_path):
         """End to end, the thing that was broken: /approve announced access,
-        _guard refused it."""
+        _guard refused it.
+
+        Runs with PAPER_AUTO_ACCEPT off (see _locked_bot), because this
+        exercises the MANUAL approval path: with the door open there is no
+        "turned away" state left for /approve to resolve. That path still
+        matters — it is what runs when an operator shuts the door, and the bug
+        it guards against (an approval the gate does not recognise) is
+        orthogonal to who may knock.
+        """
         h = _handler(tmp_path)
         h.users.seed_admin(OPERATOR)
         stranger, ctx = _update(uid=999)

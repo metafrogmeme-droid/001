@@ -2108,6 +2108,33 @@ class AppConfig:
     # the per-user-accounts feature; see docs/LIVE_TRADING_ENABLEMENT.md.
     per_user_live_enabled: bool = _env_bool("PER_USER_LIVE_ENABLED", False)
 
+    # Paper auto-accept: a new Telegram user is admitted for PAPER trading on
+    # first contact instead of waiting for an operator's /approve. The Arena is
+    # designed as a zero-friction on-ramp and a manual gate in front of virtual
+    # funds is friction that buys nothing.
+    #
+    # It grants BOT ACCESS ONLY. Live trading is a separate authority
+    # (_can_trade_live) that a self-admitted user cannot satisfy: it requires
+    # PER_USER_LIVE_ENABLED and their OWN linked exchange keys, so nothing here
+    # can put a stranger near the operator's balance.
+    #
+    # The admission is recorded with admitted_by="auto-accept" rather than an
+    # admin id, so /users still distinguishes a person a human vouched for from
+    # one the door let in.
+    paper_auto_accept: bool = _env_bool("PAPER_AUTO_ACCEPT", True)
+
+    # Live trading for every trader who brings their own account. When ON, the
+    # per-user live gate stops requiring an admin's /grant_live and instead
+    # allows any user with their own linked, decryptable keys — an explicit
+    # revoke still denies. OFF restores the staged rollout (opt-in allowlist).
+    #
+    # Meaningful ONLY with PER_USER_LIVE_ENABLED on. With that master switch
+    # off, every order routes to the operator account, so opening this alone
+    # would point strangers at the operator's balance; _can_trade_live refuses
+    # non-operators outright in that state rather than trusting the pair to be
+    # configured consistently.
+    live_open_to_key_holders: bool = _env_bool("LIVE_OPEN_TO_KEY_HOLDERS", True)
+
     # -- Auto-confirmation --
     # Signals with blended confidence >= this threshold auto-execute without
     # waiting for a human button press. OPERATOR-ACTIVATED default 0.85 (the admin

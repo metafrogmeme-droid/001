@@ -278,6 +278,11 @@ class TestAllowlist:
         with patch("bot.skills.telegram_handler.CONFIG") as mc:
             mc.telegram.chat_id = "111"
             mc.telegram.admin_ids = ""
+            # F-2 is about the allowlist GATE, so the auto-accept door is shut
+            # here — otherwise there is no denial left to observe. Stated
+            # explicitly because a MagicMock returns a truthy Mock for any flag
+            # nobody set, which switched this on silently.
+            mc.paper_auto_accept = False
             ok = await handler._guard(stranger, "trade")
             assert ok is False
 

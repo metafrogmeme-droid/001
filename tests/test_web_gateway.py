@@ -75,6 +75,24 @@ class FakeUsers:
         exactly as it did before admission existed."""
         return False
 
+    def live_trading_revoked(self, *_a, **_k):
+
+        """Nobody here is under an explicit operator ban.
+
+
+        Separate from `can_trade_live` because `register()` writes
+
+        `can_trade_live: False` on every account as the paper-only
+
+        DEFAULT — a default and a decision are different facts, and the
+
+        live gate asks for both.
+
+        """
+
+        return False
+
+
     def can_trade_live(self, tg):
         if str(tg).startswith("web:"):
             return False
