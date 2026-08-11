@@ -511,6 +511,39 @@ app.get('/trader/:handle', async (req, res) => {
 // has configured the app identity; an unconfigured host answers 404 honestly
 // rather than shipping an empty/false statement. §F-15: the cert fingerprint
 // is public by design (it's printed on every APK).
+// RFC 9116 security.txt — the address a finder should use, and how long this
+// file may be believed. A route rather than a file under public/, because
+// express.static ignores dotfiles: /.well-known/assetlinks.json is a route for
+// the same reason, and a security.txt dropped into public/.well-known/ would
+// silently 404.
+//
+// EXPIRES IS ROLLING, and that is deliberate. The field is mandatory, and a
+// hardcoded date is a promise that reliably goes stale — an expired
+// security.txt reads as an abandoned project, which is worse than none at all
+// and is the most common way this file fails. Computed per request, it cannot
+// rot; the cost is that it no longer doubles as a "somebody reviewed this
+// recently" signal, which a date nobody updates was not providing either.
+//
+// SECURITY_CONTACT must reach a mailbox somebody reads. This publishes an
+// invitation to report, and an invitation nobody answers is the same broken
+// promise as a dead link — set it to empty to serve nothing rather than point
+// at an address that bounces.
+app.get('/.well-known/security.txt', (req, res) => {
+  const contact = (process.env.SECURITY_CONTACT
+    ?? 'mailto:security@humanoid-traders.com').trim();
+  if (!contact) return res.status(404).end();
+  const origin = require('./lib/public_origin').configured()
+    || 'https://www.humanoid-traders.com';
+  const expires = new Date(Date.now() + 90 * 24 * 3600 * 1000)
+    .toISOString().replace(/\.\d{3}Z$/, 'Z');
+  res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(
+    [`Contact: ${contact}`,
+     `Expires: ${expires}`,
+     'Preferred-Languages: en, nl',
+     `Canonical: ${origin}/.well-known/security.txt`,
+     `Policy: ${origin}/provable`,
+     ''].join('\n'));
+});
 app.get('/.well-known/assetlinks.json', (req, res) => {
   // The operator's published app identity — PUBLIC by design (the fingerprint
   // is printed on every APK), so shipping it as the default is §F-15-safe.
