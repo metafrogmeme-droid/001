@@ -565,6 +565,26 @@ class UserStore:
         # Default: only admins can trade live
         return user.get("role") == "admin"
 
+    def live_trading_revoked(self, telegram_id: int | str) -> bool:
+        """True only when an operator has EXPLICITLY turned live trading off.
+
+        Distinct from ``not can_trade_live(...)``, which is also false for
+        everyone who was simply never granted it. Once live trading opens to
+        every key-holder, "never granted" stops being a denial and only an
+        explicit revoke is — so the two questions need separate answers.
+
+        It reads ``live_revoked_at`` and NOT ``can_trade_live is False``, which
+        was the first attempt and was wrong: ``register()`` writes
+        ``can_trade_live: False`` on every new account as the paper-only
+        DEFAULT, so that test called every trader revoked and would have banned
+        the entire user base the moment live opened. A default and a decision
+        are different facts and the store has to record them separately.
+        """
+        user = self.get(telegram_id)
+        if not user:
+            return False
+        return bool(user.get("live_revoked_at"))
+
     def set_live_trading(self, telegram_id: int | str, enabled: bool) -> bool:
         """Grant or revoke live trading permission for a user."""
         key = str(telegram_id)
@@ -572,6 +592,13 @@ class UserStore:
             if key not in self._users:
                 return False
             self._users[key]["can_trade_live"] = enabled
+            # A DECISION, recorded apart from the flag. `can_trade_live: False`
+            # is also what register() writes by default, so the flag alone
+            # cannot say whether a human ruled on this account.
+            if enabled:
+                self._users[key].pop("live_revoked_at", None)
+            else:
+                self._users[key]["live_revoked_at"] = datetime.now(UTC).isoformat()
             self._save()
             audit(system_log,
                   f"Live trading {'enabled' if enabled else 'disabled'} for user {key}",

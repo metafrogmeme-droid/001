@@ -59,7 +59,8 @@ from __future__ import annotations
 import html
 from typing import Any, Mapping, Optional, Sequence
 
-from bot.formatters.share_invite import MoneyLeak, assert_no_money
+from bot.formatters.share_invite import (MoneyLeak, assert_no_money,
+                                         display_handle)
 
 #: Rows past this are noise in a chat window. The board itself is capped
 #: upstream; this is the display cut, and it is STATED on the card rather than
@@ -117,8 +118,11 @@ def _row_line(row: Mapping[str, Any], me: str) -> Optional[str]:
     None rather than a repaired line: see the module docstring on why a mangled
     handle is worse than a missing row.
     """
-    handle = str(row.get("handle") or "anon")[:14]
-    mark = "◀" if me and handle.lower() == me else " "
+    full = str(row.get("handle") or "anon")
+    # Compared FULL, shown short. Matching on the truncated form marked another
+    # member's row as the viewer's own whenever their handle was its prefix.
+    mark = "◀" if me and full.lower() == me else " "
+    handle = display_handle(full, 14)
     line = (f"  {str(row.get('rank') or '?'):<3} {handle:<14} "
             f"{_pf(row.get('profit_factor')):>6}"
             f"  {str(row.get('round_trips', '—')):>4}  {_tier_mark(row)}{mark}")

@@ -22,6 +22,9 @@ def flag():
 
     def _set(value):
         object.__setattr__(engine_mod.CONFIG, "per_user_live_enabled", value)
+        # The allowlist rule is this suite's subject; pin the policy that
+        # has one rather than following the deployment default.
+        object.__setattr__(engine_mod.CONFIG, "live_open_to_key_holders", False)
 
     yield _set
     object.__setattr__(engine_mod.CONFIG, "per_user_live_enabled", original)

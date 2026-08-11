@@ -34,6 +34,9 @@ def _engine(store, human=True, operator=False):
 def _cfg_live_per_user():
     cfg = MagicMock()
     cfg.per_user_live_enabled = True
+    # This suite IS the staged rollout (keys alone are not enough), so it
+    # selects that policy rather than inheriting the default.
+    cfg.live_open_to_key_holders = False
     return cfg
 
 

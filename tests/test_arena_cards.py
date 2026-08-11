@@ -402,3 +402,45 @@ class TestSymbolsAsTheyActuallyArrive:
         card = plain(render_arena(None, self._tape("ZESTUSDT")))
         assert "manual🔏" not in card
         assert "manual 🔏" in card
+
+
+class TestAHandleLongerThanItsColumn:
+    """Same root cause as the leaderboard's: truncate for display, then
+    identify on the truncated value. The arena standings carried it too."""
+
+    def _season(self, rows):
+        return {"virtual": True,
+                "season": {"name": "G", "status": "live",
+                           "ends_at": "2027-01-01T00:00:00Z"},
+                "rows": rows}
+
+    def test_a_long_handled_member_sees_their_own_row(self):
+        s = self._season([{"rank": 1, "handle": "BuddyKingTrader1",
+                           "return_pct": 5.0, "sealed": 1, "closes": 1}])
+        card = plain(render_arena(s, None, viewer_handle="BuddyKingTrader1"))
+        assert "◀" in card
+
+    def test_exactly_one_row_is_marked(self):
+        viewer = "BuddyKingTrad1"
+        s = self._season([
+            {"rank": 1, "handle": "BuddyKingTrad1EXTRA", "return_pct": 9.9,
+             "sealed": 1, "closes": 1},
+            {"rank": 2, "handle": viewer, "return_pct": 1.0,
+             "sealed": 1, "closes": 1}])
+        card = plain(render_arena(s, None, viewer_handle=viewer))
+        assert card.count("◀") == 1
+
+    def test_a_long_handled_member_is_not_told_they_have_no_closes(self):
+        """They have a row. The 'no closes' line keys off the FULL handle, so a
+        truncation-based match would contradict the row right above it."""
+        s = self._season([{"rank": 1, "handle": "BuddyKingTrader1",
+                           "return_pct": 5.0, "sealed": 1, "closes": 1}])
+        card = plain(render_arena(s, None, viewer_handle="BuddyKingTrader1"))
+        assert "no closes in this window" not in card.lower()
+
+    def test_the_tape_shortens_visibly_too(self):
+        tape = {"virtual": True, "rows": [{"handle": "BuddyKingTraderX",
+                "symbol": "ZESTUSDT", "direction": "long", "pct": 1.0,
+                "reason": "tp", "key": "k"}]}
+        card = plain(render_arena(None, tape))
+        assert "…" in card

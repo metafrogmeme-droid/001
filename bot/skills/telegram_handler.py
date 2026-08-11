@@ -2071,7 +2071,7 @@ class TelegramHandler:
                     caller_uid_str = str(update.effective_user.id) if update.effective_user else ""
                     if not self._can_trade_live(caller_uid_str):
                         await self._send(update,
-                            f"\U0001f512 {t('live_not_enabled', self._lang(update))}")
+                            f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}")
                         return
 
                 result = await self.engine.confirm_trade(trade_id, user_id=caller_uid)
@@ -2478,10 +2478,75 @@ class TelegramHandler:
         # make them live.
         if str(tg_id).startswith("web:"):
             return False
+        # An explicit revoke outranks every path below, including a user who
+        # brings their own keys.
+        if self.users.live_trading_revoked(tg_id):
+            return False
+
+        if not getattr(CONFIG, "live_open_to_key_holders", False):
+            # Staged rollout — the prior behaviour, byte for byte, including the
+            # demo/paper fallback where an unset allowlist leaves the store flag
+            # as the whole policy.
+            allow = self._allowlist_ids()
+            if allow and str(tg_id) not in allow:
+                return False
+            return self.users.can_trade_live(tg_id)
+
+        operator = False
+        try:
+            operator = bool(self.engine._is_operator_user(tg_id))
+        except Exception:
+            operator = False
+        if not operator:
+            # A REGULAR trader trades their OWN account or not at all.
+            #
+            # The master switch is checked HERE, not left to the operator to
+            # keep two env vars consistent: with PER_USER_LIVE_ENABLED off,
+            # _executor_for returns the shared operator executor for everyone
+            # and per_user_live_eligibility is a documented no-op, so a
+            # non-operator passing this gate would place orders on the
+            # operator's balance. Refusing outright makes that state
+            # unreachable instead of merely discouraged.
+            if not getattr(CONFIG, "per_user_live_enabled", False):
+                return False
+            if not getattr(CONFIG, "live_open_to_key_holders", False):
+                return self.users.can_trade_live(tg_id)
+            return self._has_own_exchange_keys(tg_id)
+
+        # Operator path — the shared account, unchanged: env allowlist AND the
+        # per-user store flag must both permit it.
         allow = self._allowlist_ids()
         if allow and str(tg_id) not in allow:
             return False
         return self.users.can_trade_live(tg_id)
+
+    def _live_refusal_key(self) -> str:
+        """Which refusal a member should be shown when live trading is denied.
+
+        Under the open policy an admin grant does nothing — bringing your own
+        account IS the opt-in — so "ask an admin for /grant_live" points the
+        member at someone who cannot help them. One definition, because the
+        message and the gate that produced it must not drift apart.
+        """
+        return ("live_needs_own_account"
+                if getattr(CONFIG, "live_open_to_key_holders", False)
+                else "live_not_enabled")
+
+    def _has_own_exchange_keys(self, tg_id) -> bool:
+        """Whether this user has their own linked, decryptable exchange keys.
+
+        Fail-CLOSED: an unreadable credential store answers "no". This decides
+        whether real money may move, and the failure it guards against —
+        routing a stranger's order onto the operator's account — is not
+        recoverable once the order fills.
+        """
+        try:
+            from bot.core.exchange_credentials import get_credential_store
+            return bool(get_credential_store().get(str(tg_id)))
+        except Exception as exc:
+            system_log.warning("Live gate: credential lookup failed for %s: %s",
+                               tg_id, exc)
+            return False
 
     def _is_admin(self, update: Update) -> bool:
         """Check if the user is an admin (user-store role OR ADMIN_TELEGRAM_IDS)."""
@@ -2581,15 +2646,38 @@ class TelegramHandler:
                 self.users.register(tg_id, name=(
                     update.effective_user.first_name
                     if update.effective_user else ""))
-            notified = await self._request_operator_admission(
-                tg_id,
-                (update.effective_user.first_name
-                 if update.effective_user else ""),
-                ctx)
-            from bot.formatters.onboarding import access_denied_notice
-            await self._send(update, access_denied_notice(
-                tg_id, operator_notified=notified, lang=lang))
-            return False
+            # Paper auto-accept: the Arena is a zero-friction on-ramp, and a
+            # manual gate in front of virtual funds is friction that buys
+            # nothing. Admitted here rather than only in /start, because a
+            # newcomer's first message is often a command they saw quoted
+            # somewhere, not /start.
+            #
+            # This grants BOT ACCESS ONLY. `_can_trade_live` is a separate
+            # authority a self-admitted user cannot satisfy — it needs
+            # PER_USER_LIVE_ENABLED and their OWN linked keys — so the door
+            # opening here never reaches the operator's balance.
+            #
+            # admitted_by is "auto-accept", never an admin id: F-2 exists
+            # because `register()` could not name an approver, and a door that
+            # forges one would be worse than the hole it replaced. /users still
+            # shows who a human vouched for.
+            if getattr(CONFIG, "paper_auto_accept", False):
+                self.users.authorize(tg_id, role="trader", by="auto-accept")
+                if self._is_allowlisted(update):
+                    user = self.users.get(tg_id)
+                else:
+                    system_log.warning(
+                        "Paper auto-accept did not take for %s", tg_id)
+            if not self._is_allowlisted(update):
+                notified = await self._request_operator_admission(
+                    tg_id,
+                    (update.effective_user.first_name
+                     if update.effective_user else ""),
+                    ctx)
+                from bot.formatters.onboarding import access_denied_notice
+                await self._send(update, access_denied_notice(
+                    tg_id, operator_notified=notified, lang=lang))
+                return False
 
         if not user or not user.get("authorized", False):
             from bot.formatters.onboarding import welcome_notice
@@ -5129,14 +5217,24 @@ class TelegramHandler:
         the engine publishes under — so they are resolved separately. Without
         this they would be told they were not on a board their own row is on.
         """
-        operator_handle = str(
-            os.environ.get("PROOFOFPNL_LEADERBOARD_HANDLE", "")).strip()
+        from bot.proofofpnl.leaderboard import HANDLE_MAX
+
+        def _canon(raw) -> str:
+            # The board's rows carry `build_row`'s normalisation, so the
+            # viewer's handle must arrive in the SAME form or it can never
+            # match. The web caps handles at 20 and agrees already; the
+            # operator's env var has no cap at all, and a 25-character one was
+            # told "you are opted in but not ranked yet" with its own row at
+            # rank 1 on the same card.
+            return str(raw or "").strip()[:HANDLE_MAX]
+
+        operator_handle = _canon(os.environ.get("PROOFOFPNL_LEADERBOARD_HANDLE"))
         if operator_handle and self._is_admin_id(tg_id):
             return operator_handle, True
         mapping = getattr(self.engine, "_user_board_handles", None)
         if not isinstance(mapping, dict):
             return None, None                    # never pulled — unknown
-        handle = str(mapping.get(str(tg_id)) or "").strip()
+        handle = _canon(mapping.get(str(tg_id)))
         return (handle, True) if handle else (None, False)
 
     @guard("scan")
@@ -12640,7 +12738,7 @@ class TelegramHandler:
                 caller_uid_str = str(update.effective_user.id) if update.effective_user else ""
                 if not self._can_trade_live(caller_uid_str):
                     await self._send(update,
-                        f"\U0001f512 {t('live_not_enabled', self._lang(update))}",
+                        f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}",
                         edit=True)
                     audit(system_log,
                           f"Non-admin trade confirm blocked: caller={caller_uid_str}",

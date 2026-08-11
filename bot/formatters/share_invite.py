@@ -71,6 +71,35 @@ def assert_no_money(text: str) -> str:
     return text
 
 
+def display_handle(raw: Any, width: int) -> str:
+    """A handle shortened to ``width`` for a fixed-width column, VISIBLY.
+
+    Shared by every public board so the rule has one definition. The boards
+    truncated silently at 14 while `app/routes/leaderboard.js` admits handles up
+    to 20, which produced three distinct failures from one root cause:
+
+    * ``BuddyKingTraderX`` and ``BuddyKingTraderY`` both rendered as
+      ``BuddyKingTrade`` — two verified members, indistinguishable, on a board
+      whose entire point is verified identity. Same harm as repairing
+      ``night$jar`` into ``nightjar``, arriving through the column width.
+    * a member whose handle was longer than the column never matched the
+      "this is you" marker, so they were invisible to themselves in exactly the
+      list they came to find themselves in.
+    * a member whose handle was EXACTLY the column width and was another
+      member's prefix marked BOTH rows — publishing somebody else's record as
+      theirs.
+
+    The ellipsis does not make two long handles distinguishable; nothing at this
+    width can. It makes them visibly INCOMPLETE, which is the honest claim — a
+    shortened name a reader knows is shortened, rather than a whole name that is
+    not. Identity comparisons must use the full handle, never this.
+    """
+    text = str(raw or "")
+    if width <= 0:
+        return ""
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
 def valid_ref_code(code: Any) -> bool:
     """Whether a referral code is safe to put in a deep link."""
     return bool(code) and bool(_REF_CODE_RE.match(str(code)))

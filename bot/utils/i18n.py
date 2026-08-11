@@ -706,6 +706,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>Live trading not enabled</b>\n\nAsk an admin to grant you live trading access with /grant_live.",
         "zh": "<b>尚未啟用實盤交易</b>\n\n請管理員以 /grant_live 授予你實盤交易權限。",
     },
+    # Under LIVE_OPEN_TO_KEY_HOLDERS an admin grant does nothing — bringing your
+    # own account is the opt-in. Pointing a member at /grant_live there sends
+    # them to someone who cannot help, which is worse than no message at all.
+    "live_needs_own_account": {
+        "en": "<b>Live trading needs your own exchange account</b>\n\nYour live trades execute on YOUR account — never the operator's — so there is nothing for an admin to grant. Link yours with /connect. Paper trading works right now.",
+        "zh": "<b>實盤交易需要你自己的交易所帳戶</b>\n\n你的實盤訂單只會在你自己的帳戶成交，絕不會用營運者的帳戶，因此管理員無法代為授權。請用 /connect 連結你的帳戶。模擬交易現在就能使用。",
+    },
     "limit_input_cancelled": {
         "en": "Limit price cancelled. Use the buttons to confirm or skip.",
         "zh": "已取消限價輸入。請使用按鈕確認或略過。",

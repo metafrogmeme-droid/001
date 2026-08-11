@@ -43,6 +43,16 @@ class _FakeStore:
         self.calls.append(("margin", usd)); self.margin = usd; return True
 
     # getters used to build the applied-state ack
+    def live_trading_revoked(self, *_a, **_k):
+        """Nobody here is under an explicit operator ban.
+
+        Separate from `can_trade_live` because `register()` writes
+        `can_trade_live: False` on every account as the paper-only
+        DEFAULT — a default and a decision are different facts, and the
+        live gate asks for both.
+        """
+        return False
+
     def can_trade_live(self, tg):
         return self.live
 
