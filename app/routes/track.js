@@ -15,6 +15,30 @@
 const express = require('express');
 const { pool } = require('../db');
 
+/**
+ * Split a column of raw P&L values into the four outcomes a record can hold.
+ *
+ * Exported so the arithmetic is exercised rather than described. A test that
+ * reimplements this passes while the route says something else — which is how
+ * `breakeven` survived a mutation pass that set it to a constant zero.
+ *
+ * ABSENT IS NOT BREAK-EVEN. `trades.pnl` is DECIMAL(14,2) with no NOT NULL, so
+ * a closed row can carry no recorded P&L; `parseFloat(x) || 0` turned that into
+ * a flat trade nobody measured and then counted it against the win rate.
+ */
+function classifyPnls(raw) {
+  const parsed = (raw || []).map(v => parseFloat(v));
+  const priced = parsed.filter(Number.isFinite);
+  return {
+    parsed,
+    priced,
+    unpriced: parsed.length - priced.length,
+    wins: priced.filter(p => p > 0),
+    losses: priced.filter(p => p < 0),
+    breakeven: priced.filter(p => p === 0).length,
+  };
+}
+
 const router = express.Router();
 
 const OPERATOR_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
@@ -66,12 +90,15 @@ router.get('/track-record', async (req, res) => {
       }
     } catch (e) { /* badge stays unknown */ }
 
-    const pnls = trades.map(t => parseFloat(t.pnl) || 0);
-    const wins = pnls.filter(p => p > 0);
-    const losses = pnls.filter(p => p < 0);
+    // The monthly block below already separates unpriced from scored; these
+    // headline figures did not, so `parseFloat(x) || 0` turned a missing P&L
+    // into a BREAK-EVEN and then counted it in the win-rate denominator. The
+    // two would disagree the moment such a row landed.
+    const { parsed, priced, unpriced, wins, losses, breakeven } =
+      classifyPnls(trades.map(t => t.pnl));
     const grossWin = wins.reduce((a, b) => a + b, 0);
     const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
-    const netPnl = round2(pnls.reduce((a, b) => a + b, 0));
+    const netPnl = round2(priced.reduce((a, b) => a + b, 0));
     const fees = round2(trades.reduce((a, b) => a + (parseFloat(b.fees) || 0), 0));
 
     // Monthly net PnL from closed trades (calendar months, UTC).
@@ -162,7 +189,16 @@ router.get('/track-record', async (req, res) => {
         trades: trades.length,
         wins: wins.length,
         losses: losses.length,
-        win_rate_pct: trades.length ? round2(wins.length / trades.length * 100) : null,
+        // Published so the figures RECONCILE. Without these a reader adding
+        // 9 wins and 6 losses against 21 trades finds six that are neither,
+        // with nothing on the page to explain them — the same complaint this
+        // file already records about publishing "12 (7W/4L)".
+        breakeven: breakeven,
+        unpriced: unpriced,
+        // Over what was scorable, not over every row. An unpriced trade is not
+        // a loss and must not dilute the rate; null when nothing was scorable,
+        // because a rate over zero measurements is not a rate.
+        win_rate_pct: priced.length ? round2(wins.length / priced.length * 100) : null,
         return_pct: returnPct,
         profit_factor: (() => { const pf = profitFactor(trades.map(t => ({ pnl: t.pnl }))); return pf !== null ? round2(pf) : null; })(),
         // avg win over avg loss — the payoff shape of the system, as a ratio.
@@ -246,6 +282,7 @@ router.get('/replay-trade', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.classifyPnls = classifyPnls;
 // Pure helpers, exported for tests.
 module.exports.maxDrawdownPct = maxDrawdownPct;
 module.exports.segmentByCapitalEvents = segmentByCapitalEvents;
