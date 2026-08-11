@@ -1,8 +1,20 @@
 'use strict';
 /**
- * Hero refresh — the homepage headline now leads with the full platform: an AI
- * engine you can talk to AND trust, backed by the Guardian story (prove /
- * simulate / block). §4: capability copy, no dollar claims.
+ * Hero — the headline now leads with the one claim the product can prove.
+ *
+ * It used to read "an AI trading engine you can talk to — and trust", under a
+ * tagline of "Intelligent · Explainable · Guarded". Three adjectives carry no
+ * information, and "trust" is the one thing a trading bot cannot ask for; every
+ * competitor asks for it too, and a screenshot asks for it just as loudly.
+ *
+ * What replaced it is falsifiable: each call is hashed at decision time, and
+ * the fields named in the copy are exactly the fields `app/lib/callseal.js`
+ * puts in the sealed payload. That correspondence is pinned below, because the
+ * failure mode of good copy is drift — the payload gains or loses a field and
+ * the homepage keeps describing the old one. A claim that was true when it
+ * shipped and is false a quarter later is worse than one that was never made.
+ *
+ * §4: capability copy, no dollar claims, no returns language.
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -11,28 +23,58 @@ const path = require('path');
 
 const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
 const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+const callseal = fs.readFileSync(path.join(__dirname, '..', 'lib', 'callseal.js'), 'utf8');
 
-test('the hero headline leads with trust, the tagline with the differentiators', () => {
-  const h1 = i18n.split('\n').filter(l => l.includes('talk to — and trust'))[0];
-  assert.ok(h1, 'hero.h1 en adds "and trust"');
-  assert.match(i18n, /'hero\.tagline':.*Explainable · Guarded/);
-  // the static (no-JS) fallback matches
-  assert.match(index, /talk to — and trust/);
-  assert.match(index, /Intelligent · Explainable · Guarded/);
+test('the headline is the mechanism, not an adjective', () => {
+  assert.match(i18n, /'hero\.h1':[^\n]*hashed/);
+  assert.match(index, /Every call is hashed/);
+  assert.doesNotMatch(index, /Intelligent · Explainable · Guarded/,
+    'three adjectives, zero information — and it sat between the claim and the proof of it');
 });
 
-test('the hero body weaves in the Guardian story', () => {
-  const line = i18n.split('\n').find(l => l.includes("'hero.body'") === false && l.includes('tamper-evident ledger'));
-  assert.ok(line, 'hero.body en mentions the tamper-evident ledger');
-  assert.match(i18n, /simulates what could break you/);
-  assert.match(i18n, /blocks malicious signing/);
-  assert.match(index, /blocks malicious signing/);      // static fallback too
+test('every decision field the hero names is really in the sealed payload', () => {
+  // Derived from the CALLER so the copy cannot drift away from the code: if a
+  // field leaves canonicalPayload, the sentence describing it fails here
+  // rather than quietly becoming false on the homepage.
+  const payload = callseal.slice(callseal.indexOf('function canonicalPayload'),
+                                 callseal.indexOf('function sealOf'));
+  for (const [word, field] of [['symbol', 'symbol'], ['direction', 'direction'],
+                               ['entry', 'entry_price'], ['stop', 'stop_loss'],
+                               ['target', 'take_profit'], ['confidence', 'confidence'],
+                               ['pattern', 'pattern']]) {
+    assert.ok(payload.includes(field + ':'),
+      `the hero claims "${word}" is sealed, but canonicalPayload has no ${field}`);
+    assert.match(index, new RegExp(word, 'i'),
+      `${field} is sealed but the hero stopped saying so`);
+  }
 });
 
-test('hero.h1 and hero.body stay translated across all six locales', () => {
-  // Grab the multi-line hero.h1 block and confirm every locale key survived.
-  const start = i18n.indexOf("'hero.h1'");
-  const block = i18n.slice(start, start + 700);
-  for (const loc of ['en:', 'es:', 'zh:', 'pt:', 'fr:', 'ar:']) assert.ok(block.includes(loc), `hero.h1 has ${loc}`);
+test('the hero does not claim an outcome is sealed with the call', () => {
+  // The whole point is that the outcome attaches AFTERWARDS. If it ever entered
+  // the decision payload the claim would collapse, so both halves are pinned.
+  const payload = callseal.slice(callseal.indexOf('function canonicalPayload'),
+                                 callseal.indexOf('function sealOf'));
+  for (const banned of ['pnl', 'exit_price', 'outcome', 'result']) {
+    assert.ok(!payload.includes(banned + ':'),
+      `canonicalPayload gained ${banned} — "sealed before the outcome" is no longer true`);
+  }
+  assert.match(index, /outcome attaches to that sealed record afterwards/i);
+});
+
+test('the hero says whose keys a live trade runs on', () => {
+  assert.match(index, /your own exchange keys/i);
+  assert.doesNotMatch(index, /operator approval/i);
+});
+
+test('hero.h1 and hero.body stay translated across all locales', () => {
+  for (const key of ["'hero.h1'", "'hero.body'"]) {
+    const start = i18n.indexOf(key);
+    assert.ok(start > 0, `${key} missing`);
+    const block = i18n.slice(start, i18n.indexOf('\n', start));
+    for (const loc of ['en:', 'hi:', 'it:', 'es:', 'zh:', 'pt:', 'fr:', 'de:',
+                       'nl:', 'ja:', 'ko:', 'ru:', 'tr:', 'ar:']) {
+      assert.ok(block.includes(loc), `${key} lost ${loc}`);
+    }
+  }
   assert.match(index, /i18n\.js\?v=\d+/);
 });

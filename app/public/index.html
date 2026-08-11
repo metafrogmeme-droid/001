@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RUNECLAW — AI Trading, Paper to Live</title>
 <link rel="canonical" href="https://www.humanoid-traders.com/">
-<meta name="description" content="RUNECLAW: an AI trading engine you can watch, chat with, and trade alongside. Register in a minute and paper-trade instantly — no Telegram required.">
+<meta name="description" content="RUNECLAW hashes every trading call before the market moves, so the record cannot be edited afterwards. Paper-trade free in your browser and verify any call from your own terminal.">
 <meta property="og:title" content="RUNECLAW — AI Trading, Paper to Live">
 <meta property="og:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
 <meta property="og:type" content="website">
@@ -98,6 +98,21 @@
   .mkt-stat .v { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-weight: 600; }
   .mkt-stat .v.up { color: var(--up); } .mkt-stat .v.down { color: var(--down); }
   @media (prefers-reduced-motion: reduce) { .mkt-card { transition: none; } .mkt-card:hover, .mkt-card:focus-visible { transform: none; } }
+  .proof-strip { max-width: 640px; margin: var(--s4) auto 0; padding: var(--s3);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 80%, transparent); text-align: left; }
+  .ps-line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-bottom: 6px; }
+  .ps-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
+  .ps-day, .ps-count { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2); }
+  .ps-root { font-family: var(--font-data); font-size: 12px; color: var(--gold-bright);
+    word-break: break-all; flex: 1; min-width: 0; }
+  .ps-copy { font-size: var(--fs-xs); padding: 2px 8px; border: 1px solid var(--line);
+    border-radius: 999px; background: none; color: var(--text-2); cursor: pointer; }
+  .ps-copy:hover { color: var(--text-1); border-color: var(--gold); }
+  .ps-cmd { overflow-x: auto; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
+    background: rgba(0,0,0,.28); }
+  .ps-cmd code { font-family: var(--font-data); font-size: 11.5px; color: var(--text-2); white-space: pre; }
+  .ps-note { margin: 0; }
 </style>
 </head>
 <body>
@@ -138,11 +153,10 @@
   <canvas id="rc-constellation" aria-hidden="true"></canvas>
   <div class="hero-agent3d" data-rc-agent3d aria-label="RUNECLAW 3D agent" data-i18n-attr="aria-label:a11y.agent3d"></div>
   <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> <span data-i18n="hero.eyebrow">Live · Bitget USDT-M futures</span></div>
-  <h1 data-i18n-html="hero.h1">An AI trading engine<br>you can <span>talk to — and trust.</span></h1>
-  <div class="tagline" data-i18n="hero.tagline">Intelligent · Explainable · Guarded</div>
+  <h1 data-i18n-html="hero.h1">Every call is hashed<br>before <span>the market moves.</span></h1>
   <div class="hero-stats muted small" id="heroStats" hidden
        style="gap:var(--s4);flex-wrap:wrap;justify-content:center;align-items:baseline;margin-bottom:var(--s3)"></div>
-  <p data-i18n="hero.body">RUNECLAW scans 800+ symbols around the clock, explains every decision, and refuses anything its risk engine doesn't like — then proves it in a tamper-evident ledger, simulates what could break you, and blocks malicious signing. Create an account and paper-trade in your browser within a minute; go live only when you choose to.</p>
+  <p data-i18n="hero.body">RUNECLAW hashes each call the moment it is made — symbol, direction, entry, stop, target, confidence and the pattern it read. The outcome attaches to that sealed record afterwards and cannot alter it. No backdated wins, no quietly deleted losers. Paper-trade free in your browser; go live only on your own exchange keys.</p>
   <form class="hero-cta hero-signup" id="heroSignup" novalidate>
     <input class="input hero-email" type="email" id="hero-email" placeholder="you@example.com" autocomplete="email" aria-label="Email address" data-i18n-attr="aria-label:a11y.email;placeholder:auth.email_ph">
     <button class="btn btn--primary" type="submit" data-i18n="hero.cta_create">Create free account</button>
@@ -155,8 +169,31 @@
     <li class="trust-badge">🔎 <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
     <li class="trust-badge">🔒 <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
     <li class="trust-badge">🔑 <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
-    <li class="trust-badge">🧾 <span data-i18n="lp.tb_source">Source-available</span></li>
+    <li class="trust-badge">🔏 <span data-i18n="lp.tb_sealed">Sealed before the outcome</span></li>
   </ul>
+  <!-- PROOF STRIP — the product's central claim, rendered as an artifact
+       instead of an adjective. Every value here comes from /api/roots; the
+       block starts hidden and is shown ONLY once a real root has loaded, so a
+       failed read renders as nothing rather than as an empty or placeholder
+       hash. A fabricated-looking root under a "verify us" headline would do
+       more damage than the strip does good.
+
+       The day shown is the most recent COMPLETED UTC day: seal_roots refuses
+       any day >= today ("the day is still open"), so today never has a root
+       and asking for one is how the first draft of this copy 404'd. -->
+  <div class="proof-strip" id="proofStrip" hidden>
+    <div class="ps-line">
+      <span class="ps-label" data-i18n="ps.label">Latest sealed day</span>
+      <span class="ps-day" id="psDay"></span>
+      <span class="ps-count" id="psCount"></span>
+    </div>
+    <div class="ps-line">
+      <code class="ps-root" id="psRoot"></code>
+      <button type="button" class="ps-copy" id="psCopy" data-i18n="ps.copy">copy</button>
+    </div>
+    <pre class="ps-cmd"><code id="psCmd"></code></pre>
+    <p class="ps-note muted small" data-i18n-html="ps.note">Mirror that file anywhere — a gist, a tweet, a chain memo. If a sealed day is ever altered, its root changes and your copy is the proof. <a href="/provable">Verify a single call →</a></p>
+  </div>
   <!-- Explore the flagship experiences straight from the hero, so a first-time
        visitor sees the breadth (not just a signup box). -->
   <div class="hero-explore" style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:center;margin-top:var(--s3)">
@@ -406,7 +443,7 @@
   </div>
   <div class="feature-grid rc-stagger">
     <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><h3 data-i18n="lp.w1_h">Chat with the engine</h3><p data-i18n="lp.w1_p">Ask for a scan, your portfolio, or type "buy SOL 71 sl 70 tp 76" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="lp.w2_h">Trade from the dashboard</h3><p data-i18n="lp.w2_p">A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live needs your toggle and operator approval.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="lp.w2_h">Trade from the dashboard</h3><p data-i18n="lp.w2_p">A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live is opt-in and runs on your own exchange keys.</p></div>
     <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><h3 data-i18n="dp.stream">Signal stream</h3><p data-i18n="lp.w3_p">Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target.</p></div>
     <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="lp.w4_h">Your portfolio, tracked</h3><p data-i18n="lp.w4_p">Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers.</p></div>
     <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="lp.w5_h">Hard risk engine</h3><p data-i18n="lp.w5_p">Circuit breakers, funding-clock gate, equity throttle, and margin caps you control. The engine's shadow book even audits what its own rejections cost.</p></div>
@@ -489,11 +526,11 @@
     </div>
     <div class="section-note hidden" id="linked-ok" style="border-style:solid;border-color:var(--up);color:var(--up)">
       <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
-      <span data-i18n="acc.linked_ok">Telegram linked — exchange-key management and live controls unlocked (going live still needs operator approval).</span>
+      <span data-i18n="acc.linked_ok">Telegram linked — exchange-key management and live controls unlocked. Live trades run on your own exchange keys.</span>
     </div>
     <div id="link-box">
       <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)"><span data-i18n="acc.link_tg">Link Telegram</span> <span class="muted small" data-i18n="ui.optional">(optional)</span></h3>
-      <p class="muted small" data-i18n="acc.link_tg_body">Unlocks exchange-key management and your live-trading controls (going live also needs operator approval). Paper trading and chat already work without it.</p>
+      <p class="muted small" data-i18n="acc.link_tg_body">Unlocks exchange-key management and your live-trading controls. Live trades run on your own exchange keys, never ours. Paper trading and chat already work without it.</p>
       <ol class="steps-list">
         <li data-i18n-html="acc.tg_step1">Open <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a> on Telegram</li>
         <li data-i18n="acc.tg_step2">Generate your personal link token below</li>
@@ -621,7 +658,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=107"></script>
+<script src="/js/i18n.js?v=109"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=7"></script>
 <script src="/js/chat.js?v=26" defer></script>
@@ -1480,5 +1517,50 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
   })();
 </script>
 <script src="/js/palette.js?v=1" defer></script>
+
+<script>
+/* Proof strip — the hero's one factual claim, fetched not asserted.
+   Shown ONLY after a real root arrives. Every failure path leaves it hidden:
+   a placeholder hash under a "verify us" headline is worse than no strip, and
+   a reader who copies a fabricated root and finds it doesn't match concludes
+   the opposite of what the block is for. */
+(function () {
+  var box = document.getElementById('proofStrip');
+  if (!box) return;
+  var HEX64 = /^[0-9a-f]{64}$/;
+  fetch('/api/roots', { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      var row = d && Array.isArray(d.roots) ? d.roots[0] : null;
+      // Every field is checked before anything renders. A row whose root is not
+      // a 64-hex digest is not a root, and printing it would be inventing one.
+      if (!row || !HEX64.test(String(row.root || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(row.day || ''))) return;
+      document.getElementById('psRoot').textContent = row.root;
+      document.getElementById('psDay').textContent = row.day;
+      var n = row.seal_count;
+      // A count is shown only when it IS one. `.seal_count || 0` would print
+      // "0 calls sealed" for a row that simply did not carry the field.
+      if (typeof n === 'number' && isFinite(n)) {
+        var el = document.getElementById('psCount');
+        el.textContent = '· ' + n + ' ' + (window.T ? window.T('ps.sealed', 'calls sealed') : 'calls sealed');
+      }
+      document.getElementById('psCmd').textContent =
+        'curl -s ' + location.origin + '/api/roots > runeclaw-roots-' + row.day + '.json';
+      box.hidden = false;
+    })
+    .catch(function () { /* stays hidden — asserts nothing */ });
+
+  var btn = document.getElementById('psCopy');
+  if (btn) btn.addEventListener('click', function () {
+    var v = document.getElementById('psRoot').textContent;
+    if (!v) return;
+    navigator.clipboard && navigator.clipboard.writeText(v).then(function () {
+      var was = btn.textContent;
+      btn.textContent = window.T ? window.T('ps.copied', 'copied') : 'copied';
+      setTimeout(function () { btn.textContent = was; }, 1400);
+    });
+  });
+})();
+</script>
 </body>
 </html>
