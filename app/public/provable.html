@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Verify it yourself — Provable Calls — RUNECLAW</title>
-<link rel="canonical" href="https://pmvc58g2.mule.page/provable">
+<link rel="canonical" href="https://www.humanoid-traders.com/provable">
 <meta name="description" content="The complete third-party verification contract for RUNECLAW's Provable Calls: re-derive every seal and every daily Merkle root with your own tools. Don't trust the screenshot. Verify the call.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/styles.css?v=22">
@@ -58,7 +58,7 @@
         means the live record was rewritten after sealing.</li>
   </ol>
 <pre>import hashlib, json, urllib.request
-d = json.load(urllib.request.urlopen("https://pmvc58g2.mule.page/api/call/KEY"))
+d = json.load(urllib.request.urlopen("https://www.humanoid-traders.com/api/call/KEY"))
 assert hashlib.sha256(d["seal_payload"].encode()).hexdigest() == d["seal"]
 p = json.loads(d["seal_payload"])
 for k, v in d["current"].items():
