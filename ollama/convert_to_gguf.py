@@ -332,7 +332,13 @@ def convert_hf_to_gguf(model_name):
                 seen.add(gguf_name)
 
                 tensor = sf.get_tensor(hf_name)
-                if tensor.dtype != np.float16:
+                # llama.cpp requires 1-D tensors (norms) in F32 — writing
+                # them F16 loads cleanly but asserts at inference time
+                # (binary_op: unsupported types f32+f16). Weights stay F16.
+                if tensor.ndim == 1:
+                    if tensor.dtype != np.float32:
+                        tensor = tensor.astype(np.float32)
+                elif tensor.dtype != np.float16:
                     tensor = tensor.astype(np.float16)
 
                 writer.add_tensor(gguf_name, tensor)
