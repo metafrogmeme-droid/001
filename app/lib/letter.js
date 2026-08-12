@@ -13,6 +13,7 @@
  */
 
 const { pool } = require('../db');
+const { winStats, realizedTotal, profitFactor } = require('./trade_stats');
 
 const OPERATOR_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
 
@@ -25,6 +26,55 @@ function money(v) {
 
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * The week's figures, computed once for both composers.
+ *
+ * Both used to open with
+ *
+ *     const pnls = trades.map(t => parseFloat(t.pnl) || 0);
+ *
+ * and `trades.length - wins` for the L. `trades.pnl` is nullable, so that
+ * summed every unpriced close as a break-even, scored it as a loss, and let
+ * it compete for "best trade of the week" at $0.00. Three wrong claims about
+ * one row, in a letter that goes to the operator AND out publicly.
+ *
+ * Rows leave the series; they do not zero it. `scored` and `unpriced` travel
+ * with the figures so the caller can disclose the window rather than print a
+ * partial total as a whole one.
+ */
+function weekFigures(trades) {
+  const rows = trades || [];
+  const ws = winStats(rows);
+  const total = realizedTotal(rows);
+  let best = null, worst = null;
+  for (const t of rows) {
+    const p = Number.isFinite(parseFloat(t.pnl)) ? parseFloat(t.pnl) : null;
+    if (p === null) continue;                 // never the week's best at $0.00
+    if (!best || p > best.pnl) best = { symbol: t.symbol, pnl: p };
+    if (!worst || p < worst.pnl) worst = { symbol: t.symbol, pnl: p };
+  }
+  return {
+    net: total === null ? null : round2(total),
+    wins: ws.wins,
+    losses: ws.losses,
+    flat: ws.breakeven,
+    scored: ws.scored,
+    unpriced: ws.unscored,
+    // Over what we could price, not over what closed.
+    wr: ws.rate === null ? null : Math.round(ws.rate * 100),
+    pf: profitFactor(rows),
+    best,
+    worst,
+  };
+}
+
+/** The disclosure for a week only partly priceable. Empty when it is whole. */
+function coverageLine(f, n) {
+  if (!f.unpriced) return '';
+  return ` (${f.scored} of ${n} closes carry a recorded P&amp;L; the rest are `
+    + 'scored neither way)';
 }
 
 // ── ISO week math (UTC) ──────────────────────────────────────────────────────
@@ -153,20 +203,10 @@ function composeLetter({ key, start, end }, data) {
   const fmtDay = (d) => d.toISOString().slice(0, 10);
   const endInclusive = new Date(end.getTime() - 86_400_000);
 
-  const pnls = trades.map(t => parseFloat(t.pnl) || 0);
-  const net = round2(pnls.reduce((a, b) => a + b, 0));
-  const wins = pnls.filter(p => p > 0).length;
-  const grossWin = pnls.filter(p => p > 0).reduce((a, b) => a + b, 0);
-  const grossLoss = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
-  const wr = trades.length ? Math.round(wins / trades.length * 100) : null;
-  const pf = grossLoss > 0 ? round2(grossWin / grossLoss) : null;
-
-  let best = null, worst = null;
-  for (const t of trades) {
-    const p = parseFloat(t.pnl) || 0;
-    if (!best || p > best.pnl) best = { symbol: t.symbol, pnl: p };
-    if (!worst || p < worst.pnl) worst = { symbol: t.symbol, pnl: p };
-  }
+  const f = weekFigures(trades);
+  const { wins, losses, scored, unpriced, wr, best, worst } = f;
+  const net = f.net;
+  const pf = f.pf === null ? null : round2(f.pf);
 
   const sections = [];
 
@@ -176,6 +216,15 @@ function composeLetter({ key, start, end }, data) {
     deskLine = 'The desk closed no positions this week — patience is a position too, '
       + 'and the risk gate saw nothing worth paying fees for.';
     deskPart = { tid: 'week_flat', params: {} };
+  } else if (!scored) {
+    // Closes happened and none of them can be priced. Every branch below
+    // states a result; this one is the absence of one, and without it the
+    // week fell through to "A losing week, plainly" — a verdict manufactured
+    // from a gap in the record.
+    deskLine = `${trades.length} positions closed this week and none of them `
+      + 'carry a recorded P&amp;L, so there is no result to report — not a flat '
+      + 'week, an unreadable one.';
+    deskPart = { tid: 'week_unpriced', params: { n: trades.length } };
   } else if (net > 0 && (wr ?? 0) >= 60) {
     deskLine = `A clean week: ${trades.length} closed trades, ${wr}% winners, `
       + `<b>${money(net)}</b> net after fees.`;
@@ -192,15 +241,17 @@ function composeLetter({ key, start, end }, data) {
   sections.push({ title: 'The week', title_tid: 'week', html: deskLine, parts: [deskPart], sep: ' ' });
 
   // ── Performance ──
-  if (trades.length) {
+  if (scored) {
     const bits = [
-      `Net PnL <b>${money(net)}</b> across ${trades.length} closes (${wins}W/${trades.length - wins}L)`,
+      // Counted, not subtracted, and the total names the window it covers.
+      `Net PnL <b>${money(net)}</b> across ${scored} closes (${wins}W/${losses}L)`
+        + coverageLine(f, trades.length),
       pf !== null ? `profit factor ${pf}` : null,
       best ? `best: ${esc(String(best.symbol).split('/')[0])} ${money(best.pnl)}` : null,
       worst && worst.pnl < 0 ? `worst: ${esc(String(worst.symbol).split('/')[0])} ${money(worst.pnl)}` : null,
     ].filter(Boolean).join(' · ');
     sections.push({ title: 'Performance', title_tid: 'performance', html: bits, sep: ' · ', parts: [
-      { tid: 'perf_net_priv', params: { net: money(net), n: trades.length, w: wins, l: trades.length - wins } },
+      { tid: 'perf_net_priv', params: { net: money(net), n: scored, w: wins, l: losses } },
       pf !== null ? { tid: 'perf_pf', params: { pf } } : null,
       best ? { tid: 'perf_best_p', params: { sym: String(best.symbol).split('/')[0], pnl: money(best.pnl) } } : null,
       worst && worst.pnl < 0 ? { tid: 'perf_worst_p', params: { sym: String(worst.symbol).split('/')[0], pnl: money(worst.pnl) } } : null,
@@ -289,13 +340,20 @@ function composeLetter({ key, start, end }, data) {
     ],
   });
 
+  // The headline is composed separately from the body and was missed by the
+  // body's fix — it read "$0 net — null% winners" for an unpriceable week,
+  // which is the same fabrication with a `null` left visible in it. It is
+  // also the line that goes out as the push notification.
   const headline = !trades.length
     ? 'A flat week, by choice'
-    : net >= 0 ? `${money(net)} net — ${wr}% winners` : `${money(net)} net — the honest post-mortem`;
+    : !scored ? `${trades.length} closes, no recorded P&L — no result to report`
+      : net >= 0 ? `${money(net)} net — ${wr}% winners`
+        : `${money(net)} net — the honest post-mortem`;
   const headline_part = !trades.length
     ? { tid: 'h_flat', params: {} }
-    : net >= 0 ? { tid: 'h_net_win', params: { net: money(net), wr } }
-      : { tid: 'h_net_loss', params: { net: money(net) } };
+    : !scored ? { tid: 'h_unpriced', params: { n: trades.length } }
+      : net >= 0 ? { tid: 'h_net_win', params: { net: money(net), wr } }
+        : { tid: 'h_net_loss', params: { net: money(net) } };
 
   return {
     week_key: key,
@@ -341,20 +399,13 @@ function composePublicLetter({ key, start, end }, data) {
   const fmtDay = (d) => d.toISOString().slice(0, 10);
   const endInclusive = new Date(end.getTime() - 86_400_000);
 
-  const pnls = trades.map(t => parseFloat(t.pnl) || 0);
-  const net = pnls.reduce((a, b) => a + b, 0);
-  const wins = pnls.filter(p => p > 0).length;
-  const grossWin = pnls.filter(p => p > 0).reduce((a, b) => a + b, 0);
-  const grossLoss = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
-  const wr = trades.length ? Math.round(wins / trades.length * 100) : null;
-  const pf = grossLoss > 0 ? round2(grossWin / grossLoss) : null;
-
-  let best = null, worst = null;
-  for (const t of trades) {
-    const p = parseFloat(t.pnl) || 0;
-    if (!best || p > best.pnl) best = { symbol: t.symbol, pnl: p };
-    if (!worst || p < worst.pnl) worst = { symbol: t.symbol, pnl: p };
-  }
+  // Same reader as the private composer above. Two letters describing one
+  // week must not be able to disagree about which closes were legible — and
+  // this one is PUBLIC, so a fabricated verdict here is published.
+  const f = weekFigures(trades);
+  const { wins, losses, scored, wr, best, worst } = f;
+  const net = f.net;
+  const pf = f.pf === null ? null : round2(f.pf);
 
   const sections = [];
 
@@ -363,6 +414,11 @@ function composePublicLetter({ key, start, end }, data) {
     deskLine = 'The desk closed no positions this week — patience is a position too, '
       + 'and the risk gate saw nothing worth paying fees for.';
     deskPart = { tid: 'week_flat', params: {} };
+  } else if (!scored) {
+    deskLine = `${trades.length} positions closed this week and none of them `
+      + 'carry a recorded P&amp;L, so there is no result to report — not a flat '
+      + 'week, an unreadable one.';
+    deskPart = { tid: 'week_unpriced', params: { n: trades.length } };
   } else if (net > 0 && (wr ?? 0) >= 60) {
     deskLine = `A clean week: ${trades.length} closed trades, <b>${wr}% winners</b>, `
       + 'finished green.';
@@ -378,15 +434,15 @@ function composePublicLetter({ key, start, end }, data) {
   }
   sections.push({ title: 'The week', title_tid: 'week', html: deskLine, parts: [deskPart], sep: ' ' });
 
-  if (trades.length) {
+  if (scored) {
     const bits = [
-      `${trades.length} closes (${wins}W/${trades.length - wins}L)`,
+      `${scored} closes (${wins}W/${losses}L)` + coverageLine(f, trades.length),
       pf !== null ? `profit factor <b>${pf}</b>` : 'no losing trades',
       best ? `best: ${esc(String(best.symbol).split('/')[0])}` : null,
       worst && worst.pnl < 0 ? `worst: ${esc(String(worst.symbol).split('/')[0])}` : null,
     ].filter(Boolean).join(' · ');
     sections.push({ title: 'Performance', title_tid: 'performance', html: bits, sep: ' · ', parts: [
-      { tid: 'perf_closes_pub', params: { n: trades.length, w: wins, l: trades.length - wins } },
+      { tid: 'perf_closes_pub', params: { n: scored, w: wins, l: losses } },
       pf !== null ? { tid: 'perf_pf', params: { pf } } : { tid: 'perf_noloss', params: {} },
       best ? { tid: 'perf_best', params: { sym: String(best.symbol).split('/')[0] } } : null,
       worst && worst.pnl < 0 ? { tid: 'perf_worst', params: { sym: String(worst.symbol).split('/')[0] } } : null,
@@ -458,12 +514,14 @@ function composePublicLetter({ key, start, end }, data) {
 
   const headline = !trades.length
     ? 'A flat week, by choice'
-    : `${wr}% winners over ${trades.length} trades — `
-      + (net >= 0 ? 'a green week' : 'a red week, honestly told');
+    : !scored ? `${trades.length} closes, no recorded P&L — no result to report`
+      : `${wr}% winners over ${scored} trades — `
+        + (net >= 0 ? 'a green week' : 'a red week, honestly told');
   const headline_part = !trades.length
     ? { tid: 'h_flat', params: {} }
-    : net >= 0 ? { tid: 'h_pub_win', params: { wr, n: trades.length } }
-      : { tid: 'h_pub_loss', params: { wr, n: trades.length } };
+    : !scored ? { tid: 'h_unpriced', params: { n: trades.length } }
+      : net >= 0 ? { tid: 'h_pub_win', params: { wr, n: scored } }
+        : { tid: 'h_pub_loss', params: { wr, n: scored } };
 
   return {
     week_key: key,

@@ -46,7 +46,7 @@ function computeReplay(trades, stake) {
   }
 
   // Fixed: $s per trade. Equity curve = stake + cumulative PnL.
-  let cum = 0, peak = s, maxDdPct = 0, wins = 0, best = null, worst = null;
+  let cum = 0, peak = s, maxDdPct = 0, wins = 0, losses = 0, best = null, worst = null;
   const curve = [];
   // Compound: full bankroll on each trade.
   let bank = s;
@@ -54,6 +54,7 @@ function computeReplay(trades, stake) {
     const pnl = s * leg.ret;
     cum += pnl;
     if (leg.ret > 0) wins++;
+    else if (leg.ret < 0) losses++;
     if (best === null || pnl > best.pnl) best = { symbol: leg.symbol, pnl };
     if (worst === null || pnl < worst.pnl) worst = { symbol: leg.symbol, pnl };
     const equity = s + cum;
@@ -69,7 +70,11 @@ function computeReplay(trades, stake) {
     trades: n,
     skipped,
     wins,
-    losses: n - wins,
+    // Counted. `n - wins` folded every exactly-flat leg into the loss column;
+    // the unreadable ones were already excluded by `skipped`, so this is the
+    // narrow half of the same shape and it is still a wrong claim.
+    losses,
+    flat: Math.max(0, n - wins - losses),
     win_rate_pct: n ? round2(wins / n * 100) : null,
     fixed: {
       net_pnl_usd: round2(cum),

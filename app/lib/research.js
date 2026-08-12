@@ -18,6 +18,7 @@
  */
 
 const { pool } = require('../db');
+const { winStats, realizedTotal } = require('./trade_stats');
 const { getTickers } = require('./tickers');
 const rwa = require('./rwa');
 const dex = require('./dex');
@@ -185,14 +186,21 @@ async function buildDossier(base) {
     const mine = rows.filter(t =>
       String(t.symbol || '').toUpperCase().split('/')[0].replace(/USDT.*$/, '') === base);
     if (mine.length) {
-      const pnls = mine.map(t => parseFloat(t.pnl) || 0);
-      const wins = pnls.filter(p => p > 0).length;
-      const net = round2(pnls.reduce((a, b) => a + b, 0));
+      // `parseFloat(t.pnl) || 0` summed every unpriced close as break-even and
+      // `mine.length - wins` filed it as a loss — and `net >= 0 ? 'up'` then
+      // painted the fabricated total green, which says "not down" as loudly
+      // as the digits do. `trades.pnl` is nullable, so all three are real.
+      const ws = winStats(mine);
+      const net = realizedTotal(mine);
+      const record = ws.scored
+        ? `${ws.wins}W/${ws.losses}L, net <b class="${net >= 0 ? 'up' : 'down'}">`
+          + `${net < 0 ? '-' : '+'}$${Math.abs(round2(net)).toFixed(2)}</b>`
+          + (ws.unscored ? ` (over the ${ws.scored} with a recorded P&amp;L)` : '')
+        : 'none of them carry a recorded P&amp;L, so there is no result to show';
       sections.push({
         title: 'Agent track record here',
         html: `The agent has closed <b>${mine.length}</b> trade(s) on ${esc(base)}: `
-          + `${wins}W/${mine.length - wins}L, net <b class="${net >= 0 ? 'up' : 'down'}">`
-          + `${net < 0 ? '-' : '+'}$${Math.abs(net).toFixed(2)}</b>.`,
+          + `${record}.`,
         source: 'recorded closed trades (public track record data)',
       });
       sources.add('RUNECLAW recorded closed trades');

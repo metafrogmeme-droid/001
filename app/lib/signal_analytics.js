@@ -34,9 +34,10 @@ function round2(n) { return Math.round(n * 100) / 100; }
 // Accumulate one signal into a group map keyed by `key`.
 function _add(map, key, isWin, pnl) {
   if (key == null || key === '') key = '(none)';
-  const g = map.get(key) || { key, n: 0, wins: 0, net_pnl: 0 };
+  const g = map.get(key) || { key, n: 0, wins: 0, losses: 0, net_pnl: 0 };
   g.n += 1;
   if (isWin) g.wins += 1;
+  if (pnl < 0) g.losses += 1;
   g.net_pnl += pnl;
   map.set(key, g);
 }
@@ -49,9 +50,10 @@ function _finalise(map, top = 12) {
       key: g.key,
       n: g.n,
       wins: g.wins,
-      losses: g.n - g.wins,
-      win_rate: g.n > 0 ? round1((g.wins / g.n) * 100) : 0,
-      net_pnl: round2(g.net_pnl),
+      losses: g.losses,
+      flat: Math.max(0, g.n - g.wins - g.losses),
+      win_rate: g.n > 0 ? round1((g.wins / g.n) * 100) : null,
+      net_pnl: g.n > 0 ? round2(g.net_pnl) : null,
     }))
     .sort((a, b) => b.n - a.n)
     .slice(0, top);
@@ -62,13 +64,13 @@ function computeAnalytics(signals, { top = 12 } = {}) {
   const bySymbol = new Map();
   const byDirection = new Map();
   const byConfidence = new Map();
-  let n = 0, wins = 0, net = 0;
+  let n = 0, wins = 0, losses = 0, net = 0;
 
   for (const s of signals || []) {
     const pnl = Number(s.pnl);
     if (s.pnl == null || !Number.isFinite(pnl)) continue; // unresolved
     const isWin = pnl > 0;
-    n += 1; if (isWin) wins += 1; net += pnl;
+    n += 1; if (isWin) wins += 1; if (pnl < 0) losses += 1; net += pnl;
     _add(byPattern, s.pattern, isWin, pnl);
     _add(bySymbol, s.symbol, isWin, pnl);
     _add(byDirection, (s.direction || '').toUpperCase(), isWin, pnl);
@@ -84,9 +86,15 @@ function computeAnalytics(signals, { top = 12 } = {}) {
     overall: {
       resolved: n,
       wins,
-      losses: n - wins,
-      win_rate: n > 0 ? round1((wins / n) * 100) : 0,
-      net_pnl: round2(net),
+      // COUNTED. The loop above already skips unresolved rows, so `n - wins`
+      // is losses PLUS the flat ones — a signal that resolved at exactly
+      // break-even is an outcome, not a defeat.
+      losses,
+      flat: Math.max(0, n - wins - losses),
+      // null, not 0: nothing resolved is not a 0% win rate, and `round2(0)`
+      // over an empty set prints a measured flat book.
+      win_rate: n > 0 ? round1((wins / n) * 100) : null,
+      net_pnl: n > 0 ? round2(net) : null,
     },
     by_pattern: _finalise(byPattern, top),
     by_symbol: _finalise(bySymbol, top),
