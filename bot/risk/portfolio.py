@@ -22,6 +22,9 @@ from typing import Any, Optional, Callable, cast
 from bot.config import CONFIG
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, trade_log
+from bot.utils.state_lock import (
+    REVISION_KEY, conflict_path, disk_revision, locked,
+)
 from bot.utils.models import (
     Direction, PortfolioState, TradeExecution, TradeIdea, TradeStatus,
 )
@@ -61,6 +64,13 @@ class PortfolioTracker:
         self._peak_equity = self.balance
         self._max_drawdown_ever: float = 0.0  # M-01: track historical max drawdown
         self._last_daily_reset: Optional[str] = None  # M-08: track last daily PnL reset date
+        # The revision this process last LOADED or WROTE. `None` = we have
+        # never seen the file, so we have nothing to be stale against. See
+        # bot/utils/state_lock.py for why a plain write lock is not enough:
+        # this tracker loads once and then overwrites the whole file, so two
+        # writers do not interleave edits — the second stamps its entire stale
+        # world over the first.
+        self._state_revision: Optional[int] = None
         self._positions: dict[str, TradeExecution] = {}
         self._history: list[TradeExecution] = []
         self._daily_pnl: dict[str, float] = {}  # date-string -> pnl
@@ -525,23 +535,70 @@ class PortfolioTracker:
         try:
             target_path = Path(target)
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            # F-09 FIX: keep one backup of the previous state
-            if target_path.exists():
-                backup = target_path.with_suffix(".json.bak")
-                try:
-                    import shutil
-                    shutil.copy2(str(target_path), str(backup))
-                except Exception as e:
-                    trade_log.debug("Best-effort backup copy failed: %s", e)
-            # C2-33: fsync before the rename (inside the helper) so a crash
-            # cannot publish a rename the data has not landed behind.
-            atomic_write_json(str(target_path), state, indent=2, default=str)
-            # Persist the rename itself (not just the tmp contents) so it
-            # survives a crash/power loss. Best-effort.
-            fsync_dir(str(target_path))
+            # H6: hold the cross-process lock across the read-check AND the
+            # write. Checking outside it is the same TOCTOU the lock exists to
+            # close — two processes could both read "revision 4" and both
+            # decide they are safe to write revision 5.
+            with locked(target_path):
+                on_disk = disk_revision(target_path)
+                if self._is_stale_write(on_disk, target_path, state):
+                    return
+                state[REVISION_KEY] = (on_disk or 0) + 1
+                # F-09 FIX: keep one backup of the previous state
+                if target_path.exists():
+                    backup = target_path.with_suffix(".json.bak")
+                    try:
+                        import shutil
+                        shutil.copy2(str(target_path), str(backup))
+                    except Exception as e:
+                        trade_log.debug("Best-effort backup copy failed: %s", e)
+                # C2-33: fsync before the rename (inside the helper) so a crash
+                # cannot publish a rename the data has not landed behind.
+                atomic_write_json(str(target_path), state, indent=2, default=str)
+                # Persist the rename itself (not just the tmp contents) so it
+                # survives a crash/power loss. Best-effort.
+                fsync_dir(str(target_path))
+                self._state_revision = state[REVISION_KEY]
         except Exception as exc:
             audit(trade_log, f"Failed to save portfolio state: {exc}",
                   action="save_state", result="ERROR")
+
+    def _is_stale_write(self, on_disk: Optional[int], target_path: Path,
+                        state: dict) -> bool:
+        """True when writing `state` would destroy somebody else's newer book.
+
+        Called under the lock. Two cases refuse:
+
+        * disk is AHEAD of what we loaded — another process has written since
+          we last looked, and this tracker never re-reads, so our whole
+          in-memory world is stale. Overwriting it is how a trade vanishes.
+        * disk is UNREADABLE (`None`) — it might be newer than ours and we
+          cannot tell. Absent is 0; unreadable is not a measurement, and
+          guessing 0 here licenses exactly the overwrite this guards.
+
+        The refused state goes to a `.conflict-<pid>.json` sidecar so nothing
+        is lost, and the event is audited rather than swallowed. With the API
+        bridge reduced to one worker this should never fire — a guard that
+        fires routinely is a workflow, and this one is meant to stay quiet and
+        be believed when it does not.
+        """
+        ours = self._state_revision
+        if on_disk is not None and (ours is None or on_disk <= ours):
+            return False
+        where = conflict_path(target_path)
+        try:
+            atomic_write_json(str(where), state, indent=2, default=str)
+        except Exception as exc:                       # pragma: no cover
+            trade_log.error("could not park the conflicting state: %s", exc)
+        audit(trade_log,
+              f"REFUSED to overwrite the portfolio book: on-disk revision "
+              f"{'unreadable' if on_disk is None else on_disk} vs ours "
+              f"{ours}. Another process has written since this one loaded, so "
+              f"this state is stale. Parked at {where.name} — nothing lost, "
+              f"nothing overwritten.",
+              action="save_state", result="CONFLICT",
+              data={"on_disk": on_disk, "ours": ours, "parked": where.name})
+        return True
 
     def load_state(self, path: Optional[str] = None) -> bool:
         """Deserialize portfolio state from a JSON file (thread-safe).
@@ -560,6 +617,14 @@ class PortfolioTracker:
             # F-09 FIX: validate required schema fields before loading
             if "balance" not in data:
                 raise ValueError("Missing 'balance' field in state file")
+            # Remember what we read. Without this every save would look stale
+            # against a file that already has a revision, and the guard would
+            # refuse every write instead of none of them — a guard that always
+            # fires is as useless as one that never does, and louder about it.
+            try:
+                self._state_revision = int(data.get(REVISION_KEY, 0))
+            except (TypeError, ValueError):
+                self._state_revision = 0
             self.balance = float(data["balance"])
             self._initial_balance = float(data.get("initial_balance", self.balance))
             self._peak_equity = float(data.get("peak_equity", self.balance))
