@@ -13,7 +13,7 @@
  */
 
 const { pool } = require('../db');
-const { winStats, realizedTotal, profitFactor } = require('./trade_stats');
+const { winStats, realizedTotal, profitFactor } = require('../public/js/trade-stats');
 
 const OPERATOR_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
 

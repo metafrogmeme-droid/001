@@ -25,8 +25,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { winStats, realizedTotal, aggregateStats, profitFactor } =
-  require('../lib/trade_stats');
+const { winStats, realizedTotal, aggregateStats, profitFactor, summaryCells } =
+  require('../public/js/trade-stats');
 
 const rows = (...pnls) => pnls.map((p) => ({ pnl: p }));
 
@@ -152,6 +152,41 @@ test('a missing or malformed aggregate row does not throw', () => {
     assert.strictEqual(a.win_rate, null);
     assert.strictEqual(a.net_pnl, null);
   }
+});
+
+// ── what a summary card actually says ────────────────────────────────
+
+test('an unmeasured total renders as an absence, not $0.00', () => {
+  const c = summaryCells(rows(null, null));
+  assert.strictEqual(c.net, null);
+  assert.strictEqual(c.netText, '—', '"+$0.00" claims a measured flat day');
+});
+
+test('a measured break-even still renders its zero', () => {
+  const c = summaryCells(rows(0, 0));
+  assert.strictEqual(c.netText, '+$0.00', 'a real result was suppressed');
+  assert.strictEqual(c.wins, 0);
+});
+
+test('an empty set has nothing to say', () => {
+  assert.strictEqual(summaryCells([]).netText, '—');
+  assert.strictEqual(summaryCells([]).coverage, '');
+});
+
+test('a partial window discloses how far the figures reach', () => {
+  const c = summaryCells(rows(40, -10, null, 0));
+  assert.strictEqual(c.netText, '+$30.00');
+  assert.strictEqual(c.wins, 1, 'the unpriced row was scored as a win');
+  assert.strictEqual(c.coverage, '3 priced');
+});
+
+test('a complete window says nothing extra', () => {
+  // A caveat printed on every card is how a real one gets skipped.
+  assert.strictEqual(summaryCells(rows(40, -10)).coverage, '');
+});
+
+test('a negative total keeps its sign', () => {
+  assert.strictEqual(summaryCells(rows(-4.5, -0.25)).netText, '-$4.75');
 });
 
 test('the two paths agree on the same book', () => {

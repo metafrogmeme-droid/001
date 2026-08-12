@@ -1,6 +1,6 @@
 const express = require('express');
 const { profitFactor, sharpe: calcSharpe, winStats, realizedTotal } =
-  require('../lib/trade_stats');
+  require('../public/js/trade-stats');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { computePerformance } = require('../lib/trade_performance');

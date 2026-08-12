@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Profit factor and Sharpe, computed once so two surfaces cannot disagree.
  *
@@ -41,7 +40,20 @@
  *
  * Both functions return **null** when there is nothing honest to report. Null
  * renders as "—"; 0 and 999 are claims.
+ *
+ * LOADABLE IN THE BROWSER TOO (UMD, same wrapper as engine-status-model.js).
+ * The dashboard's "Today for you" card computed its own
+ * `parseFloat(t.pnl) || 0` over the same nullable column, because it had no
+ * way to reach this file — so the rule had four spellings and the fourth was
+ * the wrong one. `require()` behaves exactly as before; the browser gets
+ * `window.TradeStats`.
  */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.TradeStats = api;
+}(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
 
 /** A finite float, or null — never NaN, never Infinity. */
 function num(v) {
@@ -179,6 +191,41 @@ function aggregateStats(row) {
   };
 }
 
+/**
+ * The three things a compact summary card needs, decided here.
+ *
+ * The rendering is part of the rule, not a detail downstream of it: "the total
+ * is null" and "the cell says —" are the same statement, and splitting them is
+ * how a correct null ends up printed as `$0.00`. The Python twin does the same
+ * — `win_rate.coverage_note` lives beside `win_stats` for exactly this reason.
+ *
+ * It also gives an inline card a SEAM. The dashboard's "Today for you" row is
+ * built inside a six-thousand-line browser script, where the only thing a test
+ * could reach was the spelling of the expression — and a mutation pass proved
+ * that was not enough: rendering an unmeasured total as `$0.00`, and dropping
+ * the coverage note entirely, both survived every test in the suite.
+ */
+function summaryCells(rows) {
+  const ws = winStats(rows);
+  const net = realizedTotal(rows);
+  return {
+    wins: ws.wins,
+    losses: ws.losses,
+    scored: ws.scored,
+    unscored: ws.unscored,
+    total: ws.total,
+    net,
+    // null renders as an absence. A measured 0 renders as `+$0.00`, because
+    // break-even is a real outcome and hiding it is the same defect facing the
+    // other way.
+    netText: net === null
+      ? '—' : `${net < 0 ? '-' : '+'}$${Math.abs(net).toFixed(2)}`,
+    // Empty on a complete window — a caveat printed every time is how a real
+    // one gets skipped.
+    coverage: ws.unscored ? `${ws.scored} priced` : '',
+  };
+}
+
 /** How much of the set each figure could actually be computed over. */
 function coverage(rows) {
   let priced = 0, sizeable = 0;
@@ -192,6 +239,8 @@ function coverage(rows) {
   return { total: all, priced, sizeable, unpriced: all - priced };
 }
 
-module.exports = {
-  profitFactor, sharpe, coverage, winStats, realizedTotal, aggregateStats,
-};
+  return {
+    profitFactor, sharpe, coverage, winStats, realizedTotal, aggregateStats,
+    summaryCells,
+  };
+}));

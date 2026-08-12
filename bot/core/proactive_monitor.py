@@ -620,12 +620,23 @@ class ProactiveMonitor:
                 ex = getattr(e, "live_executor", None)
                 closed = list(getattr(ex, "closed_positions", []) or [])[-20:]
                 if closed:
-                    net = sum(float(getattr(t, "pnl_usd", 0) or 0) for t in closed)
-                    wins = sum(1 for t in closed
-                               if float(getattr(t, "pnl_usd", 0) or 0) > 0)
+                    # `getattr(t, "pnl_usd", 0) or 0` over LivePosition, whose
+                    # pnl_usd is Optional[float] = None: an unpriced close was
+                    # summed as break-even AND counted as a non-win in a
+                    # full-set denominator. bot/utils/win_rate.py exists to be
+                    # the single answer to both and six other sites already
+                    # use it; this digest went its own way.
+                    from bot.utils.win_rate import pnl_stats, win_stats
+                    ws = win_stats(closed)
+                    ps = pnl_stats(closed)
+                    net_bit = ("net <code>—</code>" if ps["total"] is None
+                               else f"net <code>${ps['total']:+,.2f}</code>")
+                    unpriced = (f" · {ws['unscored']} unpriced"
+                                if ws["unscored"] else "")
                     lines.append(
                         f"Recent closes: <b>{len(closed)}</b> "
-                        f"(<b>{wins}</b> wins) · net <code>${net:+,.2f}</code>")
+                        f"(<b>{ws['wins']}</b> wins of {ws['scored']} priced) · "
+                        f"{net_bit}{unpriced}")
             except Exception:
                 pass
             lines.append(

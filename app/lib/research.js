@@ -18,7 +18,7 @@
  */
 
 const { pool } = require('../db');
-const { winStats, realizedTotal } = require('./trade_stats');
+const { winStats, realizedTotal } = require('../public/js/trade-stats');
 const { getTickers } = require('./tickers');
 const rwa = require('./rwa');
 const dex = require('./dex');
