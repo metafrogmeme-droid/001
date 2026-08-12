@@ -27,7 +27,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { profitFactor, sharpe, coverage } = require('../lib/trade_stats');
+const { profitFactor, sharpe, coverage } = require('../public/js/trade-stats');
 
 const t = (pnl, size_usd) => ({ pnl, size_usd });
 

@@ -9,7 +9,7 @@ Every incoming message passes through require_registered().
 """
 
 from __future__ import annotations
-import functools, json, logging, urllib.request, urllib.error
+import asyncio, functools, json, logging, urllib.request, urllib.error
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -202,9 +202,21 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         },
         method="POST",
     )
-    try:
+    def _validate_token():
+        """Blocking. Runs on a worker thread — see below."""
         with urllib.request.urlopen(req_obj, timeout=10) as resp:
-            result = json.loads(resp.read().decode())
+            return json.loads(resp.read().decode())
+
+    try:
+        # OFF THE LOOP. This is a 10s synchronous urlopen inside a coroutine,
+        # on the loop that also runs SL/TP monitoring and the WS feed — so an
+        # unreachable website meant any user typing /link could freeze position
+        # protection for ten seconds. Same shape as the engine's web pulls,
+        # found by re-running the search across the whole package after the
+        # engine ones were fixed; an engine-only scan would never have reached
+        # it. `to_thread` re-raises in the awaiting coroutine, so the HTTPError
+        # handling below is unchanged.
+        result = await asyncio.to_thread(_validate_token)
     except urllib.error.HTTPError as e:
         if e.code == 404:
             await update.message.reply_text(t("link_token_invalid", _user_lang(chat_id), url=REGISTER_URL))

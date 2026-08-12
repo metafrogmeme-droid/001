@@ -853,9 +853,19 @@
         const todayStr = new Date().toDateString();
         const today = rows.filter(t => t.closed_at && new Date(t.closed_at).toDateString() === todayStr);
         if (today.length) {
-          const net = today.reduce((a, t) => a + (parseFloat(t.pnl) || 0), 0);
-          const wins = today.filter(t => parseFloat(t.pnl) > 0).length;
-          lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_today', 'Today for you'))}</span><b class="num ${pnlClass(net)}">${esc(TF('dd.ac_closed', '{n} closed ({w} wins)', { n: today.length, w: wins }))} · ${net < 0 ? '-' : '+'}$${Math.abs(net).toFixed(2)}</b></div>`);
+          // `parseFloat(t.pnl) || 0` over a NULLABLE column summed unpriced
+          // closes as break-even and scored them as non-wins — and pnlClass
+          // then painted the fabricated total green, since `0 >= 0`. Three
+          // sibling panels were cured of this and the fourth was not, because
+          // it had no way to reach app/lib/trade_stats.js. Now it does.
+          // pnlClass(null) is already '' — "unknown -> muted, never red" is its
+          // own contract, pinned in today_card_absence.test.js. A second check
+          // here would be a copy of that rule, free to drift from it, which is
+          // the mistake this whole change is about.
+          const c = self.TradeStats.summaryCells(today);
+          const cover = c.coverage
+            ? ` <span class="muted small">(${c.coverage})</span>` : '';
+          lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_today', 'Today for you'))}</span><b class="num ${pnlClass(c.net)}">${esc(TF('dd.ac_closed', '{n} closed ({w} wins)', { n: today.length, w: c.wins }))} · ${c.netText}${cover}</b></div>`);
         } else {
           lines.push(`<div class="kv-row"><span>${esc(T('dd.ac_today', 'Today for you'))}</span><b class="muted">${esc(T('dd.ac_none', 'no closed trades yet — only setups that clear the risk gate get taken'))}</b></div>`);
         }

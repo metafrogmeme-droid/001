@@ -2512,7 +2512,8 @@ class RuneClawEngine:
                 # Web wallet (2b): pull any pending exchange-credential requests
                 # the website queued and import them into the credential store.
                 # Throttled, fail-open, no-op unless WEB_CREDS_KEY is configured.
-                self._maybe_pull_web_credentials()
+                await self._with_maintenance_cap(
+                    self._maybe_pull_web_credentials(), "web credential pull")
                 # Web wallet (3b): process any emergency-stop flatten requests
                 # (close the user's live positions via THEIR own executor). Async,
                 # fail-open, throttled; guarded so it never touches another
@@ -3333,7 +3334,7 @@ class RuneClawEngine:
             return
         self._last_user_lb_pull_ts = now_ts
         from bot.utils.leaderboard_pull import fetch_leaderboard_optins
-        optins = fetch_leaderboard_optins()
+        optins = await asyncio.to_thread(fetch_leaderboard_optins)
         if optins is None:
             return                      # transport failure: leave the board alone
         from bot.proofofpnl.leaderboard import get_leaderboard_registry
@@ -3496,12 +3497,26 @@ class RuneClawEngine:
         except Exception as exc:
             system_log.debug("Healthcheck ping failed (non-fatal): %s", exc)
 
-    def _maybe_pull_web_credentials(self) -> None:
+    async def _maybe_pull_web_credentials(self) -> None:
         """Throttled, fail-open pull of website-queued exchange credentials.
 
         No-op unless the operator has configured WEB_CREDS_KEY (and the website
         sync secret). On a successful connect/disconnect it invalidates the
         affected per-user executor so the next trade rebuilds with the new keys.
+
+        ASYNC ON PURPOSE. This was a plain `def` called straight from the tick
+        coroutine, which is the same stall as an async method doing sync work
+        and harder to see: nothing about the call site suggested it could block,
+        and unlike its sibling `_maybe_flatten_web_requests` it was not even
+        wrapped in `_with_maintenance_cap`.
+
+        Being precise about what that cap does now, because overclaiming a
+        protection is the defect this file keeps being audited for: with the
+        pulls on a worker thread the cap can finally free the LOOP at the
+        timeout, which it could never do while the call was inline. It does not
+        kill the thread — a 15s urlopen still runs to completion in the pool.
+        Freeing the loop is the whole point; interrupting the request was never
+        on offer.
         """
         try:
             import time as _time
@@ -3513,7 +3528,22 @@ class RuneClawEngine:
             from bot.utils.credential_pull import pull_and_apply, is_configured
             if not is_configured():
                 return
-            n = pull_and_apply(on_change=self.invalidate_user_executor)
+            # OFF THE LOOP. These pulls are synchronous `urlopen(timeout=15)`
+            # underneath, and this coroutine shares its loop with SL/TP
+            # monitoring, the WS feed and every Telegram handler. Called
+            # directly, one slow website froze all of it: driven against a
+            # server answering in 2s, a heartbeat wanting to tick every 10ms
+            # ticked ZERO times and its longest gap was the full 2.01s. Sync
+            # code never yields, so the tick's own `asyncio.wait_for` cap
+            # cannot interrupt it either — the timeout that looks like the
+            # backstop is not one.
+            #
+            # This method chains three such pulls and each makes two requests,
+            # so the worst case was six × 15s. `telegram_handler.py` already
+            # offloads every one of these; the engine's own pumps were the
+            # outlier.
+            n = await asyncio.to_thread(
+                pull_and_apply, on_change=self.invalidate_user_executor)
             if n:
                 audit(system_log, f"Applied {n} web credential request(s)",
                       action="web_credentials_pull", result="OK")
@@ -3524,7 +3554,11 @@ class RuneClawEngine:
             store = getattr(self, "_user_store", None)
             if store is not None:
                 from bot.utils.control_pull import pull_and_apply_controls
-                m = pull_and_apply_controls(
+                # The callbacks run on the worker thread: `UserStore` guards
+                # its writes with a `threading.Lock` and both callbacks only
+                # pop from plain dicts, so this is safe to offload whole.
+                m = await asyncio.to_thread(
+                    pull_and_apply_controls,
                     store=store, allowlist_check=self._is_operator_user,
                     on_change=self.invalidate_user_executor)
                 if m:
@@ -3534,7 +3568,7 @@ class RuneClawEngine:
                 # mode). control_pull re-verifies the requester's tier is
                 # 'admin' against the bot's own UserStore before applying.
                 from bot.utils.control_pull import pull_and_apply_stance
-                if pull_and_apply_stance(store=store):
+                if await asyncio.to_thread(pull_and_apply_stance, store=store):
                     audit(system_log, "Applied web stance change",
                           action="web_stance_pull", result="OK")
         except Exception as exc:
@@ -3561,7 +3595,11 @@ class RuneClawEngine:
                 return
             self._last_flatten_pull = now
             from bot.utils.control_pull import fetch_flatten_pending, ack_flatten
-            rows = fetch_flatten_pending()
+            # Off the loop — see _maybe_pull_web_credentials. Worth naming here
+            # specifically: this pump exists to CLOSE positions in an
+            # emergency, and blocking the loop to ask about it is the one
+            # place a stall costs the most.
+            rows = await asyncio.to_thread(fetch_flatten_pending)
             if not rows:
                 return
             per_user = getattr(CONFIG, "per_user_live_enabled", False)
@@ -3588,7 +3626,7 @@ class RuneClawEngine:
                     audit(system_log, f"Web flatten failed for user {tg}: {exc}",
                           action="web_flatten", result="ERROR")
             if acks:
-                ack_flatten(acks)
+                await asyncio.to_thread(ack_flatten, acks)
         except Exception:
             pass
 

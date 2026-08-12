@@ -16,7 +16,7 @@ const { pool } = require('../db');
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
-const { winStats, realizedTotal, aggregateStats } = require('../lib/trade_stats');
+const { winStats, realizedTotal, aggregateStats } = require('../public/js/trade-stats');
 const { broadcast } = require('./stream');
 
 /**

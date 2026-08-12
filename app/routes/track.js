@@ -52,7 +52,7 @@ function round2(v) { return Math.round(v * 100) / 100; }
 // the capital-event rationale (the "98.7% drawdown" bug class).
 const { maxDrawdownPct, segmentByCapitalEvents, segmentedMaxDrawdownPct } =
   require('../lib/equity_basis');
-const { profitFactor } = require('../lib/trade_stats');
+const { profitFactor } = require('../public/js/trade-stats');
 
 // Downsample to at most n points, always keeping the first and last.
 function downsample(rows, n) {
