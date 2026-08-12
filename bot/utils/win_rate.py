@@ -46,11 +46,18 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional
 
 
-def _pnl(trade: Any) -> Optional[float]:
+def trade_pnl(trade: Any) -> Optional[float]:
     """The recorded P&L, or None when there isn't one. Never raises.
 
     Accepts an object with ``.pnl_usd`` or a mapping with ``pnl_usd``/``pnl``,
     because the callers span live positions, journal dicts and website rows.
+
+    Public because reading the field is the half callers get wrong on their
+    own. ``LivePosition`` has ``pnl_usd`` and ``gross_pnl`` and no ``net_pnl``
+    at all, so ``getattr(t, "net_pnl", 0)`` is not a defensive default — it is
+    a constant 0 dressed as a measurement, and the nightly self-audit reported
+    ``win_rate 0.0`` off exactly that for every trade the bot had ever closed.
+    A caller that asks this function cannot guess the field wrong.
     """
     for key in ("pnl_usd", "net_pnl", "pnl"):
         try:
@@ -71,6 +78,36 @@ def _pnl(trade: Any) -> Optional[float]:
             continue
         return v
     return None
+
+
+#: Historical name. `bot/skills/live_stats.py` imports it; keep it working.
+_pnl = trade_pnl
+
+
+def profit_factor(trades: Iterable[Any]) -> Optional[float]:
+    """Gross wins ÷ gross losses over the SCORABLE trades, or None.
+
+    None means "not computable from this set" and covers three genuinely
+    different situations that a number cannot tell apart: nothing was
+    priceable, nothing has closed, and nothing has lost yet. The caller says
+    which — ``win_stats`` beside it carries the counts. What it must never do
+    is return 0.0 for any of them; a profit factor of zero is the claim that
+    every scorable trade lost.
+    """
+    wins = losses = 0.0
+    scored = 0
+    for t in trades or ():
+        p = trade_pnl(t)
+        if p is None:
+            continue
+        scored += 1
+        if p > 0:
+            wins += p
+        elif p < 0:
+            losses -= p
+    if scored == 0 or losses <= 0:
+        return None
+    return wins / losses
 
 
 def win_stats(trades: Iterable[Any]) -> dict:

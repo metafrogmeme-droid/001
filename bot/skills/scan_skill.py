@@ -27,60 +27,92 @@ log = logging.getLogger("runeclaw.scan_skill")
 
 # ── Live exchange data fetcher ───────────────────────────────────
 
+def _closed_trades_file() -> Optional[str]:
+    """The path the live executor actually writes to.
+
+    Imported rather than re-derived. This reader spelled the path out a second
+    time — `bot/closed_trades.json`, then the repo root — while the executor
+    has written `$RUNECLAW_STATE_DIR/closed_trades.json` since F-14. Neither
+    of those has ever existed, so every call took the "file missing" branch and
+    returned an empty list, which the payload published as a real record of
+    zero trades. `bot/backtest/parity.py` had the path right the whole time.
+
+    Restating a path is the same defect as restating a CI step: the copy does
+    not track the original, and nothing says so when it stops matching.
+    """
+    try:
+        from bot.core.live_executor import _CLOSED_TRADES_FILE
+        return _CLOSED_TRADES_FILE
+    except Exception as exc:                      # pragma: no cover - import guard
+        log.warning("closed-trade path unavailable: %s", exc)
+        return None
+
+
 def _fetch_live_exchange_data() -> Optional[dict]:
     """Fetch real account balance, positions, and trade history from Bitget.
     Returns dict with equity, net_pnl, win_rate, total_trades, open_count,
     open_positions, closed_trades. Returns None on failure.
+
+    `net_pnl` and `win_rate` are TRI-STATE: None means the record could not be
+    priced, and is not the same statement as 0.
     """
     import json, os
     from bot.config import CONFIG
+    from bot.utils.win_rate import pnl_stats, trade_pnl, win_stats
 
-    result = {
-        "equity": 0, "net_pnl": 0, "win_rate": 0,
+    result: dict = {
+        "equity": 0, "net_pnl": None, "win_rate": None,
         "total_trades": 0, "open_count": 0,
         "open_positions": [], "closed_trades": [],
+        # "the record could not be read" vs "the record is empty". Both give
+        # total_trades 0, and only one of them is a measurement.
+        "closed_record_unreadable": False,
     }
 
     # 1. Read closed trades from disk (bot's trade log)
-    trades_file = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "closed_trades.json"
-    )
-    # Also check parent directory
-    if not os.path.exists(trades_file):
-        trades_file = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "closed_trades.json"
-        )
+    trades_file = _closed_trades_file()
 
-    closed_trades = []
-    if os.path.exists(trades_file):
+    closed_trades: list = []
+    if not trades_file:
+        result["closed_record_unreadable"] = True
+    elif not os.path.exists(trades_file):
+        # Genuinely absent is genuinely zero closes — the executor writes this
+        # file on the first close, so a bot that has closed nothing has no
+        # file. Not flagged unreadable.
+        log.info("no closed-trade record yet at %s", trades_file)
+    else:
         try:
             with open(trades_file) as f:
                 closed_trades = json.load(f)
             if isinstance(closed_trades, dict):
                 closed_trades = closed_trades.get("trades", [])
+            if not isinstance(closed_trades, list):
+                raise ValueError(f"expected a list, got {type(closed_trades).__name__}")
         except Exception as exc:
-            log.warning("Failed to read closed_trades.json: %s", exc)
+            log.warning("Failed to read %s: %s", trades_file, exc)
+            closed_trades = []
+            result["closed_record_unreadable"] = True
 
     total = len(closed_trades)
-    total_pnl = sum(float(t.get("net_pnl", t.get("pnl", 0)) or 0) for t in closed_trades)
-    # Scored over SCORABLE, not over every row: a trade with no recorded
-    # pnl was previously a non-win in a full-set denominator, which pushed
-    # this rate down for every unpriced close.
-    from bot.utils.win_rate import win_stats as _win_stats
-    _ws = _win_stats(closed_trades)
+    # Both figures come from the SAME reader, so they agree about which rows
+    # were legible. The executor writes `pnl_usd`; this file used to look for
+    # `net_pnl` then `pnl` and fall back to 0, so every real row summed as a
+    # break-even close even on the days the path was right.
+    _ps = pnl_stats(closed_trades)
+    _ws = win_stats(closed_trades)
     wins = _ws["wins"]
-    win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
+    realized_pnl = _ps["total"]                                  # None when unpriceable
+    win_rate = None if _ws["rate"] is None else _ws["rate"] * 100
 
     # Format closed trades for dashboard (last 20)
     for t in closed_trades[-20:]:
+        _p = trade_pnl(t)
         result["closed_trades"].append({
             "symbol": t.get("symbol", ""),
             "direction": t.get("direction", t.get("side", "")),
             "entry_price": float(t.get("entry_price", t.get("entry", 0)) or 0),
             "exit_price": float(t.get("exit_price", t.get("exit", 0)) or 0),
-            "pnl": float(t.get("net_pnl", t.get("pnl", 0)) or 0),
+            "pnl": _p,                       # None, not 0 — see the module note
             "closed_at": t.get("closed_at", t.get("timestamp", "")),
         })
 
@@ -88,10 +120,14 @@ def _fetch_live_exchange_data() -> Optional[dict]:
     # Venue-gated: when the operator trades on another venue (/venue), this
     # Bitget-keyed readout would show the WRONG account — skip it and let
     # the executor-backed displays (/livebalance, /status) be the truth.
+    # The realized record on disk is venue-independent — it is what the bot
+    # itself closed — so skipping the Bitget readout must not also discard it.
+    # `return result` here returned the untouched defaults, which is how a
+    # /venue switch alone was enough to publish "0 trades, $0.00, 0%".
     try:
         from bot.core.venues import get_venue
         if get_venue().id != "bitget":
-            return result
+            return _file_only_result(result, total, realized_pnl, win_rate)
     except Exception:
         pass
     try:
@@ -163,33 +199,43 @@ def _fetch_live_exchange_data() -> Optional[dict]:
             })
 
         result["equity"] = round(equity, 2)
-        result["net_pnl"] = round(total_pnl + unrealized_pnl, 2)
-        result["win_rate"] = round(win_rate, 1)
+        # Unrealized only joins a REALIZED total that exists. Adding it to a
+        # None realized would print the open book's paper P&L as the account's
+        # lifetime result — a smaller number than the truth, or a larger one,
+        # and either way not the quantity the label names.
+        result["net_pnl"] = (None if realized_pnl is None
+                             else round(realized_pnl + unrealized_pnl, 2))
+        result["win_rate"] = None if win_rate is None else round(win_rate, 1)
         result["total_trades"] = total
         result["open_count"] = len(open_pos)
 
-        log.info("Live data: equity=$%.2f, pnl=$%.2f, %d trades (%d wins), %d open",
-                 equity, total_pnl, total, wins, len(open_pos))
+        log.info("Live data: equity=$%.2f, realized=%s, %d trades (%d wins, "
+                 "%d unpriced), %d open",
+                 equity,
+                 "unreadable" if realized_pnl is None else f"${realized_pnl:.2f}",
+                 total, wins, _ws["unscored"], len(open_pos))
         return result
 
     except ImportError:
         log.warning("ccxt not available for sync exchange fetch")
-        # Still return trade file data with 0 equity
-        if total > 0:
-            result["net_pnl"] = round(total_pnl, 2)
-            result["win_rate"] = round(win_rate, 1)
-            result["total_trades"] = total
-            return result
-        return None
+        return _file_only_result(result, total, realized_pnl, win_rate)
     except Exception as exc:
         log.warning("Exchange fetch failed: %s", exc)
-        # Still return trade file data
-        if total > 0:
-            result["net_pnl"] = round(total_pnl, 2)
-            result["win_rate"] = round(win_rate, 1)
-            result["total_trades"] = total
-            return result
+        return _file_only_result(result, total, realized_pnl, win_rate)
+
+
+def _file_only_result(result: dict, total: int, realized_pnl, win_rate):
+    """The exchange leg failed; publish what the trade file alone supports.
+
+    Equity stays 0 here and the caller treats that as "unknown" — the point of
+    this path is the realized record, which does not need the exchange.
+    """
+    if total <= 0 and not result.get("closed_record_unreadable"):
         return None
+    result["net_pnl"] = None if realized_pnl is None else round(realized_pnl, 2)
+    result["win_rate"] = None if win_rate is None else round(win_rate, 1)
+    result["total_trades"] = total
+    return result
 
 
 # ── Dashboard sync helper ─────────────────────────────────────────
@@ -275,9 +321,13 @@ def _build_scan_payload(results: list[dict], engine=None,
     # ── Circuit breaker from engine + real exchange data ──
     cb_rules = []
     cb_equity = 0
-    cb_net_pnl = 0
-    cb_win_rate = 0
+    # None until something measures them. They start as 0 nowhere, because a
+    # scan that reaches the payload without touching either branch below would
+    # otherwise publish "$0.00 net, 0% win rate" as the engine's record.
+    cb_net_pnl = None
+    cb_win_rate = None
     cb_total_trades = 0
+    cb_record_unreadable = False
     cb_open_count = 0
     cb_open_positions = []  # Actual position details for dashboard
     cb_closed_trades = []   # Recent closed trades for dashboard
@@ -297,6 +347,8 @@ def _build_scan_payload(results: list[dict], engine=None,
                 cb_open_count = live_data["open_count"]
                 cb_open_positions = live_data.get("open_positions", [])
                 cb_closed_trades = live_data.get("closed_trades", [])
+                cb_record_unreadable = bool(
+                    live_data.get("closed_record_unreadable"))
                 live_data_loaded = True
                 log.info("Live exchange data loaded: equity=$%.2f, %d trades, %d open",
                          cb_equity, cb_total_trades, cb_open_count)
@@ -368,11 +420,19 @@ def _build_scan_payload(results: list[dict], engine=None,
             # getattr(..., 0) makes an ABSENT net_pnl a non-win in a full-set
             # denominator -- the same shape as the live sites, one attribute
             # over.
+            #
+            # The RATE was cured here and the TOTAL beside it was not, which is
+            # the failure win_rate.py's own docstring warns about. `TradeExecution`
+            # has `pnl`, `gross_pnl` and `commission` and NO `net_pnl`, so
+            # `sum(getattr(t, 'net_pnl', 0) ...)` was not a defensive default —
+            # it was 0.0 for every paper book the dashboard has ever shown.
+            from bot.utils.win_rate import pnl_stats as _pnl_stats
             from bot.utils.win_rate import win_stats as _win_stats
             _ws = _win_stats(history)
+            _ps = _pnl_stats(history)
             wins = _ws["wins"]
-            cb_win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
-            cb_net_pnl = sum(getattr(t, 'net_pnl', 0) for t in history)
+            cb_win_rate = None if _ws["rate"] is None else _ws["rate"] * 100
+            cb_net_pnl = _ps["total"]
         except Exception as exc:
             log.warning("Paper portfolio data unavailable: %s", exc)
 
@@ -514,8 +574,12 @@ def _build_scan_payload(results: list[dict], engine=None,
         "circuit_breaker": {
             "rules": cb_rules,
             "equity": cb_equity,
-            "net_pnl": round(cb_net_pnl, 2),
-            "win_rate": round(cb_win_rate, 1),
+            # Tri-state, all the way to the browser. `round(None, 2)` would
+            # raise and `cb_net_pnl or 0` would fabricate, so neither: null
+            # travels, and the dashboard renders it as "—".
+            "net_pnl": None if cb_net_pnl is None else round(cb_net_pnl, 2),
+            "win_rate": None if cb_win_rate is None else round(cb_win_rate, 1),
+            "record_unreadable": cb_record_unreadable,
             "total_trades": cb_total_trades,
             "open_count": cb_open_count,
             "open_positions": cb_open_positions,

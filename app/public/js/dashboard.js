@@ -155,7 +155,12 @@
   // already render null as "—"; the zeros simply never reached them. Same rule
   // the venue line one panel down follows ("balance unreadable, the bot did
   // not answer") — absent is not zero.
-  const _haveTrades = (cb) => Number(cb && cb.total_trades) > 0;
+  // The engine card's version of this now lives in engine-card-model.js,
+  // where it can be driven by a test. `_haveTrades` answered "is there a
+  // record", which is NOT the same question as "was this figure measured" —
+  // a book of twelve closes none of which carry a recorded P&L passes it and
+  // still has no win rate, which is exactly what the bot now reports.
+  const _haveTrades = (pf) => Number(pf && pf.total_trades) > 0;
 
   async function getTickers() {
     const r = await fetchJSON('/api/market/tickers', { auth: false });
@@ -715,7 +720,7 @@
         </div>
         <div class="stat-row" style="flex:1;max-width:420px">
           <div class="stat"><div class="k">Win rate</div><div class="v">${pf.win_rate != null ? fmt(pf.win_rate, 1) + '%' : '—'}</div></div>
-          <div class="stat"><div class="k">Trades</div><div class="v">${pf.total_trades ?? 0}</div></div>
+          <div class="stat"><div class="k">Trades</div><div class="v">${pf.total_trades != null ? pf.total_trades : '—'}</div></div>
           <div class="stat"><div class="k">Open</div><div class="v">${(pf.open_positions || []).length}</div></div>
         </div>
       </div>`;
@@ -956,7 +961,7 @@
       const linked = !!me.data?.telegram_linked;
       const connected = !!creds.data?.connected;
       const credsPending = creds.data?.pending === 'connect';
-      const traded = (pf?.total_trades || 0) > 0 || (pf?.open_positions || []).length > 0;
+      const traded = _haveTrades(pf) || (pf?.open_positions || []).length > 0;
       const liveReady = !!(ctl.data?.live_enabled && ctl.data?.allowlisted);
       const paused = !!ctl.data?.paused;
 
@@ -3105,11 +3110,11 @@
       return `<div class="stat-row">
         <div class="stat"><div class="k">Equity</div><div class="v big" style="font-size:var(--fs-xl)">${equityCell}</div></div>
         <div class="stat"><div class="k">Net PnL</div><div class="v num ${pnlClass(s.net_pnl)}">${signed(s.net_pnl)}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${fmt(s.win_rate, 1)}%</div></div>
+        <div class="stat"><div class="k">Win rate</div><div class="v">${s.win_rate != null ? fmt(s.win_rate, 1) + '%' : '—'}</div></div>
         <div class="stat"><div class="k">Profit factor</div><div class="v">${fmt(s.profit_factor)}</div></div>
         <div class="stat"><div class="k">Sharpe</div><div class="v">${fmt(s.sharpe)}</div></div>
-        <div class="stat"><div class="k">Trades</div><div class="v">${s.total_trades} <span class="muted small">(${s.wins}W/${s.losses}L)</span></div></div>
-      </div>`;
+        <div class="stat"><div class="k">Trades</div><div class="v">${s.total_trades} <span class="muted small">(${s.wins}W/${s.losses}L${s.breakeven ? '/' + s.breakeven + 'BE' : ''})</span></div></div>
+      </div>${s.unpriced ? `<div class="small mt-2" style="color:var(--text-2)">${s.unpriced} of ${s.total_trades} closes carry no recorded P&amp;L — the rate and net cover the other ${s.total_trades - s.unpriced}.</div>` : ''}`;
     }, { empty: { icon: 'icon-coin', text: 'No trading data yet — your stats build from the first closed trade.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } } });
 
     renderPanel(C('curve'), async () => {
@@ -3945,12 +3950,20 @@
     renderPanel(C('ecb'), async () => {
       const cb = scan?.circuit_breaker;
       if (!cb || (cb.equity == null && !cb.total_trades)) return null;
+      // The four cells are decided by a PURE model (engine-card-model.js) so
+      // "this payload renders that card" is assertable — see
+      // app/test/engine_card_scenarios.test.js. Inline, the only thing a test
+      // could reach was the spelling of the guard.
+      const cells = (self.EngineCardModel || {}).engineCardCells;
+      const c = cells ? cells(cb) : null;
+      if (!c) return null;
       return `<div class="stat-row">
-        <div class="stat"><div class="k">Engine equity</div><div class="v">${cb.equity != null ? fmtMoney(cb.equity) : '—'}</div></div>
-        <div class="stat"><div class="k">Net PnL</div><div class="v num ${_haveTrades(cb) ? pnlClass(cb.net_pnl) : ''}">${_haveTrades(cb) ? signed(cb.net_pnl) : '—'}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${_haveTrades(cb) ? fmt(cb.win_rate, 1) + '%' : '—'}</div></div>
-        <div class="stat"><div class="k">Open</div><div class="v">${cb.open_count ?? 0}</div></div>
+        <div class="stat"><div class="k">Engine equity</div><div class="v">${c.equity.text}</div></div>
+        <div class="stat"><div class="k">Net PnL</div><div class="v num ${c.netPnl.cls}">${c.netPnl.text}</div></div>
+        <div class="stat"><div class="k">Win rate</div><div class="v">${c.winRate.text}</div></div>
+        <div class="stat"><div class="k">Open</div><div class="v">${c.open.text}</div></div>
       </div>
+      ${c.note ? `<div class="small mt-2" style="color:var(--text-2)">${esc(c.note)}</div>` : ''}
       <div class="row mt-3">${(cb.rules || []).map(r => `<span class="chip ${r.active ? 'chip--down' : 'chip--up'}">${r.active ? '⚠' : '✓'} ${esc(r.label)}</span>`).join('')}</div>`;
     }, { empty: OFFLINE });
 

@@ -67,7 +67,11 @@ _SYSTEM_PROMPT = """You are the nightly self-audit of RUNECLAW, a live \
 crypto perpetuals trading bot. You receive the bot's own recent evidence \
 and may propose changes ONLY to the allowlisted environment flags given, \
 within their bounds. Propose a change only when the evidence supports it; \
-an empty list is a good answer. Respond with STRICT JSON only — an array \
+an empty list is a good answer. In the evidence, `null` means NOT MEASURED — \
+never treat it as zero, and never infer a result from a figure that is null \
+or from a summary carrying an `error` key. `summary.scored` is how many \
+closes could be priced; when it is small or zero the record is too thin to \
+support any proposal. Respond with STRICT JSON only — an array \
 of at most {max_proposals} objects, no prose, no markdown fences:
 [{{"flag": "<ALLOWLISTED_FLAG>", "value": <bool|number>, \
 "rationale": "<one sentence tied to the evidence>"}}]"""
@@ -233,29 +237,47 @@ class SelfAudit:
         """Snapshot the bot's own recent record. Every piece fail-open."""
         ev: dict[str, Any] = {}
         try:
+            from bot.utils.win_rate import (
+                pnl_stats, profit_factor, trade_pnl, win_stats,
+            )
             ex = getattr(engine, "live_executor", None)
             closed = list(getattr(ex, "_closed_trades", []) or [])[-40:]
             trades = []
             for t in closed:
+                p = trade_pnl(t)
                 trades.append({
                     "symbol": getattr(t, "symbol", "?"),
                     "dir": getattr(t, "direction", "?"),
                     "strategy": getattr(t, "strategy_type", "") or "",
-                    "net_pnl": round(float(getattr(t, "net_pnl", 0) or 0), 3),
+                    # None, not 0: a close whose P&L the record cannot price is
+                    # not a break-even close. `null` reaches the model as an
+                    # absence; 0 reaches it as a measurement.
+                    "net_pnl": None if p is None else round(p, 3),
                     "reason": str(getattr(t, "close_reason", "") or "")[:40],
                 })
             ev["closed_trades"] = trades
-            pnls = [float(t["net_pnl"]) for t in trades]
-            wins = [p for p in pnls if p > 0]
-            losses = [-p for p in pnls if p < 0]
+            ws = win_stats(closed)
+            ps = pnl_stats(closed)
+            pf = profit_factor(closed)
             ev["summary"] = {
-                "n": len(pnls),
-                "win_rate": round(len(wins) / len(pnls), 3) if pnls else None,
-                "net_pnl": round(sum(pnls), 2),
-                "pf": round(sum(wins) / sum(losses), 2) if losses and sum(losses) > 0 else None,
+                "n": ws["total"],
+                # The window every figure below is computed over. It travels
+                # with them because "60% of 20" and "60% of the 12 we could
+                # price" are different readings and only this tells them apart.
+                "scored": ws["scored"],
+                "unpriced": ws["unscored"],
+                "win_rate": None if ws["rate"] is None else round(ws["rate"], 3),
+                "net_pnl": None if ps["total"] is None else round(ps["total"], 2),
+                "pf": None if pf is None else round(pf, 2),
             }
-        except Exception:
-            ev["closed_trades"] = []
+        except Exception as exc:
+            # An unreadable record is not an empty one. `[]` here told the
+            # model "the bot has closed no trades" — a confident, false
+            # statement about a live account, fed straight into a prompt that
+            # proposes config changes off it.
+            logger.warning("self-audit evidence unreadable: %s", exc)
+            ev["closed_trades"] = None
+            ev["summary"] = {"error": "closed_trade_record_unreadable"}
         try:
             from bot.core.shadow_book import SHADOW_BOOK
             ev["shadow_gates"] = SHADOW_BOOK.gate_report()
@@ -338,13 +360,29 @@ class SelfAudit:
                       baseline: dict, dataset: str) -> str:
         s = evidence.get("summary") or {}
         lines = ["\U0001f9fe <b>Nightly self-audit</b>", "─" * 16]
-        if s.get("n"):
+        if s.get("error"):
+            # Say so. A missing line reads as "no trades yet", which is the
+            # same false claim the empty list used to make one layer down.
+            lines.append("Live window: <b>could not be read</b> — no win rate, "
+                         "net or PF is shown because none was measured.")
+        elif s.get("n"):
             pf = s.get("pf")
             wr = s.get("win_rate")
+            net = s.get("net_pnl")
+            if net is not None and net == 0:
+                net = 0.0        # a -0.0 total formats as "$-0.00", which reads
+                                 # as a small loss rather than break-even
+            unpriced = int(s.get("unpriced", 0) or 0)
             lines.append(f"Live window: {s['n']} closes"
-                         + (f" · win {wr*100:.0f}%" if wr is not None else "")
-                         + (f" · PF {pf}" if pf is not None else "")
-                         + f" · net ${s.get('net_pnl', 0):,.2f}")
+                         + (f" · win {wr*100:.0f}%" if wr is not None else
+                            " · win —")
+                         + (f" · PF {pf}" if pf is not None else " · PF —")
+                         + (f" · net ${net:,.2f}" if net is not None
+                            else " · net —"))
+            if unpriced:
+                lines.append(f"<i>{s.get('scored', 0)} of {s['n']} closes carry "
+                             f"a recorded P&amp;L; {unpriced} do not and are "
+                             f"scored neither way.</i>")
         gates = evidence.get("shadow_gates") or {}
         worst = next(iter(gates.items()), None)
         if worst and worst[1].get("net_r", 0) > 0.5:
