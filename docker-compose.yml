@@ -51,11 +51,18 @@ services:
     image: runeclaw:latest
     container_name: runeclaw-api
     restart: unless-stopped
+    # ONE WORKER, DELIBERATELY. api_bridge's lifespan constructs its own
+    # RuneClawEngine per worker, and every worker mounts the same ./data as
+    # the bot container below. At --workers 2 that was THREE engines sharing
+    # one paper book, which PortfolioTracker loads once and then overwrites
+    # whole — so a second writer did not merge, it erased. Raising this again
+    # needs the state to stop being per-process first, not just a bigger
+    # number here.
     command: >
       uvicorn api_bridge:app
       --host 0.0.0.0
       --port 8000
-      --workers 2
+      --workers 1
       --proxy-headers
       --forwarded-allow-ips='*'
     env_file: .env
