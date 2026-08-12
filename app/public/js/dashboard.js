@@ -1967,8 +1967,8 @@
       if (!s || !s.resolved) return null;
       return `<div class="stat-row">
         <div class="stat"><div class="k">Resolved</div><div class="v">${s.resolved}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${fmt(s.win_rate, 1)}%</div></div>
-        <div class="stat"><div class="k">Wins / Losses</div><div class="v">${s.wins} / ${s.losses}</div></div>
+        <div class="stat"><div class="k">Win rate</div><div class="v">${s.win_rate != null ? fmt(s.win_rate, 1) + '%' : '—'}</div></div>
+        <div class="stat"><div class="k">Wins / Losses</div><div class="v">${s.wins} / ${s.losses}${s.flat ? ` <span class="muted small">/ ${s.flat} flat</span>` : ''}</div></div>
         <div class="stat"><div class="k">Net PnL</div><div class="v num ${pnlClass(s.net_pnl)}">${signed(s.net_pnl)}</div></div>
       </div>`;
     }, { empty: { icon: 'icon-radar', text: 'No resolved signals yet — outcomes appear once signals hit target or stop.' } });
@@ -2021,9 +2021,13 @@
       const a = r.data;
       if (!a || !(a.by_pattern?.length || a.by_symbol?.length)) return null;
       const bars = (rows, key) => rows.slice(0, 6).map(g => {
-        const wr = g.n ? Math.round(g.wins / g.n * 100) : 0;
+        // `: 0` then `wr >= 50 ? 'pos' : 'neg'` painted an unmeasured group
+        // RED at 0% — the worst reading there is, for a group with nothing
+        // resolved. Unknown gets a muted dash and no colour.
+        const wr = g.win_rate != null ? Math.round(g.win_rate) : null;
+        const cls = wr === null ? 'muted' : (wr >= 50 ? 'pos' : 'neg');
         return `<div class="kv-row"><span>${esc(g[key] || '(none)')} <span class="muted small">×${g.n}</span></span>
-          <b class="${wr >= 50 ? 'pos' : 'neg'}">${wr}%</b></div>`;
+          <b class="${cls}">${wr === null ? '—' : wr + '%'}</b></div>`;
       }).join('');
       return `<div class="grid grid-2">
         <div><div class="stat mb-2"><div class="k">By pattern</div></div>${bars(a.by_pattern || [], 'pattern') || '<p class="muted small">No data.</p>'}</div>
