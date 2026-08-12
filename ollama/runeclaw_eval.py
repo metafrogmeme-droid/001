@@ -609,14 +609,18 @@ def run_checks(result: EvalResult, prompt: dict) -> None:
 def query_ollama(model: str, prompt: str, timeout: int = 120) -> str:
     """Query a local Ollama model."""
     try:
+        # encoding is declared, not inherited: Windows' cp1252 default dies
+        # on the first multi-byte character the model emits, the reader
+        # thread aborts, and stdout comes back None mid-eval.
         proc = subprocess.run(
             ["ollama", "run", model, prompt],
-            capture_output=True, text=True, timeout=timeout
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
         )
         if proc.returncode != 0:
-            print(f"  ⚠ Ollama error: {proc.stderr[:200]}", file=sys.stderr)
+            print(f"  ⚠ Ollama error: {(proc.stderr or '')[:200]}", file=sys.stderr)
             return proc.stdout or ""
-        return proc.stdout.strip()
+        return (proc.stdout or "").strip()
     except subprocess.TimeoutExpired:
         return "[TIMEOUT]"
     except FileNotFoundError:
