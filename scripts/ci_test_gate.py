@@ -113,6 +113,41 @@ def main() -> int:
 
     failed, internal_error = _parse_failures(output)
 
+    # THE VERDICT USED TO IGNORE pytest's OWN EXIT CODE.
+    #
+    # Everything below reads stdout. A run that never got as far as printing
+    # `FAILED `/`ERROR ` lines therefore parsed as zero failures, and the gate
+    # announced "PASS — no new failures beyond the known baseline" having
+    # executed nothing. Driven, not reasoned: pytest with an unknown flag exits
+    # 4, collects zero tests, and this gate returned 0.
+    #
+    # That is the defect this repository is built around — a subset (here, the
+    # empty set) reported as the whole — sitting in the gate that exists to
+    # prevent it, and standing behind every "preflight green" anyone has ever
+    # quoted.
+    #
+    # 0 = all passed, 1 = some tests failed. Those two are the only codes that
+    # mean "the suite ran and stdout describes it". Everything else — 2
+    # interrupted, 3 internal error, 4 usage/conftest error, 5 nothing
+    # collected — means the parse below is describing a run that did not
+    # happen.
+    if proc.returncode not in (0, 1):
+        print(f"[gate] FAIL — pytest exited {proc.returncode}: the suite did not "
+              "run to completion, so the failure list below describes nothing. "
+              "(2=interrupted, 3=internal, 4=usage/conftest, 5=no tests collected)")
+        print("=" * 70)
+        return 1
+
+    # rc=1 with nothing parsed is the same hazard wearing a different hat:
+    # pytest says tests failed and this parser cannot see them, so its silence
+    # is ignorance rather than evidence.
+    if proc.returncode == 1 and not failed and not internal_error:
+        print("[gate] FAIL — pytest exited 1 but no FAILED/ERROR lines were "
+              "parsed. The gate cannot describe this run; refusing to call it "
+              "green.")
+        print("=" * 70)
+        return 1
+
     if update:
         header = (
             "# Known pre-existing test failures (behavior drift) — baseline for the\n"

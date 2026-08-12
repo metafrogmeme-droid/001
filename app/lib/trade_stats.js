@@ -103,6 +103,82 @@ function sharpe(rows, { periodsPerYear = 252 } = {}) {
   return (mean / std) * Math.sqrt(periodsPerYear);
 }
 
+/**
+ * Wins, the scorable count, and the rate over SCORED rows — the JS mirror of
+ * `bot/utils/win_rate.py`, same three rules and deliberately the same words:
+ *
+ *   * a row with no readable P&L is scored NEITHER way and leaves both the
+ *     numerator and the denominator;
+ *   * a recorded 0.0 IS a measurement and stays scored, as a non-win;
+ *   * how many were unscorable travels WITH the rate.
+ *
+ * `rate` is null when nothing could be scored. A 0% win rate claims everything
+ * lost; "we could not price any of these" is a different sentence.
+ */
+function winStats(rows) {
+  let wins = 0, losses = 0, breakeven = 0, scored = 0, unscored = 0;
+  for (const r of rows || []) {
+    const p = num(r && r.pnl);
+    if (p === null) { unscored += 1; continue; }
+    scored += 1;
+    // Three outcomes, counted. `losses = total - wins` folds break-evens and
+    // unpriced rows into the loss column, which is how a flat book publishes
+    // a losing record. wins + losses + breakeven + unscored === total, and
+    // the tests assert that identity.
+    if (p > 0) wins += 1;
+    else if (p < 0) losses += 1;
+    else breakeven += 1;
+  }
+  return { wins, losses, breakeven, scored, unscored, total: scored + unscored,
+           rate: scored > 0 ? wins / scored : null };
+}
+
+/**
+ * The realized total, or null when nothing could be priced.
+ *
+ * Null on the EMPTY set too, and that is the point: `[].reduce((a,b)=>a+b, 0)`
+ * is 0, and a card printing it says the book is flat when the truth is that
+ * there is no book.
+ */
+function realizedTotal(rows) {
+  let total = 0, scored = 0;
+  for (const r of rows || []) {
+    const p = num(r && r.pnl);
+    if (p === null) continue;
+    scored += 1;
+    total += p;
+  }
+  return scored > 0 ? total : null;
+}
+
+/**
+ * The same three rules over a SQL aggregate rather than a row set.
+ *
+ * `COUNT(*)` counts closed trades; `pnl` is nullable, so the count of rows and
+ * the count of PRICED rows are different numbers and only the second may be a
+ * denominator. `SUM(pnl)` already skips NULLs in MySQL — the danger is the
+ * `COALESCE(SUM(pnl), 0)` wrapped around it, which turns "nothing priceable"
+ * into a measured break-even.
+ *
+ * Expects `{ total, scored, wins, net_pnl }` as returned by the query in
+ * routes/sync.js. Kept here, beside the row-set versions, so a reader
+ * comparing the two paths sees one rule rather than two spellings of it.
+ */
+function aggregateStats(row) {
+  const total = num(row && row.total) ?? 0;
+  const scored = num(row && row.scored) ?? 0;
+  const wins = num(row && row.wins) ?? 0;
+  const net = num(row && row.net_pnl);
+  return {
+    total,
+    scored,
+    unpriced: Math.max(0, total - scored),
+    wins,
+    net_pnl: scored > 0 ? net : null,
+    win_rate: scored > 0 ? (wins / scored) * 100 : null,
+  };
+}
+
 /** How much of the set each figure could actually be computed over. */
 function coverage(rows) {
   let priced = 0, sizeable = 0;
@@ -116,4 +192,6 @@ function coverage(rows) {
   return { total: all, priced, sizeable, unpriced: all - priced };
 }
 
-module.exports = { profitFactor, sharpe, coverage };
+module.exports = {
+  profitFactor, sharpe, coverage, winStats, realizedTotal, aggregateStats,
+};

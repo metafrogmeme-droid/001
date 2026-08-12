@@ -1,5 +1,6 @@
 const express = require('express');
-const { profitFactor, sharpe: calcSharpe } = require('../lib/trade_stats');
+const { profitFactor, sharpe: calcSharpe, winStats, realizedTotal } =
+  require('../lib/trade_stats');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { computePerformance } = require('../lib/trade_performance');
@@ -18,18 +19,14 @@ router.get('/stats', async (req, res) => {
   try {
     const uid = req.user.user_id;
 
-    const [pnlRows] = await pool.execute(
-      'SELECT COALESCE(SUM(pnl), 0) as net_pnl, COALESCE(SUM(fees), 0) as total_fees, COUNT(*) as total_trades FROM trades WHERE user_id = ? AND status = ?',
-      [uid, 'CLOSED']
-    );
-
-    const [winRows] = await pool.execute(
-      'SELECT COUNT(*) as wins FROM trades WHERE user_id = ? AND status = ? AND pnl > 0',
-      [uid, 'CLOSED']
-    );
-
+    // One row set, one reader. The two aggregate queries this replaces had
+    // `trades.pnl` — which is NULLABLE — wrong in three ways at once:
+    // `COALESCE(SUM(pnl), 0)` printed an unpriceable book as a measured
+    // $0.00, `wins / COUNT(*)` put unpriced closes in the denominator only,
+    // and `losses: totalTrades - wins` filed every one of them as a defeat.
+    // That last line is verbatim off CLAUDE.md's table of banned shapes.
     const [allPnl] = await pool.execute(
-      'SELECT pnl, size_usd FROM trades WHERE user_id = ? AND status = ? ORDER BY closed_at',
+      'SELECT pnl, size_usd, fees FROM trades WHERE user_id = ? AND status = ? ORDER BY closed_at',
       [uid, 'CLOSED']
     );
 
@@ -38,11 +35,15 @@ router.get('/stats', async (req, res) => {
       [uid, 'OPEN']
     );
 
-    const netPnl = parseFloat(pnlRows[0].net_pnl);
-    const totalFees = parseFloat(pnlRows[0].total_fees);
-    const totalTrades = parseInt(pnlRows[0].total_trades);
-    const wins = parseInt(winRows[0].wins);
-    const winRate = totalTrades > 0 ? (wins / totalTrades * 100) : 0;
+    const ws = winStats(allPnl);
+    const netPnl = realizedTotal(allPnl);
+    const totalFees = allPnl.reduce((a, r) => {
+      const f = parseFloat(r.fees);
+      return a + (Number.isFinite(f) ? f : 0);
+    }, 0);
+    const totalTrades = ws.total;
+    const wins = ws.wins;
+    const winRate = ws.rate === null ? null : ws.rate * 100;
 
     // Use latest synced equity snapshot if available
     const [snapRows] = await pool.execute(
@@ -58,15 +59,19 @@ router.get('/stats', async (req, res) => {
 
     res.json({
       equity: equity != null ? Math.round(equity * 100) / 100 : null,
-      net_pnl: Math.round(netPnl * 100) / 100,
+      net_pnl: netPnl === null ? null : Math.round(netPnl * 100) / 100,
       total_fees: Math.round(totalFees * 100) / 100,
       total_trades: totalTrades,
       open_positions: parseInt(openRows[0].open_count),
-      win_rate: Math.round(winRate * 10) / 10,
+      win_rate: winRate === null ? null : Math.round(winRate * 10) / 10,
       sharpe: sharpe !== null ? Math.round(sharpe * 100) / 100 : null,
       profit_factor: pf !== null ? Math.round(pf * 100) / 100 : null,
       wins,
-      losses: totalTrades - wins,
+      // COUNTED, never derived by subtraction. A break-even close is neither
+      // a win nor a loss, and a close with no recorded P&L is neither either.
+      losses: ws.losses,
+      breakeven: ws.breakeven,
+      unpriced: ws.unscored,
     });
   } catch (err) {
     console.error('Stats error:', err.stack || err.message);

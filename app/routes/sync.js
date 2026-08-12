@@ -16,6 +16,7 @@ const { pool } = require('../db');
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
+const { winStats, realizedTotal, aggregateStats } = require('../lib/trade_stats');
 const { broadcast } = require('./stream');
 
 /**
@@ -186,9 +187,14 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       // "live account unavailable" instead of a fake balance).
       equity: cb.live_unavailable ? null : (cb.equity || 0),
       open_count: cb.open_count || 0,
-      net_pnl: cb.net_pnl || 0,
-      total_trades: cb.total_trades || 0,
-      win_rate: cb.win_rate || 0,
+      // The equity null was honoured here and the two figures beside it were
+      // not — `?? null` rather than `|| 0`, so a bot that says "we could not
+      // price this record" is not overruled by the ingest. `|| 0` also ate a
+      // genuine 0.0, which is a real break-even and a real 0% win rate.
+      net_pnl: cb.net_pnl ?? null,
+      total_trades: cb.total_trades ?? null,
+      win_rate: cb.win_rate ?? null,
+      record_unreadable: !!cb.record_unreadable,
       mode: cb.live_mode ? 'LIVE' : 'PAPER',
       live_unavailable: !!cb.live_unavailable,
       updated_at: latestScan.received_at || latestScan.timestamp || new Date().toISOString()
@@ -200,30 +206,35 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
     const [snapRows] = await pool.execute(
       'SELECT equity, snapshot_at FROM equity_snapshots ORDER BY snapshot_at DESC LIMIT 1'
     );
+    // `trades.pnl` is `DECIMAL(14,2)` — NULLABLE — so a CLOSED row with no
+    // recorded P&L is reachable, and the previous three queries handled it
+    // twice wrongly: `COALESCE(SUM(pnl),0)` printed an unpriceable book as a
+    // measured $0.00, and `wins / COUNT(*)` put unpriced rows in the
+    // denominator only, so each one pushed the win rate DOWN. Count the
+    // priced rows explicitly and let them be the denominator.
     const [tradeRows] = await pool.execute(
-      "SELECT COUNT(*) as total, COALESCE(SUM(pnl),0) as net_pnl FROM trades WHERE status = 'CLOSED'"
+      "SELECT COUNT(*) AS total, " +
+      "SUM(CASE WHEN pnl IS NOT NULL THEN 1 ELSE 0 END) AS scored, " +
+      "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, " +
+      "SUM(pnl) AS net_pnl " +
+      "FROM trades WHERE status = 'CLOSED'"
     );
     const [openRows] = await pool.execute(
       "SELECT COUNT(*) as open_count FROM trades WHERE status = 'OPEN'"
     );
-    const [winRows] = await pool.execute(
-      "SELECT COUNT(*) as wins FROM trades WHERE status = 'CLOSED' AND pnl > 0"
-    );
+    const closed = aggregateStats(tradeRows[0]);
     // No invented balances: with no snapshot and no trades there is simply no
     // portfolio yet — the UI renders a real empty state, not a phantom number.
-    const total = tradeRows[0]?.total || 0;
-    if (snapRows.length === 0 && total === 0) {
+    if (snapRows.length === 0 && closed.total === 0) {
       return res.json({ portfolio: null });
     }
     const equity = snapRows.length > 0 ? parseFloat(snapRows[0].equity) : null;
-    const netPnl = parseFloat(tradeRows[0]?.net_pnl || 0);
     const openCount = openRows[0]?.open_count || 0;
-    const wins = winRows[0]?.wins || 0;
-    const winRate = total > 0 ? (wins / total) * 100 : 0;
 
     latestPortfolio = {
-      equity, open_count: openCount, net_pnl: netPnl,
-      total_trades: total, win_rate: winRate,
+      equity, open_count: openCount, net_pnl: closed.net_pnl,
+      total_trades: closed.total, win_rate: closed.win_rate,
+      scored_trades: closed.scored, unpriced_trades: closed.unpriced,
       updated_at: snapRows[0]?.snapshot_at || new Date().toISOString()
     };
     res.json({ portfolio: summaryFor(req, latestPortfolio) });
@@ -318,11 +329,17 @@ router.post('/', async (req, res) => {
     // Update in-memory portfolio summary
     const closedCount = (closed_trades || []).length;
     const openCount = (positions || []).length;
-    const netPnl = (closed_trades || []).reduce((a, t) => a + (parseFloat(t.pnl) || 0), 0);
-    const wins = (closed_trades || []).filter(t => parseFloat(t.pnl) > 0).length;
+    // `parseFloat(t.pnl) || 0` summed every unpriced close as a break-even and
+    // `wins / closedCount` scored it as a loss — the two banned shapes from
+    // CLAUDE.md's table, on the same two lines. Same reader as the GET path
+    // above and as bot/utils/win_rate.py, so the three cannot disagree.
+    const ws = winStats(closed_trades);
     latestPortfolio = {
-      equity: eq, open_count: openCount, net_pnl: netPnl,
-      total_trades: closedCount, win_rate: closedCount > 0 ? (wins / closedCount) * 100 : 0,
+      equity: eq, open_count: openCount,
+      net_pnl: realizedTotal(closed_trades),
+      total_trades: closedCount,
+      win_rate: ws.rate === null ? null : ws.rate * 100,
+      scored_trades: ws.scored, unpriced_trades: ws.unscored,
       updated_at: new Date().toISOString()
     };
 
@@ -757,9 +774,13 @@ router.post('/scan', async (req, res) => {
       latestPortfolio = {
         equity: cb.live_unavailable ? null : (cb.equity || 0),
         open_count: cb.open_count || 0,
-        net_pnl: cb.net_pnl || 0,
-        total_trades: cb.total_trades || 0,
-        win_rate: cb.win_rate || 0,
+        // Same contract as the GET path above, and it matters more here for
+        // the same reason the equity comment gives: this ingest runs on every
+        // scan sync and stamps over whatever the cold path carefully set.
+        net_pnl: cb.net_pnl ?? null,
+        total_trades: cb.total_trades ?? null,
+        win_rate: cb.win_rate ?? null,
+        record_unreadable: !!cb.record_unreadable,
         mode: cb.live_mode ? 'LIVE' : 'PAPER',
         live_unavailable: !!cb.live_unavailable,
         updated_at: latestScan.received_at,

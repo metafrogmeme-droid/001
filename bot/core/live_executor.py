@@ -317,6 +317,45 @@ _CLOSED_TRADES_FILE = os.path.join(
     os.environ.get("RUNECLAW_STATE_DIR", "data"), "closed_trades.json"
 )
 _MAX_CLOSED_TRADES = 500  # Cap closed trade history
+
+
+def closed_trade_row(pos) -> dict:
+    """One closed trade, as it is written to `closed_trades.json`.
+
+    Module-level and pure so a READER can be tested against the real writer
+    instead of against a fixture that agrees with it by hand. The two had
+    silently disagreed for months: this writes `pnl_usd`, and the /scan
+    telemetry reader looked for `net_pnl` then `pnl` and fell back to 0, so
+    every real row summed as a break-even close. A hand-written fixture in
+    the reader's test would have had the same wrong keys as the reader.
+    """
+    return {
+        "trade_id": pos.trade_id,
+        "symbol": pos.symbol,
+        "direction": pos.direction,
+        "entry_price": pos.entry_price,
+        "quantity": pos.quantity,
+        "cost_usd": pos.cost_usd,
+        "stop_loss": pos.stop_loss,
+        "take_profit": pos.take_profit,
+        "leverage": pos.leverage,
+        "close_price": pos.close_price,
+        "pnl_usd": pos.pnl_usd,
+        "gross_pnl": pos.gross_pnl,
+        "commission": pos.commission,
+        "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
+        "closed_at": pos.closed_at.isoformat() if pos.closed_at else None,
+        "status": "closed",
+        "close_reason": pos.close_reason,
+        "origin": pos.origin,
+        "fill_source": pos.fill_source,
+        # Provenance for the parity/attribution buckets — the fields lived on
+        # LivePosition since the strategy-type work but were never serialized,
+        # so the live parity report's "By setup"/"By signal type" sections
+        # stayed empty for every trade ever closed.
+        "strategy_type": pos.strategy_type,
+        "signal_type": pos.signal_type,
+    }
 # F-13 FIX: Maximum order history retained in memory
 _MAX_ORDER_HISTORY = 200
 # Orphan-adoption false-positive guard (see _recent_local_opens): grace period
@@ -8437,36 +8476,7 @@ class LiveExecutor:
     def _save_closed_trades(self) -> None:
         """Persist all closed trades to disk."""
         try:
-            data = []
-            for pos in self._closed_trades:
-                data.append({
-                    "trade_id": pos.trade_id,
-                    "symbol": pos.symbol,
-                    "direction": pos.direction,
-                    "entry_price": pos.entry_price,
-                    "quantity": pos.quantity,
-                    "cost_usd": pos.cost_usd,
-                    "stop_loss": pos.stop_loss,
-                    "take_profit": pos.take_profit,
-                    "leverage": pos.leverage,
-                    "close_price": pos.close_price,
-                    "pnl_usd": pos.pnl_usd,
-                    "gross_pnl": pos.gross_pnl,
-                    "commission": pos.commission,
-                    "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
-                    "closed_at": pos.closed_at.isoformat() if pos.closed_at else None,
-                    "status": "closed",
-                    "close_reason": pos.close_reason,
-                    "origin": pos.origin,
-                    "fill_source": pos.fill_source,
-                    # Provenance for the parity/attribution buckets — the
-                    # fields lived on LivePosition since the strategy-type
-                    # work but were never serialized, so the live parity
-                    # report's "By setup"/"By signal type" sections stayed
-                    # empty for every trade ever closed.
-                    "strategy_type": pos.strategy_type,
-                    "signal_type": pos.signal_type,
-                })
+            data = [closed_trade_row(pos) for pos in self._closed_trades]
             # H-05: the helper fsyncs before the atomic rename.
             atomic_write_json(self._closed_trades_file, data,
                               indent=2, default=str)
