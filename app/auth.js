@@ -148,18 +148,83 @@ function clearAccountFailures(email) {
 
 // -- Middleware --
 
-function authMiddleware(req, res, next) {
+/**
+ * Has this token been revoked since it was issued?
+ *
+ * A JWT is a bearer credential with no server-side state, so `jwt.verify`
+ * answers "was this signed by us and is it still inside its lifetime" and
+ * NOTHING about whether the session is still meant to exist. With a 30-day
+ * default that made a stolen token a month of unrevocable account access —
+ * on a platform where an account can submit exchange API keys.
+ *
+ * The fix is the one `bot/api/token_store.py` has run since RC-AUD-020: a
+ * per-user epoch, stamped into the token at issue and bumped whenever every
+ * outstanding session should die (logout, password change). A token whose
+ * epoch is behind the user's current one is refused.
+ *
+ * ONE READER for both middlewares, deliberately. They ask the same question
+ * and answer it differently — 401 versus degrade-to-anonymous — and two
+ * copies of the check is how one of them stops checking.
+ *
+ * Read per request rather than cached. That is one primary-key lookup, and it
+ * makes revocation immediate; a cache would make it eventually-immediate,
+ * which is a different promise than the one "log out everywhere" makes.
+ *
+ * Fails CLOSED on a database error, unlike the Python side's availability
+ * trade-off: there, a Redis blip must not break auth for a running trading
+ * bot; here the caller is a browser that can retry, and the cost of guessing
+ * wrong is honouring a token that may have been revoked.
+ */
+async function tokenIsCurrent(payload) {
+  if (!payload || payload.user_id == null) return false;
+  const [rows] = await pool.execute(
+    'SELECT token_epoch FROM users WHERE id = ?', [payload.user_id]);
+  // NO ROW IS NOT EVIDENCE OF REVOCATION. The first version of this returned
+  // false here — "user deleted, token is dead" — which sounds right and
+  // conflates two different questions. This function asks "has this session
+  // been revoked"; a missing row answers "I cannot tell", and the repo's own
+  // rule is that absent is not a measurement.
+  //
+  // It is also the difference between a focused change and a broad one: the
+  // reject-on-missing version 401'd every caller whose user row lives
+  // somewhere this query cannot see, which is a much larger behavioural change
+  // than the one being made, arrived at by accident.
+  //
+  // "A deleted user must not authenticate" is a real and separate property. It
+  // deserves its own explicit check rather than riding in as a side effect of
+  // the revocation lookup — every route already scopes its queries by
+  // user_id, so a deleted user sees nothing regardless.
+  if (!rows.length) return true;
+  const current = Number(rows[0].token_epoch) || 0;
+  // A token minted before this column existed carries no epoch. Treating that
+  // as 0 is what keeps the deploy from logging everybody out; it is safe
+  // because a revocation BUMPS the epoch above 0, so any pre-existing token
+  // is refused the moment it actually matters.
+  const minted = Number(payload.epoch) || 0;
+  return minted >= current;
+}
+
+async function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing token' });
   }
+  let payload;
   try {
-    const payload = jwt.verify(auth.slice(7), JWT_SECRET);
-    req.user = payload;
-    next();
+    payload = jwt.verify(auth.slice(7), JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
+  try {
+    if (!await tokenIsCurrent(payload)) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
+  } catch (err) {
+    console.error('Token revocation check failed:', err.stack || err.message);
+    return res.status(503).json({ error: 'auth_unavailable' });
+  }
+  req.user = payload;
+  next();
 }
 
 /**
@@ -176,13 +241,18 @@ function authMiddleware(req, res, next) {
  * the public view, not to a 401. That is safe here precisely because `req.user`
  * only ever ADDS to a response.
  */
-function optionalAuth(req, _res, next) {
+async function optionalAuth(req, _res, next) {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) {
     try {
-      req.user = jwt.verify(auth.slice(7), JWT_SECRET);
+      const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+      // A revoked token identifies nobody. Degrading to anonymous rather than
+      // refusing is this function's whole contract — but it must degrade, not
+      // sail through: `req.user` only ever ADDS to a response, and a logged-out
+      // session must stop adding.
+      if (await tokenIsCurrent(payload)) req.user = payload;
     } catch {
-      /* anonymous */
+      /* anonymous — an unreadable or revoked token is simply not a caller */
     }
   }
   next();
@@ -191,7 +261,28 @@ function optionalAuth(req, _res, next) {
 // -- Helpers --
 
 function signToken(user) {
-  return jwt.sign({ user_id: user.id, email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+  // The epoch travels IN the token. Stamping it at issue is what lets a later
+  // bump invalidate this specific token without a revocation list to store,
+  // scan or expire.
+  return jwt.sign(
+    { user_id: user.id, email: user.email, epoch: Number(user.token_epoch) || 0 },
+    JWT_SECRET, { expiresIn: JWT_EXPIRY });
+}
+
+/**
+ * End every outstanding session for a user. Returns the new epoch.
+ *
+ * `UPDATE ... SET token_epoch = token_epoch + 1` is done in SQL rather than
+ * read-then-write so two concurrent revocations cannot both read N and both
+ * write N+1 — which would leave one of the two logouts unenforced, and the
+ * user believing otherwise.
+ */
+async function revokeUserTokens(userId) {
+  await pool.execute(
+    'UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?', [userId]);
+  const [rows] = await pool.execute(
+    'SELECT token_epoch FROM users WHERE id = ?', [userId]);
+  return rows.length ? Number(rows[0].token_epoch) || 0 : 0;
 }
 
 async function getUserEquity(userId) {
@@ -229,10 +320,16 @@ async function getUserEquity(userId) {
 // callback's provider/linked markers).
 async function sessionResponse(user, extra = {}) {
   const [rows] = await pool.execute(
-    'SELECT id, email, plan, telegram_linked, email_verified, referral_code FROM users WHERE id = ?',
+    'SELECT id, email, plan, telegram_linked, email_verified, referral_code, '
+    + 'token_epoch FROM users WHERE id = ?',
     [user.id]);
   const u = rows[0] || user;
-  const token = signToken({ id: u.id, email: u.email });
+  // The epoch is read back here for the same reason the flags above are: this
+  // is the one funnel every token goes through, and stamping it from the
+  // caller's partial user object would mint tokens at epoch 0 forever. That
+  // is not a stale-looking number — after any revocation it is a token born
+  // already revoked, so nobody could log back in after logging out.
+  const token = signToken({ id: u.id, email: u.email, token_epoch: u.token_epoch });
   const equity = await getUserEquity(u.id);
   return {
     token, user_id: u.id, email: u.email, plan: u.plan || 'free',
@@ -649,7 +746,7 @@ router.post('/validate-token', async (req, res) => {
 
     // Find user with this token that hasn't expired
     const [rows] = await pool.execute(
-      'SELECT id, email, plan FROM users WHERE link_token = ? AND link_token_expires > ?',
+      'SELECT id, email, plan, token_epoch FROM users WHERE link_token = ? AND link_token_expires > ?',
       [token, new Date()]
     );
 
@@ -687,12 +784,12 @@ const _PROVIDER_ID_COLUMN = {
 async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl }) {
   const idCol = _PROVIDER_ID_COLUMN[provider] || 'telegram_id';
   const [byId] = await pool.execute(
-    `SELECT id, email, plan FROM users WHERE ${idCol} = ? LIMIT 1`, [providerId]);
+    `SELECT id, email, plan, token_epoch FROM users WHERE ${idCol} = ? LIMIT 1`, [providerId]);
   if (byId.length) return byId[0];
 
   if (email) {
     const [byEmail] = await pool.execute(
-      'SELECT id, email, plan FROM users WHERE email = ? LIMIT 1', [email]);
+      'SELECT id, email, plan, token_epoch FROM users WHERE email = ? LIMIT 1', [email]);
     if (byEmail.length) {
       await pool.execute(`UPDATE users SET ${idCol} = ? WHERE id = ?`,
         [providerId, byEmail[0].id]);
@@ -720,7 +817,7 @@ async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl })
   } catch (err) {
     if (err && err.code === 'ER_DUP_ENTRY') {
       const [again] = await pool.execute(
-        `SELECT id, email, plan FROM users WHERE ${idCol} = ? LIMIT 1`, [providerId]);
+        `SELECT id, email, plan, token_epoch FROM users WHERE ${idCol} = ? LIMIT 1`, [providerId]);
       if (again.length) return again[0];
     }
     throw err;
@@ -1096,10 +1193,45 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     }
     const hash = await bcrypt.hash(String(new_password), 12);
     await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
-    res.json({ ok: true });
+    // Changing a password is how someone responds to "my account is
+    // compromised", and until now it did not touch the attacker's session at
+    // all — they kept a valid token for up to thirty more days. Revoke every
+    // outstanding token, then hand the caller a fresh one so the act of
+    // securing the account does not log the owner out of the tab they did it
+    // in.
+    await revokeUserTokens(user.id);
+    const [fresh] = await pool.execute(
+      'SELECT id, email, token_epoch FROM users WHERE id = ?', [user.id]);
+    res.json({ ok: true, token: fresh.length ? signToken(fresh[0]) : undefined });
   } catch (err) {
     console.error('Change-password error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+/**
+ * POST /api/auth/logout — end every session for the caller.
+ *
+ * There was no logout route at all. The client dropped the token from local
+ * storage and called it done, which ends the session on exactly one device
+ * and does nothing whatsoever to a copy someone else holds. "Log out" that
+ * only forgets is the same class of claim this repo keeps auditing: a
+ * reassuring word for something that did not happen.
+ *
+ * Scope is every session, not just this token. A user reaching for logout
+ * because they suspect a compromise means "everywhere", and per-token
+ * revocation would need a list of live jtis to store and expire — state the
+ * epoch avoids entirely.
+ */
+router.post('/logout', authMiddleware, async (req, res) => {
+  try {
+    const epoch = await revokeUserTokens(req.user.user_id);
+    res.json({ ok: true, sessions_ended: true, epoch });
+  } catch (err) {
+    console.error('Logout error:', err.stack || err.message);
+    // Never report success for a revocation that did not land — the user
+    // would walk away believing the stolen token is dead.
+    res.status(500).json({ error: 'Failed to end sessions' });
   }
 });
 
@@ -1186,6 +1318,11 @@ router.post('/reset-password', async (req, res) => {
     await pool.execute(
       'UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?',
       [hash, rows[0].id]);
+    // A reset is the OTHER half of "I have been compromised", and the half
+    // where the legitimate owner has already lost access — so any session the
+    // attacker holds must die here too. No replacement token: this route is
+    // unauthenticated, and the user logs in with the password they just set.
+    await revokeUserTokens(rows[0].id);
     // A successful reset clears any per-account lockout so the user can log in.
     clearAccountFailures(String(rows[0].email).trim().toLowerCase());
     res.json({ ok: true });
@@ -1337,5 +1474,6 @@ router.get('/oauth/:provider/callback', async (req, res) => {
 
 module.exports = {
   router, authMiddleware, optionalAuth, verifyTelegramAuth, findOrCreateOAuthUser,
+  revokeUserTokens, tokenIsCurrent, signToken,
   sendVerificationEmail, sessionResponse,
 };
