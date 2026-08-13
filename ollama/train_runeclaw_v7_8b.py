@@ -10,8 +10,9 @@ Lessons from the v6 run baked in:
   printing "0.0 GB" and training on a profile nobody chose.
 - The dataset is hashed and the hash saved with the checkpoints, so
   "what trained v7?" has a permanent answer (v6's answer took archaeology).
-- Checkpoints go to ./runeclaw-8b-v7-checkpoints/ and a final-adapter/ is
-  always written — the guarded export_model.py discovers it by mtime.
+- Checkpoints go to ./runeclaw-8b-<run>-checkpoints/ (--run-name, default
+  "v7") and a final-adapter/ is always written — the guarded export_model.py
+  discovers it by mtime. Give every training generation a fresh --run-name.
 - Per-epoch checkpoints + --resume, so a crash costs hours, not days.
 - Trains on the CURATED set (run curate_training_data.py first) — an 8B on
   clean data beats a bigger model on the duplicated mega-merge.
@@ -22,6 +23,7 @@ Usage:
   python train_runeclaw_v7_8b.py
   python train_runeclaw_v7_8b.py --resume        # continue after a crash
   python train_runeclaw_v7_8b.py --data path.jsonl --epochs 1
+  python train_runeclaw_v7_8b.py --data training_data\curated_v8_final.jsonl --run-name v8
 
 Then:
   python export_model.py --expect-base 8B
@@ -38,7 +40,13 @@ import time
 # ── Configuration ───────────────────────────────────────────────
 
 BASE_MODEL = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
-CHECKPOINT_DIR = "./runeclaw-8b-v7-checkpoints"
+
+
+def checkpoint_dir(run_name):
+    """./runeclaw-8b-<run>-checkpoints — matches the '*checkpoints*' glob
+    export_model.py discovers by mtime, so a v8 run cannot silently write
+    into (or resume from) the v7 directory."""
+    return f"./runeclaw-8b-{run_name}-checkpoints"
 
 DATA_PATHS = [
     "./training_data/curated_v7.jsonl",
@@ -109,17 +117,23 @@ def main():
     parser = argparse.ArgumentParser(description="RUNECLAW v7 8B QLoRA fine-tune")
     parser.add_argument("--data", help="training jsonl (default: curated_v7, then v6)")
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--run-name", default="v7",
+                        help="names the checkpoint dir runeclaw-8b-<run>-checkpoints; "
+                             "use a fresh name per training generation (e.g. v8) so "
+                             "runs never share or overwrite checkpoints")
     parser.add_argument("--resume", action="store_true",
-                        help="resume from the latest checkpoint in " + CHECKPOINT_DIR)
+                        help="resume from the latest checkpoint in the run's checkpoint dir")
     parser.add_argument("--safe", action="store_true",
                         help="micro-batch 2 x accum 8 (same effective 16) — several GB "
                              "lower peak VRAM so training survives sharing the GPU with "
                              "desktop apps; two daytime OOMs bought this flag")
     args = parser.parse_args()
+    ckpt_dir = checkpoint_dir(args.run_name)
 
     print("=" * 60)
-    print("RUNECLAW v7 - Llama 3.1 8B QLoRA Fine-Tune")
+    print(f"RUNECLAW {args.run_name} - Llama 3.1 8B QLoRA Fine-Tune")
     print("=" * 60)
+    print(f"  Checkpoints: {ckpt_dir}")
 
     # ── [1/6] GPU ─────────────────────────────────────────────
     print("\n[1/6] Reading GPU (honestly)...")
@@ -266,7 +280,7 @@ def main():
         weight_decay=0.01,
         lr_scheduler_type="cosine",
         seed=42,
-        output_dir=CHECKPOINT_DIR,
+        output_dir=ckpt_dir,
         # Every-N-steps, not per-epoch: a 27h run OOM'd at 52% when another
         # process claimed VRAM, and per-epoch saves would have cost a full
         # day of epoch-2 progress. 1000 steps caps the loss at ~4h.
@@ -284,9 +298,10 @@ def main():
 
     # Provenance lands next to the checkpoints BEFORE training starts, so
     # even an aborted run says what it was training on.
-    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    with open(os.path.join(CHECKPOINT_DIR, "TRAINING_MANIFEST.json"), "w") as f:
+    os.makedirs(ckpt_dir, exist_ok=True)
+    with open(os.path.join(ckpt_dir, "TRAINING_MANIFEST.json"), "w") as f:
         json.dump({
+            "run_name": args.run_name,
             "base_model": BASE_MODEL,
             "data_file": data_file,
             "data_sha256": data_sha,
@@ -309,7 +324,7 @@ def main():
 
     # ── [6/6] Save the final adapter where export discovers it ─
     print("\n[6/6] Saving final adapter...")
-    final_dir = os.path.join(CHECKPOINT_DIR, "final-adapter")
+    final_dir = os.path.join(ckpt_dir, "final-adapter")
     model.save_pretrained(final_dir)
     tokenizer.save_pretrained(final_dir)
     print(f"  {final_dir}/  (adapter + config)")
