@@ -258,7 +258,8 @@ def extract_json(text: str) -> Optional[dict]:
         "confidence":       r"(?:confidence|Confluence(?:\s+Score)?|Confluence)[:\s]+\$?([\d.]+)",
         "risk_reward_ratio":r"(?:risk[_\s]?reward[_\s]?ratio|Risk:Reward|R:R|Risk Reward)[:\s]+(?:1:)?([\d.]+)",
         "verdict":          r"(?:verdict|Status|Decision|DECISION)[:\s]+(APPROVED|REJECTED|REQUIRES_REVIEW)",
-        "position_pct":     r"(?:position[_\s]?pct|Position Size|Portfolio %|Position)[:\s]+\$?([\d.]+)\s*%?",
+        # % REQUIRED: "Position Size: 105.5 units" must not parse as 105.5%
+        "position_pct":     r"(?:position[_\s]?pct|Position Size|Portfolio %|Capital Allocation|Position)[:\s]+\$?([\d.]+)\s*%",
     }
     for key, pattern in patterns.items():
         m = re.search(pattern, text, re.IGNORECASE)
@@ -381,18 +382,39 @@ def check_risk_reward(data: dict) -> CheckResult:
         return CheckResult("risk_reward", False, 0.0, f"Compute error: {e}")
 
 
-def check_confidence(data: dict) -> CheckResult:
+def normalize_confidence(value) -> Optional[float]:
+    """Both trained formats are legitimate: 0-1 decimals AND percents — the
+    original Modelfile's own output spec says 'Confidence: XX%'. The first
+    45-prompt run scored ~24-32% on this check almost entirely because 61%
+    parsed as 61.0 and failed [0,1]: a units mismatch graded as a calibration
+    failure. Returns a 0-1 float, or None if absent/unparseable."""
     try:
-        conf = float(data.get("confidence", -1))
-        if 0.0 <= conf <= 1.0:
-            if conf < MIN_CONFIDENCE:
-                # Below threshold is valid IF direction is effectively "no trade"
-                return CheckResult("confidence_range", True, 0.8,
-                    f"confidence={conf:.2f} (below actionable {MIN_CONFIDENCE} — should reject)")
-            return CheckResult("confidence_range", True, 1.0, f"confidence={conf:.2f} ✓")
-        return CheckResult("confidence_range", False, 0.0, f"confidence {conf} out of [0,1]")
+        conf = float(value)
     except (TypeError, ValueError):
+        return None
+    if 1.0 < conf <= 100.0:
+        return conf / 100.0
+    return conf
+
+
+def check_confidence(data: dict) -> CheckResult:
+    raw = data.get("confidence")
+    if raw is None:
+        return CheckResult("confidence_range", False, 0.0, "confidence missing")
+    conf = normalize_confidence(raw)
+    if conf is None:
         return CheckResult("confidence_range", False, 0.0, "confidence not numeric")
+    try:
+        note = " (from percent)" if float(raw) > 1.0 else ""
+    except (TypeError, ValueError):
+        note = ""
+    if 0.0 <= conf <= 1.0:
+        if conf < MIN_CONFIDENCE:
+            # Below threshold is valid IF direction is effectively "no trade"
+            return CheckResult("confidence_range", True, 0.8,
+                f"confidence={conf:.2f}{note} (below actionable {MIN_CONFIDENCE} — should reject)")
+        return CheckResult("confidence_range", True, 1.0, f"confidence={conf:.2f}{note} ✓")
+    return CheckResult("confidence_range", False, 0.0, f"confidence {conf} out of [0,1]")
 
 
 def check_signals_used(data: dict) -> CheckResult:
@@ -453,8 +475,9 @@ def check_expected_verdict(data: dict, expected: Optional[str]) -> Optional[Chec
         return None
     actual = str(data.get("verdict", "")).upper()
     if not actual:
-        # Try to infer from confidence
-        conf = float(data.get("confidence", 0))
+        # Try to infer from confidence (percent-normalized: a raw 61 must not
+        # read as 61.0 >= 0.55 and infer APPROVED for every percent output)
+        conf = normalize_confidence(data.get("confidence")) or 0.0
         actual = "APPROVED" if conf >= MIN_CONFIDENCE else "REJECTED"
     correct = actual == expected.upper()
     return CheckResult("verdict_match", correct, 1.0 if correct else 0.0,
@@ -566,15 +589,40 @@ def check_regime_sizing(raw_output: str, data: dict, regime: Optional[str]) -> O
 def run_checks(result: EvalResult, prompt: dict) -> None:
     d = result.parsed or {}
 
-    # Always run these
-    result.checks.append(check_required_fields(d))
-    result.checks.append(check_direction(d))
-    result.checks.append(check_entry_price(d))
-    result.checks.append(check_sl_tp_direction(d))
-    result.checks.append(check_risk_reward(d))
-    result.checks.append(check_confidence(d))
-    result.checks.append(check_signals_used(d))
-    result.checks.append(check_reasoning_present(d))
+    rejected = str(d.get("verdict", "")).upper() == "REJECTED"
+    if rejected:
+        # A refusal is not obliged to invent trade parameters — the first
+        # 45-prompt run gave an F to a CORRECT rejection for omitting
+        # entry/SL/TP, while a full fake trade skeleton plus "REJECTED"
+        # scored ~99. A yardstick that pays for invented entries on refused
+        # setups trains overtrading. On a rejection only verdict+reasoning
+        # are owed; numbers that ARE stated must still be honest.
+        missing = [f for f in ("verdict", "reasoning") if f not in d]
+        result.checks.append(CheckResult(
+            "required_fields", not missing, 1.0 if not missing else 0.5,
+            "rejection: verdict+reasoning suffice"
+            + (f" — missing {missing}" if missing else "")))
+        if d.get("direction"):
+            result.checks.append(check_direction(d))
+        if "entry_price" in d:
+            result.checks.append(check_entry_price(d))
+        if d.get("direction") and all(k in d for k in ("entry_price", "stop_loss", "take_profit")):
+            result.checks.append(check_sl_tp_direction(d))
+            result.checks.append(check_risk_reward(d))
+        if "confidence" in d:
+            result.checks.append(check_confidence(d))
+        result.checks.append(check_signals_used(d))
+        result.checks.append(check_reasoning_present(d))
+    else:
+        # A proposed trade owes the full structure
+        result.checks.append(check_required_fields(d))
+        result.checks.append(check_direction(d))
+        result.checks.append(check_entry_price(d))
+        result.checks.append(check_sl_tp_direction(d))
+        result.checks.append(check_risk_reward(d))
+        result.checks.append(check_confidence(d))
+        result.checks.append(check_signals_used(d))
+        result.checks.append(check_reasoning_present(d))
 
     # Risk check fields (may or may not be present)
     if "verdict" in d:
