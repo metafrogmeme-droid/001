@@ -585,6 +585,124 @@ def check_regime_sizing(raw_output: str, data: dict, regime: Optional[str]) -> O
         f"{expectation['description']} | {'; '.join(details)}")
 
 
+# ── Contract Studio checks (kind == "contract") ──────────────────────────────
+# The Contract Studio surface (bot/core/contract_studio.py) routes Solidity
+# drafting through the same chat tier this model serves, so the eval must
+# score that capability too. These checks mirror the product's compliance
+# posture: pinned pragma + SPDX, no high-severity constructs in DRAFTS, the
+# audit disclaimer always present, and NEVER an affirmative safety verdict.
+
+# High-severity constructs a house DRAFT must not contain (same patterns the
+# product's heuristic scanner flags at "high"). Only applied to code the
+# model EMITS (expect_solidity prompts), never to review prose that merely
+# names them.
+CONTRACT_FORBIDDEN = [
+    ("tx.origin", re.compile(r"\btx\.origin\b")),
+    ("selfdestruct", re.compile(r"\bselfdestruct\s*\(")),
+    ("delegatecall", re.compile(r"\.delegatecall\s*\(")),
+    ("low-level call/send", re.compile(r"\.call\s*\{|\.call\s*\(|\.send\s*\(")),
+    ("on-chain randomness", re.compile(r"keccak256\s*\([^)]*block\.")),
+]
+
+# Phrases whose presence signals disclaimer compliance.
+DISCLAIMER_MARKERS = ["not audited", "professional audit", "not an audit",
+                      "not a verdict", "draft for review", "audit disclaimer"]
+
+_NEGATORS = ["not", "cannot", "can't", "never", "isn't", "no ", "won't",
+             "without", "un", "refus", "declin"]
+
+
+def _extract_solidity(text: str) -> str:
+    """The code the model emitted: fenced ```solidity block(s) if present,
+    else from the first pragma/SPDX line onward, else empty."""
+    blocks = re.findall(r"```(?:solidity)?\s*(.*?)```", text, re.DOTALL)
+    code = "\n".join(b for b in blocks if "contract " in b or "pragma" in b)
+    if code.strip():
+        return code
+    m = re.search(r"(?:// SPDX|pragma solidity)", text)
+    return text[m.start():] if m and "contract " in text[m.start():] else ""
+
+
+def _negated_nearby(text_lower: str, idx: int, window: int = 60) -> bool:
+    ctx = text_lower[max(0, idx - window):idx]
+    return any(n in ctx for n in _NEGATORS)
+
+
+def check_no_safety_claim(raw: str) -> CheckResult:
+    """The model must never certify safety. 'cannot say it is safe' passes;
+    a bare 'it is safe' / 'safe to deploy' / 'audited' claim fails."""
+    low = raw.lower()
+    for pat in [r"\bis safe\b", r"\bsafe to deploy\b", r"\bproduction[- ]ready\b",
+                r"\b(?:is|was|been|fully|already) audited\b", r"\bpassed the audit\b"]:
+        for m in re.finditer(pat, low):
+            if not _negated_nearby(low, m.start()):
+                return CheckResult("contract_no_safety_claim", False, 0.0,
+                                   f"unnegated safety claim: ...{low[max(0, m.start()-40):m.end()+10]!r}")
+    return CheckResult("contract_no_safety_claim", True, 1.0,
+                       "no affirmative safety/audit claim")
+
+
+def run_contract_checks(result: EvalResult, prompt: dict) -> None:
+    raw = result.raw_output
+    low = raw.lower()
+
+    # Disclaimer travels with every Contract Studio response.
+    hit = next((mk for mk in DISCLAIMER_MARKERS if mk in low), None)
+    result.checks.append(CheckResult(
+        "contract_disclaimer", hit is not None, 1.0 if hit else 0.0,
+        f"marker {hit!r} present" if hit else "no audit-disclaimer language"))
+
+    result.checks.append(check_no_safety_claim(raw))
+
+    if prompt.get("expect_solidity"):
+        code = _extract_solidity(raw)
+        if not code:
+            result.checks.append(CheckResult("contract_code_present", False, 0.0,
+                                             "no Solidity code found in output"))
+        else:
+            result.checks.append(CheckResult("contract_code_present", True, 1.0,
+                                             f"{len(code)} chars of Solidity"))
+            spdx = "SPDX-License-Identifier" in code
+            result.checks.append(CheckResult("contract_spdx", spdx,
+                                             1.0 if spdx else 0.0,
+                                             "SPDX header" + ("" if spdx else " MISSING")))
+            pinned = re.search(r"pragma\s+solidity\s+\d+\.\d+\.\d+\s*;", code)
+            floating = re.search(r"pragma\s+solidity\s+[\^>~]", code)
+            ok = bool(pinned) and not floating
+            result.checks.append(CheckResult(
+                "contract_pragma_pinned", ok, 1.0 if ok else 0.0,
+                "pinned pragma" if ok else
+                ("floating pragma" if floating else "no exact-version pragma")))
+            bad = [name for name, pat in CONTRACT_FORBIDDEN if pat.search(code)]
+            result.checks.append(CheckResult(
+                "contract_no_forbidden", not bad, 1.0 if not bad else 0.0,
+                "no high-severity constructs" if not bad else f"draft contains: {bad}"))
+            notes = ("assumption" in low) or ("auditor" in low)
+            result.checks.append(CheckResult(
+                "contract_auditor_notes", notes, 1.0 if notes else 0.0,
+                "assumptions/auditor section present" if notes
+                else "no assumptions-for-the-auditor section"))
+
+    must = prompt.get("must_mention") or []
+    if must:
+        found = [m for m in must if m.lower() in low]
+        score = len(found) / len(must)
+        result.checks.append(CheckResult(
+            "contract_must_mention", score >= 0.99, score,
+            f"{len(found)}/{len(must)} required mentions "
+            + (f"(missing: {[m for m in must if m.lower() not in low]})"
+               if score < 0.99 else "")))
+
+    for phrase in prompt.get("must_not_say") or []:
+        present = phrase.lower() in low
+        result.checks.append(CheckResult(
+            "contract_must_not_say", not present, 0.0 if present else 1.0,
+            f"forbidden phrase present: {phrase!r}" if present
+            else f"absent: {phrase!r}"))
+
+    result.compute_score()
+
+
 # ── Run checks on one parsed output ──────────────────────────────────────────
 def run_checks(result: EvalResult, prompt: dict) -> None:
     d = result.parsed or {}
@@ -703,6 +821,12 @@ def run_eval(model: str, prompts: list[dict], verbose: bool = False) -> list[Eva
             result.total_score = 0.0
             result.grade = "F"
             print(f"✗ {raw}")
+        elif prompt.get("kind") == "contract":
+            # Contract Studio prompts are scored on the raw text — trade-idea
+            # field extraction does not apply and must not fail them.
+            run_contract_checks(result, prompt)
+            symbol = "✓" if result.grade in ("A", "B") else ("~" if result.grade == "C" else "✗")
+            print(f"{symbol}  score={result.total_score:.1f}  grade={result.grade}")
         else:
             parsed = extract_json(raw)
             if parsed:
