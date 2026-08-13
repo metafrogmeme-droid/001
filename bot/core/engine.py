@@ -36,7 +36,9 @@ from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
-from bot.core.dashboard_pusher import DashboardPusher
+from bot.core.dashboard_pusher import (
+    DashboardPusher, is_configured as dashboard_pusher_configured,
+)
 from bot.utils.audit_chain import AuditChain, DecisionRecord
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, system_log, trade_log, scan_log
@@ -419,8 +421,20 @@ class RuneClawEngine:
             default_balance=CONFIG.paper_balance_usd,
             on_trade_close=None,  # wired after risk engine init
         )
-        # Dashboard pusher — pushes portfolio snapshots to the live dashboard
-        self.dashboard_pusher = DashboardPusher(self)
+        # Dashboard pusher — the THIRD dashboard generation, and the one
+        # nothing deploys: its consumer (`dashboard_api.py`, :9090) is named by
+        # no compose service, nginx upstream, Dockerfile or deploy script. It
+        # was constructed and started on every boot regardless, where `start()`
+        # logged "disabled" and returned — wiring that looked live in the
+        # source and did nothing in production, which is the harder direction
+        # to notice.
+        #
+        # None unless an operator has actually configured it. `None` rather
+        # than a disabled instance so that "is this running?" has one answer
+        # instead of two, and so the snapshot builder — a fourth independent
+        # rendering of win rate and P&L — cannot be reached by accident.
+        self.dashboard_pusher = (
+            DashboardPusher(self) if dashboard_pusher_configured() else None)
         # C1 fix: wire trade-close callback so portfolio closes feed risk streak tracking
         # Also sync trade events to the website dashboard
         def _on_trade_close_composite(net_pnl: float) -> None:
@@ -2423,11 +2437,12 @@ class RuneClawEngine:
             await self.ws_feed.start()
         except Exception as e:
             system_log.warning("WebSocket feed failed to start: %s", e)
-        # Start dashboard pusher
-        try:
-            await self.dashboard_pusher.start()
-        except Exception as e:
-            system_log.warning("Dashboard pusher failed to start: %s", e)
+        # Start dashboard pusher — only exists when configured (see __init__).
+        if self.dashboard_pusher is not None:
+            try:
+                await self.dashboard_pusher.start()
+            except Exception as e:
+                system_log.warning("Dashboard pusher failed to start: %s", e)
         # Subscribe to core symbols so the WS connection stays alive
         # even when no positions are open.  Position-specific symbols
         # are added dynamically in _check_open_positions().
@@ -3231,6 +3246,16 @@ class RuneClawEngine:
         self._running = False
         await self.ws_feed.stop()
         await self.scanner.close()
+        # The pusher owns an aiohttp session and a background task, and its
+        # `stop()` was written and then called from nowhere — so on any boot
+        # where it HAD been enabled, both leaked at shutdown. It never bit
+        # because nothing deploys its consumer, which is not a reason to leave
+        # it: the day someone sets DASHBOARD_API_KEY is the day it starts.
+        if getattr(self, "dashboard_pusher", None) is not None:
+            try:
+                await self.dashboard_pusher.stop()
+            except Exception as exc:
+                logger.debug("Dashboard pusher stop failed: %s", exc)
         # AUDIT-FIX: Close live executor exchange connection to avoid session leaks
         if hasattr(self, 'live_executor') and self.live_executor:
             await self.live_executor.close()
