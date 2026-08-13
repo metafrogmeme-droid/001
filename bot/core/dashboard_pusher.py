@@ -25,6 +25,24 @@ DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9090")
 DASHBOARD_KEY = os.environ.get("DASHBOARD_API_KEY", "")
 
 
+def is_configured() -> bool:
+    """Has an operator actually asked for this dashboard generation?
+
+    NOTHING IN THIS REPO DEPLOYS THE CONSUMER. `dashboard_api.py` listens on
+    :9090 and is referenced by no compose service, no nginx upstream, no
+    Dockerfile and no deploy script — only by one test asserting it refuses to
+    start without a token. The engine nevertheless constructed this pusher
+    unconditionally and called `start()` on every boot; `start()` then logged
+    "disabled" and returned, so the wiring was invisible.
+
+    Read at call time, not at import, so a test (or an operator's `.env`
+    arriving late) is seen. The module-level constants above are captured at
+    import and were the reason this could not be exercised at all.
+    """
+    return bool(os.environ.get("DASHBOARD_API_KEY", "")
+                and os.environ.get("DASHBOARD_URL", DASHBOARD_URL))
+
+
 class DashboardPusher:
     """Pushes portfolio snapshots to the live dashboard."""
 
