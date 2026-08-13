@@ -117,6 +117,12 @@ def main():
     parser = argparse.ArgumentParser(description="RUNECLAW v7 8B QLoRA fine-tune")
     parser.add_argument("--data", help="training jsonl (default: curated_v7, then v6)")
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--max-seq", type=int, default=MAX_SEQ,
+                        help="token cap per sample (default 1024). Contract Studio "
+                             "samples (v9+) run 700-1600 tokens — use 2048 there, or "
+                             "drafts get truncated mid-contract and the model learns "
+                             "to emit half a contract. Higher seq raises peak VRAM; "
+                             "pair with --safe when not on a dedicated GPU.")
     parser.add_argument("--run-name", default="v7",
                         help="names the checkpoint dir runeclaw-8b-<run>-checkpoints; "
                              "use a fresh name per training generation (e.g. v8) so "
@@ -129,6 +135,7 @@ def main():
                              "desktop apps; two daytime OOMs bought this flag")
     args = parser.parse_args()
     ckpt_dir = checkpoint_dir(args.run_name)
+    max_seq = args.max_seq
 
     print("=" * 60)
     print(f"RUNECLAW {args.run_name} - Llama 3.1 8B QLoRA Fine-Tune")
@@ -178,7 +185,7 @@ def main():
 
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=BASE_MODEL,
-        max_seq_length=MAX_SEQ,
+        max_seq_length=max_seq,
         dtype=None,
         load_in_4bit=True,
     )
@@ -218,9 +225,9 @@ def main():
 
     sample_lengths = [len(tokenizer(t, truncation=False)["input_ids"])
                       for t in formatted[:500]]
-    over = sum(1 for length in sample_lengths if length > MAX_SEQ)
+    over = sum(1 for length in sample_lengths if length > max_seq)
     print(f"  Avg tokens: {sum(sample_lengths) / len(sample_lengths):.0f}, "
-          f"max {max(sample_lengths)}, over {MAX_SEQ}: {over}/{len(sample_lengths)}")
+          f"max {max(sample_lengths)}, over {max_seq}: {over}/{len(sample_lengths)}")
 
     from torch.nn.utils.rnn import pad_sequence
     from torch.utils.data import Dataset as TorchDataset
@@ -230,7 +237,7 @@ def main():
             self.items = []
             print(f"  Tokenizing {len(texts)} samples...")
             for i, text in enumerate(texts):
-                ids = tokenizer(text, truncation=True, max_length=MAX_SEQ,
+                ids = tokenizer(text, truncation=True, max_length=max_seq,
                                 padding=False, return_tensors="pt")["input_ids"].squeeze()
                 self.items.append({"input_ids": ids,
                                    "attention_mask": torch.ones_like(ids),
@@ -307,7 +314,7 @@ def main():
             "data_sha256": data_sha,
             "n_samples": len(rows),
             "epochs": args.epochs,
-            "max_seq": MAX_SEQ,
+            "max_seq": max_seq,
             "lora_rank": LORA_RANK,
             "lora_alpha": LORA_ALPHA,
             "learning_rate": LEARNING_RATE,
