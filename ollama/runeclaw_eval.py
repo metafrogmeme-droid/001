@@ -765,17 +765,55 @@ def main():
                         help="Print raw output and per-check details")
     parser.add_argument("--prompt-ids", nargs="*",
                         help="Run only specific prompt IDs (e.g. eval-001 eval-005)")
+    parser.add_argument("--prompts", default=None,
+                        help="JSON file of extra prompts, merged with the built-ins "
+                             "(deduped by id). The file's SHA256 is recorded in the "
+                             "results so two eval runs are comparable only when the "
+                             "yardstick provably matched.")
     args = parser.parse_args()
 
-    prompts = TEST_PROMPTS
+    prompts = list(TEST_PROMPTS)
+    prompt_set = {"builtin": len(TEST_PROMPTS)}
+    if args.prompts:
+        import hashlib
+        prompts_path = Path(args.prompts)
+        if not prompts_path.exists():
+            print(f"ERROR: prompt file not found: {prompts_path}")
+            sys.exit(1)
+        raw_bytes = prompts_path.read_bytes()
+        try:
+            extra = json.loads(raw_bytes)
+        except json.JSONDecodeError as exc:
+            print(f"ERROR: {prompts_path} is not valid JSON: {exc}")
+            sys.exit(1)
+        bad = [p for p in extra
+               if not isinstance(p, dict) or not p.get("id")
+               or not p.get("category") or not p.get("prompt")]
+        if bad:
+            print(f"ERROR: {len(bad)} prompt(s) in {prompts_path} lack id/category/prompt "
+                  "- refusing to run a partial yardstick.")
+            sys.exit(1)
+        known = {p["id"] for p in prompts}
+        added = [p for p in extra if p["id"] not in known]
+        prompts = prompts + added
+        prompt_set.update({
+            "file": str(prompts_path),
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "added": len(added),
+            "total": len(prompts),
+        })
+        print(f"Prompt set: {len(TEST_PROMPTS)} builtin + {len(added)} from "
+              f"{prompts_path} (sha {prompt_set['sha256'][:12]}...)")
+
     if args.prompt_ids:
-        prompts = [p for p in TEST_PROMPTS if p["id"] in args.prompt_ids]
+        prompts = [p for p in prompts if p["id"] in args.prompt_ids]
         if not prompts:
             print(f"No prompts matched: {args.prompt_ids}")
             sys.exit(1)
 
     results = run_eval(args.model, prompts, verbose=args.verbose)
     summary = print_summary(results, args.model)
+    summary["prompt_set"] = prompt_set
 
     if args.output:
         out_path = Path(args.output)
