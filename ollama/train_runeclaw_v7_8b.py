@@ -117,6 +117,17 @@ def main():
     parser = argparse.ArgumentParser(description="RUNECLAW v7 8B QLoRA fine-tune")
     parser.add_argument("--data", help="training jsonl (default: curated_v7, then v6)")
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--base-model", default=BASE_MODEL,
+                        help="HF base to fine-tune (default: Llama 3.1 8B 4-bit). For the "
+                             "smart-contract specialist use "
+                             "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit — code "
+                             "competence comes from code pre-training, not from us. "
+                             "The adapter records this name; export_model.py's "
+                             "--expect-base gates against it.")
+    parser.add_argument("--system-prompt", default=None,
+                        help="override the trading system prompt (use with a "
+                             "non-trading curriculum, e.g. the v9 contract set). "
+                             "Pass the literal string, or @path/to/file.txt to read one.")
     parser.add_argument("--max-seq", type=int, default=MAX_SEQ,
                         help="token cap per sample (default 1024). Contract Studio "
                              "samples (v9+) run 700-1600 tokens — use 2048 there, or "
@@ -136,10 +147,19 @@ def main():
     args = parser.parse_args()
     ckpt_dir = checkpoint_dir(args.run_name)
     max_seq = args.max_seq
+    base_model = args.base_model
+    system_prompt = SYSTEM_PROMPT
+    if args.system_prompt:
+        if args.system_prompt.startswith("@"):
+            with open(args.system_prompt[1:], "r", encoding="utf-8") as spf:
+                system_prompt = spf.read().strip()
+        else:
+            system_prompt = args.system_prompt
 
     print("=" * 60)
-    print(f"RUNECLAW {args.run_name} - Llama 3.1 8B QLoRA Fine-Tune")
+    print(f"RUNECLAW {args.run_name} - QLoRA Fine-Tune")
     print("=" * 60)
+    print(f"  Base:        {base_model}")
     print(f"  Checkpoints: {ckpt_dir}")
 
     # ── [1/6] GPU ─────────────────────────────────────────────
@@ -180,11 +200,11 @@ def main():
               "samples waste GPU-days — consider curate_training_data.py first.")
 
     # ── [3/6] Model + LoRA ────────────────────────────────────
-    print("\n[3/6] Loading Llama 3.1 8B (4-bit) + LoRA rank 32...")
+    print(f"\n[3/6] Loading {base_model} + LoRA rank 32...")
     from unsloth import FastLanguageModel
 
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=BASE_MODEL,
+        model_name=base_model,
         max_seq_length=max_seq,
         dtype=None,
         load_in_4bit=True,
@@ -216,7 +236,7 @@ def main():
         if example.get("input") and example["input"].strip():
             user_msg += "\n\n" + example["input"]
         text = tokenizer.apply_chat_template(
-            [{"role": "system", "content": SYSTEM_PROMPT},
+            [{"role": "system", "content": system_prompt},
              {"role": "user", "content": user_msg},
              {"role": "assistant", "content": example["output"]}],
             tokenize=False, add_generation_prompt=False,
@@ -309,7 +329,8 @@ def main():
     with open(os.path.join(ckpt_dir, "TRAINING_MANIFEST.json"), "w") as f:
         json.dump({
             "run_name": args.run_name,
-            "base_model": BASE_MODEL,
+            "base_model": base_model,
+            "system_prompt": system_prompt,
             "data_file": data_file,
             "data_sha256": data_sha,
             "n_samples": len(rows),
