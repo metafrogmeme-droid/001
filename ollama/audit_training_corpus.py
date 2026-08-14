@@ -25,10 +25,18 @@ Report first, clean second: the default writes CORPUS_AUDIT.json (counts +
 up to 20 example line numbers per check) and touches nothing. --clean writes
 a filtered jsonl that drops flagged rows, plus a manifest with both SHAs.
 
+--fix (with --clean) REPAIRS instead of dropping where repair is safe:
+a row whose ONLY defect is percent confidence is mostly a good trade in the
+wrong format — the 2026-08 audit found 17,084 of them, 15% of the corpus —
+so it is rewritten ("Confidence: 61%" -> "Confidence: 0.61") and kept,
+re-audited after the rewrite, and dropped if anything still flags. Bad
+arithmetic, geometry, word confidences and verdict conflicts are never
+repaired: guessing what a broken sample meant would launder it.
+
 Usage:
   python audit_training_corpus.py --input training_data\curated_v8_all.jsonl
   python audit_training_corpus.py --input training_data\curated_v8_all.jsonl ^
-      --clean training_data\curated_v8_all_clean.jsonl
+      --clean training_data\curated_v8_all_clean.jsonl --fix
 """
 
 import argparse
@@ -118,6 +126,24 @@ def audit_output(out):
     return flags
 
 
+RE_CONF_PCT_FIX = re.compile(r"(Confidence\s*[:\s]\s*)([\d.]+)\s*%", re.IGNORECASE)
+
+
+def fix_percent_confidence(out):
+    """Rewrite every 'Confidence: NN%' to its 0-1 decimal. Only called for
+    rows whose sole defect is the percent format; the caller re-audits the
+    result and drops the row if anything still flags."""
+    def _repl(m):
+        try:
+            value = float(m.group(2))
+        except ValueError:
+            return m.group(0)
+        if value > 1.0:
+            value = value / 100.0
+        return f"{m.group(1)}{value:.2f}"
+    return RE_CONF_PCT_FIX.sub(_repl, out)
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -130,6 +156,10 @@ def main():
     parser = argparse.ArgumentParser(description="Audit a training corpus for rule-contradicting samples")
     parser.add_argument("--input", required=True)
     parser.add_argument("--clean", help="also write a cleaned jsonl (flagged rows dropped) to this path")
+    parser.add_argument("--fix", action="store_true",
+                        help="with --clean: repair rows whose ONLY defect is percent "
+                             "confidence instead of dropping them (rewritten, re-audited, "
+                             "dropped if anything still flags)")
     parser.add_argument("--report", default=None,
                         help="report path (default: CORPUS_AUDIT.json next to the input)")
     args = parser.parse_args()
@@ -176,19 +206,33 @@ def main():
     print(f"  Report: {report_path}")
 
     if args.clean:
-        kept = [row for i, row in enumerate(rows, 1) if i not in flagged_lines]
+        kept, fixed, dropped = [], 0, 0
+        for i, row in enumerate(rows, 1):
+            if i not in flagged_lines:
+                kept.append(row)
+                continue
+            flags = set(audit_output(str(row.get("output", ""))))
+            if args.fix and flags == {"confidence_percent"}:
+                repaired = dict(row)
+                repaired["output"] = fix_percent_confidence(str(row["output"]))
+                if not audit_output(repaired["output"]):
+                    kept.append(repaired)
+                    fixed += 1
+                    continue
+            dropped += 1
         with open(args.clean, "w", encoding="utf-8") as f:
             for row in kept:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
         manifest = {"input": args.input, "input_sha256": report["input_sha256"],
                     "output": args.clean, "output_sha256": sha256_file(args.clean),
                     "rows_in": len(rows), "rows_out": len(kept),
-                    "rows_dropped": len(rows) - len(kept)}
+                    "rows_fixed": fixed, "rows_dropped": dropped,
+                    "fix_mode": bool(args.fix)}
         mpath = args.clean.rsplit(".", 1)[0] + "_MANIFEST.json"
         with open(mpath, "w") as f:
             json.dump(manifest, f, indent=2)
-        print(f"  Cleaned: {args.clean} ({len(kept)} rows, "
-              f"{len(rows) - len(kept)} dropped)  manifest: {mpath}")
+        print(f"  Cleaned: {args.clean} ({len(kept)} rows kept, "
+              f"{fixed} repaired, {dropped} dropped)  manifest: {mpath}")
     elif counts:
         print("\n  Review the report, then re-run with --clean <out.jsonl> to filter.")
 
