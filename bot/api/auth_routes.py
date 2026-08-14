@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
+from bot.utils.client_ip import client_ip
 from bot.db.models import (
     create_user, authenticate_user, get_user_by_id,
     create_link_token, get_user_portfolio, unlink_telegram,
@@ -57,7 +58,12 @@ _acct_lockouts: dict[str, float] = {}
 
 def _check_auth_rate_limit(request: Request) -> None:
     """Per-IP rate limit for auth endpoints. Raises 429 if exceeded."""
-    ip = request.client.host if request.client else "unknown"
+    # H1: the shared derivation, not request.client.host. This line was the
+    # weaker of the app's two answers to "who is calling" — it never reached
+    # api_bridge's anti-spoof walk, so the control guarding logins was the one
+    # without the mitigation. Rotating X-Forwarded-For handed a credential-
+    # stuffer a fresh lockout bucket per request.
+    ip = client_ip(request)
     now = time.time()
     # Check lockout
     if ip in _auth_lockouts:
