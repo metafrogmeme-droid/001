@@ -24,6 +24,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { getLatestFlight } = require('./sync');
+const { sanitizeRecord } = require('../lib/flight');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
 // The Guardian safety models. Pure functions of caller-supplied input — they
 // touch no account, read no database, move nothing, and are the same code the
@@ -487,13 +488,27 @@ const TOOLS = {
       },
       additionalProperties: false,
     },
+    // H2: both return paths run through sanitizeRecord.
+    //
+    // They returned `flight.records` verbatim — the objects POST
+    // /api/bot/sync/flight stores unmodified and getLatestFlight hands back raw
+    // — and flight_recorder.py puts `size_usd` and `pnl_usd` on every one. /mcp
+    // is mounted with no auth (server.js:349), so any anonymous caller read the
+    // operator's live per-decision position sizes and realized dollar P&L, from
+    // which account scale follows.
+    //
+    // The scrubber this needed already existed and already had a caller:
+    // public_flight.js does `records.map(sanitizeRecord)` for exactly this data,
+    // and lib/flight.js says in its header that the dollar-carrying record is
+    // reserved for the authed view. The rule was written, the tool was written,
+    // one of two public surfaces used it.
     handler: async (args) => {
       const flight = await getLatestFlight();
       const all = (flight && Array.isArray(flight.records)) ? flight.records : [];
       const chain = (flight && flight.chain) || {};
       if (args && args.decision_id) {
         const rec = all.find((r) => r && r.decision_id === args.decision_id);
-        return { record: rec || null, chain };
+        return { record: rec ? sanitizeRecord(rec) : null, chain };
       }
       const limit = Math.min(parseInt(args?.limit) || 20, 50);
       return {
@@ -502,8 +517,10 @@ const TOOLS = {
           entries: chain.length ?? null,
           tip_hash: chain.tip_hash ?? null,
         },
-        records: all.slice(0, limit),
+        records: all.slice(0, limit).map(sanitizeRecord),
         source: 'engine-side hash-chained audit ledger (logs/audit_chain.jsonl)',
+        disclosure: 'Percent, ratio and R-multiple only — no dollar amounts. '
+          + 'The full record is reserved for the authenticated operator view.',
       };
     },
   },
