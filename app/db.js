@@ -49,8 +49,29 @@ if (USE_MYSQL) {
     }
     console.log('Using MySQL database');
   } catch (err) {
-    console.error('mysql2 not available, falling back to in-memory:', err.stack || err.message);
-    USE_MYSQL = false;
+    // FAIL CLOSED. This used to log and set `USE_MYSQL = false`, which
+    // demoted a production deployment to an empty in-memory store and kept
+    // serving 200s. Every panel then rendered "no trades", "no positions",
+    // "no data" — each one truthful about the store it was reading and each
+    // one a lie about the account. A 500 is a bad minute; a 200-serving
+    // amnesiac is a user concluding their positions are gone.
+    //
+    // `DATABASE_URL` being set IS the operator saying "use this database".
+    // The only honest responses to "I cannot" are to say so and stop. Note
+    // that `createPool` is inside this try as well, so a malformed URL — a
+    // typo — took the same silent path; `mysql2` is a declared dependency, so
+    // a genuine import failure means a broken install, not a missing extra.
+    //
+    // Same rule bot/utils/state_guard.py already applies to the bot: "Fail
+    // CLOSED and LOUD. An operator who sees this refuse has a five-second
+    // fix; an operator who does not see it loses the vault and finds out days
+    // later."
+    console.error('FATAL: DATABASE_URL is set but the MySQL pool could not be '
+      + 'created. Refusing to start on an in-memory database — it would serve '
+      + 'empty results as if they were real.');
+    console.error('  cause:', err.stack || err.message);
+    console.error('  unset DATABASE_URL to run deliberately in-memory.');
+    throw new Error(`database unavailable: ${err.message}`);
   }
 }
 
@@ -2327,7 +2348,24 @@ async function migrate() {
   // In-memory DB needs no migration
 }
 
+/**
+ * Which store is actually serving: 'mysql' or 'memory'.
+ *
+ * Until now the only trace of this was one `console.log` at boot, so "am I on
+ * the real database?" was a question you answered by finding a startup line in
+ * a log — or by noticing your data was missing. A surface that wants to refuse
+ * to report a record, or a readiness probe that wants to say so, had nothing
+ * to ask.
+ *
+ * Deliberately a function rather than a captured boolean: exported constants
+ * snapshot at require time, which is the same import-time-capture that made
+ * `DASHBOARD_KEY` untestable in H7.
+ */
+function backend() {
+  return USE_MYSQL ? 'mysql' : 'memory';
+}
+
 module.exports = {
-  pool, migrate, lastStatement, describeSql,
+  pool, migrate, lastStatement, describeSql, backend,
   EXPECTED_TABLES, schemaIsCurrent,
 };
