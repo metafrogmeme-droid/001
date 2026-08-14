@@ -1,6 +1,6 @@
 # RUNECLAW — Deep Security & Code-Quality Audit
 
-**Date:** 2026-08-14 · **Commit:** `aa43913` · **Branch:** `claude/codebase-security-quality-audit-eeongs`  
+**Date:** 2026-08-14 · **Base commit:** `5b6012d` (rebased onto `main` during the audit) · **Branch:** `claude/codebase-security-quality-audit-eeongs`  
 **Scope:** full repository — 1,947 tracked files, ~330,000 LOC across Python, JavaScript, Rust and Solidity  
 **Method:** static source review by 20 parallel domain auditors, every finding re-checked by an independent adversarial verifier instructed to refute it. Findings-only; no code was modified.
 
@@ -29,9 +29,13 @@ Nothing here suggests a compromised or careless codebase. The remediation path i
 | INFO | 17 |
 | **Total** | **83** |
 
+Of these, **82 are open** against current `main`; **1** was fixed upstream while the audit was running and is retained for the record (M7).
+
 **By pillar:** 50 security · 33 code-quality/architecture  
 **By confidence:** 66 Confirmed · 10 Likely · 7 Suspected  
 **Verification:** 85 candidate findings were produced; each was independently re-examined by a verifier instructed to default to *refuted*. One was refuted outright and several were downgraded (for example, the `telegram_handler.py:12469` direct `create_order`, initially flagged as an ungated live-order bypass, was confirmed on inspection to be a live-mode close-only fallback scoped to the caller's own executor, and was downgraded to **L30**).
+
+**A note on the moving base.** The audit began at `aa43913` and was rebased onto `main` before publication. Two commits landed in between (`fa137e2`, `6008286`) and one of them fixed a finding this audit had already recorded — M7, the silent degradation to an in-memory database. Every `app/db.js` finding was re-verified against the new base: M7 is fixed and is marked as such, M8's anchor moved to `app/db.js:1739`, and I3 is unchanged. All other findings were unaffected by those commits.
 
 ---
 
@@ -130,8 +134,8 @@ Three independent switches must all permit a live order: `LIVE_TRADING_ENABLED=t
 | [M4](#m4) | MEDIUM | broken-ci-gate | `.gitlab-ci.yml:37` | GitLab fallback pipeline installs a requirements.txt that does not exist — all seven Python gates abort in before_script | Confirmed |
 | [M5](#m5) | MEDIUM | broken-ci-gate | `.gitlab-ci.yml:92` | test:token-tooling never enters token/, globs root paths that do not exist, and omits the npm advisory ratchet | Confirmed |
 | [M6](#m6) | MEDIUM | resource-exhaustion | `api_bridge.py:308` | Unauthenticated /scan accepts an unbounded symbols list and per-symbol limit, each hitting the exchange | Confirmed |
-| [M7](#m7) | MEDIUM | silent-fallback | `app/db.js:52` | Production silently degrades to an ephemeral in-memory store | Confirmed |
-| [M8](#m8) | MEDIUM | schema-drift | `app/db.js:1660` | ALTER TABLE errors swallowed indiscriminately, then masked by a tables-only fast path | Likely |
+| [M7](#m7) | MEDIUM | silent-fallback | `app/db.js:52` | Production silently degrades to an ephemeral in-memory store ✅ **fixed upstream** | Confirmed |
+| [M8](#m8) | MEDIUM | schema-drift | `app/db.js:1739` | ALTER TABLE errors swallowed indiscriminately, then masked by a tables-only fast path | Likely |
 | [M9](#m9) | MEDIUM | correctness-honesty | `app/routes/mcp.js:403` | get_track_record counts unpriced trades as break-even, diverging from the /track page it mirrors | Confirmed |
 | [M10](#m10) | MEDIUM | information-disclosure | `app/routes/mcp.js:879` | MCP tools/call returns raw internal error messages to unauthenticated callers | Confirmed |
 | [M11](#m11) | MEDIUM | honesty-unreadable-as-measurement | `app/routes/portfolio.js:66` | operatorPortfolio uses the repo's banned unreadable-as-zero shapes over a nullable pnl column | Likely |
@@ -513,6 +517,8 @@ Read api_bridge.py:285-300 (_fetch_ohlcv), 303-308 (ScanRequest, no bounds), 505
 **Severity:** MEDIUM · **Confidence:** Confirmed · **Pillar:** quality · **Category:** silent-fallback  
 **Location:** `app/db.js:52`
 
+> ✅ **Resolved upstream.** Fixed upstream while this audit was running, in commit fa137e2 ("M10: a production deployment that quietly became an amnesiac"). app/db.js now throws `database unavailable` instead of setting USE_MYSQL = false, and app/test/db_fails_closed.test.js pins the behaviour. Retained here because the finding was valid against the audited base commit and the fix is worth recording.
+
 **Description**  
 The DB backend is chosen solely by `USE_MYSQL = !!process.env.DATABASE_URL` (line 8). If DATABASE_URL is unset, MemoryDB is instantiated with only a console line (lines 1548-1551). When DATABASE_URL IS set but `require('mysql2/promise')` throws, the catch at lines 51-54 downgrades USE_MYSQL to false, silently switching to the in-memory store. There is no NODE_ENV/production or REQUIRE_DB assertion that forces a durable backend — I grepped db.js and found no process.exit/NODE_ENV/REQUIRE_DB guard anywhere.
 
@@ -540,13 +546,13 @@ Read lines 1-70, 1540-1594, and grepped for guards. Code matches the finding exa
 #### M8 — ALTER TABLE errors swallowed indiscriminately, then masked by a tables-only fast path
 
 **Severity:** MEDIUM · **Confidence:** Likely · **Pillar:** quality · **Category:** schema-drift  
-**Location:** `app/db.js:1660`
+**Location:** `app/db.js:1739`
 
 **Description**  
 Every back-fill ALTER in migrate() is wrapped in `try { ... } catch (e) { /* exists */ }` swallowing ALL errors, not just ER_DUP_FIELDNAME. Confirmed the base `CREATE TABLE IF NOT EXISTS users` (lines 1645-1655) contains only id/email/password_hash/plan/telegram_linked/telegram_id/link_token/link_token_expires/created_at — columns like token_epoch (line 1672), totp_secret (1676), google_id/discord_id/x_id, wallet_address, and the verify/reset tokens are added ONLY via these guarded ALTERs. Separately, schemaIsCurrent() (lines 1610-1619) short-circuits migrate() (lines 1640-1643) using `information_schema.TABLES` — it checks table existence only, never columns.
 
 **Evidence**  
-Verified line 1660-1661 and the repeated pattern through line 1773 all catch every error with `/* exists */`. Confirmed token_epoch exists only at line 1672 (ALTER) and is absent from the base CREATE at 1645-1655. schemaIsCurrent lines 1612-1615: `SELECT TABLE_NAME ... information_schema.TABLES ...; return EXPECTED_TABLES.every((t) => have.has(...))` — tables only, no column check.
+Verified line 1660-1661 and the repeated pattern through line 1773 all catch every error with `/* exists */`. Confirmed token_epoch exists only at line 1672 (ALTER) and is absent from the base CREATE at 1645-1655. schemaIsCurrent lines 1612-1615: `SELECT TABLE_NAME ... information_schema.TABLES ...; return EXPECTED_TABLES.every((t) => have.has(...))` — tables only, no column check. (Line re-confirmed at app/db.js:1739 after rebasing onto current main; the catch still swallows any error, not only duplicate-column.)
 
 **Impact**  
 A transient ALTER failure (lock-wait timeout, dropped connection mid-migration, common on serverless/TiDB) is swallowed identically to a benign duplicate-column. On the next boot all tables already exist, so schemaIsCurrent() returns true and the full DDL is skipped forever — the missing column is never created. Queries on it (e.g. token_epoch used for token revocation) then error or misbehave, and the drift is invisible. Requires a specific transient failure precisely during an ALTER, so real but not routine.
