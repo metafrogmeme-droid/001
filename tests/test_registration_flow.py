@@ -29,7 +29,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bot.utils.user_store import UserStore
+from bot.utils.user_store import DEFAULT_AUTO_ROLE, UserStore
 
 OPERATOR = "111"
 
@@ -194,7 +194,12 @@ class TestTheRedHerring:
         h = _handler(tmp_path)
         h.users.seed_admin(OPERATOR)
         record = h.users.register("999", name="Ann")
-        assert record["authorized"] is True and record["role"] == "trader"
+        # The role is DEFAULT_AUTO_ROLE, whatever that currently is — the point
+        # of this test is the `authorized` flag, and pinning the role string
+        # here made a role-separation change look like a registration
+        # regression. What matters is that the flag is on and access is not.
+        assert record["authorized"] is True
+        assert record["role"] == DEFAULT_AUTO_ROLE
 
         update, ctx = _update()
         p = _locked_bot()

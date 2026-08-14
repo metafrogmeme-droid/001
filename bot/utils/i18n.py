@@ -737,13 +737,16 @@ _STRINGS: dict[str, dict[str, str]] = {
     "invalid_tg_id": {"en": "Invalid Telegram ID.", "zh": "無效的 Telegram ID。"},
     "invalid_tg_id_numeric": {"en": "Invalid Telegram ID. Must be numeric.", "zh": "無效的 Telegram ID，必須為數字。"},
     "invalid_tg_id_format": {"en": "Invalid Telegram ID format.", "zh": "Telegram ID 格式無效。"},
+    # `paper` is listed because /approve accepts it. An operator reading
+    # "Valid: trader, viewer, admin" while a fourth value silently works has no
+    # way to discover the one step between full trader and /revoke.
     "approve_usage": {
-        "en": "<b>Usage</b>\n\n<code>/approve &lt;telegram_id&gt; [role]</code>\n\nRoles: <code>trader</code> (default), <code>viewer</code>, <code>admin</code>",
-        "zh": "<b>用法</b>\n\n<code>/approve &lt;telegram_id&gt; [role]</code>\n\n角色: <code>trader</code>（預設）、<code>viewer</code>、<code>admin</code>",
+        "en": "<b>Usage</b>\n\n<code>/approve &lt;telegram_id&gt; [role]</code>\n\nRoles: <code>trader</code> (default), <code>paper</code>, <code>viewer</code>, <code>admin</code>\n\n<i>paper = everything trader can do except halt / reset / mode. Self-admitted users start here.</i>",
+        "zh": "<b>用法</b>\n\n<code>/approve &lt;telegram_id&gt; [role]</code>\n\n角色: <code>trader</code>（預設）、<code>paper</code>、<code>viewer</code>、<code>admin</code>\n\n<i>paper = 除 halt / reset / mode 外與 trader 相同。自助加入的用戶預設為此角色。</i>",
     },
     "invalid_role": {
-        "en": "Invalid role: <code>{role}</code>\nValid: <code>trader</code>, <code>viewer</code>, <code>admin</code>",
-        "zh": "無效的角色: <code>{role}</code>\n有效值: <code>trader</code>、<code>viewer</code>、<code>admin</code>",
+        "en": "Invalid role: <code>{role}</code>\nValid: <code>trader</code>, <code>paper</code>, <code>viewer</code>, <code>admin</code>",
+        "zh": "無效的角色: <code>{role}</code>\n有效值: <code>trader</code>、<code>paper</code>、<code>viewer</code>、<code>admin</code>",
     },
     "approve_result": {
         "en": "<b>USER APPROVED</b>\n{sep}\n- Name: <b>{name}</b>\n- ID: <code>{id}</code>\n- Role: <code>{role}</code>\n- Trading: {trade_mode}\n- Status: \U0001f7e2 authorized\n\n<i>Use /grant_live or /revoke_live to change trading mode</i>",

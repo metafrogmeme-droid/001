@@ -20,13 +20,21 @@ Both came out of a 67-agent adversarial sweep and were re-verified by hand.
 
 WHY `halt` IS NOT SIMPLY PERMISSION-CHECKED
 
-Adding the role check alone does not close it: DEFAULT_AUTO_ROLE holds the
+Adding the role check alone did not close it: DEFAULT_AUTO_ROLE held the
 `halt` permission, so a self-provisioned web account would still stop trading
 for everybody. `HaltSkill` is global — shared circuit breaker, every per-user
 risk engine, all pending ideas. The codebase had already drawn this line
 elsewhere: `POST /api/controls/stop` refuses a merely SELF-SCOPED stop from a
 web identity with 409 `telegram_required`. A global halt over chat cannot be
 laxer than that, so `halt` is absent from the web-reachable set entirely.
+
+POSTSCRIPT (H4). That paragraph named a defect and patched a transport. The
+sentence "DEFAULT_AUTO_ROLE holds the `halt` permission" was a finding in its
+own right, recorded here and left standing — and when Telegram later grew its
+own self-provisioning door (`PAPER_AUTO_ACCEPT`, admitting strangers as
+"trader"), the same authority was still wrong underneath it and there was no
+`_WEB_SKILL_PERMISSION` on that side to save it. The auto-provisioned role now
+holds no operator control; the omission from the map stays as the second layer.
 """
 
 import ast
@@ -86,11 +94,29 @@ def gateway():
 def test_no_web_role_can_halt_the_shared_engine(gateway):
     """The reported scenario, for every role including admin.
 
-    A role check alone is insufficient — DEFAULT_AUTO_ROLE holds `halt`.
+    THE PREMISE MOVED, and this is the interesting half.
+
+    This used to open by asserting `"halt" in ROLE_PERMISSIONS[DEFAULT_AUTO_ROLE]`
+    — the reason a role check alone could not close the hole, so `halt` had to be
+    left out of `_WEB_SKILL_PERMISSION` entirely. It no longer holds: H4 found
+    the Telegram side of the same door (PAPER_AUTO_ACCEPT admitting strangers as
+    "trader") and fixed the AUTHORITY rather than a second transport, so
+    DEFAULT_AUTO_ROLE is now the self-admission role and holds no operator
+    control.
+
+    That assertion is not simply deleted, because deleting it would leave this
+    test unable to tell "the transport denies it" from "no role could have run it
+    anyway" — a green test measuring nothing. It is inverted instead: the loop
+    below includes roles that DO still hold `halt` (trader via /approve, admin
+    via `"*"`), and the transport must refuse them too. That is what makes the
+    omission from the map load-bearing rather than incidental.
     """
-    assert "halt" in ROLE_PERMISSIONS.get(DEFAULT_AUTO_ROLE, set()), (
-        "the premise changed: the auto-provisioned role no longer holds 'halt', so "
-        "this test is no longer testing what it was written for")
+    assert "halt" not in ROLE_PERMISSIONS.get(DEFAULT_AUTO_ROLE, set()), (
+        "a self-provisioned account holds 'halt' again — see "
+        "tests/test_self_admission_is_not_vouched.py")
+    assert "halt" in ROLE_PERMISSIONS.get("trader", set()), (
+        "no role holds 'halt' any more, so the loop below cannot distinguish a "
+        "transport that denies it from one that was never asked")
     for role in ("trader", "viewer", "admin", "pending"):
         denied = gateway._web_skill_denied(_Handler(role), "web:stranger", "halt")
         assert denied is not None, f"role {role} can halt the shared engine from web chat"

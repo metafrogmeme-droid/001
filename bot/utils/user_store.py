@@ -28,7 +28,41 @@ from bot.utils.logger import audit, system_log
 from bot.utils.atomic_write import atomic_write_json
 
 # ── Roles: access control ──────────────────────────────────────
-ROLES = ("admin", "trader", "viewer", "pending")
+# Order is most-privileged first; /users renders in this order.
+ROLES = ("admin", "trader", "paper", "viewer", "pending")
+
+# Permissions whose commands mutate state SHARED BY EVERY ACCOUNT — the kill
+# switch, the resume, the scan universe. Not a taste judgement; each is derived
+# from what the handlers under it actually call, and
+# tests/test_self_admission_is_not_vouched.py re-derives this set from the
+# source on every run rather than trusting the list below:
+#
+#   halt   /halt /pause /emergency_stop and the destructive inline callbacks →
+#          engine.risk.emergency_halt(), every per-user RiskEngine halted,
+#          engine._pending_ideas cleared, engine._transition(HALTED)
+#   reset  /reset /resume → engine.reset_circuit_breaker_all(), which by its own
+#          docstring resets "the shared engine AND every per-user RiskEngine"
+#          and clears engine._halted
+#   mode   /mode → RUNTIME.asset_universe = ..., the universe every account's
+#          scans run against
+#
+# `run` was a candidate and is NOT here. It writes engine._pending_ideas — but
+# so do analyze_asset and pro_scan, and `scan` is in the VIEWER set, so the idea
+# book is already shared by everyone who can scan. Removing `run` alone would be
+# a refactor bought with no safety.
+OPERATOR_CONTROL_PERMISSIONS = frozenset({"halt", "reset", "mode"})
+
+# A user who let themselves in through PAPER_AUTO_ACCEPT gets this role, and an
+# admin's /approve grants "trader". They were the SAME role, which is the whole
+# of H4: the door opened for the Arena on-ramp handed every stranger who
+# messaged the bot the permission set a vouched-for teammate holds — including
+# `reset`, whose /reset clears the operator's tripped circuit breaker globally.
+#
+# `authorize()` clamps to this role whenever the admitting party is
+# SELF_ADMISSION_BY, so the separation does not depend on every call site
+# remembering it.
+SELF_ADMISSION_ROLE = "paper"
+SELF_ADMISSION_BY = "auto-accept"
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {"*"},  # everything
@@ -54,6 +88,27 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         # /mystrategy: a trader's own tighten-only confirm gate — it can only
         # REFUSE that trader's confirms, touches nothing shared, so it belongs
         # to exactly the role that can confirm trades.
+        "mystrategy",
+    },
+    # Self-admission (PAPER_AUTO_ACCEPT). "trader" minus OPERATOR_CONTROL_
+    # PERMISSIONS, written out rather than computed as a set difference,
+    # because the two directions fail differently and only one of them fails
+    # safe. Derived, a permission added to "trader" would land here too — which
+    # is exactly how a stranger got `reset`. Written out, a new trader
+    # permission is WITHHELD until somebody decides, and the new feature being
+    # invisible to self-admitted users is a complaint, not a breach.
+    #
+    # The maintenance cost of writing it out is paid by a test, not by
+    # remembering: test_self_admission_is_not_vouched pins
+    # `trader - paper == OPERATOR_CONTROL_PERMISSIONS` exactly, so adding to one
+    # set without deciding about the other fails loudly instead of drifting.
+    "paper": {
+        "lang",
+        "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
+        "trade", "risk", "status", "rejected", "macro",
+        "backtest", "walkforward", "journal", "costs", "run", "learn",
+        "patterns", "proposals", "optimize", "playbook",
+        "exposure", "networth", "research", "rwa",
         "mystrategy",
     },
     "viewer": {
@@ -149,8 +204,19 @@ TIER_FEATURES: dict[str, set[str]] = {
 
 # Default tier for new auto-approved users
 DEFAULT_TIER = "basic"
-# Default role for new auto-approved users
-DEFAULT_AUTO_ROLE = "trader"
+# Default role for new auto-approved users. Every caller of register() leaves
+# auto_role empty, so this one name covers BOTH self-provisioning doors: a
+# stranger messaging the bot on Telegram and a stranger signing up on the
+# website (bot/web/user_gateway.py). Neither has been vouched for by a human,
+# so neither gets the vouched-for role.
+#
+# The web door was found first and patched at the TRANSPORT: `halt` is absent
+# from _WEB_SKILL_PERMISSION, with a comment saying the map cannot include it
+# *because* "Web ids are auto-provisioned with DEFAULT_AUTO_ROLE, which holds
+# the 'halt' permission". That workaround stays — defence in depth — but it is
+# no longer the only thing standing between a signup and the shared kill
+# switch, which is the wrong place for that load to sit.
+DEFAULT_AUTO_ROLE = SELF_ADMISSION_ROLE
 
 # F-14: a SENSITIVE command (trade/halt/reset/mode/golive/approve/revoke) is
 # refused after this much inactivity, so a hijacked-but-idle chat cannot move
@@ -333,8 +399,27 @@ class UserStore:
         to grant the access it announces. Splitting the two restores /approve
         while keeping the hole shut: register() cannot name an approving admin,
         so it cannot admit anyone.
+
+        ``by`` ALSO decides how much can be granted. F-2's remaining half was
+        that it stamps ``admitted_by`` with whatever it is handed, so
+        ``by="auto-accept"`` — a door that opens with no human on the other side
+        — could name any role in ROLES. It named "trader", and a stranger's
+        first message bought them /reset on the operator's circuit breaker.
+        Self-admission is clamped to SELF_ADMISSION_ROLE here rather than at the
+        call site, for the same reason F-2 put the admission stamp here: a rule
+        that lives in one funnel cannot be forgotten by the next caller.
         """
         key = str(telegram_id)
+        if by == SELF_ADMISSION_BY and role != SELF_ADMISSION_ROLE:
+            # Clamp DOWN and record it. Refusing outright would leave the caller
+            # having asked for access and received silence, which on the
+            # auto-accept path means the newcomer is turned away with no reason
+            # — the friction this door exists to remove.
+            audit(system_log,
+                  f"Self-admission asked for role={role!r}; "
+                  f"granted {SELF_ADMISSION_ROLE!r}",
+                  action="self_admission_clamped", result="CLAMPED")
+            role = SELF_ADMISSION_ROLE
         if role not in ROLES or role == "pending":
             return False
         with self._lock:

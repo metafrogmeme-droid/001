@@ -38,12 +38,19 @@ def test_short_shared_strings():
 
 
 def test_approve_messages():
+    # `paper` joined the list when self-admission stopped granting `trader`
+    # (H4). The byte-identical contract in this file's docstring is about the
+    # ROUTING not silently changing copy — an intentional copy change updates
+    # the literal here, which is the point of pinning it.
     _eq(f"\U0001f4cb {t('approve_usage', L)}",
         "\U0001f4cb <b>Usage</b>\n\n<code>/approve &lt;telegram_id&gt; [role]</code>\n\n"
-        "Roles: <code>trader</code> (default), <code>viewer</code>, <code>admin</code>")
+        "Roles: <code>trader</code> (default), <code>paper</code>, <code>viewer</code>, "
+        "<code>admin</code>\n\n"
+        "<i>paper = everything trader can do except halt / reset / mode. "
+        "Self-admitted users start here.</i>")
     _eq(f"\U0001f534 {t('invalid_role', L, role=html.escape('admin'))}",
         "\U0001f534 Invalid role: <code>admin</code>\n"
-        "Valid: <code>trader</code>, <code>viewer</code>, <code>admin</code>")
+        "Valid: <code>trader</code>, <code>paper</code>, <code>viewer</code>, <code>admin</code>")
     tm = "\U0001f525 Live"
     _eq(f"✅ {t('approve_result', L, sep=SEP, name='Bob', id='123', role='admin', trade_mode=tm)}",
         f"✅ <b>USER APPROVED</b>\n{SEP}\n- Name: <b>Bob</b>\n- ID: <code>123</code>\n"
