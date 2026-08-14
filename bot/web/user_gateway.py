@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from aiohttp import web
 
 from bot.config import CONFIG
+from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
 from bot.utils.logger import audit, system_log
 
 # Fail-closed: gateway refuses all requests unless the operator configured a
@@ -114,39 +115,15 @@ def _is_admin_id(tg_handler, tg_id: str) -> bool:
 # Unmapped skills DENY. A skill added later is unreachable from web chat until
 # somebody decides what it needs, which is the safe direction — the alternative
 # is exactly the defect above, arriving silently.
+#
+# THE TABLE MOVED (H3), and the contents did not. It now lives in
+# bot/skills/skill_permissions.py, because this fix was scoped to one transport
+# and the Telegram free-text path reached the same skills by the same English
+# words with no gate at all — the same defect, twice, which is what a second
+# copy of a table buys you. `halt`'s deliberate absence is preserved by
+# construction (WEB_CHAT_SKILLS excludes it) rather than by remembering.
 _WEB_SKILL_PERMISSION: dict[str, str] = {
-    "analyze_asset": "analyze",
-    "check_risk": "risk",
-    "costs": "costs",
-    "deepscan": "deepscan",
-    "get_portfolio": "portfolio",
-    # "halt" is DELIBERATELY ABSENT. HaltSkill is GLOBAL — it trips the shared
-    # circuit breaker, halts every per-user risk engine and clears all pending
-    # ideas. The codebase already drew this line: POST /api/controls/stop
-    # refuses a merely SELF-SCOPED stop from a web identity with 409
-    # telegram_required. A global halt over chat cannot be laxer than that.
-    # Operators halt from Telegram, where the allowlist applies.
-    #
-    # This used to be justified by "web ids are auto-provisioned with
-    # DEFAULT_AUTO_ROLE, which holds the halt permission" — i.e. the map was
-    # carrying the whole load, because the role underneath it was wrong. H4
-    # fixed that end: DEFAULT_AUTO_ROLE is now SELF_ADMISSION_ROLE and holds no
-    # operator control. The omission stays anyway. A vouched-for "trader" still
-    # holds `halt`, and a global halt over web chat should not be reachable by
-    # them either.
-    "learning": "learn",
-    "macro_calendar": "macro",
-    "optimize": "optimize",
-    "patterns": "patterns",
-    "playbook": "playbook",
-    "pro_scan": "scan",
-    "proposals": "proposals",
-    "rejected_trades": "rejected",
-    "run_backtest": "backtest",
-    "run_strategy": "run",
-    "scan_market": "scan",
-    "walk_forward": "walkforward",
-    "whynot": "rejected",
+    name: SKILL_PERMISSION[name] for name in sorted(WEB_CHAT_SKILLS)
 }
 
 

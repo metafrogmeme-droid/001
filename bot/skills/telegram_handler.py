@@ -421,6 +421,7 @@ from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_confirm_reject as _scan_callback
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
 from bot.utils.logger import audit, system_log, _redact_string
+from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
 from bot.utils.user_store import (ROLES, SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore)
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
@@ -2162,9 +2163,49 @@ class TelegramHandler:
                 await self._cmd_orders(update, ctx)
                 return
 
+            # ── Dangerous intents → their GUARDED command (H3) ──
+            # "stop trading", "halt the bot", "kill the bot" and "emergency
+            # stop" are one regex in intent_router.py, and they resolved to the
+            # `halt` SKILL, which the fall-through below executed directly:
+            # `skill.execute(...)`. That skips the @guard decorator, so it
+            # skipped the role gate — and it skips `_cmd_halt`'s operator check,
+            # so it skipped H4's fix too. HaltSkill trips the shared breaker,
+            # halts every per-user risk engine, clears every pending idea and
+            # transitions the engine to HALTED. A self-admitted stranger typed
+            # three words and stopped trading for every account.
+            #
+            # Routed rather than re-gated, so there is nothing to keep in sync:
+            # the command owns its authority and free text borrows it. Same
+            # shape as get_orders above.
+            _owner = DANGEROUS_SKILLS.get(intent.skill)
+            if _owner:
+                await getattr(self, _owner)(update, ctx)
+                return
+
             # High-confidence match — dispatch to skill
             skill = self.registry.get(intent.skill)
             if skill:
+                # ── The role gate the fall-through never had (H3) ──
+                # `_handle_message` carries no @guard and checks the allowlist
+                # only, so every skill below ran for any allowlisted caller
+                # regardless of role: a viewer could type "backtest BTC" and get
+                # a backtest their role forbids at /backtest. Unmapped DENIES,
+                # matching the web path — a skill added later is unreachable
+                # from free text until somebody decides what it needs.
+                _perm = permission_for(intent.skill)
+                _denial = ("role" if _perm is None
+                           else self.users.permission_denial(tg_id, _perm))
+                if _denial:
+                    from bot.formatters.onboarding import permission_denied_notice
+                    _role = (self.users.get(tg_id) or {}).get("role", "pending")
+                    await self._send(update, permission_denied_notice(
+                        _perm or intent.skill, _role, _denial, lang=self._lang(update)))
+                    audit(system_log,
+                          f"Free-text skill denied: {intent.skill}",
+                          action="intent_denied", result="DENIED",
+                          data={"skill": intent.skill, "role": _role,
+                                "reason": _denial})
+                    return
                 audit(system_log, f"NL intent routed: '{text[:50]}' -> {intent.skill}",
                       action="intent_dispatch", result=intent.skill,
                       data={"confidence": intent.confidence, "source": intent.source})
