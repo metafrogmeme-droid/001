@@ -1002,6 +1002,12 @@ class MemoryDB {
         email_verified: false, verify_token: null, verify_token_expires: null,
         reset_token: null, reset_token_expires: null,
         referral_code: null, referred_by: null,
+        // Mirrors the MySQL column's `NOT NULL DEFAULT 0`. Without it the
+        // shim returns `undefined`, every comparison reads as epoch 0, and
+        // token revocation is silently INERT — which matters more than usual
+        // because the whole web suite runs against this shim, so the feature
+        // would have looked tested while doing nothing.
+        token_epoch: 0,
         leaderboard_handle: null, created_at: new Date() };
       // Column order varies: email/password vs the OAuth passwordless inserts.
       if (cmd.includes('PASSWORD_HASH')) {
@@ -1088,6 +1094,14 @@ class MemoryDB {
     }
 
     // -- Referral / invite --
+    // Revocation (M12). The increment is done in SQL on MySQL so two
+    // concurrent logouts cannot both read N and both write N+1; the shim is
+    // single-threaded, so `+= 1` is the faithful equivalent.
+    if (cmd.startsWith('UPDATE USERS SET TOKEN_EPOCH')) {
+      const user = this.users.find(u => u.id === params[0]);
+      if (user) user.token_epoch = (Number(user.token_epoch) || 0) + 1;
+      return [{ affectedRows: user ? 1 : 0 }, []];
+    }
     if (cmd.startsWith('UPDATE USERS SET REFERRAL_CODE')) {
       const user = this.users.find(u => u.id === params[1]);
       if (user) user.referral_code = params[0];
@@ -1645,6 +1659,18 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN telegram_id VARCHAR(32) DEFAULT NULL');
     } catch (e) { /* column already exists — fine */ }
+    // Token epoch (M12): bumped on logout and on password change, so every
+    // token minted before that moment stops verifying. Without it a stolen
+    // 30-day JWT was an unrevocable month of account access — including
+    // submitting exchange API keys. `bot/api/token_store.py` has done this
+    // since RC-AUD-020; the Express side never got it.
+    //
+    // DEFAULT 0 matters: existing users get epoch 0, and tokens minted before
+    // this column existed carry no epoch, which reads as 0 — so nobody is
+    // logged out by the deploy that adds it.
+    try {
+      await pool.execute('ALTER TABLE users ADD COLUMN token_epoch INT NOT NULL DEFAULT 0');
+    } catch (e) { /* exists */ }
     // 2FA (MH1): TOTP secret, enabled flag, hashed one-time backup codes.
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) DEFAULT NULL');
