@@ -397,12 +397,41 @@ def _health_gate_fields() -> dict:
 
 @app.get("/health")
 async def health():
-    uptime = round(time.time() - _start_time, 1) if _start_time else 0
+    # ENGINE-DERIVED FIELDS ARE OMITTED WHEN THERE IS NO ENGINE.
+    #
+    # This dict already knew the rule twice over — `engine_universe_size` and
+    # `analyze_capacity` below are left OUT rather than guessed, because "a zero
+    # here would read as 'nothing to scan'", and `_health_gate_fields()` three
+    # lines up returns `trading_gate_unknown: True` rather than a fabricated ""
+    # "which would read as 'trading is fine'". Two fields in between did the
+    # opposite:
+    #
+    #     "circuit_breaker_active": ... if engine else False,
+    #     "open_positions":         ... if engine else 0,
+    #
+    # so a bridge whose lifespan had not finished — or had failed — answered
+    # 200 with status ok, breaker clear, zero positions. Healthy, trading, flat,
+    # from a process with no engine at all. On the one surface this file's own
+    # comments call "THE surface the operator checked during the 2026-07-29
+    # incident".
+    #
+    # `/risk/status` takes the other honest route for the same data and raises
+    # 503 "Engine not initialized". /health cannot: it has to stay answerable in
+    # order to report WHY. So it omits, and says so in `engine`.
+    _ready = engine is not None
     return {
-        "status": "ok",
-        "uptime_seconds": uptime,
+        # "ok" is a claim about this whole bridge, not about its HTTP listener.
+        # A monitor that goes red while the engine is missing is right to.
+        "status": "ok" if _ready else "degraded",
+        "engine": "ready" if _ready else "absent",
+        # Absent rather than 0: an uptime of zero reads as "just started",
+        # which is a measurement, and the honest answer is that nothing has
+        # recorded a start.
+        **({"uptime_seconds": round(time.time() - _start_time, 1)}
+           if _start_time else {}),
         "simulation_mode": CONFIG.simulation_mode,
-        "circuit_breaker_active": engine.risk.circuit_breaker_active if engine else False,
+        **({"circuit_breaker_active": engine.risk.circuit_breaker_active}
+           if _ready else {}),
         # circuit_breaker_active covers daily_loss/drawdown/streak/manual and
         # NOT the warning-rate breaker, so it read "clear" while that breaker
         # was rejecting live trades. This field answers the question the
@@ -423,7 +452,8 @@ async def health():
         # could -- a health endpoint that 500s on a risk-engine hiccup reports
         # the wrong outage.
         **_health_gate_fields(),
-        "open_positions": len(engine.portfolio.open_positions) if engine else 0,
+        **({"open_positions": len(engine.portfolio.open_positions)}
+           if _ready else {}),
         # Named for what it IS. `universe_size` alone read as the engine's
         # trading universe and was used that way in a live diagnosis; it is
         # this bridge's own fixed /scan list and nothing else.
