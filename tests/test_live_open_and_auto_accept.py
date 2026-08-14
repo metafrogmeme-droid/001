@@ -301,8 +301,26 @@ class TestTheGuardActuallyAdmits:
 
     def test_auto_accept_does_not_make_them_an_admin(self, monkeypatch):
         h, _, _ = self._run(monkeypatch, auto_accept=True)
-        assert h.users.get("4242").get("role") == "trader"
         assert h._is_admin_id("4242") is False
+
+    def test_auto_accept_does_not_make_them_a_vouched_for_trader_either(self, monkeypatch):
+        """H4. The test above asked the wrong question, and so did the comment
+        on the code it covers: both checked whether the door grants ADMIN, and
+        it does not. It granted "trader" — the role /approve hands to somebody a
+        human vouched for — which carries `halt`, `reset` and `mode`, so a
+        stranger's first message bought them the operator's kill switch without
+        ever coming near admin.
+
+        The pair is the lesson: "not an admin" and "cannot trade live" were both
+        true, both checked, and neither was the axis that mattered.
+        """
+        from bot.utils.user_store import (OPERATOR_CONTROL_PERMISSIONS,
+                                          SELF_ADMISSION_ROLE)
+        h, _, _ = self._run(monkeypatch, auto_accept=True)
+        assert h.users.get("4242").get("role") == SELF_ADMISSION_ROLE
+        for perm in OPERATOR_CONTROL_PERMISSIONS:
+            assert h.users.permission_denial("4242", perm) == "role", (
+                f"a self-admitted newcomer can run a {perm!r} command")
 
 
 class TestTheRefusalNamesTheStepThatActuallyWorks:

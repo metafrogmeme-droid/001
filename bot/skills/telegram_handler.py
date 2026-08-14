@@ -421,7 +421,8 @@ from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_confirm_reject as _scan_callback
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
 from bot.utils.logger import audit, system_log, _redact_string
-from bot.utils.user_store import UserStore
+from bot.utils.user_store import (ROLES, SELF_ADMISSION_BY,
+                                  SELF_ADMISSION_ROLE, UserStore)
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
                             chat_language_name, SUPPORTED_LANGS)
 from bot.nlp.intent_router import IntentRouter
@@ -2652,17 +2653,26 @@ class TelegramHandler:
             # newcomer's first message is often a command they saw quoted
             # somewhere, not /start.
             #
-            # This grants BOT ACCESS ONLY. `_can_trade_live` is a separate
-            # authority a self-admitted user cannot satisfy — it needs
-            # PER_USER_LIVE_ENABLED and their OWN linked keys — so the door
-            # opening here never reaches the operator's balance.
+            # SELF_ADMISSION_ROLE, not "trader". This line used to say
+            # role="trader" under a comment claiming it "grants BOT ACCESS
+            # ONLY", because `_can_trade_live` is a separate authority a
+            # self-admitted user cannot satisfy. That is true and it is the
+            # wrong axis. `halt`, `reset` and `mode` are gated on the ROLE, not
+            # on live-trade eligibility, and "trader" carries all three — so a
+            # stranger's first message bought them /reset, which clears the
+            # operator's tripped circuit breaker on the shared engine and on
+            # every per-user risk engine. The live-trading door was shut and the
+            # kill switch was open.
+            #
+            # It is still true that this grants no access to anyone's balance.
             #
             # admitted_by is "auto-accept", never an admin id: F-2 exists
             # because `register()` could not name an approver, and a door that
             # forges one would be worse than the hole it replaced. /users still
-            # shows who a human vouched for.
+            # shows who a human vouched for — and now the role column does too.
             if getattr(CONFIG, "paper_auto_accept", False):
-                self.users.authorize(tg_id, role="trader", by="auto-accept")
+                self.users.authorize(tg_id, role=SELF_ADMISSION_ROLE,
+                                     by=SELF_ADMISSION_BY)
                 if self._is_allowlisted(update):
                     user = self.users.get(tg_id)
                 else:
@@ -3114,7 +3124,11 @@ class TelegramHandler:
 
         role = args[1].strip().lower() if len(args) > 1 else "trader"
 
-        if role not in ("trader", "viewer", "admin"):
+        # `paper` is grantable here on purpose: it is where a self-admitted user
+        # already sits, so an admin who wants to keep someone at that level —
+        # or move a "trader" back down to it without revoking access outright —
+        # can, instead of having only /revoke as the next step down.
+        if role not in ("trader", SELF_ADMISSION_ROLE, "viewer", "admin"):
             await self._send(update,
                 f"\U0001f534 {t('invalid_role', self._lang(update), role=html.escape(role))}")
             return
@@ -3405,9 +3419,13 @@ class TelegramHandler:
             f"{SEP}\n",
         ]
 
-        # Summary with role icons
-        role_icons = {"admin": "🔒", "trader": "⚔️", "viewer": "👁", "pending": "⏳"}
-        for role in ("admin", "trader", "viewer", "pending"):
+        # Summary with role icons. Iterate ROLES, not a second hardcoded tuple:
+        # this list is the operator's headcount, and a role missing from the
+        # loop is a group of real users rendering as absent — a stranger who
+        # let themselves in would simply not appear in the count.
+        role_icons = {"admin": "🔒", "trader": "⚔️", "paper": "📝",
+                      "viewer": "👁", "pending": "⏳"}
+        for role in ROLES:
             c = counts.get(role, 0)
             if c > 0:
                 icon = role_icons.get(role, "")
