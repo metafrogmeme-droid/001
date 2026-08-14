@@ -189,13 +189,41 @@ def test_fast_mode_says_what_it_skipped():
         "stops being run")
 
 
-def test_fast_only_drops_the_network_gates():
+def test_fast_only_drops_dependency_advisory_gates():
+    """The property is "--fast must not hide a gate an ordinary edit can break".
+
+    This asserted `"pip-audit" in cmd`, which was that property back when
+    pip-audit was the only SCA gate in the workflow. `FAST_SKIP` has always
+    matched on the step NAME — including "SCA —" — so when M3 added the npm
+    advisory ratchet for app/, preflight dropped it exactly as designed and this
+    test called it a violation.
+
+    The generalisation keeps the guard rather than widening it to nothing: a
+    dropped gate must read a DEPENDENCY MANIFEST, which is the reason neither
+    can go red from editing a .py or .js file. Anything else disappearing from
+    the fast loop is still a failure.
+    """
     full = {c for _, c, _ in preflight.steps(fast=False)}
     fast = {c for _, c, _ in preflight.steps(fast=True)}
     dropped = full - fast
     assert dropped, "fast mode must actually drop something"
+    # Every known dependency-advisory gate, by the command that runs it.
+    ADVISORY_GATES = ("pip-audit", "audit_gate.mjs", "npm audit", "cargo audit")
     for cmd in dropped:
-        assert "pip-audit" in cmd, f"--fast dropped a gate an edit CAN break: {cmd}"
+        assert any(g in cmd for g in ADVISORY_GATES), (
+            f"--fast dropped a gate an edit CAN break: {cmd}\n"
+            "Only dependency-advisory gates may be skipped — they cannot fail "
+            "from a source edit, which is the whole reason dropping them is safe.")
+
+
+def test_fast_still_drops_something_real():
+    """Guards the guard above: if FAST_SKIP stopped matching anything, the loop
+    would pass vacuously while --fast silently became identical to a full run."""
+    full = {c for _, c, _ in preflight.steps(fast=False)}
+    fast = {c for _, c, _ in preflight.steps(fast=True)}
+    assert len(full - fast) >= 2, (
+        "--fast now drops fewer than two gates; it is meant to drop every "
+        "dependency-advisory gate in the plan")
 
 
 def test_one_failure_does_not_hide_the_rest():

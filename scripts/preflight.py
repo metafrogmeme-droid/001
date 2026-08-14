@@ -55,9 +55,14 @@ PYTHON_JOBS = LOCAL_JOBS          # back-compat alias
 #: the step's `name`, case-insensitive.
 ALWAYS_SKIP = ("install", "checkout", "set up", "setup", "cache")
 
-#: Skipped by --fast. Both reach the network and neither can fail from an edit
-#: you just made, so they are the right things to drop from a tight loop —
-#: and the wrong things to drop before pushing.
+#: Skipped by --fast. Every one reaches the network and reads a DEPENDENCY
+#: MANIFEST, so none can fail from a source edit you just made — which is what
+#: makes them the right things to drop from a tight loop, and the wrong things
+#: to drop before pushing.
+#:
+#: Matched on the step NAME, so "SCA — …" covers pip-audit and the npm advisory
+#: ratchets without listing each. (Said explicitly because it once read "Both",
+#: from when there were two.)
 FAST_SKIP = ("pip-audit", "sca —", "sca -")
 
 #: Steps run by other jobs that still work here. Kept explicit because they
@@ -152,7 +157,15 @@ def main() -> int:
         # them under dash would fail a step CI passes — the exact class of
         # false signal this script exists to remove.
         _env = {**os.environ, "PATH": "/home/mulerun/bin:" + os.environ.get("PATH", "")}
-        rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd,
+        # nosec B602 — shell=True is the POINT of this line, not an oversight.
+        # `cmd` is a CI step's `run:` block read verbatim out of .github/
+        # workflows/ci.yml: a repository file, not input from anywhere. Running
+        # it through anything but a shell would execute something OTHER than
+        # what CI executes, which is the single failure this script exists to
+        # remove. Surfaced when M1 widened bandit's scope to cover scripts/;
+        # recorded here rather than silenced globally, so the next `shell=True`
+        # in this tree still has to justify itself.
+        rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd,  # nosec B602
                              executable="/bin/bash", env=_env)
         results.append((name, rc == 0, time.monotonic() - t0, False))
 
