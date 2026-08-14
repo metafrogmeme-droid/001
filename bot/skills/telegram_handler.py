@@ -2611,6 +2611,69 @@ class TelegramHandler:
             return None  # non-owner fell back to operator account → no access
         return ex
 
+    def _is_operator(self, update: Update) -> bool:
+        """The person who owns this deployment.
+
+        Both checks, and the second is not decoration. `_is_admin_id` reads the
+        user-store role and ADMIN_TELEGRAM_IDS; `engine._is_operator_user` reads
+        the store role and **TELEGRAM_CHAT_ID**. Only the second knows about the
+        operator's own chat id, and a deployment that sets TELEGRAM_CHAT_ID and
+        leaves ADMIN_TELEGRAM_IDS empty is the ordinary single-operator shape —
+        so on a box whose `data/users.json` was lost (a `git reset --hard` over
+        a volume that was not persisted has done it here), `_is_admin` alone
+        would refuse the operator their own kill switch at exactly the moment
+        they need it.
+
+        A mutation dropping the second clause passed the first version of this
+        file's tests, because the case they distinguished on — an admin by store
+        role — is one `_is_admin_id` already covers. The case that matters is an
+        operator known ONLY by TELEGRAM_CHAT_ID.
+        """
+        return (self._is_admin(update)
+                or self.engine._is_operator_user(self._get_tg_id(update)))
+
+    def _control_scope(self, update: Update):
+        """Which RiskEngine may THIS caller stop and start — the safety analogue
+        of `_caller_executor`, which does the same job for positions.
+
+        Returns ``(risk_engine, "shared")`` for an operator, ``(own, "own")``
+        for a user with their own per-user engine, and ``(None, "")`` when the
+        caller has neither — which is a REFUSAL, not a no-op.
+
+        WHY THE REFUSAL BRANCH EXISTS. `engine.risk_for(uid)` answers "whose
+        breakers apply to this caller", and with PER_USER_LIVE_ENABLED off — the
+        default — the honest answer for everyone is the shared operator engine.
+        That makes it exactly the wrong thing to hand a non-operator a control
+        over: their "own" breaker IS everybody's. Silently scoping to it would
+        have produced a `/reset` that reads as personal and clears the
+        operator's tripped breaker, which is the defect, wearing a helper.
+
+        So the two cases are told apart rather than merged. `risk_for` returning
+        the shared engine to a non-operator means "you do not have one", and the
+        caller is told so. Turn PER_USER_LIVE_ENABLED on and they get a real one
+        and a real, scoped `/reset`.
+        """
+        uid = self._get_tg_id(update)
+        if self._is_operator(update):
+            return self.engine.risk, "shared"
+        own = self.engine.risk_for(uid)
+        if own is self.engine.risk:
+            return None, ""
+        return own, "own"
+
+    async def _refuse_shared_control(self, update: Update, command: str) -> None:
+        """Say which authority is missing and what to do — not "denied".
+
+        A bare refusal on /reset reads as the bot being broken, and the person
+        most likely to hit it is a teammate the operator DID approve, acting in
+        good faith on a halted engine.
+        """
+        await self._send(update, t("control_operator_only", self._lang(update),
+                                   cmd=html.escape(command)))
+        audit(system_log, f"Shared-engine control refused: /{command}",
+              action="control_denied", result="DENIED",
+              data={"command": command, "user": self._get_tg_id(update)})
+
     def _check_auth(self, update: Update) -> bool:
         """Check if user is authorized (any role except pending).
 
@@ -4667,6 +4730,17 @@ class TelegramHandler:
             return
 
         new_mode = args[1].lower()
+        # Operator only, and gated HERE rather than at the top of the handler:
+        # `RUNTIME.asset_universe` is process-wide — it decides which symbols the
+        # scan loop pulls for everybody — so the WRITE is an operator action,
+        # while everything above this line is the read-only status card. Gating
+        # the whole command would have hidden from a user which universe their
+        # own scans are running against, and a mistyped `/mode slana` would have
+        # been answered with a permission refusal instead of the card that shows
+        # the valid names.
+        if not self._is_operator(update):
+            await self._refuse_shared_control(update, "mode")
+            return
         # C1 FIX: use mutable RuntimeState instead of mutating frozen CONFIG
         from bot.config import RUNTIME
         RUNTIME.asset_universe = new_mode
@@ -9355,16 +9429,33 @@ class TelegramHandler:
 
     @guard("halt")
     async def _cmd_halt(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        # Operator only, and there is no scoped variant to offer instead:
+        # HaltSkill trips the shared breaker AND every per-user engine, clears
+        # the shared idea book and transitions the whole engine to HALTED. None
+        # of that has a per-account meaning, so `_control_scope` is not the
+        # right tool — this is simply not a user's command.
+        if not self._is_operator(update):
+            await self._refuse_shared_control(update, "halt")
+            return
         result = await self.registry.dispatch("halt", self.engine)
         await self._send(update, result)
 
     @guard("reset")
     async def _cmd_reset(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        was_active = self.engine.risk.circuit_breaker_active
-        streak_before = self.engine.risk.consecutive_losses
-        # Reset the shared engine AND every per-user risk engine, so resuming
-        # after a global halt clears every account's breaker (not just operator).
-        self.engine.reset_circuit_breaker_all()
+        risk, scope = self._control_scope(update)
+        if risk is None:
+            await self._refuse_shared_control(update, "reset")
+            return
+        was_active = risk.circuit_breaker_active
+        streak_before = risk.consecutive_losses
+        if scope == "shared":
+            # Operator: reset the shared engine AND every per-user risk engine,
+            # so resuming after a global halt clears every account's breaker.
+            self.engine.reset_circuit_breaker_all()
+        else:
+            # This caller's own engine, and only theirs. The operator's breaker
+            # — and every other user's — is untouched.
+            risk.reset_circuit_breaker()
         lang = self._lang(update)
         if was_active:
             msg = f"\U0001f7e2 {t('reset_cb_done', lang)}"
@@ -9372,6 +9463,10 @@ class TelegramHandler:
             msg = f"\U0001f7e2 {t('reset_streak_cleared', lang, n=streak_before)}"
         else:
             msg = f"\U0001f7e1 {t('reset_nothing', lang, n=streak_before)}"
+        # The card must not let a personal reset read as a global one. Same rule
+        # as every other surface here: the scope of a claim is part of the claim.
+        if scope == "own":
+            msg += f"\n\n<i>{t('control_scope_own', lang)}</i>"
         await self._send(update, msg)
 
     @guard("macro")
@@ -11293,27 +11388,36 @@ class TelegramHandler:
     @guard("halt")
     async def _cmd_pause(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Pause trading — activates circuit breaker."""
-        self.engine.risk.emergency_halt("pause_telegram")
-        rendered = wr_pause()
+        risk, scope = self._control_scope(update)
+        if risk is None:
+            await self._refuse_shared_control(update, "pause")
+            return
+        risk.emergency_halt("pause_telegram")
+        rendered = wr_pause(scope=scope)
         await self._send(update, rendered["text"])
-        audit(system_log, "Bot paused via /pause", action="pause", result="OK")
+        audit(system_log, "Bot paused via /pause", action="pause", result="OK",
+              data={"scope": scope})
 
     @guard("reset")
     async def _cmd_resume(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Resume trading — deactivates circuit breaker."""
-        self.engine.risk.reset_circuit_breaker()
+        risk, scope = self._control_scope(update)
+        if risk is None:
+            await self._refuse_shared_control(update, "resume")
+            return
+        risk.reset_circuit_breaker()
         # Honest resume: if the daily-loss/drawdown condition still holds, the
         # breaker re-trips on the next evaluation — warn instead of showing a
         # clean CLEAR that the next status card contradicts with "Paused".
         _retrip = ""
         try:
-            _retrip = self.engine.risk.pending_retrip_reason() or ""
+            _retrip = risk.pending_retrip_reason() or ""
         except Exception:
             _retrip = ""
-        rendered = wr_resume(retrip_warning=_retrip)
+        rendered = wr_resume(retrip_warning=_retrip, scope=scope)
         await self._send(update, rendered["text"])
         audit(system_log, "Bot resumed via /resume", action="resume", result="OK",
-              data={"retrip_warning": _retrip or None})
+              data={"retrip_warning": _retrip or None, "scope": scope})
 
     async def _cmd_close_all(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /closeall — flatten all open positions on EVERY account.
@@ -11360,6 +11464,14 @@ class TelegramHandler:
     @guard("halt")
     async def _cmd_emergency_stop(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Emergency stop confirmation prompt."""
+        # Operator only. The confirm button runs engine.emergency_halt_all(),
+        # which halts every engine, clears queued ideas and FLATTENS EVERY
+        # ACCOUNT — operator and per-user alike. Gated here as well as on the
+        # callback so the button is never offered to somebody who cannot press
+        # it: a confirm prompt that refuses on confirm is its own defect.
+        if not self._is_operator(update):
+            await self._refuse_shared_control(update, "emergency_stop")
+            return
         rendered = wr_emergency_stop()
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u26d4 CONFIRM STOP", callback_data="emergency_confirm"),
@@ -11872,10 +11984,19 @@ class TelegramHandler:
             return
 
         if data == "risk_pause":
-            self.engine.risk.emergency_halt("pause_risk_panel")
-            rendered = wr_pause()
+            # Same authority as /pause. The permission map above gates this on
+            # `halt`, which is a ROLE check — it says the caller may pause
+            # something, not that they may pause EVERYBODY. The button and the
+            # command must not disagree about that, or the gate is decorative.
+            _risk, _scope = self._control_scope(update)
+            if _risk is None:
+                await self._refuse_shared_control(update, "pause")
+                return
+            _risk.emergency_halt("pause_risk_panel")
+            rendered = wr_pause(scope=_scope)
             await self._send(update, rendered["text"], edit=True)
-            audit(system_log, "Bot paused via risk panel", action="pause", result="OK")
+            audit(system_log, "Bot paused via risk panel", action="pause",
+                  result="OK", data={"scope": _scope})
             return
 
         if data == "risk_emergency_stop":
@@ -11891,6 +12012,13 @@ class TelegramHandler:
             # GLOBAL KILL-SWITCH: halt the shared engine AND every per-user risk
             # engine, clear queued ideas, and flatten EVERY account (operator +
             # per-user) — not just the operator.
+            #
+            # Operator only, mirroring /emergency_stop and the closeall_confirm
+            # button beside it. The `halt` permission gate above is a role
+            # check; this is the one that says whose accounts may be flattened.
+            if not self._is_operator(update):
+                await self._refuse_shared_control(update, "emergency_stop")
+                return
             summary = await self.engine.emergency_halt_all("emergency_stop_telegram")
 
             close_summary = ""

@@ -521,30 +521,53 @@ def render_strategy_mode(current_mode: str) -> Dict[str, Any]:
 # render_pause / render_resume
 # ═════════════════════════════════════════════════════════════════
 
-def render_pause() -> Dict[str, Any]:
+def render_pause(scope: str = "shared") -> Dict[str, Any]:
+    """Pause card. ``scope`` is "shared" (the operator stopped the engine, which
+    stops it for everybody) or "own" (a per-user caller stopped their own).
+
+    The parameter exists because the card asserted a scope it did not know. Its
+    every line \u2014 "All trading activity suspended", "Scanning PAUSED" \u2014 is a
+    claim about the WHOLE bot, and once /pause could act on one user's risk
+    engine that claim became false for exactly the caller reading it. Scope is
+    part of a claim, not decoration on it: a user who pauses their own account
+    and is told scanning stopped has been told the operator's engine stopped.
+    """
+    own = scope == "own"
+    title = "TRADING PAUSED" if own else "BOT PAUSED"
+    lede = ("Your account's trading is <b>suspended</b>" if own
+            else "All trading activity <b>suspended</b>")
     text = (
-        f"{_header(chr(0x23F8), 'BOT PAUSED')}\n\n"
-        f"  {_WARN} All trading activity <b>suspended</b>\n\n"
+        f"{_header(chr(0x23F8), title)}\n\n"
+        f"  {_WARN} {lede}\n\n"
         "<pre>"
-        f"{_kv('Scanning', 'PAUSED')}\n"
+        f"{_kv('Scanning', 'RUNNING' if own else 'PAUSED')}\n"
         f"{_kv('New Trades', 'BLOCKED')}\n"
         f"{_kv('Open Positions', 'UNCHANGED')}\n"
         f"{_kv('Circuit Breaker', 'ACTIVE')}"
         "</pre>\n\n"
-        "<i>\u25b8 Use /resume to reactivate trading</i>"
+        + ("  <i>\u25b8 Your account only \u2014 the engine keeps running for "
+           "everyone else</i>\n\n" if own else "")
+        + "<i>\u25b8 Use /resume to reactivate trading</i>"
     )
     return {"text": text}
 
 
-def render_resume(retrip_warning: str = "") -> Dict[str, Any]:
+def render_resume(retrip_warning: str = "", scope: str = "shared") -> Dict[str, Any]:
     """Resume card. When the risk engine reports the breaker would RE-TRIP on
     the next evaluation (daily loss / drawdown condition still holds), the card
     says so instead of claiming a clean resume that the very next status check
-    contradicts with a 'Paused' label."""
+    contradicts with a 'Paused' label.
+
+    ``scope`` — see render_pause. "RUNECLAW is back online" is a claim about the
+    engine; a per-user resume clears one account's breaker and brings nothing
+    online, so it must not say that.
+    """
+    own = scope == "own"
     text = (
-        f"{_header(chr(0x25B6) + chr(0xFE0F), 'BOT RESUMED')}\n\n"
-        f"  {_OK} {ENGINE} is <b>back online</b>\n\n"
-        "<pre>"
+        f"{_header(chr(0x25B6) + chr(0xFE0F), 'TRADING RESUMED' if own else 'BOT RESUMED')}\n\n"
+        + (f"  {_OK} Your account is <b>trading again</b>\n\n" if own
+           else f"  {_OK} {ENGINE} is <b>back online</b>\n\n")
+        + "<pre>"
         f"{_kv('Scanning', 'ACTIVE')}\n"
         f"{_kv('Trading', 'ENABLED')}\n"
         f"{_kv('Circuit Breaker', 'CLEAR' if not retrip_warning else 'CLEAR*')}"

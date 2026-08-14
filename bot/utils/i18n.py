@@ -737,6 +737,23 @@ _STRINGS: dict[str, dict[str, str]] = {
     "invalid_tg_id": {"en": "Invalid Telegram ID.", "zh": "無效的 Telegram ID。"},
     "invalid_tg_id_numeric": {"en": "Invalid Telegram ID. Must be numeric.", "zh": "無效的 Telegram ID，必須為數字。"},
     "invalid_tg_id_format": {"en": "Invalid Telegram ID format.", "zh": "Telegram ID 格式無效。"},
+    # Refusing a SHARED-engine control. Named, not "denied": the person most
+    # likely to see this is a teammate the operator did approve, acting in good
+    # faith on a halted engine, and "🔒 Denied" reads as the bot being broken.
+    # It says which authority is missing and who has it, and it does not promise
+    # a notification nobody sends.
+    "control_operator_only": {
+        "en": "\U0001f512 <code>/{cmd}</code> stops or starts the engine for "
+              "<b>every</b> account, so it is the operator's to run.\n\n"
+              "Your own trading is unaffected — nothing you do here can be "
+              "un-done by this command either.",
+        "zh": "\U0001f512 <code>/{cmd}</code> 會影響<b>所有</b>帳戶的引擎啟停，"
+              "因此僅限操作者執行。\n\n您自己的交易不受影響。",
+    },
+    "control_scope_own": {
+        "en": "Your account only — the engine keeps running for everyone else.",
+        "zh": "僅限您的帳戶 — 引擎對其他人仍持續運行。",
+    },
     # `paper` is listed because /approve accepts it. An operator reading
     # "Valid: trader, viewer, admin" while a fourth value silently works has no
     # way to discover the one step between full trader and /revoke.
