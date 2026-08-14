@@ -8,8 +8,14 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Eight gates: two ruff passes, mypy, bandit, pip-audit, the
-baseline test gate, the web app's suite, and guard reachability. ~6 minutes.
+step for free. Ten gates: two ruff passes, mypy, bandit, pip-audit, the
+baseline test gate, the web app's parse check, its npm advisory ratchet, its
+suite, and guard reachability. ~12 minutes.
+
+That "for free" is literal and was collected twice: the app parse gate and the
+npm ratchet were added to `ci.yml` for M3 and appeared in the local plan with no
+change to `preflight.py` — and this paragraph's own gate count is pinned by
+`tests/test_claude_md_accuracy.py`, which failed the moment they did.
 
 ```bash
 python3 scripts/preflight.py --fast   # tight loop; drops only the network gates

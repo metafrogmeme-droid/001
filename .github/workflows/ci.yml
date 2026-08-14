@@ -52,8 +52,19 @@ jobs:
           bot/core/bitget_v3_client.py bot/core/position_telemetry.py
           bot/core/live_executor.py
 
+      # M1: the scope was `bot/` alone, and the Dockerfile's CMD is
+      # `uvicorn api_bridge:app` — so the module the production image RUNS by
+      # default was never statically analysed, nor was dashboard_api.py, nor
+      # were the CI gate scripts that decide whether anything else ships.
+      #
+      # Extending it cost one annotation, not a backlog. Measured before
+      # changing: at this scope bandit finds exactly one high/high issue, and
+      # it is scripts/preflight.py's deliberate `shell=True` — see the `nosec`
+      # there. api_bridge.py and dashboard_api.py are clean, which is the
+      # useful half of this result: the value here is coverage from now on, not
+      # a pile of findings to triage.
       - name: SAST — bandit (high severity, high confidence)
-        run: bandit -r bot/ --severity-level high --confidence-level high -q
+        run: bandit -r bot/ api_bridge.py dashboard_api.py scripts/ --severity-level high --confidence-level high -q
 
       - name: Tests — baseline-diff regression gate (+ coverage floor)
         run: python3 scripts/ci_test_gate.py
@@ -460,6 +471,39 @@ jobs:
       - name: Install (locked)
         working-directory: app
         run: npm ci --no-audit --no-fund
+
+      # M3: app/ had TESTS in CI and nothing else — no SAST, no SCA, no lint on
+      # the largest HTTP surface in the repo. These two are the cheap half of
+      # closing that, and both were measured clean before being added, so
+      # neither lands red.
+      #
+      # A syntax error in a route file does not fail the suite — the suite only
+      # loads the modules its tests require, and 224 files here are not all
+      # reachable that way. It fails at RUNTIME, on the first request to
+      # whatever was never imported. Same gate the token job already runs, for
+      # the same reason.
+      - name: Parse — every script must at least compile
+        working-directory: app
+        run: |
+          for f in *.js lib/*.js routes/*.js public/js/*.js; do
+            [ -f "$f" ] || continue
+            node --check "$f" || exit 1
+          done
+
+      # SCA — the SAME ratchet token/ uses, pointed at this tree, rather than a
+      # second copy to drift against. app/ carries 1 low advisory today, so a
+      # plain `npm audit --audit-level=high` would also pass — but it would
+      # pass by luck, and go permanently red the day a transitive high lands
+      # with no scheduled upgrade. The ratchet fails on what is NEW, which is
+      # the thing anyone can actually act on.
+      #
+      # The root is a positional argument, not an env var: preflight.py runs
+      # these steps by parsing the `run:` string and ignores `env:`, so an
+      # env-var root would have this gate silently audit token/ when run
+      # locally.
+      - name: SCA — npm advisory ratchet
+        working-directory: app
+        run: node ../token/scripts/audit_gate.mjs .
 
       # app/ IS THE LARGEST HTTP SURFACE IN THIS REPO — 228 Express routes
       # against the aiohttp gateway's 53 — and until this job existed no

@@ -34,8 +34,28 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const TOKEN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BASELINE = path.join(TOKEN_ROOT, '.audit-baseline.json');
+
+// M3: which tree to audit. Defaults to token/ — this script's own package — so
+// the existing invocation is byte-identical. `app/` passes its own root as a
+// positional argument rather than getting a SECOND copy of this ratchet, which
+// would then drift: the whole argument of the comment above is that the gate's
+// shape is the hard part, and it is the same shape for any npm tree.
+//
+// A POSITIONAL ARG, NOT AN ENV VAR, deliberately. scripts/preflight.py runs CI
+// steps by parsing the `run:` string out of ci.yml and ignores each step's
+// `env:` block — so an AUDIT_ROOT environment variable would be set in CI and
+// unset locally, and preflight would silently audit token/ while reporting the
+// app/ step as passing. A gate that checks the wrong tree and says nothing is
+// worse than no gate.
+const _argRoot = process.argv.slice(2).find((a) => !a.startsWith('--'));
+const ROOT = _argRoot ? path.resolve(_argRoot) : TOKEN_ROOT;
+const BASELINE = path.join(ROOT, '.audit-baseline.json');
 const SEVERITIES = ['critical', 'high', 'moderate', 'low'];
+// The tree's own name, for every message this prints. Hardcoding "token/"
+// here would have had the app/ run report advisories "in token/" — a gate
+// naming the wrong subject in its own output is how somebody fixes the
+// wrong tree.
+const TREE = path.basename(ROOT);
 
 function runAudit() {
   // `npm audit` exits non-zero whenever anything is found, so the exit code
@@ -43,7 +63,7 @@ function runAudit() {
   // though: a gate that silently passes when it cannot read its own input is
   // worse than no gate.
   const res = spawnSync('npm', ['audit', '--json'], {
-    cwd: TOKEN_ROOT,
+    cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -105,7 +125,7 @@ const total = SEVERITIES.reduce((a, s) => a + nowCounts[s], 0);
 if (process.argv.includes('--update')) {
   const baseline = {
     _comment:
-      'Known npm advisories in token/, recorded deliberately. This is a RATCHET floor, ' +
+      `Known npm advisories in ${TREE}/, recorded deliberately. This is a RATCHET floor, ` +
       'not an approval: every entry is an outstanding vulnerability. Regenerate with ' +
       '`node scripts/audit_gate.mjs --update` only when you have reviewed the delta. ' +
       'Shrinking this file is always good; growing it needs a reason in the commit message.',
@@ -119,7 +139,7 @@ if (process.argv.includes('--update')) {
 }
 
 if (!fs.existsSync(BASELINE)) {
-  console.error(`No ${path.basename(BASELINE)}. Create it with: node scripts/audit_gate.mjs --update`);
+  console.error(`No ${BASELINE}. Create it with: node token/scripts/audit_gate.mjs ${ROOT} --update`);
   process.exit(1);
 }
 const baseline = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
@@ -129,7 +149,7 @@ const newIds = nowIds.filter((id) => !baseIds.has(id));
 const goneIds = [...baseIds].filter((id) => !nowIds.includes(id));
 const grew = SEVERITIES.filter((s) => nowCounts[s] > (baseline.counts?.[s] ?? 0));
 
-console.log(`npm advisories in token/: ${total} (${SEVERITIES.map((s) => `${s} ${nowCounts[s]}`).join(', ')})`);
+console.log(`npm advisories in ${TREE}/: ${total} (${SEVERITIES.map((s) => `${s} ${nowCounts[s]}`).join(', ')})`);
 console.log(`baseline (${baseline.recorded}):  ${SEVERITIES.map((s) => `${s} ${baseline.counts?.[s] ?? 0}`).join(', ')}`);
 
 if (goneIds.length) {
