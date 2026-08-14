@@ -51,6 +51,23 @@ services:
     image: runeclaw:latest
     container_name: runeclaw-api
     restart: unless-stopped
+    # H1: --proxy-headers --forwarded-allow-ips='*' is GONE, and its removal is
+    # the load-bearing half of that fix.
+    #
+    # In always-trust mode uvicorn takes the LEFT-most X-Forwarded-For entry and
+    # overwrites scope["client"], while nginx sets
+    # `X-Forwarded-For $proxy_add_x_forwarded_for` (nginx.conf:66, :104), which
+    # APPENDS the real peer on the RIGHT. The left-most entry is therefore
+    # whatever the caller typed, so `request.client.host` was attacker-chosen
+    # before any application code ran — including the per-IP login lockout.
+    # Rotating one header bought a fresh rate-limit and lockout bucket per
+    # request.
+    #
+    # Without the flags, `request.client.host` is the nginx container, which
+    # TRUSTED_PROXY names — so bot/utils/client_ip.py believes the headers that
+    # hop wrote (X-Real-IP, set from $remote_addr and not forgeable past it) and
+    # nothing else. Reach this service directly and the peer is not trusted, so
+    # the headers are ignored and the connection is the only evidence.
     # ONE WORKER, DELIBERATELY. api_bridge's lifespan constructs its own
     # RuneClawEngine per worker, and every worker mounts the same ./data as
     # the bot container below. At --workers 2 that was THREE engines sharing
@@ -63,8 +80,6 @@ services:
       --host 0.0.0.0
       --port 8000
       --workers 1
-      --proxy-headers
-      --forwarded-allow-ips='*'
     env_file: .env
     expose:
       - "8000"
@@ -141,3 +156,11 @@ volumes:
 networks:
   runeclaw_net:
     driver: bridge
+    # Pinned so TRUSTED_PROXY has something stable to name. A bridge network
+    # without an explicit subnet gets whatever Docker allocates, and containers
+    # get whatever address is free within it — so "trust the nginx container"
+    # was not expressible as configuration until this existed. Set
+    # TRUSTED_PROXY=172.28.0.0/16 in .env to match.
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

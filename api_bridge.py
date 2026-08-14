@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
 from bot.api.auth_routes import auth_router
+from bot.utils.client_ip import client_ip
 from bot.api.lab import lab_router
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.core.analyzer import _detect_candlestick_patterns
@@ -110,38 +111,21 @@ _SCAN_BATCH_SIZE = 10
 _rate_limits: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT = 30  # requests per minute per client IP
 
-# RC-AUD-012: trusted-proxy handling for client-IP derivation.
-# By default we key the limiter on request.client.host. X-Forwarded-For is
-# client-SPOOFABLE, so we only consult it when TRUSTED_PROXY is configured
-# (comma-separated list of the proxy IPs that sit in front of us). When set, we
-# take the right-most XFF entry that is NOT itself a trusted proxy — i.e. the
-# closest hop our trusted edge actually observed. Attacker-prepended entries are
-# to the LEFT and are skipped, so the key cannot be spoofed past a real proxy.
-_TRUSTED_PROXY_RAW = os.getenv("TRUSTED_PROXY", "").strip()
-_TRUSTED_PROXIES: set[str] = {
-    p.strip() for p in _TRUSTED_PROXY_RAW.split(",") if p.strip()
-}
-
-
+# RC-AUD-012 / H1: client-IP derivation moved to bot/utils/client_ip.py.
+#
+# It lived here and `bot/api/auth_routes.py` — mounted into THIS app at
+# /auth — never called it, reading `request.client.host` straight. So the
+# 30/min API limiter had the anti-spoof walk and the failed-login lockout did
+# not, which is the wrong way round: one throttles scans, the other stands
+# between a password list and an account.
+#
+# The walk also trusted X-Forwarded-For whenever TRUSTED_PROXY was non-empty
+# without checking that the PEER was that proxy, and production ran uvicorn
+# with --forwarded-allow-ips='*' so `request.client.host` was already the
+# attacker's leftmost XFF entry. See that module's docstring.
 def _client_ip(request: Request) -> str:
-    """Derive the client IP for rate limiting.
-
-    Default (TRUSTED_PROXY unset): return request.client.host — unchanged
-    behavior. When TRUSTED_PROXY is set, derive the IP from the right-most
-    untrusted X-Forwarded-For entry, falling back to request.client.host when
-    the header is missing/empty or every entry is a trusted proxy.
-    """
-    direct = request.client.host if request.client else "unknown"
-    if not _TRUSTED_PROXIES:
-        return direct
-    xff = request.headers.get("x-forwarded-for", "")
-    if not xff:
-        return direct
-    # Right-to-left: first entry that is not a known trusted proxy is the client.
-    for hop in reversed([h.strip() for h in xff.split(",") if h.strip()]):
-        if hop not in _TRUSTED_PROXIES:
-            return hop
-    return direct
+    """Deprecated alias — kept so existing call sites and tests keep working."""
+    return client_ip(request)
 
 
 def _check_rate_limit(client_ip: str) -> bool:
