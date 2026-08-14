@@ -91,6 +91,7 @@ class MemoryDB {
     this.agentEvents = []; // public agent mind-stream feed (bounded ring)
     this._nextAgentEventId = 1;
     this.reportsCache = null;  // { reports_json, updated_at } (single row)
+    this.flightCache = null;   // { flight_json, updated_at } (single row)
     this.walletLinkCodes = {};   // code -> { user_id, expires_at }
     this.walletLinkNonces = {};  // address -> { message, expires_at }
     this.userProfiles = {};    // user_id -> { risk_pref, watchlist, prefs }
@@ -145,7 +146,24 @@ class MemoryDB {
       throw err;
     }
 
-    if (cmd.startsWith('CREATE TABLE')) return [[], []];
+    // SCHEMA STATEMENTS ARE DELIBERATELY IGNORED, not unimplemented.
+    //
+    // The shim's "tables" are JS arrays whose shape is fixed in code, so DDL
+    // has nothing to apply and no-opping is the correct answer — unlike a
+    // SELECT or an INSERT, where having no branch means the caller is being
+    // handed an invented result.
+    //
+    // Listed explicitly because the fall-through below now throws. `migrate()`
+    // runs 80+ of these, each inside its own try/catch, so treating them as
+    // unimplemented would raise twenty-odd exceptions on every boot and have
+    // them all swallowed — noise that trains people to ignore the very signal
+    // the throw exists to give. Caught by this file's own test rather than in
+    // review.
+    if (cmd.startsWith('CREATE TABLE') || cmd.startsWith('ALTER TABLE')
+        || cmd.startsWith('CREATE INDEX') || cmd.startsWith('CREATE UNIQUE INDEX')
+        || cmd.startsWith('DROP TABLE') || cmd.startsWith('DROP INDEX')) {
+      return [[], []];
+    }
 
     // -- SIGNALS -- (checked before TRADES: the stats query shares COUNT(*)/wins
     // aliases with trade handlers, so it must match here first.)
@@ -858,6 +876,20 @@ class MemoryDB {
       return [this.reportsCache ? [{ ...this.reportsCache }] : [], []];
     }
 
+    // -- FLIGHT CACHE (single-row, same shape) --
+    // The ONLY table the suite exercised that the shim did not implement:
+    // measured by logging every fall-through across all 2,388 tests, which
+    // produced exactly five hits and one table name. Both statements were
+    // answered with empty rows, so the Guardian flight recorder wrote to
+    // nothing and read back nothing, and every test over it agreed.
+    if (cmd.includes('REPLACE INTO FLIGHT_CACHE')) {
+      this.flightCache = { id: 1, flight_json: params[0], updated_at: new Date() };
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM FLIGHT_CACHE')) {
+      return [this.flightCache ? [{ ...this.flightCache }] : [], []];
+    }
+
     // -- PENDING STANCE (single-row admin request queue) --
     if (cmd.includes('REPLACE INTO PENDING_STANCE')) {
       // params: mode, requested_by, telegram_id
@@ -1562,7 +1594,32 @@ class MemoryDB {
       return [rows.map(p => ({ ...p })), []];
     }
 
-    return [[], []];
+    // NO BRANCH MATCHED. This used to `return [[], []]` — the shim inventing
+    // an answer it does not have, in the one shape this repository treats as
+    // the founding defect: a failed read rendering as an empty result.
+    //
+    // It is not hypothetical and it is not rare in consequence. Every test in
+    // the ~2,400-test web suite runs against this class, so an unimplemented
+    // statement did not fail — it passed, quietly, and the surface above it
+    // was asserted to be correct while reading from nothing. `flight_cache`
+    // above was exactly that: four writes and a read, all answered with empty
+    // rows, all green.
+    //
+    // Measured before switching: logging every fall-through across the whole
+    // suite produced five hits and a single table. So this throw costs
+    // nothing today, and the next unimplemented statement announces itself
+    // instead of being absorbed.
+    //
+    // The message carries `describeSql`'s short descriptor — a verb and a
+    // table name from DDL this repository authors. No values, no user data,
+    // no secrets, same contract as `_lastStatement`.
+    const err = new Error(
+      `MemoryDB has no handler for: ${describeSql(sql) || 'unrecognised statement'}. `
+      + 'The in-memory shim answers only the statements it implements; '
+      + 'returning empty rows here would report "no data" for a query that '
+      + 'was never run. Add a branch for it in MemoryDB.query().');
+    err.code = 'ER_MEMORYDB_UNIMPLEMENTED';
+    throw err;
   }
 }
 
