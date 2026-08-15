@@ -144,13 +144,22 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Security headers — BEFORE the static handler so every response (including
-// static-served HTML) carries them. The CSP allows inline script/style (the
-// pages use both) but pins script sources to this origin plus the Telegram
-// login widget — an injected <script src> from anywhere else won't execute,
-// which is the second line of defense behind the app's HTML escaping.
+// static-served HTML) carries them.
+//
+// M14: script-src used to be `'self' 'unsafe-inline' https://telegram.org`,
+// which meant CSP was no backstop at all — any one innerHTML sink reached with
+// unescaped attacker data executes, and the session bearer token is readable
+// from localStorage. 'unsafe-inline' is what makes that chain one bug instead
+// of two. It is now the SHA-256 of each inline block the site actually ships
+// (lib/csp.js), computed from the same bytes express.static serves, so an
+// edited page cannot silently stop executing. Inline on* handlers cannot be
+// hashed at all and were converted to delegated listeners.
+//
+// style-src keeps 'unsafe-inline': the pages carry inline style attributes,
+// which have no hash form either, and an injected style is not the finding.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://telegram.org",
+  `script-src ${require('./lib/csp').scriptSrc()}`,
   "style-src 'self' 'unsafe-inline'",
   // blob: is needed for the WebGL agent viewer (GLTF decodes embedded textures
   // to same-origin blob: URLs); it's ephemeral and same-origin, not a network
