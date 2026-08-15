@@ -46,7 +46,12 @@ router.get('/', async (req, res) => {
     res.json({ following: await followingIds(req.user.user_id) });
   } catch (err) {
     console.error('Copy list error:', err.stack || err.message);
-    res.json({ following: [] });
+    // `{following: []}` tells the caller they follow nobody, which is a claim
+    // about their account, not a failure to read it — and it drives a
+    // Follow/Following toggle, so the UI offered "Follow" for agents already
+    // followed. The second call site in dashboard.js already guards on `.ok`
+    // to "keep the last known list"; a 200 made that guard unreachable.
+    res.status(503).json({ error: 'copy_list_unavailable' });
   }
 });
 

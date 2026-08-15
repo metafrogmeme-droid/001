@@ -315,7 +315,11 @@ test('the dashboard stream has the one-tap Arena button and its handler', () => 
   const dash = read('public', 'js', 'dashboard.js');
   assert.match(dash, /data-parena="\$\{esc\(s\.signal_key\)\}"/,
     'the button must carry the signal_key, not an id the public API lacks');
-  assert.match(dash, /s\.pnl == null && s\.signal_key/,
+  // Resolution is read from the outcome LABEL now, not the amount: /api/signals
+  // stopped publishing `pnl` (§4 — no dollars on an anonymous payload), and a
+  // key that is simply absent would make `s.pnl == null` true for every
+  // resolved signal and offer an open on all of them.
+  assert.match(dash, /s\.outcome == null && s\.signal_key/,
     'a resolved signal must not offer an open');
   assert.match(dash, /signal_key: abtn\.getAttribute\('data-parena'\)/);
   // The refusals the route encodes translate; free-text errors pass through.

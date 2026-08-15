@@ -20,8 +20,9 @@ const css = fs.readFileSync(
   path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
 test('actionable signal rows carry a one-tap Trade button with the geometry', () => {
-  // Button emitted only for unresolved signals with full geometry.
-  assert.match(dash, /const canTrade = s\.pnl == null && s\.entry_price && s\.stop_loss && s\.take_profit/);
+  // Button emitted only for unresolved signals with full geometry. Unresolved
+  // is `outcome == null` — the public payload no longer carries the amount.
+  assert.match(dash, /const canTrade = s\.outcome == null && s\.entry_price && s\.stop_loss && s\.take_profit/);
   assert.match(dash, /data-ptrade='\$\{esc\(JSON\.stringify\(\{ d: s\.direction, sy: s\.symbol, e: s\.entry_price, sl: s\.stop_loss, tp: s\.take_profit \}\)\)\}'/);
 });
 

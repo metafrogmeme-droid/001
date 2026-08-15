@@ -27,6 +27,7 @@ const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
+const { aggregateStats } = require('../public/js/trade-stats');
 const gateway = require('../lib/gateway');
 
 const router = express.Router();
@@ -62,11 +63,24 @@ async function operatorPortfolio(userId) {
   const [open] = await pool.execute(
     "SELECT * FROM trades WHERE user_id = ? AND status = 'OPEN' ORDER BY opened_at DESC",
     [userId]);
+  // `trades.pnl` is DECIMAL(14,2) and NULLABLE (db.js), and a CLOSED row with
+  // no recorded P&L genuinely reaches user 1 — routes/sync.js forwards the
+  // gateway's `pnl` uncoerced on both its insert paths. The two queries that
+  // used to be here were the two banned shapes from CLAUDE.md's table, side by
+  // side: `COALESCE(SUM(pnl), 0)` printed an unpriceable book as a measured
+  // $0.00, and `wins / COUNT(*)` put every unpriced row in the denominator
+  // only, so each one dragged the operator's win rate DOWN.
+  //
+  // sync.js and routes/trades.js were both rewritten to score the priced rows
+  // explicitly; this function — reachable only for the operator account, which
+  // is why it was missed — never got that fix. Same query, same reader
+  // (aggregateStats), so the three paths cannot drift apart again.
   const [pnlRows] = await pool.execute(
-    'SELECT COALESCE(SUM(pnl), 0) as net_pnl, COALESCE(SUM(fees), 0) as total_fees, COUNT(*) as total_trades FROM trades WHERE user_id = ? AND status = ?',
-    [userId, 'CLOSED']);
-  const [winRows] = await pool.execute(
-    'SELECT COUNT(*) as wins FROM trades WHERE user_id = ? AND status = ? AND pnl > 0',
+    "SELECT COUNT(*) AS total, " +
+    "SUM(CASE WHEN pnl IS NOT NULL THEN 1 ELSE 0 END) AS scored, " +
+    "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, " +
+    "SUM(pnl) AS net_pnl " +
+    "FROM trades WHERE user_id = ? AND status = ?",
     [userId, 'CLOSED']);
   // Live/paper mode AND live-availability from the bot's own scan payload
   // (circuit_breaker). Mode and equity must be derived together so the header
@@ -88,8 +102,7 @@ async function operatorPortfolio(userId) {
       if (Number.isFinite(e) && e > 0) cbEquity = e;
     }
   } catch (e) { /* mode stays PAPER */ }
-  const total = parseInt(pnlRows[0]?.total_trades || 0);
-  const wins = parseInt(winRows[0]?.wins || 0);
+  const closed = aggregateStats(pnlRows[0]);
   const snap = snaps[0];
   const fresh = snap && (Date.now() - new Date(snap.snapshot_at).getTime()) < 30 * 60 * 1000;
 
@@ -127,10 +140,15 @@ async function operatorPortfolio(userId) {
     source: 'sync',
     equity,
     live_unavailable: liveUnavailable,
-    total_pnl: parseFloat(pnlRows[0]?.net_pnl || 0),
+    total_pnl: closed.net_pnl,
     daily_pnl: null, // not tracked on the sync path
-    win_rate: total > 0 ? (wins / total) * 100 : null,
-    total_trades: total,
+    win_rate: closed.win_rate,
+    total_trades: closed.total,
+    // How much of the book each figure could be computed over travels WITH the
+    // figures, exactly as it does on the sync path — a win rate over 8 of 20
+    // closes and one over 20 of 20 are different claims.
+    scored_trades: closed.scored,
+    unpriced_trades: closed.unpriced,
     open_positions: open,
     closed_trades: [],
     linked: true,

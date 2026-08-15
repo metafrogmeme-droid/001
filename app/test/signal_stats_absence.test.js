@@ -33,6 +33,7 @@ const http = require('node:http');
 const express = require('express');
 
 const APP = path.join(__dirname, '..');
+const { dollarKeys } = require('../lib/public_signal');
 
 /** Serve routes/signals.js against a planted `signals` table. */
 function server(rows, { explode = false } = {}) {
@@ -110,14 +111,12 @@ test('nothing resolved is null, not 0%', async () => {
   assert.strictEqual(status, 200);
   assert.strictEqual(body.resolved, 0);
   assert.strictEqual(body.win_rate, null, '0% claims every signal lost');
-  assert.strictEqual(body.net_pnl, null, 'COALESCE(SUM(pnl),0) claims break-even');
 });
 
 test('a measured zero still reports itself', async () => {
   // Three signals, all flat. That is a real result and must not be hidden.
   const { body } = await stats([sig(0), sig(0), sig(0)]);
   assert.strictEqual(body.win_rate, 0, 'three resolved, none won — that IS 0%');
-  assert.strictEqual(body.net_pnl, 0);
   assert.strictEqual(body.flat, 3);
   assert.strictEqual(body.losses, 0);
 });
@@ -128,5 +127,20 @@ test('a real record still reads correctly', async () => {
   assert.strictEqual(body.wins, 2);
   assert.strictEqual(body.losses, 2);
   assert.strictEqual(body.win_rate, 50);
-  assert.strictEqual(body.net_pnl, 20);
+});
+
+// ── §4: this endpoint is anonymous, so it publishes no amounts ─────────────
+
+test('a populated record still publishes no dollar figure', async () => {
+  // The net_pnl assertions that used to live above are gone because the FIELD
+  // is gone: `SUM(pnl)` is an amount and server.js mounts /api/signals with no
+  // auth. It was emitted for as long as the column stayed NULL in production,
+  // which is the only reason it never leaked — so plant a populated record,
+  // the case that would have leaked, and check the whole payload.
+  const { body } = await stats([sig(10), sig(20), sig(-5)]);
+  assert.deepStrictEqual(dollarKeys(body), [],
+    'a dollar-named field is back on an unauthenticated payload');
+  // The ratios and counts — everything the panel actually renders — survive.
+  assert.strictEqual(body.resolved, 3);
+  assert.strictEqual(body.win_rate, 66.7);
 });

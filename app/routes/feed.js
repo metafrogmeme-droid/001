@@ -48,7 +48,12 @@ router.get('/recent', async (req, res) => {
     res.json({ events });
   } catch (err) {
     console.error('Feed recent error:', err.stack || err.message);
-    res.json({ events: [] });
+    // `{events:[]}` is the mind-stream saying the agent has thought nothing.
+    // Both callers already distinguish the two: dashboard.js's getFeed()
+    // mustRead()s this, and the landing page has a drawUnreadable() branch
+    // reading "this is a connection problem, not a quiet engine" — which an
+    // HTTP 200 with an empty array could never reach.
+    res.status(503).json({ error: 'feed_unavailable' });
   }
 });
 

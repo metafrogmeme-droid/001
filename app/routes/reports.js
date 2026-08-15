@@ -17,13 +17,16 @@
 const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
-const { getLatestReports } = require('./sync');
+const { getLatestReports, readReports } = require('./sync');
 
 const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    const r = await getLatestReports();
+    // readReports, not getLatestReports: the swallowing variant cannot
+    // distinguish "none pushed yet" from "could not read", and this route
+    // renders the first as a real empty state.
+    const r = await readReports();
     if (!r) return res.json({ reports: null });
     res.json({
       reports: {
@@ -37,7 +40,13 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     console.error('Reports read error:', err.stack || err.message);
-    res.json({ reports: null });
+    // M13's defect in a second file: `{reports: null}` here is byte-identical
+    // to the genuine "no reports pushed yet" branch above, so a failed read
+    // rendered as an hourly scan that found nothing. getReports() in
+    // dashboard.js already mustRead()s this and its comment says "an
+    // unreachable report feed is not an empty one" — a 200 was the one answer
+    // that could defeat it.
+    res.status(503).json({ error: 'reports_unavailable' });
   }
 });
 

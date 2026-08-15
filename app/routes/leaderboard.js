@@ -12,6 +12,7 @@
 const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
+const { aggregateStats } = require('../public/js/trade-stats');
 const { pool } = require('../db');
 
 const router = express.Router();
@@ -22,22 +23,36 @@ const HANDLE_RE = /^[A-Za-z0-9_]{3,20}$/;
 const MAX_ROWS = 50;
 const optLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
 
-// Per-user realized stats from CLOSED trades — same queries the Portfolio
-// stats panel uses, so this stays consistent with what the user sees.
+// Per-user realized stats from CLOSED trades — the same query and the same
+// reader (aggregateStats) as routes/portfolio.js and routes/sync.js, so a
+// user's rank here and their own dashboard cannot disagree.
+//
+// This function held the two banned shapes from CLAUDE.md's table, and being a
+// RANKING made both worse than they are on a private panel: `trades.pnl` is
+// nullable, so `COALESCE(SUM(pnl), 0)` + `parseFloat(...) || 0` scored an
+// unpriceable book as a measured 0.00% return, `wins / COUNT(*)` put every
+// unpriced close in the denominator alone, and `s.trades > 0` then admitted
+// that member to a PUBLIC board — ranked, by handle, at a flat 0.00% with a
+// depressed win rate. A record of failure published for rows nobody could
+// price, and it reorders everyone else against it.
 async function userStats(uid) {
   const [agg] = await pool.execute(
-    'SELECT COALESCE(SUM(pnl), 0) as net_pnl, COALESCE(SUM(fees), 0) as total_fees, COUNT(*) as total_trades FROM trades WHERE user_id = ? AND status = ?',
+    "SELECT COUNT(*) AS total, " +
+    "SUM(CASE WHEN pnl IS NOT NULL THEN 1 ELSE 0 END) AS scored, " +
+    "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, " +
+    "SUM(pnl) AS net_pnl " +
+    "FROM trades WHERE user_id = ? AND status = ?",
     [uid, 'CLOSED']);
-  const [w] = await pool.execute(
-    'SELECT COUNT(*) as wins FROM trades WHERE user_id = ? AND status = ? AND pnl > 0',
-    [uid, 'CLOSED']);
-  const net = parseFloat(agg[0] && agg[0].net_pnl) || 0;
-  const trades = Number(agg[0] && agg[0].total_trades) || 0;
-  const wins = Number(w[0] && w[0].wins) || 0;
+  const c = aggregateStats(agg[0]);
   return {
-    return_pct: Math.round((net / PAPER_BASE) * 10000) / 100,   // % to 2dp
-    trades,
-    win_rate: trades ? Math.round((wins / trades) * 1000) / 10 : 0,
+    // null, never 0: a return of 0.00% is a real flat book, and an unpriceable
+    // one is not a flat book. The caller ranks on `scored`, not on `total`.
+    return_pct: c.net_pnl === null
+      ? null : Math.round((c.net_pnl / PAPER_BASE) * 10000) / 100,
+    trades: c.total,
+    scored: c.scored,
+    unpriced: c.unpriced,
+    win_rate: c.win_rate === null ? null : Math.round(c.win_rate * 10) / 10,
   };
 }
 
@@ -49,12 +64,19 @@ router.get('/', async (req, res) => {
     const scored = [];
     for (const m of members) {
       const s = await userStats(m.id);
-      if (s.trades > 0) scored.push({ id: m.id, handle: m.leaderboard_handle, ...s });
+      // Ranked on what could actually be PRICED. `s.trades > 0` admitted a
+      // member whose every close was unpriceable and printed them at 0.00%;
+      // having closed trades and having a scorable record are different facts.
+      if (s.scored > 0) scored.push({ id: m.id, handle: m.leaderboard_handle, ...s });
     }
     scored.sort((a, b) => b.return_pct - a.return_pct);
     const rows = scored.slice(0, MAX_ROWS).map((r, i) => ({
       rank: i + 1, handle: r.handle, return_pct: r.return_pct,
-      trades: r.trades, win_rate: r.win_rate, is_me: r.id === req.user.user_id,
+      trades: r.trades, win_rate: r.win_rate,
+      // Counts, not amounts — §4-safe, and they keep a rate computed over 4 of
+      // 11 closes from reading like one computed over all 11.
+      scored: r.scored, unpriced: r.unpriced,
+      is_me: r.id === req.user.user_id,
     }));
     const [me] = await pool.execute('SELECT leaderboard_handle FROM users WHERE id = ?', [req.user.user_id]);
     const handle = (me[0] && me[0].leaderboard_handle) || null;
