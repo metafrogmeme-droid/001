@@ -6,6 +6,7 @@ const { pool } = require('./db');
 const mailer = require('./lib/mailer');
 const oauth2 = require('./lib/oauth2');
 const { VENUES } = require('./lib/venues');
+const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
 
 // Self-custody sign-in verifier — optional dependency. Lazy so the app still
 // boots (and every other auth route works) if ethers isn't installed on a
@@ -205,13 +206,16 @@ async function tokenIsCurrent(payload) {
 }
 
 async function authMiddleware(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) {
+  // Authorization header first, then the HttpOnly cookie. The order is the
+  // reason this change moves nothing for existing callers: anything already
+  // sending a Bearer token takes the identical path it always did.
+  const raw = tokenFromRequest(req);
+  if (!raw) {
     return res.status(401).json({ error: 'Missing token' });
   }
   let payload;
   try {
-    payload = jwt.verify(auth.slice(7), JWT_SECRET);
+    payload = jwt.verify(raw, JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
@@ -242,10 +246,10 @@ async function authMiddleware(req, res, next) {
  * only ever ADDS to a response.
  */
 async function optionalAuth(req, _res, next) {
-  const auth = req.headers.authorization;
-  if (auth && auth.startsWith('Bearer ')) {
+  const raw = tokenFromRequest(req);
+  if (raw) {
     try {
-      const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+      const payload = jwt.verify(raw, JWT_SECRET);
       // A revoked token identifies nobody. Degrading to anonymous rather than
       // refusing is this function's whole contract — but it must degrade, not
       // sail through: `req.user` only ever ADDS to a response, and a logged-out
@@ -337,6 +341,24 @@ async function sessionResponse(user, extra = {}) {
     referral_code: u.referral_code || null,
     equity, ...extra,
   };
+}
+
+/**
+ * `sessionResponse`, plus the HttpOnly cookie, sent.
+ *
+ * The token keeps travelling in the BODY as well, and that is not an oversight
+ * — the MCP tools, the Telegram link flow and every curl in the runbook read
+ * it from there, and none of them is an XSS target. What changes is that the
+ * browser no longer has to keep its copy anywhere a script can reach.
+ *
+ * One funnel, for the same reason `sessionResponse` is one: six call sites mint
+ * sessions, and a cookie set at five of them is a login that works everywhere
+ * except the path nobody tested.
+ */
+async function sendSession(req, res, user, extra = {}) {
+  const body = await sessionResponse(user, extra);
+  setSession(req, res, body.token);
+  return res.json(body);
 }
 
 // A short, URL-safe, non-enumerable invite code (8 chars). Random rather than
@@ -507,8 +529,8 @@ router.post('/register', async (req, res) => {
     // before responding so the token is persisted; never blocks on delivery
     // errors (sendVerificationEmail swallows them).
     await sendVerificationEmail(userId, normalizedEmail, { welcome: true });
-    res.json(await sessionResponse({ id: userId, email: normalizedEmail },
-      { email_pending: mailer.isConfigured() }));
+    await sendSession(req, res, { id: userId, email: normalizedEmail },
+      { email_pending: mailer.isConfigured() });
   } catch (err) {
     // Uniform response to prevent user enumeration (don't reveal ER_DUP_ENTRY)
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Registration failed. Please try a different email.' });
@@ -580,7 +602,7 @@ router.post('/login', async (req, res) => {
 
     // Successful login — clear this account's failure counter.
     clearAccountFailures(normalizedEmail);
-    res.json(await sessionResponse(user));
+    await sendSession(req, res, user);
   } catch (err) {
     console.error('Login error:', err.stack || err.message);
     res.status(500).json({ error: 'Login failed' });
@@ -906,7 +928,7 @@ router.post('/wallet/verify', async (req, res) => {
     const user = await findOrCreateOAuthUser({
       provider: 'wallet', providerId: address.toLowerCase(), email: null,
     });
-    res.json(await sessionResponse(user, { provider: 'wallet' }));
+    await sendSession(req, res, user, { provider: 'wallet' });
   } catch (err) {
     console.error('Wallet verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Wallet sign-in failed' });
@@ -1138,7 +1160,7 @@ router.post('/telegram', async (req, res) => {
       provider: 'telegram', providerId: String(data.id).slice(0, 32),
       email: null, avatarUrl: data.photo_url,
     });
-    res.json(await sessionResponse(user));
+    await sendSession(req, res, user);
   } catch (err) {
     console.error('Telegram auth error:', err.stack || err.message);
     res.status(500).json({ error: 'Telegram login failed' });
@@ -1165,7 +1187,7 @@ router.post('/google', async (req, res) => {
       provider: 'google', providerId: String(info.sub),
       email: String(info.email).trim().toLowerCase(), avatarUrl: info.picture,
     });
-    res.json(await sessionResponse(user));
+    await sendSession(req, res, user);
   } catch (err) {
     console.error('Google auth error:', err.stack || err.message);
     res.status(500).json({ error: 'Google login failed' });
@@ -1202,7 +1224,13 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     await revokeUserTokens(user.id);
     const [fresh] = await pool.execute(
       'SELECT id, email, token_epoch FROM users WHERE id = ?', [user.id]);
-    res.json({ ok: true, token: fresh.length ? signToken(fresh[0]) : undefined });
+    const token = fresh.length ? signToken(fresh[0]) : undefined;
+    // The revocation above just invalidated the cookie this request arrived
+    // with. Re-issuing it is what keeps the promise in the comment — the act
+    // of securing the account must not log the owner out of the tab they did
+    // it in — and without this the cookie session ends one request later.
+    if (token) setSession(req, res, token);
+    res.json({ ok: true, token });
   } catch (err) {
     console.error('Change-password error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to change password' });
@@ -1226,6 +1254,11 @@ router.post('/change-password', authMiddleware, async (req, res) => {
 router.post('/logout', authMiddleware, async (req, res) => {
   try {
     const epoch = await revokeUserTokens(req.user.user_id);
+    // Both, and in this order. The epoch bump is what actually ends the
+    // session — a cookie the browser keeps is already dead server-side — but
+    // leaving it set means the readable rc_auth flag still says "logged in",
+    // so the UI renders a session whose every request 401s.
+    clearSession(req, res);
     res.json({ ok: true, sessions_ended: true, epoch });
   } catch (err) {
     console.error('Logout error:', err.stack || err.message);
@@ -1462,9 +1495,14 @@ router.get('/oauth/:provider/callback', async (req, res) => {
     }
     if (!user) return fail('could not complete login');
 
-    const payload = Buffer.from(JSON.stringify(
-      await sessionResponse(user, { provider, linked: Boolean(flow.linkUserId) })
-    )).toString('base64');
+    const body = await sessionResponse(user, {
+      provider, linked: Boolean(flow.linkUserId) });
+    // The cookie is set on the redirect itself, so the session exists before
+    // the landing page runs a line of script. The fragment payload still
+    // carries the profile the page renders on arrival; what it no longer has
+    // to be is the only place the session lives.
+    setSession(req, res, body.token);
+    const payload = Buffer.from(JSON.stringify(body)).toString('base64');
     res.redirect(`/#oauth=${payload}`);
   } catch (err) {
     console.error(`OAuth ${provider} callback error:`, err.stack || err.message);

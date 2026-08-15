@@ -7,6 +7,17 @@
   'use strict';
 
   // ── Session ────────────────────────────────────────────────────────────
+  //
+  // M14: the session lives in an HttpOnly cookie the page cannot read. What
+  // remains readable is `rc_auth=1`, a flag carrying no secret, because
+  // LOGGED_IN drives the entire UI — which nav renders, whether a panel shows
+  // a login gate, whether the dashboard boots — and deriving it from "can I
+  // see a token" stopped being answerable the moment the token became
+  // unreadable. Forging the flag buys a UI shell whose every request 401s.
+  //
+  // resolveToken() still reads localStorage, for exactly one purpose: users
+  // who logged in before this shipped have a token there and no cookie, and
+  // migrate() below trades it for one. Nobody is logged out by the change.
   function resolveToken() {
     const legacy = localStorage.getItem('token');
     if (legacy) return legacy;
@@ -15,8 +26,35 @@
       return (s && s.token) || null;
     } catch (e) { return null; }
   }
+  function hasSessionCookie() {
+    return /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+  }
+  function forgetStoredToken() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('rc_session');
+  }
   const TOKEN = resolveToken();
-  const LOGGED_IN = !!TOKEN;
+  const LOGGED_IN = !!TOKEN || hasSessionCookie();
+
+  /**
+   * One-time upgrade for a session that predates the cookie.
+   *
+   * GET /auth/me runs through the same funnel every login does, so it answers
+   * with a Set-Cookie; after that the stored copy is redundant and is deleted.
+   * Deleted only on a 200 — clearing it on a network blip would log the user
+   * out to fix a security property they already had.
+   */
+  async function migrateStoredToken() {
+    if (!TOKEN || hasSessionCookie()) return;
+    try {
+      const r = await fetch('/api/auth/me', {
+        headers: { Authorization: 'Bearer ' + TOKEN },
+        credentials: 'same-origin',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok && hasSessionCookie()) forgetStoredToken();
+    } catch (e) { /* try again next page load; nothing is lost by waiting */ }
+  }
 
   // A rejected promise nobody caught is silent in a browser. Every panel
   // loader is async, so a throw inside one — a TypeError on an unexpected
@@ -38,9 +76,20 @@
     return TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {};
   }
   function logout() {
-    localStorage.removeItem('rc_session');
-    localStorage.removeItem('token');
-    location.href = '/';
+    // The cookie is HttpOnly, so the page CANNOT delete it — only the server
+    // can, and only the server can bump the token epoch that actually ends the
+    // session. Clearing localStorage and redirecting, as this used to do, now
+    // leaves a live session behind on the very action whose entire purpose is
+    // ending one. Navigate on either outcome: a logout that appears to hang
+    // because the network is down is worse than one that redirects and leaves
+    // the epoch bump for the next attempt.
+    forgetStoredToken();
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {},
+      credentials: 'same-origin',
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {}).then(() => { location.href = '/'; });
   }
 
   // ── fetchJSON: timeout + auth + typed errors ───────────────────────────
@@ -57,6 +106,9 @@
       const r = await fetch(url, {
         method,
         signal: ctrl.signal,
+        // Explicit rather than relying on the same-origin default: the session
+        // now travels as a cookie, and a default is a thing that changes.
+        credentials: 'same-origin',
         headers: {
           ...(auth ? authHeaders() : {}),
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
@@ -484,8 +536,13 @@
     revealOnScroll();
   }
 
+  // Trade a pre-cookie localStorage session for a cookie, once, in the
+  // background. Deliberately not awaited: it must never delay first paint, and
+  // every request on this page still authenticates by header meanwhile.
+  migrateStoredToken();
+
   window.RC = {
-    TOKEN, LOGGED_IN, authHeaders, logout,
+    TOKEN, LOGGED_IN, authHeaders, logout, hasSessionCookie, forgetStoredToken,
     fetchJSON, postWithStepUp, esc, fmt, fmtMoney, fmtPrice, fmtK, signed, pnlClass, fmtAgo,
     dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, mustRead, connectStream,
     modalA11y, countUp, animateCounters, revealOnScroll,
