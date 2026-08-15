@@ -251,13 +251,19 @@ def extract_json(text: str) -> Optional[dict]:
         # JSON-style keys AND training data format (Entry:, Stop Loss:, etc.)
         # Handles: $584.23, 584.23, $0.40, 67,450.00
         "asset":            r"(?:asset|Trade Idea|Pair|Asset)[:\s]+([A-Z]+/[A-Z]+)",
-        "direction":        r"(?:direction|Direction)[:\s]+(LONG|SHORT)",
+        "direction":        r"(?:direction(?:\s+considered)?|Direction(?:\s+[Cc]onsidered)?|Setup)[:\s]+(LONG|SHORT)",
         "entry_price":      r"(?:entry[_\s]?price|Entry)[:\s]+\$?([\d][\d.,]*\d)",
         "stop_loss":        r"(?:stop[_\s]?loss|Stop Loss|Stop)[:\s]+\$?([\d][\d.,]*\d)",
         "take_profit":      r"(?:take[_\s]?profit|Take Profit|Take Profit 1|TP1?)[:\s]+\$?([\d][\d.,]*\d)",
         "confidence":       r"(?:confidence|Confluence(?:\s+Score)?|Confluence)[:\s]+\$?([\d.]+)",
         "risk_reward_ratio":r"(?:risk[_\s]?reward[_\s]?ratio|Risk:Reward|R:R|Risk Reward)[:\s]+(?:1:)?([\d.]+)",
-        "verdict":          r"(?:verdict|Status|Decision|DECISION)[:\s]+(APPROVED|REJECTED|REQUIRES_REVIEW)",
+        # "Risk Check:" is the v8 training format's verdict line. The first
+        # v8 eval run missed it, inferred verdicts from confidence instead,
+        # and graded correct explicit rejections as APPROVED — a 0.71-conf
+        # "Risk Check: REJECTED" scored as a wrong verdict AND was routed
+        # down the full-trade-structure path. Never let the yardstick and
+        # the training format drift apart again.
+        "verdict":          r"(?:verdict|Status|Decision|DECISION|Risk Check)[:\s]+(APPROVED|REJECTED|REQUIRES_REVIEW)",
         # % REQUIRED: "Position Size: 105.5 units" must not parse as 105.5%
         "position_pct":     r"(?:position[_\s]?pct|Position Size|Portfolio %|Capital Allocation|Position)[:\s]+\$?([\d.]+)\s*%",
     }
