@@ -151,8 +151,59 @@ def assess_token(features: Optional[dict]) -> dict:
         "flags": flags,
         "evidence": evidence,
         "unknowns": unknowns,
+        # COVERAGE — how much of the token this verdict is actually based on.
+        #
+        # The verdict alone was already honest: 0-of-11 readable returns
+        # `caution`, never `safe`, and _MIN_EVIDENCE_FRAC is what enforces it.
+        # But `caution` is then the SAME WORD for "we read ten checks and one
+        # flagged" and "we could not read anything at all", which are opposite
+        # decisions for whoever is holding the wallet. human_readable() prints
+        # the unknown count; every programmatic consumer — dossiers, the MCP
+        # tools, the veto — reads `verdict` and loses it.
+        #
+        # That matters most for exactly the tokens this scanner is aimed at. A
+        # two-hour-old contract has no holder history, no listing age and often
+        # no liquidity reading, so `unknown` is its NORMAL state rather than a
+        # failure — and a bare "caution" invites a reader to hear "we checked,
+        # it's borderline". Shipping the basis alongside the verdict is the
+        # difference between a measurement and an impression.
+        "coverage": coverage(checks),
         "veto_features": to_veto_features(f),
     }
+
+
+#: Coverage bands. Names, not bare ratios, because a caller printing "0.27"
+#: has to invent a word for it and each caller will invent a different one.
+#:
+#: "none" is NOT a band — it is `readable == 0` exactly, handled before these.
+#: The first draft made it the 0.0 edge of the ladder, so 1-of-11 readable
+#: printed "none basis": one reading rendered as no readings, which is the
+#: precise conflation this whole field exists to prevent, in the code adding it.
+_BASIS_BANDS = ((0.0, "thin"), (0.25, "thin"), (0.5, "partial"), (0.75, "broad"))
+
+
+def coverage(checks: Optional[list]) -> dict:
+    """How much of the token a report is based on::
+
+        {readable, total, ratio, basis}
+
+    ``basis`` ∈ {none, thin, partial, broad, full}. ``ratio`` is None when there
+    are no checks at all — a zero would read as "nothing was readable" when the
+    truth is that nothing was asked, and those are different failures.
+    """
+    ck = checks or []
+    total = len(ck)
+    readable = sum(1 for c in ck
+                   if isinstance(c, dict) and c.get("status") != UNKNOWN)
+    if not total:
+        return {"readable": 0, "total": 0, "ratio": None, "basis": "none"}
+    if not readable:
+        return {"readable": 0, "total": total, "ratio": 0.0, "basis": "none"}
+    ratio = readable / total
+    basis = "full" if readable == total else next(
+        name for edge, name in reversed(_BASIS_BANDS) if ratio >= edge)
+    return {"readable": readable, "total": total,
+            "ratio": round(ratio, 3), "basis": basis}
 
 
 def to_veto_features(features: Optional[dict]) -> dict:
@@ -178,9 +229,14 @@ def human_readable(report: Optional[dict]) -> str:
         return "No token-safety report."
     v = report.get("verdict", CAUTION)
     icon = {SAFE: "✓", CAUTION: "⚠", DANGER: "⛔"}.get(v, "·")
+    # The basis travels WITH the verdict word, on the same line, rather than as
+    # a footnote below the flags. A reader who stops at the headline — which is
+    # most readers — must not be able to take away "caution" without also
+    # taking away how much was actually read.
+    cov = report.get("coverage") or coverage(report.get("checks"))
     lines = [f"{icon} TOKEN SAFETY: {v.upper()} "
-             f"(score {report.get('score')}, {report.get('evidence')} checks with data, "
-             f"{report.get('unknowns')} unknown)"]
+             f"[{cov.get('basis')} basis — {cov.get('readable')}/{cov.get('total')} "
+             f"checks readable] (score {report.get('score')})"]
     for fl in report.get("flags", []):
         lines.append(f"   – {fl}")
     if v == SAFE and not report.get("flags"):
