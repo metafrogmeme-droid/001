@@ -986,6 +986,9 @@ async function doLogin(){
   SESSION=res;showAccount(res);
 }
 function doLogout(){
+  // RC.logout() POSTs /auth/logout (epoch bump + cookie clear) and redirects.
+  // Clearing localStorage alone left the session alive for up to thirty days.
+  if(window.RC&&RC.logout){RC.logout();return;}
   SESSION=null;localStorage.removeItem('rc_session');localStorage.removeItem('token');
   document.getElementById('auth-panel').classList.remove('hidden');
   document.getElementById('account').classList.add('hidden');
@@ -1000,7 +1003,11 @@ function showAccount(data){
     :'<span class="chip">Not linked</span>';
   document.getElementById('linked-ok').classList.toggle('hidden',!linked);
   document.getElementById('link-box').classList.toggle('hidden',linked);
-  localStorage.setItem('rc_session',JSON.stringify({token:data.token||SESSION?.token,user_id:data.user_id}));
+  // The token is NOT stored. It arrives as an HttpOnly cookie the page
+  // cannot read, which is the entire point of M14's second half; keeping a
+  // readable copy here would hand it straight back to any script that runs.
+  // Only the user id is kept, and only so a reload knows whom to greet.
+  localStorage.setItem('rc_session',JSON.stringify({user_id:data.user_id}));
   renderAccountMeta(data);
   tfaRefresh();
   // Fetch authoritative flags (has_password, email_verified) from /me.
@@ -1008,13 +1015,15 @@ function showAccount(data){
 }
 // Authed POST/GET helper — attaches the session bearer token.
 async function apiAuth(path,body,method){
-  const opts={method:method||'POST',headers:{'Authorization':'Bearer '+(SESSION?.token||''),'Content-Type':'application/json'}};
+  const opts={method:method||'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json',
+      ...(SESSION?.token?{'Authorization':'Bearer '+SESSION.token}:{})}};
   if(body)opts.body=JSON.stringify(body);
   const r=await fetch(API+path,opts);
   return r.json();
 }
 async function refreshAccountMeta(){
-  if(!SESSION?.token)return;
+  if(!SESSION)return;
   try{const me=await apiAuth('/auth/me',null,'GET');if(!me.error)renderAccountMeta(me);}catch{/* offline */}
   tfaRefresh();
 }
@@ -1180,8 +1189,10 @@ async function resendVerification(){
   if(btn){btn.disabled=true;btn.classList.add('is-disabled');btn.setAttribute('aria-disabled','true');}
 }
 async function getToken(){
-  if(!SESSION?.token)return;
-  const res=await fetch(API+'/auth/link-token',{method:'POST',headers:{'Authorization':'Bearer '+SESSION.token,'Content-Type':'application/json'}}).then(r=>r.json());
+  if(!SESSION)return;
+  const res=await fetch(API+'/auth/link-token',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json',
+      ...(SESSION?.token?{'Authorization':'Bearer '+SESSION.token}:{})}}).then(r=>r.json());
   if(res.error){alert(res.error);return;}
   document.getElementById('token-area').innerHTML=`
     <p class="muted small" style="margin-bottom:4px">Your link token (valid 10 min) — click to copy:</p>
@@ -1213,7 +1224,7 @@ function onTelegramAuth(user){ if(user)socialLogin('/auth/telegram',user); }
 const OAUTH_META={discord:{label:'Continue with Discord',bg:'#5865F2'},x:{label:'Continue with X',bg:'#000'}};
 function oauthStartUrl(provider){return API+'/auth/oauth/'+provider+'/start';}
 async function oauthLink(provider){
-  if(!SESSION?.token)return;
+  if(!SESSION)return;
   try{
     const r=await apiAuth('/auth/oauth-link-token',{});
     if(r.link_key)location.href=oauthStartUrl(provider)+'?link='+encodeURIComponent(r.link_key);
@@ -1341,14 +1352,17 @@ function renderFooterSocials(links){
   let s;
   try{s=JSON.parse(saved);}catch{localStorage.removeItem('rc_session');return;}
   try{
-    const r=await fetch(API+'/auth/me',{headers:{'Authorization':'Bearer '+s.token}});
+    // Cookie first; s.token only exists for sessions predating it, and
+    // /auth/me answers either way with a fresh Set-Cookie.
+    const r=await fetch(API+'/auth/me',{credentials:'same-origin',
+      headers:s.token?{'Authorization':'Bearer '+s.token}:{}});
     // Only clear the saved session on a genuine auth failure (401/403). A
     // transient network error or a 5xx must NOT log the user out.
     if(r.status===401||r.status===403){localStorage.removeItem('rc_session');return;}
     if(!r.ok)return; // transient server issue: keep session, try again next load
     const res=await r.json();
     if(res.error){localStorage.removeItem('rc_session');return;}
-    SESSION={...res,token:s.token};showAccount(SESSION);
+    SESSION={...res,token:s.token||null};showAccount(SESSION);
   }catch{/* network error: keep the session, do not log out */}
 })();
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
