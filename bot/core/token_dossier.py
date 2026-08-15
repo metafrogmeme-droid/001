@@ -116,6 +116,26 @@ def compose(token_report: Optional[dict] = None,
             "read": True,
         }
         mapped = mapping.get(report.get("verdict"), UNPROVEN)
+
+        # A CAUTION WITH NOTHING BEHIND IT IS AN EVIDENCE GAP, NOT A FINDING.
+        #
+        # The branch below handled `basis == none` and stopped there, because
+        # coverage looked like the right discriminator. It is not. Driving a
+        # real token through `token_research.investigate` produced a contract
+        # section reading `caution` off ONE readable check out of eleven with
+        # `flags: []` — a `thin` basis, so it sailed past that branch and the
+        # dossier announced "⚠ CAUTION (on contract)". Nothing was found. The
+        # single check that could be read had passed.
+        #
+        # The honest test is not how much was read but whether the verdict is
+        # BACKED. `token_safety` raises a flag for every real finding, so a
+        # caution carrying no flags came from its evidence floor rather than
+        # from the token — at any coverage. A stand-down is exempt for the same
+        # reason as below: a hard flag always has evidence behind it.
+        if (mapped == CAUTION and not sections[name]["flags"]):
+            blind.append(name)
+            return UNPROVEN
+
         if cov.get("basis") in ("none", None):
             blind.append(name)
             # A SECTION THAT READ NOTHING CONTRIBUTES `unproven`, NOT ITS WORD.
