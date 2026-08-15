@@ -7,6 +7,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { computeAnalytics } = require('../lib/signal_analytics');
+const { publicSignal, publicAnalytics } = require('../lib/public_signal');
 
 const router = express.Router();
 
@@ -33,11 +34,17 @@ router.get('/', async (req, res) => {
        ORDER BY created_at DESC LIMIT ${limit}`,
       params
     );
-    res.json({ signals: rows });
+    res.json({ signals: rows.map(publicSignal) });
   } catch (err) {
     console.error('Signals fetch error:', err.stack || err.message);
-    // Fail soft — an empty stream is better than a dashboard error.
-    res.json({ signals: [] });
+    // "Fail soft — an empty stream is better than a dashboard error" was the
+    // comment here, and it is the honesty rule stated backwards: `{signals:[]}`
+    // renders as "No signals yet. They stream in as the engine scans the
+    // market" — a confident claim that the engine has found nothing,
+    // manufactured by a DB outage. /stats one screen down already returns 503
+    // for exactly this reason. The dashboard's loader calls mustRead(), so the
+    // panel paints an unreadable state the moment we stop lying to it.
+    res.status(503).json({ error: 'signal_stream_unavailable' });
   }
 });
 
@@ -51,15 +58,18 @@ router.get('/stats', async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS resolved,
               SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins,
-              SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) AS losses,
-              SUM(pnl) AS net_pnl
+              SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) AS losses
        FROM signals WHERE pnl IS NOT NULL`
     );
     const r = rows[0] || {};
     const resolved = parseInt(r.resolved || 0);
     const wins = parseInt(r.wins || 0);
     const losses = parseInt(r.losses || 0);
-    const net = parseFloat(r.net_pnl);
+    // No `net_pnl`. This endpoint is unauthenticated (server.js mounts it with
+    // no auth), so §4 allows percent, ratio and count here and nothing else —
+    // and `SUM(pnl)` is an amount. It was emitted for as long as the column
+    // stayed NULL in production, which is the only reason it never leaked.
+    // The win rate carries the same information the panel actually shows.
     res.json({
       resolved,
       wins,
@@ -67,9 +77,7 @@ router.get('/stats', async (req, res) => {
       flat: Math.max(0, resolved - wins - losses),
       // null over an empty set, never 0. "0% of nothing" and "0% of forty"
       // are different sentences and the dashboard prints them identically.
-      // COALESCE(SUM(pnl), 0) said the same thing about the total.
       win_rate: resolved > 0 ? Math.round((wins / resolved) * 1000) / 10 : null,
-      net_pnl: Number.isFinite(net) ? Math.round(net * 100) / 100 : null,
     });
   } catch (err) {
     console.error('Signal stats error:', err.stack || err.message);
@@ -87,10 +95,6 @@ router.get('/stats', async (req, res) => {
 // symbol, direction and confidence bucket (resolved signals only). Aggregation
 // runs in-process over a bounded window so it behaves the same on MySQL and the
 // in-memory mock (which ignores WHERE clauses).
-const EMPTY_ANALYTICS = {
-  overall: { resolved: 0, wins: 0, losses: 0, win_rate: 0, net_pnl: 0 },
-  by_pattern: [], by_symbol: [], by_direction: [], by_confidence: [],
-};
 router.get('/analytics', async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -98,10 +102,18 @@ router.get('/analytics', async (req, res) => {
        FROM signals WHERE pnl IS NOT NULL
        ORDER BY resolved_at DESC LIMIT 2000`
     );
-    res.json(computeAnalytics(rows));
+    // Dollar totals stripped at the boundary, not in the aggregator:
+    // computeAnalytics keeps computing net_pnl honestly (null over an empty
+    // set) and keeps its own tests; this surface is anonymous, so it publishes
+    // the ratios and counts only.
+    res.json(publicAnalytics(computeAnalytics(rows)));
   } catch (err) {
     console.error('Signal analytics error:', err.stack || err.message);
-    res.json(EMPTY_ANALYTICS); // fail soft — empty insights beat a dashboard error
+    // The deleted EMPTY_ANALYTICS was `{resolved:0, wins:0, losses:0,
+    // win_rate:0, net_pnl:0}` served as HTTP 200 — an outage rendering as a
+    // measured 0% win rate over a measured zero signals. Every group panel
+    // downstream read it as data. 503; the caller paints the error.
+    res.status(503).json({ error: 'signal_analytics_unavailable' });
   }
 });
 

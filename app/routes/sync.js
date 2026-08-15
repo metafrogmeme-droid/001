@@ -239,7 +239,13 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
     };
     res.json({ portfolio: summaryFor(req, latestPortfolio) });
   } catch (err) {
-    res.json({ portfolio: null });
+    // This was a bare `res.json({ portfolio: null })` with no logging —
+    // byte-identical to the genuine cold-start empty state twelve lines up,
+    // which is the one thing it must never be confused with. A DB outage
+    // rendered as "no portfolio yet", and left no trace to find it by: every
+    // other catch in this file logs err.stack, this one swallowed.
+    console.error('Portfolio summary error:', err.stack || err.message);
+    res.status(503).json({ error: 'portfolio_summary_unavailable' });
   }
 });
 
@@ -602,16 +608,38 @@ router.post('/reports', async (req, res) => {
   }
 });
 // Read-side accessor for routes/reports.js: in-memory first, DB on cold start.
-async function getLatestReports() {
+/**
+ * The reports blob — THROWS when the cache could not be read.
+ *
+ * "Cold-start miss is fine" conflated two states that are not the same: the
+ * cache holding no row yet (genuinely no reports pushed) and the read failing
+ * (we have no idea). Swallowing both returned null for both, and routes/reports.js
+ * served that null as its honest-empty branch — so a DB outage rendered as an
+ * hourly intelligence scan that found nothing, and the catch written to prevent
+ * exactly that was unreachable, because nothing below it could ever throw.
+ *
+ * Stale still beats blind: an in-memory blob is a real prior read and is
+ * returned without touching the DB at all.
+ */
+async function readReports() {
   if (latestReports) return latestReports;
+  const [rows] = await pool.execute(
+    'SELECT reports_json FROM reports_cache WHERE id = 1');
+  if (rows.length > 0 && rows[0].reports_json) {
+    latestReports = JSON.parse(rows[0].reports_json);
+  }
+  return latestReports;   // null here means genuinely none yet
+}
+
+/**
+ * The same read for callers that prefer a miss to a throw — lib/status.js
+ * probes this as one signal among several and must not fail the whole health
+ * read because one cache is unreachable.
+ */
+async function getLatestReports() {
   try {
-    const [rows] = await pool.execute(
-      'SELECT reports_json FROM reports_cache WHERE id = 1');
-    if (rows.length > 0 && rows[0].reports_json) {
-      latestReports = JSON.parse(rows[0].reports_json);
-    }
-  } catch (err) { /* cold-start miss is fine */ }
-  return latestReports;
+    return await readReports();
+  } catch (err) { return latestReports; }
 }
 
 /**
@@ -1215,6 +1243,7 @@ router.post('/duel/pick', async (req, res) => {
 module.exports = router;
 // Named accessor for routes/reports.js (in-memory + DB cold-start fallback).
 module.exports.getLatestReports = getLatestReports;
+module.exports.readReports = readReports;
 // Named accessor for routes/macro.js + lib/status.js. In-memory first, then the
 // DB (scan_cache) on cold start — so a web restart (every deploy on an
 // ephemeral host) doesn't reset the scan to "no data" while the last engine

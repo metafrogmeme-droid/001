@@ -9010,10 +9010,19 @@ class TelegramHandler:
 
             # Session tally
             if state.total_trades > 0:
-                wins = sum(1 for t in history if t.pnl > 0)
+                # `state.total_trades - wins` is the defect the LIVE branch of
+                # this same card was cured of, left standing on the paper one:
+                # the remainder after wins is losses PLUS every break-even and
+                # every close nobody could price, all displayed as an L. Same
+                # reader as the live branch (bot/utils/win_rate.py), so the two
+                # halves of one card cannot disagree.
+                _ws = _win_stats(history)
+                wins = _ws["wins"]
+                losses = _ws["scored"] - wins
                 lines.extend([
                     "", sep, "",
-                    f"<b>{t('lbl_session', lang)}</b> {wins}W/{state.total_trades - wins}L | "
+                    f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L"
+                    + _unpriced_tag(_ws) + " | "
                     f"{t('lbl_net', lang)}: <code>${state.total_pnl:+.2f}</code> | "
                     f"{t('lbl_win_rate_lc', lang)}: <code>{state.win_rate:.0%}</code>",
                 ])

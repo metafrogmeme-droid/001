@@ -147,10 +147,27 @@ class TestEverySurfaceUsesTheSharedRule:
 
     def test_the_four_handler_sites_all_route_through_it(self):
         src = self._src("bot/skills/telegram_handler.py")
-        assert src.count("_win_stats(") >= 4, (
+        assert src.count("_win_stats(") >= 5, (
             "four separate win counts lived here; one converted site means "
-            "the rate depends on which command was typed"
+            "the rate depends on which command was typed. The fifth is the "
+            "PAPER half of the session-tally card, which kept the remainder "
+            "form for a year after the LIVE half beside it was cured"
         )
+
+    def test_the_session_tally_has_no_remainder_form_left(self):
+        """`losses = <total> - wins`, in the fourth spelling it took here.
+
+        The docstring above names three: `len(closed) - wins`. This one read
+        `state.total_trades - wins` — a different expression, the same claim,
+        and unreachable by any grep written for the other three. It sat in the
+        same function as an already-fixed site, sixty lines apart.
+        """
+        src = self._src("bot/skills/telegram_handler.py")
+        for banned in ("state.total_trades - wins", "total_trades - wins"):
+            assert banned not in src, (
+                f"`{banned}` files every break-even and every unpriced close "
+                f"as a defeat on the session W/L line"
+            )
 
     def test_the_other_three_modules_route_through_it_too(self):
         for path in ("bot/skills/skill_registry.py",

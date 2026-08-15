@@ -585,9 +585,15 @@
     if (d.signals_new) parts.push(`<a class="btn btn--ghost btn--sm" href="#signals">📡 ${d.signals_new} new signal${d.signals_new === 1 ? '' : 's'}</a>`);
     if (d.events_new) parts.push(`<a class="btn btn--ghost btn--sm" href="#feed">🧠 ${d.events_new} engine event${d.events_new === 1 ? '' : 's'}</a>`);
     if (d.arena && d.arena.closes) parts.push(`<a class="btn btn--ghost btn--sm" href="/arena">🏟️ ${d.arena.closes} paper close${d.arena.closes === 1 ? '' : 's'} <span class="${pnlClass(d.arena.pnl)}">${signed(d.arena.pnl)} vUSDT</span></a>`);
+    // A section the server could not read is ABSENT from this card, and an
+    // absent section looks exactly like a quiet one. Name it, or the digest
+    // under-reports the night and calls it a summary.
+    const unread = (d.unreadable || []).length
+      ? `<p class="muted small mt-2">Couldn't read ${esc(d.unreadable.join(', '))} — this digest is incomplete, not empty.</p>`
+      : '';
     return `<section class="panel panel--primary" id="p-since">
       <h2 class="panel-title">👋 <span data-i18n="dp.away">While you were away</span> <span class="right muted small"><span data-i18n="dp.away_gone">gone</span> ${fmtAway(d.away_s)}</span></h2>
-      <div class="row" style="gap:var(--s2);flex-wrap:wrap">${parts.join('')}</div>
+      <div class="row" style="gap:var(--s2);flex-wrap:wrap">${parts.join('')}</div>${unread}
       <button class="btn btn--ghost btn--sm mt-3" id="sinceDismiss" type="button" data-i18n="dp.caught_up">Caught up ✓</button>
     </section>`;
   }
@@ -1979,7 +1985,6 @@
         <div class="stat"><div class="k">Resolved</div><div class="v">${s.resolved}</div></div>
         <div class="stat"><div class="k">Win rate</div><div class="v">${s.win_rate != null ? fmt(s.win_rate, 1) + '%' : '—'}</div></div>
         <div class="stat"><div class="k">Wins / Losses</div><div class="v">${s.wins} / ${s.losses}${s.flat ? ` <span class="muted small">/ ${s.flat} flat</span>` : ''}</div></div>
-        <div class="stat"><div class="k">Net PnL</div><div class="v num ${pnlClass(s.net_pnl)}">${signed(s.net_pnl)}</div></div>
       </div>`;
     }, { empty: { icon: 'icon-radar', text: 'No resolved signals yet — outcomes appear once signals hit target or stop.' } });
 
@@ -1992,12 +1997,21 @@
         return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
           <thead><tr><th>Signal</th><th class="r">Conf.</th><th class="r">Entry</th><th class="r">Stop / Target</th><th class="r">R:R</th><th>Status</th><th class="r">Age</th><th class="r"></th></tr></thead>
           <tbody>${sigs.map(s => {
-            const status = s.pnl != null
-              ? `<span class="chip ${Number(s.pnl) > 0 ? 'chip--up' : 'chip--down'}">${Number(s.pnl) > 0 ? '✓ WIN' : '✗ LOSS'}</span>`
+            // `Number(s.pnl) > 0 ? WIN : LOSS` called a break-even resolution a
+            // LOSS, and the server no longer publishes the amount anyway — the
+            // outcome arrives as a label, with FLAT as its own answer.
+            const OUTCOME_CHIP = {
+              WIN: ['chip--up', '✓ WIN'],
+              LOSS: ['chip--down', '✗ LOSS'],
+              FLAT: ['', '= FLAT'],
+            };
+            const oc = OUTCOME_CHIP[s.outcome];
+            const status = oc
+              ? `<span class="chip ${oc[0]}">${oc[1]}</span>`
               : `<span class="chip">${esc(s.status || 'NEW')}</span>`;
             // UX-4: one-tap paper-trade — only for still-actionable signals
             // (unresolved + full geometry). Resolved rows show nothing.
-            const canTrade = s.pnl == null && s.entry_price && s.stop_loss && s.take_profit;
+            const canTrade = s.outcome == null && s.entry_price && s.stop_loss && s.take_profit;
             const tradeBtn = canTrade
               ? `<button class="btn btn--sm" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
               : '';
@@ -2005,7 +2019,7 @@
             // link and no full geometry, only a signal the engine still
             // stands behind. Fills at the LIVE mark server-side; the toast
             // reports the drift and any exit the market already passed.
-            const arenaBtn = s.pnl == null && s.signal_key
+            const arenaBtn = s.outcome == null && s.signal_key
               ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
               : '';
             return `<tr>
@@ -5909,8 +5923,14 @@
       if (LOGGED_IN) {
         try {
           const fr = await fetchJSON('/api/copy', { timeoutMs: 10000 });
-          _agentFollows = new Set((fr.ok && fr.data && fr.data.following) || []);
-        } catch (_) { _agentFollows = new Set(); }
+          // Only overwrite the known list on a READ. An unreadable follow list
+          // is not an empty one, and blanking it here made every already-
+          // followed agent render its "Follow" button again. Matches the other
+          // call site below, which already kept the last known list.
+          if (fr.ok && fr.data && Array.isArray(fr.data.following)) {
+            _agentFollows = new Set(fr.data.following);
+          }
+        } catch (_) { /* keep the last known list */ }
       }
       const note = (r.data && r.data.note) || '';
       // Verified frozen-benchmark scorecard block (percent/ratio only, §4). Low

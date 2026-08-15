@@ -1354,6 +1354,35 @@ class MemoryDB {
       return [{ affectedRows: t ? 1 : 0 }, []];
     }
 
+    // The scored-denominator aggregate, shared by routes/portfolio.js,
+    // routes/leaderboard.js and routes/sync.js:
+    //
+    //   COUNT(*) AS total, SUM(CASE WHEN pnl IS NOT NULL ...) AS scored,
+    //   SUM(CASE WHEN pnl > 0 ...) AS wins, SUM(pnl) AS net_pnl
+    //
+    // `trades.pnl` is nullable, so `total` and `scored` are DIFFERENT numbers
+    // and this shim must not collapse them — that distinction is the entire
+    // reason the query exists. Matched before the older handlers below, whose
+    // looser `COUNT(*) && PNL > 0` test would otherwise swallow it and answer
+    // with a lone `wins`, leaving every other field undefined.
+    if (cmd.includes('PNL IS NOT NULL') && cmd.includes('COUNT(*)') && cmd.includes('SUM(PNL)')) {
+      const all = params.length
+        ? this.trades.filter(t => t.user_id === params[0]
+            && t.status === (params[1] || 'CLOSED'))
+        : this.trades.filter(t => t.status === 'CLOSED');
+      const priced = all.filter(t => t.pnl !== null && t.pnl !== undefined
+        && Number.isFinite(parseFloat(t.pnl)));
+      return [[{
+        total: all.length,
+        scored: priced.length,
+        wins: priced.filter(t => parseFloat(t.pnl) > 0).length,
+        // SUM over an empty set is NULL in MySQL, not 0 — and the callers rely
+        // on that to tell an unpriceable book from a flat one.
+        net_pnl: priced.length
+          ? priced.reduce((a, t) => a + parseFloat(t.pnl), 0) : null,
+      }], []];
+    }
+
     if (cmd.includes('SUM(PNL)') && cmd.includes('SUM(FEES)') && cmd.includes('COUNT(*)')) {
       const closed = this.trades.filter(t => t.user_id === params[0] && t.status === 'CLOSED');
       const net_pnl = closed.reduce((a, t) => a + (parseFloat(t.pnl) || 0), 0);

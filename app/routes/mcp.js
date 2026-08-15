@@ -29,6 +29,7 @@ const { getLatestFlight } = require('./sync');
 // comment here promised they shared one source of truth.
 const { classifyPnls, outcomeOf } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
+const { publicSignal } = require('../lib/public_signal');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
 // The Guardian safety models. Pure functions of caller-supplied input — they
 // touch no account, read no database, move nothing, and are the same code the
@@ -486,7 +487,11 @@ const TOOLS = {
         `SELECT signal_key, symbol, direction, confidence, pattern, regime,
                 entry_price, stop_loss, take_profit, rr, status, pnl, created_at
            FROM signals ORDER BY created_at DESC LIMIT ${limit}`, []);
-      return { signals: rows };
+      // /mcp is mounted with no auth, so the same §4 redaction the flight
+      // tools get (sanitizeRecord, below) applies here: the outcome's SIGN is
+      // public, its magnitude is not. `pnl` was emitted raw straight from the
+      // SELECT — the third of the three surfaces sharing that channel.
+      return { signals: rows.map(publicSignal) };
     },
   },
 
