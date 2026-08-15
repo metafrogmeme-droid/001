@@ -166,3 +166,86 @@ async def test_no_sources_does_not_crash_or_reassure():
 def test_render_survives_junk():
     assert human_readable(None)
     assert human_readable({})
+
+
+# ── the deployer section, once something actually feeds it ───────────
+#
+# This file previously asserted that the section is ALWAYS unread, because no
+# deployer source existed. That is now a statement about configuration rather
+# than about the code, and both halves of it need pinning: unconfigured must
+# still read as "we never asked", and configured must actually reach the
+# scorer instead of quietly staying None.
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_deployer_source_is_named_not_silent():
+    """No key is "we never asked", which is a fact about our diligence."""
+    r = await investigate("0x1", sources=[_Src("dex", {"liquidity_usd": 1.0})],
+                          deployer_sources=[_Src("etherscan", avail=False)])
+    assert r["deployer"] is None
+    assert r["dossier"]["sections"]["deployer"]["read"] is False
+    assert "deployer" in r["dossier"]["blind_spots"]
+    names = [x["source"] for x in r["deployer_sources"]["results"]]
+    assert "etherscan" in names, "an unasked source must still be listed"
+    assert r["deployer_sources"]["unavailable"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_deployer_source_that_answers_reaches_the_scorer():
+    """The half-built case: the scorer existed and nothing ever called it."""
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 5_000_000.0})],
+        deployer_sources=[_Src("etherscan", {
+            "deployer_address": "0xabc", "wallet_age_days": 400.0,
+            "prior_deployments": 3.0, "contract_verified": True,
+            "deployer_supply_pct": 0.02, "concurrent_launches_24h": 0.0})])
+    assert r["deployer"] is not None
+    assert r["dossier"]["sections"]["deployer"]["read"] is True
+    assert "deployer" not in r["dossier"]["blind_spots"]
+    assert r["dossier"]["sections"]["deployer"]["source"] == "etherscan", (
+        "a section that was read must carry who read it")
+
+
+@pytest.mark.asyncio
+async def test_an_answered_deployer_still_cannot_certify_a_record():
+    """Five facts read and every one benign is still not a clean record.
+
+    `prior_rugged` is unreadable from an explorer, so the fates of those three
+    prior contracts are unknown — and unknown fates must not become survivors.
+    """
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 5_000_000.0})],
+        deployer_sources=[_Src("etherscan", {
+            "deployer_address": "0xabc", "wallet_age_days": 400.0,
+            "prior_deployments": 3.0, "contract_verified": True,
+            "deployer_supply_pct": 0.02, "concurrent_launches_24h": 0.0})])
+    assert r["deployer"]["verdict"] == "unproven"
+    assert r["deployer"]["outcomes"]["unresolved"] == 3
+    # And the render says so rather than printing "3 prior deployments" beside
+    # a benign verdict, which reads as three survivors.
+    text = human_readable(r)
+    assert "0xabc" in text, "a provenance verdict needs its subject"
+    assert "unknown fate" in text
+
+
+@pytest.mark.asyncio
+async def test_deployer_output_fields_are_not_flagged_as_unused():
+    """`unused_fields` catches a source answering in the wrong dialect.
+
+    `deployer_address` and the outcome counts are real output that no named
+    check reads, so a naive set difference reports the working source as
+    misconfigured — and a false warning trains the reader to ignore the true
+    ones.
+    """
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 1.0})],
+        deployer_sources=[_Src("etherscan", {
+            "deployer_address": "0xabc", "prior_deployments": 2.0,
+            "prior_alive": 1.0, "deployments_truncated": True})])
+    assert r["unused_fields"] == []
+    # …but a genuinely misspelled field is still caught, on this half too.
+    r2 = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 1.0})],
+        deployer_sources=[_Src("etherscan", {"deployer_address": "0xabc",
+                                             "wallet_age": 400.0})])
+    assert r2["unused_fields"] == ["wallet_age"]

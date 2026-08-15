@@ -104,13 +104,20 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     # /networth's own docstring says "the caller's own") or pure market data
     # (/research a symbol, /rwa a sector radar) — nothing shared, nothing
     # mutable — so the PERMISSION was the error, not the catalogue.
+    #
+    # `token` (the contract detective) joins them on the same reasoning: it
+    # reads public chain data, decides nothing, and writes nothing. It does
+    # spend the shared explorer quota, which /research and /rwa already do
+    # through their own upstreams — if that budget ever needs defending it
+    # should be defended by a rate limit, not by hiding a safety check from
+    # the users most likely to be handed a scam address.
     "trader": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
         "trade", "risk", "status", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
-        "exposure", "networth", "research", "rwa",
+        "exposure", "networth", "research", "rwa", "token",
         # /mystrategy: a trader's own tighten-only confirm gate — it can only
         # REFUSE that trader's confirms, touches nothing shared, so it belongs
         # to exactly the role that can confirm trades.
@@ -134,14 +141,14 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "trade", "risk", "status", "rejected", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "playbook",
-        "exposure", "networth", "research", "rwa",
+        "exposure", "networth", "research", "rwa", "token",
         "mystrategy",
     },
     "viewer": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "status", "risk",
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
-        "exposure", "networth", "research", "rwa",
+        "exposure", "networth", "research", "rwa", "token",
     },
     # "journal" STAYS here even though /journal moved to an operator group.
     # It is not /journal's permission alone — `/daily_report` is `@guard("journal")`
