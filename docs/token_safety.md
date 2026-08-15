@@ -65,3 +65,59 @@ that is mostly `unknown` → `caution` (cannot certify).
   *Falsifier:* a mismatched mapping, an unstable verdict, or any positive output.
 
 Results: `tests/test_token_safety.py`.
+
+## Reaching it: `/token`
+
+`/token <address> [chain]` runs the whole chain — `token_sources` → `token_safety`
+for the contract, `deployer_sources` → `deployer_history` for whoever shipped it,
+`token_dossier` to compose — and renders it with every unread section named.
+
+`/research` was already taken by the symbol research card (venue data + recorded
+platform history), which is a different feature; registering over it would have
+replaced that command silently.
+
+### What the deployer half can and cannot answer
+
+`EtherscanDeployerSource` supplies five of the eight facts `assess_deployer`
+reads: `contract_verified`, `wallet_age_days`, `prior_deployments`,
+`concurrent_launches_24h`, `deployer_supply_pct`. It cannot supply how the
+deployer's PREVIOUS contracts ended (`prior_rugged` / `prior_alive`), nor
+`funded_by_mixer`, nor `reused_rug_bytecode` — those need a per-contract price
+history, a mixer address list, and a rug-bytecode corpus respectively.
+
+Because `_outcomes_resolved` treats an unknown rug count as fatal, **a dossier
+fed only by this source cannot reach `clean`.** That is deliberate. It reaches
+`unproven` *with content* — a named deployer, a wallet age, a deployment count, a
+supply share, and an explicit list of what stayed unread — rather than `unproven`
+with nothing. Filling `prior_rugged` with 0 to unlock a better-looking verdict
+would be the module's central defect committed by its own supplier: "we could not
+determine any rugs" is not "there were none".
+
+With no `ETHERSCAN_API_KEY` the source reports `unavailable` — *we never asked* —
+and the section stays **not read**, which is a different row from *we asked and
+learned nothing*.
+
+### Two traps a future source author should know
+
+- **`deployer_supply_pct` is a FRACTION**, despite the name. Its hard threshold
+  is `0.5` against the message "deployer holds ≥50% of supply", and
+  `tests/test_deployer_history.py` passes `0.03` / `0.6`. Emitting `60` for 60%
+  clears the hard threshold by 120× and marks every token a scam.
+- **A partial read must omit, never zero.** An unreadable transaction list
+  becoming `wallet_age_days: 0` manufactures the "less than a week old" flag out
+  of a failed request, and a truncated list becoming a `prior_deployments` count
+  publishes a floor as a total — that count is the denominator of the deployer's
+  record. Both cases are pinned in `tests/test_deployer_sources.py`.
+
+### Discoverability is enforced, not remembered
+
+`/token` is listed in `bot/skills/command_catalog.py`, which is what `/help`
+renders from. That is not optional: `tests/test_command_catalog.py` asserts the
+catalogue and the handler's registration list match **exactly**, in both
+English and Chinese, so a command cannot ship undocumented and a retired one
+cannot linger in the docs.
+
+Worth knowing before adding the next command — the i18n `help_*` blocks are a
+different, older surface and grepping those instead suggests (wrongly) that
+recent commands go unlisted. The catalogue is the source of truth, and the gate
+catches you either way.

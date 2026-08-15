@@ -761,6 +761,7 @@ class TelegramHandler:
             ("exposure", self._cmd_exposure),
             ("duel", self._cmd_duel),
             ("research", self._cmd_research),
+            ("token", self._cmd_token),
             ("rwa", self._cmd_rwa),
         ]:
             app.add_handler(CommandHandler(cmd, handler))
@@ -4581,6 +4582,51 @@ class TelegramHandler:
                              "venue, or the web app isn't reachable.")
             return
         await self._send(update, self._format_research(data))
+
+    #: An EVM contract address. Checked before any request goes out, so a typo
+    #: costs nothing and cannot be mistaken for "we looked and found nothing".
+    _EVM_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+    @guard("token")
+    async def _cmd_token(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/token <address> [chain] — the contract detective.
+
+        Two questions in one answer: what the contract can do to holders
+        (`token_safety`) and who shipped it (`deployer_history`), composed by
+        `token_dossier` with every unread section named.
+
+        Detection only. The best verdict available is "nothing found against
+        it", and the render leads with what could NOT be checked rather than
+        burying it — an UNPROVEN dossier is the normal output for a token
+        nobody has a paid data feed for, and it must not read like a warning.
+        """
+        from bot.core.deployer_sources import CHAIN_IDS
+        from bot.core.token_research import human_readable as _dossier_text
+        from bot.core.token_research import investigate
+        args = getattr(ctx, "args", None) or []
+        if not args:
+            await self._send(
+                update,
+                "Usage: <code>/token &lt;contract address&gt; [chain]</code>\n"
+                "e.g. <code>/token 0xdAC17F958D2ee523a2206206994597C13D831ec7</code>\n"
+                f"Chains: {', '.join(sorted(set(CHAIN_IDS)))}")
+            return
+        address = str(args[0]).strip()
+        if not self._EVM_ADDR_RE.match(address):
+            await self._send(
+                update, "That is not an EVM contract address (expected 0x + 40 "
+                        "hex characters). Nothing was checked.")
+            return
+        chain = (str(args[1]).strip().lower() if len(args) > 1 else "eth")
+        try:
+            result = await investigate(address, chain=chain)
+        except Exception as exc:                                  # noqa: BLE001
+            # A crashed investigation is not a clean token. _send_error logs the
+            # real exception and replies generically rather than implying a read.
+            await self._send_error(update, "token", exc)
+            return
+        await self._send(update,
+                         "<pre>" + html.escape(_dossier_text(result)) + "</pre>")
 
     @guard("rwa")
     async def _cmd_rwa(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

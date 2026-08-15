@@ -43,7 +43,14 @@ test('every connect entry point routes through the picker', () => {
 });
 
 test('no CSP loosening rode along — script sources stay pinned', () => {
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /"script-src 'self' 'unsafe-inline' https:\/\/telegram\.org"/,
-    'script-src unchanged: the picker needs no external origins');
+  // This pinned the literal policy string, which broke when M14 TIGHTENED it
+  // (dropping 'unsafe-inline' for per-block hashes). The intent was never the
+  // spelling — it was that the wallet picker introduces no new script origin —
+  // so assert that instead, against the policy the server actually builds.
+  const src = require('../lib/csp').scriptSrc();
+  const origins = src.split(/\s+/).filter(
+    (t) => !t.startsWith("'sha256-") && t !== "'self'");
+  assert.deepStrictEqual(origins, ['https://telegram.org'],
+    'the picker needs no external origins; only the Telegram widget is allowed');
+  assert.ok(!src.includes("'unsafe-inline'"), 'and inline script stays disallowed');
 });

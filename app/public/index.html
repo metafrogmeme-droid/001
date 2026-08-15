@@ -470,15 +470,15 @@
 <main class="auth-wrap" id="main-content">
   <div class="card" id="auth-panel">
     <div class="tab-row" role="tablist">
-      <button class="tab-btn active" id="tab-register" role="tab" aria-selected="true" onclick="switchTab('register')" data-i18n="auth.tab_create">Create account</button>
-      <button class="tab-btn" id="tab-login" role="tab" aria-selected="false" onclick="switchTab('login')" data-i18n="auth.tab_login">Log in</button>
+      <button class="tab-btn active" id="tab-register" role="tab" aria-selected="true" data-act="switchTab" data-arg="register" data-i18n="auth.tab_create">Create account</button>
+      <button class="tab-btn" id="tab-login" role="tab" aria-selected="false" data-act="switchTab" data-arg="login" data-i18n="auth.tab_login">Log in</button>
     </div>
     <div id="step-register" class="step active">
       <div class="field"><label for="reg-email" data-i18n="auth.email">Email</label><input class="input" type="email" id="reg-email" placeholder="you@example.com" autocomplete="email" data-i18n-attr="placeholder:auth.email_ph"></div>
       <div class="field"><label for="reg-pass" data-i18n="auth.password">Password</label><input class="input" type="password" id="reg-pass" placeholder="Min 10 characters" autocomplete="new-password" data-i18n-attr="placeholder:auth.pass_min_ph"></div>
       <div class="field"><label for="reg-pass2" data-i18n="auth.confirm_pass">Confirm password</label><input class="input" type="password" id="reg-pass2" placeholder="Repeat password" autocomplete="new-password" data-i18n-attr="placeholder:auth.confirm_ph"></div>
       <div class="form-err" id="reg-err" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" onclick="doRegister()" data-i18n="auth.create">Create free account</button>
+      <button class="btn btn--primary btn-block" data-act="doRegister" data-i18n="auth.create">Create free account</button>
       <p class="muted small" data-i18n="auth.paper_note">Paper trading works immediately — no Telegram, no exchange keys.</p>
     </div>
     <div id="step-login" class="step">
@@ -488,9 +488,9 @@
         <input class="input" type="text" id="login-2fa" placeholder="6-digit code or backup code" autocomplete="one-time-code" inputmode="numeric" data-i18n-attr="placeholder:auth.ph_tfa">
         <p class="muted small" style="margin-top:4px" data-i18n="auth.tfa_hint">From your authenticator app — or one of your saved backup codes.</p></div>
       <div class="form-err" id="login-err" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" onclick="doLogin()" data-i18n="auth.tab_login">Log in</button>
+      <button class="btn btn--primary btn-block" data-act="doLogin" data-i18n="auth.tab_login">Log in</button>
       <p class="muted small" style="text-align:center;margin-top:var(--s2)">
-        <a href="#" onclick="showForgot();return false" data-i18n="auth.forgot">Forgot your password?</a>
+        <a href="#" data-act="showForgot" data-prevent data-i18n="auth.forgot">Forgot your password?</a>
       </p>
     </div>
 
@@ -498,9 +498,9 @@
       <p class="muted small" data-i18n="auth.forgot_body">Enter your email and we'll send a link to reset your password.</p>
       <div class="field"><label for="forgot-email" data-i18n="auth.email">Email</label><input class="input" type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email" data-i18n-attr="placeholder:auth.email_ph"></div>
       <div class="form-err" id="forgot-msg" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" onclick="doForgot()" data-i18n="auth.send_reset">Send reset link</button>
+      <button class="btn btn--primary btn-block" data-act="doForgot" data-i18n="auth.send_reset">Send reset link</button>
       <p class="muted small" style="text-align:center;margin-top:var(--s2)">
-        <a href="#" onclick="switchTab('login');return false" data-i18n="auth.back_login">← Back to log in</a>
+        <a href="#" data-act="switchTab" data-arg="login" data-prevent data-i18n="auth.back_login">← Back to log in</a>
       </p>
     </div>
 
@@ -518,7 +518,7 @@
   <div class="card hidden" id="account">
     <div class="row mb-4" style="justify-content:space-between">
       <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em" data-i18n="acc.title">Your account</h2>
-      <button class="btn btn--ghost btn--sm" onclick="doLogout()" data-i18n="acc.logout">Log out</button>
+      <button class="btn btn--ghost btn--sm" data-act="doLogout" data-i18n="acc.logout">Log out</button>
     </div>
     <div class="acct-grid">
       <div class="stat"><div class="k">Account</div><div class="v" style="font-family:var(--font-ui);font-size:var(--fs-sm);word-break:break-all" id="d-email">–</div></div>
@@ -537,7 +537,7 @@
         <li data-i18n-html="acc.tg_step3">Send the bot: <code>/link &lt;token&gt;</code></li>
       </ol>
       <div id="token-area" class="mt-3">
-        <button class="btn btn--sm" onclick="getToken()" data-i18n="acc.gen_token">Generate link token</button>
+        <button class="btn btn--sm" data-act="getToken" data-i18n="acc.gen_token">Generate link token</button>
       </div>
     </div>
     <!-- Link social accounts (shown only when redirect providers are configured) -->
@@ -550,7 +550,7 @@
     <!-- Email verification status (shown only for real email accounts) -->
     <div class="section-note hidden" id="verify-box" style="border-style:solid">
       <span id="verify-text" data-i18n="acc.verify_text">Your email isn't verified yet.</span>
-      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" onclick="resendVerification()" data-i18n="acc.resend_verify">Resend verification email</button>
+      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" data-act="resendVerification" data-i18n="acc.resend_verify">Resend verification email</button>
     </div>
 
     <!-- Wallet link (shown when the server supports wallet verification) -->
@@ -558,9 +558,9 @@
       <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.wallet">Wallet</h3>
       <p class="muted small" id="wallet-status" data-i18n="acc.wallet_body">Link a browser wallet to mirror your on-chain balances and DeFi positions — read-only: the wallet signs one login message, never a transaction.</p>
       <div class="form-err" id="wallet-msg" aria-live="polite"></div>
-      <button class="btn btn--sm mt-2" id="wallet-link-btn" onclick="linkWalletToAccount()" data-i18n="acc.wallet_link">🔗 Link wallet</button>
-      <button class="btn btn--sm mt-2" id="wallet-qr-btn" onclick="showWalletQr()" data-i18n="acc.wallet_phone">📱 Link with phone</button>
-      <button class="btn btn--ghost btn--sm mt-2 hidden" id="wallet-unlink-btn" onclick="unlinkWalletFromAccount()" data-i18n="acc.wallet_unlink">Unlink wallet</button>
+      <button class="btn btn--sm mt-2" id="wallet-link-btn" data-act="linkWalletToAccount" data-i18n="acc.wallet_link">🔗 Link wallet</button>
+      <button class="btn btn--sm mt-2" id="wallet-qr-btn" data-act="showWalletQr" data-i18n="acc.wallet_phone">📱 Link with phone</button>
+      <button class="btn btn--ghost btn--sm mt-2 hidden" id="wallet-unlink-btn" data-act="unlinkWalletFromAccount" data-i18n="acc.wallet_unlink">Unlink wallet</button>
       <div id="wallet-qr-box" class="mt-3 hidden"></div>
     </div>
 
@@ -571,7 +571,7 @@
       <div class="field"><label for="pw-new" data-i18n="acc.pw_new">New password</label><input class="input" type="password" id="pw-new" placeholder="Min 10 characters" autocomplete="new-password" data-i18n-attr="placeholder:auth.pass_min_ph"></div>
       <div class="field"><label for="pw-new2" data-i18n="acc.pw_confirm">Confirm new password</label><input class="input" type="password" id="pw-new2" autocomplete="new-password"></div>
       <div class="form-err" id="pw-msg" aria-live="polite"></div>
-      <button class="btn btn--sm" onclick="doChangePassword()" data-i18n="acc.pw_update">Update password</button>
+      <button class="btn btn--sm" data-act="doChangePassword" data-i18n="acc.pw_update">Update password</button>
     </div>
 
     <!-- Two-factor authentication -->
@@ -580,19 +580,19 @@
       <p class="muted small" id="tfa-state" data-i18n="acc.tfa_checking">Checking…</p>
       <div id="tfa-off" class="hidden">
         <p class="muted small" data-i18n="acc.tfa_off_body">Protect your account (and your linked exchange keys) with an authenticator app.</p>
-        <button class="btn btn--sm mt-2" onclick="tfaSetup()" data-i18n="acc.tfa_enable">Enable 2FA</button>
+        <button class="btn btn--sm mt-2" data-act="tfaSetup" data-i18n="acc.tfa_enable">Enable 2FA</button>
       </div>
       <div id="tfa-pending" class="hidden">
         <p class="small" data-i18n="acc.tfa_step1">1. Add this secret to your authenticator app (Google Authenticator, Aegis, 1Password…):</p>
-        <div class="token-display" id="tfa-secret" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.textContent)" title="Click to copy"></div>
+        <div class="token-display" id="tfa-secret" data-act="copySelf" title="Click to copy"></div>
         <p class="small mt-2" data-i18n="acc.tfa_step2">2. Enter the 6-digit code it shows to confirm:</p>
         <div class="field"><input class="input" type="text" id="tfa-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code"></div>
-        <button class="btn btn--primary btn--sm" onclick="tfaEnable()" data-i18n="acc.tfa_confirm">Confirm &amp; enable</button>
+        <button class="btn btn--primary btn--sm" data-act="tfaEnable" data-i18n="acc.tfa_confirm">Confirm &amp; enable</button>
       </div>
       <div id="tfa-on" class="hidden">
         <p class="small"><span data-i18n-html="acc.tfa_on">✅ 2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
         <div class="field mt-2"><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
-        <button class="btn btn--ghost btn--sm" onclick="tfaDisable()" data-i18n="acc.tfa_disable">Disable 2FA</button>
+        <button class="btn btn--ghost btn--sm" data-act="tfaDisable" data-i18n="acc.tfa_disable">Disable 2FA</button>
       </div>
       <div id="tfa-codes" class="hidden mt-2"></div>
       <div class="form-err" id="tfa-msg" aria-live="polite"></div>
@@ -1185,9 +1185,9 @@ async function getToken(){
   if(res.error){alert(res.error);return;}
   document.getElementById('token-area').innerHTML=`
     <p class="muted small" style="margin-bottom:4px">Your link token (valid 10 min) — click to copy:</p>
-    <div class="token-display" id="tok-box" onclick="copyToken()">${res.token}</div>
+    <div class="token-display" id="tok-box" data-act="copyToken">${res.token}</div>
     <p class="muted small" style="margin-top:6px">Send to the bot: <code>/link ${res.token}</code></p>
-    <button class="btn btn--ghost btn--sm mt-2" onclick="getToken()">Generate new token</button>`;
+    <button class="btn btn--ghost btn--sm mt-2" data-act="getToken">Generate new token</button>`;
 }
 function copyToken(){
   const tok=document.getElementById('tok-box');
@@ -1368,6 +1368,40 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
     deferred.userChoice.finally(function(){ deferred=null; btn.hidden=true; btn.disabled=false; });
   });
   window.addEventListener('appinstalled', function(){ deferred=null; btn.hidden=true; });
+})();
+
+/* ── CSP: delegated actions, replacing the inline on* handlers (M14) ──────
+   `script-src` no longer carries 'unsafe-inline', and a CSP hash cannot
+   authorise an inline event handler — only 'unsafe-hashes' can, which
+   re-opens a weaker form of the same hole. So every former onclick="fn()"
+   is now data-act="fn" and is dispatched here.
+
+   Delegated on `document`, not bound per element: the token box and its
+   buttons are injected by getToken() long after this runs, and a per-element
+   binding would miss precisely those two.
+
+   Resolved off `window` by name, exactly as `onclick="doLogin()"` resolved
+   it, so the handlers keep working wherever their block defines them — but
+   only for names on this list, so a data-act attribute cannot reach an
+   arbitrary global. */
+(function(){
+  var ALLOWED = ['switchTab','showForgot','doRegister','doLogin','doForgot',
+    'doLogout','getToken','copyToken','resendVerification','linkWalletToAccount',
+    'unlinkWalletFromAccount','showWalletQr','doChangePassword','tfaSetup',
+    'tfaEnable','tfaDisable'];
+  function copySelf(){
+    if(navigator.clipboard) navigator.clipboard.writeText(this.textContent);
+  }
+  document.addEventListener('click', function(e){
+    var el = e.target.closest && e.target.closest('[data-act]');
+    if(!el) return;
+    var name = el.getAttribute('data-act');
+    if(el.hasAttribute('data-prevent')) e.preventDefault();
+    if(name === 'copySelf') return copySelf.call(el);
+    if(ALLOWED.indexOf(name) === -1) return;
+    var fn = window[name];
+    if(typeof fn === 'function') fn.call(el, el.getAttribute('data-arg'));
+  });
 })();
 </script>
 <script src="/js/ambient.js?v=3" defer></script>
