@@ -243,20 +243,84 @@ def test_token_store_uses_redis_when_present():
     assert fake.kv.get("rc:jwt:jti:jti-x") == "1"
 
 
-def test_token_store_falls_back_when_redis_errors():
-    class _BrokenRedis:
-        def get(self, k):
-            raise RuntimeError("redis down")
+class _BrokenRedis:
+    def get(self, k):
+        raise RuntimeError("redis down")
 
-        def incr(self, k):
-            raise RuntimeError("redis down")
+    def incr(self, k):
+        raise RuntimeError("redis down")
 
-        def set(self, k, v, nx=False, ex=None):
-            raise RuntimeError("redis down")
+    def set(self, k, v, nx=False, ex=None):
+        raise RuntimeError("redis down")
 
+
+def test_the_read_path_still_falls_back_when_redis_errors():
+    """Verify keeps its availability posture: a Redis blip must not log every
+    user out. This half of the old behaviour was right and is unchanged."""
     store = _store_with_redis(_BrokenRedis())
-    # Every op falls back to in-process WITHOUT raising (fail toward availability).
     assert store.get_epoch(7) == 0
+
+
+def test_a_revocation_that_did_not_persist_is_not_reported_as_done():
+    """CHANGED DELIBERATELY — audit M16.
+
+    This assertion used to read "every op falls back to in-process WITHOUT
+    raising (fail toward availability)", which is the finding written down as a
+    requirement. `/auth/logout` returned `{"ok": True}` off that fallback while
+    every other worker, reading Redis, kept honouring the token the user had
+    just killed.
+
+    Falling back is still right for READING. It is not right for a security
+    action whose whole purpose is to have taken effect elsewhere.
+    """
+    from bot.api.token_store import RevocationNotDurable
+    store = _store_with_redis(_BrokenRedis())
+    with pytest.raises(RevocationNotDurable):
+        store.bump_epoch(7)
+
+
+def test_the_bump_is_still_recorded_locally_when_it_raises():
+    """Partial enforcement beats none. This worker honours the revocation even
+    though it cannot promise the others do — raising is about what the caller
+    is TOLD, not about giving up."""
+    store = _store_with_redis(_BrokenRedis())
+    with pytest.raises(Exception):
+        store.bump_epoch(7)
+    assert store._epoch[7] == 1
+    assert store.get_epoch(7) == 1
+
+
+def test_a_local_bump_is_not_undone_when_redis_comes_back():
+    """The second half of M16, and the quieter one. get_epoch read Redis FIRST
+    and returned its value, so a bump recorded locally during an outage vanished
+    the moment Redis answered again — the revoked token started verifying once
+    the incident was over. A revocation may be late to Redis; Redis must never
+    undo one."""
+    fake = _FakeRedis()
+    store = _store_with_redis(_BrokenRedis())
+    with pytest.raises(Exception):
+        store.bump_epoch(7)          # outage: recorded locally only
+    store._redis = fake              # Redis recovers, knowing nothing of it
+    assert fake.kv.get("rc:jwt:epoch:7") is None
+    assert store.get_epoch(7) == 1, (
+        "the recovered Redis erased a revocation this worker had recorded")
+
+
+def test_replay_detection_fails_closed_rather_than_falling_back():
+    """An in-process set is not shared with the worker that will see the replay,
+    so falling back does not degrade replay detection — it removes it while
+    looking like it works. A rejected refresh costs a re-login."""
+    from bot.api.token_store import RevocationNotDurable
+    store = _store_with_redis(_BrokenRedis())
+    with pytest.raises(RevocationNotDurable):
+        store.try_consume_jti("j", 60)
+
+
+def test_with_no_redis_configured_nothing_raises():
+    """The default, and every test deployment. No durability is being promised,
+    so there is none to fail — the in-process dicts ARE the backend."""
+    store = _store_with_redis(None)
+    assert store.backend == "in-process"
     assert store.bump_epoch(7) == 1
     assert store.get_epoch(7) == 1
     assert store.try_consume_jti("j", 60) is True

@@ -15,14 +15,26 @@ Design notes:
     `_revoke_user_tokens`, `_check_and_record_refresh`) are sync, so this uses the
     sync `redis.Redis` client with short socket timeouts. The auth path is
     low-frequency, so the brief blocking call is acceptable.
-  * **Fail toward availability:** revocation durability is best-effort; if a Redis
-    call raises (e.g. Redis briefly down) we fall back to the in-process value for
-    that call and log — auth must never hard-break on a Redis blip. The
-    consequence is that, *during a Redis outage*, a revoke performed against Redis
-    may not be enforced by a worker that fell back to its (empty) in-process
-    state. That is the explicit trade-off vs. failing auth closed.
+  * **The read path and the write path have DIFFERENT postures**, and conflating
+    them was audit M16. Reading (`get_epoch`, on every verify) falls back to the
+    in-process value on a Redis error: auth must not hard-break on a blip. But a
+    REVOCATION that could not be persisted where the verify path will read it is
+    not a revocation, and reporting it as one is the defect this repository is
+    built around — `/auth/logout` returned `{"ok": True}` while another worker,
+    reading Redis, kept honouring the token the user had just killed. Worse, the
+    in-process bump was invisible after recovery too, because `get_epoch` read
+    Redis FIRST and returned the stale pre-bump number.
+
+    So the write path now fails LOUD (`RevocationNotDurable`) instead of quietly,
+    while still recording the bump locally so this worker at least enforces it —
+    and `get_epoch` returns the HIGHER of the two, so a local bump is never
+    forgotten once Redis comes back.
+  * `try_consume_jti` fails CLOSED for the same reason: an in-process set is not
+    shared with the worker that will see the replay. A rejected refresh costs a
+    re-login; an accepted replay costs the account.
   * With no Redis configured (the default, and in tests), the in-process dicts are
-    the sole backend and behave exactly as before this change.
+    the sole backend and behave exactly as before this change — including never
+    raising, since there is no durability being promised to fail.
 """
 from __future__ import annotations
 
@@ -36,6 +48,19 @@ logger = logging.getLogger(__name__)
 
 _EPOCH_KEY = "rc:jwt:epoch:"   # + user_id  → integer epoch (INCR/GET)
 _JTI_KEY = "rc:jwt:jti:"       # + jti      → "1" with TTL (SET NX EX)
+
+
+class RevocationNotDurable(RuntimeError):
+    """A revocation could not be written where the verify path will read it.
+
+    Raised ONLY when Redis is configured and unreachable — that is, when
+    durability was promised and not delivered. With no Redis configured the
+    in-process store IS the backend, nothing is promised, and nothing raises.
+
+    Callers must surface this rather than swallow it. The whole point is that
+    "we tried to log you out" and "you are logged out" stop being the same
+    answer.
+    """
 
 
 class TokenStore:
@@ -89,28 +114,60 @@ class TokenStore:
         return "redis" if self._redis is not None else "in-process"
 
     def get_epoch(self, user_id: int) -> int:
-        """Current token epoch for a user (0 if never revoked)."""
+        """Current token epoch for a user (0 if never revoked).
+
+        Returns the HIGHER of Redis and in-process. Reading Redis alone was the
+        second half of M16: a bump that fell back to the local dict during an
+        outage became invisible the moment Redis answered again, so tokens the
+        operator had revoked started verifying once the incident was over. A
+        revocation may be late to Redis; it must never be undone by Redis.
+        """
+        local = self._epoch.get(user_id, 0)
         if self._redis is not None:
             try:
                 v = self._redis.get(f"{_EPOCH_KEY}{user_id}")
-                return int(v) if v is not None else 0
+                return max(int(v) if v is not None else 0, local)
             except Exception as exc:
+                # Read path keeps its availability posture: a blip must not log
+                # every user out. Falling back here loses no revocation that this
+                # worker knows about, because `local` is what we return.
                 logger.warning("Redis get_epoch failed, using in-process: %s", exc)
-        return self._epoch.get(user_id, 0)
+        return local
 
     def bump_epoch(self, user_id: int) -> int:
-        """Increment the user's epoch (revokes all prior tokens). Returns new epoch."""
+        """Increment the user's epoch (revokes all prior tokens). Returns new epoch.
+
+        Raises `RevocationNotDurable` if Redis is configured and the write fails.
+        The local bump still happens first, so this worker enforces it — but the
+        caller is told the revocation is not durable rather than being handed a
+        number that looks like success.
+        """
         if self._redis is not None:
             try:
                 return int(self._redis.incr(f"{_EPOCH_KEY}{user_id}"))
             except Exception as exc:
-                logger.warning("Redis bump_epoch failed, using in-process: %s", exc)
+                # Record locally ANYWAY — partial enforcement beats none, and
+                # get_epoch's max() keeps it alive after recovery — then refuse
+                # to call it done.
+                self._epoch[user_id] += 1
+                logger.error(
+                    "Redis bump_epoch failed for user %s — revocation is NOT "
+                    "durable across workers: %s", user_id, exc)
+                raise RevocationNotDurable(
+                    "token revocation could not be persisted") from exc
         self._epoch[user_id] += 1
         return self._epoch[user_id]
 
     def try_consume_jti(self, jti: str, ttl_seconds: int) -> bool:
         """Record a refresh jti as consumed. Returns True if newly consumed,
-        False if it was already consumed (a replay)."""
+        False if it was already consumed (a replay).
+
+        Raises `RevocationNotDurable` if Redis is configured and unreachable.
+        Falling back to the in-process set would be worse than useless here: the
+        replay this exists to catch arrives at whichever worker load-balancing
+        picks, and that worker's set is empty. Rejecting the refresh costs a
+        re-login; accepting a replay costs the account.
+        """
         ttl = max(1, int(ttl_seconds))
         if self._redis is not None:
             try:
@@ -118,7 +175,11 @@ class TokenStore:
                 ok = self._redis.set(f"{_JTI_KEY}{jti}", "1", nx=True, ex=ttl)
                 return bool(ok)
             except Exception as exc:
-                logger.warning("Redis try_consume_jti failed, using in-process: %s", exc)
+                logger.error(
+                    "Redis try_consume_jti failed — refusing the refresh rather "
+                    "than losing replay detection: %s", exc)
+                raise RevocationNotDurable(
+                    "refresh replay protection unavailable") from exc
         if jti in self._consumed_jti:
             return False
         self._consumed_jti.add(jti)

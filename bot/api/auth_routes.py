@@ -166,7 +166,8 @@ JWT_REFRESH_TTL = 60 * 60 * 24 * 7  # 7 days
 # configured (durable across uvicorn workers / replicas / restarts) and falls
 # back to in-process dicts otherwise. The helpers below delegate to it; their
 # signatures/semantics are unchanged.
-from bot.api.token_store import get_token_store, ttl_from_exp
+from bot.api.token_store import (RevocationNotDurable, get_token_store,
+                                 ttl_from_exp)
 
 
 def _revoke_user_tokens(user_id: int) -> int:
@@ -252,19 +253,38 @@ def get_current_user_id(
     return payload["sub"]
 
 
-def _user_response(user_id: int, token: str, refresh_token: str) -> dict:
-    """Build the JSON body the website dashboard needs."""
+def _user_info(user_id: int) -> dict:
+    """The user's own details — no credentials of any kind.
+
+    Split out for M15. `/auth/me` used to answer with a freshly minted access
+    AND refresh token, so a caller holding a 1-hour token could turn it into a
+    7-day one with a GET, repeatedly, bypassing the rotation and single-use
+    replay detection that `/refresh` applies. Nothing about "tell me who I am"
+    requires issuing a credential.
+    """
     user = get_user_by_id(user_id)
     pf = get_user_portfolio(user_id)
     return {
-        "token": token,
-        "refresh_token": refresh_token,
-        "expires_in": JWT_ACCESS_TTL,
         "user_id": user_id,
         "email": user.email,
         "plan": user.plan,
         "equity": pf["equity"],
         "telegram_linked": user.telegram_chat_id is not None,
+    }
+
+
+def _user_response(user_id: int, token: str, refresh_token: str) -> dict:
+    """`_user_info` plus a freshly minted credential pair.
+
+    Only the three endpoints that are ENTITLED to mint may call this: /login,
+    /register and /refresh. /refresh is the only one reachable with an existing
+    credential, and it rotates and replay-checks the one it consumes.
+    """
+    return {
+        "token": token,
+        "refresh_token": refresh_token,
+        "expires_in": JWT_ACCESS_TTL,
+        **_user_info(user_id),
     }
 
 
@@ -321,12 +341,20 @@ async def login(body: AuthIn, request: Request):
 
 @auth_router.get("/me")
 async def me(user_id: int = Depends(get_current_user_id)):
+    """Read-only. Mints nothing — see `_user_info` (audit M15).
+
+    The caller already holds the access token that got them here; handing back
+    a brand-new 7-day refresh token on top of it turned a one-hour compromise
+    into a week-long one, over a GET, which is the request most likely to be
+    logged or cached along the way.
+
+    The express twin at `app/auth.js` GET /me has always been read-only and
+    returns user fields only. This is the endpoint that diverged.
+    """
     user = get_user_by_id(user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    token = create_jwt(user_id, token_type="access")
-    refresh = create_jwt(user_id, token_type="refresh")
-    return _user_response(user_id, token, refresh)
+    return _user_info(user_id)
 
 
 # -- POST /auth/refresh ----------------------------------------------------
@@ -345,7 +373,15 @@ async def refresh(body: RefreshIn):
         raise HTTPException(401, "Expected a refresh token")
     # RC-AUD-020: rotation + reuse detection. A refresh token may be exchanged
     # exactly once; a replay of an already-consumed refresh token is rejected.
-    if not _check_and_record_refresh(payload):
+    try:
+        consumed = _check_and_record_refresh(payload)
+    except RevocationNotDurable:
+        # NOT a 401. "Your token was replayed" and "we cannot tell whether it
+        # was replayed" are different answers, and only one of them should make
+        # a user think their account is compromised.
+        raise HTTPException(
+            503, "Cannot verify this session right now. Please try again.")
+    if not consumed:
         raise HTTPException(401, "Refresh token already used")
     user_id = payload["sub"]
     user = get_user_by_id(user_id)
@@ -362,8 +398,22 @@ async def refresh(body: RefreshIn):
 async def logout(user_id: int = Depends(get_current_user_id)):
     """RC-AUD-020: revoke ALL of the caller's outstanding tokens by bumping the
     user's token epoch. Every previously-issued access/refresh token now has a
-    `ver` below the new epoch and is rejected by _verify."""
-    _revoke_user_tokens(user_id)
+    `ver` below the new epoch and is rejected by _verify.
+
+    M16: this used to `return {"ok": True}` without so much as reading the
+    result. If the epoch bump could not be persisted, the user was told they
+    were logged out while every other worker — reading Redis — went on
+    honouring the token they had just killed. A logout that did not take is a
+    503, not an ok.
+    """
+    try:
+        _revoke_user_tokens(user_id)
+    except RevocationNotDurable:
+        # Coarse reason only. The driver's message never reaches the caller —
+        # same rule as /readyz, and for the same reason.
+        raise HTTPException(
+            503, "Could not complete sign-out. Your session may still be "
+                 "active — try again in a moment.")
     return {"ok": True}
 
 
