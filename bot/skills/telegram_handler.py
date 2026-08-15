@@ -423,7 +423,7 @@ from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd
 from bot.utils.logger import audit, system_log, _redact_string
 from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
 from bot.utils.user_store import (ROLES, SELF_ADMISSION_BY,
-                                  SELF_ADMISSION_ROLE, UserStore)
+                                  SELF_ADMISSION_ROLE, UserStore, is_vouchable)
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
                             chat_language_name, SUPPORTED_LANGS)
 from bot.nlp.intent_router import IntentRouter
@@ -3220,8 +3220,11 @@ class TelegramHandler:
 
         target_id = args[0].strip()
 
-        # Input validation: Telegram IDs are numeric only
-        if not target_id.isdigit():
+        # Input validation: Telegram IDs are numeric only. Shared with the
+        # `admit:` callback and read by migrate_self_admitted_roles, which
+        # depends on this refusal to know a web-only account cannot have been
+        # vouched for — see user_store.is_vouchable.
+        if not is_vouchable(target_id):
             await self._send(update,
                 f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}")
             return
@@ -11783,7 +11786,7 @@ class TelegramHandler:
                                  f"\U0001f512 {t('admin_only', self._lang(update))}",
                                  edit=True)
                 return
-            if not target_id.isdigit():
+            if not is_vouchable(target_id):
                 await self._send(update,
                                  f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}",
                                  edit=True)

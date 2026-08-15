@@ -38,6 +38,26 @@ downgrade somebody an operator deliberately promoted — absence is not a
 measurement, and a migration is exactly where that rule gets skipped because
 the alternative is a slightly untidy report.
 
+EXCEPT WHERE THE ABSENCE IS PROVABLE
+
+"Cannot tell" is a statement about the evidence, and for one shape of id there
+is more evidence than `admitted_by`. A `web:<n>` identity exists only because
+`bot/web/user_gateway._guard_user` called `register()` on a first request —
+and `register()` cannot stamp an admission. The two surfaces that CAN stamp one
+(`/approve` and the `admit:` callback) both refuse a non-numeric id, so no
+`web:` account has ever reached an admin's decision. Its role is whatever the
+door handed out at the time, which before H4 was `trader`.
+
+That is a proof, not a guess, so those records are planned for downgrade —
+and each carries the REASON it was planned, because "the door admitted them"
+and "no door but the automatic one exists for them" are different findings and
+a single bucket printed without them would read as one.
+
+The proof rests on those two refusals, so it is not left as an inference: both
+call `user_store.is_vouchable`, and `tests/test_a_web_id_cannot_be_vouched_for`
+drives them. A numeric id with no `admitted_by` stays unattributable, because
+for one of those the ambiguity is real.
+
 DRY RUN BY DEFAULT. This edits production identity records; nothing happens
 without `--apply`.
 
@@ -53,7 +73,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bot.utils.user_store import (SELF_ADMISSION_BY, SELF_ADMISSION_ROLE,  # noqa: E402
-                                  UserStore)
+                                  UserStore, is_vouchable)
 
 #: Roles a self-admitted account may be holding that are stronger than the one
 #: the door would grant today. `admin` is deliberately absent: if an operator
@@ -74,7 +94,7 @@ def plan(store: UserStore) -> dict:
         role = u.get("role", "pending")
         by = u.get("admitted_by")
         row = {"id": u.get("telegram_id"), "name": (u.get("name") or "")[:20],
-               "role": role, "admitted_by": by}
+               "role": role, "admitted_by": by, "reason": ""}
         if role == SELF_ADMISSION_ROLE:
             out["already"].append(row)
         elif role not in _DOWNGRADABLE:
@@ -82,9 +102,17 @@ def plan(store: UserStore) -> dict:
             # business either way.
             continue
         elif by == SELF_ADMISSION_BY:
+            row["reason"] = f"admitted_by={SELF_ADMISSION_BY!r} — the door let them in"
             out["migrate"].append(row)
         elif by:
             out["vouched"].append(row)
+        elif not is_vouchable(u.get("telegram_id")):
+            # No stamp AND no surface that could have written one. Both admin
+            # admission paths refuse a non-numeric id, so this account reached
+            # its role through the gateway's register() and nothing else.
+            row["reason"] = ("no admin surface accepts this id shape — "
+                             "auto-provisioned by the web gateway")
+            out["migrate"].append(row)
         else:
             out["unattributable"].append(row)
     return out
@@ -123,20 +151,27 @@ def main() -> int:
         for r in rows:
             print(f"  {str(r['id']):>12}  {r['name']:<20} {r['role']:<8} "
                   f"admitted_by={r['admitted_by']!r}")
+            # Two different findings share this bucket. Printing the count
+            # alone would present them as one.
+            if r.get("reason"):
+                print(f"  {'':>12}  └ {r['reason']}")
 
     show("WOULD DOWNGRADE", p["migrate"],
-         f"the door admitted these; they would become {SELF_ADMISSION_ROLE!r}")
+         f"these reached their role with no human deciding; "
+         f"they would become {SELF_ADMISSION_ROLE!r}")
     show("LEFT ALONE — vouched for", p["vouched"],
          "an admin approved these; their role is a decision, not a default")
     show("LEFT ALONE — cannot tell", p["unattributable"],
-         "no admitted_by. NOT guessed either way — decide these by hand")
+         "no admitted_by, and an admin COULD have approved them — "
+         "NOT guessed either way; decide these by hand")
     show("already correct", p["already"])
 
     if p["unattributable"]:
-        print(f"\n  {len(p['unattributable'])} account(s) have no attribution. "
-              "They predate the admitted_by stamp, so nothing here can say "
-              "whether a human let them in. Downgrading them on a guess would "
-              "demote somebody an operator promoted on purpose.")
+        print(f"\n  {len(p['unattributable'])} account(s) have no attribution and a "
+              "numeric id, so /approve was reachable for them. They predate the "
+              "admitted_by stamp and nothing here can say whether a human let "
+              "them in; downgrading on that guess would demote somebody an "
+              "operator promoted on purpose.")
 
     if not args.apply:
         print(f"\nDRY RUN — nothing written. Re-run with --apply to change "
