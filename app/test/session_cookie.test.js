@@ -211,3 +211,60 @@ test('every session funnel issues the cookie, and logout clears it', () => {
   // cookie explicitly — and is the easiest one to forget.
   assert.match(src, /setSession\(req, res, body\.token\);/);
 });
+
+// ── the regression that would have shipped ────────────────────────────────
+
+test('a Bearer of the literal string "null" does not shadow the cookie', () => {
+  // Eleven call sites across seven pages build the header as
+  // `'Bearer ' + tok`. Once the token leaves localStorage, `tok` is null and
+  // they send the four characters `null` — truthy, accepted as the
+  // credential, and it hid a perfectly good cookie underneath. Every one of
+  // those pages would have 401'd for exactly the sessions this migration
+  // creates.
+  for (const junk of ['null', 'undefined', 'false', '']) {
+    assert.strictEqual(
+      sc.tokenFromRequest(reqWith({ authorization: `Bearer ${junk}`,
+                                    cookie: 'rc_jwt=good' })),
+      'good', `Bearer ${junk} shadowed the cookie`);
+  }
+});
+
+test('a real but invalid token is still an invalid token', () => {
+  // The fall-through above must not swallow genuine garbage: "we could not
+  // read your credential" and "you sent none" are different answers, and the
+  // 401 body says so.
+  assert.strictEqual(
+    sc.tokenFromRequest(reqWith({ authorization: 'Bearer abc.def.ghi' })),
+    'abc.def.ghi');
+});
+
+test('no page writes a session token to localStorage any more', () => {
+  // The finding in one line. A readable copy anywhere hands the session back
+  // to any script that runs, which is what the HttpOnly cookie exists to stop.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', 'public');
+  const offenders = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!/\.(html|js)$/.test(e.name)) continue;
+      const src = fs.readFileSync(full, 'utf8')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/^[ \t]*\/\/[^\n]*$/gm, '');
+      // Storing a user_id is fine — it names nobody's session and unlocks
+      // nothing. Storing a `token` is the defect.
+      for (const m of src.matchAll(/localStorage\.setItem\(\s*['"]([\w.]+)['"]\s*,([^;]*)/g)) {
+        const [, key, value] = m;
+        if (/token/i.test(key) || /\btoken\b/.test(value)) {
+          offenders.push(`${path.relative(dir, full)} → ${key}`);
+        }
+      }
+    }
+  };
+  walk(dir);
+  assert.deepStrictEqual(offenders, [],
+    'a session token is being written somewhere a script can read it back');
+});

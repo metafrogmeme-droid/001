@@ -44,6 +44,23 @@
 const SESSION_COOKIE = 'rc_jwt';
 const FLAG_COOKIE = 'rc_auth';
 
+/**
+ * Bearer values that are a MISSING token wearing a string.
+ *
+ * Eleven call sites across seven pages build the header as
+ * `'Bearer ' + tok`, and once the token stops living in localStorage `tok` is
+ * null — so they send the four characters `null`. That is truthy, so it was
+ * accepted as the credential and SHADOWED a perfectly good cookie: every one
+ * of those pages would have 401'd for cookie sessions, which is the whole
+ * point of this migration.
+ *
+ * Ignored here rather than fixed at eleven sites because the server is the
+ * place that can be sure. A real-but-invalid token still answers "Invalid
+ * token"; only these three fall through, because none of them was ever a
+ * credential — a JWT has two dots and none of these has any.
+ */
+const NOT_A_CREDENTIAL = new Set(['null', 'undefined', 'false']);
+
 // Matches the JWT's own lifetime. A cookie that outlives its token leaves the
 // UI claiming a session the server has already stopped honouring; a cookie
 // that dies first logs out a user whose token was still good.
@@ -126,7 +143,7 @@ function tokenFromRequest(req) {
   const auth = req && req.headers && req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) {
     const raw = auth.slice(7).trim();
-    if (raw) return raw;
+    if (raw && !NOT_A_CREDENTIAL.has(raw)) return raw;
   }
   const jar = parseCookies(req && req.headers && req.headers.cookie);
   return jar[SESSION_COOKIE] || null;
