@@ -3397,6 +3397,38 @@ class LiveExecutor:
                         f"Lower the size or raise ORDER_SPLIT_THRESHOLD_USD."
                     )
 
+                # ── LAST-MILE KILL SWITCH ──
+                #
+                # The engine checks _halted immediately before calling execute()
+                # — and then this function performs uncancellable network awaits
+                # (load_markets, _ensure_leverage, fetch_ticker) before reaching
+                # here. A /halt or a breaker trip landing inside that window used
+                # to open a live position anyway: the upstream check had already
+                # passed, and nothing between it and the order re-read the flag.
+                #
+                # Worse than a stray position, it can be a position the halt
+                # cannot clean up. emergency_halt_all sets the flag and then
+                # awaits flatten_all_positions, which iterates a SNAPSHOT of
+                # self._positions — an order landing after that snapshot is not
+                # in it, so the flatten walks past it.
+                #
+                # The check belongs here rather than at the top of execute() for
+                # the same reason it sits mid-function at the drift fallback:
+                # everything above this line is preparation that is safe to run
+                # while halted. This is the first irreversible step.
+                if trading_halted():
+                    logger.warning(
+                        "Entry order REFUSED for %s: engine halted or circuit "
+                        "breaker open between the engine's check and submission.",
+                        symbol)
+                    audit(trade_log,
+                          f"Entry order refused for {symbol} — halted at submission",
+                          action="live_execute", result="BLOCKED_HALTED",
+                          data={"symbol": symbol, "side": side})
+                    return (f"⛔ BLOCKED: {symbol} entry refused — the engine was "
+                            "halted or a circuit breaker opened while the order was "
+                            "being prepared. No exposure was opened.")
+
                 # Try to place the order — handle POST_ONLY rejection gracefully
                 try:
                     order = await self._create_order_idempotent(exchange, **create_kwargs)
@@ -3493,6 +3525,24 @@ class LiveExecutor:
                                 create_kwargs["coid"] = retry_coid
                                 create_kwargs["params"].update(
                                     self._venue.order_id_params(retry_coid))
+                                # Checked AGAIN. Reaching here cost a rejected
+                                # order plus _find_order_by_client_oid — more
+                                # awaits, and a wider window than the one above.
+                                # A halt that arrives during a POST_ONLY retry is
+                                # no less a halt.
+                                if trading_halted():
+                                    logger.warning(
+                                        "POST_ONLY retry REFUSED for %s: halted "
+                                        "during the retry. The rejected original "
+                                        "never landed, so nothing is open.", symbol)
+                                    audit(trade_log,
+                                          f"POST_ONLY retry refused for {symbol} — halted",
+                                          action="live_execute", result="BLOCKED_HALTED",
+                                          data={"symbol": symbol, "side": side,
+                                                "phase": "post_only_retry"})
+                                    return (f"⛔ BLOCKED: {symbol} entry refused — the "
+                                            "engine halted while retrying a rejected "
+                                            "order. No exposure was opened.")
                                 order = await self._create_order_idempotent(exchange, **create_kwargs)
                     else:
                         raise  # Not a POST_ONLY rejection — propagate

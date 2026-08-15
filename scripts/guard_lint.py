@@ -239,8 +239,19 @@ RULES: list[Rule] = [
             "_partial_close",         # reduces exposure
             "_update_exchange_sl",    # tightens the stop
             "_close_position_inner",  # exits
-            "_create_order_idempotent",  # transport helper; the normal open path is
-                                         # gated upstream at engine.py's last-mile check
+            # Transport helper, still excluded — but NOT for the reason written
+            # here originally, which was "the normal open path is gated upstream
+            # at engine.py's last-mile check". That was the M18 defect stated as
+            # a justification: the upstream check runs BEFORE execute(), and
+            # execute() then awaits load_markets/_ensure_leverage/fetch_ticker
+            # before submitting. A halt landing in that window was not seen.
+            #
+            # It stays excluded because gating the TRANSPORT would be the
+            # dangerous fix this rule's exclusions exist to prevent — the same
+            # helper must remain usable by a reducing path. The opening path is
+            # gated at its two call sites instead, which `entry-order-halt`
+            # below enforces.
+            "_create_order_idempotent",
             "trading_halted",         # the guard itself, quoted in its own docstring
         ],
         why=("An order-opening path in the executor that does not consult the kill "
@@ -249,6 +260,26 @@ RULES: list[Rule] = [
              "still managed — so a drift fallback could open NEW exposure on an account "
              "somebody had already stopped. If the new function REDUCES exposure, add it "
              "to exclude_functions instead; do not gate it."),
+    ),
+    Rule(
+        name="entry-order-halt",
+        files=["bot/core/live_executor.py"],
+        language="python",
+        # The CALL SITES of the idempotent submitter, not the exchange call
+        # inside it. The definition is multi-line (`(\n self,\n exchange`) so it
+        # does not match its own trigger.
+        trigger=r"_create_order_idempotent\(exchange",
+        guard=r"trading_halted\(\)",
+        min_sites=1,
+        exclude_functions=[],
+        why=("An entry order submitted without consulting the kill switch in the "
+             "same function. The engine's check runs before execute() is even "
+             "called, and execute() then performs uncancellable network awaits — "
+             "so a halt arriving in that window opened a live position, which the "
+             "concurrent flatten could miss because close_all_positions iterates a "
+             "snapshot taken earlier. This rule is deliberately about the CALL "
+             "SITE: gating the transport helper itself would block stop-losses "
+             "during a halt, which is why it sits in kill-switch's exclusions."),
     ),
     Rule(
         name="tier-gate",
