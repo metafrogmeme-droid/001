@@ -67,8 +67,10 @@ without `--apply`.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -118,9 +120,13 @@ def plan(store: UserStore) -> dict:
     return out
 
 
-def apply(store: UserStore, rows: list) -> int:
-    """Set the role on each planned row. Returns the count actually changed."""
-    changed = 0
+def apply(store: UserStore, rows: list) -> list:
+    """Set the role on each planned row. Returns the ids ACTUALLY changed.
+
+    The ids, not a count, because the caller re-reads the file afterwards to
+    confirm the write survived and needs to know which records to look at.
+    """
+    changed: list[str] = []
     with store._lock:                                   # noqa: SLF001
         for row in rows:
             rec = store._users.get(str(row["id"]))      # noqa: SLF001
@@ -129,10 +135,53 @@ def apply(store: UserStore, rows: list) -> int:
                 # record that moved since then is not one this run decided about.
                 continue
             rec["role"] = SELF_ADMISSION_ROLE
-            changed += 1
+            changed.append(str(row["id"]))
         if changed:
             store._save()                               # noqa: SLF001
     return changed
+
+
+def running_bot_pids() -> Optional[list]:
+    """PIDs of a live bot, ``[]`` for none, or **None for "could not look"**.
+
+    THE STORE IS HELD IN MEMORY. `UserStore._load()` runs once at construction
+    and `_save()` writes the whole in-memory map back, so a bot that was
+    running when this script wrote still believes the old roles — and the next
+    `register()`, which fires on any user's next message to update `last_seen`,
+    saves that stale map over the migration. The change would revert, silently,
+    with this script having printed success.
+
+    Three return states rather than a boolean, because "no bot is running" and
+    "we could not tell whether a bot is running" must not be the same answer.
+    An unreadable `/proc` entry is not an absent process, and collapsing the
+    two here would put the reassuring answer on the failure path.
+    """
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return None                        # not Linux, or no procfs: unknown
+    me = os.getpid()
+    found, uncertain = [], False
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except (FileNotFoundError, ProcessLookupError):
+            continue                       # exited mid-scan; genuinely absent
+        except OSError:
+            # Somebody else's process we may not read. NOT evidence of absence.
+            uncertain = True
+            continue
+        cmd = raw.replace(b"\0", b" ").decode("utf-8", "replace")
+        if "bot.main" in cmd and "migrate_self_admitted_roles" not in cmd:
+            found.append(int(entry.name))
+    if found:
+        return sorted(found)
+    return None if uncertain else []
 
 
 def main() -> int:
@@ -141,6 +190,10 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true",
                     help="actually write. Without it, nothing changes.")
     ap.add_argument("--path", default="data/users.json")
+    ap.add_argument("--allow-running-bot", action="store_true",
+                    help="write even though a bot process is (or may be) live. "
+                         "It holds users.json in memory and will overwrite this "
+                         "on the next user's message. Stop it instead.")
     args = ap.parse_args()
 
     store = UserStore(args.path)
@@ -178,14 +231,51 @@ def main() -> int:
               f"{len(p['migrate'])} record(s).")
         return 0
 
+    # ── the bot holds this file in memory ──────────────────────────
+    pids = running_bot_pids()
+    if not args.allow_running_bot:
+        if pids:
+            print(f"\nREFUSING TO WRITE — a bot is running (pid "
+                  f"{', '.join(str(x) for x in pids)}).")
+            print("  It loaded users.json at startup and saves the whole map "
+                  "back on every register(), which fires on any user's next\n"
+                  "  message. This migration would be reverted within minutes "
+                  "and this script would have told you it worked.\n"
+                  "  Stop the bot, re-run, then start it again.")
+            return 2
+        if pids is None:
+            # NOT the same as "no bot is running". Saying "clear to proceed"
+            # off a failed check is the whole defect this repo is built around.
+            print("\nREFUSING TO WRITE — could not determine whether a bot is "
+                  "running (no readable /proc).")
+            print("  That is not the same as 'none is'. Confirm the bot is "
+                  "stopped, then re-run with --allow-running-bot.")
+            return 2
+
     changed = apply(store, p["migrate"])
-    print(f"\nApplied: {changed} record(s) set to {SELF_ADMISSION_ROLE!r}.")
-    if changed != len(p["migrate"]):
+    if len(changed) != len(p["migrate"]):
         # Never report the plan as the outcome. A record that moved between
         # planning and writing is a real difference and gets said out loud.
-        print(f"  NOTE: {len(p['migrate']) - changed} planned record(s) were "
-              "not changed — they no longer matched the plan when written.")
-    return 0
+        print(f"\n  NOTE: {len(p['migrate']) - len(changed)} planned record(s) "
+              "were not changed — they no longer matched the plan when written.")
+
+    # Confirm from DISK, not from having asked. `_save()` returns nothing and
+    # swallows a refusal (a store that failed to load logs CRITICAL and
+    # declines to write), so "we called apply()" is not evidence of a file that
+    # changed — the same distinction as a launcher that prints DEPLOY_DONE
+    # because it started a process rather than because one is alive.
+    fresh = UserStore(args.path)
+    stuck = [i for i in changed
+             if (fresh.get(i) or {}).get("role") == SELF_ADMISSION_ROLE]
+    if len(stuck) == len(changed):
+        print(f"\nApplied and verified on disk: {len(stuck)} record(s) now "
+              f"{SELF_ADMISSION_ROLE!r}.")
+        return 0
+    print(f"\nWRITE DID NOT STICK — {len(changed)} record(s) were changed in "
+          f"memory but only {len(stuck)} read back as {SELF_ADMISSION_ROLE!r}.")
+    print(f"  Re-read {args.path} before doing anything else; check the log for "
+          "a refusal to save.")
+    return 1
 
 
 if __name__ == "__main__":

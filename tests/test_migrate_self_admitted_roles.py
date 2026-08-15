@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 
 from bot.utils.user_store import SELF_ADMISSION_BY, SELF_ADMISSION_ROLE, UserStore
@@ -162,7 +163,7 @@ def test_an_admin_is_never_downgraded(tmp_path):
     s = _store(tmp_path, {"1": {**_u("admin", SELF_ADMISSION_BY), "telegram_id": "1"}})
     p = mig.plan(s)
     assert p["migrate"] == []
-    assert mig.apply(s, p["migrate"]) == 0
+    assert mig.apply(s, p["migrate"]) == []
     assert s.get("1")["role"] == "admin"
 
 
@@ -190,7 +191,7 @@ def test_apply_changes_only_the_planned_records(tmp_path):
         "3": {**_u("trader"), "telegram_id": "3"},
     })
     p = mig.plan(s)
-    assert mig.apply(s, p["migrate"]) == 1
+    assert mig.apply(s, p["migrate"]) == ["1"]
     assert s.get("1")["role"] == SELF_ADMISSION_ROLE
     assert s.get("2")["role"] == "trader"
     assert s.get("3")["role"] == "trader"
@@ -215,13 +216,14 @@ def test_a_record_that_moved_since_planning_is_not_written(tmp_path):
     s = _store(tmp_path, {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}})
     p = mig.plan(s)
     s._users["1"]["role"] = "admin"          # somebody promoted them meanwhile
-    assert mig.apply(s, p["migrate"]) == 0
+    assert mig.apply(s, p["migrate"]) == []
     assert s.get("1")["role"] == "admin"
 
 
-def test_the_count_returned_is_what_actually_changed(tmp_path):
-    """Not the length of the plan. Reporting the intention as the outcome is
-    the defect this repository is built around."""
+def test_what_is_returned_is_what_actually_changed(tmp_path):
+    """Not the plan. Reporting the intention as the outcome is the defect this
+    repository is built around — and the ids are returned rather than a count
+    so the caller can re-read those exact records from disk afterwards."""
     s = _store(tmp_path, {
         "1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"},
         "2": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "2"},
@@ -229,7 +231,7 @@ def test_the_count_returned_is_what_actually_changed(tmp_path):
     p = mig.plan(s)
     s._users["2"]["role"] = "admin"
     assert len(p["migrate"]) == 2
-    assert mig.apply(s, p["migrate"]) == 1
+    assert mig.apply(s, p["migrate"]) == ["1"]
 
 
 # ── the safety of the default ────────────────────────────────────────
@@ -252,6 +254,117 @@ def test_the_script_requires_apply_to_write():
     assert "if not args.apply:" in code, (
         "nothing guards the write; the default invocation would edit "
         "production identity records")
+
+
+# ── the bot holds this file in memory ────────────────────────────────
+
+def test_a_live_bot_blocks_the_write(tmp_path, monkeypatch, capsys):
+    """UserStore loads once at construction and saves the whole map back on
+    every register(), which fires on any user's next message. Writing under a
+    running bot gets reverted within minutes — with this script having printed
+    success, which is worse than not running it."""
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: [4242])
+    monkeypatch.setattr("sys.argv", ["m", "--apply", "--path", str(path)])
+    assert mig.main() == 2
+    assert UserStore(path).get("1")["role"] == "trader", "it wrote anyway"
+    assert "4242" in capsys.readouterr().out, "the pid was not named"
+
+
+def test_being_unable_to_check_also_blocks_the_write(tmp_path, monkeypatch):
+    """The one that matters. "No bot is running" and "we could not tell" are
+    different answers, and putting the reassuring one on the failure path is
+    exactly the shape this repository exists to prevent."""
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: None)
+    monkeypatch.setattr("sys.argv", ["m", "--apply", "--path", str(path)])
+    assert mig.main() == 2
+    assert UserStore(path).get("1")["role"] == "trader"
+
+
+def test_no_bot_running_lets_the_write_through(tmp_path, monkeypatch):
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: [])
+    monkeypatch.setattr("sys.argv", ["m", "--apply", "--path", str(path)])
+    assert mig.main() == 0
+    assert UserStore(path).get("1")["role"] == SELF_ADMISSION_ROLE
+
+
+def test_the_override_exists_but_is_not_the_default(tmp_path, monkeypatch):
+    """An operator who has genuinely stopped the bot on a box with no readable
+    /proc needs a way through. It must be typed, not inferred."""
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: None)
+    monkeypatch.setattr("sys.argv",
+                        ["m", "--apply", "--allow-running-bot", "--path", str(path)])
+    assert mig.main() == 0
+    assert UserStore(path).get("1")["role"] == SELF_ADMISSION_ROLE
+
+
+def test_a_dry_run_is_not_gated(tmp_path, monkeypatch, capsys):
+    """Reading is always safe, and an operator diagnosing this needs the report
+    without stopping the bot first."""
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: [4242])
+    monkeypatch.setattr("sys.argv", ["m", "--path", str(path)])
+    assert mig.main() == 0
+    assert "DRY RUN" in capsys.readouterr().out
+
+
+def test_the_detector_does_not_find_this_process(tmp_path):
+    """`pgrep -f` matching a pattern also matches the checking script's own
+    command line — CLAUDE.md records the first draft of verify_bot_alive.sh
+    reporting OK for a process that never existed. This scan excludes its own
+    pid and its own script name."""
+    got = mig.running_bot_pids()
+    assert got is None or os.getpid() not in got
+
+
+# ── the write is confirmed from disk ─────────────────────────────────
+
+def test_a_write_that_did_not_stick_is_not_reported_as_success(
+        tmp_path, monkeypatch, capsys):
+    """`_save()` returns nothing and declines silently when the store failed to
+    load. "We called apply()" is not evidence of a file that changed — the same
+    distinction as a launcher printing DEPLOY_DONE because it started a process
+    rather than because one is alive."""
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: [])
+    monkeypatch.setattr(mig, "apply", lambda store, rows: ["1"])   # claims, writes nothing
+    monkeypatch.setattr("sys.argv", ["m", "--apply", "--path", str(path)])
+    assert mig.main() == 1
+    out = capsys.readouterr().out
+    assert "DID NOT STICK" in out
+    assert "Applied and verified" not in out
+
+
+def test_a_successful_write_says_it_was_verified(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps(
+        {"1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"}}),
+        encoding="utf-8")
+    monkeypatch.setattr(mig, "running_bot_pids", lambda: [])
+    monkeypatch.setattr("sys.argv", ["m", "--apply", "--path", str(path)])
+    assert mig.main() == 0
+    assert "verified on disk" in capsys.readouterr().out
 
 
 def test_an_empty_store_is_a_no_op(tmp_path):
