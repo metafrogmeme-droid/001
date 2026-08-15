@@ -70,14 +70,20 @@ def resolve_outcomes(facts: Optional[dict]) -> dict:
     total = _num(f.get("prior_deployments"))
     rugged = _num(f.get("prior_rugged"))
     alive = _num(f.get("prior_alive"))
+    # `dead` is a THIRD outcome and not a synonym for rugged. A market that is
+    # gone is a fact a price feed can establish; that somebody took the money
+    # is not, and `prior_rugged` hard-fails a deployer on the strength of the
+    # word "confirmed". A project that simply died would otherwise be scored as
+    # theft, which is the most damaging output this module can produce.
+    dead = _num(f.get("prior_dead"))
     if total is None:
-        return {"total": None, "rugged": rugged, "alive": alive,
+        return {"total": None, "rugged": rugged, "alive": alive, "dead": dead,
                 "unresolved": None}
-    known = sum(v for v in (rugged, alive) if v is not None)
+    known = sum(v for v in (rugged, alive, dead) if v is not None)
     # Never negative: a caller reporting more outcomes than deployments has an
     # inconsistent source, and silently clamping to 0 would hide that.
     unresolved = total - known
-    return {"total": total, "rugged": rugged, "alive": alive,
+    return {"total": total, "rugged": rugged, "alive": alive, "dead": dead,
             "unresolved": unresolved}
 
 
@@ -91,15 +97,29 @@ def _outcomes_resolved(outcomes: dict) -> bool:
     """True when enough of a deployer's prior contracts have a known fate to
     say anything about their record.
 
-    `rugged is None` is fatal here regardless of the ratio: a source that
-    returned deployments but no rug count has told us nothing about the one
-    column that matters, and the arithmetic would otherwise treat its absence
-    as a zero.
+    SOMEBODY MUST HAVE COUNTED THE BAD OUTCOMES.
+
+    This used to read `if outcomes["rugged"] is None: return False`, on the
+    reasoning that a source returning deployments but no rug count has said
+    nothing about the column that matters — and the arithmetic would otherwise
+    treat its absence as a zero. That reasoning is exactly right and is kept;
+    what changed is that `rugged` is no longer the only way to count a bad
+    outcome. A per-contract fate check that finds a dead market has looked for
+    trouble and reported what it found.
+
+    So the test is: did anyone look? `rugged` and `dead` both None means no, and
+    a record of nine survivors nobody checked for failures is the trap this
+    module's own first run produced — 9 deployments, 0 recorded rugs, 4
+    confirmed alive, scored CLEAN with five fates unread.
+
+    The ratio still governs the rest: a fate must be DETERMINED, per contract,
+    for at least half the record. A rug cannot hide in the `alive` bucket,
+    because a rug's market is gone and a gone market classifies as dead.
     """
     total = outcomes.get("total")
     if not total or total <= 0:
         return False
-    if outcomes.get("rugged") is None:
+    if outcomes.get("rugged") is None and outcomes.get("dead") is None:
         return False
     unresolved = outcomes.get("unresolved")
     if unresolved is None:
@@ -166,6 +186,22 @@ def assess_deployer(facts: Optional[dict]) -> dict:
     numeric("prior_rugged", "high", 1.0, 1.0, 0,
             "deployer has a prior rug", "deployer has a prior rug",
             value=outcomes["rugged"])
+
+    # The dead RATIO, and softly. Deliberately not a second rug check:
+    #
+    #  * it is a ratio, not a count, because one dead token out of one and one
+    #    out of thirty are different facts and the count alone prints them the
+    #    same;
+    #  * it has no hard threshold at all. A market that ended is not a market
+    #    that was stolen — projects die honestly, and the one output this
+    #    module must never manufacture is `known_bad` for a deployer whose
+    #    crime was shipping something nobody kept buying.
+    dead_ratio = None
+    if outcomes["total"] and outcomes["dead"] is not None:
+        dead_ratio = outcomes["dead"] / outcomes["total"]
+    numeric("prior_dead_ratio", "high", 0.5, None, 1.5,
+            "most of this deployer's prior tokens have no market left", "",
+            value=dead_ratio)
 
     boolean("funded_by_mixer", True, 2.0, False,
             "deployer wallet funded through a mixer")

@@ -80,18 +80,51 @@ replaced that command silently.
 
 `EtherscanDeployerSource` supplies five of the eight facts `assess_deployer`
 reads: `contract_verified`, `wallet_age_days`, `prior_deployments`,
-`concurrent_launches_24h`, `deployer_supply_pct`. It cannot supply how the
-deployer's PREVIOUS contracts ended (`prior_rugged` / `prior_alive`), nor
-`funded_by_mixer`, nor `reused_rug_bytecode` — those need a per-contract price
-history, a mixer address list, and a rug-bytecode corpus respectively.
+`concurrent_launches_24h`, `deployer_supply_pct`.
+It cannot supply `funded_by_mixer` or `reused_rug_bytecode` — those need a mixer
+address list and a rug-bytecode corpus. It also cannot say how the deployer's
+previous contracts ENDED, which is what `deployer_fates` is for.
 
-Because `_outcomes_resolved` treats an unknown rug count as fatal, **a dossier
-fed only by this source cannot reach `clean`.** That is deliberate. It reaches
-`unproven` *with content* — a named deployer, a wallet age, a deployment count, a
-supply share, and an explicit list of what stayed unread — rather than `unproven`
-with nothing. Filling `prior_rugged` with 0 to unlock a better-looking verdict
-would be the module's central defect committed by its own supplier: "we could not
-determine any rugs" is not "there were none".
+### The fate pass
+
+`bot/core/deployer_fates.py` takes the prior contract ADDRESSES (which is why the
+explorer source emits `prior_contracts` and not just a count — you cannot look up
+the fate of a number) and asks a price feed what became of each.
+
+A price feed can prove two things and not a third:
+
+| reading | conclusion |
+|---|---|
+| deep pool, traded in the last 24h | **alive** — a market exists |
+| near-empty pool, ≥30 days old | **dead** — the market it had is gone |
+| no indexed pair · failed request · young pool · middle band | **unresolved** |
+
+It cannot prove a **rug**. "The liquidity left" and "somebody pulled the
+liquidity" are the same reading; the difference is intent, and no price feed
+carries it. So the pass writes `prior_dead` and *never* `prior_rugged`, and
+`deployer_history` scores dead as a soft ratio with **no hard threshold**.
+Feeding a heuristic into `prior_rugged` would hard-fail an honest builder on the
+strength of the word "confirmed" — the most damaging thing this codebase can say
+about a person, manufactured out of a liquidity number.
+
+> A MARKET THAT ENDED IS NOT A MARKET THAT WAS STOLEN.
+
+**Why "no pair at all" is not dead.** A deployer's history is full of contracts
+that were never tokens — proxies, multisigs, NFT collections, factories — plus
+tokens that only ever traded on a centralised venue. None has a DEX pair and none
+of them died. Unindexed is `unresolved`, which costs the deployer only the
+coverage they would have needed to be certified.
+
+### What this unlocks, and what it does not
+
+A deployer whose prior tokens are demonstrably still trading can now reach
+`clean` — the first input that could ever produce it. `known_bad` stays
+unreachable from this path.
+
+The trap from the module's own first run stays closed: `_outcomes_resolved`
+requires that somebody counted the BAD outcomes (`rugged` and `dead` both `None`
+means nobody looked) *and* a determined fate for half the record. Nine survivors
+nobody verified is still `unproven`.
 
 With no `ETHERSCAN_API_KEY` the source reports `unavailable` — *we never asked* —
 and the section stays **not read**, which is a different row from *we asked and
