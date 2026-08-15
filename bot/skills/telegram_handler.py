@@ -437,6 +437,7 @@ from bot.formatters.rich_cards import (
     render_open_positions,
     render_status_card,
 )
+from bot.formatters.user_roster import render_table
 from bot.warroom.warroom_bot import (
     render_start as wr_start,
     render_risk as wr_risk,
@@ -3539,23 +3540,11 @@ class TelegramHandler:
                 lines.append(f"- {icon} {role}: <code>{c}</code>")
         lines.append("")
 
-        # User list
-        _dash = "\u2500"
-        lines.append("<pre>")
-        lines.append(f" {'ID':<10}{'NAME':<12}{'ROLE':<8}{'TIER':<7}{'MODE'}")
-        lines.append(f" {_dash*10}{_dash*12}{_dash*8}{_dash*7}{_dash*6}")
-
-        for u in all_users[-15:]:  # Show last 15
-            tid = u["telegram_id"][-8:]  # Last 8 digits
-            name = (u.get("name") or "?")[:10]
-            role = u.get("role", "?")
-            tier = u.get("tier", "basic")
-            auth = "\u2713" if u.get("authorized") else "\u2717"
-            can_live = self._can_trade_live(u["telegram_id"])
-            mode = "LIVE" if can_live else "paper"
-            lines.append(f" {tid:<10}{name:<12}{auth}{role:<7}{tier:<7}{mode}")
-
-        lines.append("</pre>")
+        # User list. The table is a pure renderer (bot/formatters/user_roster)
+        # because this is the card an operator reads BEFORE typing /approve
+        # <id> \u2014 it used to print the last 8 characters of the id, which is not
+        # a key in the store and gave no sign it had been shortened.
+        lines.extend(render_table(all_users, self._can_trade_live, limit=15))
 
         if len(all_users) > 15:
             lines.append(f"\n<i>{t('users_more', self._lang(update), n=len(all_users))}</i>")
