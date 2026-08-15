@@ -24,6 +24,10 @@
 const express = require('express');
 const { pool } = require('../db');
 const { getLatestFlight } = require('./sync');
+// The public /track page's own arithmetic. Imported rather than re-derived:
+// M9 was these two surfaces answering the same question differently while a
+// comment here promised they shared one source of truth.
+const { classifyPnls, outcomeOf } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
 // The Guardian safety models. Pure functions of caller-supplied input — they
@@ -401,23 +405,35 @@ const TOOLS = {
            FROM trades WHERE user_id = ? AND status = 'CLOSED'
             AND closed_at IS NOT NULL ORDER BY closed_at ASC`,
         [parseInt(process.env.BOT_USER_ID) || 1]);
-      const pnls = trades.map(t => parseFloat(t.pnl) || 0);
-      const wins = pnls.filter(p => p > 0);
+      // The comment above claimed one source of truth; the arithmetic below
+      // was its own. `parseFloat(t.pnl) || 0` counted every unpriced close as
+      // a measured break-even, and `trades.length` as the win-rate denominator
+      // then dragged the rate down with rows nobody had scored — so the machine
+      // -readable record understated the number the page it mirrors published.
+      // The query filters status='CLOSED' AND closed_at IS NOT NULL but NOT
+      // `pnl IS NOT NULL`, and trades.pnl is DECIMAL(14,2) NULLABLE, so such a
+      // row is reachable. Now it uses the page's own helper.
+      const { priced, unpriced, wins, losses } = classifyPnls(trades.map(t => t.pnl));
       const grossWin = wins.reduce((a, b) => a + b, 0);
-      const grossLoss = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
+      const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
       return {
         trades: trades.length,
         wins: wins.length,
-        win_rate_pct: trades.length ? Math.round(wins.length / trades.length * 10000) / 100 : null,
+        // Published so the figures reconcile. A win rate over a denominator the
+        // reader cannot see is not checkable.
+        unpriced,
+        win_rate_pct: priced.length
+          ? Math.round(wins.length / priced.length * 10000) / 100 : null,
         // profit_factor is gross-win / gross-loss — a RATIO, so it carries the
         // performance signal net_pnl_usd used to, without the dollar figure.
         profit_factor: grossLoss > 0 ? Math.round(grossWin / grossLoss * 100) / 100 : null,
         recent_trades: trades.slice(-10).reverse().map(t => ({
           symbol: t.symbol, direction: t.direction,
-          // Outcome, not amount. `flat` is its own answer rather than being
-          // folded into a loss — a scratch is not a losing trade.
-          result: (parseFloat(t.pnl) || 0) > 0 ? 'win'
-            : (parseFloat(t.pnl) || 0) < 0 ? 'loss' : 'flat',
+          // Outcome, not amount — and four of them. `flat` is its own answer
+          // rather than being folded into a loss, and `unknown` is its own
+          // answer rather than being folded into `flat`: a scratch is not a
+          // losing trade, and a close nobody priced is not a scratch.
+          result: outcomeOf(t.pnl),
           closed_at: t.closed_at,
         })),
         source: 'recorded closed trades (same data as the public /track page, '

@@ -26,6 +26,30 @@ const { pool } = require('../db');
  * a closed row can carry no recorded P&L; `parseFloat(x) || 0` turned that into
  * a flat trade nobody measured and then counted it against the win rate.
  */
+/**
+ * The outcome of ONE close: 'win' | 'loss' | 'flat' | 'unknown'.
+ *
+ * Exists because three public surfaces answered this question three different
+ * ways, and audit M9's complaint was precisely that they disagreed:
+ *
+ *   track.js recent_trades  `parseFloat(t.pnl) || 0` → an unpriced close
+ *                           published as 'flat'
+ *   track.js replay-trade   `(parseFloat(pick.pnl) || 0) >= 0` → a measured
+ *                           0.00 scratch animated on the landing page as a WIN
+ *   mcp.js  recent_trades   the same `|| 0`, under a comment claiming it shares
+ *                           "one source of truth" with the page it contradicts
+ *
+ * All four values are distinct on purpose. `flat` is a measurement — somebody
+ * priced the close and it came out at zero. `unknown` is the absence of one.
+ * Folding either into the other is the shape this repository is built around,
+ * and `>= 0` folds BOTH into 'win'.
+ */
+function outcomeOf(raw) {
+  const p = parseFloat(raw);
+  if (!Number.isFinite(p)) return 'unknown';
+  return p > 0 ? 'win' : p < 0 ? 'loss' : 'flat';
+}
+
 function classifyPnls(raw) {
   const parsed = (raw || []).map(v => parseFloat(v));
   const priced = parsed.filter(Number.isFinite);
@@ -211,11 +235,14 @@ router.get('/track-record', async (req, res) => {
       monthly: monthlyOut,
       equity_curve_idx: curveIdx,
       capital_events: Math.max(0, segments.length - 1),
-      recent_trades: trades.slice(-20).reverse().map(t => {
-        const p = parseFloat(t.pnl) || 0;
-        return { symbol: t.symbol, direction: t.direction,
-          result: p > 0 ? 'win' : p < 0 ? 'loss' : 'flat', closed_at: t.closed_at };
-      }),
+      // The strip was the one place in this file still using `|| 0`, while the
+      // headline stats and the monthly block both separate unpriced rows —
+      // so a visitor reconciling the strip against the unpriced count found
+      // the page contradicting itself.
+      recent_trades: trades.slice(-20).reverse().map(t => ({
+        symbol: t.symbol, direction: t.direction,
+        result: outcomeOf(t.pnl), closed_at: t.closed_at,
+      })),
     };
     cache = { at: Date.now(), payload };
     res.setHeader('Cache-Control', 'public, max-age=120');
@@ -267,7 +294,11 @@ router.get('/replay-trade', async (req, res) => {
         exit_price: parseFloat(pick.exit_price),
         pnl_pct: (parseFloat(pick.size_usd) || 0) > 0
           ? round2(parseFloat(pick.pnl) / parseFloat(pick.size_usd) * 100) : null,
-        result: (parseFloat(pick.pnl) || 0) >= 0 ? 'win' : 'loss',
+        // `>= 0` labelled a measured break-even a WIN on the landing page.
+        // The `usable` filter above already requires isFinite(pnl), so
+        // 'unknown' is unreachable here — outcomeOf is used anyway so this
+        // surface cannot drift from the other two again.
+        result: outcomeOf(pick.pnl),
         opened_at: pick.opened_at,
         closed_at: pick.closed_at,
       } : null,
@@ -283,6 +314,7 @@ router.get('/replay-trade', async (req, res) => {
 
 module.exports = router;
 module.exports.classifyPnls = classifyPnls;
+module.exports.outcomeOf = outcomeOf;
 // Pure helpers, exported for tests.
 module.exports.maxDrawdownPct = maxDrawdownPct;
 module.exports.segmentByCapitalEvents = segmentByCapitalEvents;
