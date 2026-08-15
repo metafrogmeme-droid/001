@@ -22,6 +22,18 @@ A record with no attribution predates the stamp. Treating that absence as
 "probably auto-accept" would demote somebody an operator promoted on purpose —
 absence is not a measurement, and a migration is precisely where that rule gets
 skipped, because the alternative is an untidy report instead of a clean one.
+
+EXCEPT WHERE THE ABSENCE IS EVIDENCE. "Cannot tell" describes what is known,
+not a category of record, and for a `web:<n>` id more is known: no admission
+surface accepts one, so nothing could have written the stamp and its absence
+proves the gateway provisioned the account. Those ARE downgraded — the proof
+is pinned in `tests/test_a_web_id_cannot_be_vouched_for.py`, which drives the
+refusal rather than trusting it. For a numeric id the ambiguity is real and the
+caution stands.
+
+The two now share a bucket, so each row carries the reason it is in it. "The
+door admitted them" and "no door but the automatic one exists for them" are
+different findings, and a count printed over both would present them as one.
 """
 from __future__ import annotations
 
@@ -83,11 +95,62 @@ def test_the_three_groups_never_overlap(tmp_path):
         "1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"},
         "2": {**_u("trader", "77777"), "telegram_id": "2"},
         "3": {**_u("trader"), "telegram_id": "3"},
+        "web:4": {**_u("trader"), "telegram_id": "web:4"},
     })
     p = mig.plan(s)
     ids = [r["id"] for k in ("migrate", "vouched", "unattributable") for r in p[k]]
-    assert sorted(ids) == ["1", "2", "3"]
+    assert sorted(ids) == ["1", "2", "3", "web:4"]
     assert len(ids) == len(set(ids))
+
+
+# ── where the absence is evidence ────────────────────────────────────
+
+def test_a_web_account_with_no_attribution_is_planned_for_downgrade(tmp_path):
+    """Not "cannot tell". No admission surface accepts a web id, so nothing
+    could have written the stamp and its absence is proof the gateway
+    provisioned the account — pinned by test_a_web_id_cannot_be_vouched_for."""
+    s = _store(tmp_path, {"web:90001": {**_u("trader"), "telegram_id": "web:90001"}})
+    p = mig.plan(s)
+    assert [r["id"] for r in p["migrate"]] == ["web:90001"]
+    assert p["unattributable"] == []
+
+
+def test_a_numeric_account_with_no_attribution_is_still_left_alone(tmp_path):
+    """The caution survives exactly where it is warranted. /approve was
+    reachable for this id, so the same absence means something different."""
+    s = _store(tmp_path, {"1": {**_u("trader"), "telegram_id": "1"}})
+    assert [r["id"] for r in mig.plan(s)["unattributable"]] == ["1"]
+
+
+def test_the_two_reasons_for_downgrading_are_not_merged(tmp_path):
+    """One bucket, two findings. A count over both presents them as one, and
+    an operator reading "3 would be downgraded" deserves to know which of the
+    two arguments applies to each."""
+    s = _store(tmp_path, {
+        "1": {**_u("trader", SELF_ADMISSION_BY), "telegram_id": "1"},
+        "web:2": {**_u("trader"), "telegram_id": "web:2"},
+    })
+    reasons = {r["id"]: r["reason"] for r in mig.plan(s)["migrate"]}
+    assert len(set(reasons.values())) == 2
+    assert all(reasons.values()), "a planned row with no stated reason"
+    assert SELF_ADMISSION_BY in reasons["1"]
+
+
+def test_a_stamped_web_account_is_still_believed(tmp_path):
+    """Defensive, and deliberately not clever. If some path we have not found
+    did write an admitting admin, that record says a human decided — and this
+    script does not overrule a decision on the strength of its own reasoning
+    about which paths exist."""
+    s = _store(tmp_path, {"web:2": {**_u("trader", "77777"), "telegram_id": "web:2"}})
+    p = mig.plan(s)
+    assert p["migrate"] == []
+    assert [r["id"] for r in p["vouched"]] == ["web:2"]
+
+
+def test_a_web_admin_is_not_downgraded_either(tmp_path):
+    """The `admin` exemption is about the role, not about how they arrived."""
+    s = _store(tmp_path, {"web:2": {**_u("admin"), "telegram_id": "web:2"}})
+    assert mig.plan(s)["migrate"] == []
 
 
 # ── what must never be touched ───────────────────────────────────────

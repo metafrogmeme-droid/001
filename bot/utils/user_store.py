@@ -64,6 +64,32 @@ OPERATOR_CONTROL_PERMISSIONS = frozenset({"halt", "reset", "mode"})
 SELF_ADMISSION_ROLE = "paper"
 SELF_ADMISSION_BY = "auto-accept"
 
+
+def is_vouchable(telegram_id) -> bool:
+    """Whether an admin could EVER have approved this id by hand.
+
+    Both admin admission surfaces — ``/approve`` and the ``admit:`` inline
+    callback — take a raw id typed by a human and refuse anything non-numeric,
+    because Telegram ids are numeric and a typo must not conjure a phantom
+    account. Web-only identities (``web:<n>``, provisioned by the gateway on
+    first request) therefore cannot reach either one.
+
+    That makes this predicate load-bearing OUTSIDE those two handlers. It is
+    the reason ``scripts/migrate_self_admitted_roles.py`` can say a ``web:``
+    account carrying no ``admitted_by`` was provisioned by the door rather than
+    merely predating the stamp — for a numeric id those two are genuinely
+    indistinguishable, and for a web id only one of them is possible. It lives
+    here, and the handlers call it, so that claim rests on the same function
+    they enforce instead of on an inference about their source.
+
+    ASCII is checked as well as digit-ness, which the two `isdigit()` calls
+    this replaces did not. `"٣٤".isdigit()` and `"²".isdigit()` are both True,
+    so `/approve ٣٤` opened a record under a key no Telegram id can ever equal
+    — a phantom account, permanently unreachable by the person it names.
+    """
+    s = str(telegram_id)
+    return s.isascii() and s.isdigit()
+
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {"*"},  # everything
     # "lang" is in every role including pending: /lang is documented under
@@ -408,8 +434,31 @@ class UserStore:
         Self-admission is clamped to SELF_ADMISSION_ROLE here rather than at the
         call site, for the same reason F-2 put the admission stamp here: a rule
         that lives in one funnel cannot be forgotten by the next caller.
+
+        For the same reason, an admitting party may only be recorded against an
+        id a human could have typed (``is_vouchable``). Web-only identities are
+        provisioned by the gateway and can never be approved by hand, and a
+        migration relies on that being true of every path, not just the two
+        that check it themselves.
         """
         key = str(telegram_id)
+        if by and by != SELF_ADMISSION_BY and not is_vouchable(key):
+            # A HUMAN ADMISSION CAN ONLY BE STAMPED ON AN ID A HUMAN COULD HAVE
+            # TYPED. Both admin surfaces already refuse a non-numeric id, so
+            # this changes nothing today — it makes the refusal structural
+            # instead of duplicated, for the same reason the clamp below lives
+            # here: a rule that lives in one funnel cannot be forgotten by the
+            # next caller, and the next caller is what would break it.
+            #
+            # What depends on it is off in scripts/migrate_self_admitted_roles:
+            # it reads an absent `admitted_by` on a "web:<n>" record as PROOF
+            # the gateway provisioned that account, and downgrades it, where
+            # the same absence on a numeric id is left alone as unknowable.
+            # That inference is only sound while this is the one door.
+            audit(system_log,
+                  f"Refused to record an admission for un-vouchable id {key!r}",
+                  action="admission_refused", result="DENIED")
+            return False
         if by == SELF_ADMISSION_BY and role != SELF_ADMISSION_ROLE:
             # Clamp DOWN and record it. Refusing outright would leave the caller
             # having asked for access and received silence, which on the
