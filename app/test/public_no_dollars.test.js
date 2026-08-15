@@ -127,11 +127,28 @@ test('the check can actually fail', () => {
   assert.ok(!re.test('SELECT net_pnl_usd FROM t'), 'a SELECT is not an emit');
 });
 
+/**
+ * The source of ONE tool, bounded by the next tool key rather than a fixed
+ * width.
+ *
+ * Both assertions below used a magic window (2600 / 500 chars). Adding six
+ * lines to get_track_record pushed `profit_factor` to offset 2990 and the
+ * window stopped covering the return object — so a §4 guard silently became a
+ * test of where a string sits rather than whether the payload has it. The
+ * failure at least surfaced; the dangerous direction is the same drift making
+ * a banned key fall OUTSIDE the window and stop being checked.
+ */
+function toolBlock(src, name) {
+  const i = src.indexOf(`${name}: {`);
+  assert.ok(i > 0, `${name} not found in mcp.js`);
+  const rest = src.slice(i);
+  const next = rest.slice(name.length).match(/\n {2}[a-z_][a-z0-9_]*:\s*\{/);
+  return next ? rest.slice(0, name.length + next.index) : rest;
+}
+
 test('mcp get_track_record publishes no dollar amount', () => {
   const src = codeOnly(fs.readFileSync(path.join(ROUTES, 'mcp.js'), 'utf8'));
-  const i = src.indexOf('get_track_record');
-  assert.ok(i > 0);
-  const block = src.slice(i, i + 2600);
+  const block = toolBlock(src, 'get_track_record');
   assert.ok(!/net_pnl_usd\s*:/.test(block), 'net_pnl_usd is a dollar figure');
   assert.ok(/profit_factor\s*:/.test(block),
     'the ratio must survive — it carries the signal the dollar figure did');
@@ -140,12 +157,21 @@ test('mcp get_track_record publishes no dollar amount', () => {
 
 test('mcp recent trades report an outcome, not an amount', () => {
   const src = codeOnly(fs.readFileSync(path.join(ROUTES, 'mcp.js'), 'utf8'));
-  const i = src.indexOf('recent_trades');
-  const block = src.slice(i, i + 500);
+  const block = toolBlock(src, 'get_track_record');
+  assert.ok(/recent_trades\s*:/.test(block));
   assert.ok(/result\s*:/.test(block));
   assert.ok(!/\bpnl\s*:/.test(block), 'a per-trade dollar figure');
-  // A scratch is not a losing trade.
-  assert.ok(block.includes("'flat'"), 'flat must be its own outcome');
+
+  // A scratch is not a losing trade — and a close nobody priced is not a
+  // scratch. This used to assert the literal `'flat'` appeared here; the
+  // four-way mapping now lives in track.js `outcomeOf`, shared with the public
+  // page precisely so these two surfaces cannot disagree again (audit M9).
+  // What must hold HERE is that this handler does not re-derive it.
+  assert.ok(/outcomeOf\(/.test(block),
+    'the outcome is derived locally again; track.js and mcp.js drifted apart '
+    + 'once already and published different verdicts for the same trade');
+  assert.ok(!/\|\|\s*0\s*\)\s*[<>]/.test(block),
+    'an unpriced close is being compared as if it were a measured zero');
 });
 
 test('the public call receipt carries no pnl', () => {
