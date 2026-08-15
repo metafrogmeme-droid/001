@@ -155,9 +155,12 @@ def gen_state_gate_reject():
         "STALE_DATA": (2, f"DATA STATE: the most recent candle in the feed is {rng.randint(12, 40)} minutes "
                           f"old on a {tf} timeframe.",
                        "market data is stale — indicators reflect a price that no longer exists"),
-        "OPEN_POSITIONS": (1, "ACCOUNT STATE: 5 positions already open (BTC, ETH, SOL, LINK, ATOM); "
+        # Weight 3, not 1: the v8 model trained at weight 1 wrote
+        # "PASS: POSITION_LIMIT: max 5 positions already open" on the eval —
+        # the one gate it inverted was the one gate it barely saw.
+        "OPEN_POSITIONS": (3, "ACCOUNT STATE: 5 positions already open (BTC, ETH, SOL, LINK, ATOM); "
                               "max open positions is 5.",
-                           "position limit reached: 5 of 5"),
+                           "position limit reached: 5 of 5 — a full book adds no new risk"),
         "CORRELATION": (1, "ACCOUNT STATE: already holding LONG SOL and LONG AVAX (both Layer-1); "
                            "max correlated positions per sector is 2.",
                         "sector correlation cap reached: 2 Layer-1 positions already open"),
