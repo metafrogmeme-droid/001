@@ -66,13 +66,41 @@ def _rel(p: Path) -> str:
     return str(p.relative_to(REPO)).replace(os.sep, "/")
 
 
-def _imported_names(src: str) -> set:
+def _resolve_relative(pkg: str, dots: int, tail: str) -> str:
+    """`from ..x import y` inside a package -> the absolute dotted path.
+
+    `dots` is the leading-dot count: one dot means "this package", two means
+    the parent, and so on.
+    """
+    parts = pkg.split(".") if pkg else []
+    up = dots - 1
+    base = parts[:len(parts) - up] if up else parts
+    return ".".join([p for p in (base + ([tail] if tail else [])) if p])
+
+
+def _imported_names(src: str, rel_path: str = "") -> set:
     """Every dotted module path this source could be importing.
 
-    Covers the three shapes that actually appear here — `import a.b`,
-    `from a.b import c` (which reaches BOTH `a.b` and `a.b.c`, since `c` may be
-    a module), and `importlib.import_module("a.b")` — plus any dotted `bot.…`
-    string, because a registry that imports by name is still a caller.
+    Covers `import a.b`, `from a.b import c` (which reaches BOTH `a.b` and
+    `a.b.c`, since `c` may be a module), `importlib.import_module("a.b")`, any
+    dotted `bot.…` string (a registry importing by name is still a caller) —
+    and RELATIVE imports, which need `rel_path` to resolve.
+
+    THE RELATIVE CASE IS NOT A DETAIL; ITS ABSENCE FALSELY ACCUSED TEN MODULES.
+
+    `bot/learning/orchestrator.py` — which `bot/core/engine.py` instantiates on
+    every run — reaches ten siblings as `from .experience import ...`. The
+    first version of this function recorded that as a module literally named
+    `.experience`, which matches no candidate, so all ten were reported as
+    "imported by tests and nothing else" and written into the baseline under
+    the heading "an entire subsystem with no caller". The subsystem was running
+    the whole time.
+
+    That is precisely the failure this file's own docstring warns about one
+    paragraph up — a reachability checker with a blind spot manufactures the
+    accusation it exists to prevent — committed a second time, by the person
+    who wrote the warning. Hence `test_relative_imports_count_as_reachability`
+    below: the rule needed a test, not another paragraph.
     """
     names = set()
     for m in re.finditer(r"^\s*import\s+([\w.,\s]+)", src, re.M):
@@ -80,14 +108,29 @@ def _imported_names(src: str) -> set:
             part = part.strip().split(" as ")[0].strip()
             if part:
                 names.add(part)
-    for m in re.finditer(r"^\s*from\s+([\w.]+)\s+import\s+(.+)$", src, re.M):
-        pkg = m.group(1)
-        names.add(pkg)
-        tail = m.group(2).split("#")[0]
-        for part in tail.replace("(", " ").replace(")", " ").split(","):
+
+    # The importing module's own package, for resolving leading dots.
+    pkg = ""
+    if rel_path.endswith(".py"):
+        parts = rel_path[:-3].split("/")
+        pkg = ".".join(parts[:-1])
+
+    for m in re.finditer(r"^\s*from\s+(\.*)([\w.]*)\s+import\s+(.+)$", src, re.M):
+        dots, mod, tail = m.group(1), m.group(2), m.group(3)
+        if dots:
+            if not pkg:
+                continue                    # a relative import with no package
+            base = _resolve_relative(pkg, len(dots), mod)
+        else:
+            base = mod
+        if not base:
+            continue
+        names.add(base)
+        for part in tail.split("#")[0].replace("(", " ").replace(")", " ").split(","):
             part = part.strip().split(" as ")[0].strip()
             if part and part != "*":
-                names.add(f"{pkg}.{part}")
+                names.add(f"{base}.{part}")
+
     for m in re.finditer(r"[\"']((?:bot|scripts)\.[\w.]+)[\"']", src):
         names.add(m.group(1))
     return names
@@ -116,7 +159,7 @@ def unreachable_modules() -> set:
     for rel, src in sources.items():
         if rel.startswith("tests/"):
             continue                       # a test caller is not reachability
-        imported |= _imported_names(src)
+        imported |= _imported_names(src, rel)
 
     return {rel for rel, mod in candidates.items()
             if mod not in imported and rel not in imported}
@@ -167,6 +210,54 @@ def test_the_detector_reads_the_whole_tree():
         "the importer sweep has lost the repo root again")
     assert "bot/core/token_research.py" not in unreachable, (
         "token_research is reached from the Telegram handler's /token command")
+
+
+def test_relative_imports_count_as_reachability():
+    """`from .sibling import X` is an import. The detector once thought not.
+
+    THE SECOND BLIND SPOT, FOUND THE SAME WAY AS THE FIRST.
+
+    `_imported_names` matched `from ([\\w.]+) import`, which captures
+    `.experience` for `from .experience import ExperienceMemory` and records a
+    module by that literal name — matching no candidate. So every module
+    reached only from a sibling looked unreachable.
+
+    It put all ten leaves of `bot/learning/` into the baseline under the
+    heading "an entire subsystem with no caller", when
+    `bot/core/engine.py:354` constructs `LearningOrchestrator()` on every run
+    and the orchestrator imports all ten. The subsystem was live the whole
+    time, and the list said the opposite in prose.
+
+    The lesson had already been written into this file's docstring after the
+    api_bridge miss, and writing it down did not prevent the repeat. So it is
+    a test now.
+    """
+    src = "from .experience import ExperienceMemory\nfrom ..core import engine\n"
+    names = _imported_names(src, "bot/learning/orchestrator.py")
+    assert "bot.learning.experience" in names, "one dot means this package"
+    assert "bot.core" in names, "two dots means the parent package"
+    assert "bot.core.engine" in names
+
+    # Deeper nesting, and a bare `from . import x`.
+    names = _imported_names("from . import store\n", "bot/learning/orchestrator.py")
+    assert "bot.learning.store" in names
+
+    # And the real thing, end to end.
+    unreachable = unreachable_modules()
+    for leaf in ("experience", "reflection", "safety_policy", "strategy_eval",
+                 "patterns", "models"):
+        assert f"bot/learning/{leaf}.py" not in unreachable, (
+            f"bot/learning/{leaf}.py is imported by orchestrator.py, which "
+            "bot/core/engine.py instantiates — calling it unreachable is the "
+            "detector accusing live code again")
+
+
+def test_absolute_imports_still_work():
+    """The relative fix must not have cost the ordinary case."""
+    names = _imported_names("from bot.core import engine\nimport bot.risk.portfolio\n",
+                            "scripts/whatever.py")
+    assert "bot.core" in names and "bot.core.engine" in names
+    assert "bot.risk.portfolio" in names
 
 
 def test_claude_md_states_the_real_count():
