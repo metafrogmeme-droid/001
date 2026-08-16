@@ -319,6 +319,26 @@
     <div class="empty" id="histEmpty" hidden data-i18n="arena.e_hist">Nothing closed yet.</div>
   </section>
 
+  <!-- Agent keys: the credential an autonomous agent uses to paper-trade here.
+       This panel exists because the endpoints shipped without it, which made
+       a finished capability reachable only by hand-rolling a POST — the exact
+       "built but nobody can get to it" defect the Arena MCP work was about. -->
+  <section class="panel" id="keysPanel" hidden>
+    <h2><span data-i18n="arena.p_keys">Agent keys</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_keys">· let an AI agent paper-trade for you</span></h2>
+    <p class="muted" style="font-size:var(--fs-xs);line-height:1.7;margin-bottom:var(--s3)" data-i18n="arena.keys_p">A key lets any MCP-capable agent open and close paper positions on this account. It can do nothing else: it is not a login, and it cannot reach live trading, an exchange key or another account. The worst a stolen key can do is lose your virtual money and put bad trades on your public record — so revoke one the moment you stop using it.</p>
+    <div class="optin">
+      <input id="keyLabel" maxlength="40" placeholder="Name it — e.g. my Claude agent" data-i18n-attr="placeholder:arena.ph_keylabel">
+      <button class="btn btn--sm" id="keyMint" type="button" data-i18n="arena.b_mint">Create a key</button>
+    </div>
+    <div id="keyOnce" hidden style="margin-top:var(--s3);padding:var(--s3);border:1px solid var(--gold);border-radius:var(--radius-sm);background:var(--surface-2)">
+      <div style="font-family:var(--font-data);font-size:var(--fs-xs);color:var(--gold-bright);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px" data-i18n="arena.keys_once">Copy this now — it is never shown again</div>
+      <code id="keyValue" style="font-family:var(--font-data);font-size:var(--fs-xs);word-break:break-all;display:block;color:var(--text-2)"></code>
+      <button class="btn btn--sm" id="keyCopy" type="button" style="margin-top:var(--s2)" data-i18n="arena.b_copy">Copy</button>
+    </div>
+    <div id="keyRows" style="margin-top:var(--s3)"></div>
+    <div class="tmsg" id="keyMsg" role="status" aria-live="polite"></div>
+  </section>
+
   <!-- Leaderboard (public) -->
   <section class="panel">
     <h2><span data-i18n="arena.p_board">Arena leaderboard</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_board">· percent return · anonymous handles</span></h2>
@@ -369,7 +389,7 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=8"></script>
-<script src="/js/i18n.js?v=113"></script>
+<script src="/js/i18n.js?v=114"></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
@@ -925,6 +945,94 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   // Under the shared name, this duration was parsed as an epoch date and every
   // row said "20660d ago", untranslated, in every language. Found in a
   // browser; no source-reading test can see two hoisted declarations collide.
+  // ── Agent keys ─────────────────────────────────────────────────────────
+  //
+  // The plaintext key exists in exactly one place: the mint response. It is
+  // rendered once, never re-fetched and never stored by this page — there is
+  // nothing to re-read, because the server keeps only a hash.
+  function keyMsg(t, bad) {
+    var el = $('keyMsg');
+    el.textContent = t || '';
+    el.style.color = bad ? 'var(--down)' : 'var(--text-3)';
+  }
+
+  async function loadKeys() {
+    var r = await RC.fetchJSON('/api/arena/keys', { timeoutMs: 12000 })
+      .catch(function () { return null; });
+    var host = $('keyRows');
+    if (!r || !r.ok) {
+      // An unreadable list is NOT an empty one. Showing "no keys" here would
+      // tell a user to mint a duplicate for an agent still using the old one.
+      host.innerHTML = '';
+      keyMsg(T('arena.keys_unread', 'Could not read your keys — try again shortly.'), true);
+      return;
+    }
+    keyMsg('');
+    var keys = (r.data && r.data.keys) || [];
+    if (!keys.length) {
+      host.innerHTML = '<div class="empty">' + esc(T('arena.keys_none', 'No keys yet.')) + '</div>';
+      return;
+    }
+    host.innerHTML = keys.map(function (k) {
+      // `last_used_at` is null for a key that has never been used, which is a
+      // different fact from one used long ago — so it says "never used"
+      // rather than borrowing the creation date.
+      var used = k.last_used_at
+        ? esc(T('arena.keys_used', 'last used')) + ' ' + esc(String(k.last_used_at).slice(0, 10))
+        : esc(T('arena.keys_never', 'never used'));
+      return '<div class="row" style="justify-content:space-between;align-items:center;gap:var(--s2);padding:6px 0;border-bottom:1px solid var(--line)">'
+        + '<span>' + esc(k.label || T('arena.keys_unnamed', 'unnamed')) + '</span>'
+        + '<span class="muted" style="font-size:var(--fs-xs)">' + used + '</span>'
+        + '<button class="btn btn--sm" data-revoke="' + Number(k.id) + '" type="button">'
+        + esc(T('arena.b_revoke', 'Revoke')) + '</button></div>';
+    }).join('');
+  }
+
+  document.addEventListener('click', async function (e) {
+    var rv = e.target && e.target.getAttribute && e.target.getAttribute('data-revoke');
+    if (!rv) return;
+    e.target.disabled = true;
+    var r = await RC.fetchJSON('/api/arena/keys/revoke', {
+      method: 'POST', body: { id: Number(rv) }, timeoutMs: 12000,
+    }).catch(function () { return null; });
+    e.target.disabled = false;
+    if (r && r.ok) { keyMsg(T('arena.keys_revoked', 'Revoked. That agent can no longer trade.')); loadKeys(); }
+    else keyMsg(T('arena.keys_revfail', 'Could not revoke that key.'), true);
+  });
+
+  var keyMintBtn = $('keyMint');
+  if (keyMintBtn) keyMintBtn.addEventListener('click', async function () {
+    keyMintBtn.disabled = true;
+    var r = await RC.fetchJSON('/api/arena/keys', {
+      method: 'POST', body: { label: $('keyLabel').value }, timeoutMs: 12000,
+    }).catch(function () { return null; });
+    keyMintBtn.disabled = false;
+    if (!r || !r.ok || !r.data || !r.data.key) {
+      keyMsg((r && r.data && r.data.error) || T('arena.keys_mintfail', 'Could not create a key.'), true);
+      return;
+    }
+    $('keyValue').textContent = r.data.key;
+    $('keyOnce').hidden = false;
+    $('keyLabel').value = '';
+    keyMsg('');
+    loadKeys();
+  });
+
+  var keyCopyBtn = $('keyCopy');
+  if (keyCopyBtn) keyCopyBtn.addEventListener('click', function () {
+    var v = $('keyValue').textContent || '';
+    if (!v) return;
+    // A failed copy must SAY so rather than claim success — otherwise the user
+    // navigates away believing they have a key they never captured.
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(v).then(
+        function () { keyMsg(T('arena.keys_copied', 'Copied.')); },
+        function () { keyMsg(T('arena.keys_copyfail', 'Could not copy — select the key and copy it by hand.'), true); });
+    } else {
+      keyMsg(T('arena.keys_copyfail', 'Could not copy — select the key and copy it by hand.'), true);
+    }
+  });
+
   function sigAgo(ms) {
     if (ms == null) return '';
     var m = Math.round(ms / 60000);
@@ -1148,6 +1256,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   } else {
     $('acctPanel').hidden = false; $('ticketPanel').hidden = false;
     $('posPanel').hidden = false; $('histPanel').hidden = false;
+    $('keysPanel').hidden = false; loadKeys();
     $('optin').hidden = false; $('followPanel').hidden = false;
     $('sigPanel').hidden = false;
     $('sLev').addEventListener('input', function () { $('sLevVal').textContent = $('sLev').value + '×'; });
