@@ -151,6 +151,14 @@ class EtherscanDeployerSource:
                     data = await resp.json(content_type=None)
         if not isinstance(data, dict):
             raise RuntimeError("malformed response")
+        # The `proxy` module speaks JSON-RPC and carries no status/message at
+        # all — it answers {jsonrpc, id, result} or {jsonrpc, id, error}. Read
+        # before the status branch, or every eth_getCode looks like a failure
+        # because the field it is checked on was never going to be there.
+        if "jsonrpc" in data:
+            if data.get("error"):
+                raise RuntimeError(str(data["error"])[:120])
+            return data.get("result")
         status = str(data.get("status", ""))
         if status == "1":
             return data.get("result")
@@ -200,6 +208,21 @@ class EtherscanDeployerSource:
         except Exception as exc:                                  # noqa: BLE001
             logger.debug("txlist failed for %s: %s", deployer, exc)
 
+        # 4b. The contract's own runtime bytecode, hashed for the rug-template
+        #     comparison. A separate call and separately fallible: an
+        #     unreadable code blob must leave the HARD check unknown rather
+        #     than clearing the contract against a corpus it never met.
+        try:
+            code = await self._get(chain_id, {
+                "module": "proxy", "action": "eth_getCode",
+                "address": address, "tag": "latest"})
+            from bot.core.deployer_taint import bytecode_hash
+            digest = bytecode_hash(code if isinstance(code, str) else "")
+            if digest:
+                out["runtime_bytecode_hash"] = digest
+        except Exception as exc:                                  # noqa: BLE001
+            logger.debug("eth_getCode failed for %s: %s", address, exc)
+
         # 5. How much of the supply the deployer still holds.
         try:
             share = await self._supply_share(chain_id, address, deployer)
@@ -227,6 +250,23 @@ class EtherscanDeployerSource:
         # failed read — the exact inversion this module exists to avoid.
         if not txs:
             return {}
+
+        # Who funded this wallet. Oldest first, so the head of this list is the
+        # wallet's origin — the transfer a mixer would appear in. Deduplicated
+        # but ORDER-PRESERVING: the first funder is the interesting one and a
+        # set would lose which it was.
+        me = str(deployer or "").lower()
+        seen_funders: dict = {}
+        for t in txs:
+            if not isinstance(t, dict):
+                continue
+            if str(t.get("to") or "").lower() != me:
+                continue                      # outbound: not a funding source
+            src = str(t.get("from") or "").lower()
+            if src and src != me:
+                seen_funders.setdefault(src, True)
+        if seen_funders:
+            out["funding_sources"] = list(seen_funders)
 
         first_ts = _num((txs[0] or {}).get("timeStamp"))
         if first_ts is not None:

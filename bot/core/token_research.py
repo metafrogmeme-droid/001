@@ -51,6 +51,7 @@ from bot.core import token_dossier
 from bot.core.deployer_fates import resolve_fates
 from bot.core.deployer_history import assess_deployer
 from bot.core.deployer_sources import default_deployer_sources
+from bot.core.deployer_taint import taint_facts
 from bot.core.token_safety import assess_token, coverage
 from bot.core.token_sources import DexScreenerSource, gather
 
@@ -60,7 +61,8 @@ from bot.core.token_sources import DexScreenerSource, gather
 #: warning exists to catch a source answering in the wrong dialect, and a false
 #: one trains the reader to ignore it.
 _DEPLOYER_INFO_FIELDS = frozenset({"deployer_address", "deployments_truncated",
-                                   "prior_contracts"})
+                                   "prior_contracts", "funding_sources",
+                                   "runtime_bytecode_hash"})
 
 #: Consumed by `resolve_outcomes` rather than by a named check, so they are read
 #: even though no entry in `checks` carries their name.
@@ -120,6 +122,14 @@ async def investigate(address: str, chain: str = "eth",
         for k in ("prior_alive", "prior_dead"):
             if fates.get(k) is not None:
                 deployer_facts[k] = fates[k]
+
+    # The two curated-list lookups. Both are ABSENT unless a list was actually
+    # loaded and actually consulted — `taint_facts` omits rather than answering
+    # False, because False is a passing check that helps certify a deployer and
+    # an empty denylist has certified nothing.
+    deployer_facts.update(taint_facts(
+        deployer_facts.get("funding_sources"),
+        deployer_facts.get("runtime_bytecode_hash")))
 
     # Scored only when a source actually supplied something. `assess_deployer({})`
     # would return a well-formed report of all-unknowns — "examined, learned

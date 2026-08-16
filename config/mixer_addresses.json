@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Addresses whose appearance in a deployer's funding history sets",
+    "`funded_by_mixer` (weight 2.0 in bot/core/deployer_history.py).",
+    "",
+    "SHIPPED EMPTY ON PURPOSE. Naming an address as a sanctioned mixer is an",
+    "accusation about whoever received funds from it, and it has to come from",
+    "an authoritative source with a retrieval date — not from memory. While",
+    "`entries` is empty the check answers `unknown`, the dossier reports the",
+    "gap, and nothing is certified past it.",
+    "",
+    "TO POPULATE: take the digital-currency addresses from the OFAC SDN list",
+    "(https://sanctionslist.ofac.treas.gov/Home/SdnList) or an equivalent",
+    "authority, set `source` and `retrieved`, and give every entry its own",
+    "`source`. bot/core/deployer_taint.py refuses the whole file if the",
+    "top-level provenance is missing, and drops any entry without its own.",
+    "",
+    "Re-pull periodically: a stale list is a list that answers `False` about",
+    "an address added last month."
+  ],
+  "schema": 1,
+  "source": null,
+  "retrieved": null,
+  "entries": []
+}
