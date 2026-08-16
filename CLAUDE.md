@@ -8,14 +8,16 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Ten gates: two ruff passes, mypy, bandit, pip-audit, the
-baseline test gate, the web app's parse check, its npm advisory ratchet, its
-suite, and guard reachability. ~12 minutes.
+step for free. Eleven gates: two ruff passes, mypy, bandit, pip-audit, the
+baseline test gate, the red team, the web app's parse check, its npm advisory
+ratchet, its suite, and guard reachability. ~12 minutes.
 
-That "for free" is literal and was collected twice: the app parse gate and the
-npm ratchet were added to `ci.yml` for M3 and appeared in the local plan with no
-change to `preflight.py` — and this paragraph's own gate count is pinned by
-`tests/test_claude_md_accuracy.py`, which failed the moment they did.
+That "for free" is literal and has now been collected three times: the app parse
+gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
+plan with no change to `preflight.py`, and the red-team gate did the same. This
+paragraph's own gate count is pinned by `tests/test_claude_md_accuracy.py`,
+which failed the moment each of them landed — including on the sentence you are
+reading, which said "Ten" until the red team made it eleven.
 
 ```bash
 python3 scripts/preflight.py --fast   # tight loop; drops only the network gates
@@ -183,7 +185,7 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**16** modules today). It is a ratchet in
+`tests/unreachable_baseline.txt` (**15** modules today). It is a ratchet in
 both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same

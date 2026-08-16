@@ -83,8 +83,15 @@ def test_the_gate_count_it_quotes_is_the_real_one():
     import preflight
     m = re.search(r"(\w+) gates:", DOC)
     assert m, "the gate count sentence is gone"
-    words = {"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+    words = {"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+             "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+             "fifteen": 15}
     claimed = words.get(m.group(1).lower())
+    # Refusing an unknown word rather than skipping is the point: `.get()`
+    # returning None and the test passing anyway would mean the doc could say
+    # "Eleven" while the table stopped at ten, and the count would go unchecked
+    # exactly when it changed. The red-team gate made it eleven and this line
+    # is what said so.
     assert claimed is not None, f"unparsed count word: {m.group(1)}"
     assert claimed == len(preflight.steps(fast=False)), (
         f"CLAUDE.md says {claimed} gates, preflight plans "
