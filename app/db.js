@@ -33,10 +33,56 @@ function describeSql(sql) {
   }
 }
 
+/**
+ * A mysql2 pool config from a connection URL, with `?ssl=` normalised.
+ *
+ * mysql2 accepts several spellings of the `ssl` query parameter and rejects
+ * others outright, BEFORE a single packet is sent:
+ *
+ *   ?ssl={"rejectUnauthorized":true}   accepted (raw or percent-encoded)
+ *   ?ssl=Amazon%20RDS                  accepted — a named bundled CA profile
+ *   ?ssl=true  ·  ?ssl=1               THROWS "SSL profile must be an object,
+ *                                      instead it's a boolean"
+ *
+ * That last spelling is the one most connection-string builders emit, and the
+ * failure it produces is indistinguishable from a database outage at a glance:
+ * the pool cannot be created, this file fails closed and loud, and the operator
+ * goes looking at the database. It is a string format.
+ *
+ * So the boolean spellings are converted to the object mysql2 wanted, and
+ * everything else is passed through untouched — a named profile still resolves
+ * to its bundled CA, and an explicit object is still honoured verbatim. The
+ * secure reading of a bare `ssl=true` is that the certificate SHOULD be
+ * verified, so it becomes `{rejectUnauthorized: true}` rather than a disabled
+ * check; nothing here can weaken a TLS setting the operator asked for.
+ *
+ * IT NEVER LOGS OR RETURNS THE URL. It carries the password, and a connection
+ * error that quotes it would put credentials in the log this file prints on the
+ * way down.
+ */
+function poolConfigFrom(rawUrl) {
+  let u;
+  try {
+    u = new URL(rawUrl);
+  } catch (_) {
+    // Not parseable as a URL — hand it to mysql2 unchanged so the driver
+    // produces its own error. Guessing at a malformed URL is worse than
+    // letting the thing that owns the format complain about it.
+    return rawUrl;
+  }
+  const ssl = u.searchParams.get('ssl');
+  if (ssl === null) return rawUrl;
+  const flag = ssl.trim().toLowerCase();
+  if (flag !== 'true' && flag !== '1') return rawUrl;
+
+  u.searchParams.delete('ssl');
+  return { uri: u.toString(), ssl: { rejectUnauthorized: true } };
+}
+
 if (USE_MYSQL) {
   try {
     const mysql = require('mysql2/promise');
-    pool = mysql.createPool(process.env.DATABASE_URL);
+    pool = mysql.createPool(poolConfigFrom(process.env.DATABASE_URL));
     // Wrap once, permanently: every execute/query records what it is about to
     // run. Cheap (a regex on a string this file authored), and it cannot
     // change behaviour — it delegates unconditionally and never swallows.
@@ -2454,4 +2500,8 @@ function backend() {
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend,
   EXPECTED_TABLES, schemaIsCurrent,
+  // Exported for tests. The URL it normalises is the one thing in this process
+  // that cannot be exercised end-to-end without a live database, so the string
+  // handling is tested directly instead of being trusted.
+  poolConfigFrom,
 };
