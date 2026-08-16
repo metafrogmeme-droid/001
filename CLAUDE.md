@@ -170,6 +170,33 @@ Rank candidates by what a wrong claim would cost. The surfaces that still
 build cards inline and make halt/breaker/stop-loss claims — `_status_lines`,
 `_cmd_escape`, `_cmd_open_positions` — are where to look next.
 
+### A module nothing calls is indistinguishable from one that does not work
+
+`token_dossier`, `presale_claims` and `deployer_history` were pure, correct,
+heavily tested, and imported by **zero** non-test modules. Four scorers, a
+composer, seventy-seven tests, and no human could reach any of them. Every
+test passed the entire time, because tests were the only caller.
+
+That is the same failure as #999 one level up: there, a card was built and
+never reached; here, a whole subsystem was. Neither is visible from a green
+suite, and no source scan distinguishes them — reachability is a property of
+the *callers*, so it can only be checked from outside the file.
+
+`tests/test_no_new_unreachable_modules.py` checks it every run, against
+`tests/unreachable_baseline.txt` (**28** modules today, including a veto-only
+safety control with an `off/shadow/enforce` switch and the whole of
+`bot/learning/`). It is a ratchet in both directions: a new entry means
+somebody just built another scorer nobody calls, and an entry that leaves must
+be deleted in the same commit — the `known_failures.txt` rule, for the same
+reason.
+
+> Its first version scanned only `bot/` and `scripts/` for importers and
+> declared `bot/api/auth_routes.py` dead — it is mounted by `api_bridge.py` at
+> the repo root, which was not being read at all. **A reachability checker with
+> a blind spot manufactures exactly the accusation it exists to prevent**, so
+> the sweep now reads every `.py` in the tree and entry points are excluded by
+> their `__main__` guard.
+
 **Plant the state, assert what the card says.** `tests/test_surface_scenarios.py`
 and `app/test/engine_status_scenarios.test.js` hold the pattern: MUST_SAY,
 MUST_NOT_SAY, and a planted **red herring** — a true-but-misleading signal.
