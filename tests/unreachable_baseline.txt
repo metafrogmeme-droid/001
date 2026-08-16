@@ -39,19 +39,17 @@ bot/core/swarm.py
 # deployer_history had none until #54. Same shape, same fix if wanted.
 bot/core/presale_claims.py
 
-# ── bot/learning: an entire subsystem with no caller ────────────────────────
-# Ten modules, tested, reachable by nothing. Possibly a deliberate research
-# area; worth someone confirming that rather than assuming it.
-bot/learning/experience.py
-bot/learning/feedback.py
-bot/learning/macro_learner.py
-bot/learning/model_compare.py
-bot/learning/models.py
-bot/learning/patterns.py
-bot/learning/prompt_opt.py
-bot/learning/reflection.py
-bot/learning/safety_policy.py
-bot/learning/strategy_eval.py
+# ── bot/learning: NOT here any more, and the reason matters ────────────────
+# Ten bot/learning modules sat under this heading reading "an entire subsystem
+# with no caller". They were never unreachable. bot/core/engine.py:354
+# constructs LearningOrchestrator() on every run, and the orchestrator imports
+# all ten as `from .experience import ...` — a relative import the detector
+# recorded as a module literally named ".experience", matching nothing.
+#
+# The detector's own docstring warned that a checker with a blind spot
+# manufactures the accusation it exists to prevent. It then did exactly that,
+# to ten modules, in the file carrying the warning. Fixed, and pinned by
+# test_relative_imports_count_as_reachability.
 
 # ── no caller AND no tests: dead until proven otherwise ─────────────────────
 bot/_compat.py
