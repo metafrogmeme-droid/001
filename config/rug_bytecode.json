@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "sha256 of NORMALISED runtime bytecode (solc metadata stripped — see",
+    "deployer_taint.strip_metadata) for contracts that are known rug templates.",
+    "",
+    "THIS CHECK IS HARD. One match makes the deployer `known_bad` on its own,",
+    "with no other evidence required. Treat every entry as an accusation you",
+    "will have to defend.",
+    "",
+    "THE TRAP: a plain OpenZeppelin ERC-20 compiles to near-identical bytecode",
+    "for thousands of honest tokens AND for every scammer who never edited the",
+    "template. One generic hash in here marks all of them known_bad. Nothing in",
+    "code can tell a rug template from a generic one, so each entry MUST carry:",
+    "",
+    "  hash     sha256 of the normalised runtime bytecode",
+    "  example  a contract address that used it and is known to have rugged",
+    "  note     why this code is DISTINCTIVE — the hidden mint, the blacklist,",
+    "           the transfer hook — and not just a standard template",
+    "",
+    "The loader refuses any entry missing example or note.",
+    "",
+    "SHIPPED EMPTY, and the empty state is honest: the check answers `unknown`",
+    "rather than clearing a contract it never compared against anything."
+  ],
+  "schema": 1,
+  "source": null,
+  "retrieved": null,
+  "entries": []
+}

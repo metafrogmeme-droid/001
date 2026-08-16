@@ -142,6 +142,51 @@ learned nothing*.
   publishes a floor as a total — that count is the denominator of the deployer's
   record. Both cases are pinned in `tests/test_deployer_sources.py`.
 
+### The two curated lists
+
+`funded_by_mixer` (weight 2.0) and `reused_rug_bytecode` (**hard** — one match
+is `known_bad` on its own) cannot be computed. They are lookups against
+reference data in `config/`:
+
+| file | what an entry is |
+|---|---|
+| `config/mixer_addresses.json` | an address whose appearance in a deployer's funding history is a hit |
+| `config/rug_bytecode.json` | sha256 of normalised runtime bytecode of a known rug template |
+
+**Both ship EMPTY, and the empty state is the honest one.** An empty list makes
+both checks answer `unknown`, never `False` — because `False` is a *passing*
+check that helps certify a deployer, and a list with nothing in it has certified
+nothing. A false `True` gets argued with; a false `False` gets believed.
+
+`bot/core/deployer_taint.py` refuses a file whose top-level `source` /
+`retrieved` are missing, and drops individual entries that lack their own
+provenance. A denylist that accuses people with no record of where it came from
+cannot be audited by the person it accuses.
+
+#### The trap in the bytecode corpus
+
+A plain OpenZeppelin ERC-20 compiles to near-identical bytecode for thousands of
+honest tokens *and* for every scammer who never edited the template. One generic
+hash in that file marks all of them `known_bad`.
+
+Nothing in code can look at a hash and tell whether it is distinctive, so the
+loader demands a human said so per entry, in writing — an `example` contract that
+used it and a `note` explaining what makes it distinctive (the hidden mint, the
+blacklist, the transfer hook). Entries missing either are refused at load.
+
+Bytecode is hashed after stripping solc's trailing CBOR metadata, so the same
+source recompiled under a different path or patch version still matches.
+
+#### Populating them
+
+Mixer addresses: the OFAC SDN digital-currency addresses, or an equivalent
+authority. Re-pull periodically — a stale list answers `False` about an address
+added last month.
+
+Rug bytecode: there is no public corpus to copy. Each entry is a judgement that
+has to be defensible, which is why the schema forces the reasoning into the file
+next to the hash.
+
 ### Discoverability is enforced, not remembered
 
 `/token` is listed in `bot/skills/command_catalog.py`, which is what `/help`
