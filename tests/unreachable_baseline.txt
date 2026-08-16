@@ -13,12 +13,11 @@
 # Not all of these are equally wrong, which is why they are recorded rather than
 # guessed at. Sorted by how uncomfortable they are to find here.
 
-# ── a safety control, uncalled ──────────────────────────────────────────────
-# Veto-only, with an off/shadow/enforce mode switch, and docs/token_safety.md
-# describes token_safety as the feeder that "unblocks the veto's engine wiring".
-# The wiring is still not done. Shadow mode is the safe way in: it can only
-# tighten, so the worst case of enabling it is over-rejection.
-bot/guardian/integrity_veto.py
+# ── safety controls, uncalled ───────────────────────────────────────────────
+# integrity_veto LEFT this list the commit after it was written: token_research
+# now computes it in SHADOW, where its inputs actually exist. Enforcement still
+# does not, because its intended consumer (meme_executor, below) is unwired too
+# — that is a product decision about the meme path, not a wiring cleanup.
 bot/guardian/authority_preflight.py
 bot/guardian/authority_redteam.py
 bot/core/validation_gate.py

@@ -183,12 +183,26 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**28** modules today, including a veto-only
-safety control with an `off/shadow/enforce` switch and the whole of
+`tests/unreachable_baseline.txt` (**27** modules today, including the whole of
 `bot/learning/`). It is a ratchet in both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same
 reason.
+
+Both halves fired on their first real use, one commit later. `integrity_veto`
+— veto-only, `off/shadow/enforce`, described in `docs/token_safety.md` as the
+thing `token_safety` "unblocks" — got wired into `token_research` in shadow,
+and the stale-entry test refused to pass until the baseline was updated. The
+count above is pinned against that file for the same reason: a number in prose
+is the part that rots first.
+
+Wiring it also surfaced the trap waiting in it. `assess({})` returns the word
+**`clear`** — correct on its own terms, nothing flagged because nothing could
+be — and `clear` is what a reader takes as a clean bill of health. Printing it
+over `checked == 0` is a confident all-clear manufactured from no data.
+Fail-open-per-feature is the right rule for SCORING and the wrong one for
+DISPLAY, and the two were the same function until something finally called it;
+`integrity_veto.is_reading()` is now the seam between them.
 
 > Its first version scanned only `bot/` and `scripts/` for importers and
 > declared `bot/api/auth_routes.py` dead — it is mounted by `api_bridge.py` at

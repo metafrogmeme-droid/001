@@ -344,3 +344,60 @@ async def test_no_addresses_means_no_fate_pass_and_no_invented_counts():
     assert r["fates"] is None
     assert r["deployer"]["outcomes"]["alive"] is None
     assert r["deployer"]["outcomes"]["dead"] is None
+
+
+# ── the integrity veto, in shadow ────────────────────────────────────
+#
+# It was tested, documented as the thing token_safety "unblocks", and imported
+# by nothing. Its intended consumer (meme_executor) is unwired too, so
+# ENFORCEMENT is a product decision — this is the reading, observe-only.
+
+
+@pytest.mark.asyncio
+async def test_a_clear_verdict_over_nothing_readable_is_never_shown():
+    """The trap wiring this naively would have introduced.
+
+    `assess({})` returns the word `clear` — correctly, on its own terms:
+    nothing flagged because nothing could be. But `clear` is what a reader
+    takes as a clean bill of health, and printing it over zero readable
+    features is a confident all-clear manufactured from no data.
+    """
+    r = await investigate("0x1", sources=[_Src("dex", {})])
+    assert r["integrity"]["verdict"] == "clear", "the scorer's own answer is unchanged"
+    assert r["integrity"]["checked"] == 0
+    text = human_readable(r)
+    assert "integrity" not in text.lower(), (
+        "a verdict resting on nothing was rendered as a reading")
+
+
+@pytest.mark.asyncio
+async def test_a_verdict_backed_by_a_real_feature_is_shown_with_its_basis():
+    r = await investigate("0x1", sources=[
+        _Src("dex", {"liquidity_usd": 90000.0}),
+        _Src("chain", {"top_holder_pct": 0.92})])
+    assert r["integrity"]["checked"] >= 1
+    text = human_readable(r)
+    assert "integrity (shadow)" in text
+    # The coverage travels with it, as everywhere else.
+    assert "shapes readable" in text
+
+
+@pytest.mark.asyncio
+async def test_the_veto_never_changes_the_dossier_verdict():
+    """Shadow means shadow: it computes, nothing acts on it."""
+    clean = [_Src("dex", {"liquidity_usd": 5_000_000.0})]
+    baseline = await investigate("0x1", sources=clean)
+    flagged = await investigate("0x1", sources=clean + [
+        _Src("chain", {"top_holder_pct": 0.99})])
+    assert flagged["integrity"]["verdict"] in ("caution", "veto")
+    # The contract scorer may react to top_holder_pct on its own — that is its
+    # job. What must NOT happen is the veto adding a section or a flag of its
+    # own to the composed dossier.
+    assert set(flagged["dossier"]["sections"]) == set(baseline["dossier"]["sections"])
+    assert "integrity" not in flagged["dossier"]["sections"]
+
+
+@pytest.mark.asyncio
+async def test_the_veto_is_carried_in_shadow_mode():
+    r = await investigate("0x1", sources=[_Src("dex", {"liquidity_usd": 1.0})])
+    assert r["integrity"]["mode"] == "shadow"

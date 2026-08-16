@@ -132,6 +132,23 @@ def assess(features: Optional[dict], *, mode: str = "off") -> dict:
     return result
 
 
+def is_reading(report: Optional[dict]) -> bool:
+    """True when this verdict rests on at least one feature actually read.
+
+    THE TRAP THIS EXISTS TO CLOSE. `assess({})` returns `clear` — correctly, on
+    its own terms: nothing was flagged because nothing could be. But `clear` is
+    the word a caller prints as a clean bill of health, and printing it over
+    `checked == 0` is a confident all-clear manufactured from no data, which is
+    the defect this repo spends most of its guard tests preventing.
+
+    Fail-open-per-feature is the right rule for SCORING and the wrong one for
+    DISPLAY, and the two were the same function until something finally called
+    it. Every caller asks this before showing a verdict; `clear` with nothing
+    checked is "not checked", not "clean".
+    """
+    return bool(report) and int(report.get("checked") or 0) > 0
+
+
 def human_readable(report: Optional[dict]) -> str:
     """Plain-text render of a veto report (no markup)."""
     if not report or not isinstance(report, dict):
