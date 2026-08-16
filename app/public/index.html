@@ -658,7 +658,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=109"></script>
+<script src="/js/i18n.js?v=110"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=7"></script>
 <script src="/js/chat.js?v=26" defer></script>
@@ -1347,10 +1347,14 @@ function renderFooterSocials(links){
   }
 })();
 (async()=>{
+  // app.js's migration DELETES rc_session once the cookie exists, so returning
+  // on its absence signed out every migrated user on the landing page. The
+  // cookie is the session; the stored blob is only a pre-cookie leftover.
   const saved=localStorage.getItem('rc_session');
-  if(!saved)return;
-  let s;
-  try{s=JSON.parse(saved);}catch{localStorage.removeItem('rc_session');return;}
+  const hasCookie=/(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+  if(!saved&&!hasCookie)return;
+  let s={};
+  if(saved){try{s=JSON.parse(saved)||{};}catch{localStorage.removeItem('rc_session');s={};}}
   try{
     // Cookie first; s.token only exists for sessions predating it, and
     // /auth/me answers either way with a fresh Set-Cookie.

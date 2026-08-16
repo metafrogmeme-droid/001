@@ -268,3 +268,91 @@ test('no page writes a session token to localStorage any more', () => {
   assert.deepStrictEqual(offenders, [],
     'a session token is being written somewhere a script can read it back');
 });
+
+// ── the regression this file's own tests missed ───────────────────────────
+
+test('no page decides "signed out" from a token that no longer exists', () => {
+  /*
+   * WHAT I GOT WRONG, and it shipped.
+   *
+   * The test above pins that no page WRITES a session token. Nothing pinned
+   * what the pages that READ one would do once it was gone — and six did.
+   * Four of them gate BEFORE making any request:
+   *
+   *     var tok = localStorage.getItem('token');
+   *     if (!tok) { showSignedOut(); return; }
+   *
+   * so a perfectly authenticated cookie session was told to sign in, on
+   * escape.html, stress.html and command.html, while i18n.js silently stopped
+   * syncing the language preference forever. The two that did NOT gate sent
+   * the string `Bearer null` and only worked because tokenFromRequest ignores
+   * it — a server-side guard load-bearing for a client-side mistake.
+   *
+   * I checked ONE reader (intent.html), saw it degrade correctly, and
+   * generalised. The readers that gate first do not degrade at all.
+   *
+   * The rule: reading the legacy token is fine — it is the migration path —
+   * but a page that reads it must also know about the cookie, or its answer to
+   * "am I signed in" is a leftover from before the migration.
+   */
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const pub = path.join(__dirname, '..', 'public');
+  const roots = [pub, path.join(pub, 'js')];
+  const offenders = [];
+  for (const dir of roots) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.(html|js)$/.test(name)) continue;
+      const full = path.join(dir, name);
+      if (!fs.statSync(full).isFile()) continue;
+      const src = fs.readFileSync(full, 'utf8');
+      const readsLegacy = /localStorage\.getItem\(\s*['"](token|rc_session)['"]/.test(src);
+      if (!readsLegacy) continue;
+      // Either it knows about the flag cookie, or it defers to RC (app.js,
+      // which computes LOGGED_IN from both).
+      const knowsCookie = /rc_auth/.test(src) || /RC\.LOGGED_IN|LOGGED_IN/.test(src);
+      if (!knowsCookie) offenders.push(name);
+    }
+  }
+  assert.deepStrictEqual(offenders, [],
+    'these read the legacy token without knowing a cookie session exists — '
+    + 'they will tell a logged-in user to sign in');
+});
+
+test('no page sends the literal string "null" as its credential', () => {
+  // `'Bearer ' + tok` with tok null. The server ignores it, but that guard
+  // should not be the only thing keeping seven pages working.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', 'public');
+  const offenders = [];
+  const walk = (d) => {
+    for (const name of fs.readdirSync(d)) {
+      const full = path.join(d, name);
+      if (fs.statSync(full).isDirectory()) { walk(full); continue; }
+      if (!/\.(html|js)$/.test(name)) continue;
+      const src = fs.readFileSync(full, 'utf8')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/^[ \t]*\/\/[^\n]*$/gm, '');
+      // A concatenation is only safe when the value is known truthy — either
+      // guarded by a ternary on the same expression, or inside an `if (tok)`.
+      // The captured expression must include any property access: `s.token`
+      // captured as just `s` made the guard `s.token ? … : {}` invisible, and
+      // the test reported its own blind spot as a defect in index.html.
+      for (const m of src.matchAll(/['"]Bearer ['"]\s*\+\s*([\w.]+(?:\(\))?)/g)) {
+        const name_ = m[1];
+        // Optional chaining is the same guard: `SESSION?.token ? … : {}` reads
+        // as unguarded unless `?.` is normalised away on both sides first.
+        const before = src.slice(Math.max(0, m.index - 200), m.index)
+          .replace(/\?\./g, '.');
+        const esc_ = name_.replace(/\?\./g, '.').replace(/[.()]/g, (c) => '\\' + c);
+        const guarded = new RegExp(`${esc_}\\s*\\?|if\\s*\\(\\s*!?${esc_}`).test(before);
+        if (!guarded) offenders.push(`${path.relative(dir, full)} → Bearer ' + ${name_}`);
+      }
+    }
+  };
+  walk(dir);
+  assert.deepStrictEqual(offenders, [],
+    'an absent token stringifies to "null", which is truthy and shadows the cookie');
+});

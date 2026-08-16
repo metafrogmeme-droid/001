@@ -123,7 +123,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=109"></script>
+<script src="/js/i18n.js?v=110"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -139,6 +139,11 @@
   };
   var tok = null;
   try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+  // M14: the session is an HttpOnly cookie this page cannot read. `rc_auth` is
+  // the readable flag saying one exists, and requests authenticate by cookie —
+  // `tok` survives only as a fallback for a session predating the migration.
+  // Gating on the TOKEN here showed 'signed out' to every cookie session.
+  var signedIn = !!tok || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
   var today = new Date().toISOString().slice(0, 10);
   var hadEntry = false;
 
@@ -150,7 +155,9 @@
 
   function api(p, opts) {
     opts = opts || {};
-    opts.headers = Object.assign({ Authorization: 'Bearer ' + tok }, opts.headers || {});
+    opts.credentials = 'same-origin';
+    opts.headers = Object.assign(tok ? { Authorization: 'Bearer ' + tok } : {},
+      opts.headers || {});
     return fetch('/api/learn' + p, opts).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, data: j }; });
     });

@@ -96,7 +96,7 @@
   on every read. Locked simply means the records don't show it yet. Education and practice, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=109"></script>
+<script src="/js/i18n.js?v=110"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script src="/js/rune-card.js?v=1" defer></script>
 <script>
@@ -113,14 +113,20 @@
   };
   var tok = null;
   try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
-  if (!tok) { $('signedOut').hidden = false; return; }
+  // M14: the session is an HttpOnly cookie this page cannot read. `rc_auth` is
+  // the readable flag saying one exists, and requests authenticate by cookie —
+  // `tok` survives only as a fallback for a session predating the migration.
+  // Gating on the TOKEN here showed 'signed out' to every cookie session.
+  var signedIn = !!tok || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+  if (!signedIn) { $('signedOut').hidden = false; return; }
 
   function stat(k, v, d) {
     return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(String(v))
       + '</div>' + (d ? '<div class="d">' + esc(d) + '</div>' : '') + '</div>';
   }
 
-  fetch('/api/command', { headers: { Authorization: 'Bearer ' + tok } })
+  fetch('/api/command', { credentials: 'same-origin',
+    headers: tok ? { Authorization: 'Bearer ' + tok } : {} })
     .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); })
     .then(function (r) {
       if (!r.ok || !r.d || !r.d.achievements) {
