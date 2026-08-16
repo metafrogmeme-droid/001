@@ -1,0 +1,60 @@
+# Modules imported by tests and by nothing else.
+#
+# Generated and enforced by tests/test_no_new_unreachable_modules.py. Each of
+# these has passing tests and no production caller, which means those tests say
+# nothing about whether the module runs — the state `token_dossier`,
+# `presale_claims` and `deployer_history` were in until they were wired.
+#
+# This is a RATCHET, not a permission slip. A new entry appearing means somebody
+# just built another scorer nobody calls. Removing one — because you wired it —
+# must happen in the same commit, or test_the_baseline_has_no_stale_entries
+# fails, same rule as known_failures.txt.
+#
+# Not all of these are equally wrong, which is why they are recorded rather than
+# guessed at. Sorted by how uncomfortable they are to find here.
+
+# ── a safety control, uncalled ──────────────────────────────────────────────
+# Veto-only, with an off/shadow/enforce mode switch, and docs/token_safety.md
+# describes token_safety as the feeder that "unblocks the veto's engine wiring".
+# The wiring is still not done. Shadow mode is the safe way in: it can only
+# tighten, so the worst case of enabling it is over-rejection.
+bot/guardian/integrity_veto.py
+bot/guardian/authority_preflight.py
+bot/guardian/authority_redteam.py
+bot/core/validation_gate.py
+bot/core/red_team.py
+
+# ── execution paths built and not connected ─────────────────────────────────
+bot/core/meme_executor.py
+bot/risk/order_router.py
+bot/core/alert_manager.py
+bot/core/performance_tracker.py
+bot/core/feedback_loop.py
+bot/core/swarm.py
+
+# ── the detective's remaining scorer ────────────────────────────────────────
+# The only one here with a known reason: presale_claims has no source, the way
+# deployer_history had none until #54. Same shape, same fix if wanted.
+bot/core/presale_claims.py
+
+# ── bot/learning: an entire subsystem with no caller ────────────────────────
+# Ten modules, tested, reachable by nothing. Possibly a deliberate research
+# area; worth someone confirming that rather than assuming it.
+bot/learning/experience.py
+bot/learning/feedback.py
+bot/learning/macro_learner.py
+bot/learning/model_compare.py
+bot/learning/models.py
+bot/learning/patterns.py
+bot/learning/prompt_opt.py
+bot/learning/reflection.py
+bot/learning/safety_policy.py
+bot/learning/strategy_eval.py
+
+# ── no caller AND no tests: dead until proven otherwise ─────────────────────
+bot/_compat.py
+bot/core/basis.py
+bot/core/market_cap.py
+bot/core/seasonality.py
+scripts/research/rwa_funding.py
+scripts/research/rwa_session_gap.py
