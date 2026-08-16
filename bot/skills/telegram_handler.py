@@ -762,6 +762,7 @@ class TelegramHandler:
             ("duel", self._cmd_duel),
             ("research", self._cmd_research),
             ("token", self._cmd_token),
+            ("memeplan", self._cmd_memeplan),
             ("rwa", self._cmd_rwa),
         ]:
             app.add_handler(CommandHandler(cmd, handler))
@@ -4627,6 +4628,82 @@ class TelegramHandler:
             return
         await self._send(update,
                          "<pre>" + html.escape(_dossier_text(result)) + "</pre>")
+
+    #: A Solana mint is base58, 32-44 chars — no 0x, and never confusable with
+    #: an EVM address, so a wrong-chain paste is refused before any request.
+    _SOL_MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+    @guard("memeplan")
+    async def _cmd_memeplan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/memeplan <mint> [size_usd] — the fail-closed preflight for a meme buy.
+
+        THIS CANNOT TRADE. `meme_executor` is a PLANNER: `would_execute` is a
+        hardcoded False and signing is a separate slice that does not exist. The
+        answer here is "would this buy clear every precondition, and if not,
+        which one stopped it" — diligence, not execution.
+
+        Three preconditions, all fail-closed: the MEME_TRADING_ENABLED flag
+        (default OFF), a human-set Authority Envelope in enforce mode, and the
+        rug/liquidity/exit safety gate.
+        """
+        import time as _time
+
+        from bot.core import meme_executor
+        from bot.core.token_safety import assess_token
+        from bot.core.token_sources import DexScreenerSource, gather
+
+        args = getattr(ctx, "args", None) or []
+        if not args:
+            await self._send(
+                update,
+                "Usage: <code>/memeplan &lt;solana mint&gt; [size_usd]</code>\n"
+                "The fail-closed preflight for a meme buy — it never trades.")
+            return
+        mint = str(args[0]).strip()
+        if not self._SOL_MINT_RE.match(mint):
+            await self._send(update, "That is not a Solana mint (base58, 32-44 "
+                                     "chars). Nothing was checked.")
+            return
+        try:
+            size_usd = float(args[1]) if len(args) > 1 else 25.0
+        except (TypeError, ValueError):
+            await self._send(update, "Size must be a number, in USD.")
+            return
+
+        try:
+            g = await gather([DexScreenerSource()], "solana", mint, timeout=8.0)
+            feats = g["features"]
+            # Age in hours from the pair's creation stamp. Absent when the venue
+            # did not report one — the gate then treats age as unknown and fails
+            # closed, which is the right answer for a pool we cannot date.
+            age_hours = None
+            created_ms = feats.get("pair_created_at_ms")
+            if created_ms:
+                age_hours = max(0.0, (_time.time() - float(created_ms) / 1000.0) / 3600.0)
+
+            tg_id = self._get_tg_id(update)
+            try:
+                from bot.guardian.user_authority_store import get_user_authority_store
+                authorized = bool(get_user_authority_store().is_enforcing(tg_id))
+            except Exception:                                     # noqa: BLE001
+                # An unreadable envelope is NOT an authorizing one.
+                authorized = False
+
+            plan = meme_executor.plan_swap(
+                intent={"side": "buy", "token_mint": mint, "size_usd": size_usd},
+                safety_report=assess_token(feats),
+                market={"liquidity_usd": feats.get("liquidity_usd"),
+                        "age_hours": age_hours,
+                        "buys_24h": feats.get("buys_24h"),
+                        "sells_24h": feats.get("sells_24h")},
+                envelope_authorized=authorized)
+        except Exception as exc:                                  # noqa: BLE001
+            await self._send_error(update, "memeplan", exc)
+            return
+
+        await self._send(
+            update,
+            "<pre>" + html.escape(meme_executor.human_readable(plan)) + "</pre>")
 
     @guard("rwa")
     async def _cmd_rwa(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

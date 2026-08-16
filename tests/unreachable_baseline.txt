@@ -24,7 +24,10 @@ bot/core/validation_gate.py
 bot/core/red_team.py
 
 # ── execution paths built and not connected ─────────────────────────────────
-bot/core/meme_executor.py
+# meme_executor LEFT this list: /memeplan reaches its PLANNER. There was never
+# an execution path to wire — `would_execute` is a hardcoded False and signing
+# is a slice that does not exist — so what became reachable is the fail-closed
+# preflight, not the ability to trade.
 bot/risk/order_router.py
 bot/core/alert_manager.py
 bot/core/performance_tracker.py
