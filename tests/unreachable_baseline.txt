@@ -14,6 +14,10 @@
 # guessed at. Sorted by how uncomfortable they are to find here.
 
 # ── safety controls, uncalled ───────────────────────────────────────────────
+# red_team LEFT this list: scripts/red_team.py runs it and CI gates on it, so
+# the 30 adversarial scenarios now attack the risk engine on every change
+# instead of being 691 lines nothing could reach. It was at 30/30 the first
+# time it was ever run — the gate is a regression guard, not a bug report.
 # integrity_veto LEFT this list the commit after it was written: token_research
 # now computes it in SHADOW, where its inputs actually exist. Enforcement still
 # does not, because its intended consumer (meme_executor, below) is unwired too
@@ -21,7 +25,6 @@
 bot/guardian/authority_preflight.py
 bot/guardian/authority_redteam.py
 bot/core/validation_gate.py
-bot/core/red_team.py
 
 # ── execution paths built and not connected ─────────────────────────────────
 # meme_executor LEFT this list: /memeplan reaches its PLANNER. There was never

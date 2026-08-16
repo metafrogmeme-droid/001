@@ -69,6 +69,28 @@ jobs:
       - name: Tests — baseline-diff regression gate (+ coverage floor)
         run: python3 scripts/ci_test_gate.py
 
+      - name: Red team — 30 adversarial scenarios against the live risk engine
+        # The whole product's safety claim is "the risk gate refuses anything
+        # out of bounds". bot/core/red_team.py has attacked that gate with
+        # flash crashes, liquidity drains, correlated selloffs, stale data,
+        # confidence manipulation, R:R gaming, breaker evasion, zero/negative
+        # values, direction inversion, position floods and malformed input
+        # since it was written — and NOTHING COULD RUN IT. 691 lines reachable
+        # only from a unit test asserting the report has the right fields, so
+        # the engine had never actually been attacked.
+        #
+        # Gated at zero failures rather than a baseline of known gaps, because
+        # it is at 30/30 today and deterministic across repeated runs. A
+        # scenario that starts slipping through is a real regression in the
+        # gate that decides whether money moves, and the moment to hear about
+        # that is the PR that caused it.
+        #
+        # ~250ms measured, no network, and its own temp state file so a
+        # synthetic tripped breaker can never land in the operator's real
+        # state. (The first draft of this comment said "~4s" from nowhere;
+        # it was timed instead.)
+        run: python3 scripts/red_team.py
+
       # Ordered AFTER the test gate, and `always()`, so neither gate can hide
       # the other. A failed step skips the rest of the job by default, and
       # pip-audit used to sit directly above this suite — so three advisories
