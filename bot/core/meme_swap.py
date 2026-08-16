@@ -35,10 +35,29 @@ THREE WAYS A SWAP BUILDER LOSES MONEY, AND WHAT IS DONE ABOUT EACH
    instead of discovering the duplicate on-chain.
 
 NETWORK DEFAULTS TO SIMULATION, and mainnet needs a deliberate act. Building a
-mainnet transaction requires MEME_EXECUTION_NETWORK=mainnet explicitly; the
-default exercises the whole path against devnet/simulation, where a bug costs
-nothing. Fail-closed applies to the network too: an unrecognised value is not
-mainnet.
+mainnet transaction requires MEME_EXECUTION_NETWORK=mainnet explicitly. Fail-
+closed applies to the network too: an unrecognised value is not mainnet.
+
+    "SIMULATE" DESCRIBES WHAT WE WILL DO WITH THE TRANSACTION.
+    IT DOES NOT DESCRIBE THE TRANSACTION.
+
+That distinction is the whole of `signable`, and getting it wrong is how this
+module would have cost somebody real money. **Jupiter's v6 quote API is
+mainnet-only** — there is no devnet deployment carrying routes — so the bytes
+in `unsigned_transaction` are a MAINNET transaction under every value of
+MEME_EXECUTION_NETWORK. A wallet asked to sign them does not read our label; it
+signs what it is given, against whichever cluster it is pointed at.
+
+So `simulate` cannot mean "a harmless practice transaction". The only honest
+meaning available is **"build it, show it, refuse to sign it"**, and that is
+what `signable` carries: False on anything but an explicitly named mainnet,
+with `not_signable_reason` saying why in words a user can act on.
+
+This is stated as a field rather than left for each caller to derive, because
+the browser deriving it independently is precisely the bug: `network` reads as
+a safety claim, and a signing surface that trusted the word "simulate" would
+hand a real-funds transaction to Phantom under a label promising it was safe.
+The policy lives here; the browser fail-closes on the flag being absent.
 """
 from __future__ import annotations
 
@@ -90,9 +109,33 @@ def _num(x: Any) -> Optional[float]:
 
 def _refuse(reason: str, net: str, **extra) -> dict:
     out = {"buildable": False, "reason": reason, "network": net,
-           "unsigned_transaction": None, "terms": None, "intent_id": None}
+           "unsigned_transaction": None, "terms": None, "intent_id": None,
+           "signable": False, "not_signable_reason": reason}
     out.update(extra)
     return out
+
+
+def signable(net: str) -> tuple[bool, str]:
+    """May a transaction built on this network be SIGNED? ``(ok, reason)``.
+
+    Separate from `buildable` on purpose, and the reason is in the module
+    docstring: Jupiter v6 is mainnet-only, so a build always carries a mainnet
+    transaction and the network label describes our INTENT, not the bytes.
+    Only an explicitly named mainnet may be signed; everything else — including
+    an unset variable, a typo, and `devnet` — is build-and-review only.
+    """
+    if net == MAINNET:
+        return True, "mainnet — signing sends real funds"
+    if net == DEVNET:
+        # Naming it beats silently folding it into "simulate": an operator who
+        # set devnet expects a devnet transaction, and needs to hear that no
+        # such thing came back.
+        return False, ("devnet was requested, but Jupiter v6 quotes mainnet only "
+                       "— the transaction below is a MAINNET one and will not be "
+                       "signed. Review-only.")
+    return False, ("simulation mode: the terms and the transaction are real, and "
+                   "nothing will be signed or sent. Set "
+                   "MEME_EXECUTION_NETWORK=mainnet to enable signing.")
 
 
 def intent_id(*, user_public_key: str, input_mint: str, output_mint: str,
@@ -203,11 +246,17 @@ async def build_swap(plan: Optional[dict], *, user_public_key: str = "",
         "expires_at": expires_at,
         "ttl_s": QUOTE_TTL_S,
     }
+    may_sign, sign_reason = signable(net)
     return {
         "buildable": True,
-        "reason": ("simulation build — nothing will reach mainnet"
-                   if net != MAINNET else "mainnet transaction ready to sign"),
+        # The old wording here read "simulation build — nothing will reach
+        # mainnet", which was false: Jupiter hands back a mainnet transaction
+        # whatever we call the mode. What is true is that WE will not send it.
+        "reason": ("mainnet transaction ready to sign" if may_sign
+                   else "built for review only — " + sign_reason),
         "network": net,
+        "signable": may_sign,
+        "not_signable_reason": None if may_sign else sign_reason,
         "unsigned_transaction": tx,
         "terms": terms,
         "intent_id": intent_id(user_public_key=user_public_key,
@@ -276,6 +325,11 @@ def human_readable(build: Optional[dict]) -> str:
         f"   intent: {build.get('intent_id')}",
         "   NOT signed, NOT broadcast — you sign this in your own wallet.",
     ]
-    if build.get("network") != MAINNET:
-        lines.append("   Simulation network: this cannot move mainnet funds.")
+    if not build.get("signable"):
+        # This line used to read "this cannot move mainnet funds", which was the
+        # opposite of true: Jupiter v6 is mainnet-only, so the transaction above
+        # IS a mainnet one. What is guaranteed is that nothing here will sign it.
+        lines.append("   REVIEW ONLY — " + str(build.get("not_signable_reason")))
+        lines.append("   The transaction above is a MAINNET transaction "
+                     "(Jupiter quotes mainnet only). Do not sign it by hand.")
     return "\n".join(lines)
