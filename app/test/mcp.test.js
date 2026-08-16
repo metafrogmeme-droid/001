@@ -77,7 +77,7 @@ test('initialize handshake + initialized notification', async () => {
   assert.equal(n.status, 202);           // notification accepted, no body
 });
 
-test('tools/list: every tool is annotated read-only with a schema', async () => {
+test('tools/list: the read tools are annotated read-only, the write tools are not', async () => {
   const r = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
   const tools = r.data.result.tools;
   assert.ok(tools.length >= 8);
@@ -86,10 +86,22 @@ test('tools/list: every tool is annotated read-only with a schema', async () => 
     'get_dex_compare', 'run_what_if', 'get_weekly_letter', 'get_proof_of_pnl']) {
     assert.ok(names.includes(want), want);
   }
+  // readOnlyHint is what an MCP client reads to decide whether to auto-approve
+  // a call without asking its user. It was hardcoded `true` for every tool,
+  // which was accurate while every tool was a read — and would have quietly
+  // waved the arena_* write tools through on a false promise. So the assertion
+  // is now per-tool, and the write tools are named.
+  const WRITES = new Set(['arena_open', 'arena_close', 'arena_my_positions']);
   for (const t of tools) {
-    assert.equal(t.annotations.readOnlyHint, true, t.name);
     assert.equal(t.inputSchema.type, 'object', t.name);
+    if (WRITES.has(t.name)) {
+      assert.equal(t.annotations.readOnlyHint, false,
+        `${t.name} writes — a client must not auto-approve it as a read`);
+    } else {
+      assert.equal(t.annotations.readOnlyHint, true, t.name);
+    }
   }
+  for (const w of WRITES) assert.ok(names.includes(w), `${w} is listed`);
 });
 
 test('tools/call: track record + what-if from the seeded history', async () => {

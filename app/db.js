@@ -1735,6 +1735,7 @@ const EXPECTED_TABLES = Object.freeze([
   'arena_accounts',
   'arena_positions',
   'arena_trades',
+  'arena_api_keys',
   'arena_envelopes',
   'learn_diary',
   'learn_progress',
@@ -2327,6 +2328,19 @@ async function migrate() {
         INDEX idx_arena_tr_user (user_id),
         INDEX idx_arena_tr_key (trade_key),
         INDEX idx_arena_trades_agent (agent_slug)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS arena_api_keys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        key_hash CHAR(64) NOT NULL,
+        label VARCHAR(40) NOT NULL DEFAULT '',
+        created_at TIMESTAMP NULL,
+        last_used_at TIMESTAMP NULL,
+        revoked_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_arena_key_hash (key_hash),
+        KEY idx_arena_keys_user (user_id)
       )
     `);
     await pool.query(`
