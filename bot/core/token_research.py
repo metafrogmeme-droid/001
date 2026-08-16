@@ -52,8 +52,9 @@ from bot.core.deployer_fates import resolve_fates
 from bot.core.deployer_history import assess_deployer
 from bot.core.deployer_sources import default_deployer_sources
 from bot.core.deployer_taint import taint_facts
-from bot.core.token_safety import assess_token, coverage
+from bot.core.token_safety import assess_token, coverage, to_veto_features
 from bot.core.token_sources import DexScreenerSource, gather
+from bot.guardian import integrity_veto
 
 #: Deployer fields that are real output but are not checks — the subject's own
 #: address, and the flag saying the history was too long to count. Listed so the
@@ -138,6 +139,18 @@ async def investigate(address: str, chain: str = "eth",
     # sentence and the correct one.
     deployer = assess_deployer(deployer_facts) if deployer_facts else None
 
+    # The Guardian Integrity Veto, in SHADOW: it computes a verdict and nothing
+    # acts on it. Wired here because this is the only place its inputs exist —
+    # holder concentration, wash-volume shape, listing age, price/liquidity
+    # divergence all come out of `token_safety`, and the risk gate the veto's
+    # docstring names consumes none of them.
+    #
+    # Its intended consumer, `meme_executor`, is unwired too (see
+    # tests/unreachable_baseline.txt), so ENFORCEMENT is a product decision
+    # about the meme path, not a wiring cleanup. This makes the reading exist.
+    integrity = integrity_veto.assess(
+        to_veto_features(g["features"]), mode="shadow")
+
     # A section is only attributed to a source when a source actually supplied
     # something for it. `provenance` is empty when nothing was read, and an
     # attribution on an unread section would be a citation for a claim nobody
@@ -157,6 +170,7 @@ async def investigate(address: str, chain: str = "eth",
     return {"address": address, "chain": chain,
             "sources": g, "deployer_sources": dg,
             "contract": contract, "deployer": deployer, "fates": fates,
+            "integrity": integrity,
             "dossier": dossier,
             # Fields a source supplied that no check consumes. Found the hard
             # way: a fixture supplying `honeypot` where the scorer reads
@@ -212,6 +226,18 @@ def human_readable(result: Optional[dict]) -> str:
         detail = fates_text(result.get("fates"))
         if detail:
             lines.append(detail)
+    # Manipulation shapes, in shadow. `is_reading` is doing real work here:
+    # `assess({})` returns the word `clear`, and printing that over zero
+    # readable features is a confident all-clear manufactured from no data.
+    # Only a verdict resting on something actually read gets shown at all.
+    integrity = result.get("integrity")
+    if integrity_veto.is_reading(integrity):
+        checked, skipped = integrity.get("checked"), integrity.get("skipped")
+        line = (f"   integrity (shadow): {str(integrity.get('verdict')).upper()}"
+                f" [{checked} of {checked + skipped} shapes readable]")
+        for reason in (integrity.get("reasons") or [])[:3]:
+            line += f"\n     · {reason}"
+        lines.append(line)
     lines += [
         "",
         sources_text(result.get("sources")),
