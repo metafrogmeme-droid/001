@@ -249,3 +249,98 @@ async def test_deployer_output_fields_are_not_flagged_as_unused():
         deployer_sources=[_Src("etherscan", {"deployer_address": "0xabc",
                                              "wallet_age": 400.0})])
     assert r2["unused_fields"] == ["wallet_age"]
+
+
+# ── the fate pass: the column nothing could fill ─────────────────────
+
+class _Feed:
+    """A price feed keyed by contract address."""
+
+    def __init__(self, table):
+        self.table = table
+
+    async def fetch(self, chain, address):
+        return self.table.get(address, {})
+
+
+_OLD_MS = (1_700_000_000 - 200 * 86400) * 1000.0
+_LIVE = {"liquidity_usd": 90_000.0, "volume_24h_usd": 500.0,
+         "pair_created_at_ms": _OLD_MS}
+_GONE = {"liquidity_usd": 3.0, "volume_24h_usd": 0.0,
+         "pair_created_at_ms": _OLD_MS}
+
+
+def _deployer_src(contracts):
+    return _Src("etherscan", {
+        "deployer_address": "0xabc", "wallet_age_days": 400.0,
+        "prior_deployments": float(len(contracts)), "prior_contracts": contracts,
+        "contract_verified": True, "deployer_supply_pct": 0.02,
+        "concurrent_launches_24h": 0.0, "funded_by_mixer": False,
+        "reused_rug_bytecode": False})
+
+
+@pytest.mark.asyncio
+async def test_a_record_of_survivors_finally_reaches_clean():
+    """The first input that could ever produce it.
+
+    Before this, `prior_rugged` was unfillable and `_outcomes_resolved` treated
+    its absence as fatal, so the deployer section's ceiling was `unproven` no
+    matter how good the record was.
+    """
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 5_000_000.0})],
+        deployer_sources=[_deployer_src(["0xa", "0xb", "0xc"])],
+        fate_source=_Feed({"0xa": _LIVE, "0xb": _LIVE, "0xc": _LIVE}))
+    assert r["deployer"]["verdict"] == "clean"
+    assert r["deployer"]["outcomes"]["alive"] == 3
+    assert r["deployer"]["outcomes"]["unresolved"] == 0
+
+
+@pytest.mark.asyncio
+async def test_contracts_the_feed_never_heard_of_stay_unresolved():
+    """A history full of proxies and NFT drops is not a history of failures."""
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 5_000_000.0})],
+        deployer_sources=[_deployer_src(["0xa", "0xb", "0xc", "0xd"])],
+        fate_source=_Feed({"0xa": _LIVE}))
+    o = r["deployer"]["outcomes"]
+    assert o["dead"] == 0, "an unindexed contract was scored as a dead market"
+    assert o["unresolved"] == 3
+    # …and one survivor out of four determined fates cannot certify anybody.
+    assert r["deployer"]["verdict"] == "unproven"
+
+
+@pytest.mark.asyncio
+async def test_dead_markets_never_reach_known_bad_through_this_path():
+    """A price feed proves a market ended, never that somebody took it."""
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 5_000_000.0})],
+        deployer_sources=[_deployer_src(["0xa", "0xb", "0xc"])],
+        fate_source=_Feed({"0xa": _GONE, "0xb": _GONE, "0xc": _GONE}))
+    assert r["deployer"]["outcomes"]["dead"] == 3
+    assert r["deployer"]["verdict"] != "known_bad", (
+        "an honest failure was published as theft")
+    assert "prior_rugged" not in (r["deployer_sources"]["features"])
+
+
+@pytest.mark.asyncio
+async def test_the_render_names_which_contracts_and_how_many_it_could_not_read():
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 5_000_000.0})],
+        deployer_sources=[_deployer_src(["0xa", "0xb", "0xc"])],
+        fate_source=_Feed({"0xa": _LIVE, "0xb": _GONE}))
+    text = human_readable(r)
+    assert "0xa" in text and "alive" in text
+    assert "dead" in text
+    assert "1 of 3 could not be determined" in text, (
+        "a list of determined fates reads as the whole record without this")
+
+
+@pytest.mark.asyncio
+async def test_no_addresses_means_no_fate_pass_and_no_invented_counts():
+    r = await investigate(
+        "0x1", sources=[_Src("dex", {"liquidity_usd": 1.0})],
+        deployer_sources=[_Src("etherscan", {"deployer_address": "0xabc"})])
+    assert r["fates"] is None
+    assert r["deployer"]["outcomes"]["alive"] is None
+    assert r["deployer"]["outcomes"]["dead"] is None

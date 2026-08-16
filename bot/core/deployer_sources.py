@@ -253,6 +253,15 @@ class EtherscanDeployerSource:
         prior = [t for t in creations
                  if str(t.get("hash") or "").lower() != creation_hash]
         out["prior_deployments"] = float(len(prior))
+        # The ADDRESSES too, newest first, so `deployer_fates` can go and ask
+        # what became of each. A count alone is why that column stayed unread:
+        # you cannot look up the fate of a number. Rows without a
+        # contractAddress are still counted above — they happened — they simply
+        # cannot be followed, and will land in `unresolved` rather than being
+        # dropped from the total and quietly improving the ratio.
+        out["prior_contracts"] = [
+            str(t.get("contractAddress")) for t in reversed(prior)
+            if t.get("contractAddress")]
 
         cutoff = self._now() - _DAY_S
         recent = 0

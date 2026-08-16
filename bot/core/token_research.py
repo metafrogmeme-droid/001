@@ -21,22 +21,34 @@ and the ceiling moved less than it looks:
 * with no `ETHERSCAN_API_KEY`, the source reports `unavailable` — "we never
   asked" — nothing is read, and the section stays **not read**. Identical
   output to before, now with a named reason;
-* with a key, five of the eight facts get real answers. The three that stay
-  absent are how the deployer's PREVIOUS contracts ended, and
-  `_outcomes_resolved` treats an unknown rug count as fatal, so the verdict
-  still cannot reach `clean`.
+* with a key, five of the eight facts get real answers, and the deployer's
+  prior contracts come back as ADDRESSES rather than a count — which is what
+  made the last column reachable, since you cannot look up the fate of a
+  number.
 
-So a healthy token reads `UNPROVEN` either way — but for opposite reasons, and
-the difference is the whole point. Before: unproven because nobody looked.
-After: unproven because somebody looked, found a named deployer with a wallet
-age and a deployment count, and could not determine how their last ones ended.
-The second is a research result. The first was a placeholder.
+`deployer_fates` then asks a price feed what became of each one. That pass runs
+here, not inside a source, because `gather` calls sources independently and none
+of them can see another's answer.
+
+WHAT THAT DOES AND DOES NOT UNLOCK
+
+A deployer whose prior tokens are demonstrably still trading can now reach
+`clean` — the first input that could ever produce it. What still cannot happen
+is `known_bad` from this path: a price feed proves a market ENDED, never that
+somebody took it, so the fate pass writes `prior_dead` and never `prior_rugged`,
+and dead is scored as a soft ratio with no hard threshold.
+
+The trap the module's own first run produced is still closed. `_outcomes_resolved`
+requires that somebody counted the BAD outcomes — `rugged` and `dead` both None
+means nobody looked — and still requires a determined fate for half the record,
+so nine survivors nobody verified remain UNPROVEN.
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from bot.core import token_dossier
+from bot.core.deployer_fates import resolve_fates
 from bot.core.deployer_history import assess_deployer
 from bot.core.deployer_sources import default_deployer_sources
 from bot.core.token_safety import assess_token, coverage
@@ -47,11 +59,13 @@ from bot.core.token_sources import DexScreenerSource, gather
 #: `unused_fields` detector does not report them as a misconfigured source; that
 #: warning exists to catch a source answering in the wrong dialect, and a false
 #: one trains the reader to ignore it.
-_DEPLOYER_INFO_FIELDS = frozenset({"deployer_address", "deployments_truncated"})
+_DEPLOYER_INFO_FIELDS = frozenset({"deployer_address", "deployments_truncated",
+                                   "prior_contracts"})
 
 #: Consumed by `resolve_outcomes` rather than by a named check, so they are read
 #: even though no entry in `checks` carries their name.
-_DEPLOYER_OUTCOME_FIELDS = frozenset({"prior_deployments", "prior_alive"})
+_DEPLOYER_OUTCOME_FIELDS = frozenset({"prior_deployments", "prior_alive",
+                                     "prior_dead"})
 
 
 def default_sources() -> list:
@@ -69,7 +83,8 @@ def default_sources() -> list:
 async def investigate(address: str, chain: str = "eth",
                       sources: Optional[Sequence] = None,
                       timeout: float = 8.0,
-                      deployer_sources: Optional[Sequence] = None) -> dict:
+                      deployer_sources: Optional[Sequence] = None,
+                      fate_source: Any = None) -> dict:
     """Research one token. Returns::
 
         {address, chain, sources, deployer_sources,
@@ -89,12 +104,29 @@ async def investigate(address: str, chain: str = "eth",
         deployer_sources if deployer_sources is not None
         else default_deployer_sources(), chain, address, timeout=timeout)
 
+    # A second pass, because a fate cannot be looked up from a count. The
+    # deployer sources return WHICH contracts came before; `deployer_fates`
+    # then asks a price feed what became of each. It runs here rather than
+    # inside a source because `gather` calls sources independently and none of
+    # them can see another's answer.
+    deployer_facts = dict(dg["features"])
+    fates = None
+    if deployer_facts.get("prior_contracts") and fate_source is not False:
+        fates = await resolve_fates(deployer_facts["prior_contracts"],
+                                    chain, source=fate_source, timeout=timeout)
+        # Only the two counts reach the scorer; the per-contract detail is
+        # returned for the render. `prior_rugged` is not among them and is not
+        # this path's to supply — see deployer_fates' docstring.
+        for k in ("prior_alive", "prior_dead"):
+            if fates.get(k) is not None:
+                deployer_facts[k] = fates[k]
+
     # Scored only when a source actually supplied something. `assess_deployer({})`
     # would return a well-formed report of all-unknowns — "examined, learned
     # nothing" — where the truth is that nothing was examined. Passing None
     # makes the dossier record the section as unread, which is a different
     # sentence and the correct one.
-    deployer = assess_deployer(dg["features"]) if dg["features"] else None
+    deployer = assess_deployer(deployer_facts) if deployer_facts else None
 
     # A section is only attributed to a source when a source actually supplied
     # something for it. `provenance` is empty when nothing was read, and an
@@ -114,7 +146,8 @@ async def investigate(address: str, chain: str = "eth",
 
     return {"address": address, "chain": chain,
             "sources": g, "deployer_sources": dg,
-            "contract": contract, "deployer": deployer, "dossier": dossier,
+            "contract": contract, "deployer": deployer, "fates": fates,
+            "dossier": dossier,
             # Fields a source supplied that no check consumes. Found the hard
             # way: a fixture supplying `honeypot` where the scorer reads
             # `honeypot_cannot_sell` produced a source that answered, was
@@ -162,6 +195,13 @@ def human_readable(result: Optional[dict]) -> str:
         elif total == 0:
             line += " — no prior deployments (a first-timer, not a clean record)"
         lines.append(line)
+        # Per-contract detail under the summary. The counts alone say "2 dead";
+        # this says WHICH, and on what reading, so the verdict can be checked
+        # rather than believed.
+        from bot.core.deployer_fates import human_readable as fates_text
+        detail = fates_text(result.get("fates"))
+        if detail:
+            lines.append(detail)
     lines += [
         "",
         sources_text(result.get("sources")),

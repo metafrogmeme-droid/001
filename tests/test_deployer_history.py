@@ -161,8 +161,12 @@ def test_a_burner_wallet_reaches_known_bad_without_any_history():
 
 
 def test_coverage_travels_with_the_verdict():
-    text = human_readable(assess_deployer({}))
-    assert "0/7" in text and "none" in text
+    # 8 checks since `prior_dead_ratio` joined them. Asserted as a computed
+    # count rather than a literal: the number is not the property — "every
+    # check is accounted for in the coverage line" is.
+    report = assess_deployer({})
+    text = human_readable(report)
+    assert f"0/{len(report['checks'])}" in text and "none" in text
 
 
 def test_there_is_no_positive_verdict():
