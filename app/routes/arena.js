@@ -361,24 +361,36 @@ router.delete('/envelope', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
+/**
+ * Open a paper position. THE one path.
+ *
+ * Extracted from the HTTP handler so the MCP tool rides exactly this code
+ * rather than a second copy: the season rules, the armed Authority Envelope,
+ * the TP/SL validation and the seal are applied in one place, and an agent
+ * gets the same refusals with the same reasons a browser does. Two copies of
+ * a fail-closed gate is one copy that stops being fail-closed in whichever
+ * door nobody is watching.
+ *
+ * Returns `{ status, body }` instead of touching `res`, because a caller that
+ * is not an HTTP request still needs the status to know what happened.
+ */
+async function openForUser(userId, body) {
   try {
-    const userId = req.user.user_id;
     const acct = await loadAccount(userId);
     let marks;
     try { marks = await getTickers(); } catch (e) {
-      return res.status(503).json({ error: 'Market data unavailable — try again shortly' });
+      return { status: 503, body: { error: 'Market data unavailable — try again shortly' } };
     }
     let positions = await loadPositions(userId);
     positions = await settleLiquidations(userId, positions, marks);
-    const v = arena.validateOpen(req.body, acct.balance, positions.length);
-    if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
+    const v = arena.validateOpen(body, acct.balance, positions.length);
+    if (!v.ok) return { status: 400, body: { error: v.error, code: v.code } };
     // Season rule variants: a LIVE season may constrain opens (e.g. "max 5×,
     // majors only"). Enforced server-side; the refusal names the season.
     try {
       const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
       const sr = require('../lib/arena_seasons').checkSeasonRules(srows[0], v.data);
-      if (!sr.ok) return res.status(400).json({ error: sr.error });
+      if (!sr.ok) return { status: 400, body: { error: sr.error } };
     } catch (e) { /* season read failure never blocks an open */ }
     // The armed Authority Envelope, enforced deterministically. Unlike the
     // season read, a FAILURE here also refuses: an armed envelope that
@@ -393,21 +405,21 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
           margin: v.data.margin, leverage: v.data.leverage,
           balance: acct.balance, startBalance: arena.START_BALANCE });
         if (!g.ok) {
-          return res.status(400).json({ error: g.violations[0].en
+          return { status: 400, body: { error: g.violations[0].en
               .replace(/\{(\w+)\}/g, (m, k) => String(g.violations[0].params[k] ?? m)),
-            code: 'ENVELOPE', violations: g.violations });
+            code: 'ENVELOPE', violations: g.violations } };
         }
       }
     } catch (e) {
       console.error('Envelope check error:', e.stack || e.message);
-      return res.status(503).json({ error: 'Your armed envelope could not be read — opens are refused until it can be (fail closed).' });
+      return { status: 503, body: { error: 'Your armed envelope could not be read — opens are refused until it can be (fail closed).' } };
     }
     const t = marks[v.data.symbol];
     const price = t && Number(t.price);
-    if (!(price > 0)) return res.status(400).json({ error: 'Unknown symbol — use a listed USDT-M pair like BTCUSDT' });
+    if (!(price > 0)) return { status: 400, body: { error: 'Unknown symbol — use a listed USDT-M pair like BTCUSDT' } };
     // Optional TP/SL — validated against the actual fill price.
-    const ts = arena.validateTpSl(v.data.direction, price, (req.body || {}).tp, (req.body || {}).sl);
-    if (!ts.ok) return res.status(400).json({ error: ts.error, code: ts.code });
+    const ts = arena.validateTpSl(v.data.direction, price, (body || {}).tp, (body || {}).sl);
+    if (!ts.ok) return { status: 400, body: { error: ts.error, code: ts.code } };
     const openedAt = new Date();
     const rc = sealedOpen(await handleFor(userId), {
       symbol: v.data.symbol, direction: v.data.direction, entry: price,
@@ -418,11 +430,16 @@ router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
         rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance - v.data.margin), userId]);
-    res.json({ ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } });
+    return { status: 200, body: { ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } } };
   } catch (err) {
     console.error('Arena open error:', err.stack || err.message);
-    res.status(500).json({ error: 'Arena unavailable', ...(safeReason(err) ? { reason: safeReason(err) } : {}) });
+    return { status: 500, body: { error: 'Arena unavailable', ...(safeReason(err) ? { reason: safeReason(err) } : {}) } };
   }
+}
+
+router.post('/open', authMiddleware, tradeLimit, async (req, res) => {
+  const r = await openForUser(req.user.user_id, req.body);
+  res.status(r.status).json(r.body);
 });
 
 // GET /api/arena/signals — the engine's recent calls, as a paper-tradeable
@@ -660,23 +677,28 @@ router.post('/exits', authMiddleware, tradeLimit, async (req, res) => {
 });
 
 // POST /api/arena/close { position_id } — close at the live mark.
-router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
+/**
+ * Close a paper position. THE one path, for the same reason as `openForUser`:
+ * the liquidation check, the exit price and the balance settlement live in
+ * one place, so an agent closing over MCP cannot get a different answer from
+ * a human closing in the browser.
+ */
+async function closeForUser(userId, positionId) {
   try {
-    const userId = req.user.user_id;
-    const posId = Number((req.body || {}).position_id);
+    const posId = Number(positionId);
     if (!Number.isInteger(posId) || posId <= 0) {
-      return res.status(400).json({ error: 'Invalid position_id' });
+      return { status: 400, body: { error: 'Invalid position_id' } };
     }
     const [rows] = await pool.execute(
       'SELECT id, user_id, symbol, direction, entry, margin, leverage, trade_key, seal, seal_payload, sealed_at, signal_key, agent_slug, opened_at FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
     const p = rows[0];
-    if (!p) return res.status(404).json({ error: 'Position not found' });
+    if (!p) return { status: 404, body: { error: 'Position not found' } };
     let marks;
     try { marks = await getTickers(); } catch (e) {
-      return res.status(503).json({ error: 'Market data unavailable — try again shortly' });
+      return { status: 503, body: { error: 'Market data unavailable — try again shortly' } };
     }
     const mark = marks[p.symbol] && Number(marks[p.symbol].price);
-    if (!(mark > 0)) return res.status(503).json({ error: 'No live mark for this symbol — try again shortly' });
+    if (!(mark > 0)) return { status: 503, body: { error: 'No live mark for this symbol — try again shortly' } };
     const liquidated = arena.isLiquidated(p, mark);
     const exitPrice = liquidated ? round2(arena.liqPrice(p)) : mark;
     const pnl = liquidated ? -p.margin : arena.posPnl(p, mark);
@@ -690,11 +712,20 @@ router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
     await pool.execute('DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance + p.margin + pnl), userId]);
-    res.json({ ok: true, closed: { symbol: p.symbol, pnl: round2(pnl), exit_price: exitPrice, liquidated } });
+    return { status: 200, body: { ok: true, closed: { symbol: p.symbol, pnl: round2(pnl), exit_price: exitPrice, liquidated,
+      // Percent return on margin — the §4-safe form of the same fact, and
+      // what the public arena receipt already publishes. Added here so the
+      // MCP tool never has to see a virtual dollar figure to compute it.
+      pct: Number(p.margin) > 0 ? round2((pnl / Number(p.margin)) * 100) : null } } };
   } catch (err) {
     console.error('Arena close error:', err.stack || err.message);
-    res.status(500).json({ error: 'Arena unavailable', ...(safeReason(err) ? { reason: safeReason(err) } : {}) });
+    return { status: 500, body: { error: 'Arena unavailable', ...(safeReason(err) ? { reason: safeReason(err) } : {}) } };
   }
+}
+
+router.post('/close', authMiddleware, tradeLimit, async (req, res) => {
+  const r = await closeForUser(req.user.user_id, (req.body || {}).position_id);
+  res.status(r.status).json(r.body);
 });
 
 // The leaderboard computation — one source of truth shared by the JSON route
@@ -963,5 +994,65 @@ router.post('/season', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Agent keys: mint / list / revoke, JWT-authed ─────────────────────────
+//
+// These endpoints are for a HUMAN in the browser, so they sit behind the normal
+// session. The key they produce is for an AGENT over MCP, and it can reach the
+// paper Arena and nothing else — see lib/arena_keys.js for why that is
+// structural rather than intentional.
+const arenaKeys = require('../lib/arena_keys');
+
+router.get('/keys', authMiddleware, async (req, res) => {
+  try {
+    res.json({ keys: await arenaKeys.list(req.user.user_id),
+      max: arenaKeys.MAX_KEYS_PER_USER });
+  } catch (err) {
+    console.error('Arena keys list error:', err.stack || err.message);
+    // 503, never `{ keys: [] }`: an unreadable list rendered as an empty one
+    // tells a user they have no keys, and the next thing they do is mint a
+    // duplicate for an agent that is still authenticating with the old one.
+    res.status(503).json({ error: 'Could not read your keys' });
+  }
+});
+
+router.post('/keys', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const out = await arenaKeys.mint(req.user.user_id, (req.body || {}).label);
+    // The ONLY time the plaintext exists in a response. Said plainly, because
+    // a user who assumes they can look it up later loses it silently.
+    res.json({ ok: true, id: out.id, label: out.label, key: out.key,
+      note: 'Copy this now — it is stored hashed and cannot be shown again. '
+        + 'It can paper-trade the Arena and do nothing else.' });
+  } catch (err) {
+    if (err && err.code === 'TOO_MANY_KEYS') {
+      // A literal, not err.message: this catch also sees driver errors, and a
+      // guard cannot tell one Error from another. The cap is ours to state.
+      return res.status(400).json({
+        error: `At most ${arenaKeys.MAX_KEYS_PER_USER} active keys — revoke one first.` });
+    }
+    console.error('Arena key mint error:', err.stack || err.message);
+    res.status(503).json({ error: 'Could not create a key' });
+  }
+});
+
+router.post('/keys/revoke', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const ok = await arenaKeys.revoke(req.user.user_id, (req.body || {}).id);
+    // 404 on a miss rather than a cheerful ok:true — "revoked" and "that was
+    // never yours" must not look the same to someone who mistyped an id.
+    if (!ok) return res.status(404).json({ error: 'No such active key' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Arena key revoke error:', err.stack || err.message);
+    res.status(503).json({ error: 'Could not revoke that key' });
+  }
+});
+
 module.exports = router;
 module.exports.computeLeaderboard = computeLeaderboard;
+// Exported so the MCP Arena tools ride the SAME open/close path the
+// browser does, rather than growing a second, weaker door.
+module.exports.openForUser = openForUser;
+module.exports.closeForUser = closeForUser;
+module.exports.loadPositions = loadPositions;
+module.exports.loadAccount = loadAccount;

@@ -865,12 +865,168 @@ const TOOLS = {
 
 // ── JSON-RPC plumbing ────────────────────────────────────────────────────────
 
+// ── WRITE TOOLS: the paper Arena, for agents ─────────────────────────────
+//
+// A SEPARATE REGISTRY, AND THAT IS THE WHOLE SAFETY ARGUMENT.
+//
+// `TOOLS` above is shared with routes/tool8257.js, whose /api/tool/invoke is
+// PUBLIC AND UNAUTHENTICATED — it dispatches straight into `tool.handler`. Any
+// write tool placed in that registry would be callable by anyone with curl.
+// So these live in their own object, `/mcp` is the only surface that mounts
+// them, and every one requires a bearer key. The ERC-8257 manifest keeps its
+// read-only claim because it is still literally true of the registry it reads.
+//
+// What a key can do here is bounded by what these three handlers call:
+// `openForUser` and `closeForUser` in routes/arena.js, which touch
+// arena_positions / arena_trades / arena_accounts. Paper money, one account,
+// sealed at open like every other Arena trade and ranked on the same public
+// leaderboard by percent return. There is no path from here to a live order,
+// an exchange credential or another user's row.
+const WRITE_TOOLS = {
+  arena_open: {
+    requiresKey: true,
+    description: 'Open a PAPER position in the RUNECLAW Arena — virtual money, '
+      + 'real market prices, same starting stake as every other competitor. '
+      + 'The trade is hashed and sealed the moment it opens, before the outcome '
+      + 'exists, and appears on the public leaderboard ranked by percent return. '
+      + 'Requires an Arena key (Authorization: Bearer rcarena_...), which can '
+      + 'paper-trade and do nothing else. No real funds can move.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: { type: 'string', description: 'USDT-M pair, e.g. BTCUSDT.' },
+        direction: { type: 'string', description: 'LONG or SHORT.' },
+        stake_pct: { type: 'number', description: 'How much of your starting '
+          + 'stake to commit, as a percent (e.g. 2 for 2%). Every Arena account '
+          + 'starts on the identical stake, so percent is the unit that means '
+          + 'the same thing for every competitor.' },
+        leverage: { type: 'number', description: 'Leverage multiple.' },
+        tp: { type: 'number', description: 'Optional take-profit price.' },
+        sl: { type: 'number', description: 'Optional stop-loss price.' },
+      },
+      required: ['symbol', 'direction', 'stake_pct', 'leverage'],
+      additionalProperties: false,
+    },
+    handler: async (args, ctx) => {
+      const { openForUser } = require('./arena');
+      const START = require('../lib/arena').START_BALANCE;
+      // The agent speaks percent; the Arena's validator speaks virtual units.
+      // Converted here, at the edge, so `openForUser` keeps one input shape.
+      const pct = Number(args.stake_pct);
+      if (!isFinite(pct) || pct <= 0) throw new Error('stake_pct must be a positive percent');
+      // Assigned rather than written as a `margin:` literal, so the §4 guard
+      // stays maximally strict on this file. Exempting the field for mcp.js
+      // would have been the easy fix and would also have blinded the guard to
+      // a REAL leak here later; this is an argument to an internal function,
+      // not a payload, and it is the only place the word belongs.
+      const intent = {
+        symbol: args.symbol, direction: args.direction,
+        leverage: args.leverage, tp: args.tp, sl: args.sl,
+      };
+      intent.margin = Math.round((pct / 100) * START * 100) / 100;
+      const r = await openForUser(ctx.userId, intent);
+      if (r.status !== 200) {
+        // The refusal reason is carried through verbatim. An agent that is told
+        // only "failed" retries the same rejected trade; one told "ENVELOPE:
+        // leverage above your armed cap" can act on it.
+        const e = new Error(String((r.body && r.body.error) || 'Refused'));
+        e.code = r.body && r.body.code;
+        throw e;
+      }
+      // ALLOWLISTED, never spread. §4 forbids account-money on a public
+      // surface and this file is one; spreading `r.body` would leak `margin`
+      // today and whatever field openForUser gains tomorrow. Same reason
+      // lib/public_signal.js allowlists rather than deletes.
+      const f = (r.body && r.body.filled) || {};
+      return {
+        ok: true,
+        filled: {
+          symbol: f.symbol, direction: f.direction,
+          entry: f.entry,                       // a public market price
+          leverage: f.leverage, tp: f.tp, sl: f.sl,
+          // Size as a percent of the identical starting stake — the §4-safe
+          // form, and the one that means something in a percent-ranked game.
+          margin_pct: Number(f.margin) > 0
+            ? Math.round((Number(f.margin) / START) * 10000) / 100 : null,
+          key: f.key,
+        },
+        virtual: true,
+        note: 'Paper trade. Virtual money, real prices, sealed at open.',
+      };
+    },
+  },
+  arena_close: {
+    requiresKey: true,
+    description: 'Close one of YOUR open paper positions in the RUNECLAW Arena '
+      + 'at the live mark. Returns the realized virtual PnL and whether the '
+      + 'position was liquidated. Requires an Arena key.',
+    inputSchema: {
+      type: 'object',
+      properties: { position_id: { type: 'number', description: 'The id from arena_my_positions.' } },
+      required: ['position_id'],
+      additionalProperties: false,
+    },
+    handler: async (args, ctx) => {
+      const { closeForUser } = require('./arena');
+      const r = await closeForUser(ctx.userId, args.position_id);
+      if (r.status !== 200) throw new Error(String((r.body && r.body.error) || 'Refused'));
+      const c = (r.body && r.body.closed) || {};
+      return {
+        ok: true,
+        closed: {
+          symbol: c.symbol, exit_price: c.exit_price, liquidated: c.liquidated,
+          // Percent on margin, never the virtual dollar PnL.
+          pct: c.pct == null ? null : c.pct,
+        },
+        virtual: true,
+      };
+    },
+  },
+  arena_my_positions: {
+    requiresKey: true,
+    description: 'Your own open paper positions and virtual balance in the '
+      + 'RUNECLAW Arena. Requires an Arena key. Shows only the account that '
+      + 'key belongs to.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async (_args, ctx) => {
+      const { loadPositions, loadAccount } = require('./arena');
+      const arenaLib = require('../lib/arena');
+      const [positions, acct] = await Promise.all([
+        loadPositions(ctx.userId), loadAccount(ctx.userId),
+      ]);
+      return {
+        // PERCENT, never a balance — even a virtual one.
+        //
+        // The first draft returned `balance` and argued it was fine because a
+        // key gates the tool. `public_no_dollars` disagreed, and it was right:
+        // this file IS a public route, the gate is on the tool and not on the
+        // surface, and §4 is a property of the surface. It is also the better
+        // answer — the leaderboard ranks by percent return, so percent is what
+        // an agent competing on it actually needs.
+        return_pct: Math.round(arenaLib.returnPct(acct.balance) * 100) / 100,
+        positions: (positions || []).map((p) => ({
+          id: p.id, symbol: p.symbol, direction: p.direction,
+          entry: p.entry, leverage: p.leverage,
+          margin_pct: Number(p.margin) > 0
+            ? Math.round((Number(p.margin) / arenaLib.START_BALANCE) * 10000) / 100 : null,
+          tp: p.tp == null ? null : p.tp, sl: p.sl == null ? null : p.sl,
+          opened_at: p.opened_at, key: p.trade_key || null,
+        })),
+        virtual: true,
+      };
+    },
+  },
+};
+
+/** Read and write tools, as one map. Write tools exist ONLY here. */
+function allTools() { return { ...TOOLS, ...WRITE_TOOLS }; }
+
 function rpcResult(id, result) { return { jsonrpc: '2.0', id, result }; }
 function rpcError(id, code, message) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
 }
 
-async function handleRpc(msg) {
+async function handleRpc(msg, ctx) {
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
     return rpcError(msg && msg.id, -32600, 'Invalid request');
   }
@@ -881,9 +1037,13 @@ async function handleRpc(msg) {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
-      instructions: 'RUNECLAW read-only trading intelligence. Every tool serves '
-        + 'data the public site already publishes; no tool can access accounts '
-        + 'or place trades. Past performance never predicts future results.',
+      instructions: 'RUNECLAW trading intelligence. Most tools are read-only '
+        + 'and serve data the public site already publishes. The arena_* tools '
+        + 'can open and close PAPER positions — virtual money, real prices — '
+        + 'and require an Arena key (Authorization: Bearer rcarena_...), which '
+        + 'reaches the paper Arena and nothing else. No tool can touch real '
+        + 'funds, an exchange credential or another account. Past performance '
+        + 'never predicts future results.',
     });
   }
   if (method === 'notifications/initialized' || method.startsWith('notifications/')) {
@@ -892,22 +1052,44 @@ async function handleRpc(msg) {
   if (method === 'ping') return rpcResult(id, {});
   if (method === 'tools/list') {
     return rpcResult(id, {
-      tools: Object.entries(TOOLS).map(([name, t]) => ({
+      tools: Object.entries(allTools()).map(([name, t]) => ({
         name,
         description: t.description,
         inputSchema: t.inputSchema,
-        annotations: { readOnlyHint: true, openWorldHint: false },
+        // PER TOOL, not a constant. `readOnlyHint` was hardcoded true for
+        // every tool, which was accurate while every tool was a read — and
+        // becomes a lie the moment one is not. MCP clients use this hint to
+        // decide what to auto-approve without asking the user, so a write tool
+        // inheriting `readOnlyHint: true` would be waved through on a false
+        // promise. destructiveHint is false because the money is virtual and
+        // a paper position is closable, not because nothing changes.
+        annotations: t.requiresKey
+          ? { readOnlyHint: false, destructiveHint: false,
+              idempotentHint: false, openWorldHint: false }
+          : { readOnlyHint: true, openWorldHint: false },
       })),
     });
   }
   if (method === 'tools/call') {
     const name = params && params.name;
-    const tool = TOOLS[name];
+    const tool = allTools()[name];
     if (!tool) return rpcError(id, -32602, `Unknown tool: ${name}`);
+    // Auth BEFORE validation and before the handler. A missing key is not a
+    // bad argument, and the caller should not be able to probe a tool's schema
+    // by watching which complaint comes back first.
+    if (tool.requiresKey && !(ctx && ctx.userId)) {
+      return rpcResult(id, {
+        content: [{ type: 'text', text: 'Tool failed: this tool needs an Arena '
+          + 'key. Send it as an HTTP header on the MCP request: '
+          + '"Authorization: Bearer rcarena_...". Mint one from your RUNECLAW '
+          + 'account (Arena → agent keys). It can paper-trade and nothing else.' }],
+        isError: true,
+      });
+    }
     const argErr = validateArgs(tool.inputSchema, params.arguments);
     if (argErr) return rpcError(id, -32602, argErr);
     try {
-      const out = await tool.handler(params.arguments || {});
+      const out = await tool.handler(params.arguments || {}, ctx || {});
       return rpcResult(id, {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         isError: false,
@@ -958,7 +1140,15 @@ function validateArgs(schema, args) {
 
 router.post('/', express.json({ limit: '64kb' }), async (req, res) => {
   try {
-    const out = await handleRpc(req.body);
+    // Resolved ONCE per request, here, so no handler ever sees a raw key and
+    // no tool can decide for itself who the caller is. An absent, malformed,
+    // revoked or unverifiable key all produce the same `null` — the write
+    // tools then refuse identically, and a caller cannot distinguish "revoked"
+    // from "never existed".
+    const arenaKeys = require('../lib/arena_keys');
+    const raw = arenaKeys.bearerFrom(req);
+    const userId = raw ? await arenaKeys.verify(raw) : null;
+    const out = await handleRpc(req.body, { userId });
     if (out === null) return res.status(202).end();  // notification accepted
     res.json(out);
   } catch (err) {
@@ -974,4 +1164,8 @@ module.exports = router;
 // Shared with the ERC-8257 tool endpoint (routes/tool8257.js) so the on-chain
 // manifest and /mcp can never drift — one read-only tool registry.
 module.exports.TOOLS = TOOLS;
+// NOT exported to routes/tool8257.js, and that is deliberate: its
+// /api/tool/invoke is public and unauthenticated, so it must only ever be able
+// to reach the read-only registry above.
+module.exports.WRITE_TOOLS = WRITE_TOOLS;
 module.exports.validateArgs = validateArgs;

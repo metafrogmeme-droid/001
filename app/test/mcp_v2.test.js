@@ -71,7 +71,7 @@ test.before(async () => {
 
 test.after(() => { if (server) server.close(); });
 
-test('server identifies as v2 and lists every v2 tool read-only', async () => {
+test('server identifies as v2; reads are read-only and writes say so', async () => {
   const init = await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
   assert.equal(init.body.result.serverInfo.version, '2.0.0');
 
@@ -82,7 +82,13 @@ test('server identifies as v2 and lists every v2 tool read-only', async () => {
     'get_agent_card', 'get_public_letter', 'get_airdrop_radar', 'get_alpha_intel']) {
     assert.ok(names.includes(t), `v2 tool ${t} listed`);
   }
-  assert.ok(tools.every(t => t.annotations.readOnlyHint === true), 'all read-only');
+  // Every tool EXCEPT the three paper-Arena writers, which are honestly
+  // annotated as writes so no client auto-approves them as reads.
+  const writes = new Set(['arena_open', 'arena_close', 'arena_my_positions']);
+  assert.ok(tools.filter(t => !writes.has(t.name)).every(t => t.annotations.readOnlyHint === true),
+    'every non-Arena tool is read-only');
+  assert.ok(tools.filter(t => writes.has(t.name)).every(t => t.annotations.readOnlyHint === false),
+    'the Arena writers say so');
 });
 
 test('research_token: dossier with safety read for listed, honest refusal for unlisted', async () => {
