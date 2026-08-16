@@ -824,6 +824,118 @@ async def handle_cross_plan(request: web.Request) -> web.Response:
     })
 
 
+_SOL_MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+
+async def handle_meme_swap_build(request: web.Request) -> web.Response:
+    """Preflight a meme buy and return an UNSIGNED transaction for review.
+
+    NOTHING HERE SIGNS AND NOTHING HERE HOLDS A KEY. The transaction comes back
+    as opaque base64 for the user's own wallet to approve; this process has no
+    Solana signing library and `build_swap` takes no private key parameter.
+
+    It is also not permission to trade. The response carries `signable`, which
+    is False unless the operator has explicitly named mainnet — because Jupiter
+    v6 quotes mainnet only, so the bytes are a mainnet transaction whatever the
+    configured mode is called, and `simulate` therefore has to mean "review it,
+    do not sign it" rather than "this one is harmless".
+
+    Rides `/memeplan`'s preflight rather than a second copy of it: two
+    fail-closed gates is one that stops being fail-closed where nobody looks.
+    """
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    tg_id = str(body.get("telegram_id") or "").strip()
+    denied = _guard_user(tg_handler, tg_id, command="memeplan",
+                         name=str(body.get("name") or ""))
+    if denied is not None:
+        return denied
+
+    mint = str(body.get("mint") or "").strip()
+    if not _SOL_MINT_RE.match(mint):
+        return web.json_response(
+            {"error": "bad_mint",
+             "detail": "Not a Solana mint (base58, 32-44 chars). Nothing was checked."},
+            status=400)
+    user_public_key = str(body.get("user_public_key") or "").strip()
+    if not _SOL_MINT_RE.match(user_public_key):
+        # Same alphabet and length as a mint — a Solana address is a Solana
+        # address. Refusing early keeps a typo from reaching Jupiter and
+        # returning a transaction bound to an account nobody controls.
+        return web.json_response(
+            {"error": "bad_wallet",
+             "detail": "Connect a Solana wallet first — RUNECLAW signs nothing "
+                       "and needs the wallet that will."},
+            status=400)
+    # `body.get("size_usd") or 25.0` was the first draft, and it turned a
+    # request for $0 into a $25 trade — 0 is falsy and 0 is a real number the
+    # user typed. Absent means "use the default"; present-but-unusable is a
+    # refusal, never a silent substitution.
+    raw_size = body.get("size_usd")
+    if raw_size is None:
+        size_usd = 25.0
+    else:
+        try:
+            size_usd = float(raw_size)
+        except (TypeError, ValueError):
+            return web.json_response(
+                {"error": "bad_size", "detail": "Size must be a number, in USD."},
+                status=400)
+        if not (size_usd > 0):
+            return web.json_response(
+                {"error": "bad_size", "detail": "Size must be greater than zero."},
+                status=400)
+
+    from bot.core import meme_executor, meme_swap
+    from bot.core.meme_preflight import preflight
+
+    try:
+        plan = await preflight(mint, size_usd, tg_id=tg_id)
+    except Exception as exc:                                      # noqa: BLE001
+        # An unreadable market is not a safe market. This is a 503 rather than
+        # an empty plan for the reason the whole repo keeps relearning: a
+        # failed read rendered as a result is the defect, and a caller shown
+        # "no preconditions failed" would read it as "everything passed".
+        system_log.warning("meme swap preflight failed: %s", exc)
+        return web.json_response(
+            {"error": "preflight_unavailable",
+             "detail": "Could not read this market — nothing was planned."},
+            status=503)
+
+    payload = {
+        "plan": {
+            "allowed": plan.get("allowed"),
+            "would_execute": plan.get("would_execute"),
+            "reason": plan.get("reason"),
+            "preconditions": plan.get("preconditions"),
+            "gate": plan.get("gate"),
+            "market": plan.get("market"),
+        },
+        "human": meme_executor.human_readable(plan),
+    }
+    if plan.get("allowed") is not True:
+        # No build at all. Saying so explicitly beats returning a build object
+        # full of nulls that a page could render as a reviewable swap.
+        payload["build"] = None
+        payload["reason"] = "plan not allowed — nothing was built"
+        return web.json_response(payload)
+
+    try:
+        build = await meme_swap.build_swap(
+            plan, user_public_key=user_public_key,
+            plan_created_at=plan.get("created_at"))
+    except Exception as exc:                                      # noqa: BLE001
+        system_log.warning("meme swap build failed: %s", exc)
+        return web.json_response(
+            {"error": "build_unavailable",
+             "detail": "Could not build the transaction — nothing was signed."},
+            status=503)
+
+    payload["build"] = build
+    payload["human"] = meme_swap.human_readable(build)
+    return web.json_response(payload)
+
+
 def _setup_from_new_idea(engine, ideas_before: set) -> dict | None:
     """A READ-ONLY setup hint for the web chat's one-tap "Trade this".
 
@@ -3311,6 +3423,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/authority/mode", handle_authority_mode)
     app.router.add_get("/authority/status", handle_authority_status)
     app.router.add_post("/authority/revoke", handle_authority_revoke)
+    app.router.add_post("/meme/swap/build", handle_meme_swap_build)
     app.router.add_post("/trade/propose", handle_trade_propose)
     app.router.add_post("/trade/confirm", handle_trade_confirm)
     app.router.add_get("/trade/live_mode", handle_trade_live_mode)
