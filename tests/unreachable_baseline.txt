@@ -34,6 +34,13 @@ bot/core/performance_tracker.py
 bot/core/feedback_loop.py
 bot/core/swarm.py
 
+# ── signing slice 1 of 2 ────────────────────────────────────────────────────
+# meme_swap builds the unsigned transaction; the browser half that calls it
+# (signTransaction + a review-and-sign page) is slice 2. Deliberately not wired
+# yet — and this list caught its own author one PR after it was written, which
+# is the first time the ratchet has fired on the person who added it.
+bot/core/meme_swap.py
+
 # ── the detective's remaining scorer ────────────────────────────────────────
 # The only one here with a known reason: presale_claims has no source, the way
 # deployer_history had none until #54. Same shape, same fix if wanted.
