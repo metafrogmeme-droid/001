@@ -174,16 +174,54 @@ def test_network_is_fail_closed(raw, expected):
     assert ms.network({"MEME_EXECUTION_NETWORK": raw}) == expected
 
 
-def test_the_default_build_says_it_cannot_touch_mainnet():
-    b = build()
-    assert b["network"] == ms.SIMULATE
-    assert "cannot move mainnet funds" in ms.human_readable(b)
-
-
 def test_mainnet_requires_naming_it():
     b = build(env={"MEME_EXECUTION_NETWORK": "mainnet"})
     assert b["network"] == ms.MAINNET
     assert "mainnet transaction ready to sign" in b["reason"]
+
+
+# ── "simulate" describes what we do, NOT what the transaction is ──────────
+#
+# This block replaces a test that asserted the default build "cannot move
+# mainnet funds". That was false, and comfortably so: Jupiter v6 quotes
+# mainnet only, so the bytes are a mainnet transaction under every value of
+# MEME_EXECUTION_NETWORK. A wallet does not read our label.
+
+@pytest.mark.parametrize("net", ["", "simulate", "devnet", "nonsense"])
+def test_only_a_named_mainnet_may_be_signed(net):
+    b = build(env={"MEME_EXECUTION_NETWORK": net})
+    assert b["buildable"] is True, "review is still useful — it is signing that stops"
+    assert b["signable"] is False
+    assert b["not_signable_reason"]
+
+
+def test_a_named_mainnet_is_signable():
+    b = build(env={"MEME_EXECUTION_NETWORK": "mainnet"})
+    assert b["signable"] is True
+    assert b["not_signable_reason"] is None
+
+
+def test_devnet_is_told_it_did_not_get_devnet():
+    """Silently folding devnet into 'simulate' would leave an operator who set
+    it believing a devnet transaction came back. None exists."""
+    ok, why = ms.signable(ms.DEVNET)
+    assert ok is False
+    assert "mainnet only" in why and "devnet" in why
+
+
+def test_an_unsignable_build_says_the_transaction_is_still_mainnet():
+    text = ms.human_readable(build())
+    assert "REVIEW ONLY" in text
+    assert "MAINNET transaction" in text
+    assert "cannot move mainnet funds" not in text, (
+        "the old wording claimed the opposite of the truth")
+
+
+def test_a_refusal_is_never_signable():
+    # `signable` must not be readable as "yes" on a build that has no
+    # transaction at all — absent is not permission.
+    b = build(plan(allowed=False))
+    assert b["signable"] is False and b["not_signable_reason"]
 
 
 # ── sizing without guessing ───────────────────────────────────────────────
