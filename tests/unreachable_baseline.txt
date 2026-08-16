@@ -54,8 +54,28 @@ bot/core/presale_claims.py
 # to ten modules, in the file carrying the warning. Fixed, and pinned by
 # test_relative_imports_count_as_reachability.
 
-# ── no caller AND no tests: dead until proven otherwise ─────────────────────
-bot/_compat.py
+# ── UNBUILT FEATURES, not rot — a product call, not a cleanup ───────────────
+# Audited one by one before deleting anything, and only ONE was actually dead:
+# bot/_compat.py, a shim re-exporting bot.compat "so any stale imports keep
+# working", which nothing had imported for a long time. Deleted; zero
+# information lost.
+#
+# The five below are a different thing and deleting them would destroy work
+# rather than remove rot. Each is finished, coherent code for a feature nobody
+# wired, so the question is "do we want this signal?" and that is not a
+# question a cleanup gets to answer:
+#
+#   basis.py         spot-vs-perp premium; extreme basis + high OI is a
+#                    liquidation-cascade tell. Would feed the analyzer.
+#   market_cap.py    CoinGecko mcap/FDV/supply — large-cap vs small-cap
+#                    context for sizing. Free tier, no auth.
+#   seasonality.py   time-of-day and day-of-week edges from candles already
+#                    fetched.
+#
+# The two research scripts encode the operator's own RWA thesis (tokenized
+# equity perps trade 24/7; the underlying does not, so closed-hours returns
+# should revert on the open). They have NO `__main__` guard, so they cannot be
+# run at all — which is a smaller, fixable defect than being unimported.
 bot/core/basis.py
 bot/core/market_cap.py
 bot/core/seasonality.py

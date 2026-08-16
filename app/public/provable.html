@@ -88,6 +88,14 @@ print("anchored in", d["anchor"]["day"], "✔")</pre>
   is frozen for everyone: we cannot back-insert a call into it without changing the root you hold. One mirrored hash
   timestamps every call of the day. That's the whole design: <b>don't trust the screenshot — verify the call.</b></p>
 
+  <h2 data-i18n="pv.s5_h">5 · Read the rules, not the results</h2>
+  <p data-i18n-html="pv.s5_p">Everything above is written down in full, outside this page, so a checker can be built against a
+  document rather than against our word: the <a href="https://github.com/metafrogmeme-droid/001/blob/main/docs/PROVABLE_CALLS_SPEC.md"
+  rel="noopener">Provable Calls specification</a> gives the exact payloads, hash rule and root construction, and
+  <a href="https://github.com/metafrogmeme-droid/001/blob/main/docs/ENGINEERING_STANDARD.md" rel="noopener">the
+  engineering standard</a> states the one rule every number on this site is held to — and what it deliberately
+  does <em>not</em> promise. Both are pinned by tests that fail if the code stops matching them.</p>
+
   <div class="muted-note" data-i18n-html="pv.scope">
     <b>Honest scope:</b> a seal proves the decision facts existed unchanged since sealing; a root proves set membership
     for its day; a mirror makes the day independently timestamped. None of this proves future performance, and none of
@@ -95,7 +103,7 @@ print("anchored in", d["anchor"]["day"], "✔")</pre>
     the verify pages when live — never before.
   </div>
 </div>
-<script src="/js/i18n.js?v=113"></script>
+<script src="/js/i18n.js?v=115"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/ambient.js?v=3" defer></script>
 <script src="/js/palette.js?v=1" defer></script>
