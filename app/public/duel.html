@@ -111,7 +111,7 @@
   side and is never shown as a loss. Education and practice, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=109"></script>
+<script src="/js/i18n.js?v=110"></script>
 <script src="/js/duel.js?v=1"></script>
 <script>
 (function () {
@@ -124,11 +124,19 @@
   };
   var tok = null;
   try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
+  // M14: the session is an HttpOnly cookie this page cannot read. `rc_auth` is
+  // the readable flag saying one exists, and requests authenticate by cookie —
+  // `tok` survives only as a fallback for a session predating the migration.
+  // Gating on the TOKEN here showed 'signed out' to every cookie session.
+  var signedIn = !!tok || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
 
   function notice(msg) { $('notice').hidden = false; $('notice').textContent = msg; }
 
   function get(url, authed) {
-    var opts = authed ? { headers: { Authorization: 'Bearer ' + tok } } : {};
+    var opts = authed
+      ? { credentials: 'same-origin',
+          headers: tok ? { Authorization: 'Bearer ' + tok } : {} }
+      : {};
     return fetch(url, opts).then(function (r) {
       // Guard, not shrug: a failed read must reach the caller as a failure so
       // the panel can paint an error state instead of an empty one.
@@ -170,7 +178,8 @@
   function shareRecord() {
     if (!MY_HANDLE) return;
     var url = location.origin + '/duel';
-    fetch('/api/auth/referrals', { headers: { Authorization: 'Bearer ' + tok } })
+    fetch('/api/auth/referrals', { credentials: 'same-origin',
+      headers: tok ? { Authorization: 'Bearer ' + tok } : {} })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
       .then(function (ref) {
@@ -265,7 +274,9 @@
     Array.prototype.forEach.call(wrap.querySelectorAll('.d-btn'), function (b) { b.disabled = true; });
     fetch('/api/duel/pick', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
+      credentials: 'same-origin',
+      headers: Object.assign({ 'Content-Type': 'application/json' },
+        tok ? { Authorization: 'Bearer ' + tok } : {}),
       body: JSON.stringify(body),
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); })
       .then(function (r) {

@@ -1873,11 +1873,21 @@
   function persistServer(lang) {
     // Best-effort: store the logged-in user's prefs.lang so AI chat localizes.
     try {
-      var token = localStorage.getItem('token');
-      if (!token) return;
+      // M14: the token left localStorage, so reading it here and returning
+      // early silently stopped this sync for every logged-in user — the
+      // language preference simply never reached the server again. The session
+      // is the cookie now; `rc_auth` says whether one exists.
+      var token = null;
+      try { token = localStorage.getItem('token'); } catch (e) { token = null; }
+      var signedIn = !!token
+        || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+      if (!signedIn) return;
+      var hdrs = Object.assign({ 'Content-Type': 'application/json' },
+        token ? { Authorization: 'Bearer ' + token } : {});
       fetch('/api/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        credentials: 'same-origin',
+        headers: hdrs,
         body: JSON.stringify({ prefs: { lang: lang } }),
         signal: AbortSignal.timeout(8000),
       }).catch(function () {});
