@@ -120,6 +120,56 @@ async function lookupCall(key) {
   }
 }
 
+// The newest sealed call, for the landing page's live receipt.
+//
+// REGISTERED BEFORE `/:key` ON PURPOSE. `KEY_RE` happily matches the literal
+// string "latest", so with the routes the other way round this endpoint would
+// be swallowed by the lookup and answer 404 "no sealed call with that id" —
+// which reads as "we have no receipts" rather than "you hit the wrong route".
+//
+// It exists rather than having the page scan /api/signals for the newest row
+// carrying a seal, for two reasons. The landing page is the highest-traffic
+// surface here, so one cached row beats a twenty-row scan per view; and
+// "newest row" is NOT "newest sealed row" — calls predating Provable Calls
+// have seal IS NULL, so a client-side scan that took signals[0] would show a
+// receipt-shaped card with no receipt in it.
+const LATEST_CACHE_MS = 20000;
+let latestCache = { at: 0, body: null };
+
+router.get('/latest', async (req, res) => {
+  try {
+    if (latestCache.body && Date.now() - latestCache.at < LATEST_CACHE_MS) {
+      res.set('Cache-Control', 'public, max-age=15');
+      return res.json(latestCache.body);
+    }
+    const [rows] = await pool.execute(
+      'SELECT signal_key FROM signals WHERE seal IS NOT NULL ORDER BY created_at DESC LIMIT 1');
+    if (!rows[0] || !rows[0].signal_key) {
+      // A real, measured absence: the table is readable and holds no sealed
+      // call. Distinct from the 503 below, which means we could not look.
+      return res.status(404).json({
+        error: 'No sealed call yet',
+        detail: 'Receipts exist for calls made after Provable Calls shipped.',
+      });
+    }
+    const r = await lookupCall(String(rows[0].signal_key));
+    if (r.code !== 200) {
+      // The index said there is one and the lookup disagreed. Do not paper
+      // over that with an empty receipt — a half-read receipt on the front
+      // door is worse than no receipt at all.
+      return res.status(503).json({ error: 'Verify feed unavailable' });
+    }
+    latestCache = { at: Date.now(), body: r.body };
+    res.set('Cache-Control', 'public, max-age=15');
+    return res.json(r.body);
+  } catch (err) {
+    console.error('Latest call error:', err.stack || err.message);
+    // 503, never an empty 200. A landing widget that received {} would have
+    // to guess, and the damaging guess is "there are no calls".
+    return res.status(503).json({ error: 'Verify feed unavailable' });
+  }
+});
+
 router.get('/:key', async (req, res) => {
   try {
     const r = await lookupCall(String(req.params.key || ''));

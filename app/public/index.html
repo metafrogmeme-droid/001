@@ -246,6 +246,32 @@
     <div class="muted" style="font-size:var(--fs-xs);margin-top:6px" data-i18n="sec.prov_mirror">Copy that hash anywhere public and the whole day is frozen for everyone — we can't add a call to it afterwards without breaking your copy.</div>
     <div id="rootStripTotals" style="font-size:var(--fs-xs);color:var(--text-2);margin-top:6px;border-top:1px solid var(--line);padding-top:6px"></div>
   </div>
+  <!-- ONE REAL SEALED CALL, live.
+       The root strip above proves a SET — every call sealed on a finished
+       day folds into one hash. This proves a single DECISION: the symbol,
+       the direction and the three prices, with a hash that was fixed the
+       moment the call was made. That is the sentence the hero actually
+       makes, and until now the page asserted it in prose and demonstrated
+       it only at day granularity.
+
+       REAL OR NOTHING. It ships `hidden` and is revealed only once a real
+       receipt has loaded, exactly like #proofStrip. There is no placeholder
+       hash and no em-dash row: a fabricated-looking hash under a label
+       reading "Latest sealed call" is worse than an absent widget, because
+       a visitor who copies it and finds it does not verify concludes the
+       whole page is theatre. -->
+  <div id="latestCall" hidden style="max-width:640px;margin:0 auto var(--s4);padding:12px 16px;border:1px solid var(--gold);border-radius:var(--radius);background:var(--surface-2)">
+    <div style="font-family:var(--font-data);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--gold-bright);margin-bottom:6px">
+      <span data-i18n="lc.label">Latest sealed call</span> <span id="lcAgo" class="muted"></span>
+    </div>
+    <div style="font-family:var(--font-data);font-size:var(--fs-base);margin-bottom:4px">
+      <span id="lcSym"></span> <span id="lcDir"></span>
+    </div>
+    <div id="lcLevels" style="font-family:var(--font-data);font-size:var(--fs-xs);color:var(--text-2);margin-bottom:6px"></div>
+    <code id="lcSeal" style="font-family:var(--font-data);font-size:var(--fs-xs);color:var(--text-2);word-break:break-all;display:block"></code>
+    <div class="muted" style="font-size:var(--fs-xs);margin-top:6px" data-i18n="lc.before">This hash was fixed the moment the call was made — before the market moved, and before anyone knew how it ends.</div>
+    <a id="lcVerify" href="/provable" style="font-size:var(--fs-xs);display:inline-block;margin-top:6px" data-i18n="lc.verify">Verify this call yourself</a>
+  </div>
   <div class="feature-grid rc-stagger">
     <a class="feature" href="/provable"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧾</span><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
     <a class="feature" href="/roots"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌳</span><h3 data-i18n="lp.prov2_h">Daily seal roots</h3><p data-i18n="lp.prov2_p">One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
@@ -683,7 +709,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=111"></script>
+<script src="/js/i18n.js?v=112"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=8"></script>
 <script src="/js/chat.js?v=26" defer></script>
@@ -1474,6 +1500,68 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
 })();
 </script>
 <script>
+// Latest sealed call: one real receipt on the front door.
+//
+// REAL OR NOTHING, the same contract #proofStrip holds. Every path that is
+// not "a complete receipt arrived" leaves the box hidden — a non-200, a
+// reject, a body missing the seal, a seal that is not 64 hex, a payload we
+// cannot parse. There is deliberately no partial render and no placeholder,
+// because a receipt-shaped card containing nothing verifiable is a stronger
+// claim than showing nothing at all, and a false one.
+//
+// It sits below the mind-stream marker because hero_signup.test.js slices
+// from id="heroSignup" to this comment and forbids a fetch( inside that
+// window — the hero hand-off must reuse the real register form, not talk to
+// the network itself.
+(function () {
+  var box = document.getElementById('latestCall');
+  if (!box) return;
+  var HEX64 = /^[0-9a-f]{64}$/;
+  var num = function (v) { var n = Number(v); return isFinite(n) ? n : null; };
+  fetch('/api/call/latest', { signal: AbortSignal.timeout(8000) })
+    .then(function (r) { if (!r.ok) throw new Error('no'); return r.json(); })
+    .then(function (d) {
+      var cur = d && d.current;
+      if (!d || !HEX64.test(String(d.seal || '')) || !cur || !cur.signal_key) return;
+      if (!cur.symbol || !cur.direction) return;
+      document.getElementById('lcSym').textContent = String(cur.symbol);
+      var dir = String(cur.direction).toUpperCase();
+      var d1 = document.getElementById('lcDir');
+      d1.textContent = dir;
+      // Colour is a claim, and the only claim here is direction — never
+      // profit. LONG is not "winning"; the outcome does not exist yet.
+      d1.className = 'muted';
+      // Each level is omitted individually when it is not a real number, so
+      // one missing field cannot blank the others and cannot print as 0.
+      var parts = [];
+      var lv = [['lc.entry', 'entry', cur.entry_price],
+                ['lc.stop', 'stop', cur.stop_loss],
+                ['lc.target', 'target', cur.take_profit]];
+      for (var i = 0; i < lv.length; i++) {
+        var v = num(lv[i][2]);
+        if (v !== null && v !== 0) {
+          parts.push((window.T ? window.T(lv[i][0], lv[i][1]) : lv[i][1]) + ' ' + v);
+        }
+      }
+      var conf = num(cur.confidence);
+      if (conf !== null && conf > 0) {
+        parts.push((window.T ? window.T('lc.conf', 'confidence') : 'confidence')
+          + ' ' + Math.round(conf) + '%');
+      }
+      document.getElementById('lcLevels').textContent = parts.join(' · ');
+      document.getElementById('lcSeal').textContent = d.seal;
+      document.getElementById('lcVerify').href = '/call/' + encodeURIComponent(cur.signal_key);
+      var t = Date.parse(cur.created_at);
+      if (isFinite(t)) {
+        var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+        document.getElementById('lcAgo').textContent = mins < 60
+          ? '· ' + mins + 'm' : '· ' + Math.round(mins / 60) + 'h';
+      }
+      box.hidden = false;
+    })
+    .catch(function () { /* stays hidden — absent beats invented */ });
+})();
+
 // Live tape strip — the Arena's REAL latest closes on the front door
 // (percent only, opt-in handles). Quiet tape → the strip stays hidden.
 (function () {
