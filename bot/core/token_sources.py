@@ -225,6 +225,16 @@ class DexScreenerSource:
         vol = _f((best.get("volume") or {}).get("h24"))
         if vol is not None:
             out["volume_24h_usd"] = vol
+        # Buy/sell counts: `meme_gate` reads them to spot a pool people can
+        # get into and not out of. Emitted only when the venue actually
+        # reported them — a missing count must reach the gate as unknown, so it
+        # fails closed, rather than as a zero that reads as "nobody sold".
+        txns = (best.get("txns") or {}).get("h24") or {}
+        buys, sells = _f(txns.get("buys")), _f(txns.get("sells"))
+        if buys is not None:
+            out["buys_24h"] = buys
+        if sells is not None:
+            out["sells_24h"] = sells
         created = best.get("pairCreatedAt")
         if created is not None:
             ms = _f(created)
