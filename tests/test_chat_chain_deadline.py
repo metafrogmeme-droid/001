@@ -198,9 +198,9 @@ def test_the_deadline_cannot_truncate_a_healthy_single_attempt():
     deadline only ever stops the SUM. If someone lowers the floor to 5.0, a
     healthy 15s answer starts getting cut off and this fails.
     """
-    from bot.config import _env_float_bounded
-
     import os
+
+    from bot.config import _env_float_bounded
     prev = os.environ.get("LLM_CHAT_DEADLINE_SEC")
     try:
         os.environ["LLM_CHAT_DEADLINE_SEC"] = "1"     # try to set it absurdly low
@@ -334,9 +334,9 @@ def test_the_chat_deadline_never_reaches_the_shared_provider_timeout():
     background paths where a chat-shaped deadline would be a regression, so the
     clamp must ride a COPY of the config.
     """
-    from tests.source_scan import code_only
-
     import inspect
+
+    from tests.source_scan import code_only
     src = code_only(inspect.getsource(H._llm_chat))
     assert "_dc_replace(" in src, (
         "the per-attempt clamp must use dataclasses.replace on a copy — "
