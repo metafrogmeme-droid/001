@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Third-party modules bot/ imports that are deliberately NOT in",
+    "requirements.lock, each with the reason. A ratchet in both directions:",
+    "a new entry means somebody added a dependency without pinning it, and an",
+    "entry that gets pinned must be deleted in the same commit.",
+    "",
+    "Pillow is NOT in here. It is guarded at all eleven of its import sites,",
+    "which made it look optional — and that is exactly how cards vanished on",
+    "2026-08-17 with no error. A guarded import means the code SURVIVES the",
+    "absence, not that the feature is expendable."
+  ],
+  "optional": {
+    "matplotlib": "Chart rendering (bot/skills/chart_renderer.py). Not installed in any environment today, so the chart path has never run. Pin it or delete the module — but that is a product decision, not a lockfile one.",
+    "mplfinance": "Candlestick charts, same module and same status as matplotlib.",
+    "pandas": "Dataframes for the chart renderer only. Same status.",
+    "eth_account": "EVM transaction signing (bot/web/web3_signer.py). Not installed anywhere; the signer path is unreachable as shipped.",
+    "eth_utils": "Same module, same status as eth_account.",
+    "rlp": "Same module, same status as eth_account.",
+    "solcx": "Solidity compilation (bot/core/contract_studio.py). Not installed anywhere."
+  }
+}

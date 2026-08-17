@@ -11,3 +11,13 @@ numpy==2.3.5
 aiohttp==3.14.3
 websockets==16.0
 cryptography==50.0.0
+
+# ── Added 2026-08-17, after cards stopped rendering on a fresh venv ─────────
+# The lock had ten pins and bot/ imports twenty modules. A venv built from it
+# was missing Pillow, so `bot/formatters/signal_card.py` took its
+# `except ImportError` branch, returned b"", and the caller's `if png:` sent
+# text instead — no card, no error, one log line. The bot looked healthy.
+# `tests/test_requirements_cover_imports.py` now refuses that gap.
+Pillow==12.3.0
+fastapi==0.141.1
+redis==8.1.0
