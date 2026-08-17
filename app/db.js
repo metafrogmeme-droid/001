@@ -73,7 +73,14 @@ function poolConfigFrom(rawUrl) {
   const ssl = u.searchParams.get('ssl');
   if (ssl === null) return rawUrl;
   const flag = ssl.trim().toLowerCase();
-  if (flag !== 'true' && flag !== '1') return rawUrl;
+  // Accept ssl=true, ssl=1, and ssl={"rejectUnauthorized":true} (all produce
+  // the same outcome: TLS with server certificate verification). Any other
+  // value is a named profile or unknown — pass through unchanged.
+  // Also match the non-standard object literal form that TiDB Cloud emits:
+  //   ssl={"rejectUnauthorized":true}  or  ssl={rejectUnauthorized:true}
+  const isTlsFlag = flag === 'true' || flag === '1' ||
+    flag.startsWith('{') || flag.startsWith('%7b');
+  if (!isTlsFlag) return rawUrl;
 
   u.searchParams.delete('ssl');
   return { uri: u.toString(), ssl: { rejectUnauthorized: true } };
