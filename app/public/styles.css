@@ -1592,3 +1592,30 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 .dir-arrow { width: 11px; height: 11px; vertical-align: -.08em; }
 .pos .dir-arrow, .up .dir-arrow { color: var(--up); }
 .neg .dir-arrow, .down .dir-arrow { color: var(--down); }
+
+/* Multi-venue strip. Names, not logos: eight exchange marks are eight external
+   images the CSP would block anyway, they date badly, and a wordmark set the
+   visitor cannot read at 14px communicates less than the word does. */
+.venue-strip {
+  display: flex; flex-wrap: wrap; gap: var(--s2);
+  list-style: none; margin: 0 0 var(--s5); padding: 0;
+}
+.venue-chip {
+  font-family: var(--font-data); font-size: var(--fs-sm);
+  color: var(--text-2); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 14px; white-space: nowrap;
+}
+.venue-notes { display: grid; gap: var(--s3); max-width: 74ch; }
+.venue-note {
+  display: flex; gap: var(--s3); align-items: flex-start;
+  font-size: var(--fs-sm); color: var(--text-2); line-height: 1.6; margin: 0;
+}
+.venue-note .icon { width: 17px; height: 17px; flex: none; margin-top: 3px; color: var(--gold); }
+@media (max-width: 560px) {
+  /* Eight chips wrap to four rows on a phone and start to read as a list of
+     requirements rather than a list of options. Tighter, and they stay one
+     glanceable block. */
+  .venue-chip { font-size: var(--fs-xs); padding: 6px 11px; }
+  .venue-strip { gap: 6px; }
+}

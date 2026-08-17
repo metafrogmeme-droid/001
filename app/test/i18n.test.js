@@ -418,7 +418,14 @@ const SWEPT_PAGES = {
   // Only proper nouns may go in an allowlist. Anything else belongs in the
   // dictionary — "we'd rather not translate it" is not a category.
   'arena.html': ['← RUNECLAW'],
-  'index.html': ['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe'],
+  // The venue chips are DERIVED from app/lib/venues.js rather than typed
+  // out here: exchange names are proper nouns and translating "Bitget"
+  // would be wrong in all fourteen locales, but a hand-copied list of
+  // eight would silently exempt a name venues.js no longer declares —
+  // and an allowlist that outlives its reason is how untranslated copy
+  // gets through. Only what venues.js actually ships is exempt.
+  'index.html': ['RUNECLAW', 'RUNECLAW Guardian', 'GitHub', 'Sharpe']
+    .concat(require('../lib/venues').VENUES.map((v) => v.label)),
   'guardian.html': ['← RUNECLAW', 'RUNECLAW Guardian'],
   'developers.html': ['← RUNECLAW'],
   'stress.html': ['← RUNECLAW'],

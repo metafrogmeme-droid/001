@@ -26,7 +26,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=29">
+<link rel="stylesheet" href="/styles.css?v=30">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -186,7 +186,7 @@
 <header class="hero">
   <canvas id="rc-constellation" aria-hidden="true"></canvas>
   <div class="hero-agent3d" data-rc-agent3d aria-label="RUNECLAW 3D agent" data-i18n-attr="aria-label:a11y.agent3d"></div>
-  <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> <span data-i18n="hero.eyebrow">Live · Bitget USDT-M futures</span></div>
+  <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> <span data-i18n="hero.eyebrow">Live · perps across 8 venues</span></div>
   <h1 data-i18n-html="hero.h1">Every call is hashed<br>before <span>the market moves.</span></h1>
   <div class="hero-stats muted small" id="heroStats" hidden
        style="gap:var(--s4);flex-wrap:wrap;justify-content:center;align-items:baseline;margin-bottom:var(--s3)"></div>
@@ -242,6 +242,49 @@
 <div id="tickerStrip" class="muted small" hidden
      style="gap:var(--s4);flex-wrap:wrap;justify-content:center;padding:10px var(--s4);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"
      aria-label="Live market snapshot" data-i18n-attr="aria-label:a11y.snapshot"></div>
+
+<!-- MULTI-VENUE. The site said "Bitget USDT-M futures" and nothing else, so
+     eight connectable venues and a cross-venue read looked like one exchange.
+
+     TWO CLAIMS, KEPT APART ON PURPOSE. You can CONNECT any one of the eight and
+     your live account trades there — that is per-user, one venue per account,
+     not eight at once, and saying otherwise would promise routing this does not
+     do. Separately the SCAN reads several venues at the same time: cross-venue
+     funding (bot/core/cross_venue.py) pulls the whole funding map from Bybit and
+     Hyperliquid and merges it with Bitget's, so crowd positioning is compared
+     rather than assumed from one book.
+
+     The list is written out rather than fetched: it is indexable, it survives a
+     dead API, and app/test/venue_coverage.test.js derives the expected names
+     from app/lib/venues.js and fails if the two disagree — a count in prose is
+     the part that rots first. -->
+<section class="section section--dense reveal-on-scroll" id="venuesTease" aria-labelledby="venues-h">
+  <div class="section-head">
+    <div class="eyebrow"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg> <span data-i18n="lp.venues_eyebrow">Multi-venue</span></div>
+    <h2 id="venues-h" data-i18n="lp.venues_h">Eight venues, not one exchange</h2>
+    <p class="muted" data-i18n="lp.venues_sub">Connect the exchange you already use. The engine reads several of them at once.</p>
+  </div>
+  <ul class="venue-strip" aria-label="Supported venues" data-i18n-attr="aria-label:a11y.venues">
+      <li class="venue-chip" data-venue="bitget">Bitget</li>
+      <li class="venue-chip" data-venue="bybit">Bybit</li>
+      <li class="venue-chip" data-venue="bingx">BingX</li>
+      <li class="venue-chip" data-venue="okx">OKX</li>
+      <li class="venue-chip" data-venue="gate">Gate.io</li>
+      <li class="venue-chip" data-venue="kucoin">KuCoin Futures</li>
+      <li class="venue-chip" data-venue="hyperliquid">Hyperliquid (DEX)</li>
+      <li class="venue-chip" data-venue="paradex">Paradex (DEX)</li>
+  </ul>
+  <div class="venue-notes">
+    <p class="venue-note">
+      <svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>
+      <span data-i18n="lp.venues_connect">Bring your own withdrawal-disabled keys on any one of them — your live account trades on the venue you connect, and you can switch it.</span>
+    </p>
+    <p class="venue-note">
+      <svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>
+      <span data-i18n="lp.venues_read">The scan reads funding and positioning across venues at the same time. When one book pays 0.01% and another pays 0.10%, the crowd is somewhere specific — a single-venue bot cannot see that.</span>
+    </p>
+  </div>
+</section>
 
 <!-- Why we're different: the trust pillars, high on the page — concrete backing
      for the hero's "and trust" promise. Capability claims only (§4). -->
@@ -404,6 +447,7 @@
   <h2 id="pidx-h" class="page-index__h" data-i18n="idx.h">On this page</h2>
   <ul class="page-index__list">
     <li><a href="#howItWorks" data-i18n="lp.how_h">How it works</a></li>
+    <li><a href="#venuesTease" data-i18n="lp.venues_eyebrow">Multi-venue</a></li>
     <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
     <li><a href="#whyTease" data-i18n="idx.why">Why it&rsquo;s different</a></li>
     <li><a href="#provableTease" data-i18n="sec.prov_eyebrow">Provable Calls</a></li>
@@ -743,7 +787,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=121"></script>
+<script src="/js/i18n.js?v=122"></script>
 <script src="/js/icons.js?v=4"></script>
 <script src="/js/app.js?v=11"></script>
 <script src="/js/chat.js?v=26" defer></script>
