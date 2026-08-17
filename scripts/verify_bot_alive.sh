@@ -114,13 +114,31 @@ _no_verdict() {
   exit 3
 }
 # STKFLT is the one actually observed; the rest are the plausible neighbours.
-# Not every shell knows every name, and a trap this cannot install must not
-# take the script down with it -- so each is attempted independently.
-for _sig in HUP INT QUIT TERM STKFLT USR1 USR2; do
+#
+# BY NAME, THEN BY NUMBER. `trap ... STKFLT` is REJECTED OUTRIGHT by dash, and
+# the first version of this loop swallowed that with `|| true`. So on any shell
+# that does not know the name, the trap written to REPORT an interrupted run
+# was itself silently missing -- precisely where it was needed, and invisibly.
+# Signal numbers are portable where names are not.
+#
+# Verified 2026-08-17:  bash  name=ok  number=ok
+#                       dash  name=NO  number=ok
+_trapped=0
+for _pair in "HUP 1" "INT 2" "QUIT 3" "TERM 15" "USR1 10" "USR2 12" "STKFLT 16"; do
+  _name=${_pair% *}; _num=${_pair#* }
   # shellcheck disable=SC2064
-  trap "_no_verdict $_sig" "$_sig" 2>/dev/null || true
+  if trap "_no_verdict $_name" "$_name" 2>/dev/null \
+     || trap "_no_verdict $_name" "$_num" 2>/dev/null; then
+    _trapped=$((_trapped + 1))
+  fi
 done
-unset _sig
+unset _pair _name _num
+# If NOTHING could be trapped, say so once rather than leaving the next 144 to
+# be read as "the bot died" all over again. A guard that could not install is
+# not the same as one that found nothing wrong.
+[ "$_trapped" -gt 0 ] || echo "SMOKE NOTE: no signal traps could be installed; an" \
+  "interrupted run will exit 128+n rather than 3." >&2
+unset _trapped
 
 # `shift 2` with only one argument left FAILS and shifts nothing, so the loop
 # spins on the same token forever. `verify_bot_alive.sh --pid` (value
