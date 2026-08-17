@@ -35,7 +35,12 @@ test('every validator refusal carries a stable code', () => {
 test('the tp/sl wording says "the current price", not "the entry"', () => {
   assert.match(arena.validateTpSl('LONG', 100, 90, null).error, /current price/);
   assert.match(arena.validateTpSl('LONG', 100, null, 110).error, /current price/);
-  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'arena.js'), 'utf8');
+  // public/js/arena_engine.js, not lib/arena.js: the rules moved there so the
+  // browser sandbox and the server load the same bytes, and lib/arena.js is
+  // now a one-line re-export. Scanning the shim would pass VACUOUSLY — the
+  // banned string is trivially absent from a file with no wording in it.
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'arena_engine.js'), 'utf8');
   assert.ok(!src.includes('sit above the entry') && !src.includes('sit below the entry'),
     'the misleading "entry" wording is back — three call paths validate against the mark');
 });

@@ -221,6 +221,45 @@
     <a class="btn btn--primary btn--sm cta" href="/dashboard" data-i18n="arena.b_signin">Sign in / create a free account →</a>
   </section>
 
+  <!-- Practice sandbox — the thing a logged-out visitor can actually DO.
+       Deliberately NOT called an Arena trade anywhere: Arena trades are sealed
+       at open and fold into the day's Merkle root, and putting anonymous
+       throwaway trades in there would devalue the ledger the whole product
+       rests on. Different name, different promise, stated on the panel. -->
+  <section class="panel" id="sandboxPanel" hidden>
+    <h2 data-i18n="sb.h">Practice sandbox</h2>
+    <p class="muted small" id="sbBadge" data-i18n-html="sb.badge">Live prices · real Arena rules · <b>not sealed, not ranked, this browser only</b></p>
+    <p class="lede" style="margin-bottom:var(--s2)" data-i18n="sb.lede">Try it before you sign up. Positions use the same margin, leverage and liquidation rules as the Arena, priced off the same public market feed — but nothing is written to a server, nothing is sealed, and nothing appears on any leaderboard.</p>
+
+    <div class="row" style="gap:var(--s3);flex-wrap:wrap;align-items:end;margin-bottom:var(--s3)">
+      <label><span class="muted small" data-i18n="sb.l_sym">Symbol</span><br>
+        <input id="sbSym" value="BTC" maxlength="20" style="width:96px" aria-label="Symbol" data-i18n-attr="aria-label:sb.l_sym"></label>
+      <label><span class="muted small" data-i18n="sb.l_dir">Side</span><br>
+        <select id="sbDir" aria-label="Side" data-i18n-attr="aria-label:sb.l_dir"><option value="LONG" data-i18n="arena.b_long">▲ Long</option><option value="SHORT" data-i18n="arena.b_short">▼ Short</option></select></label>
+      <label><span class="muted small" data-i18n="sb.l_margin">Margin</span><br>
+        <input id="sbMargin" type="number" value="100" min="10" step="10" style="width:96px" aria-label="Margin" data-i18n-attr="aria-label:sb.l_margin"></label>
+      <label><span class="muted small" data-i18n="sb.l_lev">Leverage</span><br>
+        <input id="sbLev" type="number" value="5" min="1" max="20" style="width:80px" aria-label="Leverage" data-i18n-attr="aria-label:sb.l_lev"></label>
+      <button class="btn btn--primary btn--sm" id="sbOpen" data-i18n="sb.b_open">Open practice position</button>
+      <button class="btn btn--sm" id="sbReset" data-i18n="sb.b_reset">Reset</button>
+    </div>
+    <p class="small" id="sbMsg" role="status" aria-live="polite"></p>
+
+    <p class="small" style="margin-bottom:var(--s2)">
+      <span class="muted" data-i18n="sb.equity_l">Practice equity</span>
+      <b id="sbEquity">—</b> · <span id="sbReturn" class="muted">—</span>
+    </p>
+    <p class="small muted" id="sbStale" hidden data-i18n="sb.stale">Live prices are unavailable right now, so returns are not shown. Nothing here is estimated.</p>
+
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th data-i18n="sb.th_sym">Symbol</th><th data-i18n="sb.th_side">Side</th>
+      <th class="r" data-i18n="sb.th_entry">Entry</th><th class="r" data-i18n="sb.th_mark">Mark</th>
+      <th class="r" data-i18n="sb.th_liq">Liq.</th><th class="r" data-i18n="sb.th_pnl">Return</th><th></th>
+    </tr></thead><tbody id="sbRows"></tbody></table></div>
+
+    <p class="small" style="margin-top:var(--s3)" data-i18n-html="sb.cta">Ready for the version that counts? In the Arena every trade is <b>hashed the moment it opens</b> — before the market answers — and anyone can verify it later. <a href="/dashboard">Create a free account →</a></p>
+  </section>
+
   <!-- Account (logged in) -->
   <section class="panel" id="acctPanel" hidden>
     <h2><span data-i18n="arena.p_account">Your paper account</span> <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_virtual">· virtual funds only</span></h2>
@@ -389,7 +428,9 @@ window.addEventListener('error', rcReportPageError);
 window.addEventListener('unhandledrejection', rcReportPageError);
 </script>
 <script src="/js/app.js?v=9"></script>
-<script src="/js/i18n.js?v=116"></script>
+<script src="/js/i18n.js?v=117"></script>
+<script src="/js/arena_engine.js?v=1"></script>
+<script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/js/chartread.js?v=5"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
