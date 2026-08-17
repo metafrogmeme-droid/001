@@ -1285,3 +1285,54 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   .topbar .nav-links a[href="/proof"],
   .topbar .nav-links a[href="/track"] { display: none; }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Layout: three weights instead of fifteen equals.
+
+   The landing page is fifteen sections and every one of them was styled as
+   the most important thing on the page — same padding, same heading size,
+   same grid. That is the actual complaint behind "a long wall of text": not
+   that there is too much, but that nothing tells you what to read first.
+   Measured before this: 7879px, 8.8 screens.
+
+   NOTHING IS HIDDEN AND NOTHING IS DELETED. Every word, every link and all
+   fourteen translations stay exactly where they were. Line-clamping the
+   feature copy was the obvious way to halve the height, and it is wrong here:
+   the Guardian tiles end on caveats — "A clean result is never a guarantee" —
+   and a layout that truncates its own disclaimers is a worse defect than a
+   long page. Density comes from spacing and column count instead.
+
+     tier 1  why · provable · doors      the argument, the proof, the map
+     tier 2  the live demonstrations     tightened
+     tier 3  destination pitches         dense grid; each one is a door the
+                                         reader has already been offered
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.section--tight { padding-top: var(--s8); padding-bottom: var(--s8); }
+.section--tight .section-head { margin-bottom: var(--s4); }
+
+.section--dense { padding-top: var(--s6); padding-bottom: var(--s6); }
+.section--dense .section-head { margin-bottom: var(--s3); }
+.section--dense .section-head h2 { font-size: var(--fs-lg); }
+.section--dense .section-head p { font-size: var(--fs-sm); }
+/* More columns, less chrome per tile — the copy is unchanged, it simply sits
+   in a narrower box beside more of its siblings. */
+.section--dense .feature-grid {
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: var(--s3);
+}
+.section--dense .feature { padding: var(--s4); border-radius: var(--radius); }
+.section--dense .feature h3 { font-size: var(--fs-sm); }
+.section--dense .feature p { font-size: var(--fs-xs); line-height: 1.55; }
+.section--dense .feature .icon,
+.section--dense .feature > span:first-child { margin-bottom: var(--s2); }
+
+/* A hairline between tier-3 blocks so eight dense sections still read as
+   eight things rather than one undifferentiated field. */
+.section--dense + .section--dense { border-top: 1px solid var(--line); }
+
+@media (max-width: 720px) {
+  .section--dense .feature-grid { grid-template-columns: 1fr 1fr; }
+  .section--dense .feature p { font-size: var(--fs-xs); }
+}

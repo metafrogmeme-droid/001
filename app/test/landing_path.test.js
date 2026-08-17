@@ -27,8 +27,18 @@ const LOCALES = ['en:', 'hi:', 'it:', 'es:', 'zh:', 'pt:', 'fr:', 'de:',
   'nl:', 'ja:', 'ko:', 'ru:', 'tr:', 'ar:'];
 
 function pathBand() {
-  const start = index.indexOf('<section class="section reveal-on-scroll" id="pathTease"');
-  assert.ok(start > 0, 'the pathTease section exists');
+  // Located by ID, not by the whole opening tag. This read
+  // `'<section class="section reveal-on-scroll" id="pathTease"'` — pinning the
+  // exact class attribute to find a section by its id — so adding a layout
+  // class to that section broke three assertions that have nothing to do with
+  // layout. A locator that encodes more than it needs turns every unrelated
+  // change into a failure, and the usual response to that is to edit the test.
+  const at = index.indexOf('id="pathTease"');
+  assert.ok(at > 0, 'the pathTease section exists');
+  // Back up to the tag that CARRIES the id, so the class attribute is inside
+  // the slice — a later assertion checks for `reveal-on-scroll`, and starting
+  // at the id itself silently cut it out of the input.
+  const start = index.lastIndexOf('<section', at);
   const sec = index.slice(start);
   return sec.slice(0, sec.indexOf('</section>') + 10);
 }
