@@ -807,7 +807,13 @@ router.get('/tape', async (req, res) => {
         handle: handleOf.get(t.user_id),
         symbol: t.symbol,
         direction: t.direction,
-        pct: Number(t.margin) > 0 ? round2((Number(t.pnl) / Number(t.margin)) * 100) : 0,
+        // `: 0` here reported an unusable margin as an exactly break-even
+        // trade. margin is DOUBLE NOT NULL and validation floors it at
+        // MIN_MARGIN, so the branch is not reachable today — but its two
+        // siblings (arena_trader.js:45 and the position payload above)
+        // both return null, and the odd one out was the one on the public
+        // front door. null is what the client now paints muted.
+        pct: Number(t.margin) > 0 ? round2((Number(t.pnl) / Number(t.margin)) * 100) : null,
         reason: t.reason,
         key: t.seal ? t.trade_key : null,   // 🔏 verifiable receipt
         closed_at: t.closed_at,

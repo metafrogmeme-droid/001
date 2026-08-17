@@ -173,8 +173,14 @@
   }
   function pnlClass(n) {
     const v = Number(n);
-    if (n == null || !isFinite(v)) return '';  // unknown -> muted, never red
-    return v >= 0 ? 'pos' : 'neg';
+    // '' SLIPS PAST `!isFinite(Number(n))` — Number('') is 0, and 0 is finite.
+    // So an empty-string field (what several serialisers emit for SQL NULL)
+    // was scoring as an exactly break-even position and painting green. Same
+    // family as `x || 0`: a coercion accident standing in for a measurement.
+    // Whitespace-only is the same value wearing a space.
+    if (n == null || (typeof n === 'string' && n.trim() === '')) return '';
+    if (!isFinite(v)) return '';               // unknown -> muted, never red
+    return v >= 0 ? 'pos' : 'neg';             // 0 IS a measured break-even
   }
   function fmtAgo(iso) {
     if (!iso) return '--';

@@ -743,7 +743,7 @@ a.mc-chip:hover { border-color: var(--accent, var(--up)); }
 .section-head p { color: var(--text-3); }
 .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s4); }
 .feature { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4) var(--s4) var(--s6); }
-.feature .icon { width: 22px; height: 22px; color: var(--gold); margin-bottom: var(--s3); }
+.feature .icon { display: block; width: 24px; height: 24px; color: var(--gold); margin-bottom: var(--s3); }
 .feature h3 { font-size: var(--fs-base); font-weight: 600; margin-bottom: var(--s1); }
 .feature p { font-size: var(--fs-sm); color: var(--text-2); }
 
@@ -1562,3 +1562,33 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
    an unfamiliar name with no explanation. */
 .brand-block { display: flex; flex-direction: column; gap: 4px; }
 .org-line { margin: 0; color: var(--text-3); }
+
+/* Icons that replaced emoji, 2026-08-17. The emoji were the last thing on the
+   page that could not be themed: their colour is baked into the platform font,
+   so a 🔐 stays yellow-brown on a page whose accent is gold and a ✅ stays a
+   green nobody chose. They also render differently on every OS, which is why
+   the same card looked cramped on Windows and airy on macOS. */
+.feed-icon { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--text-2); }
+.mkt-emo .icon { width: 22px; height: 22px; color: var(--gold); }
+.chat-tts .icon, .chat-mic .icon { vertical-align: -.2em; }
+
+/* Section eyebrows had a rule ONLY inside .hero, so the six on other sections
+   rendered as plain body text: the label meant to introduce a section looked
+   like the first line of it. `.hero .eyebrow` is more specific and keeps its
+   own colour and spacing. */
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--font-data); font-size: var(--fs-xs);
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: var(--s2);
+}
+.eyebrow .icon { width: 14px; height: 14px; flex: none; color: var(--gold); }
+
+/* Direction stated in shape as well as colour. "Colour is a claim" cuts both
+   ways: a claim carried ONLY by colour is not made at all to the ~8% of men
+   with a red/green deficiency, and WCAG 1.4.1 says so. The arrow is omitted
+   entirely when the value is unreadable — an arrow pointing somewhere is as
+   much of an assertion as a green number. */
+.dir-arrow { width: 11px; height: 11px; vertical-align: -.08em; }
+.pos .dir-arrow, .up .dir-arrow { color: var(--up); }
+.neg .dir-arrow, .down .dir-arrow { color: var(--down); }

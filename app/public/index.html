@@ -26,7 +26,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=27">
+<link rel="stylesheet" href="/styles.css?v=29">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -167,7 +167,7 @@
     <a class="btn btn--primary btn--sm" href="#auth-panel" data-i18n="nav.get_started">Get started</a>
   </div>
   <details class="nav-menu">
-    <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
+    <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu"><svg class="icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-menu"></use></svg> <span data-i18n="nav.menu">Menu</span></summary>
     <div class="nav-menu-panel">
       <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
       <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
@@ -316,7 +316,7 @@
      only — omit, never invent). -->
 <section class="section reveal-on-scroll" id="provableTease" aria-labelledby="prov-h">
   <div class="section-head">
-    <div class="eyebrow">🔏 <span data-i18n="sec.prov_eyebrow">Provable Calls</span></div>
+    <div class="eyebrow"><svg class="icon" aria-hidden="true"><use href="#icon-seal"></use></svg> <span data-i18n="sec.prov_eyebrow">Provable Calls</span></div>
     <h2 id="prov-h" data-i18n="sec.prov_h">Don't trust the screenshot. Verify the call.</h2>
     <p data-i18n-html="sec.prov_p">Every call the engine makes — and every paper trade in the Arena — is hashed the moment it's made, <b>before the market moves</b>. The outcome attaches to that same sealed record later and can never change it. No backdated wins, no quietly deleted losers.</p>
   </div>
@@ -353,9 +353,9 @@
     <a id="lcVerify" href="/provable" style="font-size:var(--fs-xs);display:inline-block;margin-top:6px" data-i18n="lc.verify">Verify this call yourself</a>
   </div>
   <div class="feature-grid rc-stagger">
-    <a class="feature" href="/provable"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧾</span><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
-    <a class="feature" href="/roots"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌳</span><h3 data-i18n="lp.prov2_h">Daily seal roots</h3><p data-i18n="lp.prov2_p">One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
-    <a class="feature" href="/proof"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🔐</span><h3 data-i18n="nav.proof">Proof of PnL</h3><p data-i18n="lp.prov3_p">The performance side of the same doctrine: figures rebuilt from raw exchange fills and published as a sealed statement your browser re-derives.</p></a>
+    <a class="feature" href="/provable"><svg class="icon" aria-hidden="true"><use href="#icon-receipt"></use></svg><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
+    <a class="feature" href="/roots"><svg class="icon" aria-hidden="true"><use href="#icon-tree"></use></svg><h3 data-i18n="lp.prov2_h">Daily seal roots</h3><p data-i18n="lp.prov2_p">One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
+    <a class="feature" href="/proof"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg><h3 data-i18n="nav.proof">Proof of PnL</h3><p data-i18n="lp.prov3_p">The performance side of the same doctrine: figures rebuilt from raw exchange fills and published as a sealed statement your browser re-derives.</p></a>
   </div>
 </section>
 
@@ -377,10 +377,10 @@
   </div>
   <div class="feature-grid rc-stagger">
     <a class="feature" href="/proof"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-check"></use></svg><h3 data-i18n="doors.d1_h">Evidence</h3><p data-i18n="doors.d1_p">Track record, Proof of PnL, the daily seal roots, and the full contract for verifying any single call yourself.</p></a>
-    <a class="feature" href="/arena"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎯</span><h3 data-i18n="doors.d2_h">Play</h3><p data-i18n="doors.d2_p">Paper-trade the Arena on the same virtual stake as everyone else, take the Daily Duel, or work through the Study Room.</p></a>
-    <a class="feature" href="/dashboard"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📈</span><h3 data-i18n="doors.d3_h">Trade</h3><p data-i18n="doors.d3_p">The cockpit — portfolio, live signals, markets and execution. Paper by default; live only on your own exchange keys.</p></a>
+    <a class="feature" href="/arena"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="doors.d2_h">Play</h3><p data-i18n="doors.d2_p">Paper-trade the Arena on the same virtual stake as everyone else, take the Daily Duel, or work through the Study Room.</p></a>
+    <a class="feature" href="/dashboard"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="doors.d3_h">Trade</h3><p data-i18n="doors.d3_p">The cockpit — portfolio, live signals, markets and execution. Paper by default; live only on your own exchange keys.</p></a>
     <a class="feature" href="/guardian"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="doors.d4_h">Safety</h3><p data-i18n="doors.d4_p">Guardian — the transaction firewall, the Escape Agent, the allowance X-ray and the portfolio stress lab.</p></a>
-    <a class="feature" href="/letter"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">✍️</span><h3 data-i18n="doors.d5_h">Story</h3><p data-i18n="doors.d5_p">The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words.</p></a>
+    <a class="feature" href="/letter"><svg class="icon" aria-hidden="true"><use href="#icon-pen"></use></svg><h3 data-i18n="doors.d5_h">Story</h3><p data-i18n="doors.d5_p">The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words.</p></a>
   </div>
 </section>
 
@@ -522,9 +522,9 @@
     <p data-i18n="sec.arena_p">Every account gets a paper trading account the moment you open the Arena — the same virtual starting stake for everyone, no exchange keys, no setup. Trade live markets at real prices with real liquidation mechanics, and climb a public leaderboard ranked purely on percent return. When paper competitions run, this is where they happen.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <div class="feature"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎫</span><h3 data-i18n="sec.arena_f1h">Same stake, pure skill</h3><p data-i18n="sec.arena_f1p">Everyone starts identical, so the ranking measures nothing but your calls — percent return, anonymous handles, zero dollar-waving.</p></div>
-    <div class="feature"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📈</span><h3 data-i18n="sec.arena_f2h">Real prices, real mechanics</h3><p data-i18n="sec.arena_f2p">Fills at live market prices, leverage up to 20×, and liquidations enforced with the same math the Stress Lab models — honest practice, not a toy.</p></div>
-    <div class="feature"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🚀</span><h3 data-i18n="sec.arena_f3h">Zero friction</h3><p data-i18n="sec.arena_f3p">No API keys, no deposit, nothing to configure — register and your account exists. The safest possible way to meet the platform.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-ticket"></use></svg><h3 data-i18n="sec.arena_f1h">Same stake, pure skill</h3><p data-i18n="sec.arena_f1p">Everyone starts identical, so the ranking measures nothing but your calls — percent return, anonymous handles, zero dollar-waving.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="sec.arena_f2h">Real prices, real mechanics</h3><p data-i18n="sec.arena_f2p">Fills at live market prices, leverage up to 20×, and liquidations enforced with the same math the Stress Lab models — honest practice, not a toy.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><h3 data-i18n="sec.arena_f3h">Zero friction</h3><p data-i18n="sec.arena_f3p">No API keys, no deposit, nothing to configure — register and your account exists. The safest possible way to meet the platform.</p></div>
   </div>
   <p style="margin-top:var(--s4)">
     <a class="btn btn--primary btn--sm" href="/arena" data-i18n="sec.arena_cta">Enter the Arena →</a>
@@ -628,8 +628,8 @@
       <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.wallet">Wallet</h3>
       <p class="muted small" id="wallet-status" data-i18n="acc.wallet_body">Link a browser wallet to mirror your on-chain balances and DeFi positions — read-only: the wallet signs one login message, never a transaction.</p>
       <div class="form-err" id="wallet-msg" aria-live="polite"></div>
-      <button class="btn btn--sm mt-2" id="wallet-link-btn" data-act="linkWalletToAccount" data-i18n="acc.wallet_link">🔗 Link wallet</button>
-      <button class="btn btn--sm mt-2" id="wallet-qr-btn" data-act="showWalletQr" data-i18n="acc.wallet_phone">📱 Link with phone</button>
+      <button class="btn btn--sm mt-2" id="wallet-link-btn" data-act="linkWalletToAccount" data-i18n="acc.wallet_link"><svg class="icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-link"></use></svg> Link wallet</button>
+      <button class="btn btn--sm mt-2" id="wallet-qr-btn" data-act="showWalletQr" data-i18n="acc.wallet_phone"><svg class="icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-phone"></use></svg> Link with phone</button>
       <button class="btn btn--ghost btn--sm mt-2 hidden" id="wallet-unlink-btn" data-act="unlinkWalletFromAccount" data-i18n="acc.wallet_unlink">Unlink wallet</button>
       <div id="wallet-qr-box" class="mt-3 hidden"></div>
     </div>
@@ -660,7 +660,7 @@
         <button class="btn btn--primary btn--sm" data-act="tfaEnable" data-i18n="acc.tfa_confirm">Confirm &amp; enable</button>
       </div>
       <div id="tfa-on" class="hidden">
-        <p class="small"><span data-i18n-html="acc.tfa_on">✅ 2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
+        <p class="small"><svg class="icon" style="width:14px;height:14px;color:var(--up)" aria-hidden="true"><use href="#icon-check"></use></svg> <span data-i18n-html="acc.tfa_on">2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
         <div class="field mt-2"><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
         <button class="btn btn--ghost btn--sm" data-act="tfaDisable" data-i18n="acc.tfa_disable">Disable 2FA</button>
       </div>
@@ -725,7 +725,7 @@
   <div class="chat-head">
     <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
     <button class="chat-tts" id="chatTts" type="button" aria-pressed="false"
-      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden>🔇</button>
+      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden><svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mute"></use></svg></button>
     <button class="chat-close" id="chatClose" aria-label="Close chat" data-i18n-attr="aria-label:a11y.close_chat">&times;</button>
   </div>
   <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio" data-i18n-attr="aria-label:a11y.portfolio"></div>
@@ -736,16 +736,16 @@
     <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
            placeholder="Ask about crypto, markets, or how RUNECLAW works" data-i18n-attr="placeholder:chat.ph">
     <button class="btn" id="chatMic" type="button" aria-pressed="false"
-      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden>🎤</button>
+      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden><svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mic"></use></svg></button>
     <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message" data-i18n-attr="aria-label:a11y.send">
       <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
     </button>
   </form>
 </section>
 
-<script src="/js/i18n.js?v=120"></script>
-<script src="/js/icons.js?v=3"></script>
-<script src="/js/app.js?v=10"></script>
+<script src="/js/i18n.js?v=121"></script>
+<script src="/js/icons.js?v=4"></script>
+<script src="/js/app.js?v=11"></script>
 <script src="/js/chat.js?v=26" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
 <script>
@@ -775,12 +775,13 @@
   var RC = window.RC;
   var host = document.getElementById('landingFeed');
   if (!RC || !host) return;
-  var ICONS = { scan: '📡', thesis: '🧠', trade_open: '🟢', trade_close: '🏁',
-    sl_move: '🛡️', alert: '⚠️', stance: '🎚️', info: 'ℹ️' };
+  var ICONS = { scan: 'icon-radar', thesis: 'icon-brain', trade_open: 'icon-play', trade_close: 'icon-flag',
+    sl_move: 'icon-shield', alert: 'icon-alert', stance: 'icon-sliders', info: 'icon-info' };
   function row(ev) {
     var sym = ev.symbol ? ' <span class="muted small">' + RC.esc(String(ev.symbol).replace(':USDT', '').replace('/USDT', '')) + '</span>' : '';
     return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(128,128,128,.15)">'
-      + '<span>' + (ICONS[ev.event_type] || ICONS.info) + '</span>'
+      + '<svg class="icon feed-icon" aria-hidden="true"><use href="#'
+        + (ICONS[ev.event_type] || ICONS.info) + '"></use></svg>'
       + '<span style="flex:1;min-width:0"><b>' + RC.esc(ev.title || '') + '</b>' + sym
       + (ev.body ? '<div class="muted small">' + RC.esc(ev.body) + '</div>' : '') + '</span>'
       + '<span class="muted small" data-rc-ago="' + RC.esc(String(ev.created_at || '')) + '">' + RC.fmtAgo(ev.created_at) + '</span></div>';
@@ -842,11 +843,13 @@
         if (!rows.length) return;
         host.innerHTML = rows.map(function (t) {
           var chg = Number(t.change24h) * 100;
-          var cls = chg >= 0 ? 'up' : 'down';
+          var cls = (window.RC && RC.pnlClass) ? RC.pnlClass(chg) : '';
           var base = String(t.symbol || '').replace(/USDT$/i, '').replace(/[^A-Z0-9]/gi, '');
           return '<span style="display:inline-flex;gap:6px;align-items:baseline"><b>' + base + '</b>'
             + '<span class="num">' + fmtP(t.lastPr) + '</span>'
-            + '<span class="num ' + cls + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span></span>';
+            + '<span class="num ' + cls + '">'
+            + (isFinite(chg) ? (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' : '—')
+            + '</span></span>';
         }).join('');
         host.hidden = false;
         host.style.display = 'flex';   // inline display would defeat [hidden]
@@ -904,6 +907,12 @@
     });
   };
   var pct = function (v) { return v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%'; };
+  // Unknown is muted, never green. RC.pnlClass is the one that already
+  // gets this right; the local copy this replaced did not.
+  var cls = (window.RC && RC.pnlClass) || function () { return ''; };
+  // Direction is also stated in SHAPE, not colour alone — WCAG 1.4.1, and
+  // roughly one man in twelve cannot separate this red from this green.
+  var arrow = (function(v){return v==null||!isFinite(Number(v))?'':'<svg class="icon dir-arrow" aria-hidden="true"><use href="#icon-arrow-'+(Number(v)>=0?'up':'down')+'"></use></svg> ';});
   var fallback = '<p class="muted small"><a href="/agents">Open the Strategy Agent Marketplace →</a></p>';
   fetch('/api/public/strategies', { headers: { Accept: 'application/json' } })
     .then(function (r) { return r.ok ? r.json() : null; })
@@ -913,12 +922,16 @@
       wrap.innerHTML = agents.slice(0, 6).map(function (a) {
         var m = a.scorecard && a.scorecard.metrics;
         var stats = m ? '<div class="mkt-stats">'
-          + '<div class="mkt-stat"><span class="k">Return</span><span class="v ' + (m.total_return_pct >= 0 ? 'up' : 'down') + '">' + esc(pct(m.total_return_pct)) + '</span></div>'
+          + '<div class="mkt-stat"><span class="k">Return</span><span class="v ' + cls(m.total_return_pct) + '">'
+          + arrow(m.total_return_pct) + esc(pct(m.total_return_pct)) + '</span></div>'
           + '<div class="mkt-stat"><span class="k">Win rate</span><span class="v">' + (m.win_rate == null ? '—' : (m.win_rate * 100).toFixed(0) + '%') + '</span></div>'
           + '<div class="mkt-stat"><span class="k">PF</span><span class="v">' + (m.profit_factor == null ? '—' : Number(m.profit_factor).toFixed(2)) + '</span></div>'
           + '</div>' : '';
         return '<a class="feature mkt-card" href="/agents/' + encodeURIComponent(a.id) + '">'
-          + '<div class="mkt-h"><span class="mkt-emo">' + esc(a.icon || '🤖') + '</span><h3>' + esc(a.name) + '</h3></div>'
+          + '<div class="mkt-h"><span class="mkt-emo">'
+          + (a.icon ? esc(a.icon)
+            : '<svg class="icon" aria-hidden="true"><use href="#icon-robot"></use></svg>')
+          + '</span><h3>' + esc(a.name) + '</h3></div>'
           + (a.tagline ? '<p>' + esc(a.tagline) + '</p>' : '')
           + stats + '</a>';
       }).join('');
@@ -978,14 +991,15 @@ let SESSION=null;
 // so it survives an OAuth round-trip (Google/Telegram sign-in redirects).
 const REF=(new URLSearchParams(location.search).get('ref')||localStorage.getItem('rc_ref')||'').trim().slice(0,32);
 if(REF){
+  const GIFT_ICON='<svg class="icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-gift"></use></svg> ';
   try{localStorage.setItem('rc_ref',REF);}catch(e){}
   // Warm welcome for invited visitors (the #step-register markup is above this script).
   const _rs=document.getElementById('step-register');
-  if(_rs){const _n=document.createElement('p');_n.className='muted small';_n.id='inviteNote';_n.style.marginBottom='var(--s2)';_n.setAttribute('data-i18n','ref.friend_note');_n.textContent=T('ref.friend_note','🎁 A friend invited you — create your account to get started.');_rs.insertBefore(_n,_rs.firstChild);}
+  if(_rs){const _n=document.createElement('p');_n.className='muted small';_n.id='inviteNote';_n.style.marginBottom='var(--s2)';_n.innerHTML=GIFT_ICON+'<span data-i18n="ref.friend_note"></span>';_n.lastChild.textContent=T('ref.friend_note','A friend invited you — create your account to get started.');_rs.insertBefore(_n,_rs.firstChild);}
   // UX-3: the recognition also belongs in the HERO — the register card sits
   // several screens down, so invited visitors used to land on an unchanged page.
   const _hero=document.querySelector('.hero');
-  if(_hero){const _b=document.createElement('div');_b.id='inviteHero';_b.className='muted small';_b.style.marginBottom='var(--s3)';_b.setAttribute('data-i18n','ref.friend_hero');_b.textContent=T('ref.friend_hero','🎁 A friend invited you — your signup credits them.');const _h1=_hero.querySelector('h1');if(_h1)_hero.insertBefore(_b,_h1);}
+  if(_hero){const _b=document.createElement('div');_b.id='inviteHero';_b.className='muted small';_b.style.marginBottom='var(--s3)';_b.innerHTML=GIFT_ICON+'<span data-i18n="ref.friend_hero"></span>';_b.lastChild.textContent=T('ref.friend_hero','A friend invited you — your signup credits them.');const _h1=_hero.querySelector('h1');if(_h1)_hero.insertBefore(_b,_h1);}
   // Recognition upgrade: when the referrer chose a PUBLIC leaderboard handle,
   // name them by it (the only fact the invite endpoint ever reveals). An
   // invalid/expired code quietly keeps the generic note — never an error.
@@ -998,10 +1012,10 @@ if(REF){
         // The handle banner replaces the generic note — drop the data-i18n
         // marker so a later language switch can't clobber it back.
         n.removeAttribute('data-i18n');
-        n.innerHTML='🎁 '+T('ref.invited_full','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>. Your signup credits them.');
+        n.innerHTML=GIFT_ICON+T('ref.invited_full','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>. Your signup credits them.');
         n.querySelector('b').textContent=d.handle;
         const hb=document.getElementById('inviteHero');
-        if(hb){hb.removeAttribute('data-i18n');hb.innerHTML='🎁 '+T('ref.invited_short','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>.');hb.querySelector('b').textContent=d.handle;}
+        if(hb){hb.removeAttribute('data-i18n');hb.innerHTML=GIFT_ICON+T('ref.invited_short','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>.');hb.querySelector('b').textContent=d.handle;}
       }
     })
     .catch(function(){/* generic note stands */});
@@ -1525,7 +1539,7 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
         : s.status === 'upcoming' ? ('starts in ' + dd + 'd ' + hh + 'h') : 'final standings';
       var n = (d.rows || []).length;
       if (n) meta += ' · ' + n + ' competing';
-      document.getElementById('srName').textContent = '🏁 ' + s.name;
+      document.getElementById('srName').textContent = s.name;
       document.getElementById('srStatus').textContent = s.status;
       document.getElementById('srMeta').textContent = meta;
       document.getElementById('seasonRibbon').hidden = false;
@@ -1605,6 +1619,8 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
       if (!d || !d.rows || !d.rows.length) return;
       var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+      var ltCls = (window.RC && RC.pnlClass) || function () { return ''; };
+      var ltArrow = (function(v){return v==null||!isFinite(Number(v))?'':'<svg class="icon dir-arrow" aria-hidden="true"><use href="#icon-arrow-'+(Number(v)>=0?'up':'down')+'"></use></svg> ';});
       var ago = function (iso) {
         var s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
         return s < 60 ? s + 's ago' : s < 3600 ? Math.floor(s / 60) + 'm ago'
@@ -1616,7 +1632,9 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
           + '<span style="color:var(--' + (up ? 'up' : 'down') + ')">' + (up ? '▲' : '▼') + '</span>'
           + '<b>' + esc(t.handle) + '</b>'
           + '<span>' + esc(t.symbol) + '</span>'
-          + '<span style="color:var(--' + (t.pct >= 0 ? 'up' : 'down') + ')">' + (t.pct > 0 ? '+' : '') + Number(t.pct).toFixed(2) + '%</span>'
+          + '<span class="' + ltCls(t.pct) + '">' + ltArrow(t.pct)
+            + (t.pct == null || !isFinite(Number(t.pct)) ? '—'
+               : (t.pct > 0 ? '+' : '') + Number(t.pct).toFixed(2) + '%') + '</span>'
           + '<span class="muted" style="font-size:var(--fs-xs)">' + esc(t.reason) + ' · ' + ago(t.closed_at) + '</span></div>';
       }).join('');
       document.getElementById('ltPulse').textContent = d.traders + ' traders · ' + d.trades_24h + ' closes in 24h';
@@ -1637,16 +1655,16 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
       var bits = [];
       if (d.top_pattern) {
-        bits.push('🧭 ' + esc(String(d.top_pattern.symbol).replace('/USDT', '').replace(/USDT$/, ''))
+        bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-compass"></use></svg> ' + esc(String(d.top_pattern.symbol).replace('/USDT', '').replace(/USDT$/, ''))
           + ' · ' + esc(d.top_pattern.name) + ' (' + Math.round(d.top_pattern.confidence * 100) + '%)');
       }
       if (d.signals && d.signals.created_today) {
         var s = d.signals.created_today + ' signal' + (d.signals.created_today === 1 ? '' : 's') + ' today';
         if (d.signals.resolved_today) s += ', ' + d.signals.wins_today + '/' + d.signals.resolved_today + ' wins';
-        bits.push('📡 ' + s);
+        bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-radar"></use></svg> ' + s);
       }
-      if (d.arena && d.arena.closes_24h) bits.push('🏟️ ' + d.arena.traders + ' traders · ' + d.arena.closes_24h + ' closes in 24h');
-      if (d.season && d.season.status === 'live') bits.push('🏁 ' + esc(d.season.name) + ' is LIVE');
+      if (d.arena && d.arena.closes_24h) bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-users"></use></svg> ' + d.arena.traders + ' traders · ' + d.arena.closes_24h + ' closes in 24h');
+      if (d.season && d.season.status === 'live') bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-flag"></use></svg> ' + esc(d.season.name) + ' is LIVE');
       if (bits.length < 2) return;   // one lonely stat isn't a digest
       var el = document.getElementById('todayStrip');
       el.textContent = 'Today on RUNECLAW — ' + bits.join('  ·  ');
