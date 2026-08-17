@@ -199,10 +199,10 @@
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
-    <li class="trust-badge">🔎 <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
-    <li class="trust-badge">🔒 <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
-    <li class="trust-badge">🔑 <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
-    <li class="trust-badge">🔏 <span data-i18n="lp.tb_sealed">Sealed before the outcome</span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-radar"></use></svg> <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-wallet"></use></svg> <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-check"></use></svg> <span data-i18n="lp.tb_sealed">Sealed before the outcome</span></li>
   </ul>
   <!-- PROOF STRIP — the product's central claim, rendered as an artifact
        instead of an adjective. Every value here comes from /api/roots; the
@@ -273,12 +273,27 @@
     </li>
   </ol>
   <div class="how-explore"><div class="hero-explore">
-    <button class="btn btn--primary btn--sm" id="pwaInstall" type="button" hidden>📲 <span data-i18n="hero.install">Install the app</span></button>
-    <a class="btn btn--ghost btn--sm" href="/arena">🏟️ <span data-i18n="hero.explore_arena">Paper Arena</span></a>
-    <a class="btn btn--ghost btn--sm" href="/strengthmap">🌐 <span data-i18n="hero.explore_map">3D Strength Map</span></a>
-    <a class="btn btn--ghost btn--sm" href="/guardian">🛡️ <span data-i18n="hero.explore_guardian">Guardian safety suite</span></a>
-    <a class="btn btn--ghost btn--sm" href="/agents">⚔️ <span data-i18n="hero.explore_market">Marketplace</span></a>
+    <button class="btn btn--primary btn--sm" id="pwaInstall" type="button" hidden><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-rocket"></use></svg> <span data-i18n="hero.install">Install the app</span></button>
+    <a class="btn btn--ghost btn--sm" href="/arena"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-target"></use></svg> <span data-i18n="hero.explore_arena">Paper Arena</span></a>
+    <a class="btn btn--ghost btn--sm" href="/strengthmap"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-globe"></use></svg> <span data-i18n="hero.explore_map">3D Strength Map</span></a>
+    <a class="btn btn--ghost btn--sm" href="/guardian"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span data-i18n="hero.explore_guardian">Guardian safety suite</span></a>
+    <a class="btn btn--ghost btn--sm" href="/agents"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-coin"></use></svg> <span data-i18n="hero.explore_market">Marketplace</span></a>
   </div></div>
+</section>
+
+<!-- MOVED UP (2026-08-17). This is the most differentiating thing on the
+     site — the real engine's mind-stream, already connected to /api/stream
+     and already backfilled from /api/feed/recent — and it was sitting 68%
+     down a 4862px page, below the feature list, below Marketplace, below
+     Arena. Nothing needed building; it needed to be somewhere a visitor
+     reaches. Second section now, straight after "how it works", so the
+     claim is immediately followed by the system visibly doing it. -->
+<section class="section reveal-on-scroll section--tight" id="mindTease" aria-labelledby="live-h">
+  <div class="section-head">
+    <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
+    <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
+  </div>
+  <div class="card" id="landingFeed"><p class="muted small" data-i18n="lp.connecting">Connecting to the agent…</p></div>
 </section>
 
 <section class="section reveal-on-scroll" id="whyTease" aria-labelledby="why-h">
@@ -360,10 +375,10 @@
     <p data-i18n="doors.sub">The whole site, grouped by the job it does. Every page here is also linked from its own section below — this is just the shorter route.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <a class="feature" href="/proof"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🔏</span><h3 data-i18n="doors.d1_h">Evidence</h3><p data-i18n="doors.d1_p">Track record, Proof of PnL, the daily seal roots, and the full contract for verifying any single call yourself.</p></a>
+    <a class="feature" href="/proof"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-check"></use></svg><h3 data-i18n="doors.d1_h">Evidence</h3><p data-i18n="doors.d1_p">Track record, Proof of PnL, the daily seal roots, and the full contract for verifying any single call yourself.</p></a>
     <a class="feature" href="/arena"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎯</span><h3 data-i18n="doors.d2_h">Play</h3><p data-i18n="doors.d2_p">Paper-trade the Arena on the same virtual stake as everyone else, take the Daily Duel, or work through the Study Room.</p></a>
     <a class="feature" href="/dashboard"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📈</span><h3 data-i18n="doors.d3_h">Trade</h3><p data-i18n="doors.d3_p">The cockpit — portfolio, live signals, markets and execution. Paper by default; live only on your own exchange keys.</p></a>
-    <a class="feature" href="/guardian"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛡️</span><h3 data-i18n="doors.d4_h">Safety</h3><p data-i18n="doors.d4_p">Guardian — the transaction firewall, the Escape Agent, the allowance X-ray and the portfolio stress lab.</p></a>
+    <a class="feature" href="/guardian"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="doors.d4_h">Safety</h3><p data-i18n="doors.d4_p">Guardian — the transaction firewall, the Escape Agent, the allowance X-ray and the portfolio stress lab.</p></a>
     <a class="feature" href="/letter"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">✍️</span><h3 data-i18n="doors.d5_h">Story</h3><p data-i18n="doors.d5_p">The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words.</p></a>
   </div>
 </section>
@@ -388,10 +403,10 @@
   <h2 id="pidx-h" class="page-index__h" data-i18n="idx.h">On this page</h2>
   <ul class="page-index__list">
     <li><a href="#howItWorks" data-i18n="lp.how_h">How it works</a></li>
+    <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
     <li><a href="#whyTease" data-i18n="idx.why">Why it&rsquo;s different</a></li>
     <li><a href="#provableTease" data-i18n="sec.prov_eyebrow">Provable Calls</a></li>
     <li><a href="#askTease" data-i18n="nav.chat">AI Chat</a></li>
-    <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
     <li><a href="#theaterSection" data-i18n="idx.theater">Live trade</a></li>
     <li><a href="#boardTease" data-i18n="nav.leaderboard">Leaders</a></li>
     <li><a href="#marketplaceTease" data-i18n="nav.marketplace">Marketplace</a></li>
@@ -407,14 +422,6 @@
     <p data-i18n="sec.ask_p">This is the live analyst — the same one behind the Telegram bot. Ask it anything; no account needed.</p>
   </div>
   <div id="chatInlineHost"></div>
-</section>
-
-<section class="section reveal-on-scroll section--tight" id="mindTease" aria-labelledby="live-h">
-  <div class="section-head">
-    <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
-    <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
-  </div>
-  <div class="card" id="landingFeed"><p class="muted small" data-i18n="lp.connecting">Connecting to the agent…</p></div>
 </section>
 
 <section class="section hidden section--tight" id="theaterSection" hidden aria-labelledby="theater-h">

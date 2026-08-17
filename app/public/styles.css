@@ -1514,3 +1514,12 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .mobile-cta { transition: none; }
 }
+
+/* ---- Icons instead of emoji ------------------------------------------
+   Thirty-five emoji were doing UI-icon duty. They render at a different
+   size, weight and baseline on every operating system — which is why a row
+   of them never optically aligns with its own label — they cannot inherit
+   currentColor, and several are country-flag-style sequences that fall back
+   to tofu on older Android. The sprite already existed. */
+.tb-icon { flex: none; opacity: .82; vertical-align: -2px; color: var(--gold); }
+.card-icon { width: 24px; height: 24px; display: block; margin-bottom: 8px; color: var(--gold); }
