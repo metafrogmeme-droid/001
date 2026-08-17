@@ -937,6 +937,39 @@ body::after {
 :root[dir="rtl"] .rc-lang-select { padding: 6px 10px 6px 26px; background-position: left 9px center; }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   Page index — the landing page's table of contents.
+   Tokens only: no new colours. The palette decision this round was to leave
+   it alone and judge structure first, so this borrows --surface-2/--line/
+   --gold exactly as every other chip on the site does.
+   ═══════════════════════════════════════════════════════════════════════ */
+.page-index { max-width: 1100px; margin: 0 auto var(--s6); padding: 0 var(--s4); }
+.page-index__h {
+  font-family: var(--font-data); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .09em; color: var(--text-3);
+  margin: 0 0 var(--s2);
+}
+.page-index__list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: var(--s2);
+}
+.page-index__list a {
+  display: inline-flex; align-items: center; min-height: 32px;
+  padding: 4px 12px; border: 1px solid var(--line-2); border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2);
+  font-size: var(--fs-xs); text-decoration: none; white-space: nowrap;
+  transition: border-color .16s ease, color .16s ease, background .16s ease;
+}
+.page-index__list a:hover, .page-index__list a:focus-visible {
+  border-color: var(--gold); color: var(--gold-bright); background: var(--gold-dim);
+}
+/* Touch targets stay 44px on phones, matching .nav-links above. */
+@media (max-width: 720px) {
+  .page-index__list a { min-height: 44px; }
+}
+/* Scrolling to an anchor must not tuck the heading under the sticky topbar. */
+.section[id], nav.page-index[id] { scroll-margin-top: calc(var(--topbar-h) + var(--s3)); }
+
+/* ═══════════════════════════════════════════════════════════════════════
    Motion & interaction polish — a cohesive smoothness layer across every
    control. Appended last so these rules win ties; every animation/transition
    here is auto-neutralised by the global prefers-reduced-motion block near the

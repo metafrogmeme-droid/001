@@ -304,7 +304,44 @@
   </div>
 </section>
 
-<section class="section" aria-labelledby="ask-h">
+<!-- Page index. The page is a CATALOGUE — fifteen sections, each carrying
+     specific, translated copy that does real work. The stated problem is that
+     a visitor cannot see its shape, and the fix for that is an index, not a
+     cull: deleting entries from a catalogue does not make it easier to
+     navigate, it makes it smaller and worse.
+
+     It sits directly under the five doors because the doors say what the site
+     IS and this says what the page CONTAINS — summary, then contents.
+
+     ENTRIES FOR ABSENT SECTIONS ARE REMOVED, NOT LEFT DANGLING. Two sections
+     (#theaterSection, #boardTease) ship `hidden` and are revealed only once
+     real data loads — the "real or nothing" rule this page already follows for
+     the sealed-call widget. An index that lists them anyway is the same defect
+     one level up: a contents entry is a claim that the content is there, and a
+     visitor who clicks it and lands nowhere has been told something false by
+     the navigation rather than by a number. -->
+<nav class="page-index" id="pageIndex" aria-labelledby="pidx-h">
+  <h2 id="pidx-h" class="page-index__h" data-i18n="idx.h">On this page</h2>
+  <ul class="page-index__list">
+    <li><a href="#whyTease" data-i18n="idx.why">Why it&rsquo;s different</a></li>
+    <li><a href="#provableTease" data-i18n="sec.prov_eyebrow">Provable Calls</a></li>
+    <li><a href="#askTease" data-i18n="nav.chat">AI Chat</a></li>
+    <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
+    <li><a href="#theaterSection" data-i18n="idx.theater">Live trade</a></li>
+    <li><a href="#boardTease" data-i18n="nav.leaderboard">Leaders</a></li>
+    <li><a href="#strengthTease" data-i18n="nav.strengthmap">Strength Map</a></li>
+    <li><a href="#marketplaceTease" data-i18n="nav.marketplace">Marketplace</a></li>
+    <li><a href="#guardianTease" data-i18n="nav.guardian">Guardian</a></li>
+    <li><a href="#duelTease" data-i18n="nav.duel">Duel</a></li>
+    <li><a href="#arenaTease" data-i18n="nav.arena">Arena</a></li>
+    <li><a href="#pathTease" data-i18n="sec.path_eyebrow">The trader&rsquo;s path</a></li>
+    <li><a href="#featuresTease" data-i18n="idx.web">On the web</a></li>
+    <li><a href="#loopTease" data-i18n="idx.loop">The loop</a></li>
+  </ul>
+</nav>
+
+
+<section class="section" id="askTease" aria-labelledby="ask-h">
   <div class="section-head">
     <h2 id="ask-h" data-i18n="sec.ask_h">Talk to it, right here</h2>
     <p data-i18n="sec.ask_p">This is the live analyst — the same one behind the Telegram bot. Ask it anything; no account needed.</p>
@@ -312,7 +349,7 @@
   <div id="chatInlineHost"></div>
 </section>
 
-<section class="section reveal-on-scroll" aria-labelledby="live-h">
+<section class="section reveal-on-scroll" id="mindTease" aria-labelledby="live-h">
   <div class="section-head">
     <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
     <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
@@ -487,7 +524,7 @@
   </p>
 </section>
 
-<section class="section reveal-on-scroll" aria-labelledby="features-h">
+<section class="section reveal-on-scroll" id="featuresTease" aria-labelledby="features-h">
   <div class="section-head">
     <h2 id="features-h" data-i18n="lp.web_h">Everything the bot does, on the web</h2>
     <p data-i18n="lp.web_p">The same engine that runs the autonomous scanner, scoped to your account.</p>
@@ -502,7 +539,7 @@
   </div>
 </section>
 
-<section class="section reveal-on-scroll" aria-labelledby="how-h">
+<section class="section reveal-on-scroll" id="loopTease" aria-labelledby="how-h">
   <div class="section-head">
     <h2 id="how-h" data-i18n="lp.loop_h">One loop, running continuously</h2>
     <p data-i18n="lp.loop_p">Not a static screener — a live decision loop that never stops.</p>
@@ -710,9 +747,9 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=115"></script>
+<script src="/js/i18n.js?v=116"></script>
 <script src="/js/icons.js?v=3"></script>
-<script src="/js/app.js?v=8"></script>
+<script src="/js/app.js?v=9"></script>
 <script src="/js/chat.js?v=26" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
 <script>
