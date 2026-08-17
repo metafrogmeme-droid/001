@@ -25,7 +25,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=24">
+<link rel="stylesheet" href="/styles.css?v=25">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -341,7 +341,7 @@
 </nav>
 
 
-<section class="section" id="askTease" aria-labelledby="ask-h">
+<section class="section section--tight" id="askTease" aria-labelledby="ask-h">
   <div class="section-head">
     <h2 id="ask-h" data-i18n="sec.ask_h">Talk to it, right here</h2>
     <p data-i18n="sec.ask_p">This is the live analyst — the same one behind the Telegram bot. Ask it anything; no account needed.</p>
@@ -349,7 +349,7 @@
   <div id="chatInlineHost"></div>
 </section>
 
-<section class="section reveal-on-scroll" id="mindTease" aria-labelledby="live-h">
+<section class="section reveal-on-scroll section--tight" id="mindTease" aria-labelledby="live-h">
   <div class="section-head">
     <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
     <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
@@ -357,7 +357,7 @@
   <div class="card" id="landingFeed"><p class="muted small" data-i18n="lp.connecting">Connecting to the agent…</p></div>
 </section>
 
-<section class="section hidden" id="theaterSection" hidden aria-labelledby="theater-h">
+<section class="section hidden section--tight" id="theaterSection" hidden aria-labelledby="theater-h">
   <div class="section-head">
     <h2 id="theater-h" data-i18n="lp.replay_h">Watch a real trade unfold</h2>
     <p data-i18n="lp.replay_p">Replayed frame by frame from the engine's recorded log — a real entry, a real exit, real PnL. Wins and losses alike.</p>
@@ -382,7 +382,7 @@
 <!-- The differentiator, teased where visitors actually are: every row is an
      anonymous handle with a sealed, re-verifiable record — percent-based and
      size-agnostic by construction, never a dollar figure. -->
-<section class="section hidden" id="boardTease" hidden aria-labelledby="board-h">
+<section class="section hidden section--tight" id="boardTease" hidden aria-labelledby="board-h">
   <div class="section-head">
     <h2 id="board-h" data-i18n="lp.board_h">A leaderboard you can't fake</h2>
     <p data-i18n="lp.board_p">Anonymous handles, sealed statements, a publish hash anyone can re-verify — performance you can check, not screenshots.</p>
@@ -402,7 +402,7 @@
      dollar figure (§4). Cards link into the public /agents marketplace. -->
 <!-- 3D Strength Map showcase — the flagship market-intelligence visual, brought
      onto the front door. Public market data only, links to the live /strengthmap. -->
-<section class="section reveal-on-scroll" id="strengthTease" aria-labelledby="strength-h">
+<section class="section reveal-on-scroll section--dense" id="strengthTease" aria-labelledby="strength-h">
   <div class="card" style="position:relative;overflow:hidden;background:radial-gradient(130% 150% at 12% 0%, rgba(214,178,90,.10), transparent 55%), var(--surface);border:1px solid var(--line-2)">
     <div class="section-head" style="margin-bottom:var(--s3)">
       <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-radar"></use></svg> <span data-i18n="sec.strength_eyebrow">Market intelligence</span></div>
@@ -417,7 +417,7 @@
 </section>
 <style>.sm-pill{font-size:var(--fs-xs);padding:3px 11px;border-radius:999px;border:1px solid var(--line-2);color:var(--text-2);font-family:var(--font-data,inherit);white-space:nowrap}</style>
 
-<section class="section reveal-on-scroll" id="marketplaceTease" aria-labelledby="mkt-h">
+<section class="section reveal-on-scroll section--dense" id="marketplaceTease" aria-labelledby="mkt-h">
   <div class="section-head">
     <h2 id="mkt-h" data-i18n="sec.mkt_h">The Strategy Agent Marketplace</h2>
     <p data-i18n="sec.mkt_p">Browse the engine's strategy agents — each one a real preset with a verified, reproducible backtest. Follow one, copy its picks on paper, or reproduce its numbers yourself in the Lab.</p>
@@ -432,7 +432,7 @@
 
 <!-- Guardian: the differentiated safety layer, showcased on the front door.
      Each card links to a live tool. Design/heuristic only, §4-safe. -->
-<section class="section reveal-on-scroll" id="guardianTease" aria-labelledby="guardian-h">
+<section class="section reveal-on-scroll section--dense" id="guardianTease" aria-labelledby="guardian-h">
   <div class="section-head">
     <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span>RUNECLAW Guardian</span></div>
     <h2 id="guardian-h" data-i18n="sec.guardian_h">The safety layer AI trading forgot</h2>
@@ -458,7 +458,7 @@
 <!-- Daily Duel — the shortest path from landing here to doing something. The
      Arena asks for a trading decision with size attached; this asks only for
      an opinion, and it takes one tap. §4: no stake exists to report. -->
-<section class="section reveal-on-scroll" id="duelTease" aria-labelledby="duel-h">
+<section class="section reveal-on-scroll section--dense" id="duelTease" aria-labelledby="duel-h">
   <div class="section-head">
     <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-sparkle"></use></svg> <span data-i18n="sec.duel_eyebrow">Daily Duel</span></div>
     <h2 id="duel-h" data-i18n="sec.duel_h">Think you can call it better than the AI?</h2>
@@ -467,7 +467,7 @@
   </div>
 </section>
 
-<section class="section reveal-on-scroll" id="arenaTease" aria-labelledby="arena-h">
+<section class="section reveal-on-scroll section--dense" id="arenaTease" aria-labelledby="arena-h">
   <!-- Live season ribbon — filled from the public season API when one exists.
        §4: name, status, countdown, competitor COUNT only. -->
   <div id="seasonRibbon" hidden style="margin-bottom:var(--s4)">
@@ -507,7 +507,7 @@
   </p>
 </section>
 
-<section class="section reveal-on-scroll" id="pathTease" aria-labelledby="path-h">
+<section class="section reveal-on-scroll section--dense" id="pathTease" aria-labelledby="path-h">
   <div class="section-head">
     <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-sparkle"></use></svg> <span data-i18n="sec.path_eyebrow">The trader's path</span></div>
     <h2 id="path-h" data-i18n="sec.path_h">Learn it. Play it. Wear it.</h2>
@@ -524,7 +524,7 @@
   </p>
 </section>
 
-<section class="section reveal-on-scroll" id="featuresTease" aria-labelledby="features-h">
+<section class="section reveal-on-scroll section--dense" id="featuresTease" aria-labelledby="features-h">
   <div class="section-head">
     <h2 id="features-h" data-i18n="lp.web_h">Everything the bot does, on the web</h2>
     <p data-i18n="lp.web_p">The same engine that runs the autonomous scanner, scoped to your account.</p>
@@ -539,7 +539,7 @@
   </div>
 </section>
 
-<section class="section reveal-on-scroll" id="loopTease" aria-labelledby="how-h">
+<section class="section reveal-on-scroll section--dense" id="loopTease" aria-labelledby="how-h">
   <div class="section-head">
     <h2 id="how-h" data-i18n="lp.loop_h">One loop, running continuously</h2>
     <p data-i18n="lp.loop_p">Not a static screener — a live decision loop that never stops.</p>
