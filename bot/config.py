@@ -1040,6 +1040,30 @@ class LLMConfig:
     temperature: float = _env_float("LLM_TEMPERATURE", 0.3)
     max_tokens: int = int(_env_float("LLM_MAX_TOKENS", 1024))
     timeout_seconds: float = _env_float("LLM_TIMEOUT_SEC", 15.0)
+    # Wall-clock cap on the WHOLE chat fallback chain (telegram_handler's
+    # _llm_chat). `timeout_seconds` above is PER ATTEMPT — provider.py's
+    # asyncio.wait_for reads it off each candidate's own config — so a chain of
+    # BYOK -> chat_tier -> three env fallbacks -> primary ADDS its timeouts:
+    # 15 + 20 + 20 + 20 + 15 = 90 seconds of total silence before an admin is
+    # told anything at all. Operator report: "response from bot seems slow."
+    #
+    # 45.0, and the 20.0 lower bound, come from ONE property: this must be
+    # strictly greater than the largest single attempt in the chain (20.0,
+    # hardcoded at telegram_handler.py:1750). Above that line the deadline can
+    # never cut short an answer the per-attempt timeout would itself have
+    # allowed — it only stops the ADDITION. A deadline tight enough to kill a
+    # healthy slow answer is worse than the disease, so the bound makes that
+    # impossible by construction rather than merely unlikely.
+    #
+    # Headroom: the chat-tier models actually in play are flash-class
+    # (gemini-2.0-flash, qwen3.6-plus, claude-haiku-4-5) at roughly 2-4s p50
+    # and 8-12s p95 for a 1024-token answer, so 45s buys a full 15s first
+    # attempt PLUS a full 20s second PLUS most of a third — the common degraded
+    # case (first provider dead, second answers) fits with room to spare. It is
+    # not set at 20-25s because the genuinely slow HEALTHY case is the admin
+    # route to a thinking-enabled model, which must not be truncated.
+    chat_deadline_seconds: float = _env_float_bounded(
+        "LLM_CHAT_DEADLINE_SEC", 45.0, 20.0, 180.0)
     daily_call_limit: int = int(_env_float("LLM_DAILY_LIMIT", 500))
     # Async request-rate cap (requests/minute) for the LLM client. Dedicated
     # per-provider RPM bound — independent of the DAILY budget (deep-audit #43).

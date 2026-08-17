@@ -526,6 +526,19 @@ def _dashboard_url() -> str:
     return f"{base}/dashboard#home"
 
 
+# Floor on a chat attempt whose timeout has been clamped to the remaining chain
+# deadline. Once less than this is left, starting one more provider buys a
+# near-certain timeout: it still bills the prompt tokens, still spends the
+# user's patience, and cannot plausibly return a 1024-token answer (flash-class
+# p50 ~2-4s). 0.2s left is not an attempt, it is a slower way to fail. Below
+# this the chain stops and SAYS it stopped.
+#
+# A constant rather than a second env knob deliberately: one dial per decision.
+# A floor an operator can raise above the deadline is a way to configure a chain
+# that never tries anything.
+CHAT_MIN_ATTEMPT_SEC = 6.0
+
+
 def _chat_ret(text: str, cfg, return_meta: bool):
     """Shape _llm_chat's return: plain string (default, every existing caller),
     or (string, meta) when the caller wants model transparency (the web
@@ -1793,9 +1806,33 @@ class TelegramHandler:
                     "or use a specific command like /scan or /positions.",
                     None, return_meta)
 
-        # Try each config in order
+        # Try each config in order, under ONE wall-clock deadline.
+        #
+        # Every timeout in this chain is PER ATTEMPT (bot/llm/provider.py does
+        # `asyncio.wait_for(_call(), timeout=config.timeout_seconds)`), so the
+        # chain's real cost was their SUM: an admin with every key present
+        # waited 15 + 20 + 20 + 20 + 15 = 90 seconds before being told ANYTHING.
+        # The deadline bounds that sum, and each attempt's own timeout is then
+        # clamped to whatever budget is LEFT.
+        #
+        # THE CLAMP RIDES A COPY. LLMConfig is @dataclass(frozen=True), so
+        # assigning cfg.timeout_seconds raises FrozenInstanceError — but the
+        # copy is not merely a workaround for that. Three OTHER callers share
+        # the same provider timeout (bot/core/analyzer.py, bot/skills/scan_skill.py,
+        # bot/core/self_audit.py), and two are background paths where a
+        # chat-shaped deadline would be a regression rather than a fix. Nothing
+        # here touches provider.py or CONFIG.llm.timeout_seconds.
+        from dataclasses import replace as _dc_replace
+        _deadline = time.monotonic() + float(CONFIG.llm.chat_deadline_seconds)
+        _tried = 0
         last_error = ""
         for source, cfg in configs_to_try:
+            _left = _deadline - time.monotonic()
+            if _left < CHAT_MIN_ATTEMPT_SEC:
+                break
+            cfg = _dc_replace(
+                cfg, timeout_seconds=min(float(cfg.timeout_seconds), _left))
+            _tried += 1
             try:
                 client = create_llm_client(cfg)
                 if client is None:
@@ -1851,6 +1888,25 @@ class TelegramHandler:
                         category="chat",
                     )
 
+                # An empty completion is NOT an answer. `answer` can be "" on a
+                # content-filter finish, a tool-call-only turn, or a truncated
+                # stream — provider.py normalizes all three to "". Returning it
+                # here painted a BLANK bubble, which reads as "the model
+                # answered and had nothing to say": a confident negative
+                # manufactured from a failed read, in the same shape as a 0.00%
+                # over an unfetchable price.
+                #
+                # Treat it as THIS candidate failing and fall through to the
+                # next; the deadline above bounds how long that can go on. Cost
+                # is recorded above and stays recorded — the tokens were really
+                # spent, and dropping that would hide real spend from /costs.
+                if not (answer or "").strip():
+                    last_error = f"{cfg.provider.value}: empty completion"
+                    audit(system_log,
+                          f"Chat empty completion from {cfg.provider.value}",
+                          action="chat_empty", result="FALLBACK")
+                    continue
+
                 if source != "chat_tier":
                     audit(system_log,
                           f"Chat used fallback: {cfg.provider.value}/{cfg.model}",
@@ -1870,9 +1926,33 @@ class TelegramHandler:
                       action="chat_error", result="FALLBACK")
                 continue
 
-        # All providers failed. F-15: the raw provider exception (last_error)
-        # can carry a credential-bearing URL or an upstream 4xx body echoing a
-        # key — it goes to the audit log ONLY, never into the user-facing reply.
+        # Nothing answered — and there are TWO different reasons, which must not
+        # be told as one. Either every candidate was tried and every one failed,
+        # or the wall-clock budget ran out first and some were never asked.
+        #
+        # Serving "the AI is temporarily unavailable" in the second case is a
+        # confident negative about something never measured: the providers we
+        # skipped may be perfectly healthy, and the user would be told the
+        # models are down when in truth we stopped waiting. That is this repo's
+        # rule applied to a sentence rather than a number. Neither branch may
+        # render as an empty bubble, and neither invents an answer.
+        #
+        # F-15, BOTH branches: the raw provider exception (last_error) can carry
+        # a credential-bearing URL or an upstream 4xx body echoing a key. It
+        # goes to the audit log ONLY, never into the user-facing reply, and
+        # provider names stay in the log too.
+        if _tried < len(configs_to_try):
+            audit(system_log,
+                  f"Chat deadline hit after {_tried}/{len(configs_to_try)} "
+                  f"providers ({CONFIG.llm.chat_deadline_seconds:.0f}s budget). "
+                  f"Last: {last_error}",
+                  action="chat_deadline", result="EXHAUSTED")
+            return _chat_ret(
+                "I stopped waiting before any model answered — that's a "
+                "timeout on my side, not an answer, and nothing was analyzed. "
+                "Try again in a moment, or use a specific command like /scan "
+                "or /positions.",
+                None, return_meta)
         audit(system_log, f"All chat LLM providers failed. Last: {last_error}",
               action="chat_error", result="ALL_FAILED")
         return _chat_ret(
