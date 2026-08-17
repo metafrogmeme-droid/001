@@ -1555,3 +1555,10 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   .section--tight { padding-top: var(--s8); padding-bottom: var(--s8); }
   .section--dense { padding-top: var(--s6); padding-bottom: var(--s6); }
 }
+
+/* The parent brand, stated once where identity belongs. Humanoid Traders is
+   the organisation and the domain; RUNECLAW is the product. They were never
+   connected on the page, so arriving from humanoid-traders.com meant meeting
+   an unfamiliar name with no explanation. */
+.brand-block { display: flex; flex-direction: column; gap: 4px; }
+.org-line { margin: 0; color: var(--text-3); }

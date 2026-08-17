@@ -7,6 +7,7 @@
 <link rel="canonical" href="https://www.humanoid-traders.com/explore">
 <meta name="description" content="The full RUNECLAW toolset in one place: the 3D Strength Map, the Guardian safety suite, the Strategy Agent Marketplace, the paper Arena, the Daily Duel and the trader’s path.">
 <meta property="og:title" content="Explore RUNECLAW — every tool on one page">
+<meta property="og:site_name" content="Humanoid Traders">
 <meta property="og:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/explore">
@@ -25,7 +26,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=26">
+<link rel="stylesheet" href="/styles.css?v=27">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -270,7 +271,10 @@
 
 <footer class="site-footer">
   <div class="inner">
-    <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+    <div class="brand-block">
+      <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+      <p class="org-line muted small" data-i18n="lp.org_line">RUNECLAW is the command core of Humanoid Traders.</p>
+    </div>
     <div class="links">
       <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
       <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
@@ -301,7 +305,7 @@
 
 
 
-<script src="/js/i18n.js?v=119"></script>
+<script src="/js/i18n.js?v=120"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=10"></script>
 <script src="/js/ambient.js?v=3" defer></script>

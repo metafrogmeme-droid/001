@@ -7,6 +7,7 @@
 <link rel="canonical" href="https://www.humanoid-traders.com/escape">
 <meta name="description" content="A dependency-aware emergency exit planner for complex crypto portfolios. Add your perps, loans, collateral, LPs, staking, spot and bridged assets and the Escape Agent sequences a safe unwind — close leverage first, repay debt to unlock collateral, exit LPs and staking, convert and bridge home — and flags what's locked. Planning only, no execution.">
 <meta property="og:title" content="RUNECLAW — Universal Escape Agent">
+<meta property="og:site_name" content="Humanoid Traders">
 <meta property="og:description" content="Plan the way out before you need it: a dependency-aware emergency unwind for perps, loans, collateral, LPs, staking and bridged assets. Ordered steps, dependencies and locked-asset flags. Planning only, not advice.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/escape">
@@ -21,7 +22,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=26">
+<link rel="stylesheet" href="/styles.css?v=27">
 <style>
   .es-wrap { max-width: 940px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -112,7 +113,7 @@
 <!-- Ahead of the page script, not after it. The plan renders synchronously at
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
-<script src="/js/i18n.js?v=119"></script>
+<script src="/js/i18n.js?v=120"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
