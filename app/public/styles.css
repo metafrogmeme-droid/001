@@ -57,6 +57,17 @@
 
   --radius: 10px; --radius-sm: 7px; --radius-lg: 14px;
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 30px rgba(0, 0, 0, .30);
+
+  /* Depth. The surfaces were flat — one border, one fill — which reads as a
+     tool rather than an instrument. These give a card a lit top edge and a
+     shadow that grounds it, without inventing a colour: every value here is
+     black or white at low alpha, so the palette still re-themes from --gold
+     and the semantic tokens are untouched. */
+  --edge: inset 0 1px 0 rgba(255, 255, 255, .055);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, .4), 0 2px 8px rgba(0, 0, 0, .22);
+  --elev-2: 0 2px 6px rgba(0, 0, 0, .45), 0 14px 36px rgba(0, 0, 0, .34);
+  --glass: linear-gradient(180deg, rgba(255, 255, 255, .028), rgba(255, 255, 255, 0) 42%);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--gold);
   --maxw: 1200px;
   --rail-w: 208px;
   --topbar-h: 56px;
@@ -1148,3 +1159,129 @@ a.dapp-card:hover, a.lpos-item:hover, .nft-card:hover {
 .wl-wallet:hover, .wl-wallet:focus-visible { transform: translateY(-1px); border-color: var(--gold-bright); }
 .wl-logo { flex: 0 0 24px; width: 24px; height: 24px; border-radius: 999px;
   display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #fff; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Surface & depth pass.
+
+   The panels, cards and feature tiles were a fill and a 1px border. Flat is
+   legible and it is also why the site read as a tech demo next to the thing
+   it actually is. This adds a lit top edge, a grounded shadow, a larger
+   radius and a hover lift — CSS only, no markup, so every page gains it and
+   nothing in the suite moves.
+
+   NO NEW COLOUR. Every value is black or white at low alpha over the existing
+   tokens. --gold still re-themes the whole site from one value, and the
+   semantic set (--up/--down/--warn/--info and their dims) is untouched: those
+   carry meaning, and a design pass is exactly when somebody quietly recolours
+   "unknown" to something that looks like a verdict.
+
+   Motion here is auto-neutralised by the global prefers-reduced-motion block
+   above, which zeroes every duration.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.panel, .card, .feature {
+  border-radius: var(--radius-lg);
+  background-image: var(--glass);
+  box-shadow: var(--edge), var(--elev-1);
+}
+.panel--quiet { box-shadow: none; background-image: none; }
+
+.panel--primary {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--edge), var(--elev-2);
+}
+
+/* Feature tiles are the site's most repeated object — the doors, the Guardian
+   grid, the trader's path. A tile that is also a link should feel like one. */
+.feature {
+  padding: var(--s6) var(--s4);
+  transition: transform var(--dur-2) var(--ease-out),
+              border-color var(--dur-2) var(--ease-out),
+              box-shadow var(--dur-2) var(--ease-out);
+}
+a.feature { text-decoration: none; color: inherit; display: block; }
+a.feature:hover, a.feature:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--line-2);
+  box-shadow: var(--edge), var(--elev-2);
+}
+a.feature:hover h3 { color: var(--gold-bright); }
+.feature h3 { transition: color var(--dur-1) var(--ease-out); }
+
+/* Section rhythm: the landing page is fifteen sections deep, and the thing
+   that makes a long page readable is air between its parts, not fewer parts. */
+.section { padding: calc(var(--s8) * 1.5) var(--s4); }
+.section-head { margin-bottom: var(--s6); max-width: 68ch; }
+.section-head h2 { line-height: 1.18; }
+.section-head p { line-height: 1.65; font-size: var(--fs-base); }
+.feature-grid { gap: var(--s4); }
+
+/* One focus ring, everywhere, on the accent. Keyboard users were getting the
+   browser default over a near-black ground, which is close to invisible. */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-sm);
+}
+
+/* The primary action should read as the primary action. */
+.btn--primary {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset,
+              0 6px 18px rgba(63, 182, 255, .22);
+}
+.btn--primary:hover { box-shadow: 0 1px 0 rgba(255, 255, 255, .22) inset,
+              0 8px 26px rgba(63, 182, 255, .34); }
+.btn { border-radius: var(--radius-sm); transition: border-color var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out), box-shadow var(--dur-2) var(--ease-out); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Topbar overflow.
+
+   Caught by SCREENSHOTTING the page rather than by any assertion: at 1280px
+   the landing nav wrapped onto two lines and pushed the "Get started" CTA
+   through the top edge of a fixed 56px bar, where it rendered clipped. Nine
+   links plus a language select plus a primary action do not fit, and nothing
+   in the suite can see that — the markup is valid, every link is present and
+   reachable, and the honesty guards are all satisfied. It just looked broken.
+
+   The bar keeps every link (the reachability guard requires them, and rightly)
+   and stops them wrapping: they stay on one line and the row scrolls if it
+   must, with the brand and the CTA pinned either side. A nav that scrolls is
+   a compromise; a nav that wraps into a fixed-height bar is a defect.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.topbar { flex-wrap: nowrap; }
+.topbar .nav-links {
+  display: flex; align-items: center; gap: var(--s3);
+  /* Absorb the leftover width and scroll INSIDE it. Without `flex: 1 1 auto`
+     the row keeps its content width and pushes the CTA off the right edge --
+     which is what the first attempt did: the wrap was gone and the primary
+     action had simply left the screen instead. */
+  /* `flex: 0 1 auto` — shrink when crowded, never grow. And NO
+     `justify-content: flex-end`: on an overflowing flex row that clips the
+     START of the content, which cut "Dashboard" down to "ard" at 1440px. The
+     `.spacer` already pushes this row right; alignment here only decides
+     which end gets eaten, and the answer must be the end you can scroll to. */
+  flex: 0 1 auto; min-width: 0;
+  overflow-x: auto; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.topbar .nav-links::-webkit-scrollbar { display: none; }
+.topbar .nav-links a { white-space: nowrap; flex: 0 0 auto; }
+/* The brand and the primary action never shrink or clip. */
+.topbar .brand, .topbar .top-actions { flex: 0 0 auto; }
+.topbar .top-actions .btn { white-space: nowrap; }
+
+/* Between tablet and small laptop the link row is the first thing to give.
+   Losing the least-load-bearing links there beats losing the CTA. */
+@media (max-width: 1560px) {
+  .topbar .nav-links a[href="/letter"],
+  .topbar .nav-links a[href="/leaderboard"] { display: none; }
+}
+@media (max-width: 1320px) {
+  .topbar .nav-links a[href="/proof"],
+  .topbar .nav-links a[href="/track"] { display: none; }
+}

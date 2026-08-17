@@ -49,5 +49,14 @@ test('trust badges gain a staggered entrance and a hover lift', () => {
 });
 
 test('styles.css cache-buster was bumped so the hero polish ships', () => {
-  assert.match(html, /styles\.css\?v=1[6-9]/);
+  // A FLOOR, not a range. This was `/styles\.css\?v=1[6-9]/`, which asserts
+  // the version is 16-19 — so it passed for exactly four bumps and then failed
+  // on the next legitimate one, which is what it did here at v=24. A test that
+  // expires teaches people to edit the test to make a build go green, and that
+  // habit costs far more than the check is worth.
+  const m = html.match(/styles\.css\?v=(\d+)/);
+  assert.ok(m, 'index.html no longer versions its stylesheet at all');
+  assert.ok(Number(m[1]) >= 16,
+    `styles.css is at v=${m[1]}; the hero polish shipped at v=16, so anything `
+    + 'below that means a page went back to a sheet without it');
 });
