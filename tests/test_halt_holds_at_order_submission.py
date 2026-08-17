@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("ccxt", reason="live_executor imports ccxt")
+from tests.dep_policy import require
+
+require("ccxt", "live_executor imports it")   # pinned: absent ⇒ fail, not skip
 
 from unittest.mock import patch  # noqa: E402
 

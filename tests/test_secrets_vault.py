@@ -11,9 +11,13 @@ is a clean no-op when disabled or idle.
 
 import os
 
-import pytest
+from tests.dep_policy import require
 
-pytest.importorskip("cryptography")  # vault needs Fernet; optional extra
+# The vault needs Fernet. The comment here used to read "optional extra" —
+# cryptography has been pinned in requirements.lock the whole time, so a
+# missing one is a broken environment and this file skipping would take the
+# operator secrets vault's entire test surface quietly with it.
+require("cryptography", "secrets_vault needs Fernet")
 
 from bot.core import secrets_vault as sv
 

@@ -40,7 +40,9 @@ the first draft of that rule flagged them, which is how the danger surfaced.
 
 import pytest
 
-pytest.importorskip("ccxt", reason="live_executor imports ccxt")
+from tests.dep_policy import require
+
+require("ccxt", "live_executor imports it")   # pinned: absent ⇒ fail, not skip
 
 from bot.core import live_executor as le  # noqa: E402
 

@@ -10,6 +10,7 @@ import base64
 import pytest
 
 from bot.token import solana_verify as sv
+from tests.dep_policy import require
 
 # Real, well-known Solana addresses — each is a 32-byte ed25519 public key.
 SYSTEM_PROGRAM = "11111111111111111111111111111111"
@@ -29,7 +30,7 @@ def _b58encode(raw: bytes) -> str:
 
 def _keypair():
     """A fresh ed25519 keypair as (private_key, base58_address)."""
-    crypto = pytest.importorskip("cryptography")  # noqa: F841
+    require("cryptography", "ed25519 keypairs for the verify path")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
