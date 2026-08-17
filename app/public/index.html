@@ -26,7 +26,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=30">
+<link rel="stylesheet" href="/styles.css?v=31">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -700,12 +700,12 @@
         <p class="small" data-i18n="acc.tfa_step1">1. Add this secret to your authenticator app (Google Authenticator, Aegis, 1Password…):</p>
         <div class="token-display" id="tfa-secret" data-act="copySelf" title="Click to copy"></div>
         <p class="small mt-2" data-i18n="acc.tfa_step2">2. Enter the 6-digit code it shows to confirm:</p>
-        <div class="field"><input class="input" type="text" id="tfa-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code"></div>
+        <div class="field"><label class="visually-hidden" for="tfa-code" data-i18n="a11y.tfa_code">Six-digit code from your authenticator app</label><input class="input" type="text" id="tfa-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code"></div>
         <button class="btn btn--primary btn--sm" data-act="tfaEnable" data-i18n="acc.tfa_confirm">Confirm &amp; enable</button>
       </div>
       <div id="tfa-on" class="hidden">
         <p class="small"><svg class="icon" style="width:14px;height:14px;color:var(--up)" aria-hidden="true"><use href="#icon-check"></use></svg> <span data-i18n-html="acc.tfa_on">2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
-        <div class="field mt-2"><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
+        <div class="field mt-2"><label class="visually-hidden" for="tfa-disable-code" data-i18n="a11y.tfa_disable">Current authenticator code or a backup code</label><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
         <button class="btn btn--ghost btn--sm" data-act="tfaDisable" data-i18n="acc.tfa_disable">Disable 2FA</button>
       </div>
       <div id="tfa-codes" class="hidden mt-2"></div>
@@ -787,10 +787,10 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=122"></script>
-<script src="/js/icons.js?v=4"></script>
+<script src="/js/i18n.js?v=123"></script>
+<script src="/js/icons.js?v=5"></script>
 <script src="/js/app.js?v=11"></script>
-<script src="/js/chat.js?v=26" defer></script>
+<script src="/js/chat.js?v=27" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
 <script>
 // Hero email-capture: the primary conversion action lives above the fold. It
@@ -957,7 +957,7 @@
   // Direction is also stated in SHAPE, not colour alone — WCAG 1.4.1, and
   // roughly one man in twelve cannot separate this red from this green.
   var arrow = (function(v){return v==null||!isFinite(Number(v))?'':'<svg class="icon dir-arrow" aria-hidden="true"><use href="#icon-arrow-'+(Number(v)>=0?'up':'down')+'"></use></svg> ';});
-  var fallback = '<p class="muted small"><a href="/agents">Open the Strategy Agent Marketplace →</a></p>';
+  var fallback = '<p class="muted small"><a class="how-link" href="/agents">Open the Strategy Agent Marketplace →</a></p>';
   fetch('/api/public/strategies', { headers: { Accept: 'application/json' } })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {

@@ -24,12 +24,12 @@
   "v": 1
  },
  "js/chat.js": {
-  "sha": "1f42070e61a2b692",
-  "v": 26
+  "sha": "3f00681d5e801f9f",
+  "v": 27
  },
  "js/dashboard.js": {
-  "sha": "a69ed8d78b098cb6",
-  "v": 138
+  "sha": "45d5bffaa0681141",
+  "v": 139
  },
  "js/duel.js": {
   "sha": "5dbbfd3297612824",
@@ -60,12 +60,12 @@
   "v": 1
  },
  "js/i18n.js": {
-  "sha": "0b39b560b28824d5",
-  "v": 122
+  "sha": "3c1b0dcc73ceda5c",
+  "v": 123
  },
  "js/icons.js": {
-  "sha": "438dc116e02d2838",
-  "v": 4
+  "sha": "45185741065c21cc",
+  "v": 5
  },
  "js/intent-model.js": {
   "sha": "d288c395a7e14720",
@@ -132,7 +132,7 @@
   "v": 1
  },
  "styles.css": {
-  "sha": "d800ed05633fc689",
-  "v": 30
+  "sha": "3b49e7ab41595cf9",
+  "v": 31
  }
 }

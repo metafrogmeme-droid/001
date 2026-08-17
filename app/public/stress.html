@@ -22,7 +22,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=30">
+<link rel="stylesheet" href="/styles.css?v=31">
 <style>
   .sx-wrap { max-width: 1000px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -135,9 +135,9 @@
   <section class="panel reveal-on-scroll">
     <h2 data-i18n="sx.cust_h">Custom shock</h2>
     <div class="cust">
-      <div><label><span data-i18n="sx.f_majors">Majors</span> <span class="val" id="cmV">-20%</span></label><input type="range" id="cm" min="-90" max="20" value="-20"></div>
-      <div><label><span data-i18n="sx.f_alts">Alts</span> <span class="val" id="caV">-35%</span></label><input type="range" id="ca" min="-95" max="20" value="-35"></div>
-      <div><label><span data-i18n="sx.f_stables">Stables</span> <span class="val" id="csV">0%</span></label><input type="range" id="cs" min="-30" max="2" value="0"></div>
+      <div><label for="cm"><span data-i18n="sx.f_majors">Majors</span> <span class="val" id="cmV">-20%</span></label><input type="range" id="cm" min="-90" max="20" value="-20"></div>
+      <div><label for="ca"><span data-i18n="sx.f_alts">Alts</span> <span class="val" id="caV">-35%</span></label><input type="range" id="ca" min="-95" max="20" value="-35"></div>
+      <div><label for="cs"><span data-i18n="sx.f_stables">Stables</span> <span class="val" id="csV">0%</span></label><input type="range" id="cs" min="-30" max="2" value="0"></div>
       <div class="sc" id="customCard" style="min-width:0"></div>
     </div>
   </section>
@@ -152,7 +152,7 @@
 <!-- Ahead of the page script: renderRows()/recompute() run at parse time,
      so an i18n.js loaded at the bottom arrives after every T() has already
      fallen back to English. Same boot-order bug the escape page had. -->
-<script src="/js/i18n.js?v=122"></script>
+<script src="/js/i18n.js?v=123"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/stress-model.js?v=2"></script>
 <script>
@@ -177,15 +177,20 @@
 
   function rowHtml(p, i) {
     return '<div class="pos-row" data-i="' + i + '">'
-      + '<input data-k="asset" value="' + esc(p.asset) + '" maxlength="12" placeholder="BTC" autocomplete="off">'
-      + '<input data-k="weight" type="number" min="0" max="100" step="1" value="' + esc(p.weight) + '">'
-      + '<input data-k="leverage" type="number" min="1" max="125" step="1" value="' + esc(p.leverage) + '">'
-      + '<select data-k="dir"><option value="long"' + (p.dir !== 'short' ? ' selected' : '') + '>' + esc(T('sx.dir_long', '▲ Long')) + '</option>'
+      + '<input data-k="asset" aria-label="Asset" data-i18n-attr="aria-label:a11y.r_asset" value="' + esc(p.asset) + '" maxlength="12" placeholder="BTC" autocomplete="off">'
+      + '<input data-k="weight" aria-label="Weight, percent of portfolio" data-i18n-attr="aria-label:a11y.r_weight" type="number" min="0" max="100" step="1" value="' + esc(p.weight) + '">'
+      + '<input data-k="leverage" aria-label="Leverage, multiple" data-i18n-attr="aria-label:a11y.r_lev" type="number" min="1" max="125" step="1" value="' + esc(p.leverage) + '">'
+      + '<select data-k="dir" aria-label="Direction, long or short" data-i18n-attr="aria-label:a11y.r_dir"><option value="long"' + (p.dir !== 'short' ? ' selected' : '') + '>' + esc(T('sx.dir_long', '▲ Long')) + '</option>'
       + '<option value="short"' + (p.dir === 'short' ? ' selected' : '') + '>' + esc(T('sx.dir_short', '▼ Short')) + '</option></select>'
       + '<button class="rm" data-rm="' + i + '" type="button" aria-label="Remove" data-i18n-attr="aria-label:a11y.remove">×</button></div>';
   }
   function renderRows() {
     $('rows').innerHTML = positions.map(rowHtml).join('');
+    // i18n has no MutationObserver, so markup built after boot keeps whatever
+    // its literal attributes say. Every row's aria-labels — and the Remove
+    // buttons, which have carried data-i18n-attr since they were written —
+    // stayed English in all fourteen locales until this call existed.
+    if (window.RCI18N) RCI18N.apply($('rows'));
   }
 
   // ── Load the user's OWN book from the read-only wallet mirror ─────────────

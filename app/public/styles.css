@@ -1619,3 +1619,50 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   .venue-chip { font-size: var(--fs-xs); padding: 6px 11px; }
   .venue-strip { gap: 6px; }
 }
+
+/* ---- Touch targets -----------------------------------------------------
+   MEASURED at 390px on 2026-08-17: 33 interactive elements were under the
+   24x24 CSS-pixel floor of WCAG 2.5.8, and 28 of them were the footer link
+   list. A 20px-tall link in a wrapped list of twenty-eight is not a small
+   inconvenience — the neighbours are 6px away, so a missed tap lands on a
+   different page rather than on nothing.
+
+   TWO FLOORS, AND THEY ARE NOT THE SAME RULE. 24px is WCAG 2.5.8 AA and is NOT
+   conditional on pointer type: a 20px-tall link is under it with a mouse too,
+   and the first version of this block applied everything under a coarse-pointer
+   query, which quietly left the desktop failing the check it was written for.
+   44px is Apple's and Google's thumb guidance — that one IS pointer-specific,
+   so it stays behind the media query.
+
+   Inline links inside a sentence are deliberately NOT padded. 2.5.8 exempts
+   them, and forcing a floor onto a link mid-paragraph breaks the line rhythm to
+   fix a target the reader is not aiming for anyway. */
+.site-footer .links a,
+.hero-secondary,
+.how-link,
+.topbar .brand,
+.brand-block .brand {
+  display: inline-flex; align-items: center; min-height: 24px;
+}
+.chat-tts, .chat-mic { min-width: 28px; min-height: 28px; }
+
+@media (pointer: coarse), (max-width: 720px) {
+  .site-footer .links { gap: 2px var(--s3); }
+  .site-footer .links a { min-height: 40px; padding: 0 2px; }
+  .hero-secondary, .how-link,
+  .topbar .brand, .brand-block .brand { min-height: 44px; }
+}
+
+/* 9px is below the floor of what anyone should be asked to read, and this is
+   the line that names the product tier. It was already hidden under 520px;
+   now it is legible on the screens that do show it. */
+.brand-sub { font-size: 11px; letter-spacing: .26em; }
+
+/* WCAG 2.5.8 is not pointer-conditional — a 21px-tall clickable chip is under
+   the floor on a desktop too. Scoped to the INTERACTIVE chips: `.chip` is also
+   the status badge ("verified", "Linked") in dense tables, and those are not
+   targets, so padding all of them would bloat every table to fix nothing. */
+.chat-chips .chip, button.chip { min-height: 26px; }
+/* Text links that stand alone as an action, rather than sitting inside a
+   sentence. 24px everywhere; the coarse-pointer block above takes them to 44. */
+.hero-secondary, .how-link { min-height: 24px; }

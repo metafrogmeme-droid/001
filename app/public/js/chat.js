@@ -369,7 +369,7 @@
     if (micBtn) {
       micBtn.classList.remove('mic--live');
       micBtn.setAttribute('aria-pressed', 'false');
-      micBtn.textContent = '🎤';
+      micBtn.innerHTML = '<svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mic"></use></svg>';
     }
     if (recog) { try { recog.stop(); } catch (e) { /* already stopped */ } }
   }
@@ -402,7 +402,7 @@
     listening = true;
     micBtn.classList.add('mic--live');
     micBtn.setAttribute('aria-pressed', 'true');
-    micBtn.textContent = '⏺';
+    micBtn.innerHTML = '<svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-record"></use></svg>';
     try { recog.start(); } catch (e) { stopMic(); toast(T('dd.ct_voice_off', 'Voice input unavailable.')); }
   }
   if (micBtn && SR) {
@@ -414,7 +414,8 @@
   let ttsOn = false;
   try { ttsOn = localStorage.getItem('rc_tts') === '1'; } catch (e) { /* private mode */ }
   function renderTtsBtn() {
-    ttsBtn.textContent = ttsOn ? '🔊' : '🔇';
+    ttsBtn.innerHTML = ttsOn ? '<svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-sound"></use></svg>'
+      : '<svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mute"></use></svg>';
     ttsBtn.setAttribute('aria-pressed', String(ttsOn));
     ttsBtn.title = ttsOn ? 'Spoken replies on — click to mute' : 'Read replies aloud';
     ttsBtn.setAttribute('aria-label', ttsBtn.title);
