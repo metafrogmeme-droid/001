@@ -104,3 +104,42 @@ def test_numpy_is_not_quietly_downgraded():
         f"numpy pinned to {m.group(0)}: 2.3+ needs Python 3.11, which this repo "
         f"already requires. Dropping below it to satisfy an older interpreter "
         f"fixes the machine by changing everyone else's dependency.")
+
+def test_the_gate_prefers_the_project_venv_over_path():
+    """The box runs 3.11 inside `.venv` while its system python3 is still 3.10.
+
+    Checking PATH alone would refuse a deploy that is in fact correct, and a
+    gate that cries wolf gets commented out — at which point it is not a gate.
+    So the venv interpreter wins when there is one.
+    """
+    import os
+    import shutil
+    venv = ROOT / ".venv" / "bin"
+    stale = ROOT / "build" / "_stalepy"
+    venv.mkdir(parents=True, exist_ok=True)
+    stale.mkdir(parents=True, exist_ok=True)
+    shim = ('#!/bin/sh\ncase "$*" in *version_info*) echo "%s"; exit 0;; esac\n'
+            'exec /usr/bin/python3 "$@"\n')
+    (venv / "python").write_text(shim % "3.11", encoding="utf-8")
+    (venv / "python").chmod(0o755)
+    (stale / "python3").write_text(shim % "3.10", encoding="utf-8")
+    (stale / "python3").chmod(0o755)
+    try:
+        env = {**os.environ, "PATH": f"{stale}:{os.environ['PATH']}",
+               "PERSIST_DIR": str(ROOT / "build" / "_pdvenv")}
+        r = subprocess.run(["bash", str(ROOT / "deploy.sh")], cwd=ROOT,
+                           capture_output=True, text=True, env=env, timeout=60)
+        assert r.returncode == 0, (
+            "the gate refused a correct venv deploy because PATH's python3 is "
+            f"stale (exit {r.returncode})")
+        assert ".venv/bin/python" in r.stdout, (
+            "the gate must name WHICH interpreter it checked; otherwise a "
+            "passing line is unattributable to a machine with two of them")
+    finally:
+        shutil.rmtree(ROOT / ".venv", ignore_errors=True)
+        shutil.rmtree(stale, ignore_errors=True)
+        shutil.rmtree(ROOT / "build" / "_pdvenv", ignore_errors=True)
+        for leftover in ("data", "logs"):
+            pth = ROOT / leftover
+            if pth.is_symlink():
+                pth.unlink()

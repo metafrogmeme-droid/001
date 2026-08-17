@@ -41,7 +41,13 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # them at the moment it mattered. This does, before pip is ever called.
 if [ -f "$REPO_DIR/.python-version" ]; then
   want="$(tr -d ' \t\r\n' < "$REPO_DIR/.python-version")"
-  have="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")"
+  # Prefer the project venv over whatever `python3` PATH resolves to. The box
+  # runs 3.11 inside .venv while the system python3 is still 3.10, so checking
+  # PATH alone would refuse a deploy that is in fact correct — a gate that
+  # cries wolf gets disabled, and then it is not a gate.
+  py="python3"
+  [ -x "$REPO_DIR/.venv/bin/python" ] && py="$REPO_DIR/.venv/bin/python"
+  have="$("$py" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")"
   want_major="${want%%.*}"; want_minor="${want#*.}"; want_minor="${want_minor%%.*}"
   have_major="${have%%.*}"; have_minor="${have#*.}"
   if [ "$have" = "?" ]; then
@@ -58,7 +64,7 @@ if [ -f "$REPO_DIR/.python-version" ]; then
     echo "     Install Python $want (pyenv/uv) and re-run this script."
     exit 1
   fi
-  echo "  Python $have  (>= $want required)"
+  echo "  Python $have via $py  (>= $want required)"
 fi
 
 echo "RUNECLAW deploy — persisting state to: $PERSIST_DIR"
