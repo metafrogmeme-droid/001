@@ -1040,6 +1040,30 @@ class LLMConfig:
     temperature: float = _env_float("LLM_TEMPERATURE", 0.3)
     max_tokens: int = int(_env_float("LLM_MAX_TOKENS", 1024))
     timeout_seconds: float = _env_float("LLM_TIMEOUT_SEC", 15.0)
+    # Wall-clock cap on the WHOLE chat fallback chain (telegram_handler's
+    # _llm_chat). `timeout_seconds` above is PER ATTEMPT — provider.py's
+    # asyncio.wait_for reads it off each candidate's own config — so a chain of
+    # BYOK -> chat_tier -> three env fallbacks -> primary ADDS its timeouts:
+    # 15 + 20 + 20 + 20 + 15 = 90 seconds of total silence before an admin is
+    # told anything at all. Operator report: "response from bot seems slow."
+    #
+    # 45.0, and the 20.0 lower bound, come from ONE property: this must be
+    # strictly greater than the largest single attempt in the chain (20.0,
+    # hardcoded at telegram_handler.py:1750). Above that line the deadline can
+    # never cut short an answer the per-attempt timeout would itself have
+    # allowed — it only stops the ADDITION. A deadline tight enough to kill a
+    # healthy slow answer is worse than the disease, so the bound makes that
+    # impossible by construction rather than merely unlikely.
+    #
+    # Headroom: the chat-tier models actually in play are flash-class
+    # (gemini-2.0-flash, qwen3.6-plus, claude-haiku-4-5) at roughly 2-4s p50
+    # and 8-12s p95 for a 1024-token answer, so 45s buys a full 15s first
+    # attempt PLUS a full 20s second PLUS most of a third — the common degraded
+    # case (first provider dead, second answers) fits with room to spare. It is
+    # not set at 20-25s because the genuinely slow HEALTHY case is the admin
+    # route to a thinking-enabled model, which must not be truncated.
+    chat_deadline_seconds: float = _env_float_bounded(
+        "LLM_CHAT_DEADLINE_SEC", 45.0, 20.0, 180.0)
     daily_call_limit: int = int(_env_float("LLM_DAILY_LIMIT", 500))
     # Async request-rate cap (requests/minute) for the LLM client. Dedicated
     # per-provider RPM bound — independent of the DAILY budget (deep-audit #43).
@@ -1604,6 +1628,23 @@ class ExecutionConfig:
     # Slippage guard
     slippage_guard_enabled: bool = _env_bool("SLIPPAGE_GUARD_ENABLED", True)
     max_slippage_edge_ratio: float = _env_float("MAX_SLIPPAGE_EDGE_RATIO", 0.30)
+    # Leverage overshoot guard — the slippage guard's sibling, and for the same
+    # reason: the risk engine approved a trade at a target leverage, and a fill
+    # at a far higher one is not that trade. Fires ONLY on a confirmed venue
+    # read-back (live_executor's post-fill path), never on "could not verify",
+    # which is governed separately by LEVERAGE_FAIL_OPEN/_CLOSED and was
+    # deliberately left fail-open on 2026-07-21.
+    #
+    # 1.5 is the default because the number that matters is the corridor between
+    # the stop and liquidation. At Nx, liquidation is roughly 100/N percent
+    # adverse; a typical stop here sits around 3%. A 5x target filling at 6x
+    # (ratio 1.2) still leaves ~16.7% of room and is ordinary venue rounding.
+    # The live 2026-08-17 incident was 5x filling at 20x — ratio 4.0, and a
+    # corridor of under 2 points between the stop and liquidation.
+    # Set to 100 to disable (the guard then cannot trip); the floor of 1.0 means
+    # "close on ANY overshoot", which is legal but will fight venue rounding.
+    leverage_overshoot_max_ratio: float = _env_float_bounded(
+        "LEVERAGE_OVERSHOOT_MAX_RATIO", 1.5, 1.0, 100.0)
     # Slippage alert: the proactive monitor warns (live only) when a symbol's
     # mean absolute slippage exceeds this %, once it has at least N recorded
     # fills. Surfaces execution-quality drift before it quietly drains equity.
@@ -2270,6 +2311,29 @@ class AppConfig:
     # It exists to bound the pathological case, not the slow one. 0 disables.
     analysis_timeout_sec: float = _env_float_bounded(
         "ANALYSIS_TIMEOUT_SEC", 90.0, 0.0, 600.0)
+    # How long a symbol RESTS after its analysis times out, and how far that
+    # doubles on repeat offences.
+    #
+    # The timeout above bounds ONE analysis. It does not stop the same symbol
+    # being asked again on the very next sweep, and nothing did: on 2026-08-17
+    # three tokenized-equity symbols (MCD, AMD, HOOD) each burned the full 90s
+    # every pass, 270s of a 292s analyze phase, indefinitely. The engine already
+    # NAMED them — naming is not resting.
+    #
+    # 900s (15 min) base: the analyze phase cap is 300s and ticks run on the
+    # order of minutes, so a rest of fifteen skips a handful of sweeps — enough
+    # to reclaim the time — while a symbol that hung on one bad exchange minute
+    # is retried inside the same hour. Doubling to a 4h cap means a reliably
+    # unanalysable symbol stops being asked several times an hour forever,
+    # without ever being dropped permanently: a symbol silently delisted by a
+    # bug is worse than one that costs 90s.
+    #
+    # 0 disables resting entirely — the pre-fix behaviour, and the same "0
+    # disables" convention ANALYSIS_TIMEOUT_SEC uses directly above.
+    analysis_timeout_rest_sec: float = _env_float_bounded(
+        "ANALYSIS_TIMEOUT_REST_SEC", 900.0, 0.0, 86400.0)
+    analysis_timeout_rest_cap_sec: float = _env_float_bounded(
+        "ANALYSIS_TIMEOUT_REST_CAP_SEC", 14400.0, 0.0, 604800.0)
     # Per-request cap (ms) on the KEYLESS market-data clients the scanner
     # builds. Not the trading clients — order placement keeps its own.
     #

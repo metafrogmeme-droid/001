@@ -386,6 +386,67 @@ def _user_state_path(base_file: str, state_dir: Optional[str], user_id) -> str:
     return os.path.join(d, name)
 
 
+#: How long a symbol is refused after the overshoot guard flattened a fill on
+#: it. Long enough that a sticky-leverage symbol cannot be re-entered several
+#: times an hour paying fees each round, short enough that fixing the venue-side
+#: setting and waiting does not require a restart.
+_LEVERAGE_BLOCK_SECONDS = 3600.0
+
+
+def leverage_overshoot_verdict(requested: Any, actual: Any,
+                               max_ratio: float) -> dict:
+    """Should a CONFIRMED post-fill leverage read-back flatten the position?
+
+    Pure, total, and the seam this guard is tested through. The guard itself
+    lives 3,500 lines inside ``execute_trade``, past an order placement and two
+    verification round-trips — nothing can drive it in a unit test, which is why
+    the slippage guard immediately above it is only ever checked by asserting
+    its own name appears in the source. That kind of test passes whether or not
+    the code works; this one cannot.
+
+    Returns ``{"decision": ..., "ratio": ..., "why": ...}`` where decision is:
+
+        "close"    the venue applied materially more leverage than approved
+        "keep"     within tolerance, or UNDER the target (less risk, not more)
+        "unknown"  the inputs do not support a verdict
+
+    "unknown" IS NOT "keep". A leverage we could not read is not a leverage that
+    was fine — that conflation is the whole house rule, and collapsing the two
+    here would let an unreadable value pass as approved. The caller keeps the
+    position either way (the PRE-ORDER path already governs unverifiable
+    leverage, deliberately fail-open since 2026-07-21) but it must say which of
+    the two happened, so the two are returned separately rather than merged.
+    """
+    try:
+        want = int(requested)
+        got = int(actual)
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is not hypothetical padding: int(float("inf")) raises it,
+        # and NaN raises ValueError. A venue payload that parses to either is
+        # unreadable, not enormous — and this function runs inside a fill path
+        # that has already placed an order, so raising here would take out a
+        # live execution. Caught by test_the_function_is_total, which found
+        # exactly this gap on the first run.
+        return {"decision": "unknown", "ratio": None,
+                "why": "leverage values were not numeric"}
+    if want <= 0 or got <= 0:
+        return {"decision": "unknown", "ratio": None,
+                "why": f"non-positive leverage (requested={want}, actual={got})"}
+    ratio = got / want
+    if got <= want:
+        # Filling UNDER the target is less risk than the engine approved, never
+        # more. Closing here would flatten good positions over venue rounding.
+        return {"decision": "keep", "ratio": ratio,
+                "why": f"venue applied {got}x, at or under the {want}x target"}
+    if ratio > max_ratio:
+        return {"decision": "close", "ratio": ratio,
+                "why": (f"venue applied {got}x against a {want}x target "
+                        f"({ratio:.2f}x approved leverage, limit {max_ratio:.2f}x)")}
+    return {"decision": "keep", "ratio": ratio,
+            "why": (f"venue applied {got}x against a {want}x target "
+                    f"({ratio:.2f}x), within the {max_ratio:.2f}x limit")}
+
+
 def _parse_leverage_readback(payload: Any) -> Optional[int]:
     """Extract the applied integer leverage from a ccxt ``fetch_leverage`` or
     position payload, tolerant of the many shapes venues return.
@@ -633,6 +694,13 @@ class LiveExecutor:
         self._last_atr_pct: dict[str, float] = {}  # symbol -> ATR/price ratio
         # Symbols already warned about unverifiable leverage (once per process)
         self._lev_unverified_warned: set[str] = set()
+        # symbol -> monotonic expiry, armed when the overshoot guard flattens a
+        # fill. Bitget's sticky per-symbol leverage survives the close, so
+        # without this the engine re-signals, the venue over-levers again, and
+        # the guard flattens again — a loop paying a round-trip fee per cycle.
+        # In-memory on purpose: a restart is the operator's chance to have fixed
+        # the venue-side setting, and a persisted block would outlive the fix.
+        self._leverage_blocked_until: dict[str, float] = {}
         # Slippage tracker: set by engine
         self._slippage_tracker = None  # set by engine
         # Graceful degradation state
@@ -1302,6 +1370,28 @@ class LiveExecutor:
 
     def _preflight_check(self, size_usd: float, symbol: str = "") -> Optional[str]:
         """Run micro-test safety checks. Returns error string or None."""
+        # A symbol the overshoot guard just flattened is refused until its block
+        # expires. Without this the guard is a fee pump: Bitget's sticky
+        # per-symbol leverage does not heal because we closed, so the engine
+        # re-signals, the venue over-levers again, and the guard flattens again.
+        #
+        # The message says how long is left and why, because "BLOCKED" with no
+        # duration is indistinguishable from a permanently broken symbol — and
+        # an operator who cannot tell those apart disables the guard.
+        if symbol:
+            _blocked_until = self._leverage_blocked_until.get(symbol)
+            if _blocked_until is not None:
+                _left = _blocked_until - time.monotonic()
+                if _left > 0:
+                    return (
+                        f"{symbol} is resting for {_left / 60:.0f} more minute(s): "
+                        f"the venue over-levered a fill here and it was closed. "
+                        f"Fix the symbol's leverage on the venue, or wait."
+                    )
+                # Expired — drop it rather than let the map grow for the process
+                # lifetime and keep re-computing a negative remainder.
+                self._leverage_blocked_until.pop(symbol, None)
+
         # Cap position size
         if size_usd > MICRO_MAX_POSITION_USD:
             return (
@@ -3785,6 +3875,15 @@ class LiveExecutor:
 
             # Update position with exchange-verified data
             _lev_mismatch: Optional[tuple[int, int]] = None
+            # Set only when the overshoot guard below tried to flatten and the
+            # close itself failed. The position is then OPEN and over-levered,
+            # so the notification must say that rather than the ordinary
+            # "venue filled at Nx" note, which reads as informational.
+            _lev_close_failed = False
+            # Set the instant a flatten SUCCEEDS. Read by the guard's outer
+            # except, which must not fail open once there is no longer a
+            # position to protect.
+            _lev_flattened = False
             if position_confirmed:
                 if pos_verify["exchange_entry"] > 0:
                     position.entry_price = pos_verify["exchange_entry"]
@@ -3892,6 +3991,141 @@ class LiveExecutor:
                 # Fail open: the SL placement below still protects the position.
                 logger.warning("Slippage guard error for %s (continuing): %s",
                                idea.asset, _slip_guard_exc)
+
+            # ── Leverage overshoot guard ──
+            # Same argument as the slippage guard directly above, and it sits
+            # here for the same reason: the risk engine approved this trade at a
+            # target leverage, and a fill at a much higher one is not the trade
+            # that was approved. Live incident 2026-08-17: a 5x APT/USDT SHORT
+            # filled at 20x on Bitget's sticky per-symbol setting.
+            #
+            # Until now the mismatch was DETECTED (:3803), audited, and then only
+            # printed on the card — "Margin/liquidation math follows 20x". True,
+            # and it tells the operator after the fact about risk they did not
+            # choose. What it costs, with that position's 3.1% stop:
+            #
+            #    5x   liquidation ~20.0% adverse   buffer 16.9 points
+            #   20x   liquidation ~ 5.0% adverse   buffer  1.9 points
+            #
+            # (first-order; maintenance margin and fees pull liquidation closer
+            # still). At 5x the stop has a wide corridor. At 20x a gap or wick
+            # that overshoots the stop by two points liquidates instead of
+            # stopping out, which is the whole difference.
+            #
+            # WHY HERE AND NOT AT THE DETECTION SITE. _place_sl_tp is called at
+            # :3922, BELOW this. Closing from here therefore cannot orphan a
+            # stop or take-profit order on the venue — there are none yet. That
+            # ordering is the reason this is safe to do at all, so if the SL/TP
+            # placement ever moves above this point, this guard must move with it.
+            #
+            # WHAT THIS DELIBERATELY DOES NOT TOUCH. The PRE-ORDER fail-open
+            # path (~:954-1060, LEVERAGE_FAIL_OPEN / LEVERAGE_FAIL_CLOSED) stays
+            # exactly as it is. That one governs "we could not VERIFY leverage
+            # before ordering", it was set to fail closed after the 2026-07-20
+            # BCH incident, and failing closed then blocked BTC/ETHFI entirely
+            # ("trades can not open") until it was deliberately reverted on
+            # 2026-07-21. This guard fires only on a CONFIRMED read-back, which
+            # is the one case that carries no false positives — the venue has
+            # told us what it actually did.
+            #
+            # OVERSHOOT ONLY. Filling UNDER the target (3x on a 5x request) is
+            # less risk than approved, not more, so it must never close.
+            try:
+                if _lev_mismatch is not None:
+                    _lev_want, _lev_got = _lev_mismatch
+                    _lev_max_ratio = float(getattr(
+                        getattr(CONFIG, "execution", None),
+                        "leverage_overshoot_max_ratio", 1.5))
+                    _lev_verdict = leverage_overshoot_verdict(
+                        _lev_want, _lev_got, _lev_max_ratio)
+                    # `["ratio"] or 0.0` was the banned shape here, and it was
+                    # safe only by position: ratio is guaranteed non-None inside
+                    # the "close" branch. One refactor away it would print a
+                    # fabricated "0.0x the approved leverage" into the audit
+                    # record beside real numbers. Read it where it is known.
+                    if _lev_verdict["decision"] == "close":
+                        _lev_ratio = float(_lev_verdict["ratio"])
+                        audit(trade_log,
+                              f"Leverage overshoot guard tripped for {idea.asset}: "
+                              f"venue filled at {_lev_got}x against a {_lev_want}x "
+                              f"target ({_lev_ratio:.1f}x the approved leverage, "
+                              f"limit {_lev_max_ratio:.1f}x) — flattening",
+                              action="leverage_overshoot_guard", result="FLATTEN",
+                              level=logging.WARNING,
+                              data={"trade_id": idea.id, "symbol": idea.asset,
+                                    "requested": _lev_want, "actual": _lev_got,
+                                    "ratio": round(_lev_ratio, 3),
+                                    "limit": _lev_max_ratio})
+                        try:
+                            close_msg = await self.close_position(
+                                idea.id, reason="leverage_overshoot")
+                            # Armed the INSTANT the close returns, before any
+                            # further work. Everything after this point is
+                            # message formatting, and if any of it raised, the
+                            # outer `except` below would log "continuing" and
+                            # fall through to _place_sl_tp — putting a stop and
+                            # a take-profit on the venue for a position that no
+                            # longer exists. The flag is what makes the outer
+                            # fail-open safe to keep.
+                            _lev_flattened = True
+                            # Bitget's sticky per-symbol leverage does NOT heal
+                            # because we closed. Without this the engine
+                            # re-signals the same symbol, the venue fills at 20x
+                            # again, and the guard flattens again — a loop that
+                            # pays a round-trip fee every cycle and looks, from
+                            # outside, exactly like the bot trading badly. The
+                            # cooldown is the difference between a guard and a
+                            # fee pump.
+                            self._leverage_blocked_until[symbol] = (
+                                time.monotonic() + _LEVERAGE_BLOCK_SECONDS)
+                            return (
+                                f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                                f"The venue filled at <b>{_lev_got}x</b> against a "
+                                f"{_lev_want}x target (sticky per-symbol setting), "
+                                f"which is {_lev_ratio:.1f}× the approved leverage. "
+                                f"The position was CLOSED rather than run at a "
+                                f"liquidation distance the risk check never "
+                                f"approved.\n{close_msg}"
+                            )
+                        except Exception as _lev_close_exc:
+                            # The position is OPEN, over-levered, and the close
+                            # failed. Do NOT return here: falling through leaves
+                            # _place_sl_tp below to put the stop on, which is the
+                            # only protection left. Say both things plainly.
+                            logger.error("Leverage-overshoot flatten FAILED for %s: %s",
+                                         idea.asset, _lev_close_exc)
+                            audit(trade_log,
+                                  f"Leverage overshoot flatten FAILED for {idea.asset}",
+                                  action="leverage_overshoot_guard", result="CLOSE_FAILED",
+                                  level=logging.ERROR,
+                                  data={"trade_id": idea.id, "symbol": idea.asset,
+                                        "requested": _lev_want, "actual": _lev_got})
+                            _lev_close_failed = True
+            except Exception as _lev_guard_exc:
+                # Fail open, exactly as the slippage guard does: the SL placement
+                # below still protects the position, and a guard that raises must
+                # not become a new way to lose the stop.
+                #
+                # UNLESS THE CLOSE ALREADY SUCCEEDED. Then there is nothing left
+                # to protect, and "failing open" would place a stop and a
+                # take-profit against a position that no longer exists — live
+                # resting orders that can fill later and open a NEW position in
+                # the opposite direction. Fail-open is the right default for a
+                # guard that did nothing; it is the wrong one for a guard that
+                # already acted.
+                if _lev_flattened:
+                    logger.error(
+                        "Leverage overshoot guard raised AFTER flattening %s: %s "
+                        "— position is closed; skipping SL/TP placement",
+                        idea.asset, _lev_guard_exc)
+                    return (
+                        f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                        f"The venue over-levered this fill and the position was "
+                        f"CLOSED. (Reporting the details afterwards failed: "
+                        f"{type(_lev_guard_exc).__name__}.)"
+                    )
+                logger.warning("Leverage overshoot guard error for %s (continuing): %s",
+                               idea.asset, _lev_guard_exc)
 
             # Record API success for degradation tracking
             self.record_api_success()
@@ -4009,10 +4243,25 @@ class LiveExecutor:
             if sl_id is None and tp_id is None:
                 sl_tp_warn = "\n⚠️ SL/TP FAILED — position unprotected!"
             if _lev_mismatch is not None:
-                sl_tp_warn += (
-                    f"\n⚠️ LEVERAGE: venue filled at <b>{_lev_mismatch[1]}x</b>, "
-                    f"target was {_lev_mismatch[0]}x (sticky per-symbol setting). "
-                    f"Margin/liquidation math follows {_lev_mismatch[1]}x.")
+                if _lev_close_failed:
+                    # The guard decided this position should not exist and could
+                    # not remove it. That is not the same event as a mismatch we
+                    # chose to hold, and it must not read like one — the old
+                    # wording below is informational, and an operator who skims
+                    # it would not learn that a close was attempted and failed.
+                    sl_tp_warn += (
+                        f"\n🚨 <b>LEVERAGE {_lev_mismatch[1]}x — AUTOMATIC CLOSE FAILED</b>\n"
+                        f"Target was {_lev_mismatch[0]}x. The overshoot guard tried "
+                        f"to flatten this position and could not. It is OPEN at "
+                        f"{_lev_mismatch[1]}x with a liquidation distance the risk "
+                        f"check never approved — close it MANUALLY on the venue.")
+                else:
+                    sl_tp_warn += (
+                        f"\n⚠️ LEVERAGE: venue filled at <b>{_lev_mismatch[1]}x</b>, "
+                        f"target was {_lev_mismatch[0]}x (sticky per-symbol setting). "
+                        f"Margin/liquidation math follows {_lev_mismatch[1]}x.\n"
+                        f"Within the {getattr(getattr(CONFIG, 'execution', None), 'leverage_overshoot_max_ratio', 1.5):.1f}× "
+                        f"overshoot limit, so the position was kept.")
 
             st_label = getattr(idea, 'strategy_type', 'swing').upper()
 

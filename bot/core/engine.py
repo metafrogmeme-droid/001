@@ -507,6 +507,18 @@ class RuneClawEngine:
         # Per-symbol cooldown after SL hit — prevents immediate re-entry
         self._symbol_cooldowns: dict[str, float] = {}  # symbol_key -> monotonic expiry
         self._symbol_cooldown_seconds: float = float(os.environ.get("SYMBOL_SL_COOLDOWN_SEC", "1800"))  # 30 min default
+        # A THIRD arming source for the dict above: an analysis that TIMED OUT.
+        # Distinct from the two risk cooldowns because it is a fact about us,
+        # not about the symbol — we could not read it in time, rather than
+        # choosing not to trade it. Same dict and same pre-analysis guard, so
+        # resting reuses machinery that already works.
+        #
+        # Both are in-memory and monotonic-based, so neither is persisted: a
+        # monotonic expiry written to disk is meaningless after a restart, and
+        # a restart is also the operator's chance to have fixed whatever was
+        # hanging. Strikes reset on a clean analysis, not on a skip.
+        self._analysis_rest_strikes: dict[str, int] = {}   # symbol_key -> consecutive timeouts
+        self._analysis_rest_until: dict[str, float] = {}   # symbol_key -> monotonic expiry
         # Per-symbol loss-streak tracking — a much longer cooldown (see
         # CONFIG.risk.symbol_loss_streak_*) once a symbol has lost repeatedly,
         # reusing _symbol_cooldowns above so the existing pre-analysis check
@@ -4195,6 +4207,10 @@ class RuneClawEngine:
         # Structured twin of the display list above, so the running
         # tally never has to parse "FET/USDT (mtf)" back apart.
         _timed_out_pairs: list[tuple[str, str]] = []
+        # Symbols this batch actually put to REST (armed a cooldown for). A
+        # subset of _timed_out: resting can be disabled, and a timeout that
+        # arms nothing is still a timeout.
+        _rested_syms: list[str] = []
         # Progress, so a phase that is CANCELLED can still say what it was
         # doing. Without this the analyze phase died silently: the operator
         # saw "exceeded its 300s" and nothing about whether it had finished 4
@@ -4215,9 +4231,15 @@ class RuneClawEngine:
         # write into a record it does not own.
         self._analyze_batch_seq = int(getattr(self, "_analyze_batch_seq", 0)) + 1
         _seq = self._analyze_batch_seq
+        # "done" counts finished work of ANY outcome (see the finally block
+        # below) — an idea, no idea, a failure, a timeout. That is the right
+        # answer to "how far did the batch get" and the WRONG one to "how many
+        # symbols were analysed", and once symbols can rest the two diverge:
+        # a rested symbol never ran at all. "skipped_resting" is counted
+        # separately so no reader has to guess which question it is answering.
         self._analyze_progress = {
-            "of": len(signals), "done": 0, "started": time.monotonic(),
-            "seq": _seq}
+            "of": len(signals), "done": 0, "skipped_resting": 0,
+            "started": time.monotonic(), "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
         # Per-symbol duration profiles: reset each batch so a resolved slow
         # episode (e.g. one 77s FIL fetch) does not persist as the reported
@@ -4251,8 +4273,26 @@ class RuneClawEngine:
                         sig, timeframe=timeframe, lightweight=lightweight,
                         is_admin=_as_admin)
                     if _cap > 0:
-                        return await asyncio.wait_for(_coro, timeout=_cap)
-                    return await _coro
+                        _out = await asyncio.wait_for(_coro, timeout=_cap)
+                    else:
+                        _out = await _coro
+                    # A COMPLETED analysis clears the strike count. Escalation
+                    # is for a symbol that keeps hanging, not for one that hung
+                    # once in a bad exchange minute six hours ago — without
+                    # this, a healthy symbol accumulates strikes over a session
+                    # and eventually rests for four hours on its first blip.
+                    #
+                    # Cleared on COMPLETION, never on a skip: a rested symbol
+                    # returns before this line, so resting can never reset the
+                    # counter that decides how long it rests.
+                    try:
+                        _st = getattr(self, "_analysis_rest_strikes", None)
+                        if _st:
+                            _st.pop(normalize_symbol(
+                                str(getattr(sig, "symbol", "?"))), None)
+                    except Exception:
+                        pass
+                    return _out
                 except asyncio.TimeoutError:
                     # Same outcome as any other failed analysis: this signal
                     # yields no idea. Never fabricate one for a symbol we
@@ -4271,6 +4311,71 @@ class RuneClawEngine:
                         _stg = ""
                     _timed_out.append(f"{_sym} ({_stg})" if _stg else _sym)
                     _timed_out_pairs.append((_sym, _stg))
+                    # REST IT. Naming a hanging symbol is not the same as
+                    # stopping it hanging again: MCD/AMD/HOOD each burned the
+                    # full 90s on every sweep, 270s of a 292s analyze phase,
+                    # for as long as they stayed unanalysable.
+                    #
+                    # ARMED HERE, NOT IN THE BATCH TAIL. `_last_analysis_timeout`
+                    # is written after `await asyncio.gather(...)` returns — and
+                    # in this incident it does NOT return, because the analyze
+                    # phase hits its 300s cap and is cancelled first. A fix
+                    # placed there is present, greppable, and never reached in
+                    # the exact case it was written for.
+                    #
+                    # Reuses `_symbol_cooldowns`, the SAME dict and the SAME
+                    # pre-analysis guard the post-SL and loss-streak cooldowns
+                    # use, so a rested symbol is skipped by machinery that
+                    # already works rather than by a second parallel mechanism.
+                    # The key MUST be normalize_symbol(...) — the guard reads
+                    # that spelling, and arming any other writes a cooldown
+                    # nothing consults.
+                    try:
+                        from bot.core.symbol_rest import rest_seconds
+                        _key = normalize_symbol(_sym)
+                        _strikes = getattr(self, "_analysis_rest_strikes", None)
+                        if _strikes is None:
+                            _strikes = self._analysis_rest_strikes = {}
+                        _n = int(_strikes.get(_key, 0)) + 1
+                        # CONFIG root, NOT CONFIG.analyzer — these sit on
+                        # AppConfig beside analysis_timeout_sec, which the cap
+                        # above reads the same way. The first draft used
+                        # CONFIG.analyzer.*, raised AttributeError, and was
+                        # swallowed by the except below: the guard was present,
+                        # greppable, and armed nothing. Caught by driving the
+                        # batch, which no source scan could have done.
+                        _rest = rest_seconds(
+                            _n,
+                            getattr(CONFIG, "analysis_timeout_rest_sec", 0.0),
+                            getattr(CONFIG, "analysis_timeout_rest_cap_sec", 0.0))
+                        # 0.0 means "do not arm" — disabled, or not a real
+                        # strike. Writing monotonic()+0 would expire on the very
+                        # next comparison and silently restore the old
+                        # behaviour while looking like a working cooldown.
+                        if _rest > 0:
+                            _strikes[_key] = _n
+                            _until = time.monotonic() + _rest
+                            self._symbol_cooldowns[_key] = _until
+                            # Provenance, so the guard can tell a rest from a
+                            # post-SL or loss-streak cooldown. Same expiry, and
+                            # popped together — a stale rest marker outliving
+                            # its cooldown would relabel the next risk cooldown
+                            # on this symbol as an analysis timeout.
+                            _ru = getattr(self, "_analysis_rest_until", None)
+                            if _ru is None:
+                                _ru = self._analysis_rest_until = {}
+                            _ru[_key] = _until
+                            _rested_syms.append(_sym)
+                            audit(scan_log,
+                                  f"Symbol resting after analysis timeout: "
+                                  f"{_sym} for {int(_rest)}s (strike {_n})",
+                                  action="analysis_rest", result="ARMED")
+                    except Exception:
+                        # Instrumentation-grade guard, same posture as the rest
+                        # of this coroutine: several suites drive the batch with
+                        # SimpleNamespace stubs, and resting a symbol must never
+                        # be the reason an analysis batch cannot finish.
+                        pass
                     return None
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
@@ -4412,12 +4517,43 @@ class RuneClawEngine:
         if _sym_cd:
             if time.monotonic() < _sym_cd:
                 _remaining = int(_sym_cd - time.monotonic())
+                # WHICH KIND of cooldown, because they are different facts.
+                # A risk cooldown (post-SL, loss streak) is a decision about
+                # the SYMBOL: we can read it and we are choosing not to trade
+                # it. A rest is a decision about US: we could not read it in
+                # time. Reporting the second as ordinary coverage is how a
+                # symbol nobody looked at gets published as analysed-and-clear.
+                _resting = False
+                try:
+                    _rest_until = getattr(self, "_analysis_rest_until", None) or {}
+                    _resting = float(_rest_until.get(symbol_key, 0)) >= _sym_cd
+                except Exception:
+                    _resting = False
                 audit(scan_log,
-                      f"Signal skipped: {signal.symbol} on symbol cooldown ({_remaining}s remaining)",
-                      action="symbol_cooldown", result="SKIPPED")
+                      f"Signal skipped: {signal.symbol} on "
+                      f"{'analysis rest' if _resting else 'symbol cooldown'} "
+                      f"({_remaining}s remaining)",
+                      action="analysis_rest_skip" if _resting else "symbol_cooldown",
+                      result="SKIPPED")
+                if _resting:
+                    try:
+                        _p = self._analyze_progress
+                        if _p is not None:
+                            _p["skipped_resting"] = int(
+                                _p.get("skipped_resting") or 0) + 1
+                    except Exception:
+                        pass
                 return None
-            # Cooldown expired → clear it.
+            # Cooldown expired → clear it, and the rest provenance with it, so
+            # a later risk cooldown on the same symbol is never mistaken for a
+            # rest that has long since lapsed.
             self._symbol_cooldowns.pop(symbol_key, None)
+            try:
+                _ru = getattr(self, "_analysis_rest_until", None)
+                if _ru is not None:
+                    _ru.pop(symbol_key, None)
+            except Exception:
+                pass
 
         try:
             # Use futures exchange for non-Crypto categories (metals,

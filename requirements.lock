@@ -26,3 +26,17 @@ Pillow==12.3.0
 fastapi==0.141.1
 uvicorn==0.52.3
 redis==8.1.0
+# ── Added 2026-08-17, same incident, one layer down ─────────────────────────
+# Cards came back and charts did not. `bot/skills/chart_renderer.py` guards
+# its imports the same way signal_card.py guards Pillow, and returns None on
+# the missing-libs path, so /chart sent text and logged one line.
+#
+# These three were listed in tests/optional_imports.json with the note "not
+# installed in any environment today, so the chart path has never run. Pin it
+# or delete the module — but that is a product decision, not a lockfile one."
+# The decision has now been made: charts are a shipped feature. All 20 tests
+# in tests/test_chart_renderer.py pass against these versions — they had never
+# executed before, because the whole file was skipif'd on the libs it needed.
+matplotlib==3.11.1
+mplfinance==0.12.10b0
+pandas==3.0.5

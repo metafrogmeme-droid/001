@@ -1,15 +1,23 @@
 """
 Tests for bot.skills.chart_renderer.
 
-The renderer degrades gracefully when matplotlib/mplfinance aren't installed,
-so the import-dependent tests are skipped (not failed) in that case. The
-fallback paths and async send are tested regardless.
+The renderer degrades gracefully when matplotlib/mplfinance aren't installed.
+Until 2026-08-17 the tests below degraded with it: `skipif(not
+charts_available())` meant that on an environment without the libs this file
+reported twenty skips and the suite went green. The libs were installed in NO
+environment, so all twenty had never executed once. The operator's report was
+"cards work now, but charts don't render" — and nothing in CI disagreed.
+
+The three libs are pinned now, so absence is an environment failure rather
+than a configuration choice, and `tests.dep_policy.require` says so instead of
+skipping. The fallback paths and async send are still tested regardless: the
+`_CHARTS_AVAILABLE = False` branch is real and must keep returning None.
 """
+import functools
 import math
 
-import pytest
-
 from bot.skills import chart_renderer as cr
+from tests.dep_policy import require
 
 
 def _candles(n: int = 60):
@@ -24,9 +32,22 @@ def _candles(n: int = 60):
     return out
 
 
-needs_charts = pytest.mark.skipif(
-    not cr.charts_available(), reason="charting libs (mplfinance) not installed"
-)
+def needs_charts(fn):
+    """Was `skipif(not charts_available())`. See this file's docstring.
+
+    Names each missing library rather than reporting the aggregate flag: the
+    old reason string said "mplfinance not installed" whichever of the three
+    was actually absent, which would have sent somebody to the wrong package.
+    """
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        for mod in ("matplotlib", "mplfinance", "pandas"):
+            require(mod, "bot/skills/chart_renderer.py renders with it")
+        assert cr.charts_available(), (
+            "all three chart libraries import, yet chart_renderer decided "
+            f"charts are unavailable: {cr._IMPORT_ERROR!r}")
+        return fn(*a, **kw)
+    return wrapper
 
 
 @needs_charts
@@ -238,12 +259,18 @@ class _FakeBot:
         pass
 
 
-_have_telegram = False
-try:
-    import telegram  # noqa: F401
-    _have_telegram = True
-except Exception:
-    pass
+def needs_telegram(fn):
+    """python-telegram-bot is pinned, so absence is a broken environment.
+
+    This was `skipif(not _have_telegram)` over a bare try/except import — the
+    delivery half of charting (send_photo / send_media_group) would have gone
+    quiet in exactly the same way the render half did.
+    """
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        require("telegram", "chart delivery goes through python-telegram-bot")
+        return fn(*a, **kw)
+    return wrapper
 
 
 @needs_charts
@@ -254,7 +281,7 @@ async def test_single_timeframe_sends_one_photo():
 
 
 @needs_charts
-@pytest.mark.skipif(not _have_telegram, reason="python-telegram-bot not installed")
+@needs_telegram
 async def test_multiple_timeframes_send_album():
     bot = _FakeBot()
     ok = await cr.send_idea_charts_multi(

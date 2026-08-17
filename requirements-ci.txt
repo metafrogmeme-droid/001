@@ -1,8 +1,22 @@
 # Pinned dependencies for the CI test environment (.github/workflows/ci.yml).
 # This mirrors the environment the known-failures baseline (tests/known_failures.txt)
-# was generated in, so the baseline-diff gate is reproducible. Optional, heavy, or
-# import-guarded extras (anthropic, mplfinance/matplotlib/pandas) are intentionally
-# omitted — their absence is part of the baseline.
+# was generated in, so the baseline-diff gate is reproducible.
+#
+# IT MUST COVER EVERY MODULE requirements.lock PINS. That is now enforced by
+# tests/test_ci_env_matches_lock.py, and this header is why.
+#
+# It used to end: "Optional, heavy, or import-guarded extras (anthropic,
+# mplfinance/matplotlib/pandas) are intentionally omitted — their absence is
+# part of the baseline." Every clause was true and the conclusion was backwards.
+# `requirements.lock` says a module is GUARANTEED PRESENT in production; a CI
+# environment that omits it tests a system nobody runs, and the omission is
+# invisible because the tests that need it skip. Twenty chart tests skipped here
+# on every green run for months while /chart quietly sent text.
+#
+# "Import-guarded" was the specific trap. Pillow is guarded at eleven sites and
+# is not optional at all — a guarded import means the code SURVIVES the absence,
+# not that the feature is expendable. Being heavy is a reason to cache the
+# install, not to stop testing the feature.
 python-dotenv==1.2.2
 pydantic==2.13.3
 ccxt==4.5.56
@@ -17,6 +31,15 @@ redis>=5.0.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 PyJWT>=2.7.0
+# Pinned to the exact lock versions: the baseline-diff gate needs a reproducible
+# environment, and these three now run 20 tests that never executed before.
+matplotlib==3.11.1
+mplfinance==0.12.10b0
+pandas==3.0.5
+# Not gated by any test today — and that is the point. It is pinned in
+# requirements.lock, so the production Anthropic provider path exists on every
+# box and existed on no CI runner. A latent version of the same gap.
+anthropic==0.104.1
 # Dev / test tooling
 pytest==8.3.5
 pytest-asyncio==0.24.0

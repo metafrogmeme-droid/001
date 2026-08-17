@@ -25,6 +25,35 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _leveraged_return_pct(entry: float, last: float, direction: str,
+                          leverage: float) -> float:
+    """Return on MARGIN (ROE) — the partner of `_leveraged_pnl_usd` below.
+
+    The dollar got a helper on 2026-07-xx precisely so "a leveraged % can never
+    sit beside an unleveraged $ again". The dollar was then fixed at every site
+    and the PERCENT was fixed at one, so on 2026-08-17 the same live position
+    rendered -2.56% on /open_positions and -0.13% a minute later on the
+    position-detail card, with an identical $-0.64 beside both:
+
+        raw price move      -0.13%
+        x20 leverage (ROE)  -2.55%
+        gross PnL           $-0.64   <- shown against BOTH percentages
+
+    Read in sequence that is a 2.4-point recovery that never happened. Both
+    numbers were individually correct; neither said which question it answered.
+
+    This exists so the two helpers sit next to each other and a fourth call
+    site cannot pick one basis for the dollar and the other for the percent.
+    Same guard clauses and same leverage convention as the dollar helper, so
+    they cannot disagree about an unusable input either.
+    """
+    if entry <= 0 or last <= 0:
+        return 0.0
+    raw = ((last - entry) / entry) if direction == "LONG" else ((entry - last) / entry)
+    lev = leverage if (leverage and leverage > 0) else 1.0
+    return raw * lev * 100.0
+
+
 def _leveraged_pnl_usd(entry: float, last: float, direction: str,
                        cost_usd: float, leverage: float) -> float:
     """Real unrealized USD P&L for a leveraged futures position.
@@ -524,6 +553,19 @@ def _dashboard_url() -> str:
     website_sync) so the bot and web stay pointed at one origin."""
     base = site_url()
     return f"{base}/dashboard#home"
+
+
+# Floor on a chat attempt whose timeout has been clamped to the remaining chain
+# deadline. Once less than this is left, starting one more provider buys a
+# near-certain timeout: it still bills the prompt tokens, still spends the
+# user's patience, and cannot plausibly return a 1024-token answer (flash-class
+# p50 ~2-4s). 0.2s left is not an attempt, it is a slower way to fail. Below
+# this the chain stops and SAYS it stopped.
+#
+# A constant rather than a second env knob deliberately: one dial per decision.
+# A floor an operator can raise above the deadline is a way to configure a chain
+# that never tries anything.
+CHAT_MIN_ATTEMPT_SEC = 6.0
 
 
 def _chat_ret(text: str, cfg, return_meta: bool):
@@ -1793,9 +1835,33 @@ class TelegramHandler:
                     "or use a specific command like /scan or /positions.",
                     None, return_meta)
 
-        # Try each config in order
+        # Try each config in order, under ONE wall-clock deadline.
+        #
+        # Every timeout in this chain is PER ATTEMPT (bot/llm/provider.py does
+        # `asyncio.wait_for(_call(), timeout=config.timeout_seconds)`), so the
+        # chain's real cost was their SUM: an admin with every key present
+        # waited 15 + 20 + 20 + 20 + 15 = 90 seconds before being told ANYTHING.
+        # The deadline bounds that sum, and each attempt's own timeout is then
+        # clamped to whatever budget is LEFT.
+        #
+        # THE CLAMP RIDES A COPY. LLMConfig is @dataclass(frozen=True), so
+        # assigning cfg.timeout_seconds raises FrozenInstanceError — but the
+        # copy is not merely a workaround for that. Three OTHER callers share
+        # the same provider timeout (bot/core/analyzer.py, bot/skills/scan_skill.py,
+        # bot/core/self_audit.py), and two are background paths where a
+        # chat-shaped deadline would be a regression rather than a fix. Nothing
+        # here touches provider.py or CONFIG.llm.timeout_seconds.
+        from dataclasses import replace as _dc_replace
+        _deadline = time.monotonic() + float(CONFIG.llm.chat_deadline_seconds)
+        _tried = 0
         last_error = ""
         for source, cfg in configs_to_try:
+            _left = _deadline - time.monotonic()
+            if _left < CHAT_MIN_ATTEMPT_SEC:
+                break
+            cfg = _dc_replace(
+                cfg, timeout_seconds=min(float(cfg.timeout_seconds), _left))
+            _tried += 1
             try:
                 client = create_llm_client(cfg)
                 if client is None:
@@ -1851,6 +1917,25 @@ class TelegramHandler:
                         category="chat",
                     )
 
+                # An empty completion is NOT an answer. `answer` can be "" on a
+                # content-filter finish, a tool-call-only turn, or a truncated
+                # stream — provider.py normalizes all three to "". Returning it
+                # here painted a BLANK bubble, which reads as "the model
+                # answered and had nothing to say": a confident negative
+                # manufactured from a failed read, in the same shape as a 0.00%
+                # over an unfetchable price.
+                #
+                # Treat it as THIS candidate failing and fall through to the
+                # next; the deadline above bounds how long that can go on. Cost
+                # is recorded above and stays recorded — the tokens were really
+                # spent, and dropping that would hide real spend from /costs.
+                if not (answer or "").strip():
+                    last_error = f"{cfg.provider.value}: empty completion"
+                    audit(system_log,
+                          f"Chat empty completion from {cfg.provider.value}",
+                          action="chat_empty", result="FALLBACK")
+                    continue
+
                 if source != "chat_tier":
                     audit(system_log,
                           f"Chat used fallback: {cfg.provider.value}/{cfg.model}",
@@ -1870,9 +1955,33 @@ class TelegramHandler:
                       action="chat_error", result="FALLBACK")
                 continue
 
-        # All providers failed. F-15: the raw provider exception (last_error)
-        # can carry a credential-bearing URL or an upstream 4xx body echoing a
-        # key — it goes to the audit log ONLY, never into the user-facing reply.
+        # Nothing answered — and there are TWO different reasons, which must not
+        # be told as one. Either every candidate was tried and every one failed,
+        # or the wall-clock budget ran out first and some were never asked.
+        #
+        # Serving "the AI is temporarily unavailable" in the second case is a
+        # confident negative about something never measured: the providers we
+        # skipped may be perfectly healthy, and the user would be told the
+        # models are down when in truth we stopped waiting. That is this repo's
+        # rule applied to a sentence rather than a number. Neither branch may
+        # render as an empty bubble, and neither invents an answer.
+        #
+        # F-15, BOTH branches: the raw provider exception (last_error) can carry
+        # a credential-bearing URL or an upstream 4xx body echoing a key. It
+        # goes to the audit log ONLY, never into the user-facing reply, and
+        # provider names stay in the log too.
+        if _tried < len(configs_to_try):
+            audit(system_log,
+                  f"Chat deadline hit after {_tried}/{len(configs_to_try)} "
+                  f"providers ({CONFIG.llm.chat_deadline_seconds:.0f}s budget). "
+                  f"Last: {last_error}",
+                  action="chat_deadline", result="EXHAUSTED")
+            return _chat_ret(
+                "I stopped waiting before any model answered — that's a "
+                "timeout on my side, not an answer, and nothing was analyzed. "
+                "Try again in a moment, or use a specific command like /scan "
+                "or /positions.",
+                None, return_meta)
         audit(system_log, f"All chat LLM providers failed. Last: {last_error}",
               action="chat_error", result="ALL_FAILED")
         return _chat_ret(
@@ -12414,6 +12523,21 @@ class TelegramHandler:
                 # Real leveraged dollar P&L (was _qty×price-delta, which understated
                 # it by the leverage multiple for a margin-based quantity).
                 pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, sz, leverage)
+                # ...and put the PERCENT on the same basis as that dollar.
+                #
+                # It was computed ~50 lines above as a raw price move, because
+                # that is the only place it could be: leverage is not resolved
+                # until just now. So this card rendered "-0.13% ($-0.64)" — an
+                # unleveraged percent beside a leveraged dollar — while
+                # /open_positions rendered "-2.56% ($-0.64)" for the same
+                # position a minute earlier. Read in sequence, a 2.4-point
+                # recovery that never happened.
+                #
+                # Rescaled rather than recomputed so the raw move above keeps
+                # driving sl_dist/tp_dist/R:R, which are genuinely price-based
+                # and must NOT be multiplied by leverage.
+                pnl_pct = _leveraged_return_pct(_entry, last_px, _dir, leverage)
+                pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
 
                 # Fee calculations
                 comm_pct = CONFIG.risk.commission_pct

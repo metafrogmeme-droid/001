@@ -7,6 +7,7 @@ Matches the dark-themed, grid-layout design with colored accents.
 
 from __future__ import annotations
 
+import re
 import io
 import logging
 from typing import Any, Dict, Optional
@@ -41,6 +42,44 @@ _CJK_FONT_PATHS = [
 ]
 
 
+#: Every close reason the code actually emits, mapped explicitly. Consulted
+#: BEFORE any pattern matching, because the interesting reasons are exactly the
+#: ones a pattern gets wrong: three of these contain the letters "SL" without
+#: being a stop-loss hit, and "take_profit" contains no "TP" at all.
+#:
+#: The two guard aborts are deliberately NOT labelled as stop-outs. A stop-loss
+#: hit is the market taking a position out; a guard abort is the bot refusing a
+#: fill it had already made. Both end in a small loss, and reading one as the
+#: other turns "the safety net worked" into "the trade went against us" in the
+#: operator's own record.
+_CLOSE_REASON_LABELS: dict[str, tuple[str, str]] = {
+    "liquidation": ("\U0001f4a5", "Liquidated"),
+    "liquidated": ("\U0001f4a5", "Liquidated"),
+    "sl_hit": ("\U0001f6d1", "Stop-Loss Hit"),
+    "stop_loss": ("\U0001f6d1", "Stop-Loss Hit"),
+    "trailing_stop": ("\U0001f6d1", "Trailing Stop Hit"),
+    "trailing_stop_hit": ("\U0001f6d1", "Trailing Stop Hit"),
+    "time_stop": ("⏰", "Time Stop"),
+    "tp_hit": ("\U0001f3af", "Take-Profit Hit"),
+    "take_profit": ("\U0001f3af", "Take-Profit Hit"),
+    # Guard aborts — the bot closed its own fresh fill on purpose.
+    "slippage_guard": ("\U0001f6e1", "Entry Aborted — Slippage"),
+    "leverage_overshoot": ("\U0001f6e1", "Entry Aborted — Leverage"),
+    # NOT a stop-loss hit. The stop could not be PLACED, so the position was
+    # closed rather than left unprotected. Reporting this as "Stop-Loss Hit"
+    # inverted who acted and why.
+    "sl_placement_failed": ("⚠️", "Closed — Stop Could Not Be Placed"),
+    # Order-lifecycle reasons: no capital was ever at risk. bot/utils/close_reason.py
+    # already excludes these from performance stats; they must not read as exits.
+    "expired": ("\U0001f4c4", "Order Expired"),
+    "canceled": ("\U0001f4c4", "Order Cancelled"),
+    "cancelled": ("\U0001f4c4", "Order Cancelled"),
+    "price_drift": ("\U0001f4c4", "Order Cancelled — Price Drift"),
+    "stale_pending": ("\U0001f4c4", "Order Expired"),
+    "duplicate_fill_suppressed": ("\U0001f4c4", "Duplicate Fill Suppressed"),
+}
+
+
 def humanize_close_reason(raw_reason: str, pnl_usd: float = 0.0) -> tuple[str, str]:
     """Map a raw internal close-reason string to (emoji, friendly_label).
 
@@ -56,19 +95,44 @@ def humanize_close_reason(raw_reason: str, pnl_usd: float = 0.0) -> tuple[str, s
     qualifier entirely and just reports the plain outcome (win/loss is
     already conveyed by the PnL figure next to it).
     """
-    r = (raw_reason or "").upper()
-    if "LIQUID" in r:
+    r = (raw_reason or "").strip().lower()
+    known = _CLOSE_REASON_LABELS.get(r)
+    if known is not None:
+        return known
+
+    # Unknown reason: fall back to WHOLE-TOKEN matching, never substrings.
+    #
+    # This chain used to be `if "SL" in r or "STOP" in r`, and the comment above
+    # the "TIME" branch shows the hazard was already known — a reason containing
+    # the word "stop" was patched, one instance at a time. Substring matching
+    # over an open vocabulary breaks in both directions, and on 2026-08-17 it
+    # was breaking on four real reasons at once:
+    #
+    #   sl_placement_failed -> "Stop-Loss Hit"   the stop could NOT be placed
+    #   slippage_guard      -> "Stop-Loss Hit"   the entry was aborted by a guard
+    #   slow_bleed          -> "Stop-Loss Hit"   "SLOW" contains "SL"
+    #   take_profit         -> "Closed"          "TAKE_PROFIT" contains no "TP"
+    #
+    # The first is an inversion and the worst of them: a position closed BECAUSE
+    # its stop could not be placed was reported as that stop being hit. The
+    # trade record then says the market took the position out, when in truth the
+    # bot removed a position it could not protect. Those are opposite facts
+    # about whose decision it was.
+    #
+    # Tokens, not substrings, and an explicit table above for everything the
+    # code actually emits. A future reason containing SL, STOP or TP inside a
+    # longer word now falls through to the honest generic label instead of
+    # inventing a mechanism.
+    tokens = {t for t in re.split(r"[^a-z0-9]+", r) if t}
+    if any(t.startswith("liquid") for t in tokens):
         return "\U0001f4a5", "Liquidated"
-    if "TP" in r:
+    if "tp" in tokens or {"take", "profit"} <= tokens:
         return "\U0001f3af", "Take-Profit Hit"
-    if "TRAILING" in r:
+    if "trailing" in tokens:
         return "\U0001f6d1", "Trailing Stop Hit"
-    # Checked before the generic "SL"/"STOP" match below: a time-based exit
-    # reason containing the word "stop" (e.g. a hypothetical "TIME_STOP")
-    # would otherwise be misclassified as a stop-loss hit.
-    if "TIME" in r:
+    if "time" in tokens:
         return "⏰", "Time Stop"
-    if "SL" in r or "STOP" in r:
+    if "sl" in tokens or {"stop", "loss"} <= tokens:
         return "\U0001f6d1", "Stop-Loss Hit"
     return ("✅", "Closed") if pnl_usd >= 0 else ("❌", "Closed")
 
