@@ -24,6 +24,7 @@ Usage:
 """
 from __future__ import annotations
 
+import hashlib
 import pathlib
 import subprocess
 import sys
@@ -98,6 +99,32 @@ def _coverage_below_floor() -> bool:
     return False
 
 
+def _tree_fingerprint() -> str:
+    """A cheap fingerprint of every source file the suite reads.
+
+    Compared before and after the run so the flake filter can tell "this test
+    is order-dependent" from "somebody edited the code while I was running".
+
+    mtime+size rather than content hashing: there are thousands of files and
+    this runs on the critical path of every preflight. The failure mode of
+    mtime (an edit that preserves both) is not reachable by a human editor or
+    by git, and the cost of hashing contents is a measurable slice of a 15
+    minute gate.
+    """
+    h = hashlib.sha256()
+    for root in ("bot", "tests", "scripts"):
+        base = ROOT / root
+        if not base.is_dir():
+            continue
+        for f in sorted(base.rglob("*.py")):
+            try:
+                st = f.stat()
+            except OSError:
+                continue
+            h.update(f"{f.relative_to(ROOT)}:{st.st_mtime_ns}:{st.st_size}\n".encode())
+    return h.hexdigest()
+
+
 def main() -> int:
     update = "--update" in sys.argv
     cov_available = False
@@ -107,6 +134,7 @@ def main() -> int:
     except Exception:
         cov_available = False
     first_cmd = PYTEST_CMD + (COV_FLAGS if cov_available else [])
+    fingerprint_before = _tree_fingerprint()
     proc = subprocess.run(first_cmd, cwd=ROOT, capture_output=True, text=True)
     output = proc.stdout + proc.stderr
     print(output)
@@ -171,8 +199,35 @@ def main() -> int:
     # isolation count as real regressions. Trade-off: an order-dependent *real*
     # regression (test A breaks test B) is not caught here, but that is rare and
     # far less disruptive than flakes reddening every run.
+    # THE FLAKE FILTER RE-READS THE TREE FROM DISK, so an edit landing mid-run
+    # turns a REAL failure into a phantom flake: the first pass fails against
+    # the old source, the isolated re-run passes against the new, and the gate
+    # concludes "order-dependent" and drops it.
+    #
+    # Observed 2026-08-17. A source-scanning test failed legitimately, the fix
+    # was written while the ~15 minute suite was still running, and this gate
+    # reported "PASS — no new failures" for a run that contained a genuine
+    # regression. CI, whose checkout is immutable for the duration, failed the
+    # same commit — and the local run was the one that looked trustworthy.
+    #
+    # "Passes alone" is only evidence about flakiness if BOTH runs saw the same
+    # code. When they did not, nothing was established, and this gate already
+    # carries the same lesson one layer down: it used to ignore pytest's exit
+    # code and announce PASS having executed nothing. An unreadable result is
+    # not a passing one.
+    tree_changed = _tree_fingerprint() != fingerprint_before
+
     flaky: list[str] = []
-    if new_failures:
+    if new_failures and tree_changed:
+        print("\n" + "=" * 70)
+        print("[gate] SOURCE CHANGED DURING THE RUN — flake filter DISABLED.")
+        print("  A file under bot/, tests/ or scripts/ was modified while the")
+        print("  suite was running, so an isolated re-run would be testing")
+        print("  DIFFERENT code and 'passes alone' would prove nothing. Every")
+        print("  new failure below is reported as real. Re-run the gate on a")
+        print("  quiescent tree to get a verdict you can trust.")
+        print("=" * 70)
+    elif new_failures:
         confirmed: list[str] = []
         print("\n----- re-running new failures individually (flake filter) -----")
         for node in new_failures:
