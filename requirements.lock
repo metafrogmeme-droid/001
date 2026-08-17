@@ -11,6 +11,18 @@ numpy==2.3.5
 aiohttp==3.14.3
 websockets==16.0
 cryptography==50.0.0
+# ── Added 2026-08-17, after cards stopped rendering on a fresh venv ─────────
+# The lock had ten pins and bot/ imports twenty modules. A venv built from it
+# was missing Pillow, so `bot/formatters/signal_card.py` took its
+# `except ImportError` branch, returned b"", and the caller's `if png:` sent
+# text instead — no card, no error, one log line. The bot looked healthy.
+# `tests/test_requirements_cover_imports.py` now refuses that gap.
+#
+# Union of two independent fixes for the same incident: `uvicorn` came from
+# main (fastapi needs a server to be worth pinning), `redis` from this branch
+# (bot/api/token_store.py imports it bare). Neither list was wrong; each was
+# missing what the other found, which is its own argument for the guard.
+Pillow==12.3.0
 fastapi==0.141.1
 uvicorn==0.52.3
-Pillow==12.3.0
+redis==8.1.0
