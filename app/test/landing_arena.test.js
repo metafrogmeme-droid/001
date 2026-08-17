@@ -11,10 +11,14 @@ const fs = require('fs');
 const path = require('path');
 
 const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+// The hero stayed on the landing page when /explore was split out, so
+// hero assertions read index.html while section assertions read explore.
+const landing = require('node:fs').readFileSync(
+  require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
 const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
 
 test('the hero explore row links the Arena', () => {
-  const hero = index.slice(index.indexOf('class="hero"'), index.indexOf('</header>'));
+  const hero = landing.slice(landing.indexOf('class="hero"'), landing.indexOf('</header>'));
   assert.match(hero, /href="\/arena"/);
   assert.match(hero, /data-i18n="hero\.explore_arena"/);
 });

@@ -431,6 +431,7 @@ app.get('/call/:key', (req, res) => {
 app.get('/roots', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'roots.html')); });
 // The complete third-party verification contract (payload formats, root
 // construction, copy-paste verification snippets) — no account, no trust.
+app.get('/explore', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'explore.html')); });
 app.get('/provable', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'provable.html')); });
 // /leaderboard — the board unfurls as a live frame card when the public
 // origin is known; injection failure serves the untouched page (and the

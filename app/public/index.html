@@ -329,14 +329,9 @@
     <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
     <li><a href="#theaterSection" data-i18n="idx.theater">Live trade</a></li>
     <li><a href="#boardTease" data-i18n="nav.leaderboard">Leaders</a></li>
-    <li><a href="#strengthTease" data-i18n="nav.strengthmap">Strength Map</a></li>
     <li><a href="#marketplaceTease" data-i18n="nav.marketplace">Marketplace</a></li>
-    <li><a href="#guardianTease" data-i18n="nav.guardian">Guardian</a></li>
-    <li><a href="#duelTease" data-i18n="nav.duel">Duel</a></li>
     <li><a href="#arenaTease" data-i18n="nav.arena">Arena</a></li>
-    <li><a href="#pathTease" data-i18n="sec.path_eyebrow">The trader&rsquo;s path</a></li>
-    <li><a href="#featuresTease" data-i18n="idx.web">On the web</a></li>
-    <li><a href="#loopTease" data-i18n="idx.loop">The loop</a></li>
+      <li><a href="/explore" data-i18n="ex.nav">Explore everything</a></li>
   </ul>
 </nav>
 
@@ -400,21 +395,7 @@
      just the nav): each card is one of the engine's real strategy agents with a
      verified, frozen backtest — design + regime only, percent/ratio never a
      dollar figure (§4). Cards link into the public /agents marketplace. -->
-<!-- 3D Strength Map showcase — the flagship market-intelligence visual, brought
-     onto the front door. Public market data only, links to the live /strengthmap. -->
-<section class="section reveal-on-scroll section--dense" id="strengthTease" aria-labelledby="strength-h">
-  <div class="card" style="position:relative;overflow:hidden;background:radial-gradient(130% 150% at 12% 0%, rgba(214,178,90,.10), transparent 55%), var(--surface);border:1px solid var(--line-2)">
-    <div class="section-head" style="margin-bottom:var(--s3)">
-      <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-radar"></use></svg> <span data-i18n="sec.strength_eyebrow">Market intelligence</span></div>
-      <h2 id="strength-h" data-i18n="sec.strength_h">See the whole market in 3D</h2>
-      <p data-i18n="sec.strength_p">Every Bitget USDT-perp plotted by momentum, funding and open interest, coloured by long-vs-short strength — the entire universe at a glance. Orbit it, tap a coin for its factor breakdown, then open the trade on your CEX or DEX of choice.</p>
-    </div>
-    <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:var(--s4)">
-      <span class="sm-pill" data-i18n="lp.ax_momentum">Momentum</span><span class="sm-pill" data-i18n="lp.ax_trend">Trend</span><span class="sm-pill">ΔOI</span><span class="sm-pill" data-i18n="lp.ax_funding">Funding</span><span class="sm-pill" data-i18n="lp.ax_ls">Long / Short strength</span>
-    </div>
-    <a class="btn btn--primary btn--sm" href="/strengthmap" data-i18n="sec.strength_cta">🌐 Open the 3D Strength Map →</a>
-  </div>
-</section>
+
 <style>.sm-pill{font-size:var(--fs-xs);padding:3px 11px;border-radius:999px;border:1px solid var(--line-2);color:var(--text-2);font-family:var(--font-data,inherit);white-space:nowrap}</style>
 
 <section class="section reveal-on-scroll section--dense" id="marketplaceTease" aria-labelledby="mkt-h">
@@ -430,42 +411,12 @@
   </p>
 </section>
 
-<!-- Guardian: the differentiated safety layer, showcased on the front door.
-     Each card links to a live tool. Design/heuristic only, §4-safe. -->
-<section class="section reveal-on-scroll section--dense" id="guardianTease" aria-labelledby="guardian-h">
-  <div class="section-head">
-    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span>RUNECLAW Guardian</span></div>
-    <h2 id="guardian-h" data-i18n="sec.guardian_h">The safety layer AI trading forgot</h2>
-    <p data-i18n-html="sec.guardian_p">Most bots only chase returns. Guardian makes an autonomous agent <b>trustworthy</b> — it proves every decision, simulates what breaks you, watches the market for systemic risk, blocks malicious signing, and plans your way out. The AI proposes · deterministic controls authorize · the wallet enforces · the recorder proves · the escape agent recovers.</p>
-  </div>
-  <div class="feature-grid rc-stagger">
-    <a class="feature" href="/flight"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛰️</span><h3 data-i18n="nav.flight">Flight Recorder</h3><p data-i18n="lp.g1_p">The verifiable black box behind every trade — inputs, reasoning, risk verdict and outcome, sealed into a hash-chained ledger you can re-inspect.</p></a>
-    <a class="feature" href="/stress"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌀</span><h3 data-i18n="nav.stress">Stress Lab</h3><p data-i18n="lp.g2_p">A digital twin of your book: your drawdown and which leveraged legs get liquidated in a −30% drop, an alt crash or a black swan.</p></a>
-    <a class="feature" href="/sentinel"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📡</span><h3 data-i18n="lp.g3_h">Systemic Risk Sentinel</h3><p data-i18n="lp.g3_p">A market-wide crowding radar — funding heat, one-sided positioning and leverage surges that precede a cascade, from public data.</p></a>
-    <a class="feature" href="/firewall"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛡️</span><h3 data-i18n="lp.g4_h">Transaction Firewall</h3><p data-i18n="lp.g4_p">Paste what an agent is about to sign; it flags prompt-injection, drain and unlimited-approval language, phishing URLs and address poisoning — locally.</p></a>
-    <a class="feature" href="/approvals"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🩻</span><h3 data-i18n="nav.approvals">Allowance X-ray</h3><p data-i18n="lp.g7_p">What your wallet has already granted — allowances on seven chains and Solana delegates, flagged when unlimited, with the revoke plan your own wallet sends. A clean result is never a guarantee.</p></a>
-    <a class="feature" href="/escape"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🪂</span><h3 data-i18n="lp.g5_h">Universal Escape Agent</h3><p data-i18n="lp.g5_p">A dependency-aware emergency exit: the safe order to unwind perps, loans, collateral, LPs and staking — the way out you plan before you need it.</p></a>
-    <a class="feature" href="/intent"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧭</span><h3 data-i18n="lp.g6_h">Intent Compiler</h3><p data-i18n="lp.g6_p">Say your limits in plain words; they compile to a deterministic, revocable Authority Envelope — typed rules tagged with who enforces each one.</p></a>
-  </div>
-  <p style="margin-top:var(--s4)">
-    <a class="btn btn--primary btn--sm" href="/guardian" data-i18n="sec.guardian_cta">Explore Guardian →</a>
-  </p>
-</section>
+
 
 <!-- Paper Trading Arena: the zero-friction on-ramp. Every account gets the
      same virtual stake; the public board ranks percent return under opt-in
      anonymous handles (§4: no dollar figures on this surface). -->
-<!-- Daily Duel — the shortest path from landing here to doing something. The
-     Arena asks for a trading decision with size attached; this asks only for
-     an opinion, and it takes one tap. §4: no stake exists to report. -->
-<section class="section reveal-on-scroll section--dense" id="duelTease" aria-labelledby="duel-h">
-  <div class="section-head">
-    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-sparkle"></use></svg> <span data-i18n="sec.duel_eyebrow">Daily Duel</span></div>
-    <h2 id="duel-h" data-i18n="sec.duel_h">Think you can call it better than the AI?</h2>
-    <p data-i18n="sec.duel_p">Three rounds a day, drawn from the agent’s own live signals. Call LONG, SHORT or PASS — the Claw’s call stays hidden until you commit, and the market settles it 24 hours later. Beat the Claw and the round is worth double. Free, no stake, and one tap to start.</p>
-    <p><a href="/duel" style="color:var(--gold-bright)" data-i18n="sec.duel_cta">Make today’s call →</a></p>
-  </div>
-</section>
+
 
 <section class="section reveal-on-scroll section--dense" id="arenaTease" aria-labelledby="arena-h">
   <!-- Live season ribbon — filled from the public season API when one exists.
@@ -507,53 +458,11 @@
   </p>
 </section>
 
-<section class="section reveal-on-scroll section--dense" id="pathTease" aria-labelledby="path-h">
-  <div class="section-head">
-    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-sparkle"></use></svg> <span data-i18n="sec.path_eyebrow">The trader's path</span></div>
-    <h2 id="path-h" data-i18n="sec.path_h">Learn it. Play it. Wear it.</h2>
-    <p data-i18n="sec.path_p">Trading is a practice, so the platform is built like one: a private study room where you write and the AI tutors from real lessons, a command deck where streaks, quests and achievements are granted by arithmetic — never by grant tables — and a soulbound on-chain rune that marks your seat. All of it free; none of it advice.</p>
-  </div>
-  <div class="feature-grid rc-stagger">
-    <a class="feature" href="/learn"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📖</span><h3 data-i18n="sec.path_f1h">The Study Room</h3><p data-i18n="sec.path_f1p">A daily trade diary that attaches your real closed paper trades for reflection, a lesson shelf, and an AI tutor that answers only from the lessons — private always, edits marked, streaks counted.</p></a>
-    <a class="feature" href="/command"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎮</span><h3 data-i18n="sec.path_f2h">The Command Deck</h3><p data-i18n="sec.path_f2p">Your whole recorded state on one screen — streaks, weekly quests, exit discipline, lessons and ten achievement glyphs. Every unlock recomputes from records; nothing can be granted that the records don't back.</p></a>
-    <a class="feature" href="/rune"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">⚔️</span><h3 data-i18n="sec.path_f3h">The Rune of Entry</h3><p data-i18n="sec.path_f3p">A soulbound sigil, minted free from your own wallet — gas only, one per wallet, art generated and stored fully on-chain. A badge, not an investment: it promises nothing and can never be sold.</p></a>
-  </div>
-  <p style="margin-top:var(--s4)">
-    <a class="btn btn--primary btn--sm" href="/learn" data-i18n="sec.path_cta">Open the Study Room →</a>
-    <a class="btn btn--sm" href="/command" data-i18n="nav.command">Command Deck</a>
-  </p>
-</section>
 
-<section class="section reveal-on-scroll section--dense" id="featuresTease" aria-labelledby="features-h">
-  <div class="section-head">
-    <h2 id="features-h" data-i18n="lp.web_h">Everything the bot does, on the web</h2>
-    <p data-i18n="lp.web_p">The same engine that runs the autonomous scanner, scoped to your account.</p>
-  </div>
-  <div class="feature-grid rc-stagger">
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><h3 data-i18n="lp.w1_h">Chat with the engine</h3><p data-i18n="lp.w1_p">Ask for a scan, your portfolio, or type "buy SOL 71 sl 70 tp 76" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="lp.w2_h">Trade from the dashboard</h3><p data-i18n="lp.w2_p">A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live is opt-in and runs on your own exchange keys.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><h3 data-i18n="dp.stream">Signal stream</h3><p data-i18n="lp.w3_p">Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="lp.w4_h">Your portfolio, tracked</h3><p data-i18n="lp.w4_p">Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="lp.w5_h">Hard risk engine</h3><p data-i18n="lp.w5_p">Circuit breakers, funding-clock gate, equity throttle, and margin caps you control. The engine's shadow book even audits what its own rejections cost.</p></div>
-    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3 data-i18n="lp.w6_h">CEX + DEX, venue-aware</h3><p data-i18n="lp.w6_p">Live trading runs on Bitget USDT-M perpetuals, with connectable Bybit, BingX and Hyperliquid — an on-chain perps DEX — plus a new-listing radar and full venue telemetry on the dashboard's Engine view.</p></div>
-  </div>
-</section>
 
-<section class="section reveal-on-scroll section--dense" id="loopTease" aria-labelledby="how-h">
-  <div class="section-head">
-    <h2 id="how-h" data-i18n="lp.loop_h">One loop, running continuously</h2>
-    <p data-i18n="lp.loop_p">Not a static screener — a live decision loop that never stops.</p>
-  </div>
-  <ol class="loop-steps rc-stagger" aria-label="The trading loop" data-i18n-attr="aria-label:a11y.trading_loop">
-    <li class="loop-step"><span class="loop-num">1</span><b data-i18n="lp.loop1_b">Scan</b><span class="muted small" data-i18n="lp.loop1_s">800+ symbols, around the clock</span></li>
-    <li class="loop-arrow" aria-hidden="true">→</li>
-    <li class="loop-step"><span class="loop-num">2</span><b data-i18n="lp.loop2_b">Analyze</b><span class="muted small" data-i18n="lp.loop2_s">LLM reasoning + technical confluence</span></li>
-    <li class="loop-arrow" aria-hidden="true">→</li>
-    <li class="loop-step"><span class="loop-num">3</span><b data-i18n="lp.loop3_b">Risk gate</b><span class="muted small" data-i18n="lp.loop3_s">refuses anything out of bounds</span></li>
-    <li class="loop-arrow" aria-hidden="true">→</li>
-    <li class="loop-step"><span class="loop-num">4</span><b data-i18n="lp.loop4_b">Execute</b><span class="muted small" data-i18n="lp.loop4_s">paper or live — your choice</span></li>
-  </ol>
-</section>
+
+
+
 
 <main class="auth-wrap" id="main-content">
   <div class="card" id="auth-panel">
@@ -711,6 +620,13 @@
       <a href="/developers" data-i18n="nav.developers">Developers</a>
       <a href="/status" data-i18n="nav.status">Status</a>
       <a href="/gas" data-i18n="nav.gas">Live Gas</a>
+      <a href="/explore" data-i18n="ex.nav">Explore</a>
+      <a href="/learn" data-i18n="nav.learn">Study Room</a>
+      <a href="/command" data-i18n="nav.command">Command Deck</a>
+      <a href="/rune" data-i18n="nav.rune">Rune of Entry</a>
+      <a href="/duel" data-i18n="nav.duel">Daily Duel</a>
+      <a href="/approvals" data-i18n="nav.approvals">Allowance X-ray</a>
+      <a href="/intent" data-i18n="lp.g6_h">Intent Compiler</a>
       <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener" data-i18n="nav.tg_bot">Telegram bot</a>
       <a href="https://t.me/+VRNgsmkR5pszZTdk" target="_blank" rel="noopener" data-i18n="nav.community">Community</a>
       <a href="https://github.com/Humanoid-Traders/RUNECLAW" target="_blank" rel="noopener">GitHub</a>
@@ -747,7 +663,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=117"></script>
+<script src="/js/i18n.js?v=118"></script>
 <script src="/js/icons.js?v=3"></script>
 <script src="/js/app.js?v=9"></script>
 <script src="/js/chat.js?v=26" defer></script>

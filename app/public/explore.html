@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Explore RUNECLAW — every tool on one page</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/explore">
+<meta name="description" content="The full RUNECLAW toolset in one place: the 3D Strength Map, the Guardian safety suite, the Strategy Agent Marketplace, the paper Arena, the Daily Duel and the trader’s path.">
+<meta property="og:title" content="Explore RUNECLAW — every tool on one page">
+<meta property="og:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/explore">
+<!-- Absolute URL on purpose: WhatsApp/Teams/Facebook/X only unfurl a picture
+     from an absolute og:image; a relative path is silently ignored. -->
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Explore RUNECLAW — every tool on one page">
+<meta name="twitter:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser.">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="256x256" href="/app_icon_256.png">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=25">
+<script src="/js/wallet_picker.js" defer></script>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+<style>
+  /* Page-local composition only — all tokens/components come from styles.css */
+  .btn-block { width: 100%; }
+  .step { display: none; }
+  .step.active { display: flex; flex-direction: column; gap: var(--s3); }
+  .form-err { font-size: var(--fs-xs); color: var(--down); min-height: 18px; }
+  .sep { display: flex; align-items: center; gap: var(--s3); color: var(--text-3); font-size: var(--fs-xs); margin: var(--s3) 0; }
+  .sep::before, .sep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .token-display { font-family: var(--font-data); font-size: var(--fs-base); letter-spacing: .06em; background: var(--bg); border: 1px dashed var(--gold); border-radius: var(--radius-sm); padding: var(--s3); text-align: center; cursor: pointer; }
+  .token-display.copied { border-color: var(--up); color: var(--up); }
+  .acct-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); margin-bottom: var(--s4); }
+  /* On a narrow phone the two account cards each get ~140px — too tight for the
+     token display + labels. Stack them below 520px. */
+  @media (max-width: 520px) { .acct-grid { grid-template-columns: 1fr; } }
+  .steps-list { margin: var(--s2) 0 0 18px; color: var(--text-2); font-size: var(--fs-sm); display: flex; flex-direction: column; gap: 6px; }
+  .nav-links { display: flex; align-items: center; gap: var(--s2); }
+  .nav-links a { color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; padding: 7px 11px; border-radius: var(--radius-sm); }
+  .nav-links a:hover { color: var(--text); background: var(--surface-2); }
+  /* Mobile disclosure menu: a native <details> so the header links (Dashboard,
+     Track record, Proof, Leaderboard, Letter, Docs) stay reachable on phones
+     instead of dead-ending. Hidden on desktop where the inline links show. */
+  .nav-menu { display: none; position: relative; }
+  .nav-menu > summary {
+    list-style: none; cursor: pointer; color: var(--text-2);
+    font-size: var(--fs-sm); font-weight: 600; padding: 9px 12px;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    display: inline-flex; align-items: center; gap: 6px; min-height: 40px;
+  }
+  .nav-menu > summary::-webkit-details-marker { display: none; }
+  .nav-menu[open] > summary { color: var(--text); border-color: var(--gold); }
+  .nav-menu-panel {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
+    display: flex; flex-direction: column; min-width: 200px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); padding: 6px; gap: 2px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  }
+  .nav-menu-panel a {
+    color: var(--text-2); font-size: var(--fs-sm); font-weight: 500;
+    padding: 10px 12px; border-radius: var(--radius-sm); min-height: 44px;
+    display: flex; align-items: center;
+  }
+  .nav-menu-panel a:hover { color: var(--text); background: var(--surface-2); }
+  @media (max-width: 639px) {
+    .nav-links a:not(.btn) { display: none; }
+    .nav-menu { display: block; }
+  }
+  /* Real-time 3D agent in the hero — invisible until agent.glb is present, so
+     this never alters the landing until the model artwork is added. */
+  .hero-agent3d { display: none; }
+  .hero-agent3d[data-rc3d-state="loading"], .hero-agent3d[data-rc3d-state="ready"] {
+    display: block; position: absolute; top: 0; right: 3%; width: clamp(200px, 30vw, 380px);
+    aspect-ratio: 1 / 1; z-index: 1; pointer-events: auto;
+  }
+  @media (max-width: 900px) { .hero-agent3d[data-rc3d-state="ready"], .hero-agent3d[data-rc3d-state="loading"] { position: static; margin: 0 auto; width: 240px; } }
+  /* Marketplace preview: real strategy-agent cards on the landing page so the
+     marketplace is visible, not buried in the nav. Percent/ratio only (§4). */
+  .mkt-card { display: block; color: inherit; text-decoration: none; transition: transform .18s ease, border-color .2s ease, box-shadow .22s ease; }
+  .mkt-card:hover, .mkt-card:focus-visible { transform: translateY(-3px); border-color: var(--line-2); box-shadow: var(--shadow), var(--glow); }
+  .mkt-card .mkt-h { display: flex; align-items: center; gap: 8px; }
+  .mkt-card .mkt-emo { font-size: 22px; line-height: 1; }
+  .mkt-card .mkt-h h3 { margin: 0; }
+  .mkt-stats { display: flex; gap: var(--s4); margin-top: var(--s2); }
+  .mkt-stat { display: flex; flex-direction: column; }
+  .mkt-stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-3); }
+  .mkt-stat .v { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .mkt-stat .v.up { color: var(--up); } .mkt-stat .v.down { color: var(--down); }
+  @media (prefers-reduced-motion: reduce) { .mkt-card { transition: none; } .mkt-card:hover, .mkt-card:focus-visible { transform: none; } }
+  .proof-strip { max-width: 640px; margin: var(--s4) auto 0; padding: var(--s3);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 80%, transparent); text-align: left; }
+  .ps-line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-bottom: 6px; }
+  .ps-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
+  .ps-day, .ps-count { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2); }
+  .ps-root { font-family: var(--font-data); font-size: 12px; color: var(--gold-bright);
+    word-break: break-all; flex: 1; min-width: 0; }
+  .ps-copy { font-size: var(--fs-xs); padding: 2px 8px; border: 1px solid var(--line);
+    border-radius: 999px; background: none; color: var(--text-2); cursor: pointer; }
+  .ps-copy:hover { color: var(--text-1); border-color: var(--gold); }
+  .ps-cmd { overflow-x: auto; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
+    background: rgba(0,0,0,.28); }
+  .ps-cmd code { font-family: var(--font-data); font-size: 11.5px; color: var(--text-2); white-space: pre; }
+  .ps-note { margin: 0; }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content" data-i18n="dash.skip">Skip to content</a>
+<canvas id="rc-constellation" data-viewport data-hue="205" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.28"></canvas>
+
+<nav class="topbar" aria-label="Main" data-i18n-attr="aria-label:a11y.main">
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub" data-i18n="lp.brand_sub">Command Core</span></a>
+  <div class="spacer"></div>
+  <div class="nav-links">
+    <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+    <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+    <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+    <a href="/track" data-i18n="nav.track">Track record</a>
+    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+    <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+    <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
+    <details class="nav-menu">
+      <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
+      <div class="nav-menu-panel">
+        <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+        <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+        <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+        <a href="/track" data-i18n="nav.track">Track record</a>
+        <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+        <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+        <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+        <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
+      </div>
+    </details>
+    <a class="btn btn--primary btn--sm" href="/#auth-panel" data-i18n="nav.get_started">Get started</a>
+  </div>
+</nav>
+
+<!-- /explore exists because the landing page had fifteen sections and every
+     one of them argued for a different product. Eight of those were pitches
+     for a destination the five doors already summarise; they live here now,
+     at full weight, on a page somebody chose to open. The landing keeps the
+     argument, the proof, the map and the live demonstrations.
+
+     NOTHING WAS DELETED IN THE MOVE. Every word, every link and all fourteen
+     translations came across verbatim. -->
+<header class="section" style="padding-bottom:var(--s4)">
+  <div class="section-head">
+    <div class="eyebrow">🧭 <span data-i18n="ex.eyebrow">The full toolset</span></div>
+    <h1 style="font-family:var(--font-brand);font-size:var(--fs-hero);letter-spacing:.03em;text-wrap:balance" data-i18n="ex.h1">Everything RUNECLAW does</h1>
+    <p data-i18n="ex.lede">Each of these is a working surface, not a roadmap. The landing page makes the argument and shows the proof; this is the equipment.</p>
+  </div>
+</header>
+
+<main id="main-content">
+<!-- 3D Strength Map showcase — the flagship market-intelligence visual, brought
+     onto the front door. Public market data only, links to the live /strengthmap. -->
+<section class="section reveal-on-scroll" id="strengthTease" aria-labelledby="strength-h">
+  <div class="card" style="position:relative;overflow:hidden;background:radial-gradient(130% 150% at 12% 0%, rgba(214,178,90,.10), transparent 55%), var(--surface);border:1px solid var(--line-2)">
+    <div class="section-head" style="margin-bottom:var(--s3)">
+      <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-radar"></use></svg> <span data-i18n="sec.strength_eyebrow">Market intelligence</span></div>
+      <h2 id="strength-h" data-i18n="sec.strength_h">See the whole market in 3D</h2>
+      <p data-i18n="sec.strength_p">Every Bitget USDT-perp plotted by momentum, funding and open interest, coloured by long-vs-short strength — the entire universe at a glance. Orbit it, tap a coin for its factor breakdown, then open the trade on your CEX or DEX of choice.</p>
+    </div>
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:var(--s4)">
+      <span class="sm-pill" data-i18n="lp.ax_momentum">Momentum</span><span class="sm-pill" data-i18n="lp.ax_trend">Trend</span><span class="sm-pill">ΔOI</span><span class="sm-pill" data-i18n="lp.ax_funding">Funding</span><span class="sm-pill" data-i18n="lp.ax_ls">Long / Short strength</span>
+    </div>
+    <a class="btn btn--primary btn--sm" href="/strengthmap" data-i18n="sec.strength_cta">🌐 Open the 3D Strength Map →</a>
+  </div>
+</section>
+
+
+<!-- Guardian: the differentiated safety layer, showcased on the front door.
+     Each card links to a live tool. Design/heuristic only, §4-safe. -->
+<section class="section reveal-on-scroll" id="guardianTease" aria-labelledby="guardian-h">
+  <div class="section-head">
+    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span>RUNECLAW Guardian</span></div>
+    <h2 id="guardian-h" data-i18n="sec.guardian_h">The safety layer AI trading forgot</h2>
+    <p data-i18n-html="sec.guardian_p">Most bots only chase returns. Guardian makes an autonomous agent <b>trustworthy</b> — it proves every decision, simulates what breaks you, watches the market for systemic risk, blocks malicious signing, and plans your way out. The AI proposes · deterministic controls authorize · the wallet enforces · the recorder proves · the escape agent recovers.</p>
+  </div>
+  <div class="feature-grid rc-stagger">
+    <a class="feature" href="/flight"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛰️</span><h3 data-i18n="nav.flight">Flight Recorder</h3><p data-i18n="lp.g1_p">The verifiable black box behind every trade — inputs, reasoning, risk verdict and outcome, sealed into a hash-chained ledger you can re-inspect.</p></a>
+    <a class="feature" href="/stress"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌀</span><h3 data-i18n="nav.stress">Stress Lab</h3><p data-i18n="lp.g2_p">A digital twin of your book: your drawdown and which leveraged legs get liquidated in a −30% drop, an alt crash or a black swan.</p></a>
+    <a class="feature" href="/sentinel"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📡</span><h3 data-i18n="lp.g3_h">Systemic Risk Sentinel</h3><p data-i18n="lp.g3_p">A market-wide crowding radar — funding heat, one-sided positioning and leverage surges that precede a cascade, from public data.</p></a>
+    <a class="feature" href="/firewall"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛡️</span><h3 data-i18n="lp.g4_h">Transaction Firewall</h3><p data-i18n="lp.g4_p">Paste what an agent is about to sign; it flags prompt-injection, drain and unlimited-approval language, phishing URLs and address poisoning — locally.</p></a>
+    <a class="feature" href="/approvals"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🩻</span><h3 data-i18n="nav.approvals">Allowance X-ray</h3><p data-i18n="lp.g7_p">What your wallet has already granted — allowances on seven chains and Solana delegates, flagged when unlimited, with the revoke plan your own wallet sends. A clean result is never a guarantee.</p></a>
+    <a class="feature" href="/escape"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🪂</span><h3 data-i18n="lp.g5_h">Universal Escape Agent</h3><p data-i18n="lp.g5_p">A dependency-aware emergency exit: the safe order to unwind perps, loans, collateral, LPs and staking — the way out you plan before you need it.</p></a>
+    <a class="feature" href="/intent"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧭</span><h3 data-i18n="lp.g6_h">Intent Compiler</h3><p data-i18n="lp.g6_p">Say your limits in plain words; they compile to a deterministic, revocable Authority Envelope — typed rules tagged with who enforces each one.</p></a>
+  </div>
+  <p style="margin-top:var(--s4)">
+    <a class="btn btn--primary btn--sm" href="/guardian" data-i18n="sec.guardian_cta">Explore Guardian →</a>
+  </p>
+</section>
+
+<!-- Daily Duel — the shortest path from landing here to doing something. The
+     Arena asks for a trading decision with size attached; this asks only for
+     an opinion, and it takes one tap. §4: no stake exists to report. -->
+<section class="section reveal-on-scroll" id="duelTease" aria-labelledby="duel-h">
+  <div class="section-head">
+    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-sparkle"></use></svg> <span data-i18n="sec.duel_eyebrow">Daily Duel</span></div>
+    <h2 id="duel-h" data-i18n="sec.duel_h">Think you can call it better than the AI?</h2>
+    <p data-i18n="sec.duel_p">Three rounds a day, drawn from the agent’s own live signals. Call LONG, SHORT or PASS — the Claw’s call stays hidden until you commit, and the market settles it 24 hours later. Beat the Claw and the round is worth double. Free, no stake, and one tap to start.</p>
+    <p><a href="/duel" style="color:var(--gold-bright)" data-i18n="sec.duel_cta">Make today’s call →</a></p>
+  </div>
+</section>
+
+
+<section class="section reveal-on-scroll" id="pathTease" aria-labelledby="path-h">
+  <div class="section-head">
+    <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-sparkle"></use></svg> <span data-i18n="sec.path_eyebrow">The trader's path</span></div>
+    <h2 id="path-h" data-i18n="sec.path_h">Learn it. Play it. Wear it.</h2>
+    <p data-i18n="sec.path_p">Trading is a practice, so the platform is built like one: a private study room where you write and the AI tutors from real lessons, a command deck where streaks, quests and achievements are granted by arithmetic — never by grant tables — and a soulbound on-chain rune that marks your seat. All of it free; none of it advice.</p>
+  </div>
+  <div class="feature-grid rc-stagger">
+    <a class="feature" href="/learn"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📖</span><h3 data-i18n="sec.path_f1h">The Study Room</h3><p data-i18n="sec.path_f1p">A daily trade diary that attaches your real closed paper trades for reflection, a lesson shelf, and an AI tutor that answers only from the lessons — private always, edits marked, streaks counted.</p></a>
+    <a class="feature" href="/command"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎮</span><h3 data-i18n="sec.path_f2h">The Command Deck</h3><p data-i18n="sec.path_f2p">Your whole recorded state on one screen — streaks, weekly quests, exit discipline, lessons and ten achievement glyphs. Every unlock recomputes from records; nothing can be granted that the records don't back.</p></a>
+    <a class="feature" href="/rune"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">⚔️</span><h3 data-i18n="sec.path_f3h">The Rune of Entry</h3><p data-i18n="sec.path_f3p">A soulbound sigil, minted free from your own wallet — gas only, one per wallet, art generated and stored fully on-chain. A badge, not an investment: it promises nothing and can never be sold.</p></a>
+  </div>
+  <p style="margin-top:var(--s4)">
+    <a class="btn btn--primary btn--sm" href="/learn" data-i18n="sec.path_cta">Open the Study Room →</a>
+    <a class="btn btn--sm" href="/command" data-i18n="nav.command">Command Deck</a>
+  </p>
+</section>
+
+<section class="section reveal-on-scroll" id="featuresTease" aria-labelledby="features-h">
+  <div class="section-head">
+    <h2 id="features-h" data-i18n="lp.web_h">Everything the bot does, on the web</h2>
+    <p data-i18n="lp.web_p">The same engine that runs the autonomous scanner, scoped to your account.</p>
+  </div>
+  <div class="feature-grid rc-stagger">
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chat"></use></svg><h3 data-i18n="lp.w1_h">Chat with the engine</h3><p data-i18n="lp.w1_p">Ask for a scan, your portfolio, or type "buy SOL 71 sl 70 tp 76" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="lp.w2_h">Trade from the dashboard</h3><p data-i18n="lp.w2_p">A clean order ticket with risk/reward preview. Every trade runs the full 23-check risk gate. Paper by default; live is opt-in and runs on your own exchange keys.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><h3 data-i18n="dp.stream">Signal stream</h3><p data-i18n="lp.w3_p">Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="lp.w4_h">Your portfolio, tracked</h3><p data-i18n="lp.w4_p">Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="lp.w5_h">Hard risk engine</h3><p data-i18n="lp.w5_p">Circuit breakers, funding-clock gate, equity throttle, and margin caps you control. The engine's shadow book even audits what its own rejections cost.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><h3 data-i18n="lp.w6_h">CEX + DEX, venue-aware</h3><p data-i18n="lp.w6_p">Live trading runs on Bitget USDT-M perpetuals, with connectable Bybit, BingX and Hyperliquid — an on-chain perps DEX — plus a new-listing radar and full venue telemetry on the dashboard's Engine view.</p></div>
+  </div>
+</section>
+
+<section class="section reveal-on-scroll" id="loopTease" aria-labelledby="how-h">
+  <div class="section-head">
+    <h2 id="how-h" data-i18n="lp.loop_h">One loop, running continuously</h2>
+    <p data-i18n="lp.loop_p">Not a static screener — a live decision loop that never stops.</p>
+  </div>
+  <ol class="loop-steps rc-stagger" aria-label="The trading loop" data-i18n-attr="aria-label:a11y.trading_loop">
+    <li class="loop-step"><span class="loop-num">1</span><b data-i18n="lp.loop1_b">Scan</b><span class="muted small" data-i18n="lp.loop1_s">800+ symbols, around the clock</span></li>
+    <li class="loop-arrow" aria-hidden="true">→</li>
+    <li class="loop-step"><span class="loop-num">2</span><b data-i18n="lp.loop2_b">Analyze</b><span class="muted small" data-i18n="lp.loop2_s">LLM reasoning + technical confluence</span></li>
+    <li class="loop-arrow" aria-hidden="true">→</li>
+    <li class="loop-step"><span class="loop-num">3</span><b data-i18n="lp.loop3_b">Risk gate</b><span class="muted small" data-i18n="lp.loop3_s">refuses anything out of bounds</span></li>
+    <li class="loop-arrow" aria-hidden="true">→</li>
+    <li class="loop-step"><span class="loop-num">4</span><b data-i18n="lp.loop4_b">Execute</b><span class="muted small" data-i18n="lp.loop4_s">paper or live — your choice</span></li>
+  </ol>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+    <div class="links">
+      <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+      <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+      <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+      <a href="/track" data-i18n="nav.track">Track record</a>
+      <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+      <a href="/roots" data-i18n="nav.roots">Seal Roots</a>
+      <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+      <a href="/flight" data-i18n="nav.flight">Flight Recorder</a>
+      <a href="/stress" data-i18n="nav.stress">Stress Lab</a>
+      <a href="/sentinel" data-i18n="nav.sentinel">Risk Sentinel</a>
+      <a href="/firewall" data-i18n="nav.firewall">Firewall</a>
+      <a href="/escape" data-i18n="nav.escape">Escape Agent</a>
+      <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+      <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+      <a href="/developers" data-i18n="nav.developers">Developers</a>
+      <a href="/status" data-i18n="nav.status">Status</a>
+      <a href="/gas" data-i18n="nav.gas">Live Gas</a>
+      <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener" data-i18n="nav.tg_bot">Telegram bot</a>
+      <a href="https://t.me/+VRNgsmkR5pszZTdk" target="_blank" rel="noopener" data-i18n="nav.community">Community</a>
+      <a href="https://github.com/Humanoid-Traders/RUNECLAW" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
+      <span id="footer-socials"></span>
+    </div>
+  </div>
+  <div class="risk" data-i18n="foot.risk">Trading futures involves substantial risk of loss and is not suitable for every investor. RUNECLAW is a trading tool, not financial advice. Use withdrawal-disabled API keys and never risk more than you can afford to lose.</div>
+</footer>
+
+
+
+<script src="/js/i18n.js?v=118"></script>
+<script src="/js/icons.js?v=3"></script>
+<script src="/js/app.js?v=9"></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/palette.js?v=1" defer></script>
+</body>
+</html>

@@ -9,7 +9,10 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+// Reads explore.html: this content moved off the landing page when
+// /explore was split out. The assertions below are about the CONTENT
+// existing and being correct, not about which document holds it.
+const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'explore.html'), 'utf8');
 const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
 
 test('the landing has a Strength Map band linking to the live 3D map', () => {

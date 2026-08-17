@@ -49,7 +49,9 @@ test('the index sits below the doors, not above them', () => {
   const at = (s) => html.indexOf(s);
   assert.ok(at('id="doorsTease"') < at('id="pageIndex"'),
     'the doors summarise the SITE and must still come first');
-  assert.ok(at('id="pageIndex"') < at('id="marketplaceTease"'),
+  // marketplaceTease moved to /explore; askTease is the first section the
+  // index now points at on this page.
+  assert.ok(at('id="pageIndex"') < at('id="askTease"'),
     'an index below the sections it indexes is not an index');
 });
 
@@ -121,7 +123,9 @@ test('syncPageIndex is a no-op on every other page', () => {
 
 test('every index label is translated in all fourteen locales', () => {
   const keys = [...indexBlock.matchAll(/data-i18n="([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(keys.length >= 14, `expected a label per entry, found ${keys.length}`);
+  // Eight entries left with the sections they pointed at when /explore was
+  // split out; one was added for /explore itself.
+  assert.ok(keys.length >= 6, `expected a label per entry, found ${keys.length}`);
   for (const key of ['idx.h', ...keys]) {
     const line = i18n.split('\n').find((l) => l.includes(`'${key}':`));
     assert.ok(line, `i18n defines ${key}`);

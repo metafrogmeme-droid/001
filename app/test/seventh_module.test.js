@@ -12,7 +12,8 @@ const path = require('path');
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', 'public', ...p), 'utf8');
 
 test('the landing guardian band carries the seventh module', () => {
-  const index = read('index.html');
+  // explore.html: this section moved off the landing page with /explore.
+  const index = read('explore.html');
   const band = index.slice(index.indexOf('id="guardianTease"'), index.indexOf('</section>', index.indexOf('id="guardianTease"')));
   assert.match(band, /<a class="feature" href="\/approvals">/);
   assert.match(band, /data-i18n="lp\.g7_p"/);

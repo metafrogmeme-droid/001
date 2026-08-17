@@ -65,7 +65,9 @@ test('wired: route, sitemap, llms, and the landing funnel', () => {
     '/gas is in the dynamic sitemap');
   assert.match(read('public', 'llms.txt'), /\/gas — live per-chain gas/);
   // the landing's rune card sends visitors to the public explainer first
-  assert.match(read('public', 'index.html'), /<a class="feature" href="\/rune"/);
+  // The Rune tile lives on /explore now; the landing links /rune from the footer.
+  assert.match(read('public', 'explore.html'), /<a class="feature" href="\/rune"/);
+  assert.match(read('public', 'index.html'), /href="\/rune"/);
   // house treatment
   assert.match(page, /reveal-on-scroll/);
   assert.match(page, /\/js\/reveal\.js\?v=/);

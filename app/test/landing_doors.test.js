@@ -69,13 +69,26 @@ test('every door string ships all fourteen locales on one line', () => {
 
 // ── ADDITIVE: nothing was traded away to make room ────────────────────────
 
-test('every section that existed before the doors is still there', () => {
-  // If this fails, the change stopped being additive and the argument for
-  // shipping it ahead of the full restructure no longer applies.
-  for (const id of ['whyTease', 'provableTease', 'theaterSection', 'boardTease',
-    'strengthTease', 'marketplaceTease', 'guardianTease', 'duelTease',
-    'arenaTease', 'pathTease']) {
-    assert.match(html, new RegExp(`id="${id}"`), `${id} must survive the doors`);
+test('every section that existed before the doors still exists somewhere', () => {
+  // The doors shipped additively; /explore later moved eight of these onto
+  // their own page. The claim worth keeping is that NONE of them was deleted
+  // to make room — so each is asserted against the page it now lives on,
+  // rather than dropped from the list, which is how a migration quietly
+  // becomes a deletion.
+  const explore = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'explore.html'), 'utf8');
+  // Live-data sections stayed: their loaders also drive the hero, the ticker
+  // and the board, and an 11KB inline block cannot be split across two pages
+  // without cutting working code in half. Only the static pitches moved.
+  const onLanding = ['whyTease', 'provableTease', 'theaterSection', 'boardTease',
+    'marketplaceTease', 'arenaTease'];
+  const onExplore = ['strengthTease', 'guardianTease', 'duelTease', 'pathTease'];
+  for (const id of onLanding) {
+    assert.match(html, new RegExp(`id="${id}"`), `${id} must survive on the landing page`);
+  }
+  for (const id of onExplore) {
+    assert.match(explore, new RegExp(`id="${id}"`), `${id} must survive on /explore`);
+    assert.ok(!html.includes(`id="${id}"`), `${id} is on BOTH pages — the move duplicated it`);
   }
 });
 
@@ -85,8 +98,10 @@ test('the doors sit above the sections they summarise, and below the proof', () 
   const at = (s) => html.indexOf(s);
   assert.ok(at('id="provableTease"') < at('id="doorsTease"'),
     'the proof of the headline claim comes first');
-  assert.ok(at('id="doorsTease"') < at('id="marketplaceTease"'),
-    'the map comes before the individual pitches');
+  // The individual pitches now live on /explore, which the doors link to.
+  assert.ok(at('id="doorsTease"') < at('id="pageIndex"'),
+    'the map comes before the page contents');
+  assert.match(html, /href="\/explore"/, 'the landing must offer the way to them');
 });
 
 test('the doors add no new button — that is the point', () => {
