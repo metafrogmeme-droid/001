@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "Public page routes deliberately NOT linked from the landing page, each with",
+    "the reason. A ratchet in both directions: a new entry means somebody shipped",
+    "a page nobody can reach, and an entry that stops being true must be deleted",
+    "in the same commit that links it — the known_failures.txt rule, for the same",
+    "reason. See landing_reachability.test.js.",
+    "",
+    "/gas was the first thing this caught: a real public page — live gas across",
+    "seven chains, whose own meta description promises 'unreadable chains omitted,",
+    "never invented' — linked from nowhere. It is in the footer now rather than in",
+    "this file, which is the outcome this list exists to force."
+  ],
+  "routes": {
+    "/reset": "Password-reset entry. Reached only by the emailed link, and it carries a token — advertising it on the landing page invites people to load it without one, which can only render an error.",
+    "/verify": "Email-verification entry, same shape as /reset: the link IS the credential.",
+    "/wallet-link": "Entered from the wallet-connect flow with state already established. Landing straight on it out of context has nothing to act on."
+  }
+}
