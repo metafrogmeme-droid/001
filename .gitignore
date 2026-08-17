@@ -123,3 +123,12 @@ app/build-info.json
 target/
 .anchor/
 test-ledger/
+
+# The persistent store links. deploy.sh replaces `data` and `logs` with
+# SYMLINKS into $PERSIST_DIR, and `data/*` does not match a symlink named
+# `data` — so a `git add -A` after running deploy.sh commits a link pointing at
+# whatever that machine's store path happened to be. Committed once, 2026-08-17,
+# aimed at a /tmp directory: a `git reset --hard` on the box would then have
+# replaced the real state links with dead ones.
+/data
+/logs

@@ -23,6 +23,44 @@ set -euo pipefail
 PERSIST_DIR="${PERSIST_DIR:-$HOME/runeclaw-persist}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── The interpreter must match .python-version ──────────────────────────────
+#
+# Observed 2026-08-17. `pip install -r requirements.lock` on the box failed
+# with "no matching distribution" for numpy==2.3.5, and the operator was told
+# the pin was wrong and that PyPI's latest was 2.2.6. Neither is true: 2.3.5
+# exists, the latest is 2.5.2, and the lock file is correct.
+#
+# What actually happened is that numpy 2.3.x declares `requires-python >=3.11`,
+# so on an older interpreter pip cannot SEE those releases. It reports the
+# newest version visible to THAT Python — 2.2.6 — and the message reads as a
+# fact about PyPI rather than a fact about the local interpreter. An operator
+# following it would have downgraded a correct pin for everybody.
+#
+# CI validates on 3.11, `.python-version` says 3.11, and pyproject declares
+# `requires-python = ">=3.11"`. All three were already right; nothing checked
+# them at the moment it mattered. This does, before pip is ever called.
+if [ -f "$REPO_DIR/.python-version" ]; then
+  want="$(tr -d ' \t\r\n' < "$REPO_DIR/.python-version")"
+  have="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")"
+  want_major="${want%%.*}"; want_minor="${want#*.}"; want_minor="${want_minor%%.*}"
+  have_major="${have%%.*}"; have_minor="${have#*.}"
+  if [ "$have" = "?" ]; then
+    echo "  ⚠  python3 not found — cannot verify the interpreter."
+  elif [ "$have_major" -lt "$want_major" ] 2>/dev/null \
+    || { [ "$have_major" -eq "$want_major" ] && [ "$have_minor" -lt "$want_minor" ]; } 2>/dev/null; then
+    echo ""
+    echo "  ✗  Python $have is older than the $want this repo requires."
+    echo ""
+    echo "     Do NOT edit requirements.lock to make the install succeed. pip on"
+    echo "     an old interpreter reports the newest version IT can see, which"
+    echo "     looks like the pin is wrong when the interpreter is."
+    echo ""
+    echo "     Install Python $want (pyenv/uv) and re-run this script."
+    exit 1
+  fi
+  echo "  Python $have  (>= $want required)"
+fi
+
 echo "RUNECLAW deploy — persisting state to: $PERSIST_DIR"
 mkdir -p "$PERSIST_DIR"
 
