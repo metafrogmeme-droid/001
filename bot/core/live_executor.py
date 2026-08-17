@@ -4038,8 +4038,13 @@ class LiveExecutor:
                         "leverage_overshoot_max_ratio", 1.5))
                     _lev_verdict = leverage_overshoot_verdict(
                         _lev_want, _lev_got, _lev_max_ratio)
-                    _lev_ratio = _lev_verdict["ratio"] or 0.0
+                    # `["ratio"] or 0.0` was the banned shape here, and it was
+                    # safe only by position: ratio is guaranteed non-None inside
+                    # the "close" branch. One refactor away it would print a
+                    # fabricated "0.0x the approved leverage" into the audit
+                    # record beside real numbers. Read it where it is known.
                     if _lev_verdict["decision"] == "close":
+                        _lev_ratio = float(_lev_verdict["ratio"])
                         audit(trade_log,
                               f"Leverage overshoot guard tripped for {idea.asset}: "
                               f"venue filled at {_lev_got}x against a {_lev_want}x "
