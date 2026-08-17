@@ -2311,6 +2311,29 @@ class AppConfig:
     # It exists to bound the pathological case, not the slow one. 0 disables.
     analysis_timeout_sec: float = _env_float_bounded(
         "ANALYSIS_TIMEOUT_SEC", 90.0, 0.0, 600.0)
+    # How long a symbol RESTS after its analysis times out, and how far that
+    # doubles on repeat offences.
+    #
+    # The timeout above bounds ONE analysis. It does not stop the same symbol
+    # being asked again on the very next sweep, and nothing did: on 2026-08-17
+    # three tokenized-equity symbols (MCD, AMD, HOOD) each burned the full 90s
+    # every pass, 270s of a 292s analyze phase, indefinitely. The engine already
+    # NAMED them — naming is not resting.
+    #
+    # 900s (15 min) base: the analyze phase cap is 300s and ticks run on the
+    # order of minutes, so a rest of fifteen skips a handful of sweeps — enough
+    # to reclaim the time — while a symbol that hung on one bad exchange minute
+    # is retried inside the same hour. Doubling to a 4h cap means a reliably
+    # unanalysable symbol stops being asked several times an hour forever,
+    # without ever being dropped permanently: a symbol silently delisted by a
+    # bug is worse than one that costs 90s.
+    #
+    # 0 disables resting entirely — the pre-fix behaviour, and the same "0
+    # disables" convention ANALYSIS_TIMEOUT_SEC uses directly above.
+    analysis_timeout_rest_sec: float = _env_float_bounded(
+        "ANALYSIS_TIMEOUT_REST_SEC", 900.0, 0.0, 86400.0)
+    analysis_timeout_rest_cap_sec: float = _env_float_bounded(
+        "ANALYSIS_TIMEOUT_REST_CAP_SEC", 14400.0, 0.0, 604800.0)
     # Per-request cap (ms) on the KEYLESS market-data clients the scanner
     # builds. Not the trading clients — order placement keeps its own.
     #
