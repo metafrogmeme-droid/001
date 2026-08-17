@@ -164,31 +164,54 @@ def test_the_guard_runs_before_sl_tp_orders_are_placed():
     stop/take-profit orders on the venue against a position that no longer
     exists. Nothing else in the suite would notice.
     """
-    # Scoped to the ENCLOSING METHOD, not the whole file. `_place_sl_tp` is
-    # called from several methods and the first one in the file belongs to a
-    # different code path entirely — comparing against that compared two
-    # unrelated positions and failed on a correct arrangement. The property is
-    # about the order of two statements inside one function.
+    # CHECKED AT EVERY CALL SITE, and conditional on what that method does.
+    #
+    # The first version took the FIRST verdict call in the file and required
+    # _place_sl_tp in its method. That held while `execute` was the only caller.
+    # When the guard was extended to the other three fill paths
+    # (_check_pending_limit, _adopt_partial_fill, _execute_drift_market_fallback)
+    # via the shared `_guard_fill_leverage` helper, the first call moved into
+    # that helper — which contains no _place_sl_tp at all — and the test failed
+    # with its own "the fill path was restructured" message. It was right: the
+    # arrangement had changed and the check no longer described it.
+    #
+    # The real invariant is per site:
+    #
+    #   verdict AND _place_sl_tp in one method  -> the verdict must come FIRST,
+    #                                              so a flatten cannot orphan
+    #                                              orders that do not exist yet
+    #   verdict WITHOUT _place_sl_tp            -> the stop is already live, so
+    #                                              the flatten must go through
+    #                                              close_position, which cancels
+    #                                              it (pinned in
+    #                                              test_fill_leverage_guard_all_paths)
     lines = CODE.splitlines()
-    guard_ln = next(i for i, ln in enumerate(lines)
-                    if "leverage_overshoot_verdict(" in ln
-                    and not ln.lstrip().startswith("def "))
-    # Walk back to the `async def` that contains the guard, forward to the next
-    # one, and require the SL/TP placement to fall inside that span, after it.
-    start = max(i for i in range(guard_ln, -1, -1)
-                if re.match(r"\s*(async )?def ", lines[i]))
-    end = next((i for i in range(guard_ln + 1, len(lines))
-                if re.match(r"    (async )?def ", lines[i])), len(lines))
-    placements = [i for i in range(start, end)
-                  if "await self._place_sl_tp(" in lines[i]]
-    assert placements, (
-        "no _place_sl_tp call found in the method containing the guard — the "
-        "fill path was restructured and this ordering check no longer applies "
-        "to anything")
-    assert all(guard_ln < p for p in placements), (
-        f"the leverage guard (line ~{guard_ln}) now runs AFTER SL/TP placement "
-        f"(lines ~{placements}) — closing from it would orphan live stop and "
-        "take-profit orders on the venue")
+    call_lns = [i for i, ln in enumerate(lines)
+                if "leverage_overshoot_verdict(" in ln
+                and not ln.lstrip().startswith("def ")]
+    assert call_lns, "the verdict is never called — the guard is unwired"
+
+    checked_ordering = 0
+    for guard_ln in call_lns:
+        start = max(i for i in range(guard_ln, -1, -1)
+                    if re.match(r"\s*(async )?def ", lines[i]))
+        end = next((i for i in range(guard_ln + 1, len(lines))
+                    if re.match(r"    (async )?def ", lines[i])), len(lines))
+        placements = [i for i in range(start, end)
+                      if "await self._place_sl_tp(" in lines[i]]
+        if not placements:
+            continue          # the already-protected shape; covered elsewhere
+        checked_ordering += 1
+        assert all(guard_ln < p for p in placements), (
+            f"the leverage guard (line ~{guard_ln}) now runs AFTER SL/TP "
+            f"placement (lines ~{placements}) — closing from it would orphan "
+            "live stop and take-profit orders on the venue")
+
+    assert checked_ordering >= 1, (
+        "no call site places SL/TP in the same method as the verdict any more, "
+        "so this test asserted nothing. Either `execute`'s guard moved, or "
+        "every path now flattens through close_position — if the latter is "
+        "deliberate, delete this test rather than let it pass vacuously")
 
 
 def test_the_pre_order_fail_open_path_is_untouched():
