@@ -22,7 +22,8 @@ test('Getting-started checklist is promoted above Open positions on Home', () =>
 });
 
 test('the landing "One loop" section has real content, not an empty heading', () => {
-  const html = read('index.html');
+  // explore.html: this section moved off the landing page with /explore.
+  const html = read('explore.html');
   const sec = html.slice(html.indexOf('id="how-h"'), html.indexOf('</section>', html.indexOf('id="how-h"')));
   const steps = sec.match(/loop-step/g) || [];
   assert.ok(steps.length >= 4, `expected the 4 loop steps, found ${steps.length}`);

@@ -20,8 +20,10 @@ test('the differentiator band names the four trust pillars', () => {
   assert.match(cut, /Guarded, not just optimized/);
   assert.match(cut, /Non-custodial by design/);
   assert.match(cut, /Verifiable, not claimed/);
-  // it appears high on the page — before the marketplace tease
-  assert.ok(index.indexOf('id="whyTease"') < index.indexOf('id="marketplaceTease"'));
+  // It appears high on the page. The marketplace tease used to be the landmark
+  // for "high"; it moved to /explore, so the landmark is the page index — the
+  // trust pillars must still come before the table of contents.
+  assert.ok(index.indexOf('id="whyTease"') < index.indexOf('id="pageIndex"'));
 });
 
 test('the band copy is translated + cache-buster bumped', () => {

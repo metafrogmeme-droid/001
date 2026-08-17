@@ -72,12 +72,15 @@ test('scroll-reveal is opt-in and reduced-motion safe in both CSS and JS', () =>
 });
 
 test('landing marks below-the-fold sections for scroll-reveal', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+// Reads explore.html: this content moved off the landing page when
+// /explore was split out. The assertions below are about the CONTENT
+// existing and being correct, not about which document holds it.
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'explore.html'), 'utf8');
   assert.ok((html.match(/class="section reveal-on-scroll"/g) || []).length >= 3);
 });
 
 test('staggered child reveal is CSS-only, keyed off the parent, reduced-motion safe', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'explore.html'), 'utf8');
   // The feature grid and loop steps opt into the stagger.
   assert.match(html, /class="feature-grid rc-stagger"/);
   assert.match(html, /class="loop-steps rc-stagger"/);
