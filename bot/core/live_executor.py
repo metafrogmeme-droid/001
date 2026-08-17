@@ -1767,6 +1767,115 @@ class LiveExecutor:
         result["failure_stage"] = "post_check_unconfirmed"
         return result
 
+    async def _guard_fill_leverage(self, exchange: "ccxt.Exchange", trade_id: str,
+                                   pos, intended_leverage, context: str) -> Optional[str]:
+        """Post-fill leverage check for the paths that are NOT `execute`.
+
+        `execute` grew this guard first (the 2026-08-17 APT incident: a 5x
+        target filled at 20x on Bitget's sticky per-symbol leverage, and the
+        bot answered with a warning label). Three other paths reach the same
+        state and had no verdict at all:
+
+          _check_pending_limit          a limit order fills
+          _adopt_partial_fill           a cancelled limit had partly filled
+          _execute_drift_market_fallback  a drifted limit becomes a market order
+
+        All three compute `cost_usd` from `pos.leverage` — the INTENDED value —
+        and place SL/TP. The limit path then calls sync_positions_from_exchange,
+        which silently rewrites pos.leverage and pos.cost_usd and audits a
+        `leverage_sync` line nobody reads; the other two never look at all. So a
+        position sized and displayed for 5x could be running at 20x, with a
+        liquidation distance a quarter of the approved one, and the only trace
+        was a log entry.
+
+        ONE DIFFERENCE FROM `execute`, AND IT IS THE WHOLE REASON THIS IS A
+        SEPARATE HELPER. There, the guard runs BEFORE _place_sl_tp, so a flatten
+        cannot orphan anything. Here the stop and take-profit are ALREADY LIVE
+        on the venue by the time the leverage is known. Closing must therefore
+        cancel them first — which `close_position` already does
+        (_close_position_inner cancels SL/TP before sending the reduceOnly
+        close, precisely to stop a trigger firing between close-fill and cancel
+        and opening an opposite position). Reusing it is what makes this safe;
+        a hand-rolled close here would reintroduce that race.
+
+        Returns an operator message when it flattened (or tried and failed), or
+        None to leave the position alone. Never raises: it runs on fill paths
+        that have already committed capital.
+        """
+        try:
+            _max_ratio = float(getattr(
+                getattr(CONFIG, "execution", None),
+                "leverage_overshoot_max_ratio", 1.5))
+            verify = await self._verify_position_exists(
+                exchange, pos.symbol,
+                "LONG" if pos.direction == "LONG" else "SHORT")
+            actual = int(verify.get("leverage") or 0)
+            verdict = leverage_overshoot_verdict(
+                intended_leverage, actual, _max_ratio)
+            if verdict["decision"] != "close":
+                # "keep" and "unknown" both leave the position, and are
+                # deliberately logged differently — a leverage we could not read
+                # is not a leverage that was fine, and the audit trail has to be
+                # able to tell them apart afterwards.
+                if verdict["decision"] == "unknown":
+                    logger.info("Leverage unverified on %s fill for %s: %s",
+                                context, pos.symbol, verdict["why"])
+                return None
+
+            want, got = int(intended_leverage), actual
+            audit(trade_log,
+                  f"Leverage overshoot guard tripped on {context}: {pos.symbol} "
+                  f"filled at {got}x against a {want}x target "
+                  f"({verdict['ratio']:.1f}x approved, limit {_max_ratio:.1f}x) "
+                  f"— flattening",
+                  action="leverage_overshoot_guard", result="FLATTEN",
+                  level=logging.WARNING,
+                  data={"trade_id": trade_id, "symbol": pos.symbol,
+                        "requested": want, "actual": got,
+                        "ratio": round(verdict["ratio"], 3),
+                        "limit": _max_ratio, "path": context})
+            try:
+                close_msg = await self.close_position(
+                    trade_id, reason="leverage_overshoot")
+                # Same rest as the market path: Bitget's sticky per-symbol
+                # leverage does not heal because we closed, so without this the
+                # engine re-signals and the cycle repeats at a fee per round.
+                self._leverage_blocked_until[pos.symbol] = (
+                    time.monotonic() + _LEVERAGE_BLOCK_SECONDS)
+                return (
+                    f"⚠️ <b>POSITION CLOSED — {pos.symbol}</b>\n"
+                    f"The venue filled at <b>{got}x</b> against a {want}x target "
+                    f"(sticky per-symbol setting), which is "
+                    f"{verdict['ratio']:.1f}× the approved leverage. Its stop and "
+                    f"take-profit were cancelled and the position closed rather "
+                    f"than run at a liquidation distance the risk check never "
+                    f"approved.\n{close_msg}")
+            except Exception as close_exc:
+                logger.error("Leverage-overshoot flatten FAILED on %s for %s: %s",
+                             context, pos.symbol, close_exc)
+                audit(trade_log,
+                      f"Leverage overshoot flatten FAILED on {context} for {pos.symbol}",
+                      action="leverage_overshoot_guard", result="CLOSE_FAILED",
+                      level=logging.ERROR,
+                      data={"trade_id": trade_id, "symbol": pos.symbol,
+                            "requested": want, "actual": got, "path": context})
+                # The SL/TP are still in place here (the close is what would
+                # have cancelled them), so the position remains protected —
+                # over-levered, but not naked. Say exactly that.
+                return (
+                    f"🚨 <b>{pos.symbol} IS OVER-LEVERED — AUTOMATIC CLOSE FAILED</b>\n"
+                    f"Venue filled at {got}x against a {want}x target. The close "
+                    f"failed, so the position is still OPEN at {got}x. Its stop "
+                    f"and take-profit are still in place, but the liquidation "
+                    f"distance is far tighter than approved — close it MANUALLY.")
+        except Exception as guard_exc:  # noqa: BLE001
+            # Fail open. This runs after capital is committed and the stop is
+            # already on the venue; a guard that raises must never become the
+            # reason a filled position goes unmanaged.
+            logger.warning("Leverage guard error on %s for %s (continuing): %s",
+                           context, getattr(pos, "symbol", "?"), guard_exc)
+            return None
+
     async def _verify_position_exists(
         self,
         exchange: "ccxt.Exchange",
@@ -6168,10 +6277,27 @@ class LiveExecutor:
                 # the exchange applies its own per-symbol default (Bitget: 20x
                 # on never-configured symbols) and every card shows the wrong
                 # leverage and margin until sync_positions_from_exchange runs.
+                #
+                # CAPTURED BEFORE THE SYNC. sync_positions_from_exchange
+                # OVERWRITES pos.leverage with the venue's value — that is its
+                # job — so reading the target afterwards compares the actual
+                # against itself and the guard below could never fire. Same trap
+                # the market path has at its own detection site.
+                _intended_lev = int(getattr(pos, "leverage", 0) or 0)
                 try:
                     await self.sync_positions_from_exchange()
                 except Exception as _sync_exc:
                     logger.warning("Post-fill leverage sync failed: %s", _sync_exc)
+
+                # The sync above rewrites leverage and margin and audits a
+                # `leverage_sync` line — which is a log entry, not a decision. A
+                # 5x target that filled at 20x has a liquidation distance a
+                # quarter of the approved one, and until now this path simply
+                # kept it.
+                _lev_msg = await self._guard_fill_leverage(
+                    exchange, trade_id, pos, _intended_lev, "limit fill")
+                if _lev_msg:
+                    return _lev_msg
 
                 if sl_id is None and tp_id is None:
                     audit(trade_log,
@@ -6510,6 +6636,16 @@ class LiveExecutor:
         pos.tp_order_id = tp_id
         self._save_positions()
 
+        # This path never looked at the venue's applied leverage AT ALL — it
+        # computed cost_usd from pos.leverage above and trusted it. An adopted
+        # partial fill is live margin on the exchange, so it carries exactly the
+        # same 20x-on-a-5x-target exposure as any other fill.
+        _lev_msg = await self._guard_fill_leverage(
+            exchange, trade_id, pos, int(getattr(pos, "leverage", 0) or 0),
+            f"partial-fill adoption ({context})")
+        if _lev_msg:
+            return _lev_msg
+
         audit(trade_log,
               f"Partial fill ADOPTED on {context}: {pos.symbol} {pos.direction} "
               f"{filled_qty:g} @ ${fill_price:,.4f}",
@@ -6665,6 +6801,17 @@ class LiveExecutor:
                       data={"trade_id": trade_id, "fill_price": fill_price,
                             "quantity": filled_qty})
                 return ladder_msg
+
+            # A drift→market fallback is a real market entry — the comment above
+            # says so about the SL ladder — and it inherited whatever leverage
+            # the position object carried, with no read-back against the venue.
+            # `execute` verifies its own market fills; this second market-entry
+            # path did not exist when that guard was written.
+            _lev_msg = await self._guard_fill_leverage(
+                exchange, trade_id, pos, int(getattr(pos, "leverage", 0) or 0),
+                "limit→market fallback")
+            if _lev_msg:
+                return _lev_msg
 
             audit(trade_log,
                   f"Limit → Market FALLBACK executed: {pos.symbol} @ ${fill_price:,.4f} "
