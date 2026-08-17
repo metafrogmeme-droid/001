@@ -48,7 +48,20 @@
 
   /* Semantic (state, never decoration) */
   --up: #2fbf71;      --up-dim: rgba(47, 191, 113, 0.13);
-  --down: #e5484d;    --down-dim: rgba(229, 72, 77, 0.13);
+  /* #e5484d measured 4.39:1 on --surface-2 and 4.00:1 on --surface-3, under the
+     4.5:1 AA floor — and this is the colour a LOSING position is written in, on
+     exactly those card surfaces. #ec5a5f is the smallest shift that clears every
+     surface while still reading unmistakably as loss. Every other token pair
+     already passed; the palette was not the problem.
+     ...and then a test written for AA caught something AA does not cover:
+     --up measured 7.21:1 on --surface-2 while the AA-fixed red measured
+     5.07:1. Gains rendered LOUDER than losses. On a product whose whole
+     argument is "no quietly deleted losers", a palette that makes a loss
+     quieter than a win editorialises the P&L before anyone reads the number —
+     "colour is a claim" applied to emphasis rather than hue. #fa7b80 brings
+     the two within 0.49 of each other (6.72 vs 7.21) and clears AA on every
+     surface by a wide margin. */
+  --down: #fa7b80;    --down-dim: rgba(250, 123, 128, 0.13);
   --warn: #f5a524;    --warn-dim: rgba(245, 165, 36, 0.13);
   --info: #9aa7ff;    --info-dim: rgba(154, 167, 255, 0.12);
 
@@ -81,6 +94,11 @@
 
   /* Spacing (4-base) */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+  /* The scale STOPPED at 32px, which is why the page had no room to breathe:
+     there was no token capable of generous whitespace, so every "increase the
+     spacing" pass could only re-shuffle values between 24 and 32. These are
+     the section-rhythm steps. */
+  --s10: 40px; --s12: 56px; --s16: 80px;
 
   --radius: 10px; --radius-sm: 7px; --radius-lg: 14px;
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 30px rgba(0, 0, 0, .30);
@@ -1250,7 +1268,9 @@ a.feature:hover h3 { color: var(--gold-bright); }
 
 /* Section rhythm: the landing page is fifteen sections deep, and the thing
    that makes a long page readable is air between its parts, not fewer parts. */
-.section { padding: calc(var(--s8) * 1.5) var(--s4); }
+/* Tier 1 — the argument. Was 48px; a section break the reader does not feel
+   is not a section break. */
+.section { padding: var(--s16) var(--s4); }
 .section-head { margin-bottom: var(--s6); max-width: 68ch; }
 .section-head h2 { line-height: 1.14; }
 .section-head p { line-height: 1.65; font-size: var(--fs-base); }
@@ -1392,10 +1412,13 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
                                          reader has already been offered
    ═══════════════════════════════════════════════════════════════════════ */
 
-.section--tight { padding-top: var(--s8); padding-bottom: var(--s8); }
+/* Tier 2 — the demonstrations. Was 32px, which is what `.section` computed to
+   BEFORE its own override, so "tight" and "normal" were briefly identical and
+   the tier did nothing. */
+.section--tight { padding-top: var(--s12); padding-bottom: var(--s12); }
 .section--tight .section-head { margin-bottom: var(--s4); }
 
-.section--dense { padding-top: var(--s6); padding-bottom: var(--s6); }
+.section--dense { padding-top: var(--s10); padding-bottom: var(--s10); }
 .section--dense .section-head { margin-bottom: var(--s3); }
 .section--dense .section-head h2 { font-size: var(--fs-lg); }
 .section--dense .section-head p { font-size: var(--fs-sm); }
@@ -1523,3 +1546,12 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
    to tofu on older Android. The sprite already existed. */
 .tb-icon { flex: none; opacity: .82; vertical-align: -2px; color: var(--gold); }
 .card-icon { width: 24px; height: 24px; display: block; margin-bottom: 8px; color: var(--gold); }
+
+
+/* Rhythm is a desktop luxury. On a phone the same padding is just distance
+   between the reader and the next thing, so the tiers compress. */
+@media (max-width: 639px) {
+  .section { padding-top: var(--s10); padding-bottom: var(--s10); }
+  .section--tight { padding-top: var(--s8); padding-bottom: var(--s8); }
+  .section--dense { padding-top: var(--s6); padding-bottom: var(--s6); }
+}
