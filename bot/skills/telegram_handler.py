@@ -1515,17 +1515,35 @@ class TelegramHandler:
             elif user_portfolio.open_positions:
                 pos_lines = []
                 for pos in user_portfolio.open_positions:
-                    last_px = user_portfolio._last_prices.get(pos.asset, pos.entry_price)
-                    if pos.direction.value == "LONG":
-                        pnl_pct = ((last_px - pos.entry_price) / pos.entry_price) * 100
-                    else:
-                        pnl_pct = ((pos.entry_price - last_px) / pos.entry_price) * 100
+                    # THE WORST PLACE TO INVENT A NUMBER. This text is the
+                    # model's evidence about the user's own money. With the old
+                    # `.get(asset, entry_price)` an unpriced position arrived as
+                    # "current $<entry>, PnL +0.00% ($0.00)" — and the model,
+                    # having no way to know that was a fallback, would tell the
+                    # user their position is flat. A fabrication laundered
+                    # through natural language is harder to catch than a wrong
+                    # number on a card, because the sentence sounds considered.
+                    _mark = user_portfolio._last_prices.get(pos.asset)
+                    _priced = _mark is not None and _mark > 0
                     size_usd = pos.quantity * pos.entry_price
-                    pnl_usd = size_usd * pnl_pct / 100
+                    if _priced:
+                        last_px = _mark
+                        if pos.direction.value == "LONG":
+                            pnl_pct = ((last_px - pos.entry_price) / pos.entry_price) * 100
+                        else:
+                            pnl_pct = ((pos.entry_price - last_px) / pos.entry_price) * 100
+                        pnl_usd = size_usd * pnl_pct / 100
+                        _mark_txt = (f"current ${last_px:,.4f}, size ${size_usd:,.2f}, "
+                                     f"PnL {pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
+                    else:
+                        # Say it in words the model will repeat rather than
+                        # round off. "unknown" invites a guess; this does not.
+                        _mark_txt = (f"size ${size_usd:,.2f}, CURRENT PRICE UNAVAILABLE "
+                                     f"— P&L cannot be computed for this position, "
+                                     f"do not estimate it")
                     pos_lines.append(
                         f"  - {pos.direction.value} {pos.asset}: "
-                        f"entry ${pos.entry_price:,.4f}, current ${last_px:,.4f}, "
-                        f"size ${size_usd:,.2f}, PnL {pnl_pct:+.2f}% (${pnl_usd:+,.2f}), "
+                        f"entry ${pos.entry_price:,.4f}, {_mark_txt}, "
                         f"SL ${pos.stop_loss:,.4f}, TP ${pos.take_profit:,.4f}"
                     )
                 positions_detail = (
@@ -9195,22 +9213,38 @@ class TelegramHandler:
                 lines.extend(["", sep, "", f"<b>{t('hdr_open_positions', lang)}</b>"])
                 for pos in positions:
                     d_icon = "🟢" if pos.direction.value == "LONG" else "🔴"
-                    last = portfolio._last_prices.get(pos.asset, pos.entry_price)
+                    # No entry-price fallback: an unpriced position rendered as
+                    # exactly 0.00% beside a green circle and a "→ $entry"
+                    # current price — three separate claims built from a mark we
+                    # never read.
+                    _mark = portfolio._last_prices.get(pos.asset)
+                    _priced = _mark is not None and _mark > 0
+                    last = _mark if _priced else pos.entry_price
                     size_usd = pos.quantity * pos.entry_price
-                    if pos.direction.value == "LONG":
-                        pnl_pct = ((last - pos.entry_price) / pos.entry_price) * 100
+                    if _priced:
+                        if pos.direction.value == "LONG":
+                            pnl_pct = ((last - pos.entry_price) / pos.entry_price) * 100
+                        else:
+                            pnl_pct = ((pos.entry_price - last) / pos.entry_price) * 100
+                        pnl_usd = size_usd * pnl_pct / 100
+                        pnl_icon = "🟢" if pnl_pct >= 0 else "🔴"
+                        arrow = "▲" if pnl_pct > 0 else "▼" if pnl_pct < 0 else "◇"
+                        _pnl_line = f"{pnl_icon} {'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%"
                     else:
-                        pnl_pct = ((pos.entry_price - last) / pos.entry_price) * 100
-                    pnl_usd = size_usd * pnl_pct / 100
-                    pnl_icon = "🟢" if pnl_pct >= 0 else "🔴"
-                    arrow = "▲" if pnl_pct > 0 else "▼" if pnl_pct < 0 else "◇"
+                        pnl_pct = None
+                        pnl_usd = None
+                        pnl_icon = "⚪"          # not green, not red — unknown
+                        arrow = "◇"
+                        _pnl_line = "price unavailable"
                     lines.append(
                         f"\n{pnl_icon}{arrow} <b>{pos.asset}</b> {pos.direction.value} | "
-                        f"{pnl_icon} {'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%"
+                        f"{_pnl_line}"
                     )
-                    lines.append(f"  {t('entry', lang)}: <code>${pos.entry_price:,.4f}</code> → {t('lbl_current', lang)}: <code>${last:,.4f}</code>")
+                    _cur_txt = (f"<code>${last:,.4f}</code>" if _priced else "—")
+                    lines.append(f"  {t('entry', lang)}: <code>${pos.entry_price:,.4f}</code> → {t('lbl_current', lang)}: {_cur_txt}")
                     lines.append(f"  {t('lbl_sl', lang)}: <code>${pos.stop_loss:,.4f}</code> | {t('lbl_tp', lang)}: <code>${pos.take_profit:,.4f}</code>")
-                    lines.append(f"  {t('lbl_size', lang)}: <code>${size_usd:,.2f}</code> | {t('lbl_pnl', lang)}: <code>${pnl_usd:+,.2f}</code>")
+                    _pnl_usd_txt = ("—" if pnl_usd is None else f"<code>${pnl_usd:+,.2f}</code>")
+                    lines.append(f"  {t('lbl_size', lang)}: <code>${size_usd:,.2f}</code> | {t('lbl_pnl', lang)}: {_pnl_usd_txt}")
 
             if history:
                 lines.extend(["", sep, "", f"<b>{t('hdr_recent_trades', lang)}</b>"])
@@ -11147,9 +11181,26 @@ class TelegramHandler:
                             notional = float(p.get("notional") or 0)
                             margin = float(p.get("initialMargin") or p.get("collateral") or 0)
                             lev = float(p.get("leverage") or 1)
-                            unrealized = float(p.get("unrealizedPnl") or 0)
-                            last_price = prices.get(sym, entry_price)
-                            pnl_pct = (unrealized / margin * 100) if margin > 0 else 0
+                            # ABSENT is not ZERO, and the venue omits
+                            # unrealizedPnl more often than it reports a real
+                            # 0.00. `or 0` collapsed both into "break-even",
+                            # which for an orphan — a position the bot did not
+                            # open and is discovering — is the single worst
+                            # thing to assert: the operator is looking at this
+                            # list precisely because they do not know what is
+                            # out there. A genuine 0 from the venue still reads
+                            # as 0; only a missing field is unknown.
+                            _raw_upnl = p.get("unrealizedPnl")
+                            unrealized = (float(_raw_upnl)
+                                          if _raw_upnl is not None else None)
+                            # No entry-price fallback: echoing the entry back as
+                            # "current" asserts the market is sitting exactly
+                            # there, which is a price claim we did not make.
+                            _mark = prices.get(sym)
+                            last_price = _mark if (_mark is not None and _mark > 0) else 0
+                            pnl_pct = ((unrealized / margin * 100)
+                                       if (unrealized is not None and margin > 0)
+                                       else None)
                             # SL/TP from conditional orders
                             sym_orders = sl_tp_map.get(sym, {})
                             sl_price = sym_orders.get("sl", 0)
@@ -11168,8 +11219,13 @@ class TelegramHandler:
                                 "direction": side,
                                 "entry": round(entry_price, 6),
                                 "current": round(last_price, 6),
-                                "pnl_pct": round(pnl_pct, 2),
-                                "pnl_usd": round(unrealized, 4),
+                                # None flows through: every consumer of this
+                                # list (the position card, render_open_positions,
+                                # the caption) already renders an unknown as "—"
+                                # with a muted accent. Rounding None would crash;
+                                # defaulting it to 0 is what hid the unknown.
+                                "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+                                "pnl_usd": round(unrealized, 4) if unrealized is not None else None,
                                 "sl": round(sl_price, 6),
                                 "tp": round(tp_price, 6),
                                 "sl_dist_pct": round(sl_dist, 2),
@@ -11205,21 +11261,36 @@ class TelegramHandler:
 
             with portfolio._lock:
                 for tid, pos in portfolio._positions.items():
-                    last_price = portfolio._last_prices.get(pos.asset, pos.entry_price)
-                    if pos.direction.value == "LONG":
-                        pnl_pct_raw = ((last_price - pos.entry_price) / pos.entry_price) * 100
+                    # NO ENTRY-PRICE FALLBACK. `.get(asset, pos.entry_price)`
+                    # made an unpriced position render as exactly 0.00% and
+                    # $0.00 — a position that may be 15% underwater presented as
+                    # measured break-even, because the mark could not be read.
+                    # The card ALREADY handles None correctly (pnl_unknown →
+                    # "—", muted accent instead of green); the default was what
+                    # stopped it ever seeing one.
+                    _mark = portfolio._last_prices.get(pos.asset)
+                    _priced = _mark is not None and _mark > 0
+                    last_price = _mark if _priced else pos.entry_price
+                    if _priced:
+                        if pos.direction.value == "LONG":
+                            pnl_pct_raw = ((last_price - pos.entry_price) / pos.entry_price) * 100
+                        else:
+                            pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
+                        pos_lev = getattr(pos, 'leverage', 1) or 1
+                        pnl_pct = pnl_pct_raw * pos_lev
                     else:
-                        pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
-                    pos_lev = getattr(pos, 'leverage', 1) or 1
-                    pnl_pct = pnl_pct_raw * pos_lev
+                        pnl_pct = None
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
                     positions_data.append({
                         "pair": pos.asset.replace("/", ""),
                         "direction": pos.direction.value,
                         "entry": round(pos.entry_price, 6),
-                        "current": round(last_price, 6),
-                        "pnl_pct": round(pnl_pct, 2),
+                        # 0 rather than the entry price: the card renders an
+                        # unreadable price as "—", and echoing the entry back as
+                        # "NOW" would assert the market is sitting exactly there.
+                        "current": round(last_price, 6) if _priced else 0,
+                        "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
                         "sl": round(pos.stop_loss, 6),
                         "tp": round(pos.take_profit, 6),
                         "size_usd": round(pos.quantity * pos.entry_price, 2),
@@ -11261,8 +11332,14 @@ class TelegramHandler:
             direction = pos.get("direction", "LONG")
             entry = pos.get("entry", 0)
             current = pos.get("current", entry)
-            pnl_pct = pos.get("pnl_pct", 0)
-            pnl_usd = pos.get("pnl_usd", 0)
+            # `.get(k, 0)` was manufacturing a measured break-even from an
+            # absent field. The producers now send None when the mark could not
+            # be read, and the card already renders that honestly — so the
+            # default has to stop overriding it. Absent and None are the same
+            # thing here: we do not know.
+            pnl_pct = pos.get("pnl_pct")
+            pnl_usd = pos.get("pnl_usd")
+            _pnl_known = pnl_pct is not None and pnl_usd is not None
             sl = pos.get("sl", 0)
             tp = pos.get("tp", 0)
             sl_dist = pos.get("sl_dist_pct", 0)
@@ -11290,7 +11367,12 @@ class TelegramHandler:
             total_fees = entry_fee + exit_fee
             funding_sessions = hold_h / 8.0
             funding_paid = size_usd * (0.01 / 100.0) * funding_sessions
-            net_pnl = pnl_usd - total_fees - funding_paid
+            # Net is only knowable if gross is. Subtracting fees from an
+            # unreadable gross would print a confident negative — the position
+            # shown as down exactly the fee total, which reads as a real
+            # measured loss rather than "we could not price this". The card
+            # renders None here as "—" via its own net_unknown branch.
+            net_pnl = None if pnl_usd is None else pnl_usd - total_fees - funding_paid
 
             sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
             tp_tag = "on exchange" if tp_order == "exchange" else "bot-managed"
@@ -11324,7 +11406,13 @@ class TelegramHandler:
                 card_png = None
 
             d_emoji = "\U0001f7e2" if direction == "LONG" else "\U0001f534"
-            pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
+            # A white circle, not green or red. Colour is a claim: a green dot
+            # beside an unreadable position asserts it is winning, and red
+            # asserts it is losing, on the strength of a price we never got.
+            pnl_emoji = ("⚪" if not _pnl_known
+                         else "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534")
+            _pnl_txt = ("price unavailable" if not _pnl_known
+                        else f"{pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
             # Owner-tag the destructive Close callback (RC-AUD-004 style IDOR
             # guard) so only the user who owns this position can close it.
             kb = InlineKeyboardMarkup([[
@@ -11337,7 +11425,7 @@ class TelegramHandler:
                 st_tag = pos.get("strategy_type", "").upper()
                 st_str = f" [{st_tag}]" if st_tag else ""
                 cap = (f"<b>{html.escape(pair)}</b> {mode_tag}\n"
-                       f"{d_emoji} {direction}{st_str} | {pnl_emoji} {pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
+                       f"{d_emoji} {direction}{st_str} | {pnl_emoji} {_pnl_txt}")
                 await self._send_photo(update, card_png, cap, reply_markup=kb)
             else:
                 # Fallback to text if PNG render fails

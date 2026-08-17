@@ -2639,18 +2639,31 @@ class PlaybookSkill(BaseSkill):
                 for pos in live_positions[:5]:
                     d_icon = _OK if pos.direction == "LONG" else _BAD
                     d_arrow = "\u25b2" if pos.direction == "LONG" else "\u25bc"
-                    cur_price = live_prices.get(pos.symbol, pos.entry_price)
-                    notional = cur_price * pos.quantity
+                    # ONE unread mark fabricated SIX figures here: PnL, current
+                    # price, notional, both SL/TP distances and the live R:R —
+                    # every one of them derived from `cur_price`, which silently
+                    # became the entry price. The position then reads as sitting
+                    # exactly at entry, perfectly break-even, with its stop a
+                    # measured distance away.
+                    _mark = live_prices.get(pos.symbol)
+                    _priced = _mark is not None and _mark > 0
+                    cur_price = _mark if _priced else pos.entry_price
                     cost = pos.cost_usd if pos.cost_usd > 0 else pos.entry_price * pos.quantity
+                    notional = cur_price * pos.quantity if _priced else 0.0
 
                     # Unrealized PnL
-                    if pos.direction == "LONG":
+                    if not _priced:
+                        upnl = None
+                        upnl_pct = None
+                        pnl_icon = "⚪"      # neither green nor red
+                    elif pos.direction == "LONG":
                         upnl = (cur_price - pos.entry_price) * pos.quantity
                         upnl_pct = ((cur_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price else 0
+                        pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
                     else:
                         upnl = (pos.entry_price - cur_price) * pos.quantity
                         upnl_pct = ((pos.entry_price - cur_price) / pos.entry_price * 100) if pos.entry_price else 0
-                    pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
+                        pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
 
                     # Hold time
                     from datetime import timezone
@@ -2662,14 +2675,17 @@ class PlaybookSkill(BaseSkill):
                     else:
                         hold_str = f"{hold_secs / 86400:.1f}d"
 
-                    # Distance to SL/TP
-                    sl_dist_pct = abs(cur_price - pos.stop_loss) / cur_price * 100 if cur_price else 0
-                    tp_dist_pct = abs(pos.take_profit - cur_price) / cur_price * 100 if cur_price else 0
-
-                    # R:R from current price
-                    risk_from_here = abs(cur_price - pos.stop_loss) if pos.stop_loss else 0
-                    reward_from_here = abs(pos.take_profit - cur_price) if pos.take_profit else 0
-                    rr_live = (reward_from_here / risk_from_here) if risk_from_here > 0 else 0
+                    # Distance to SL/TP — price facts, so unknown without a
+                    # mark. "1.0% away" computed off the entry price is a
+                    # statement about where the market is right now.
+                    if _priced:
+                        sl_dist_pct = abs(cur_price - pos.stop_loss) / cur_price * 100 if cur_price else 0
+                        tp_dist_pct = abs(pos.take_profit - cur_price) / cur_price * 100 if cur_price else 0
+                        risk_from_here = abs(cur_price - pos.stop_loss) if pos.stop_loss else 0
+                        reward_from_here = abs(pos.take_profit - cur_price) if pos.take_profit else 0
+                        rr_live = (reward_from_here / risk_from_here) if risk_from_here > 0 else 0
+                    else:
+                        sl_dist_pct = tp_dist_pct = rr_live = None
 
                     # Leverage (from position or computed)
                     leverage = getattr(pos, 'leverage', 0) or (notional / cost if cost > 0 else 1.0)
@@ -2681,17 +2697,34 @@ class PlaybookSkill(BaseSkill):
                     sl_status = "\u2705" if pos.sl_order_id else "\u26a0\ufe0f manual"
                     tp_status = "\u2705" if pos.tp_order_id else "\u26a0\ufe0f manual"
 
-                    lines.append(
-                        f"  {d_icon}{d_arrow} <b>{_esc(pos.symbol)}</b>  ·  {hold_str}\n"
-                        f"  {pnl_icon} PnL: <code>{_money(upnl, sign=True)} ({upnl_pct:+.2f}%)</code>\n"
-                        f"  - Entry: <code>${pos.entry_price:,.6f}</code>\n"
-                        f"  - Current: <code>${cur_price:,.6f}</code>\n"
-                        f"  - Size: <code>{_money(cost)}</code> · Notional: <code>{_money(notional)}</code>\n"
-                        f"  - Leverage: <code>{leverage:.1f}x</code> · Exposure: <code>{exp_pct:.1f}%</code>\n"
-                        f"  - SL: <code>${pos.stop_loss:,.6f}</code> ({sl_dist_pct:.1f}% away) {sl_status}\n"
-                        f"  - TP: <code>${pos.take_profit:,.6f}</code> ({tp_dist_pct:.1f}% away) {tp_status}\n"
-                        f"  - Live R:R: <code>{rr_live:.2f}x</code> · Qty: <code>{pos.quantity:,.4f}</code>"
-                    )
+                    # Built as a list so the price-dependent lines can simply
+                    # be omitted. Every one of these is derived from cur_price;
+                    # without a mark they are claims about where the market is,
+                    # not facts about the position.
+                    _row = [
+                        f"  {d_icon}{d_arrow} <b>{_esc(pos.symbol)}</b>  \u00b7  {hold_str}",
+                        (f"  {pnl_icon} PnL: <code>{_money(upnl, sign=True)} "
+                         f"({upnl_pct:+.2f}%)</code>" if _priced else
+                         f"  {pnl_icon} PnL: <i>price unavailable \u2014 not computed</i>"),
+                        f"  - Entry: <code>${pos.entry_price:,.6f}</code>",
+                        (f"  - Current: <code>${cur_price:,.6f}</code>" if _priced
+                         else "  - Current: <code>\u2014</code>"),
+                        (f"  - Size: <code>{_money(cost)}</code> \u00b7 Notional: "
+                         f"<code>{_money(notional)}</code>" if _priced
+                         else f"  - Size: <code>{_money(cost)}</code>"),
+                        (f"  - Leverage: <code>{leverage:.1f}x</code> \u00b7 "
+                         f"Exposure: <code>{exp_pct:.1f}%</code>"),
+                        (f"  - SL: <code>${pos.stop_loss:,.6f}</code> "
+                         f"({sl_dist_pct:.1f}% away) {sl_status}" if _priced
+                         else f"  - SL: <code>${pos.stop_loss:,.6f}</code> {sl_status}"),
+                        (f"  - TP: <code>${pos.take_profit:,.6f}</code> "
+                         f"({tp_dist_pct:.1f}% away) {tp_status}" if _priced
+                         else f"  - TP: <code>${pos.take_profit:,.6f}</code> {tp_status}"),
+                        (f"  - Live R:R: <code>{rr_live:.2f}x</code> \u00b7 "
+                         f"Qty: <code>{pos.quantity:,.4f}</code>" if _priced
+                         else f"  - Qty: <code>{pos.quantity:,.4f}</code>"),
+                    ]
+                    lines.append("\n".join(_row))
             else:
                 lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
                 lines.append(f"  {_NEU} <i>No open positions</i>")
