@@ -83,7 +83,10 @@ test('an unparseable url is handed to mysql2 unchanged', () => {
 test('the normaliser is not a logger', () => {
   const src = require('node:fs')
     .readFileSync(require('node:path').join(__dirname, '..', 'db.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function poolConfigFrom'),
+  // From `looseObject`, not from `poolConfigFrom` — the helper sits above it
+  // and handles the same credential-bearing string. A window that started at
+  // the caller would have left the helper unchecked.
+  const fn = src.slice(src.indexOf('function looseObject'),
     src.indexOf('if (USE_MYSQL)'));
   const code = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   for (const banned of ['console.log', 'console.error', 'console.warn']) {
@@ -112,5 +115,160 @@ test('mysql2 accepts what the normaliser produces, and rejects what it fixes', (
     assert.deepStrictEqual(c.ssl, { rejectUnauthorized: true });
   } finally {
     pool.end().catch(() => {});
+  }
+});
+
+// ── the object-literal form, and why it is not simply "starts with {" ──────
+//
+// mysql2's URL parser runs JSON.parse over every query parameter and falls
+// back to a plain string when that throws (connection_config.js). So the
+// value's JSON VALIDITY, not its meaning, decides what the driver receives:
+//
+//   {"rejectUnauthorized":true}   valid   → an object. Already correct.
+//   {rejectUnauthorized:true}     invalid → a string → "Unknown SSL profile".
+//
+// A normaliser that keys on `startsWith('{')` cannot tell those apart, and
+// handling both means re-deriving the options it just discarded. That was
+// tried (a906eac) and it broke "an explicit ssl object is left exactly as the
+// operator wrote it" above — visibly, in the suite — because the re-derived
+// object is always {rejectUnauthorized:true} whatever was actually asked for.
+
+test('a bare-key object literal is normalised to what the operator wrote', () => {
+  const url = `${BASE}?ssl=${encodeURIComponent('{rejectUnauthorized:true}')}`;
+  const cfg = poolConfigFrom(url);
+  assert.strictEqual(typeof cfg, 'object', 'mysql2 would call this a profile name');
+  assert.deepStrictEqual(cfg.ssl, { rejectUnauthorized: true });
+  assert.ok(!/[?&]ssl=/.test(cfg.uri));
+});
+
+test('normalising a bare-key literal carries its VALUES, not a fixed pair', () => {
+  // The distinction the "starts with {" shortcut loses. Both of these are
+  // deliberate operator settings and neither may be replaced with a default.
+  const off = poolConfigFrom(`${BASE}?ssl=${encodeURIComponent('{rejectUnauthorized:false}')}`);
+  assert.strictEqual(off.ssl.rejectUnauthorized, false,
+    'an explicit opt-out was silently upgraded — the operator asked for something else');
+
+  const withCa = poolConfigFrom(`${BASE}?ssl=${encodeURIComponent('{rejectUnauthorized:true,ca:"PEM"}')}`);
+  assert.strictEqual(withCa.ssl.ca, 'PEM', 'a custom CA must survive normalisation');
+});
+
+test('a valid-JSON object still reaches mysql2 with every field intact', () => {
+  // Not a restatement of the pass-through test above: that one asserts the
+  // string is returned unchanged, this one asserts the DRIVER ends up with the
+  // custom CA. A pass-through that mysql2 then mangled would satisfy the first
+  // and still lose the field that matters.
+  const mysql = require('mysql2/promise');
+  const url = `${BASE}?ssl=${encodeURIComponent('{"rejectUnauthorized":true,"ca":"PEMDATA"}')}`;
+  const pool = mysql.createPool(poolConfigFrom(url));
+  try {
+    assert.deepStrictEqual(pool.pool.config.connectionConfig.ssl,
+      { rejectUnauthorized: true, ca: 'PEMDATA' });
+  } finally {
+    pool.end().catch(() => {});
+  }
+});
+
+test('an unparseable object literal is handed to mysql2, not guessed at', () => {
+  for (const junk of ['{', '{,,}', '{rejectUnauthorized}', '{"a":}']) {
+    const url = `${BASE}?ssl=${encodeURIComponent(junk)}`;
+    assert.strictEqual(poolConfigFrom(url), url, junk);
+  }
+});
+
+test('the loose parser never executes what it parses', () => {
+  // The string comes from the environment. Looking like an object literal is
+  // not a licence to run it, and `eval`/`new Function` here would turn a
+  // connection string into arbitrary code execution at boot.
+  const src = require('node:fs')
+    .readFileSync(require('node:path').join(__dirname, '..', 'db.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function looseObject'),
+    src.indexOf('function poolConfigFrom'));
+  const code = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  for (const banned of ['eval(', 'new Function', 'require(']) {
+    assert.ok(!code.includes(banned), `${banned} in the loose parser is RCE from DATABASE_URL`);
+  }
+  // And prove it, rather than only scanning for the shape.
+  global.__ssl_pwned = false;
+  const attack = '{a:(global.__ssl_pwned=true)}';
+  poolConfigFrom(`${BASE}?ssl=${encodeURIComponent(attack)}`);
+  assert.strictEqual(global.__ssl_pwned, false, 'the payload ran');
+  delete global.__ssl_pwned;
+});
+
+// ── the fail-OPEN spelling: TLS asked for, plaintext delivered ─────────────
+//
+// mysql2 does not know `ssl-mode`, `sslmode` or `sslaccept`. It prints
+// "Ignoring invalid configuration option" to stderr and connects UNENCRYPTED.
+// Every other wrong spelling in this file fails closed — the pool refuses to
+// build and somebody investigates. This one succeeds, carries the password in
+// the clear, and reports nothing to any surface a person looks at. It is the
+// house rule at the network layer: a request that could not be honoured must
+// not render as success.
+
+const REQUIRES_TLS = ['ssl-mode=REQUIRED', 'ssl-mode=VERIFY_CA',
+  'ssl-mode=VERIFY_IDENTITY', 'sslmode=require', 'sslmode=verify-full',
+  'sslaccept=strict'];
+
+test('a URL that requires TLS never yields an unencrypted connection', () => {
+  const mysql = require('mysql2/promise');
+  for (const q of REQUIRES_TLS) {
+    // The bug, still reproducible: this is what the driver does unaided.
+    const bare = mysql.createPool(`${BASE}?${q}`);
+    try {
+      assert.strictEqual(bare.pool.config.connectionConfig.ssl, false,
+        `mysql2 stopped ignoring ${q} — this normaliser can drop that key`);
+    } finally { bare.end().catch(() => {}); }
+
+    const pool = mysql.createPool(poolConfigFrom(`${BASE}?${q}`));
+    try {
+      assert.deepStrictEqual(pool.pool.config.connectionConfig.ssl,
+        { rejectUnauthorized: true }, `${q} still connects in plaintext`);
+    } finally { pool.end().catch(() => {}); }
+  }
+});
+
+test('the ignored key is removed, so no warning survives on a healthy boot', () => {
+  // mysql2 prints its "Ignoring invalid configuration option" line to stderr.
+  // Leaving the key in place would keep an alarming line in the boot log of a
+  // deploy that is now entirely correct — a false signal on a passing run.
+  for (const q of REQUIRES_TLS) {
+    const cfg = poolConfigFrom(`${BASE}?${q}`);
+    assert.strictEqual(typeof cfg, 'object', q);
+    assert.ok(!/ssl-?mode=|sslaccept=/i.test(cfg.uri), `${q} left in the uri`);
+  }
+});
+
+test('a mode that merely PREFERS tls is left alone', () => {
+  // `PREFERRED` and `allow` permit plaintext, so forcing TLS would invent an
+  // intent the operator did not express — and break a server without it.
+  for (const q of ['ssl-mode=PREFERRED', 'sslmode=prefer', 'sslmode=allow',
+    'sslaccept=accept_invalid_certs']) {
+    const url = `${BASE}?${q}`;
+    assert.strictEqual(poolConfigFrom(url), url, q);
+  }
+});
+
+test('an explicit ssl param outranks the mode spelling', () => {
+  // Both present: `ssl` is the one mysql2 actually reads, so it decides.
+  const url = `${BASE}?ssl=${encodeURIComponent('{"rejectUnauthorized":false}')}&sslmode=require`;
+  assert.strictEqual(poolConfigFrom(url), url);
+});
+
+test('credentials and database survive every rewriting path', () => {
+  // Each path that reconstructs the URI runs it through `new URL().toString()`.
+  // A round trip that re-encoded the password would produce an auth failure
+  // that looks exactly like a wrong secret.
+  const mysql = require('mysql2/promise');
+  const url = 'mysql://u%3Aser:p%40ss%3Aw%2Frd%231@db.example.com:4000/rune%5Fclaw';
+  for (const q of ['ssl=true', 'ssl={rejectUnauthorized:true}', 'sslmode=require']) {
+    const pool = mysql.createPool(poolConfigFrom(`${url}?${q}`));
+    try {
+      const c = pool.pool.config.connectionConfig;
+      assert.strictEqual(c.user, 'u:ser', q);
+      assert.strictEqual(c.password, 'p@ss:w/rd#1', q);
+      assert.strictEqual(c.database, 'rune_claw', q);
+      assert.strictEqual(c.host, 'db.example.com', q);
+      assert.strictEqual(c.port, 4000, q);
+    } finally { pool.end().catch(() => {}); }
   }
 });

@@ -56,10 +56,65 @@ function describeSql(sql) {
  * verified, so it becomes `{rejectUnauthorized: true}` rather than a disabled
  * check; nothing here can weaken a TLS setting the operator asked for.
  *
+ * TWO MORE SPELLINGS, BOTH FOUND IN PRODUCTION.
+ *
+ * The mechanism behind all of this is one line in mysql2's own URL parser
+ * (`connection_config.js`): every query parameter is fed to `JSON.parse` and
+ * falls back to a plain string when that throws. So the value's JSON validity
+ * — not its meaning — decides what mysql2 receives.
+ *
+ *   ?ssl={"rejectUnauthorized":true}  valid JSON  → an object. WORKS, and this
+ *                                    function must not touch it: intercepting
+ *                                    it would discard a `ca`, or override an
+ *                                    explicit `rejectUnauthorized:false`.
+ *   ?ssl={rejectUnauthorized:true}    NOT JSON (bare key) → a string → mysql2
+ *                                    looks it up as a named profile and throws
+ *                                    "Unknown SSL profile". Normalised here.
+ *
+ *   ?ssl-mode=REQUIRED · ?sslmode=require · ?sslaccept=strict
+ *                                    mysql2 does not know these keys. It prints
+ *                                    "Ignoring invalid configuration option"
+ *                                    to stderr and CONNECTS IN PLAINTEXT.
+ *
+ * That last one is the only fail-OPEN case in the set, which makes it the
+ * dangerous one: a URL that asked for TLS, credentials on the wire, and a
+ * warning on a stream nobody reads. DigitalOcean, Aiven and PlanetScale all
+ * emit that spelling. A requested-but-unhonoured TLS setting is exactly the
+ * "absent is never a measurement" rule at the network layer, so the modes that
+ * unambiguously REQUIRE encryption are converted rather than dropped. Values
+ * that merely prefer it (`PREFERRED`, `allow`) are left alone — plaintext is
+ * within what they permit, and guessing past that would be inventing intent.
+ *
  * IT NEVER LOGS OR RETURNS THE URL. It carries the password, and a connection
  * error that quotes it would put credentials in the log this file prints on the
  * way down.
  */
+
+/** Keys that request TLS in a spelling mysql2 silently ignores. */
+const TLS_MODE_KEYS = ['ssl-mode', 'sslmode', 'sslaccept'];
+/** Values on those keys that REQUIRE encryption; anything else is not assumed. */
+const TLS_MODE_REQUIRES = new Set(['required', 'require', 'strict',
+  'verify_ca', 'verify-ca', 'verify_identity', 'verify-full', 'verify-identity']);
+
+/**
+ * `{rejectUnauthorized:true}` — an object literal that is not valid JSON.
+ * Quote the bare keys and try once. NEVER `eval`: this string arrives from the
+ * environment, and looking like an object literal is not a licence to execute
+ * it. Unparseable input returns null and the caller passes the URL through, so
+ * mysql2 names the problem instead of this function guessing at it.
+ */
+function looseObject(text) {
+  const quoted = text
+    .replace(/'/g, '"')
+    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":');
+  try {
+    const v = JSON.parse(quoted);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function poolConfigFrom(rawUrl) {
   let u;
   try {
@@ -70,12 +125,49 @@ function poolConfigFrom(rawUrl) {
     // letting the thing that owns the format complain about it.
     return rawUrl;
   }
-  const ssl = u.searchParams.get('ssl');
-  if (ssl === null) return rawUrl;
-  const flag = ssl.trim().toLowerCase();
-  if (flag !== 'true' && flag !== '1') return rawUrl;
 
-  u.searchParams.delete('ssl');
+  const ssl = u.searchParams.get('ssl');
+  if (ssl !== null) {
+    const raw = ssl.trim();
+    const flag = raw.toLowerCase();
+    if (flag === 'true' || flag === '1') {
+      u.searchParams.delete('ssl');
+      return { uri: u.toString(), ssl: { rejectUnauthorized: true } };
+    }
+    if (raw.startsWith('{')) {
+      // Valid JSON already reaches mysql2 as the object the operator wrote.
+      // Returning here rather than re-deriving it is the whole point: the
+      // re-derived version cannot carry a `ca`, and would silently upgrade a
+      // deliberate `rejectUnauthorized:false` into a connection that fails.
+      try {
+        JSON.parse(raw);
+        return rawUrl;
+      } catch (_) { /* not JSON — the bare-key form, normalised below */ }
+      const opts = looseObject(raw);
+      if (!opts) return rawUrl;
+      u.searchParams.delete('ssl');
+      return { uri: u.toString(), ssl: opts };
+    }
+    // A named profile, `false`, `0`, or something unrecognised: mysql2 owns
+    // the meaning of all of those and handles them without help.
+    return rawUrl;
+  }
+
+  // No `ssl` param. Does another spelling ask for TLS in a way mysql2 drops?
+  let requiresTls = false;
+  let found = false;
+  for (const key of TLS_MODE_KEYS) {
+    const v = u.searchParams.get(key);
+    if (v === null) continue;
+    found = true;
+    if (TLS_MODE_REQUIRES.has(v.trim().toLowerCase())) requiresTls = true;
+  }
+  // Only rewrite when the answer is unambiguous. A `PREFERRED` left in place
+  // still draws mysql2's warning, which is correct — we did not understand it,
+  // so we do not quietly absorb it.
+  if (!found || !requiresTls) return rawUrl;
+
+  for (const key of TLS_MODE_KEYS) u.searchParams.delete(key);
   return { uri: u.toString(), ssl: { rejectUnauthorized: true } };
 }
 
