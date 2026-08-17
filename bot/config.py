@@ -1604,6 +1604,23 @@ class ExecutionConfig:
     # Slippage guard
     slippage_guard_enabled: bool = _env_bool("SLIPPAGE_GUARD_ENABLED", True)
     max_slippage_edge_ratio: float = _env_float("MAX_SLIPPAGE_EDGE_RATIO", 0.30)
+    # Leverage overshoot guard — the slippage guard's sibling, and for the same
+    # reason: the risk engine approved a trade at a target leverage, and a fill
+    # at a far higher one is not that trade. Fires ONLY on a confirmed venue
+    # read-back (live_executor's post-fill path), never on "could not verify",
+    # which is governed separately by LEVERAGE_FAIL_OPEN/_CLOSED and was
+    # deliberately left fail-open on 2026-07-21.
+    #
+    # 1.5 is the default because the number that matters is the corridor between
+    # the stop and liquidation. At Nx, liquidation is roughly 100/N percent
+    # adverse; a typical stop here sits around 3%. A 5x target filling at 6x
+    # (ratio 1.2) still leaves ~16.7% of room and is ordinary venue rounding.
+    # The live 2026-08-17 incident was 5x filling at 20x — ratio 4.0, and a
+    # corridor of under 2 points between the stop and liquidation.
+    # Set to 100 to disable (the guard then cannot trip); the floor of 1.0 means
+    # "close on ANY overshoot", which is legal but will fight venue rounding.
+    leverage_overshoot_max_ratio: float = _env_float_bounded(
+        "LEVERAGE_OVERSHOOT_MAX_RATIO", 1.5, 1.0, 100.0)
     # Slippage alert: the proactive monitor warns (live only) when a symbol's
     # mean absolute slippage exceeds this %, once it has at least N recorded
     # fills. Surfaces execution-quality drift before it quietly drains equity.
