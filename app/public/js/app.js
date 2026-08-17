@@ -536,6 +536,53 @@
     revealOnScroll();
   }
 
+  // ── Page index: an entry is a claim that the section is there ───────────
+  //
+  // The landing page's index lists every section. Two of those sections
+  // (#theaterSection, #boardTease) ship `hidden` and are revealed only once
+  // real data loads — the same "real or nothing" rule the sealed-call widget
+  // follows, because a live-trade panel with nothing in it is worse than no
+  // panel.
+  //
+  // An index entry pointing at one of them before it appears is that defect
+  // moved into the navigation: a contents line asserts the content exists, and
+  // a visitor who clicks it and lands nowhere has been misled by the site's
+  // own map. So entries start hidden when their target is absent or hidden,
+  // and appear when the section does.
+  //
+  // OBSERVED, NOT POLLED, and not ordered: theater.js and the board loader
+  // each reveal their section whenever their own fetch resolves. Anything that
+  // assumed an order here would work on a fast connection and silently leave
+  // an entry hidden on a slow one — a wrong answer that only appears for the
+  // people already having the worst time.
+  function syncPageIndex() {
+    const nav = document.getElementById('pageIndex');
+    if (!nav) return;                      // every other page: nothing to do
+    const watched = [];
+    nav.querySelectorAll('a[href^="#"]').forEach((a) => {
+      const li = a.closest('li') || a;
+      const target = document.getElementById(a.getAttribute('href').slice(1));
+      if (!target) { li.hidden = true; return; }   // section gone entirely
+      const apply = () => { li.hidden = target.hidden; };
+      apply();
+      if (target.hidden) watched.push([target, apply]);
+    });
+    if (!watched.length || typeof MutationObserver !== 'function') return;
+    const obs = new MutationObserver((records) => {
+      records.forEach((r) => {
+        const hit = watched.find(([el]) => el === r.target);
+        if (hit) hit[1]();
+      });
+      if (watched.every(([el]) => !el.hidden)) obs.disconnect();
+    });
+    watched.forEach(([el]) => obs.observe(el, { attributes: true, attributeFilter: ['hidden'] }));
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncPageIndex);
+  } else {
+    syncPageIndex();
+  }
+
   // Trade a pre-cookie localStorage session for a cookie, once, in the
   // background. Deliberately not awaited: it must never delay first paint, and
   // every request on this page still authenticates by header meanwhile.
@@ -545,6 +592,6 @@
     TOKEN, LOGGED_IN, authHeaders, logout, hasSessionCookie, forgetStoredToken,
     fetchJSON, postWithStepUp, esc, fmt, fmtMoney, fmtPrice, fmtK, signed, pnlClass, fmtAgo,
     dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, mustRead, connectStream,
-    modalA11y, countUp, animateCounters, revealOnScroll,
+    modalA11y, countUp, animateCounters, revealOnScroll, syncPageIndex,
   };
 })();
