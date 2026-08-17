@@ -63,15 +63,64 @@
 # and treats an unreadable /proc entry as "not a match" rather than falling
 # through to counting it.
 #
-# Exit 0 when alive after the wait, 1 otherwise. Dependency-free (pgrep,
-# kill -0, sleep) so it runs on a deploy host without a Python environment,
-# and safe to call from a launcher living OUTSIDE the repo -- which is where a
-# launcher belongs, since `git reset --hard` overwrites anything inside it.
+# EXIT CODES -- and why there are four rather than two.
+#
+#   0  the target is alive after the wait        A VERDICT
+#   1  the target is NOT alive                   A VERDICT
+#   2  this script was called wrong              NOT a verdict
+#   3  this script never reached a verdict       NOT a verdict
+#
+# Everything non-zero still fails a `|| { echo DEPLOY FAILED; exit 1; }`
+# launcher, so nothing that worked before stops working; the codes only let a
+# caller that cares tell the cases apart.
+#
+# THE DISTINCTION IS THE WHOLE POINT OF THE FILE. This script exists because a
+# deploy reported success without checking. Collapsing "the bot died" into "I
+# could not check" is the same defect pointed the other way: it manufactures a
+# verdict out of a broken harness, which is what `scripts/red_team.py` refuses
+# to do for the same reason. The operator hitting one of those and concluding
+# the gate is unreliable is not a hypothetical -- 2026-08-17, exit 144, below.
+#
+# 144 IS 128+16: KILLED BY A SIGNAL, NOT A FAILED CHECK. On 2026-08-17 this
+# script was reported "exiting 144 when run inline in one-liners", and the gate
+# was routed around in favour of an out-of-repo restart script. Every intrinsic
+# path here returns 0 or 1 -- a pid that never existed, an empty `$!`, a target
+# that died instantly, a pattern matching nothing. 144 can only arrive from
+# OUTSIDE: something delivered SIGSTKFLT during the ~11s the check sleeps.
+# Unhandled, that reads to a launcher as "the bot is dead" when in truth
+# nothing was concluded and the bot is probably fine. So the signals are
+# trapped and reported as 3 -- no verdict -- in words, rather than as a number
+# a caller has to decode.
+#
+# Dependency-free (pgrep, kill -0, sleep) so it runs on a deploy host without a
+# Python environment, and safe to call from a launcher living OUTSIDE the repo
+# -- which is where a launcher belongs, since `git reset --hard` overwrites
+# anything inside it.
 set -uo pipefail
 
 SELF_NAME="verify_bot_alive"
 WAIT_SECONDS="${WAIT_SECONDS:-10}"
 MODE="" ; TARGET=""
+
+# A run that was killed has not cleared anything. Say so in those words: the
+# bare 128+n code is indistinguishable from a verdict to `||`, and that
+# ambiguity is what taught an operator to stop trusting this check.
+_no_verdict() {
+  echo "SMOKE UNKNOWN: killed by SIG$1 before a verdict was reached." >&2
+  echo "  This is NOT 'the bot died' -- nothing was concluded, and the bot is" >&2
+  echo "  probably running. Something in the calling environment signalled" >&2
+  echo "  this check during its ${WAIT_SECONDS}s wait. Re-run it, lower" >&2
+  echo "  WAIT_SECONDS, or run it where nothing reaps long-lived children." >&2
+  exit 3
+}
+# STKFLT is the one actually observed; the rest are the plausible neighbours.
+# Not every shell knows every name, and a trap this cannot install must not
+# take the script down with it -- so each is attempted independently.
+for _sig in HUP INT QUIT TERM STKFLT USR1 USR2; do
+  # shellcheck disable=SC2064
+  trap "_no_verdict $_sig" "$_sig" 2>/dev/null || true
+done
+unset _sig
 
 # `shift 2` with only one argument left FAILS and shifts nothing, so the loop
 # spins on the same token forever. `verify_bot_alive.sh --pid` (value
@@ -83,19 +132,20 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --pid|--pattern)
       if [ $# -lt 2 ]; then
-        echo "SMOKE FAIL: $1 needs a value." >&2
-        exit 1
+        # 2, not 1: nothing was checked, so this is not a claim about the bot.
+        echo "SMOKE USAGE: $1 needs a value. Nothing was checked." >&2
+        exit 2
       fi
       case "$1" in --pid) MODE="pid" ;; *) MODE="pattern" ;; esac
       TARGET="$2"
       shift 2
       ;;
-    -h|--help) sed -n '2,50p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,95p' "$0"; exit 0 ;;
     *)         MODE="pattern"; TARGET="$1"; shift ;;
   esac
 done
 [ -z "$MODE" ] && { MODE="pattern"; TARGET='bot\.main'; }
-[ -z "$TARGET" ] && { echo "SMOKE FAIL: --$MODE needs a value." >&2; exit 1; }
+[ -z "$TARGET" ] && { echo "SMOKE USAGE: --$MODE needs a value. Nothing was checked." >&2; exit 2; }
 
 # Returns 0 when the target is alive. Never prints; never self-matches.
 _alive() {

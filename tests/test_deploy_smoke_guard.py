@@ -26,6 +26,9 @@ Two fixes, one for the cause and one for the class:
 """
 from __future__ import annotations
 
+import os
+import re
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -135,8 +138,76 @@ class TestItsOwnOutputIsNotANuisance:
     @pytest.mark.parametrize("flag", ["--pid", "--pattern"])
     def test_a_flag_with_no_value_is_refused(self, flag):
         r = _run(flag)
-        assert r.returncode == 1
+        # 2, not 1. This USED to be 1, which made "you called me wrong"
+        # indistinguishable from "the bot is dead" to a `||` launcher -- a
+        # verdict about a process nobody looked at. Still non-zero, so every
+        # existing launcher still fails closed on it.
+        assert r.returncode == 2, "a usage error is not a claim about the bot"
         assert "needs a value" in r.stderr
+        assert "Nothing was checked" in r.stderr
+
+
+class TestAnInterruptedCheckIsNotAVerdict:
+    """Exit 144, reported 2026-08-17.
+
+    The gate was "exiting 144 in one-liners", so it was routed around in
+    favour of an out-of-repo restart script -- i.e. the deploy stopped being
+    verified at all, which is the exact outcome this file exists to prevent.
+
+    144 is 128+16: killed by SIGSTKFLT. No path inside the script produces it;
+    something in the calling environment signalled it mid-wait. Unhandled, a
+    launcher reads any non-zero as "the bot died" and reports a failure for a
+    bot that is running fine. Three false alarms are enough to retire a gate.
+    """
+
+    def _interrupt_with(self, signum):
+        """Launch a live target, start the check, signal the CHECK mid-wait."""
+        target = subprocess.Popen(["sleep", "30"],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            gate = subprocess.Popen(
+                [str(SCRIPT), "--pid", str(target.pid)],
+                env={**os.environ, "WAIT_SECONDS": "8"},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            time.sleep(2.0)
+            gate.send_signal(signum)
+            out, err = gate.communicate(timeout=25)
+            return gate.returncode, err
+        finally:
+            target.kill()
+            target.wait()
+
+    @pytest.mark.parametrize("signum", [signal.SIGSTKFLT, signal.SIGTERM, signal.SIGINT])
+    def test_a_signalled_check_reports_no_verdict(self, signum):
+        code, err = self._interrupt_with(signum)
+        assert code == 3, (
+            f"SIG{signum} gave {code}; 128+n is indistinguishable from a "
+            f"verdict to a launcher doing `|| echo DEPLOY FAILED`")
+        assert "SMOKE UNKNOWN" in err
+        assert "NOT 'the bot died'" in err, (
+            "the operator must be told this is not a claim about the bot -- "
+            "the number alone is what got the gate abandoned")
+
+    def test_the_four_codes_are_distinct(self):
+        """0/1/2/3 must not collapse: each names a different thing, and the
+        collapse is the defect."""
+        alive = subprocess.Popen(["sleep", "20"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            assert _run("--pid", str(alive.pid), wait="1").returncode == 0
+        finally:
+            alive.kill(); alive.wait()
+        assert _run("--pid", "999999", wait="1").returncode == 1
+        assert _run("--pid").returncode == 2
+        assert self._interrupt_with(signal.SIGSTKFLT)[0] == 3
+
+    def test_every_code_is_documented_in_the_script(self):
+        src = SCRIPT.read_text(encoding="utf-8")
+        block = src[src.index("# EXIT CODES"):src.index("set -uo pipefail")]
+        for code in ("0", "1", "2", "3"):
+            assert re.search(rf"^#\s+{code}\s+\S", block, re.M), f"code {code} undocumented"
+        # And a caller that only checks truthiness still fails closed.
+        assert "still fails a" in block
 
 
 class TestItIsFastEnoughToGateADeploy:
