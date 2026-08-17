@@ -13,6 +13,20 @@
   src: url('/fonts/cinzel-700.woff2') format('woff2');
 }
 
+/* Inter Variable — the HEADING face for every page.
+   Self-hosted (48KB, latin subset) because a strict CSP blocks external
+   hosts, and because a webfont that fails to load silently is the same class
+   of defect as everything else in this repo: the page renders, nothing errors,
+   and it looks like somebody's default.
+   One axis, 100-900, so a single file covers the whole weight ramp. */
+@font-face {
+  font-family: 'InterVar';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-var.woff2') format('woff2');
+}
+
 :root {
   /* Surfaces: near-black with a blue bias — the RUNECLAW brand's storm-steel
      ground. Accent is the brand's electric rune-blue (see the Command Core
@@ -43,9 +57,22 @@
   --text-2: #a9b1c1;
   --text-3: #8f99ab;
 
-  /* Type */
-  --font-brand: 'Cinzel', Georgia, 'Times New Roman', serif;
-  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Type — THREE faces, three jobs, and the one that was missing.
+     --font-display was referenced by THIRTY pages and defined NOWHERE. An
+     undefined custom property falls back to `inherit`, so those thirty pages
+     rendered their headings in system-ui while index and /explore used the
+     brand serif. The site was split down the middle typographically, by
+     accident, which is why no amount of spacing work made it feel coherent.
+     Verified 2026-08-17 by reading computed styles:
+         /            H1 -> Cinzel
+         /provable    H1 -> system-ui
+         /leaderboard H1 -> system-ui
+     Cinzel is now the WORDMARK only. It is a Roman inscriptional serif —
+     excellent as a logotype, and as a heading face it reads fantasy rather
+     than 2026 trading platform. Headings move to Inter. */
+  --font-brand: 'Cinzel', Georgia, 'Times New Roman', serif;   /* logo ONLY */
+  --font-display: 'InterVar', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ui: 'InterVar', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-data: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Scale: 12 / 13 / 15 / 18 / 22 / 28 / 36 */
@@ -195,7 +222,7 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
 
 /* ---- View header ------------------------------------------------------- */
 .view-head { display: flex; align-items: baseline; gap: var(--s3); margin-bottom: var(--s4); flex-wrap: wrap; }
-.view-head h1 { font-family: var(--font-brand); font-size: var(--fs-lg); letter-spacing: .08em; font-weight: 700; }
+.view-head h1 { font-family: var(--font-display); font-size: var(--fs-lg); letter-spacing: -.011em; font-weight: 650; }
 .view-head .sub { color: var(--text-3); font-size: var(--fs-sm); }
 
 /* ---- Panels ------------------------------------------------------------ */
@@ -504,7 +531,7 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
   display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
   padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); background: var(--surface-2);
 }
-.chat-head .t { display: flex; align-items: center; gap: 8px; font-family: var(--font-brand); font-size: var(--fs-sm); letter-spacing: .08em; color: var(--gold-bright); }
+.chat-head .t { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: var(--fs-sm); letter-spacing: .08em; color: var(--gold-bright); }
 .chat-head .t .icon { width: 16px; height: 16px; }
 .chat-close { background: none; border: none; color: var(--text-3); font-size: 22px; line-height: 1; cursor: pointer; padding: 2px 6px; }
 .chat-close:hover { color: var(--text); }
@@ -611,7 +638,13 @@ a.mc-chip:hover { border-color: var(--accent, var(--up)); }
 /* ---- Landing page -------------------------------------------------------- */
 .hero { max-width: var(--maxw); margin: 0 auto; padding: 64px var(--s4) var(--s8); }
 .hero .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-data); font-size: var(--fs-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--up); margin-bottom: var(--s4); }
-.hero h1 { font-family: var(--font-brand); font-size: clamp(30px, 6vw, 52px); line-height: 1.12; letter-spacing: .02em; text-wrap: balance; margin-bottom: var(--s4); }
+/* TRACKING FLIPS SIGN WITH THE FACE. Cinzel is an inscriptional capital and
+   wants air between letters (+.02em); Inter at display size wants the
+   opposite — large optical sizes need NEGATIVE tracking or the word spacing
+   reads loose and amateurish. Keeping the old value while swapping the font
+   is the single most common way a font change looks worse than what it
+   replaced. */
+.hero h1 { font-family: var(--font-display); font-size: clamp(32px, 5.4vw, 56px); line-height: 1.06; letter-spacing: -.028em; font-weight: 700; text-wrap: balance; margin-bottom: var(--s4); }
 .hero h1 span { color: var(--gold); }
 .hero p { color: var(--text-2); font-size: var(--fs-md); max-width: 58ch; margin-bottom: var(--s6); }
 .hero-cta { display: flex; gap: var(--s3); flex-wrap: wrap; align-items: center; }
@@ -643,7 +676,13 @@ a.mc-chip:hover { border-color: var(--accent, var(--up)); }
     display: block; position: fixed; left: var(--s3); right: var(--s3);
     bottom: calc(var(--tabbar-h, 0px) + var(--s3)); z-index: 90;
     padding: 13px var(--s4); text-align: center; text-decoration: none;
-    font-weight: 600; color: #08110c; background: var(--up);
+    /* NOT var(--up). That token is documented three screens up as
+       "Semantic (state, never decoration)" — it is the colour that means a
+       position is IN PROFIT everywhere else in this product. Painting the
+       signup button with it makes the same green mean "you are winning" in
+       one place and "sign up here" in another, which is the repo's own rule
+       (colour is a claim) broken by the marketing surface. */
+    font-weight: 600; color: #04121e; background: var(--gold);
     border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.28);
   }
 }
@@ -682,7 +721,7 @@ a.mc-chip:hover { border-color: var(--accent, var(--up)); }
 
 .section { max-width: var(--maxw); margin: 0 auto; padding: var(--s8) var(--s4); }
 .section-head { margin-bottom: var(--s6); }
-.section-head h2 { font-family: var(--font-brand); font-size: var(--fs-xl); letter-spacing: .04em; margin-bottom: var(--s1); text-wrap: balance; }
+.section-head h2 { font-family: var(--font-display); font-size: var(--fs-xl); letter-spacing: -.018em; font-weight: 650; margin-bottom: var(--s1); text-wrap: balance; }
 .section-head p { color: var(--text-3); }
 .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s4); }
 .feature { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4) var(--s4) var(--s6); }
@@ -1213,7 +1252,7 @@ a.feature:hover h3 { color: var(--gold-bright); }
    that makes a long page readable is air between its parts, not fewer parts. */
 .section { padding: calc(var(--s8) * 1.5) var(--s4); }
 .section-head { margin-bottom: var(--s6); max-width: 68ch; }
-.section-head h2 { line-height: 1.18; }
+.section-head h2 { line-height: 1.14; }
 .section-head p { line-height: 1.65; font-size: var(--fs-base); }
 .feature-grid { gap: var(--s4); }
 
@@ -1275,15 +1314,59 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .topbar .brand, .topbar .top-actions { flex: 0 0 auto; }
 .topbar .top-actions .btn { white-space: nowrap; }
 
-/* Between tablet and small laptop the link row is the first thing to give.
-   Losing the least-load-bearing links there beats losing the CTA. */
-@media (max-width: 1560px) {
-  .topbar .nav-links a[href="/letter"],
-  .topbar .nav-links a[href="/leaderboard"] { display: none; }
+/* The width-based link-hiding is GONE. It existed because nine equal links
+   could not fit, and it "solved" that by deleting whichever ones happened to
+   be least important at 1560px and 1320px — so the nav silently changed shape
+   three times across desktop widths and two links simply ceased to exist on a
+   laptop. Four grouped items fit at every width, so nothing has to vanish. */
+
+/* ---- Grouped navigation ------------------------------------------------
+   Four intent groups instead of nine equal links. <details>/<summary> so it
+   works with no JS and is keyboard-operable for free — the panel is a real
+   disclosure widget, not a hover menu that a keyboard cannot reach. */
+.nav-group { position: relative; }
+.nav-group > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  color: var(--text-2); font-size: var(--fs-sm); font-weight: 500;
+  white-space: nowrap;
 }
-@media (max-width: 1320px) {
-  .topbar .nav-links a[href="/proof"],
-  .topbar .nav-links a[href="/track"] { display: none; }
+.nav-group > summary::-webkit-details-marker { display: none; }
+.nav-group > summary::after {
+  content: ""; width: 5px; height: 5px; margin-top: -2px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg); opacity: .55;
+}
+.nav-group > summary:hover { color: var(--text); background: var(--surface-2); }
+.nav-group[open] > summary { color: var(--text); background: var(--surface-2); }
+.nav-group-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  min-width: 208px; display: flex; flex-direction: column; gap: 2px;
+  padding: 6px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+}
+.nav-group-panel a {
+  padding: 9px 11px; border-radius: var(--radius-sm);
+  color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap;
+}
+.nav-group-panel a:hover { color: var(--text); background: var(--surface-2); }
+
+/* The actions cluster is a SIBLING of the scroller, never inside it. */
+.topbar .top-actions { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+
+/* Phones: the four groups collapse into the single ☰ menu, and the actions
+   cluster keeps the CTA. Brand + menu + CTA fit 390px with room to spare. */
+.topbar .nav-menu { display: none; }
+@media (max-width: 900px) {
+  .topbar .nav-links { display: none; }
+  .topbar .nav-menu { display: block; }
+}
+/* Under 420px the language control yields before the CTA does — a visitor who
+   cannot switch language still has a way in; one who cannot sign up does not. */
+@media (max-width: 420px) {
+  .topbar .top-actions [data-i18n-switcher] { display: none; }
 }
 
 
@@ -1335,4 +1418,99 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 @media (max-width: 720px) {
   .section--dense .feature-grid { grid-template-columns: 1fr 1fr; }
   .section--dense .feature p { font-size: var(--fs-xs); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Hero: one path, not seven.
+
+   Measured before this pass: seven competing actions above the fold — an
+   email field, "Create free account", "View the dashboard" as an equal
+   button, and five feature pills. Thirty-nine buttons on the page. A visitor
+   with seven equal options has none, and the review that prompted this said
+   the same thing from the outside: "reduce the number of competing elements
+   so the eye has a clear path".
+
+   The pills are not deleted — they moved into #howItWorks, where a menu is
+   what the reader actually wants.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.hero-lede {
+  font-size: var(--fs-md); line-height: 1.5; color: var(--text-2);
+  max-width: 46ch; margin-bottom: var(--s5);
+}
+/* Demoted from a <button> to a link. Two buttons side by side read as two
+   equal choices; the point of a primary action is that it is not one of two. */
+.hero-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text-2); font-size: var(--fs-sm); text-decoration: none;
+  border-bottom: 1px solid var(--line-2); padding-bottom: 1px;
+}
+.hero-secondary:hover { color: var(--text); border-bottom-color: var(--gold); }
+
+/* ---- How it works ---------------------------------------------------- */
+.how-steps {
+  list-style: none; margin: var(--s5) 0 0; padding: 0;
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.how-step {
+  position: relative; padding: var(--s4);
+  background: var(--glass, var(--surface)); border: 1px solid var(--edge, var(--line));
+  border-radius: var(--radius);
+}
+.how-step h3 {
+  font-family: var(--font-display); font-size: var(--fs-md);
+  letter-spacing: -.012em; font-weight: 620; margin: var(--s3) 0 var(--s2);
+}
+.how-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  font-family: var(--font-data); font-size: var(--fs-xs); font-weight: 700;
+  color: var(--gold-bright); background: var(--gold-dim);
+  border: 1px solid rgba(63, 182, 255, .28);
+}
+.how-link {
+  display: inline-block; margin-top: var(--s3);
+  font-size: var(--fs-sm); color: var(--gold);
+}
+.how-explore {
+  display: flex; gap: var(--s2); flex-wrap: wrap;
+  margin-top: var(--s5); padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+/* ---- Accessibility: focus you can actually see ------------------------
+   A dark theme with a default focus ring is a keyboard user navigating by
+   guesswork. */
+a:focus-visible, button:focus-visible, summary:focus-visible,
+input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ---- Motion: honour the OS setting ----------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .reveal-on-scroll { opacity: 1 !important; transform: none !important; }
+}
+
+
+/* The sticky mobile CTA is a DUPLICATE of the hero's own signup button while
+   the hero is on screen — two identical primary actions, one covering the
+   copy that explains the other. It now appears only once the hero form has
+   scrolled away, and the page reserves room so the final line is never
+   permanently hidden behind it. */
+@media (max-width: 639px) {
+  .mobile-cta { opacity: 0; visibility: hidden; transition: opacity var(--dur-2) var(--ease-out); }
+  body.past-hero .mobile-cta { opacity: 1; visibility: visible; }
+  body { padding-bottom: 76px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-cta { transition: none; }
 }

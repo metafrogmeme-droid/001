@@ -579,6 +579,27 @@
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', syncPageIndex);
+
+  /* The sticky mobile CTA duplicates the hero's own signup button, and while
+     the hero is on screen it sits ON TOP of the paragraph explaining what the
+     button does. Show it only once that form has scrolled away.
+
+     Observed, not polled: a scroll handler runs on every frame of every
+     scroll to answer a question that changes twice per session. Degrades to
+     "always visible" where IntersectionObserver is missing, because a CTA
+     that never appears is worse than one that appears early. */
+  (function gateMobileCta() {
+    var cta = document.querySelector('.mobile-cta');
+    if (!cta) return;
+    var hero = document.querySelector('#heroSignup') || document.querySelector('.hero');
+    if (!hero || !('IntersectionObserver' in window)) {
+      document.body.classList.add('past-hero');
+      return;
+    }
+    new IntersectionObserver(function (entries) {
+      document.body.classList.toggle('past-hero', !entries[0].isIntersecting);
+    }, { rootMargin: '-8px 0px 0px 0px' }).observe(hero);
+  })();
   } else {
     syncPageIndex();
   }

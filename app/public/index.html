@@ -25,7 +25,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=25">
+<link rel="stylesheet" href="/styles.css?v=26">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -121,32 +121,65 @@
 <nav class="topbar" aria-label="Main" data-i18n-attr="aria-label:a11y.main">
   <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub" data-i18n="lp.brand_sub">Command Core</span></a>
   <div class="spacer"></div>
+  <!-- NINE equal-weight links became four groups. Nine top-level items give a
+       visitor no map: everything is the same size, so nothing tells them where
+       they are or what to try. Grouped by INTENT, which is also the order a
+       visitor moves through: look at the product, check whether to believe it,
+       see what protects them, read the background. -->
   <div class="nav-links">
-    <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
-    <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
-    <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
-    <a href="/track" data-i18n="nav.track">Track record</a>
-    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
-    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
-    <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
-    <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
-    <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
-    <details class="nav-menu">
-      <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
-      <div class="nav-menu-panel">
+    <details class="nav-group">
+      <summary data-i18n="nav.grp_trade">Trade</summary>
+      <div class="nav-group-panel">
         <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
         <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
         <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+      </div>
+    </details>
+    <details class="nav-group">
+      <summary data-i18n="nav.grp_evidence">Evidence</summary>
+      <div class="nav-group-panel">
         <a href="/track" data-i18n="nav.track">Track record</a>
         <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
-    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
         <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+      </div>
+    </details>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <details class="nav-group">
+      <summary data-i18n="nav.grp_more">More</summary>
+      <div class="nav-group-panel">
+        <a href="/explore" data-i18n="nav.explore_all">Everything RUNECLAW does</a>
         <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
         <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
       </div>
     </details>
+  </div>
+  <!-- OUTSIDE .nav-links, and that is the whole point. .nav-links is the
+       overflow-x:auto scroller, so anything inside it can be scrolled out of
+       sight. The primary action was in there, and at 390px it sat at
+       right:443 on a 390 viewport — clipped, unreachable, and silent because
+       the page itself never scrolled sideways.
+       The stylesheet already protected `.top-actions` ("never shrink or
+       clip") — but no element carried that class, so the rule guarded
+       nothing. This is that element. -->
+  <div class="top-actions">
+    <span data-i18n-switcher></span>
     <a class="btn btn--primary btn--sm" href="#auth-panel" data-i18n="nav.get_started">Get started</a>
   </div>
+  <details class="nav-menu">
+    <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
+    <div class="nav-menu-panel">
+      <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+      <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+      <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+      <a href="/track" data-i18n="nav.track">Track record</a>
+      <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+      <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+      <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+      <a href="/explore" data-i18n="nav.explore_all">Everything RUNECLAW does</a>
+      <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+      <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
+    </div>
+  </details>
 </nav>
 
 <header class="hero">
@@ -156,11 +189,11 @@
   <h1 data-i18n-html="hero.h1">Every call is hashed<br>before <span>the market moves.</span></h1>
   <div class="hero-stats muted small" id="heroStats" hidden
        style="gap:var(--s4);flex-wrap:wrap;justify-content:center;align-items:baseline;margin-bottom:var(--s3)"></div>
-  <p data-i18n="hero.body">RUNECLAW hashes each call the moment it is made — symbol, direction, entry, stop, target, confidence and the pattern it read. The outcome attaches to that sealed record afterwards and cannot alter it. No backdated wins, no quietly deleted losers. Paper-trade free in your browser; go live only on your own exchange keys.</p>
+  <p class="hero-lede" data-i18n="hero.lede">Every trading call is sealed with a hash before the market moves — so a win can never be backdated and a loss can never quietly disappear.</p>
   <form class="hero-cta hero-signup" id="heroSignup" novalidate>
     <input class="input hero-email" type="email" id="hero-email" placeholder="you@example.com" autocomplete="email" aria-label="Email address" data-i18n-attr="aria-label:a11y.email;placeholder:auth.email_ph">
     <button class="btn btn--primary" type="submit" data-i18n="hero.cta_create">Create free account</button>
-    <a class="btn" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
+    <a class="hero-secondary" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
   </form>
   <p class="hero-note muted small" data-i18n="hero.free_note">Free · paper-trade in your browser instantly · no exchange keys needed.</p>
   <!-- Objection-killers right where the decision is made. All literally true and
@@ -196,13 +229,7 @@
   </div>
   <!-- Explore the flagship experiences straight from the hero, so a first-time
        visitor sees the breadth (not just a signup box). -->
-  <div class="hero-explore" style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:center;margin-top:var(--s3)">
-    <button class="btn btn--primary btn--sm" id="pwaInstall" type="button" hidden>📲 <span data-i18n="hero.install">Install the app</span></button>
-    <a class="btn btn--ghost btn--sm" href="/arena">🏟️ <span data-i18n="hero.explore_arena">Paper Arena</span></a>
-    <a class="btn btn--ghost btn--sm" href="/strengthmap">🌐 <span data-i18n="hero.explore_map">3D Strength Map</span></a>
-    <a class="btn btn--ghost btn--sm" href="/guardian">🛡️ <span data-i18n="hero.explore_guardian">Guardian safety suite</span></a>
-    <a class="btn btn--ghost btn--sm" href="/agents">⚔️ <span data-i18n="hero.explore_market">Marketplace</span></a>
-  </div>
+  <!-- the explore pills moved out of the hero: see #howItWorks below -->
 </header>
 
 <!-- Sticky mobile CTA: the primary action stays one tap away through the whole
@@ -217,6 +244,43 @@
 
 <!-- Why we're different: the trust pillars, high on the page — concrete backing
      for the hero's "and trust" promise. Capability claims only (§4). -->
+<!-- HOW IT WORKS — the first thing a non-technical visitor needs, and it was
+     missing. Three steps, and the long mechanism paragraph that used to sit in
+     the hero now lives in step 2 where the detail is actually wanted.
+     Step 2 links to /provable rather than printing a curl command: the command
+     belongs on the page that explains it, not on the first screen. -->
+<section class="section section--tight reveal-on-scroll" id="howItWorks" aria-labelledby="how-h">
+  <div class="section-head">
+    <h2 id="how-h" data-i18n="lp.how_h">How it works</h2>
+    <p class="muted" data-i18n="lp.how_sub">Three steps, and you can verify the second one yourself.</p>
+  </div>
+  <ol class="how-steps">
+    <li class="how-step">
+      <span class="how-num" aria-hidden="true">1</span>
+      <h3 data-i18n="lp.how_1h">The engine reads the market</h3>
+      <p class="muted small" data-i18n="lp.how_1p">It scans every Bitget USDT-M perp for momentum, funding, open interest and structure, then forms a call: symbol, direction, entry, stop, target, confidence and the pattern it read.</p>
+    </li>
+    <li class="how-step">
+      <span class="how-num" aria-hidden="true">2</span>
+      <h3 data-i18n="lp.how_2h">The call is sealed</h3>
+      <p class="muted small" data-i18n="hero.body">RUNECLAW hashes each call the moment it is made — symbol, direction, entry, stop, target, confidence and the pattern it read. The outcome attaches to that sealed record afterwards and cannot alter it. No backdated wins, no quietly deleted losers. Paper-trade free in your browser; go live only on your own exchange keys.</p>
+      <a class="how-link" href="/provable" data-i18n="lp.how_verify">Verify a call yourself &rarr;</a>
+    </li>
+    <li class="how-step">
+      <span class="how-num" aria-hidden="true">3</span>
+      <h3 data-i18n="lp.how_3h">You decide, and it is recorded</h3>
+      <p class="muted small" data-i18n="lp.how_3p">Paper-trade it free in your browser, or go live on your own exchange keys — withdrawal-disabled, non-custodial. Either way the outcome attaches to the sealed record, win or lose.</p>
+    </li>
+  </ol>
+  <div class="how-explore"><div class="hero-explore">
+    <button class="btn btn--primary btn--sm" id="pwaInstall" type="button" hidden>📲 <span data-i18n="hero.install">Install the app</span></button>
+    <a class="btn btn--ghost btn--sm" href="/arena">🏟️ <span data-i18n="hero.explore_arena">Paper Arena</span></a>
+    <a class="btn btn--ghost btn--sm" href="/strengthmap">🌐 <span data-i18n="hero.explore_map">3D Strength Map</span></a>
+    <a class="btn btn--ghost btn--sm" href="/guardian">🛡️ <span data-i18n="hero.explore_guardian">Guardian safety suite</span></a>
+    <a class="btn btn--ghost btn--sm" href="/agents">⚔️ <span data-i18n="hero.explore_market">Marketplace</span></a>
+  </div></div>
+</section>
+
 <section class="section reveal-on-scroll" id="whyTease" aria-labelledby="why-h">
   <div class="section-head">
     <h2 id="why-h" data-i18n="sec.why_h">Why RUNECLAW is different</h2>
@@ -323,6 +387,7 @@
 <nav class="page-index" id="pageIndex" aria-labelledby="pidx-h">
   <h2 id="pidx-h" class="page-index__h" data-i18n="idx.h">On this page</h2>
   <ul class="page-index__list">
+    <li><a href="#howItWorks" data-i18n="lp.how_h">How it works</a></li>
     <li><a href="#whyTease" data-i18n="idx.why">Why it&rsquo;s different</a></li>
     <li><a href="#provableTease" data-i18n="sec.prov_eyebrow">Provable Calls</a></li>
     <li><a href="#askTease" data-i18n="nav.chat">AI Chat</a></li>
@@ -663,9 +728,9 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=118"></script>
+<script src="/js/i18n.js?v=119"></script>
 <script src="/js/icons.js?v=3"></script>
-<script src="/js/app.js?v=9"></script>
+<script src="/js/app.js?v=10"></script>
 <script src="/js/chat.js?v=26" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
 <script>

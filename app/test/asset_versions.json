@@ -4,8 +4,8 @@
     "v": 3
   },
   "app.js": {
-    "sha": "8a1cc83b53d590d2",
-    "v": 9
+    "sha": "5ec9fdd32537f769",
+    "v": 10
   },
   "arena-risk-model.js": {
     "sha": "77d4026436966cf1",
@@ -60,8 +60,8 @@
     "v": 1
   },
   "i18n.js": {
-    "sha": "88c92b407e194fc6",
-    "v": 118
+    "sha": "4ad8fd20c4198202",
+    "v": 119
   },
   "icons.js": {
     "sha": "2324baec945e5241",
