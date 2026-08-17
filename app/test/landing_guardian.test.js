@@ -19,12 +19,19 @@ const landing = require('node:fs').readFileSync(
   require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
 const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
 
-test('the hero shows explore links to the flagship experiences', () => {
-  const hero = landing.slice(landing.indexOf('class="hero"'), landing.indexOf('</header>'));
-  assert.match(hero, /class="hero-explore"/);
-  assert.match(hero, /href="\/strengthmap"/);
-  assert.match(hero, /href="\/guardian"/);
-  assert.match(hero, /href="\/agents"/);
+test('the landing page links the flagship experiences', () => {
+  // Moved out of the hero — see the note in landing_arena.test.js. The
+  // requirement is that these are reachable from the landing page, which is
+  // what is asserted; the hero was only where they used to sit.
+  // `landing`, not `index` — in THIS file `index` is bound to explore.html
+  // (see the header comment). Slicing the wrong document here would have made
+  // the test look for a landing-page row inside /explore and fail on correct
+  // markup.
+  const row = landing.slice(landing.indexOf('class="how-explore"'));
+  const cut = row.slice(0, row.indexOf('</section>'));
+  assert.match(cut, /href="\/strengthmap"/);
+  assert.match(cut, /href="\/guardian"/);
+  assert.match(cut, /href="\/agents"/);
 });
 
 test('a Guardian section showcases every module, each linking to its live tool', () => {

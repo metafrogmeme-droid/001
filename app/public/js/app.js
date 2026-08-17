@@ -173,8 +173,14 @@
   }
   function pnlClass(n) {
     const v = Number(n);
-    if (n == null || !isFinite(v)) return '';  // unknown -> muted, never red
-    return v >= 0 ? 'pos' : 'neg';
+    // '' SLIPS PAST `!isFinite(Number(n))` — Number('') is 0, and 0 is finite.
+    // So an empty-string field (what several serialisers emit for SQL NULL)
+    // was scoring as an exactly break-even position and painting green. Same
+    // family as `x || 0`: a coercion accident standing in for a measurement.
+    // Whitespace-only is the same value wearing a space.
+    if (n == null || (typeof n === 'string' && n.trim() === '')) return '';
+    if (!isFinite(v)) return '';               // unknown -> muted, never red
+    return v >= 0 ? 'pos' : 'neg';             // 0 IS a measured break-even
   }
   function fmtAgo(iso) {
     if (!iso) return '--';
@@ -579,6 +585,27 @@
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', syncPageIndex);
+
+  /* The sticky mobile CTA duplicates the hero's own signup button, and while
+     the hero is on screen it sits ON TOP of the paragraph explaining what the
+     button does. Show it only once that form has scrolled away.
+
+     Observed, not polled: a scroll handler runs on every frame of every
+     scroll to answer a question that changes twice per session. Degrades to
+     "always visible" where IntersectionObserver is missing, because a CTA
+     that never appears is worse than one that appears early. */
+  (function gateMobileCta() {
+    var cta = document.querySelector('.mobile-cta');
+    if (!cta) return;
+    var hero = document.querySelector('#heroSignup') || document.querySelector('.hero');
+    if (!hero || !('IntersectionObserver' in window)) {
+      document.body.classList.add('past-hero');
+      return;
+    }
+    new IntersectionObserver(function (entries) {
+      document.body.classList.toggle('past-hero', !entries[0].isIntersecting);
+    }, { rootMargin: '-8px 0px 0px 0px' }).observe(hero);
+  })();
   } else {
     syncPageIndex();
   }

@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=25">
+<link rel="stylesheet" href="/styles.css?v=31">
 </head>
 <body>
 <a class="skip-link" href="#view-root" data-i18n="dash.skip">Skip to content</a>
@@ -49,7 +49,7 @@
   <div class="chat-head">
     <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
     <button class="chat-tts" id="chatTts" type="button" aria-pressed="false"
-      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden>🔇</button>
+      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden><svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mute"></use></svg></button>
     <button class="chat-close" id="chatClose" aria-label="Close chat" data-i18n-attr="aria-label:a11y.close_chat">&times;</button>
   </div>
   <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio" data-i18n-attr="aria-label:a11y.portfolio"></div>
@@ -60,7 +60,7 @@
     <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
            placeholder='Ask anything — or "buy SOL 71 sl 70 tp 76"' data-i18n-attr="placeholder:dash.chat_ph">
     <button class="btn" id="chatMic" type="button" aria-pressed="false"
-      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden>🎤</button>
+      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden><svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mic"></use></svg></button>
     <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message" data-i18n-attr="aria-label:a11y.send">
       <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
     </button>
@@ -91,12 +91,12 @@
   </div>
 </div>
 
-<script src="/js/i18n.js?v=118"></script>
-<script src="/js/icons.js?v=3"></script>
-<script src="/js/app.js?v=9"></script>
+<script src="/js/i18n.js?v=123"></script>
+<script src="/js/icons.js?v=5"></script>
+<script src="/js/app.js?v=11"></script>
 <script src="/js/wallet_picker.js" defer></script>
 <script src="/js/solana_wallet.js?v=2" defer></script>
-<script src="/js/chat.js?v=26" defer></script>
+<script src="/js/chat.js?v=27" defer></script>
 <!-- 3D AI Viking agent: import map + reactive viewer (defers; no-op if the model is absent). -->
 <script type="importmap">
 { "imports": {
@@ -122,7 +122,7 @@
 <script src="/js/engine-status-model.js?v=1" defer></script>
 <script src="/js/engine-card-model.js?v=1" defer></script>
 <script src="/js/trade-stats.js?v=1" defer></script>
-<script src="/js/dashboard.js?v=138" defer></script>
+<script src="/js/dashboard.js?v=139" defer></script>
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

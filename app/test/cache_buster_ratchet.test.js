@@ -42,12 +42,29 @@ const MANIFEST = path.join(__dirname, 'asset_versions.json');
 
 const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
 
-/** Every `/js/<file>.js?v=<n>` reference in the shipped pages. */
+/**
+ * Every versioned asset reference in the shipped pages, keyed by the path
+ * under public/ so the manifest key and the file on disk cannot drift apart.
+ *
+ * THIS USED TO MATCH ONLY `/js/*.js`. styles.css is linked by every page on
+ * the site and was therefore the most-cached file here, and it sat outside the
+ * ratchet for its whole life — a stylesheet edit that kept its `?v=` would
+ * reach nobody who had visited before, silently, which is the entire subject of
+ * this file. Found on 2026-08-17 by changing styles.css and watching the
+ * ratchet say nothing; the manifest had no `styles.css` key, so `if (!rec)
+ * continue` skipped it and the "every versioned bundle is in the manifest"
+ * test never saw it either, because the reference scan could not produce it.
+ *
+ * A guard with a blind spot over the biggest asset is not a smaller guard —
+ * it reads as coverage while providing none. The pattern is matched on the
+ * extension now, so a versioned `.css` is ratcheted on the same terms as a
+ * versioned `.js` and a new asset type is one character away.
+ */
 function references() {
   const found = new Map();
   for (const f of fs.readdirSync(PUB).filter((x) => x.endsWith('.html'))) {
     const src = fs.readFileSync(path.join(PUB, f), 'utf8');
-    for (const m of src.matchAll(/\/js\/([A-Za-z0-9_.-]+\.js)\?v=(\d+)/g)) {
+    for (const m of src.matchAll(/["'(]\/((?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:js|css))\?v=(\d+)/g)) {
       if (!found.has(m[1])) found.set(m[1], new Map());
       const pages = found.get(m[1]);
       const v = Number(m[2]);
@@ -65,14 +82,14 @@ const sha = (p) => crypto.createHash('sha256')
 
 test('a changed bundle carries a changed ?v=', () => {
   const stale = [];
-  for (const [js] of references()) {
-    const file = path.join(PUB, 'js', js);
+  for (const [asset] of references()) {
+    const file = path.join(PUB, asset);
     if (!fs.existsSync(file)) continue;
-    const rec = manifest[js];
+    const rec = manifest[asset];
     if (!rec) continue;                       // the next test owns that case
     const now = sha(file);
     if (now !== rec.sha) {
-      stale.push(`  ${js}: content changed but ?v= is still ${rec.v} — `
+      stale.push(`  ${asset}: content changed but ?v= is still ${rec.v} — `
         + `bump it to ${rec.v + 1} in every page, then set `
         + `{"v": ${rec.v + 1}, "sha": "${now}"} in test/asset_versions.json`);
     }
@@ -84,12 +101,12 @@ test('a changed bundle carries a changed ?v=', () => {
 
 test('the recorded ?v= is the one the pages actually ship', () => {
   const wrong = [];
-  for (const [js, byVersion] of references()) {
-    const rec = manifest[js];
+  for (const [asset, byVersion] of references()) {
+    const rec = manifest[asset];
     if (!rec) continue;
     for (const [v, pages] of byVersion) {
       if (v !== rec.v) {
-        wrong.push(`  ${js}: manifest says v=${rec.v}, ${pages.join(', ')} ship v=${v}`);
+        wrong.push(`  ${asset}: manifest says v=${rec.v}, ${pages.join(', ')} ship v=${v}`);
       }
     }
   }
@@ -101,10 +118,10 @@ test('one bundle is never shipped at two versions', () => {
   // which one you get depends on where you landed first — the same class of
   // bug, arriving by a different door.
   const split = [];
-  for (const [js, byVersion] of references()) {
+  for (const [asset, byVersion] of references()) {
     if (byVersion.size > 1) {
       const detail = [...byVersion].map(([v, p]) => `v=${v} (${p.join(', ')})`).join('  ·  ');
-      split.push(`  ${js}: ${detail}`);
+      split.push(`  ${asset}: ${detail}`);
     }
   }
   assert.deepEqual(split, [], 'same bundle, different versions:\n' + split.join('\n'));
@@ -114,8 +131,8 @@ test('one bundle is never shipped at two versions', () => {
 
 test('every versioned bundle is in the manifest', () => {
   const missing = [];
-  for (const [js] of references()) {
-    if (fs.existsSync(path.join(PUB, 'js', js)) && !manifest[js]) missing.push(js);
+  for (const [asset] of references()) {
+    if (fs.existsSync(path.join(PUB, asset)) && !manifest[asset]) missing.push(asset);
   }
   assert.deepEqual(missing, [],
     `add these to test/asset_versions.json — an unlisted bundle is unratcheted:\n  ${missing.join('\n  ')}`);
@@ -126,16 +143,16 @@ test('the manifest carries no entry for a bundle nobody references', () => {
   // that is no longer true is an entry nobody reads.
   const refs = references();
   const dead = Object.keys(manifest).filter(
-    (js) => !refs.has(js) || !fs.existsSync(path.join(PUB, 'js', js)));
+    (a) => !refs.has(a) || !fs.existsSync(path.join(PUB, a)));
   assert.deepEqual(dead, [],
     `stale manifest entries — delete them in the commit that made them stale:\n  ${dead.join('\n  ')}`);
 });
 
 test('the manifest has the shape the ratchet depends on', () => {
-  for (const [js, rec] of Object.entries(manifest)) {
-    assert.strictEqual(typeof rec.v, 'number', `${js}.v`);
-    assert.ok(Number.isInteger(rec.v) && rec.v > 0, `${js}.v must be a positive integer`);
-    assert.match(rec.sha, /^[0-9a-f]{16}$/, `${js}.sha`);
+  for (const [asset, rec] of Object.entries(manifest)) {
+    assert.strictEqual(typeof rec.v, 'number', `${asset}.v`);
+    assert.ok(Number.isInteger(rec.v) && rec.v > 0, `${asset}.v must be a positive integer`);
+    assert.match(rec.sha, /^[0-9a-f]{16}$/, `${asset}.sha`);
   }
 });
 
@@ -144,10 +161,10 @@ test('the manifest has the shape the ratchet depends on', () => {
 test('app.js is past the version that shipped the session-cookie bug', () => {
   // v=7 is the number that was live while LOGGED_IN silently disagreed with
   // itself across pages. Pinned so a bad merge cannot walk it backwards.
-  assert.ok(manifest['app.js'].v > 7,
+  assert.ok(manifest['js/app.js'].v > 7,
     'app.js at v<=7 means returning browsers run the pre-cookie LOGGED_IN');
 });
 
 test('dashboard.js is past the version that withheld six honesty fixes', () => {
-  assert.ok(manifest['dashboard.js'].v > 137);
+  assert.ok(manifest['js/dashboard.js'].v > 137);
 });

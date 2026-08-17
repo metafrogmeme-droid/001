@@ -7,6 +7,7 @@
 <link rel="canonical" href="https://www.humanoid-traders.com/approvals">
 <meta name="description" content="What can spend your tokens right now? A read-only allowance check of curated tokens against well-known spenders — with the exact revoke calldata your own wallet can send. Bounded and honest: a clean result is not a guarantee.">
 <meta property="og:title" content="RUNECLAW — Allowance X-ray">
+<meta property="og:site_name" content="Humanoid Traders">
 <meta property="og:description" content="The after-the-fact half of the firewall: what your wallet has already granted, and the revoke plan your own wallet sends. Read-only, bounded, honest.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/approvals">
@@ -21,7 +22,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=25">
+<link rel="stylesheet" href="/styles.css?v=31">
 <style>
   .av-wrap { max-width: 860px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -80,7 +81,7 @@
     <p class="note" data-i18n-html="av.hon_p"><b>Bounded by construction:</b> only the curated majors on each chain are checked, and only against well-known spenders (Permit2, 1inch, 0x, Seaport, and — where its bytecode really is the router — Uniswap's SwapRouter02). Approvals to anything outside this registry are <b>not scanned</b>, so a clean result is <b>never a guarantee</b>. A pair that can't be read is counted as unreadable, never shown as zero. UNLIMITED means the grant exceeds 2¹²⁸ — the same threshold the transaction X-ray uses, so both halves of the firewall agree.</p>
   </section>
 </div>
-<script src="/js/i18n.js?v=118"></script>
+<script src="/js/i18n.js?v=123"></script>
 <script src="/js/ambient.js?v=3" defer></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script>

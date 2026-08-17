@@ -7046,7 +7046,7 @@
           voice = '<span class="muted small">not supported in this browser</span>';
         } else {
           const on = (() => { try { return localStorage.getItem('rc_tts') === '1'; } catch (e) { return false; } })();
-          voice = `<button class="btn btn--sm ${on ? 'btn--primary' : ''}" id="hubTtsBtn" type="button" aria-pressed="${on}">${on ? '🔊 On — replies are spoken' : '🔇 Off'}</button>`;
+          voice = `<button class="btn btn--sm ${on ? 'btn--primary' : ''}" id="hubTtsBtn" type="button" aria-pressed="${on}">${on ? '<svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-sound"></use></svg> On — replies are spoken' : '<svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mute"></use></svg> Off'}</button>`;
         }
         // Push: real subscription state on THIS device.
         let push;
@@ -7066,7 +7066,7 @@
         }
         return `<div class="kv-row"><span>Spoken chat replies <span class="muted small">this browser</span></span><b>${voice}</b></div>
           <div class="kv-row"><span>Push notifications <span class="muted small">this device</span></span><b>${push}</b></div>
-          <p class="small muted mt-2">Dictation lives on the chat's 🎤 button — it never auto-sends.</p>`;
+          <p class="small muted mt-2">Dictation lives on the chat's microphone button — it never auto-sends.</p>`;
       }, { empty: { text: 'Toggle states unavailable.' } });
       const tts = document.getElementById('hubTtsBtn');
       if (tts) tts.onclick = () => {

@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>RUNECLAW — AI Trading, Paper to Live</title>
+<title>RUNECLAW — AI Trading by Humanoid Traders</title>
 <link rel="canonical" href="https://www.humanoid-traders.com/">
 <meta name="description" content="RUNECLAW hashes every trading call before the market moves, so the record cannot be edited afterwards. Paper-trade free in your browser and verify any call from your own terminal.">
-<meta property="og:title" content="RUNECLAW — AI Trading, Paper to Live">
+<meta property="og:title" content="RUNECLAW — AI Trading by Humanoid Traders">
+<meta property="og:site_name" content="Humanoid Traders">
 <meta property="og:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/">
@@ -25,7 +26,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=25">
+<link rel="stylesheet" href="/styles.css?v=31">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -121,55 +122,88 @@
 <nav class="topbar" aria-label="Main" data-i18n-attr="aria-label:a11y.main">
   <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub" data-i18n="lp.brand_sub">Command Core</span></a>
   <div class="spacer"></div>
+  <!-- NINE equal-weight links became four groups. Nine top-level items give a
+       visitor no map: everything is the same size, so nothing tells them where
+       they are or what to try. Grouped by INTENT, which is also the order a
+       visitor moves through: look at the product, check whether to believe it,
+       see what protects them, read the background. -->
   <div class="nav-links">
-    <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
-    <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
-    <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
-    <a href="/track" data-i18n="nav.track">Track record</a>
-    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
-    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
-    <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
-    <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
-    <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
-    <details class="nav-menu">
-      <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
-      <div class="nav-menu-panel">
+    <details class="nav-group">
+      <summary data-i18n="nav.grp_trade">Trade</summary>
+      <div class="nav-group-panel">
         <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
         <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
         <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+      </div>
+    </details>
+    <details class="nav-group">
+      <summary data-i18n="nav.grp_evidence">Evidence</summary>
+      <div class="nav-group-panel">
         <a href="/track" data-i18n="nav.track">Track record</a>
         <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
-    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
         <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+      </div>
+    </details>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <details class="nav-group">
+      <summary data-i18n="nav.grp_more">More</summary>
+      <div class="nav-group-panel">
+        <a href="/explore" data-i18n="nav.explore_all">Everything RUNECLAW does</a>
         <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
         <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
       </div>
     </details>
+  </div>
+  <!-- OUTSIDE .nav-links, and that is the whole point. .nav-links is the
+       overflow-x:auto scroller, so anything inside it can be scrolled out of
+       sight. The primary action was in there, and at 390px it sat at
+       right:443 on a 390 viewport — clipped, unreachable, and silent because
+       the page itself never scrolled sideways.
+       The stylesheet already protected `.top-actions` ("never shrink or
+       clip") — but no element carried that class, so the rule guarded
+       nothing. This is that element. -->
+  <div class="top-actions">
+    <span data-i18n-switcher></span>
     <a class="btn btn--primary btn--sm" href="#auth-panel" data-i18n="nav.get_started">Get started</a>
   </div>
+  <details class="nav-menu">
+    <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu"><svg class="icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-menu"></use></svg> <span data-i18n="nav.menu">Menu</span></summary>
+    <div class="nav-menu-panel">
+      <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+      <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+      <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+      <a href="/track" data-i18n="nav.track">Track record</a>
+      <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+      <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+      <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+      <a href="/explore" data-i18n="nav.explore_all">Everything RUNECLAW does</a>
+      <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+      <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
+    </div>
+  </details>
 </nav>
 
 <header class="hero">
   <canvas id="rc-constellation" aria-hidden="true"></canvas>
   <div class="hero-agent3d" data-rc-agent3d aria-label="RUNECLAW 3D agent" data-i18n-attr="aria-label:a11y.agent3d"></div>
-  <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> <span data-i18n="hero.eyebrow">Live · Bitget USDT-M futures</span></div>
+  <div class="eyebrow"><svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-bolt"></use></svg> <span data-i18n="hero.eyebrow">Live · perps across 8 venues</span></div>
   <h1 data-i18n-html="hero.h1">Every call is hashed<br>before <span>the market moves.</span></h1>
   <div class="hero-stats muted small" id="heroStats" hidden
        style="gap:var(--s4);flex-wrap:wrap;justify-content:center;align-items:baseline;margin-bottom:var(--s3)"></div>
-  <p data-i18n="hero.body">RUNECLAW hashes each call the moment it is made — symbol, direction, entry, stop, target, confidence and the pattern it read. The outcome attaches to that sealed record afterwards and cannot alter it. No backdated wins, no quietly deleted losers. Paper-trade free in your browser; go live only on your own exchange keys.</p>
+  <p class="hero-lede" data-i18n="hero.lede">Every trading call is sealed with a hash before the market moves — so a win can never be backdated and a loss can never quietly disappear.</p>
   <form class="hero-cta hero-signup" id="heroSignup" novalidate>
     <input class="input hero-email" type="email" id="hero-email" placeholder="you@example.com" autocomplete="email" aria-label="Email address" data-i18n-attr="aria-label:a11y.email;placeholder:auth.email_ph">
     <button class="btn btn--primary" type="submit" data-i18n="hero.cta_create">Create free account</button>
-    <a class="btn" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
+    <a class="hero-secondary" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
   </form>
   <p class="hero-note muted small" data-i18n="hero.free_note">Free · paper-trade in your browser instantly · no exchange keys needed.</p>
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
-    <li class="trust-badge">🔎 <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
-    <li class="trust-badge">🔒 <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
-    <li class="trust-badge">🔑 <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
-    <li class="trust-badge">🔏 <span data-i18n="lp.tb_sealed">Sealed before the outcome</span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-radar"></use></svg> <span data-i18n-html="lp.tb_fill">Every fill <a href="/proof">verifiable</a></span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-wallet"></use></svg> <span data-i18n="lp.tb_noncustodial">Non-custodial — you hold the keys</span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span data-i18n="lp.tb_keys">Withdrawal-disabled API keys</span></li>
+    <li class="trust-badge"><svg class="icon tb-icon" style="width:15px;height:15px" aria-hidden="true"><use href="#icon-check"></use></svg> <span data-i18n="lp.tb_sealed">Sealed before the outcome</span></li>
   </ul>
   <!-- PROOF STRIP — the product's central claim, rendered as an artifact
        instead of an adjective. Every value here comes from /api/roots; the
@@ -196,13 +230,7 @@
   </div>
   <!-- Explore the flagship experiences straight from the hero, so a first-time
        visitor sees the breadth (not just a signup box). -->
-  <div class="hero-explore" style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:center;margin-top:var(--s3)">
-    <button class="btn btn--primary btn--sm" id="pwaInstall" type="button" hidden>📲 <span data-i18n="hero.install">Install the app</span></button>
-    <a class="btn btn--ghost btn--sm" href="/arena">🏟️ <span data-i18n="hero.explore_arena">Paper Arena</span></a>
-    <a class="btn btn--ghost btn--sm" href="/strengthmap">🌐 <span data-i18n="hero.explore_map">3D Strength Map</span></a>
-    <a class="btn btn--ghost btn--sm" href="/guardian">🛡️ <span data-i18n="hero.explore_guardian">Guardian safety suite</span></a>
-    <a class="btn btn--ghost btn--sm" href="/agents">⚔️ <span data-i18n="hero.explore_market">Marketplace</span></a>
-  </div>
+  <!-- the explore pills moved out of the hero: see #howItWorks below -->
 </header>
 
 <!-- Sticky mobile CTA: the primary action stays one tap away through the whole
@@ -215,8 +243,103 @@
      style="gap:var(--s4);flex-wrap:wrap;justify-content:center;padding:10px var(--s4);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"
      aria-label="Live market snapshot" data-i18n-attr="aria-label:a11y.snapshot"></div>
 
+<!-- MULTI-VENUE. The site said "Bitget USDT-M futures" and nothing else, so
+     eight connectable venues and a cross-venue read looked like one exchange.
+
+     TWO CLAIMS, KEPT APART ON PURPOSE. You can CONNECT any one of the eight and
+     your live account trades there — that is per-user, one venue per account,
+     not eight at once, and saying otherwise would promise routing this does not
+     do. Separately the SCAN reads several venues at the same time: cross-venue
+     funding (bot/core/cross_venue.py) pulls the whole funding map from Bybit and
+     Hyperliquid and merges it with Bitget's, so crowd positioning is compared
+     rather than assumed from one book.
+
+     The list is written out rather than fetched: it is indexable, it survives a
+     dead API, and app/test/venue_coverage.test.js derives the expected names
+     from app/lib/venues.js and fails if the two disagree — a count in prose is
+     the part that rots first. -->
+<section class="section section--dense reveal-on-scroll" id="venuesTease" aria-labelledby="venues-h">
+  <div class="section-head">
+    <div class="eyebrow"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg> <span data-i18n="lp.venues_eyebrow">Multi-venue</span></div>
+    <h2 id="venues-h" data-i18n="lp.venues_h">Eight venues, not one exchange</h2>
+    <p class="muted" data-i18n="lp.venues_sub">Connect the exchange you already use. The engine reads several of them at once.</p>
+  </div>
+  <ul class="venue-strip" aria-label="Supported venues" data-i18n-attr="aria-label:a11y.venues">
+      <li class="venue-chip" data-venue="bitget">Bitget</li>
+      <li class="venue-chip" data-venue="bybit">Bybit</li>
+      <li class="venue-chip" data-venue="bingx">BingX</li>
+      <li class="venue-chip" data-venue="okx">OKX</li>
+      <li class="venue-chip" data-venue="gate">Gate.io</li>
+      <li class="venue-chip" data-venue="kucoin">KuCoin Futures</li>
+      <li class="venue-chip" data-venue="hyperliquid">Hyperliquid (DEX)</li>
+      <li class="venue-chip" data-venue="paradex">Paradex (DEX)</li>
+  </ul>
+  <div class="venue-notes">
+    <p class="venue-note">
+      <svg class="icon" aria-hidden="true"><use href="#icon-wallet"></use></svg>
+      <span data-i18n="lp.venues_connect">Bring your own withdrawal-disabled keys on any one of them — your live account trades on the venue you connect, and you can switch it.</span>
+    </p>
+    <p class="venue-note">
+      <svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>
+      <span data-i18n="lp.venues_read">The scan reads funding and positioning across venues at the same time. When one book pays 0.01% and another pays 0.10%, the crowd is somewhere specific — a single-venue bot cannot see that.</span>
+    </p>
+  </div>
+</section>
+
 <!-- Why we're different: the trust pillars, high on the page — concrete backing
      for the hero's "and trust" promise. Capability claims only (§4). -->
+<!-- HOW IT WORKS — the first thing a non-technical visitor needs, and it was
+     missing. Three steps, and the long mechanism paragraph that used to sit in
+     the hero now lives in step 2 where the detail is actually wanted.
+     Step 2 links to /provable rather than printing a curl command: the command
+     belongs on the page that explains it, not on the first screen. -->
+<section class="section section--tight reveal-on-scroll" id="howItWorks" aria-labelledby="how-h">
+  <div class="section-head">
+    <h2 id="how-h" data-i18n="lp.how_h">How it works</h2>
+    <p class="muted" data-i18n="lp.how_sub">Three steps, and you can verify the second one yourself.</p>
+  </div>
+  <ol class="how-steps">
+    <li class="how-step">
+      <span class="how-num" aria-hidden="true">1</span>
+      <h3 data-i18n="lp.how_1h">The engine reads the market</h3>
+      <p class="muted small" data-i18n="lp.how_1p">It scans every Bitget USDT-M perp for momentum, funding, open interest and structure, then forms a call: symbol, direction, entry, stop, target, confidence and the pattern it read.</p>
+    </li>
+    <li class="how-step">
+      <span class="how-num" aria-hidden="true">2</span>
+      <h3 data-i18n="lp.how_2h">The call is sealed</h3>
+      <p class="muted small" data-i18n="hero.body">RUNECLAW hashes each call the moment it is made — symbol, direction, entry, stop, target, confidence and the pattern it read. The outcome attaches to that sealed record afterwards and cannot alter it. No backdated wins, no quietly deleted losers. Paper-trade free in your browser; go live only on your own exchange keys.</p>
+      <a class="how-link" href="/provable" data-i18n="lp.how_verify">Verify a call yourself &rarr;</a>
+    </li>
+    <li class="how-step">
+      <span class="how-num" aria-hidden="true">3</span>
+      <h3 data-i18n="lp.how_3h">You decide, and it is recorded</h3>
+      <p class="muted small" data-i18n="lp.how_3p">Paper-trade it free in your browser, or go live on your own exchange keys — withdrawal-disabled, non-custodial. Either way the outcome attaches to the sealed record, win or lose.</p>
+    </li>
+  </ol>
+  <div class="how-explore"><div class="hero-explore">
+    <button class="btn btn--primary btn--sm" id="pwaInstall" type="button" hidden><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-rocket"></use></svg> <span data-i18n="hero.install">Install the app</span></button>
+    <a class="btn btn--ghost btn--sm" href="/arena"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-target"></use></svg> <span data-i18n="hero.explore_arena">Paper Arena</span></a>
+    <a class="btn btn--ghost btn--sm" href="/strengthmap"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-globe"></use></svg> <span data-i18n="hero.explore_map">3D Strength Map</span></a>
+    <a class="btn btn--ghost btn--sm" href="/guardian"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-shield"></use></svg> <span data-i18n="hero.explore_guardian">Guardian safety suite</span></a>
+    <a class="btn btn--ghost btn--sm" href="/agents"><svg class="icon tb-icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-coin"></use></svg> <span data-i18n="hero.explore_market">Marketplace</span></a>
+  </div></div>
+</section>
+
+<!-- MOVED UP (2026-08-17). This is the most differentiating thing on the
+     site — the real engine's mind-stream, already connected to /api/stream
+     and already backfilled from /api/feed/recent — and it was sitting 68%
+     down a 4862px page, below the feature list, below Marketplace, below
+     Arena. Nothing needed building; it needed to be somewhere a visitor
+     reaches. Second section now, straight after "how it works", so the
+     claim is immediately followed by the system visibly doing it. -->
+<section class="section reveal-on-scroll section--tight" id="mindTease" aria-labelledby="live-h">
+  <div class="section-head">
+    <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
+    <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
+  </div>
+  <div class="card" id="landingFeed"><p class="muted small" data-i18n="lp.connecting">Connecting to the agent…</p></div>
+</section>
+
 <section class="section reveal-on-scroll" id="whyTease" aria-labelledby="why-h">
   <div class="section-head">
     <h2 id="why-h" data-i18n="sec.why_h">Why RUNECLAW is different</h2>
@@ -236,7 +359,7 @@
      only — omit, never invent). -->
 <section class="section reveal-on-scroll" id="provableTease" aria-labelledby="prov-h">
   <div class="section-head">
-    <div class="eyebrow">🔏 <span data-i18n="sec.prov_eyebrow">Provable Calls</span></div>
+    <div class="eyebrow"><svg class="icon" aria-hidden="true"><use href="#icon-seal"></use></svg> <span data-i18n="sec.prov_eyebrow">Provable Calls</span></div>
     <h2 id="prov-h" data-i18n="sec.prov_h">Don't trust the screenshot. Verify the call.</h2>
     <p data-i18n-html="sec.prov_p">Every call the engine makes — and every paper trade in the Arena — is hashed the moment it's made, <b>before the market moves</b>. The outcome attaches to that same sealed record later and can never change it. No backdated wins, no quietly deleted losers.</p>
   </div>
@@ -273,9 +396,9 @@
     <a id="lcVerify" href="/provable" style="font-size:var(--fs-xs);display:inline-block;margin-top:6px" data-i18n="lc.verify">Verify this call yourself</a>
   </div>
   <div class="feature-grid rc-stagger">
-    <a class="feature" href="/provable"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🧾</span><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
-    <a class="feature" href="/roots"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🌳</span><h3 data-i18n="lp.prov2_h">Daily seal roots</h3><p data-i18n="lp.prov2_p">One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
-    <a class="feature" href="/proof"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🔐</span><h3 data-i18n="nav.proof">Proof of PnL</h3><p data-i18n="lp.prov3_p">The performance side of the same doctrine: figures rebuilt from raw exchange fills and published as a sealed statement your browser re-derives.</p></a>
+    <a class="feature" href="/provable"><svg class="icon" aria-hidden="true"><use href="#icon-receipt"></use></svg><h3 data-i18n="lp.prov1_h">Verify it yourself</h3><p data-i18n="lp.prov1_p">The full contract: what gets sealed, the exact payload format, and copy-paste code that checks any call and any day from your own terminal. Nothing needed from us but public URLs.</p></a>
+    <a class="feature" href="/roots"><svg class="icon" aria-hidden="true"><use href="#icon-tree"></use></svg><h3 data-i18n="lp.prov2_h">Daily seal roots</h3><p data-i18n="lp.prov2_p">One hash per day commits to every call sealed that day. Mirror it and you hold an independent timestamp — for calls you'll only see us make tomorrow.</p></a>
+    <a class="feature" href="/proof"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg><h3 data-i18n="nav.proof">Proof of PnL</h3><p data-i18n="lp.prov3_p">The performance side of the same doctrine: figures rebuilt from raw exchange fills and published as a sealed statement your browser re-derives.</p></a>
   </div>
 </section>
 
@@ -296,11 +419,11 @@
     <p data-i18n="doors.sub">The whole site, grouped by the job it does. Every page here is also linked from its own section below — this is just the shorter route.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <a class="feature" href="/proof"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🔏</span><h3 data-i18n="doors.d1_h">Evidence</h3><p data-i18n="doors.d1_p">Track record, Proof of PnL, the daily seal roots, and the full contract for verifying any single call yourself.</p></a>
-    <a class="feature" href="/arena"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎯</span><h3 data-i18n="doors.d2_h">Play</h3><p data-i18n="doors.d2_p">Paper-trade the Arena on the same virtual stake as everyone else, take the Daily Duel, or work through the Study Room.</p></a>
-    <a class="feature" href="/dashboard"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📈</span><h3 data-i18n="doors.d3_h">Trade</h3><p data-i18n="doors.d3_p">The cockpit — portfolio, live signals, markets and execution. Paper by default; live only on your own exchange keys.</p></a>
-    <a class="feature" href="/guardian"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🛡️</span><h3 data-i18n="doors.d4_h">Safety</h3><p data-i18n="doors.d4_p">Guardian — the transaction firewall, the Escape Agent, the allowance X-ray and the portfolio stress lab.</p></a>
-    <a class="feature" href="/letter"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">✍️</span><h3 data-i18n="doors.d5_h">Story</h3><p data-i18n="doors.d5_p">The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words.</p></a>
+    <a class="feature" href="/proof"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-check"></use></svg><h3 data-i18n="doors.d1_h">Evidence</h3><p data-i18n="doors.d1_p">Track record, Proof of PnL, the daily seal roots, and the full contract for verifying any single call yourself.</p></a>
+    <a class="feature" href="/arena"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><h3 data-i18n="doors.d2_h">Play</h3><p data-i18n="doors.d2_p">Paper-trade the Arena on the same virtual stake as everyone else, take the Daily Duel, or work through the Study Room.</p></a>
+    <a class="feature" href="/dashboard"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="doors.d3_h">Trade</h3><p data-i18n="doors.d3_p">The cockpit — portfolio, live signals, markets and execution. Paper by default; live only on your own exchange keys.</p></a>
+    <a class="feature" href="/guardian"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="doors.d4_h">Safety</h3><p data-i18n="doors.d4_p">Guardian — the transaction firewall, the Escape Agent, the allowance X-ray and the portfolio stress lab.</p></a>
+    <a class="feature" href="/letter"><svg class="icon" aria-hidden="true"><use href="#icon-pen"></use></svg><h3 data-i18n="doors.d5_h">Story</h3><p data-i18n="doors.d5_p">The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words.</p></a>
   </div>
 </section>
 
@@ -323,10 +446,12 @@
 <nav class="page-index" id="pageIndex" aria-labelledby="pidx-h">
   <h2 id="pidx-h" class="page-index__h" data-i18n="idx.h">On this page</h2>
   <ul class="page-index__list">
+    <li><a href="#howItWorks" data-i18n="lp.how_h">How it works</a></li>
+    <li><a href="#venuesTease" data-i18n="lp.venues_eyebrow">Multi-venue</a></li>
+    <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
     <li><a href="#whyTease" data-i18n="idx.why">Why it&rsquo;s different</a></li>
     <li><a href="#provableTease" data-i18n="sec.prov_eyebrow">Provable Calls</a></li>
     <li><a href="#askTease" data-i18n="nav.chat">AI Chat</a></li>
-    <li><a href="#mindTease" data-i18n="idx.mind">Mind-stream</a></li>
     <li><a href="#theaterSection" data-i18n="idx.theater">Live trade</a></li>
     <li><a href="#boardTease" data-i18n="nav.leaderboard">Leaders</a></li>
     <li><a href="#marketplaceTease" data-i18n="nav.marketplace">Marketplace</a></li>
@@ -342,14 +467,6 @@
     <p data-i18n="sec.ask_p">This is the live analyst — the same one behind the Telegram bot. Ask it anything; no account needed.</p>
   </div>
   <div id="chatInlineHost"></div>
-</section>
-
-<section class="section reveal-on-scroll section--tight" id="mindTease" aria-labelledby="live-h">
-  <div class="section-head">
-    <h2 id="live-h" data-i18n="sec.live_h">Watch the agent think — live</h2>
-    <p data-i18n="sec.live_p">The real engine's mind-stream: scans, trade theses, executions and stop moves, streamed straight from the bot. No mockups.</p>
-  </div>
-  <div class="card" id="landingFeed"><p class="muted small" data-i18n="lp.connecting">Connecting to the agent…</p></div>
 </section>
 
 <section class="section hidden section--tight" id="theaterSection" hidden aria-labelledby="theater-h">
@@ -449,9 +566,9 @@
     <p data-i18n="sec.arena_p">Every account gets a paper trading account the moment you open the Arena — the same virtual starting stake for everyone, no exchange keys, no setup. Trade live markets at real prices with real liquidation mechanics, and climb a public leaderboard ranked purely on percent return. When paper competitions run, this is where they happen.</p>
   </div>
   <div class="feature-grid rc-stagger">
-    <div class="feature"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🎫</span><h3 data-i18n="sec.arena_f1h">Same stake, pure skill</h3><p data-i18n="sec.arena_f1p">Everyone starts identical, so the ranking measures nothing but your calls — percent return, anonymous handles, zero dollar-waving.</p></div>
-    <div class="feature"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">📈</span><h3 data-i18n="sec.arena_f2h">Real prices, real mechanics</h3><p data-i18n="sec.arena_f2p">Fills at live market prices, leverage up to 20×, and liquidations enforced with the same math the Stress Lab models — honest practice, not a toy.</p></div>
-    <div class="feature"><span style="font-size:26px;line-height:1;display:block;margin-bottom:8px">🚀</span><h3 data-i18n="sec.arena_f3h">Zero friction</h3><p data-i18n="sec.arena_f3p">No API keys, no deposit, nothing to configure — register and your account exists. The safest possible way to meet the platform.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-ticket"></use></svg><h3 data-i18n="sec.arena_f1h">Same stake, pure skill</h3><p data-i18n="sec.arena_f1p">Everyone starts identical, so the ranking measures nothing but your calls — percent return, anonymous handles, zero dollar-waving.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><h3 data-i18n="sec.arena_f2h">Real prices, real mechanics</h3><p data-i18n="sec.arena_f2p">Fills at live market prices, leverage up to 20×, and liquidations enforced with the same math the Stress Lab models — honest practice, not a toy.</p></div>
+    <div class="feature"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><h3 data-i18n="sec.arena_f3h">Zero friction</h3><p data-i18n="sec.arena_f3p">No API keys, no deposit, nothing to configure — register and your account exists. The safest possible way to meet the platform.</p></div>
   </div>
   <p style="margin-top:var(--s4)">
     <a class="btn btn--primary btn--sm" href="/arena" data-i18n="sec.arena_cta">Enter the Arena →</a>
@@ -555,8 +672,8 @@
       <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.wallet">Wallet</h3>
       <p class="muted small" id="wallet-status" data-i18n="acc.wallet_body">Link a browser wallet to mirror your on-chain balances and DeFi positions — read-only: the wallet signs one login message, never a transaction.</p>
       <div class="form-err" id="wallet-msg" aria-live="polite"></div>
-      <button class="btn btn--sm mt-2" id="wallet-link-btn" data-act="linkWalletToAccount" data-i18n="acc.wallet_link">🔗 Link wallet</button>
-      <button class="btn btn--sm mt-2" id="wallet-qr-btn" data-act="showWalletQr" data-i18n="acc.wallet_phone">📱 Link with phone</button>
+      <button class="btn btn--sm mt-2" id="wallet-link-btn" data-act="linkWalletToAccount" data-i18n="acc.wallet_link"><svg class="icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-link"></use></svg> Link wallet</button>
+      <button class="btn btn--sm mt-2" id="wallet-qr-btn" data-act="showWalletQr" data-i18n="acc.wallet_phone"><svg class="icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-phone"></use></svg> Link with phone</button>
       <button class="btn btn--ghost btn--sm mt-2 hidden" id="wallet-unlink-btn" data-act="unlinkWalletFromAccount" data-i18n="acc.wallet_unlink">Unlink wallet</button>
       <div id="wallet-qr-box" class="mt-3 hidden"></div>
     </div>
@@ -583,12 +700,12 @@
         <p class="small" data-i18n="acc.tfa_step1">1. Add this secret to your authenticator app (Google Authenticator, Aegis, 1Password…):</p>
         <div class="token-display" id="tfa-secret" data-act="copySelf" title="Click to copy"></div>
         <p class="small mt-2" data-i18n="acc.tfa_step2">2. Enter the 6-digit code it shows to confirm:</p>
-        <div class="field"><input class="input" type="text" id="tfa-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code"></div>
+        <div class="field"><label class="visually-hidden" for="tfa-code" data-i18n="a11y.tfa_code">Six-digit code from your authenticator app</label><input class="input" type="text" id="tfa-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code"></div>
         <button class="btn btn--primary btn--sm" data-act="tfaEnable" data-i18n="acc.tfa_confirm">Confirm &amp; enable</button>
       </div>
       <div id="tfa-on" class="hidden">
-        <p class="small"><span data-i18n-html="acc.tfa_on">✅ 2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
-        <div class="field mt-2"><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
+        <p class="small"><svg class="icon" style="width:14px;height:14px;color:var(--up)" aria-hidden="true"><use href="#icon-check"></use></svg> <span data-i18n-html="acc.tfa_on">2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
+        <div class="field mt-2"><label class="visually-hidden" for="tfa-disable-code" data-i18n="a11y.tfa_disable">Current authenticator code or a backup code</label><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
         <button class="btn btn--ghost btn--sm" data-act="tfaDisable" data-i18n="acc.tfa_disable">Disable 2FA</button>
       </div>
       <div id="tfa-codes" class="hidden mt-2"></div>
@@ -601,7 +718,14 @@
 
 <footer class="site-footer">
   <div class="inner">
-    <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+    <!-- The domain is humanoid-traders.com and the product is RUNECLAW; until
+         now the two were never connected anywhere on the page, so a visitor
+         arriving from the domain met a name they had not heard of. Humanoid
+         Traders is the identity; RUNECLAW is its command core. -->
+    <div class="brand-block">
+      <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+      <p class="org-line muted small" data-i18n="lp.org_line">RUNECLAW is the command core of Humanoid Traders.</p>
+    </div>
     <div class="links">
       <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
       <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
@@ -645,7 +769,7 @@
   <div class="chat-head">
     <span class="t"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg>RUNECLAW — AI ANALYST</span>
     <button class="chat-tts" id="chatTts" type="button" aria-pressed="false"
-      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden>🔇</button>
+      aria-label="Read replies aloud" data-i18n-attr="aria-label:a11y.read_aloud" title="Read replies aloud" hidden><svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mute"></use></svg></button>
     <button class="chat-close" id="chatClose" aria-label="Close chat" data-i18n-attr="aria-label:a11y.close_chat">&times;</button>
   </div>
   <div id="chatMeta" class="chat-meta" hidden aria-label="Your live portfolio" data-i18n-attr="aria-label:a11y.portfolio"></div>
@@ -656,17 +780,17 @@
     <input id="chatInput" class="input" type="text" maxlength="2000" autocomplete="off"
            placeholder="Ask about crypto, markets, or how RUNECLAW works" data-i18n-attr="placeholder:chat.ph">
     <button class="btn" id="chatMic" type="button" aria-pressed="false"
-      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden>🎤</button>
+      aria-label="Dictate a message" data-i18n-attr="aria-label:a11y.dictate" title="Dictate a message" hidden><svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-mic"></use></svg></button>
     <button class="btn btn--primary" id="chatSend" type="submit" aria-label="Send message" data-i18n-attr="aria-label:a11y.send">
       <svg class="icon" style="width:16px;height:16px" aria-hidden="true"><use href="#icon-send"></use></svg>
     </button>
   </form>
 </section>
 
-<script src="/js/i18n.js?v=118"></script>
-<script src="/js/icons.js?v=3"></script>
-<script src="/js/app.js?v=9"></script>
-<script src="/js/chat.js?v=26" defer></script>
+<script src="/js/i18n.js?v=123"></script>
+<script src="/js/icons.js?v=5"></script>
+<script src="/js/app.js?v=11"></script>
+<script src="/js/chat.js?v=27" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
 <script>
 // Hero email-capture: the primary conversion action lives above the fold. It
@@ -695,12 +819,13 @@
   var RC = window.RC;
   var host = document.getElementById('landingFeed');
   if (!RC || !host) return;
-  var ICONS = { scan: '📡', thesis: '🧠', trade_open: '🟢', trade_close: '🏁',
-    sl_move: '🛡️', alert: '⚠️', stance: '🎚️', info: 'ℹ️' };
+  var ICONS = { scan: 'icon-radar', thesis: 'icon-brain', trade_open: 'icon-play', trade_close: 'icon-flag',
+    sl_move: 'icon-shield', alert: 'icon-alert', stance: 'icon-sliders', info: 'icon-info' };
   function row(ev) {
     var sym = ev.symbol ? ' <span class="muted small">' + RC.esc(String(ev.symbol).replace(':USDT', '').replace('/USDT', '')) + '</span>' : '';
     return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(128,128,128,.15)">'
-      + '<span>' + (ICONS[ev.event_type] || ICONS.info) + '</span>'
+      + '<svg class="icon feed-icon" aria-hidden="true"><use href="#'
+        + (ICONS[ev.event_type] || ICONS.info) + '"></use></svg>'
       + '<span style="flex:1;min-width:0"><b>' + RC.esc(ev.title || '') + '</b>' + sym
       + (ev.body ? '<div class="muted small">' + RC.esc(ev.body) + '</div>' : '') + '</span>'
       + '<span class="muted small" data-rc-ago="' + RC.esc(String(ev.created_at || '')) + '">' + RC.fmtAgo(ev.created_at) + '</span></div>';
@@ -762,11 +887,13 @@
         if (!rows.length) return;
         host.innerHTML = rows.map(function (t) {
           var chg = Number(t.change24h) * 100;
-          var cls = chg >= 0 ? 'up' : 'down';
+          var cls = (window.RC && RC.pnlClass) ? RC.pnlClass(chg) : '';
           var base = String(t.symbol || '').replace(/USDT$/i, '').replace(/[^A-Z0-9]/gi, '');
           return '<span style="display:inline-flex;gap:6px;align-items:baseline"><b>' + base + '</b>'
             + '<span class="num">' + fmtP(t.lastPr) + '</span>'
-            + '<span class="num ' + cls + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span></span>';
+            + '<span class="num ' + cls + '">'
+            + (isFinite(chg) ? (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' : '—')
+            + '</span></span>';
         }).join('');
         host.hidden = false;
         host.style.display = 'flex';   // inline display would defeat [hidden]
@@ -824,7 +951,13 @@
     });
   };
   var pct = function (v) { return v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%'; };
-  var fallback = '<p class="muted small"><a href="/agents">Open the Strategy Agent Marketplace →</a></p>';
+  // Unknown is muted, never green. RC.pnlClass is the one that already
+  // gets this right; the local copy this replaced did not.
+  var cls = (window.RC && RC.pnlClass) || function () { return ''; };
+  // Direction is also stated in SHAPE, not colour alone — WCAG 1.4.1, and
+  // roughly one man in twelve cannot separate this red from this green.
+  var arrow = (function(v){return v==null||!isFinite(Number(v))?'':'<svg class="icon dir-arrow" aria-hidden="true"><use href="#icon-arrow-'+(Number(v)>=0?'up':'down')+'"></use></svg> ';});
+  var fallback = '<p class="muted small"><a class="how-link" href="/agents">Open the Strategy Agent Marketplace →</a></p>';
   fetch('/api/public/strategies', { headers: { Accept: 'application/json' } })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
@@ -833,12 +966,16 @@
       wrap.innerHTML = agents.slice(0, 6).map(function (a) {
         var m = a.scorecard && a.scorecard.metrics;
         var stats = m ? '<div class="mkt-stats">'
-          + '<div class="mkt-stat"><span class="k">Return</span><span class="v ' + (m.total_return_pct >= 0 ? 'up' : 'down') + '">' + esc(pct(m.total_return_pct)) + '</span></div>'
+          + '<div class="mkt-stat"><span class="k">Return</span><span class="v ' + cls(m.total_return_pct) + '">'
+          + arrow(m.total_return_pct) + esc(pct(m.total_return_pct)) + '</span></div>'
           + '<div class="mkt-stat"><span class="k">Win rate</span><span class="v">' + (m.win_rate == null ? '—' : (m.win_rate * 100).toFixed(0) + '%') + '</span></div>'
           + '<div class="mkt-stat"><span class="k">PF</span><span class="v">' + (m.profit_factor == null ? '—' : Number(m.profit_factor).toFixed(2)) + '</span></div>'
           + '</div>' : '';
         return '<a class="feature mkt-card" href="/agents/' + encodeURIComponent(a.id) + '">'
-          + '<div class="mkt-h"><span class="mkt-emo">' + esc(a.icon || '🤖') + '</span><h3>' + esc(a.name) + '</h3></div>'
+          + '<div class="mkt-h"><span class="mkt-emo">'
+          + (a.icon ? esc(a.icon)
+            : '<svg class="icon" aria-hidden="true"><use href="#icon-robot"></use></svg>')
+          + '</span><h3>' + esc(a.name) + '</h3></div>'
           + (a.tagline ? '<p>' + esc(a.tagline) + '</p>' : '')
           + stats + '</a>';
       }).join('');
@@ -898,14 +1035,15 @@ let SESSION=null;
 // so it survives an OAuth round-trip (Google/Telegram sign-in redirects).
 const REF=(new URLSearchParams(location.search).get('ref')||localStorage.getItem('rc_ref')||'').trim().slice(0,32);
 if(REF){
+  const GIFT_ICON='<svg class="icon" style="width:14px;height:14px" aria-hidden="true"><use href="#icon-gift"></use></svg> ';
   try{localStorage.setItem('rc_ref',REF);}catch(e){}
   // Warm welcome for invited visitors (the #step-register markup is above this script).
   const _rs=document.getElementById('step-register');
-  if(_rs){const _n=document.createElement('p');_n.className='muted small';_n.id='inviteNote';_n.style.marginBottom='var(--s2)';_n.setAttribute('data-i18n','ref.friend_note');_n.textContent=T('ref.friend_note','🎁 A friend invited you — create your account to get started.');_rs.insertBefore(_n,_rs.firstChild);}
+  if(_rs){const _n=document.createElement('p');_n.className='muted small';_n.id='inviteNote';_n.style.marginBottom='var(--s2)';_n.innerHTML=GIFT_ICON+'<span data-i18n="ref.friend_note"></span>';_n.lastChild.textContent=T('ref.friend_note','A friend invited you — create your account to get started.');_rs.insertBefore(_n,_rs.firstChild);}
   // UX-3: the recognition also belongs in the HERO — the register card sits
   // several screens down, so invited visitors used to land on an unchanged page.
   const _hero=document.querySelector('.hero');
-  if(_hero){const _b=document.createElement('div');_b.id='inviteHero';_b.className='muted small';_b.style.marginBottom='var(--s3)';_b.setAttribute('data-i18n','ref.friend_hero');_b.textContent=T('ref.friend_hero','🎁 A friend invited you — your signup credits them.');const _h1=_hero.querySelector('h1');if(_h1)_hero.insertBefore(_b,_h1);}
+  if(_hero){const _b=document.createElement('div');_b.id='inviteHero';_b.className='muted small';_b.style.marginBottom='var(--s3)';_b.innerHTML=GIFT_ICON+'<span data-i18n="ref.friend_hero"></span>';_b.lastChild.textContent=T('ref.friend_hero','A friend invited you — your signup credits them.');const _h1=_hero.querySelector('h1');if(_h1)_hero.insertBefore(_b,_h1);}
   // Recognition upgrade: when the referrer chose a PUBLIC leaderboard handle,
   // name them by it (the only fact the invite endpoint ever reveals). An
   // invalid/expired code quietly keeps the generic note — never an error.
@@ -918,10 +1056,10 @@ if(REF){
         // The handle banner replaces the generic note — drop the data-i18n
         // marker so a later language switch can't clobber it back.
         n.removeAttribute('data-i18n');
-        n.innerHTML='🎁 '+T('ref.invited_full','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>. Your signup credits them.');
+        n.innerHTML=GIFT_ICON+T('ref.invited_full','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>. Your signup credits them.');
         n.querySelector('b').textContent=d.handle;
         const hb=document.getElementById('inviteHero');
-        if(hb){hb.removeAttribute('data-i18n');hb.innerHTML='🎁 '+T('ref.invited_short','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>.');hb.querySelector('b').textContent=d.handle;}
+        if(hb){hb.removeAttribute('data-i18n');hb.innerHTML=GIFT_ICON+T('ref.invited_short','Invited by <b></b> — ranked on the <a href="/leaderboard">verifiable board</a>.');hb.querySelector('b').textContent=d.handle;}
       }
     })
     .catch(function(){/* generic note stands */});
@@ -1445,7 +1583,7 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
         : s.status === 'upcoming' ? ('starts in ' + dd + 'd ' + hh + 'h') : 'final standings';
       var n = (d.rows || []).length;
       if (n) meta += ' · ' + n + ' competing';
-      document.getElementById('srName').textContent = '🏁 ' + s.name;
+      document.getElementById('srName').textContent = s.name;
       document.getElementById('srStatus').textContent = s.status;
       document.getElementById('srMeta').textContent = meta;
       document.getElementById('seasonRibbon').hidden = false;
@@ -1525,6 +1663,8 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
       if (!d || !d.rows || !d.rows.length) return;
       var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+      var ltCls = (window.RC && RC.pnlClass) || function () { return ''; };
+      var ltArrow = (function(v){return v==null||!isFinite(Number(v))?'':'<svg class="icon dir-arrow" aria-hidden="true"><use href="#icon-arrow-'+(Number(v)>=0?'up':'down')+'"></use></svg> ';});
       var ago = function (iso) {
         var s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
         return s < 60 ? s + 's ago' : s < 3600 ? Math.floor(s / 60) + 'm ago'
@@ -1536,7 +1676,9 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
           + '<span style="color:var(--' + (up ? 'up' : 'down') + ')">' + (up ? '▲' : '▼') + '</span>'
           + '<b>' + esc(t.handle) + '</b>'
           + '<span>' + esc(t.symbol) + '</span>'
-          + '<span style="color:var(--' + (t.pct >= 0 ? 'up' : 'down') + ')">' + (t.pct > 0 ? '+' : '') + Number(t.pct).toFixed(2) + '%</span>'
+          + '<span class="' + ltCls(t.pct) + '">' + ltArrow(t.pct)
+            + (t.pct == null || !isFinite(Number(t.pct)) ? '—'
+               : (t.pct > 0 ? '+' : '') + Number(t.pct).toFixed(2) + '%') + '</span>'
           + '<span class="muted" style="font-size:var(--fs-xs)">' + esc(t.reason) + ' · ' + ago(t.closed_at) + '</span></div>';
       }).join('');
       document.getElementById('ltPulse').textContent = d.traders + ' traders · ' + d.trades_24h + ' closes in 24h';
@@ -1557,16 +1699,16 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
       var bits = [];
       if (d.top_pattern) {
-        bits.push('🧭 ' + esc(String(d.top_pattern.symbol).replace('/USDT', '').replace(/USDT$/, ''))
+        bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-compass"></use></svg> ' + esc(String(d.top_pattern.symbol).replace('/USDT', '').replace(/USDT$/, ''))
           + ' · ' + esc(d.top_pattern.name) + ' (' + Math.round(d.top_pattern.confidence * 100) + '%)');
       }
       if (d.signals && d.signals.created_today) {
         var s = d.signals.created_today + ' signal' + (d.signals.created_today === 1 ? '' : 's') + ' today';
         if (d.signals.resolved_today) s += ', ' + d.signals.wins_today + '/' + d.signals.resolved_today + ' wins';
-        bits.push('📡 ' + s);
+        bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-radar"></use></svg> ' + s);
       }
-      if (d.arena && d.arena.closes_24h) bits.push('🏟️ ' + d.arena.traders + ' traders · ' + d.arena.closes_24h + ' closes in 24h');
-      if (d.season && d.season.status === 'live') bits.push('🏁 ' + esc(d.season.name) + ' is LIVE');
+      if (d.arena && d.arena.closes_24h) bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-users"></use></svg> ' + d.arena.traders + ' traders · ' + d.arena.closes_24h + ' closes in 24h');
+      if (d.season && d.season.status === 'live') bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-flag"></use></svg> ' + esc(d.season.name) + ' is LIVE');
       if (bits.length < 2) return;   // one lonely stat isn't a digest
       var el = document.getElementById('todayStrip');
       el.textContent = 'Today on RUNECLAW — ' + bits.join('  ·  ');

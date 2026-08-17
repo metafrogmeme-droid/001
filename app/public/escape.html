@@ -7,6 +7,7 @@
 <link rel="canonical" href="https://www.humanoid-traders.com/escape">
 <meta name="description" content="A dependency-aware emergency exit planner for complex crypto portfolios. Add your perps, loans, collateral, LPs, staking, spot and bridged assets and the Escape Agent sequences a safe unwind — close leverage first, repay debt to unlock collateral, exit LPs and staking, convert and bridge home — and flags what's locked. Planning only, no execution.">
 <meta property="og:title" content="RUNECLAW — Universal Escape Agent">
+<meta property="og:site_name" content="Humanoid Traders">
 <meta property="og:description" content="Plan the way out before you need it: a dependency-aware emergency unwind for perps, loans, collateral, LPs, staking and bridged assets. Ordered steps, dependencies and locked-asset flags. Planning only, not advice.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/escape">
@@ -21,7 +22,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=25">
+<link rel="stylesheet" href="/styles.css?v=31">
 <style>
   .es-wrap { max-width: 940px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -112,7 +113,7 @@
 <!-- Ahead of the page script, not after it. The plan renders synchronously at
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
-<script src="/js/i18n.js?v=118"></script>
+<script src="/js/i18n.js?v=123"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
@@ -159,15 +160,22 @@
     var opts = TYPE_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (p.type === o[0] ? ' selected' : '') + '>' + esc(T('esc.l.' + o[0], o[1])) + '</option>'; }).join('');
     var st = function (v, l) { return '<option value="' + v + '"' + (p.status === v ? ' selected' : '') + '>' + esc(l) + '</option>'; };
     return '<div class="row" data-i="' + i + '">'
-      + '<select data-k="type">' + opts + '</select>'
-      + '<input data-k="asset" value="' + esc(p.asset || '') + '" maxlength="20" placeholder="ETH" autocomplete="off">'
-      + '<input data-k="chain" value="' + esc(p.chain || '') + '" maxlength="20" placeholder="Aave / chain" autocomplete="off">'
-      + '<select data-k="status">' + st('', T('esc.st_normal', 'Normal'))
+      + '<select data-k="type" aria-label="Position type" data-i18n-attr="aria-label:a11y.r_type">' + opts + '</select>'
+      + '<input data-k="asset" aria-label="Asset" data-i18n-attr="aria-label:a11y.r_asset" value="' + esc(p.asset || '') + '" maxlength="20" placeholder="ETH" autocomplete="off">'
+      + '<input data-k="chain" aria-label="Protocol or chain" data-i18n-attr="aria-label:a11y.r_chain" value="' + esc(p.chain || '') + '" maxlength="20" placeholder="Aave / chain" autocomplete="off">'
+      + '<select data-k="status" aria-label="Position status" data-i18n-attr="aria-label:a11y.r_status">' + st('', T('esc.st_normal', 'Normal'))
       + st('nearLiq', '⚡ ' + T('esc.st_nearliq', 'Near liquidation'))
       + st('locked', '🔒 ' + T('esc.st_locked', 'Locked / vesting')) + '</select>'
       + '<button class="rm" data-rm="' + i + '" type="button" aria-label="Remove" data-i18n-attr="aria-label:a11y.remove">×</button></div>';
   }
-  function renderRows() { $('rows').innerHTML = positions.map(rowHtml).join(''); }
+  function renderRows() {
+    $('rows').innerHTML = positions.map(rowHtml).join('');
+    // i18n has no MutationObserver, so markup built after boot keeps whatever
+    // its literal attributes say. Every row's aria-labels — and the Remove
+    // buttons, which have carried data-i18n-attr since they were written —
+    // stayed English in all fourteen locales until this call existed.
+    if (window.RCI18N) RCI18N.apply($('rows'));
+  }
 
   function toModel() {
     return positions.map(function (p) {

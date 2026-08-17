@@ -17,10 +17,19 @@ const landing = require('node:fs').readFileSync(
   require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
 const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
 
-test('the hero explore row links the Arena', () => {
-  const hero = landing.slice(landing.indexOf('class="hero"'), landing.indexOf('</header>'));
-  assert.match(hero, /href="\/arena"/);
-  assert.match(hero, /data-i18n="hero\.explore_arena"/);
+test('the explore row links the Arena', () => {
+  // The row MOVED out of the hero (2026-08-17). Seven competing actions above
+  // the fold was the top finding of an external review and the operator's
+  // stated priority 1, so the five feature pills now live in #howItWorks,
+  // where a menu is what the reader wants.
+  //
+  // What this test protects is REACHABILITY — that the Arena is linked from
+  // the landing page at all — not the row's address. Pinning the hero pinned
+  // a layout decision as though it were the requirement.
+  const row = index.slice(index.indexOf('class="how-explore"'));
+  const cut = row.slice(0, row.indexOf('</section>'));
+  assert.match(cut, /href="\/arena"/);
+  assert.match(cut, /data-i18n="hero\.explore_arena"/);
 });
 
 test('an Arena section band sells the mechanism and links the tool', () => {
