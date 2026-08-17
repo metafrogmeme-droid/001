@@ -25,6 +25,35 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _leveraged_return_pct(entry: float, last: float, direction: str,
+                          leverage: float) -> float:
+    """Return on MARGIN (ROE) — the partner of `_leveraged_pnl_usd` below.
+
+    The dollar got a helper on 2026-07-xx precisely so "a leveraged % can never
+    sit beside an unleveraged $ again". The dollar was then fixed at every site
+    and the PERCENT was fixed at one, so on 2026-08-17 the same live position
+    rendered -2.56% on /open_positions and -0.13% a minute later on the
+    position-detail card, with an identical $-0.64 beside both:
+
+        raw price move      -0.13%
+        x20 leverage (ROE)  -2.55%
+        gross PnL           $-0.64   <- shown against BOTH percentages
+
+    Read in sequence that is a 2.4-point recovery that never happened. Both
+    numbers were individually correct; neither said which question it answered.
+
+    This exists so the two helpers sit next to each other and a fourth call
+    site cannot pick one basis for the dollar and the other for the percent.
+    Same guard clauses and same leverage convention as the dollar helper, so
+    they cannot disagree about an unusable input either.
+    """
+    if entry <= 0 or last <= 0:
+        return 0.0
+    raw = ((last - entry) / entry) if direction == "LONG" else ((entry - last) / entry)
+    lev = leverage if (leverage and leverage > 0) else 1.0
+    return raw * lev * 100.0
+
+
 def _leveraged_pnl_usd(entry: float, last: float, direction: str,
                        cost_usd: float, leverage: float) -> float:
     """Real unrealized USD P&L for a leveraged futures position.
@@ -12494,6 +12523,21 @@ class TelegramHandler:
                 # Real leveraged dollar P&L (was _qty×price-delta, which understated
                 # it by the leverage multiple for a margin-based quantity).
                 pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, sz, leverage)
+                # ...and put the PERCENT on the same basis as that dollar.
+                #
+                # It was computed ~50 lines above as a raw price move, because
+                # that is the only place it could be: leverage is not resolved
+                # until just now. So this card rendered "-0.13% ($-0.64)" — an
+                # unleveraged percent beside a leveraged dollar — while
+                # /open_positions rendered "-2.56% ($-0.64)" for the same
+                # position a minute earlier. Read in sequence, a 2.4-point
+                # recovery that never happened.
+                #
+                # Rescaled rather than recomputed so the raw move above keeps
+                # driving sl_dist/tp_dist/R:R, which are genuinely price-based
+                # and must NOT be multiplied by leverage.
+                pnl_pct = _leveraged_return_pct(_entry, last_px, _dir, leverage)
+                pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
 
                 # Fee calculations
                 comm_pct = CONFIG.risk.commission_pct

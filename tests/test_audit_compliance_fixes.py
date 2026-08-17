@@ -36,18 +36,42 @@ def test_classpf_still_reads_the_live_book():
     assert "closed_positions" in body
 
 
-def test_f15_all_providers_failed_reply_omits_raw_error():
-    # Isolate the "All providers failed" return block.
-    idx = SRC.index("All providers failed")
-    block = SRC[idx:idx + 700]
-    # The user-facing _chat_ret in this block must not interpolate last_error /
-    # str(e) into the reply string.
-    ret_start = block.index("_chat_ret")
-    ret_block = block[ret_start:ret_start + 300]
-    assert "last_error" not in ret_block, "raw provider error must not reach the user reply (F-15)"
-    assert "{error_str" not in ret_block and "str(e)" not in ret_block
-    # A generic, safe message is still returned.
-    assert "temporarily" in ret_block or "trouble thinking" in ret_block
+def test_f15_no_chat_failure_reply_leaks_the_raw_error():
+    """F-15 across BOTH endings of the chat chain.
+
+    This used to anchor on the comment "All providers failed" and check the one
+    return block after it. On 2026-08-17 the chain gained a wall-clock deadline
+    and therefore a SECOND ending — running out of budget is not the same fact
+    as every provider failing — and the old anchor stopped existing, which is
+    how the split was noticed here rather than in production.
+    #
+    Anchoring on a comment was the weakness: it pinned the prose, not the
+    property. Both audit calls are the stable landmarks, and the rule is the
+    same for each — last_error carries a credential-bearing URL or a 4xx body
+    echoing a key, so it goes to the log and never to the user.
+    """
+    for marker in ("All chat LLM providers failed", "Chat deadline hit after"):
+        idx = SRC.index(marker)
+        block = SRC[idx:idx + 900]
+        ret_start = block.index("_chat_ret")
+        ret_block = block[ret_start:]
+        # Stop at the NEXT audit(, or the window runs into the following
+        # ending's log line — which legitimately DOES interpolate last_error,
+        # and the test would fail on correct code. (It did, on the first run.)
+        _next_audit = ret_block.find("audit(")
+        ret_block = ret_block[:_next_audit if _next_audit != -1 else 400]
+        assert "last_error" not in ret_block, (
+            f"raw provider error reaches the user reply after {marker!r} (F-15)")
+        assert "{error_str" not in ret_block and "str(e)" not in ret_block
+    # Each ending still returns its OWN generic, safe message — and they must
+    # not be the same message, because they are not the same fact.
+    all_failed = SRC[SRC.index("All chat LLM providers failed"):][:900]
+    deadline = SRC[SRC.index("Chat deadline hit after"):][:900]
+    assert "temporarily" in all_failed or "trouble thinking" in all_failed
+    assert "stopped waiting" in deadline, (
+        "the deadline ending must name TIME as the cause; reporting providers "
+        "that were never asked as unavailable is a confident negative")
+    assert "unavailable" not in deadline[deadline.index("_chat_ret"):][:400]
 
 
 def test_f15_detail_still_logged_for_operators():
