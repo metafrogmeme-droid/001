@@ -1,38 +1,56 @@
-"""Two messages, same type, same second — and then again every five minutes.
+"""Two messages, same type, same second — and then again every thirty seconds.
 
-Reported from the live Telegram channel on 2026-08-18, with a screenshot of two
-full ANOMALY NOTED cards timestamped 11:57:26, both SPREAD_WIDENING, differing
-only in symbol, each carrying the same four lines of footer.
+FIRST ROUND (2026-08-18, morning). Two full ANOMALY NOTED cards at 11:57:26,
+both SPREAD_WIDENING, differing only in symbol. Two causes that compounded:
+`_check_black_swan` clustered exactly one anomaly type, and `DEDUP_COOLDOWN`
+was 300s while anomalies are STANDING CONDITIONS, not events. Fixed by
+clustering every type and adding BLACK_SWAN_REPEAT.
 
-TWO CAUSES, WHICH COMPOUND.
+SECOND ROUND (same day, afternoon). It did not work, and the reason is the
+part worth keeping:
 
-  VOLUME.  `_check_black_swan` clusters exactly one anomaly type —
-           CORRELATION_BREAKDOWN, grouped by peer — and its own comment states
-           the principle: "One market event, one page". Every other type fell
-           through to `singles` and paged once per symbol. SPREAD_WIDENING is
-           the worst possible omission: a liquidity event widens spreads on
-           EVERYTHING at once, so it is simultaneously the type most likely to
-           arrive in bulk and the common one with no clustering at all. The
-           control existed and did not cover the case that hurts — the same
-           shape as `guard_lint`'s own blind spot, one subsystem over.
+  THE KEY CHURNED.   Mild clusters were keyed
+                     `bs_CLUSTER_{type}_{count}_{names}` — deliberately, so a
+                     new symbol joining an event would re-page. In a real
+                     market-wide event the membership changes on EVERY 30-second
+                     pass, so the key changed every pass, every cluster read as
+                     a first sighting, and the 30-minute window never applied to
+                     anything. Live: `PRICE_ACCELERATION x 31` at 16:27:47 and
+                     `x 32` at 16:28:20. A suppression key must be stable across
+                     exactly the churn its event produces, and that key was
+                     built out of the churn.
 
-  REPEAT.  `DEDUP_COOLDOWN` is 300s and anomalies are STANDING CONDITIONS, not
-           events. A spread that stays wide for an hour re-pages twelve times
-           per symbol, saying nothing new. An operator told the same thing
-           every five minutes stops reading, and the next alert — the one that
-           IS new — arrives into that habit.
+  SEVERE WAS EXEMPT. `if tier >= 2: return True` — on the reasoning that the
+                     one page which must always arrive must never be held. It
+                     does always arrive, and then arrives again on every
+                     cooldown for as long as the condition lasts. A spread stuck
+                     at 12.9x baseline re-paged beside a second at 7.9x,
+                     thirty-three seconds apart. Exempting the loudest alert
+                     from noise control is how it stops being read.
 
-WHAT MUST NOT BE LOST TO EITHER FIX. A severe anomaly is never clustered and
-never suppressed: burying a 0.9 beside a 0.2, or holding it for thirty minutes,
-would trade noise for the one failure that actually costs money. Escalation
-breaks through immediately. And the filter fails OPEN — anything it cannot
-classify is sent, because a suppression filter that silences on its own
-confusion is invisible from the outside.
+  THE COUNT LIED.    `x 31` came from a list holding OPEN/USDT:USDT eight times
+                     and INJ/USDT five. `active_alerts` holds one row per
+                     DETECTION, and the message presented that as a count of
+                     symbols — overstating the breadth of the event on the one
+                     line an operator actually reads.
+
+Now: every advisory anomaly, of every type, becomes ONE digest keyed on nothing
+that churns. Severe still pages on its own card, immediately, deduplicated by
+CONDITION (the hub for a correlation breakdown, the symbol otherwise) and
+repeating at half the mild interval rather than never being held at all.
+
+WHAT MUST NOT BE LOST. A severe anomaly is never folded into the digest, never
+waits on a first sighting, and never waits on an escalation into its tier. The
+digest states that severe alerts arrive separately, because a quiet channel
+must not become a claim that the market is calm. And the filter fails OPEN —
+anything it cannot classify is sent, because a suppression filter that silences
+on its own confusion is invisible from the outside.
 """
 
 from __future__ import annotations
 
 import time
+import types
 
 import pytest
 
@@ -93,13 +111,48 @@ def test_escalation_breaks_through_immediately():
         "an anomaly that got worse was held back by the suppression window")
 
 
-def test_a_severe_anomaly_is_never_suppressed():
+def test_a_severe_anomaly_arrives_at_once_and_then_stops_repeating():
+    """"NEVER SUPPRESSED" MEANT "METRONOME", AND THAT WAS THIS TEST'S FAULT.
+
+    It looped five times demanding True each time, and the code obliged with an
+    unconditional `if tier >= 2: return True`. In production that is a severe
+    alert re-sent on every DEDUP_COOLDOWN for as long as the condition lasts —
+    observed as a spread stuck at 12.9x baseline paging beside a second at
+    7.9x, thirty-three seconds apart, both saying what they had already said.
+
+    What must be unconditional is the FIRST page and any escalation into this
+    tier. The ninth repeat of a standing condition is not news at any severity,
+    and an operator who learns to skim severe alerts is the failure the
+    exemption was written to prevent.
+    """
     m = _mon()
     key = "bs_FLASH_CRASH_BTC/USDT"
+    assert m._bs_is_news(_bs(key, tier=2)) is True, (
+        "a severe anomaly did not page on first sight — the one page that must "
+        "always arrive")
     for _ in range(5):
-        assert m._bs_is_news(_bs(key, tier=2)) is True, (
-            "a CRITICAL anomaly was suppressed — the one page that must always "
-            "arrive")
+        assert m._bs_is_news(_bs(key, tier=2)) is False, (
+            "a severe anomaly is re-paging unchanged, every 30-second pass")
+    m._bs_last[key] = (time.time() - ProactiveMonitor.BLACK_SWAN_SEVERE_REPEAT - 1, 2)
+    assert m._bs_is_news(_bs(key, tier=2)) is True, (
+        "a severe condition still standing after its window went silent")
+
+
+def test_severe_waits_less_than_mild():
+    """Stated as a relation, so tuning either cannot invert the priority."""
+    assert (ProactiveMonitor.BLACK_SWAN_SEVERE_REPEAT
+            < ProactiveMonitor.BLACK_SWAN_REPEAT)
+    assert ProactiveMonitor.BLACK_SWAN_SEVERE_REPEAT > ProactiveMonitor.CHECK_INTERVAL
+
+
+def test_escalation_into_severe_ignores_the_window():
+    m = _mon()
+    key = "bs_SPREAD_WIDENING_GME/USDT:USDT"
+    assert m._bs_is_news(_bs(key, tier=1)) is True
+    assert m._bs_is_news(_bs(key, tier=1)) is False
+    assert m._bs_is_news(_bs(key, tier=2)) is True, (
+        "an anomaly that crossed into severe was held by the window it entered "
+        "under — the escalation is the news")
 
 
 def test_the_filter_fails_open():
@@ -124,39 +177,165 @@ def test_other_alert_types_are_untouched():
 
 # ── the clustering covers the type that actually floods ──────────────────────
 
-def test_every_anomaly_type_can_cluster_not_just_correlation():
-    """The source check, because the clustering lives inside a method that
-    needs a live engine and a populated black_swan detector to run.
+def _an(symbol, kind, severity, *, desc="", action="MONITOR"):
+    """One row of `black_swan.active_alerts`, shaped like the real detector's."""
+    return types.SimpleNamespace(
+        symbol=symbol, anomaly_type=kind, severity=severity,
+        description=desc or f"{symbol} {kind.lower()} fired",
+        recommended_action=action)
 
-    Pinned as a PROPERTY of the code rather than a spelling: the grouping must
-    key on the anomaly type for the general case, not name one type.
+
+def _engine(rows):
+    return types.SimpleNamespace(
+        black_swan=types.SimpleNamespace(active_alerts=list(rows)))
+
+
+# The burst reported from the live channel at 16:27:47 UTC, trimmed but keeping
+# what mattered: many rows per symbol, two mild types, two severe singles.
+LIVE_BURST = [
+    _an("OPEN/USDT:USDT", "PRICE_ACCELERATION", 0.71, action="REDUCE_POSITION_SIZE"),
+    _an("OPEN/USDT:USDT", "PRICE_ACCELERATION", 0.44),
+    _an("OPEN/USDT:USDT", "PRICE_ACCELERATION", 0.31),
+    _an("BTC/USDT", "PRICE_ACCELERATION", 0.35),
+    _an("BTC/USDT", "PRICE_ACCELERATION", 0.33),
+    _an("INJ/USDT", "PRICE_ACCELERATION", 0.30),
+    _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.66),
+    _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.51),
+    _an("TAO/USDT", "SPREAD_WIDENING", 0.22),
+    _an("TAO/USDT", "CORRELATION_BREAKDOWN", 0.46, action="REDUCE_POSITION_SIZE"),
+    _an("BBSTOCK/USDT:USDT", "SPREAD_WIDENING", 1.00, action="HALT_NEW_TRADES"),
+    _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98, action="HALT_NEW_TRADES"),
+]
+
+
+# ── the live failure, reproduced ─────────────────────────────────────────────
+
+def test_a_standing_event_pages_once_not_once_every_thirty_seconds():
+    """THE REPORTED DEFECT, DRIVEN END TO END.
+
+    The previous fix clustered mild anomalies per type and keyed them
+    `bs_CLUSTER_{type}_{count}_{names}` — deliberately, so that a new symbol
+    joining an event would re-page. During a real market-wide event the
+    membership changes on EVERY 30-second pass, so the key changed every pass,
+    every cluster read as a first sighting, and the 30-minute window never
+    applied to anything. Live: `PRICE_ACCELERATION x 31` at 16:27:47 and
+    `x 32` at 16:28:20.
+
+    A suppression key must be stable across exactly the churn the event
+    produces. This drives three passes with the membership shifting the way it
+    actually shifted and requires silence after the first.
     """
-    from tests.source_scan import code_only
-    import pathlib
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    first = m._check_black_swan()
+    assert first, "the first pass said nothing at all"
 
-    src = code_only(pathlib.Path("bot/core/proactive_monitor.py").read_text(encoding="utf-8"))
-    body = src[src.index("def _check_black_swan"):src.index("def _severity_tier")]
-    assert "by_kind" in body, (
-        "anomalies are no longer grouped by type — every non-correlation type "
-        "is back to one message per symbol")
-    assert "keep_single" in body
-    # and severe ones must be pulled OUT of the grouping
-    assert "_HALT_SEVERITY" in body and "keep_single.append" in body, (
-        "severe anomalies are being clustered; a 0.9 must never be digested "
-        "beside a 0.2")
+    # pass 2: one symbol joins, one leaves — the exact churn that defeated the
+    # old key, and nothing an operator needs told again.
+    m.engine = _engine(LIVE_BURST[1:] + [_an("XLM/USDT", "PRICE_ACCELERATION", 0.29)])
+    assert m._check_black_swan() == [], (
+        "the same standing event re-paged 30 seconds later because its dedup "
+        "key carries the membership")
+    # pass 3: churn again
+    m.engine = _engine(LIVE_BURST[2:] + [_an("ACE/USDT", "SPREAD_WIDENING", 0.24)])
+    assert m._check_black_swan() == []
 
 
-def test_the_cluster_names_every_symbol_it_folded_in():
-    """Clustering must not lose information — the operator has to be able to
-    see WHICH symbols, or the digest is strictly worse than the flood."""
-    from tests.source_scan import code_only
-    import pathlib
+def test_one_advisory_message_not_one_per_type():
+    """Two mild types and a third with a single member used to be three
+    messages. The operator's complaint was volume, and a per-type cluster is
+    still per-type volume."""
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    mild = [a for a in m._check_black_swan() if a.severity != "CRITICAL"]
+    assert len(mild) == 1, (
+        f"{len(mild)} advisory messages for one market event; expected a digest")
+    assert mild[0].dedup_key == "bs_DIGEST"
 
-    src = code_only(pathlib.Path("bot/core/proactive_monitor.py").read_text(encoding="utf-8"))
-    body = src[src.index("by_kind: dict = {}"):src.index("for alert_obj in keep_single")]
-    assert "names = " in body and "sorted(" in body, "the cluster does not list its symbols"
-    assert "Worst severity" in body, "the cluster hides how bad the worst member was"
-    assert "len(group)" in body, "the cluster does not say how many it folded in"
+
+def test_the_digest_counts_symbols_not_detector_rows():
+    """`x 31` came from a list holding OPEN/USDT:USDT eight times and INJ/USDT
+    five. Presenting a count of DETECTIONS as a count of SYMBOLS overstates the
+    breadth of the event on the one line an operator reads."""
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    body = [a for a in m._check_black_swan() if a.severity != "CRITICAL"][0].body
+    # PRICE_ACCELERATION has 6 rows over 3 distinct symbols.
+    assert "PRICE_ACCELERATION</code> — 3 symbols" in body, body
+    # and no symbol is listed twice
+    line = [ln for ln in body.split("\n") if "OPEN/USDT:USDT" in ln][0]
+    assert line.count("OPEN/USDT:USDT") == 1, f"duplicated symbols: {line}"
+
+
+def test_the_digest_reports_the_worst_of_each_type():
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    body = [a for a in m._check_black_swan() if a.severity != "CRITICAL"][0].body
+    assert "<code>0.71</code> (OPEN/USDT:USDT)" in body
+    assert "<code>0.66</code> (GME/USDT:USDT)" in body
+
+
+# ── what the quiet must not cost ─────────────────────────────────────────────
+
+def test_severe_is_never_folded_into_the_digest():
+    """Burying a 1.00 beside a 0.22 is how the one that mattered gets skimmed
+    past. Both severe rows must arrive as their own message."""
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    out = m._check_black_swan()
+    crit = [a for a in out if a.severity == "CRITICAL"]
+    assert len(crit) == 2, f"expected both severe singles, got {len(crit)}"
+    keys = sorted(a.dedup_key for a in crit)
+    assert keys == ["bs_SPREAD_WIDENING_BBSTOCK/USDT:USDT",
+                    "bs_SPREAD_WIDENING_GME/USDT:USDT"], keys
+    digest = [a for a in out if a.severity != "CRITICAL"][0]
+    assert "1.00" not in digest.body and "0.98" not in digest.body, (
+        "a severe severity leaked into the advisory digest")
+
+
+def test_a_severe_symbol_pages_once_per_pass_not_once_per_detection():
+    """`active_alerts` holds one row per DETECTION. GME appears twice at severe
+    severity in the burst below; that is one condition, not two pages."""
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine([
+        _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98, action="HALT_NEW_TRADES"),
+        _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.91, action="HALT_NEW_TRADES"),
+    ])
+    crit = [a for a in m._check_black_swan() if a.severity == "CRITICAL"]
+    assert len(crit) == 1, "one condition paged twice in a single pass"
+    assert "0.98" in crit[0].body, "the milder detection won — report the worst"
+
+
+def test_the_digest_says_what_the_quiet_means():
+    """A collected digest could be read as "the market is calm". It must state
+    that severe alerts still arrive separately, or the silence becomes a claim
+    the code cannot support."""
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    body = [a for a in m._check_black_swan() if a.severity != "CRITICAL"][0].body
+    assert "0.80+" in body and "separately" in body, body
+    assert "not a claim that the market is calm" in body
+
+
+def test_no_anomalies_means_no_message():
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine([])
+    assert m._check_black_swan() == []
+    m.engine = types.SimpleNamespace()          # no detector at all
+    assert m._check_black_swan() == []
+
+
+def test_a_broken_detector_cannot_take_the_alert_pipeline_down():
+    """`_check_black_swan` is one line in `_check_all`. An exception here used
+    to be swallowed at debug level by the loop's caller, so a crash in the
+    anomaly path would have removed every other alert with it."""
+    class _Exploding:
+        @property
+        def active_alerts(self):
+            raise RuntimeError("detector is confused")
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = types.SimpleNamespace(black_swan=_Exploding())
+    assert m._check_black_swan() == []
 
 
 def test_the_repeat_window_is_longer_than_the_check_interval():
@@ -226,3 +405,26 @@ def test_an_unclassifiable_alert_is_sent_not_eaten():
         def body(self):
             raise RuntimeError("unreadable")
     assert _mon()._bs_is_news(_Exploding()) is True
+
+
+def test_the_card_renders_once_not_sixteen_times():
+    """FOUND BY RENDERING IT, NOT BY READING IT.
+
+    The body was built as
+
+        "\U0001f6a8 <b>ANOMALY DETECTED</b>\n"
+        "─" * 16 + "\n"
+
+    and Python concatenates the adjacent literals BEFORE applying `*`, so the
+    separator's repeat count was applied to the header too: sixteen copies of
+    "ANOMALY DETECTED" above every severe card. Every assertion in this file
+    passed — they all check for substrings, and sixteen of a thing contains one
+    of it. Only printing the message showed it.
+    """
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine(LIVE_BURST)
+    for a in m._check_black_swan():
+        assert a.body.count("ANOMALY") == 1, (
+            f"the header repeats {a.body.count('ANOMALY')} times in {a.title!r}")
+        assert a.body.count("─" * 16) == 2, (
+            "a card lost or multiplied its separator rules")

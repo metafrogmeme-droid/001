@@ -105,6 +105,21 @@ class ProactiveMonitor:
     # that is both persisting AND unchanged waits.
     BLACK_SWAN_REPEAT = 1800  # 30 minutes for an unchanged, ongoing anomaly
 
+    # SEVERE USED TO BE EXEMPT, AND "EXEMPT" TURNED OUT TO MEAN "METRONOME".
+    # `_bs_is_news` returned True unconditionally at tier 2, on the reasoning
+    # that the one page which must always arrive must never be held. It does
+    # always arrive — and then arrives again on every DEDUP_COOLDOWN for as
+    # long as the condition lasts. Observed live: a spread stuck at 12.9x
+    # baseline re-paging beside a second one at 7.9x, thirty-three seconds
+    # apart, saying exactly what the previous pair said.
+    #
+    # A standing condition is not news the ninth time either, whatever its
+    # severity, and the operator who stops reading a severe alert is the exact
+    # failure the exemption was meant to prevent. The FIRST sighting is still
+    # immediate and unconditional, and so is any escalation into this tier;
+    # only the unchanged repeat waits, and it waits half as long as a mild one.
+    BLACK_SWAN_SEVERE_REPEAT = 900  # 15 minutes for an unchanged severe anomaly
+
     def __init__(self, engine) -> None:
         self.engine = engine
         self._enabled_chats: Set[str] = set()   # Chat IDs with /watch on
@@ -1826,159 +1841,163 @@ class ProactiveMonitor:
         same 0.8 the detector itself uses to decide `halt_recommended` — so the
         alert's colour and the detector's own escalation cannot disagree.
         """
-        alerts = []
+        alerts: list[Alert] = []
         try:
             from bot.core.black_swan import _HALT_SEVERITY
-            if hasattr(self.engine, 'black_swan'):
-                raw_alerts = list(self.engine.black_swan.active_alerts)
-                # One market event, one page: when several correlation
-                # breakdowns share the same PEER (one symbol decorrelating
-                # from many), collapse them into a single alert naming the
-                # hub — the old behaviour paged once per counterpart within
-                # a minute for what was one idiosyncratic move.
-                by_peer: dict = {}
-                singles = []
-                for a in raw_alerts:
-                    kind_ = getattr(a.anomaly_type, "value", a.anomaly_type)
-                    if kind_ == "CORRELATION_BREAKDOWN" and getattr(a, "peer", None):
-                        by_peer.setdefault(a.peer, []).append(a)
-                    else:
-                        singles.append(a)
-                for peer, group in by_peer.items():
-                    if len(group) < 2:
-                        singles.extend(group)
-                        continue
-                    top = max(group, key=lambda a: float(a.severity))
-                    sev_ = float(top.severity)
-                    severe_ = sev_ >= _HALT_SEVERITY
-                    names = ", ".join(sorted(a.symbol for a in group))
-                    ts_ = datetime.now(UTC).strftime("%H:%M:%S UTC")
-                    head_icon = "\U0001f6a8" if severe_ else "\U0001f440"
-                    head_word = "DETECTED" if severe_ else "NOTED"
-                    sev_icon_ = ("\U0001f534" if severe_
-                                 else "\U0001f7e0" if sev_ >= 0.3 else "\U0001f7e1")
-                    alerts.append(Alert(
-                        alert_type="BLACK_SWAN",
-                        severity="CRITICAL" if severe_ else "WARNING",
-                        title=f"Anomaly cluster: {peer} decorrelated",
-                        body=(
-                            f"{head_icon} <b>ANOMALY {head_word}</b> (clustered)\n"
-                            "────────────────\n"
-                            f"- Type: <code>CORRELATION_BREAKDOWN</code> \u00d7 {len(group)}\n"
-                            f"- Hub: <code>{peer}</code> decorrelated from <code>{names}</code>\n"
-                            f"- Worst severity: {sev_icon_} "
-                            f"<code>{sev_:.2f}</code> (advises {top.recommended_action})\n"
-                            f"- Detected At: <code>{ts_}</code>\n\n"
-                            f"<i>{top.description}</i>\n"
-                            "────────────────\n"
-                            "\u26a0\ufe0f One market event, clustered from "
-                            f"{len(group)} pairwise alerts. This is an OBSERVATION, not an "
-                            "action \u2014 use /halt to stop trading.\n"
-                            f"\U0001f449 /status — check engine state\n"
-                            f"\U0001f449 Say \"positions\" to review exposure"
-                        ),
-                        dedup_key=f"bs_CORR_HUB_{peer}",
-                    ))
-                # THE SAME IDEA AS THE PEER CLUSTER ABOVE, APPLIED TO THE SET
-                # THAT ACTUALLY FLOODS. That cluster covers exactly one type,
-                # CORRELATION_BREAKDOWN; everything else fell through here and
-                # paged once per symbol. SPREAD_WIDENING is the worst case for
-                # that — a liquidity event widens spreads on EVERYTHING at once,
-                # so it is both the most likely type to arrive in bulk and the
-                # only common one with no clustering at all. Observed live:
-                # two full messages, same type, same second, ~4 lines of
-                # identical footer each.
-                #
-                # A SEVERE ALERT IS NEVER CLUSTERED. Burying a 0.9 in a digest
-                # beside a 0.2 is how the one that mattered gets skimmed past,
-                # and the alarm's credibility is the asset.
-                by_kind: dict = {}
-                keep_single = []
-                for a in singles:
-                    k_ = getattr(a.anomaly_type, "value", a.anomaly_type)
-                    if float(a.severity) >= _HALT_SEVERITY:
-                        keep_single.append(a)
-                    else:
-                        by_kind.setdefault(k_, []).append(a)
-                for kind_, group in by_kind.items():
-                    if len(group) < 2:
-                        keep_single.extend(group)
-                        continue
-                    top = max(group, key=lambda a: float(a.severity))
-                    sev_ = float(top.severity)
-                    names = ", ".join(sorted(str(a.symbol) for a in group))
-                    ts_ = datetime.now(UTC).strftime("%H:%M:%S UTC")
-                    sev_icon_ = "\U0001f7e0" if sev_ >= 0.3 else "\U0001f7e1"
-                    alerts.append(Alert(
-                        alert_type="BLACK_SWAN",
-                        severity="WARNING",
-                        title=f"Anomaly cluster: {kind_} x{len(group)}",
-                        body=(
-                            f"\U0001f440 <b>ANOMALY NOTED</b> (clustered)\n"
-                            "────────────────\n"
-                            f"- Type: <code>{kind_}</code> \u00d7 {len(group)}\n"
-                            f"- Symbols: <code>{names}</code>\n"
-                            f"- Worst severity: {sev_icon_} <code>{sev_:.2f}</code>"
-                            f" (advises {getattr(top, 'recommended_action', 'MONITOR')})\n"
-                            f"- Detected At: <code>{ts_}</code>\n\n"
-                            f"<i>{top.description}</i>\n"
-                            "────────────────\n"
-                            "\u26a0\ufe0f This is an OBSERVATION, not an action. The engine "
-                            "does NOT auto-halt on anomalies \u2014 use /halt to stop trading.\n"
-                            f"\U0001f449 /status — check engine state"
-                        ),
-                        # Keyed on the type and the MEMBERSHIP, so the same set
-                        # staying widened does not re-page, while a new symbol
-                        # joining the event does.
-                        dedup_key=f"bs_CLUSTER_{kind_}_{len(group)}_{names}",
-                    ))
-                for alert_obj in keep_single:
-                    # `.value`, not the enum. AnomalyType is a `str, Enum`, and
-                    # Python 3.11 formats those as "AnomalyType.PRICE_ACCELERATION"
-                    # — which went into the dedup key AND into the Telegram
-                    # message body. Another artefact of a path that had never run.
-                    kind = getattr(alert_obj.anomaly_type, "value", alert_obj.anomaly_type)
-                    key = f"bs_{kind}_{alert_obj.symbol}"
-                    severe = float(alert_obj.severity) >= _HALT_SEVERITY
-                    sev = "CRITICAL" if severe else "WARNING"
-                    # Three visual tiers, so a 0.03 observation never wears the
-                    # same siren as a 1.00 — the alarm's credibility is the asset.
-                    sev_icon = ("\U0001f534" if severe
-                                else "\U0001f7e0" if float(alert_obj.severity) >= 0.3
-                                else "\U0001f7e1")
-                    ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
-                    head_icon = "\U0001f6a8" if severe else "\U0001f440"
-                    head_word = "DETECTED" if severe else "NOTED"
-                    alerts.append(Alert(
-                        alert_type="BLACK_SWAN",
-                        severity=sev,
-                        title=f"Anomaly: {kind}",
-                        body=(
-                            f"{head_icon} <b>ANOMALY {head_word}</b>\n"
-                            "────────────────\n"
-                            f"- Type: <code>{kind}</code>\n"
-                            f"- Symbol: <code>{alert_obj.symbol}</code>\n"
-                            f"- Severity: {sev_icon} <code>{float(alert_obj.severity):.2f}</code>"
-                            f" (advises {getattr(alert_obj, 'recommended_action', 'MONITOR')})\n"
-                            f"- Detected At: <code>{ts}</code>\n\n"
-                            f"<i>{alert_obj.description}</i>\n"
-                            "────────────────\n"
-                            # WAS: "Engine may auto-halt if severity is SEVERE."
-                            # It does not, and never did — nothing reads
-                            # `halt_recommended`. Telling an operator the bot may
-                            # protect itself when it will not is the worst form of
-                            # this defect class: they stand down waiting for an
-                            # action nobody implemented.
-                            "\u26a0\ufe0f This is an OBSERVATION, not an action. The engine "
-                            "does NOT auto-halt on anomalies \u2014 use /halt to stop trading.\n"
-                            f"\U0001f449 /status — check engine state\n"
-                            f"\U0001f449 Say \"positions\" to review exposure"
-                        ),
-                        dedup_key=key,
-                    ))
+            if not hasattr(self.engine, "black_swan"):
+                return []
+            raw_alerts = list(self.engine.black_swan.active_alerts)
+            if not raw_alerts:
+                return []
+
+            # SPLIT ON THE ONLY LINE THAT CHANGES WHAT AN OPERATOR SHOULD DO.
+            # At/above _HALT_SEVERITY the detector advises HALT_NEW_TRADES and
+            # the alert is worth interrupting someone for. Below it, every
+            # anomaly says MONITOR or REDUCE_POSITION_SIZE — advisory, and the
+            # engine acts on none of it.
+            severe, mild = [], []
+            for a in raw_alerts:
+                (severe if float(a.severity) >= _HALT_SEVERITY else mild).append(a)
+
+            # ── severe: one page per condition, immediately ──────────────
+            # De-duplicated by symbol+type first. `active_alerts` holds one
+            # row per DETECTION, not per condition, so the same symbol appears
+            # several times in one pass and would otherwise page several times.
+            # ONE CONDITION, ONE PAGE — and for a correlation breakdown the
+            # condition is the HUB, not the symbol. A single asset decorrelating
+            # from five others is five rows here and one market event; keying
+            # those on the peer keeps the severe card prominent (never digested)
+            # while still refusing to send it five times.
+            groups: dict = {}
+            for a in severe:
+                kind = getattr(a.anomaly_type, "value", a.anomaly_type)
+                peer = getattr(a, "peer", None)
+                key = (f"bs_CORR_HUB_{peer}"
+                       if kind == "CORRELATION_BREAKDOWN" and peer
+                       else f"bs_{kind}_{a.symbol}")
+                groups.setdefault(key, []).append(a)
+            for key, group in sorted(groups.items()):
+                alert_obj = max(group, key=lambda a: float(a.severity))
+                kind = getattr(alert_obj.anomaly_type, "value", alert_obj.anomaly_type)
+                syms = sorted({str(a.symbol) for a in group})
+                clustered = (
+                    f"- Clustered: <code>{len(syms)}</code> symbols on one event"
+                    f" — <code>{', '.join(syms)}</code>\n" if len(syms) > 1 else "")
+                ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+                alerts.append(Alert(
+                    alert_type="BLACK_SWAN",
+                    severity="CRITICAL",
+                    title=f"Anomaly: {kind}",
+                    body=(
+                        # The `+` is load-bearing. Without it the adjacent
+                        # literals concatenate FIRST and `* 16` repeats the
+                        # header sixteen times \u2014 rendered, caught, pinned.
+                        "\U0001f6a8 <b>ANOMALY DETECTED</b>\n"
+                        + "\u2500" * 16 + "\n"
+                        f"- Type: <code>{kind}</code>\n"
+                        f"- Symbol: <code>{alert_obj.symbol}</code>\n"
+                        + clustered
+                        + f"- Severity: \U0001f534 <code>{float(alert_obj.severity):.2f}</code>"
+                        f" (advises {getattr(alert_obj, 'recommended_action', 'MONITOR')})\n"
+                        f"- Detected At: <code>{ts}</code>\n\n"
+                        f"<i>{alert_obj.description}</i>\n"
+                        + "\u2500" * 16 + "\n"
+                        # WAS: "Engine may auto-halt if severity is SEVERE."
+                        # It does not, and never did — nothing reads
+                        # `halt_recommended`. Telling an operator the bot may
+                        # protect itself when it will not is the worst form of
+                        # this defect class: they stand down waiting for an
+                        # action nobody implemented.
+                        "\u26a0\ufe0f This is an OBSERVATION, not an action. The engine "
+                        "does NOT auto-halt on anomalies \u2014 use /halt to stop trading.\n"
+                        "\U0001f449 /status — check engine state\n"
+                        "\U0001f449 Say \"positions\" to review exposure"
+                    ),
+                    dedup_key=key,
+                ))
+
+            # ── everything else: ONE digest, not one message per type ────
+            #
+            # WHAT WAS HERE BEFORE, AND WHY IT FAILED IN PRODUCTION. Mild
+            # anomalies were clustered per type and keyed
+            # `bs_CLUSTER_{type}_{count}_{names}` — deliberately, so a new
+            # symbol joining an event would re-page. During a market-wide
+            # liquidity event the membership changes on EVERY 30-second pass,
+            # so the key changed every pass, every cluster read as a first
+            # sighting, and BLACK_SWAN_REPEAT never applied to anything.
+            # Observed live: `PRICE_ACCELERATION x 31` at 16:27:47 and
+            # `x 32` at 16:28:20, thirty-three seconds apart, plus a separate
+            # SPREAD_WIDENING cluster and two severe singles in the same burst.
+            #
+            # A suppression key must be stable across exactly the churn the
+            # event produces, or it suppresses nothing. Keyed on nothing but
+            # the digest now: one message, then quiet for BLACK_SWAN_REPEAT,
+            # with escalation and every severe alert still breaking through.
+            if mild:
+                alerts.append(self._anomaly_digest(mild))
         except Exception as exc:
             logger.debug("_check_black_swan error: %s", exc)
         return [a for a in alerts if self._bs_is_news(a)]
+
+    @staticmethod
+    def _anomaly_digest(mild: list) -> Alert:
+        """One advisory message for every non-severe anomaly in this pass.
+
+        Per TYPE it reports DISTINCT SYMBOLS, not detector rows. The old
+        cluster printed `x 31` from a list holding `OPEN/USDT:USDT` eight
+        times and `INJ/USDT` five — a count of detections presented as a count
+        of symbols, which overstates the breadth of the event on the one line
+        an operator actually reads.
+        """
+        by_kind: dict = {}
+        for a in mild:
+            kind = getattr(a.anomaly_type, "value", a.anomaly_type)
+            by_kind.setdefault(kind, []).append(a)
+
+        rows, all_syms = [], set()
+        top_overall = max(mild, key=lambda a: float(a.severity))
+        for kind, group in sorted(by_kind.items(),
+                                  key=lambda kv: -max(float(a.severity) for a in kv[1])):
+            syms = sorted({str(a.symbol) for a in group})
+            all_syms.update(syms)
+            top = max(group, key=lambda a: float(a.severity))
+            sev = float(top.severity)
+            icon = "\U0001f7e0" if sev >= 0.3 else "\U0001f7e1"
+            shown = ", ".join(syms[:6]) + (f" +{len(syms) - 6} more" if len(syms) > 6 else "")
+            rows.append(f"- <code>{kind}</code> — {len(syms)} symbol"
+                        f"{'' if len(syms) == 1 else 's'}, worst {icon} "
+                        f"<code>{sev:.2f}</code> ({top.symbol})\n"
+                        f"  <i>{shown}</i>")
+
+        worst_sev = float(top_overall.severity)
+        head_icon = "\U0001f7e0" if worst_sev >= 0.3 else "\U0001f7e1"
+        ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+        return Alert(
+            alert_type="BLACK_SWAN",
+            severity="WARNING",
+            title=f"Anomaly digest: {len(all_syms)} symbols",
+            body=(
+                f"{head_icon} \U0001f440 <b>ANOMALY DIGEST</b>\n"
+                + "\u2500" * 16 + "\n"
+                f"- Symbols affected: <code>{len(all_syms)}</code> across "
+                f"<code>{len(by_kind)}</code> type"
+                f"{'' if len(by_kind) == 1 else 's'}\n"
+                f"- As of: <code>{ts}</code>\n\n"
+                + "\n".join(rows) + "\n\n"
+                f"<i>{top_overall.description}</i>\n"
+                + "\u2500" * 16 + "\n"
+                "\u26a0\ufe0f OBSERVATIONS, not actions — nothing was traded, moved or "
+                "halted. Advisory anomalies are collected into one message; "
+                "anything at severity 0.80+ is sent separately and immediately, "
+                "so a quiet channel is not a claim that the market is calm.\n"
+                "\U0001f449 /status — check engine state"
+            ),
+            # STABLE BY CONSTRUCTION. The membership is deliberately NOT in the
+            # key: it is the thing that churns, and putting it here is what
+            # defeated the previous attempt at this.
+            dedup_key="bs_DIGEST",
+        )
+
 
     @staticmethod
     def _severity_tier(alert: Alert) -> int:
@@ -1997,7 +2016,16 @@ class ProactiveMonitor:
         """Is this anomaly alert saying something the operator does not know?
 
         Returns True the first time a condition appears, whenever it escalates
-        a tier, and once every BLACK_SWAN_REPEAT while it persists unchanged.
+        a tier, and once per repeat window while it persists unchanged —
+        BLACK_SWAN_SEVERE_REPEAT at tier 2, BLACK_SWAN_REPEAT below it.
+
+        THE WINDOW IS ONLY HALF OF THIS. The other half is that the dedup_key
+        must stay the same while the condition does. A key carrying the
+        membership of a cluster changes on every pass of a live market-wide
+        event, so every pass reads as a first sighting and the window never
+        applies — which is exactly what shipped and had to be corrected. This
+        function cannot detect that: to it, a churning key is a stream of
+        genuinely new conditions. Whoever mints the key owns the suppression.
 
         FAIL-OPEN, AND THE FIRST DRAFT ONLY SAID SO.
 
@@ -2023,15 +2051,18 @@ class ProactiveMonitor:
             if alert.alert_type != "BLACK_SWAN" or not alert.dedup_key:
                 return True
             tier = self._severity_tier(alert)
-            if tier >= 2:
-                return True      # severe pages every time, no suppression
+            # Severe waits half as long as mild, and never waits on a first
+            # sighting or on an escalation into this tier — see
+            # BLACK_SWAN_SEVERE_REPEAT for why "never waits at all" was wrong.
+            window = (self.BLACK_SWAN_SEVERE_REPEAT if tier >= 2
+                      else self.BLACK_SWAN_REPEAT)
             seen = getattr(self, "_bs_last", None)
             if seen is None:
                 seen = {}
                 self._bs_last = seen
             prev = seen.get(alert.dedup_key)
             now = time.time()
-            if prev is None or tier > prev[1] or (now - prev[0]) >= self.BLACK_SWAN_REPEAT:
+            if prev is None or tier > prev[1] or (now - prev[0]) >= window:
                 seen[alert.dedup_key] = (now, tier)
                 return True
             return False
