@@ -184,13 +184,27 @@ function sameAfterStorage(key, sealed, live) {
         }
         if (p) {
           var dirCls = p.direction === 'LONG' ? 'up-c' : 'down-c';
+          // KIND v4 CAN SEAL null, AND THAT CHANGED WHAT THESE LINES MEAN.
+          // v1 coerced every unreadable number to 0 before hashing, so a
+          // display could not tell "zero" from "unknown" — there was only ever
+          // zero. v4 seals null when nothing was measured, which is honest in
+          // the payload and becomes a lie the moment a renderer prints it as a
+          // figure: `Math.round((null || 0) * 100) + '%'` is a confident 0%
+          // confidence, and `'' + null` is the word "null" on a receipt.
+          var val = function (x) { return (x === null || x === undefined) ? '—' : String(x); };
+          var pct = function (x) { return (x === null || x === undefined) ? '—' : Math.round(x * 100) + '%'; };
           html += '<div class="kv">'
             + '<span class="k">Call</span><span><b class="' + dirCls + '">' + esc(p.direction) + '</b> ' + esc(p.symbol) + '</span>'
-            + '<span class="k">Entry</span><span>' + p.entry_price + '</span>'
-            + '<span class="k">Stop / Target</span><span>' + p.stop_loss + ' / ' + p.take_profit + '</span>'
-            + '<span class="k">Confidence</span><span>' + Math.round((p.confidence || 0) * 100) + '%</span>'
+            + '<span class="k">Entry</span><span>' + esc(val(p.entry_price)) + '</span>'
+            + '<span class="k">Stop / Target</span><span>' + esc(val(p.stop_loss)) + ' / ' + esc(val(p.take_profit)) + '</span>'
+            + '<span class="k">Confidence</span><span>' + esc(pct(p.confidence)) + '</span>'
             + (p.pattern ? '<span class="k">Pattern</span><span>' + esc(p.pattern) + '</span>' : '')
             + (p.regime ? '<span class="k">Regime</span><span>' + esc(p.regime) + '</span>' : '')
+            // The reasoning, shown ONLY when it is inside the hash. A v1
+            // receipt has none, and printing the row's stored thesis there
+            // would put an unverifiable narrative on a verification page —
+            // the exact thing sealing it was meant to end.
+            + ('thesis' in p && p.thesis ? '<span class="k">Reasoning</span><span>' + esc(p.thesis) + '</span>' : '')
             + '<span class="k">Called at</span><span>' + esc(p.created_at) + '</span>'
             + '<span class="k">Sealed at</span><span>' + esc(d.sealed_at || '') + '</span>'
             + '</div>';
@@ -198,7 +212,14 @@ function sameAfterStorage(key, sealed, live) {
           var drift = [];
           var c = d.current || {};
           [['symbol', 'symbol'], ['direction', 'direction'], ['entry_price', 'entry'],
-           ['stop_loss', 'stop'], ['take_profit', 'target'], ['confidence', 'confidence']].forEach(function (f) {
+           ['stop_loss', 'stop'], ['take_profit', 'target'], ['confidence', 'confidence'],
+           ['thesis', 'reasoning']].forEach(function (f) {
+            // ONLY COMPARE WHAT WAS SEALED. `thesis` entered the payload with
+            // kind v4; every receipt sealed before that has no such key, and a
+            // blind comparison would report `undefined` against the stored
+            // reasoning and accuse every historical call of having been
+            // altered — on the one page whose job is proving nothing was.
+            if (!(f[0] in p)) return;
             var a = p[f[0]], b = c[f[0]];
             var same = (typeof a === 'number' || typeof b === 'number')
               ? Math.abs((Number(a) || 0) - (Number(b) || 0)) < 1e-9 : String(a) === String(b);

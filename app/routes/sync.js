@@ -902,6 +902,10 @@ router.post('/signals', async (req, res) => {
         take_profit: Number(s.take_profit) || 0,
         pattern: s.pattern ? String(s.pattern).slice(0, 64) : null,
         regime: s.regime ? String(s.regime).slice(0, 32) : null,
+        // Sealed as of kind v4: the REASON for the call is now inside the hash,
+        // not merely stored beside it. Same truncation the column takes, so the
+        // sealed string and the stored row can never disagree.
+        thesis: s.thesis != null ? String(s.thesis) : null,
         created_at: s.created_at ? new Date(s.created_at) : new Date(),
       };
       const receipt = sealCall(fixed);
@@ -926,7 +930,7 @@ router.post('/signals', async (req, res) => {
           fixed.stop_loss,
           fixed.take_profit,
           Number(s.rr) || 0,
-          s.thesis != null ? String(s.thesis) : null,
+          fixed.thesis,
           s.status ? String(s.status).slice(0, 16) : 'NEW',
           (s.pnl === null || s.pnl === undefined) ? null : Number(s.pnl),
           fixed.created_at,

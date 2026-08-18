@@ -47,9 +47,82 @@ function sealOf(payload) {
   return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
 }
 
-/** { seal_payload, seal } for a decision-time signal object. */
+/**
+ * A number, or null when there isn't one.
+ *
+ * v1 uses `Number(x) || 0`, which seals an unreadable confidence as a
+ * measured zero — the shape CLAUDE.md's table names, sitting in the canonical
+ * contract itself. It cannot be fixed there: the payload string IS the thing
+ * every historical seal was computed over, so changing a single byte of v1
+ * invalidates every receipt ever issued. A new kind is the only place the fix
+ * can go, and this is it.
+ */
+function numOrNull(x) {
+  if (x === null || x === undefined || x === '') return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * v4 — a signal call WITH ITS REASONING SEALED.
+ *
+ * `v` in this file is a KIND discriminator, not a version counter: 1 is the
+ * original signal call, 2 arena_trade, 3 duel_pick. So this is 4, and the
+ * `kind` field spells it out rather than leaving 1 and 4 to be told apart by
+ * their key sets.
+ *
+ * WHY THE REASONING BELONGS INSIDE THE HASH. `thesis` has been transmitted at
+ * decision time and stored since the stream existed — `website_sync.py` sends
+ * it in the same POST that gets sealed — and it is published by
+ * `lib/public_signal.js`, `routes/signals.js` and `routes/copy.js`. It was
+ * never sealed. In practice it is immutable (the sync's ON DUPLICATE KEY
+ * touches only status, pnl and resolved_at), but nothing PROVED that to a
+ * reader: an edit to the row would have been undetectable, and an unverifiable
+ * narrative published beside an unforgeable receipt is exactly what this
+ * product exists to make impossible. "Every call is hashed before the market
+ * moves" was true of the numbers and not of the reason for them.
+ *
+ * Inline rather than a digest. A digest would need the reasoning served as a
+ * second artifact and hashed by the client to compare — one more moving part,
+ * and one more thing that can go missing. A thesis is a sentence; inline means
+ * the client verifies it VERBATIM with the code it already runs,
+ * `sha256(seal_payload)`, and the verification path stays single. That path is
+ * the product.
+ *
+ * Key insertion order is the canonical contract, as in v1: clients hash the
+ * served string verbatim, so there is no re-canonicalisation to drift.
+ */
+function canonicalSignalPayload(s) {
+  return JSON.stringify({
+    v: 4,
+    kind: 'signal_call',
+    signal_key: String(s.signal_key),
+    symbol: String(s.symbol),
+    direction: String(s.direction),
+    entry_price: numOrNull(s.entry_price),
+    stop_loss: numOrNull(s.stop_loss),
+    take_profit: numOrNull(s.take_profit),
+    confidence: numOrNull(s.confidence),
+    pattern: s.pattern ? String(s.pattern) : null,
+    regime: s.regime ? String(s.regime) : null,
+    // Absent reasoning seals as null, NOT "". An empty string asserts "the
+    // reasoning was empty"; null says "none was recorded". The sync coalesces
+    // a missing reasoning to "" upstream, so without this the difference would
+    // be hashed away permanently.
+    thesis: s.thesis ? String(s.thesis) : null,
+    created_at: new Date(s.created_at || Date.now()).toISOString(),
+  });
+}
+
+/**
+ * { seal_payload, seal } for a decision-time signal object.
+ *
+ * New seals are v4. Old rows keep the exact v1 string they were sealed with —
+ * verification hashes the STORED payload, never a recomputed one, so both
+ * kinds verify through the same client code with no migration and no reseal.
+ */
 function sealCall(s) {
-  const seal_payload = canonicalPayload(s);
+  const seal_payload = canonicalSignalPayload(s);
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
@@ -122,7 +195,7 @@ function sealDuelPick(p) {
 }
 
 module.exports = {
-  canonicalPayload, sealOf, sealCall,
+  canonicalPayload, canonicalSignalPayload, numOrNull, sealOf, sealCall,
   canonicalArenaPayload, sealArenaTrade, newTradeKey,
   canonicalDuelPayload, sealDuelPick,
 };

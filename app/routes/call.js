@@ -81,7 +81,7 @@ async function lookupCall(key) {
       } };
     }
     const [rows] = await pool.execute(
-      'SELECT signal_key, symbol, direction, confidence, pattern, regime, entry_price, stop_loss, take_profit, status, pnl, created_at, resolved_at, seal, seal_payload, sealed_at FROM signals WHERE signal_key = ?',
+      'SELECT signal_key, symbol, direction, confidence, pattern, regime, entry_price, stop_loss, take_profit, thesis, status, pnl, created_at, resolved_at, seal, seal_payload, sealed_at FROM signals WHERE signal_key = ?',
       [key]);
     const s = rows[0];
     if (!s || !s.seal) {
@@ -100,6 +100,11 @@ async function lookupCall(key) {
         take_profit: Number(s.take_profit) || 0,
         confidence: Number(s.confidence) || 0,
         pattern: s.pattern || null, regime: s.regime || null,
+        // Sealed as of kind v4, so it belongs in the drift comparison like any
+        // other decision-time value. Older receipts carry no thesis in their
+        // payload; the client skips fields the payload does not contain rather
+        // than reporting every historical call as altered.
+        thesis: s.thesis || null,
         created_at: s.created_at,
       },
       // §4: this receipt is PUBLIC, so no dollar amounts. `pnl` was emitted
