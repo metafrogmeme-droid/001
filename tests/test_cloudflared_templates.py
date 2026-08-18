@@ -94,10 +94,40 @@ def test_the_prerequisite_is_stated_plainly():
     assert "zone" in README and "domain is not optional" in README
 
 
-def test_the_verification_expects_a_401_not_a_200():
-    """/gateway/* checks the shared secret. A 200 from an unauthenticated
-    curl would mean the gateway is open, not that it is healthy."""
-    assert "401 is CORRECT" in README
+def test_the_verification_expects_the_status_the_middleware_actually_returns():
+    """/gateway/* checks the shared secret, so a 200 from an unauthenticated
+    curl would mean the gateway is OPEN, not that it is healthy.
+
+    THIS TEST USED TO ASSERT THE LITERAL `"401 is CORRECT" in README`, and it
+    passed for as long as the README said 401 — which was wrong the whole time.
+    `secret_middleware` returns 403, in both of its branches. A test that pins a
+    sentence rather than the fact behind it is only ever as right as whoever
+    wrote the sentence, and here it actively defended the error: correcting the
+    runbook to 403 reddened this file.
+
+    So the expected status is read out of the middleware. Change the code and
+    this fails until the runbook agrees; change the runbook alone and it fails
+    too.
+    """
+    src = Path("bot/web/user_gateway.py").read_text(encoding="utf-8")
+    # Bound the slice to the FUNCTION. Cutting at the next "\n@" ran past the
+    # end of it — the next decorator is hundreds of lines away — and swept up
+    # every `status=` in the module, so the test demanded the runbook document
+    # status codes from unrelated handlers.
+    start = src.index("async def secret_middleware")
+    rest = src[start:]
+    end = re.search(r"\n(?:@|def |async def )", rest[1:])
+    body = rest[:end.start() + 1] if end else rest
+    codes = {int(m) for m in re.findall(r"status=(\d{3})", body)}
+    assert codes, "secret_middleware no longer returns an explicit status"
+    assert codes != {200}, "the gateway middleware is not rejecting anything"
+    for code in codes:
+        assert f"{code} is CORRECT" in README or f"`{code}`" in README, (
+            f"secret_middleware can answer {code} and the runbook never mentions "
+            "it — an operator who sees it has nothing to check it against")
+    assert "200" not in README.split("Verify it")[1][:400] or "expect 200" in README, (
+        "the verify section must not imply an unauthenticated 200 is the "
+        "healthy answer")
 
 
 def test_the_two_variables_are_both_listed():
