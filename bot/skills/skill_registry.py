@@ -17,6 +17,7 @@ from bot.compat import UTC
 from typing import Any, Optional
 
 from bot.formatters.rich_cards import display_symbol
+from bot.formatters.thesis_text import provenance_tag, thesis_prose
 
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
@@ -159,6 +160,23 @@ def _stars(v: float) -> str:
 
 def _esc(s: str) -> str:
     return _html.escape(str(s))
+
+def _thesis_bq(reasoning: object, limit: int = 250, tail: str = "") -> str:
+    """A blockquote of what the MODEL said, or nothing at all.
+
+    `idea.reasoning` always opens with a machine provenance tag —
+    ``[gpt-4o|TREND_UP|swing|momentum|C=0.68] `` — so it is truthy even on the
+    calls where the model returned a direction and a confidence and no reason
+    whatsoever. Three cards here quoted that tag as if it were the rationale,
+    and `if idea.reasoning:` passed on every one of them. See
+    bot/formatters/thesis_text.py for how the string is built and why it lies.
+
+    Absent is never a measurement. A card with no reason to give gives none.
+    """
+    prose = thesis_prose(reasoning)
+    if prose is None:
+        return ""
+    return f"<blockquote>{_esc(prose[:limit])}</blockquote>{tail}"
 
 def _money(v: float, sign: bool = False) -> str:
     if sign:
@@ -491,6 +509,7 @@ class AnalyzeAssetSkill(BaseSkill):
         conf_fill = int(conf * conf_w)
         conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (conf_w - conf_fill)
         conf_ring = _progress_ring(conf * 100)
+        thesis_bq = _thesis_bq(idea.reasoning, 250, tail="\n\n")
 
         return (
             f"{d_icon} <b>{d}  {_esc(idea.asset)}</b>\n{SEP}\n\n"
@@ -499,7 +518,7 @@ class AnalyzeAssetSkill(BaseSkill):
             f"</pre>\n\n"
             f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(f'{conf:.0%}')}\n"
             f"  \u2606 Risk:Reward {_stars(rr)} {_pill(f'{rr}x')}\n\n"
-            f"<blockquote>{_esc(idea.reasoning[:250])}</blockquote>\n\n"
+            f"{thesis_bq}"
             f"\U0001f4ce {_pill(idea.id)}"
         )
 
@@ -810,13 +829,25 @@ class ExplainTradeSkill(BaseSkill):
         for idea in engine.pending_ideas:
             if idea.id == trade_id:
                 d_icon = _OK if idea.direction.value == "LONG" else _BAD
+                # The card whose entire subject is the reason. It quoted the
+                # provenance tag when the model gave none — an EXPLANATION
+                # header over a machine stamp. Provenance is real and stays,
+                # under its own label; the blockquote is now the model's words
+                # or nothing, and the card says which.
+                tag = provenance_tag(idea.reasoning)
+                prose_bq = _thesis_bq(idea.reasoning, 2000)
                 return (
                     f"{_BOOK} <b>EXPLANATION</b>\n{SEP}\n\n"
                     f"  {d_icon} {_pill(idea.id)}\n"
                     f"  {idea.direction.value} {_esc(idea.asset)}\n\n"
                     f"- Confidence: <code>{idea.confidence:.0%}</code>\n"
-                    f"- Signals: <code>{', '.join(idea.signals_used)}</code>\n\n"
-                    f"<blockquote>{_esc(idea.reasoning)}</blockquote>"
+                    f"- Signals: <code>{', '.join(idea.signals_used)}</code>\n"
+                    + (f"- Provenance: <code>{_esc(tag)}</code>\n" if tag else "")
+                    + "\n"
+                    + (prose_bq or
+                       "<i>No written rationale was recorded for this idea — "
+                       "the model returned a direction and a confidence "
+                       "without one.</i>")
                 )
         return f"\u2718 Trade {_pill(_esc(trade_id))} not found."
 
@@ -2264,10 +2295,13 @@ class ProScanSkill(BaseSkill):
                     f"</pre>"
                     f"  Quality: {_idea_sq_bar} <code>{_idea_sq_score}/10</code> — <i>{_idea_sq_label}</i>"
                 )
-                if idea.reasoning:
-                    short_reason = idea.reasoning[:200]
+                # `if idea.reasoning:` was already here and already passed on
+                # every idea, because the string is never empty — it opens with
+                # the provenance tag. The guard was real and guarded nothing.
+                _reason_bq = _thesis_bq(idea.reasoning, 200)
+                if _reason_bq:
                     verdict_lines.append(
-                        f"  <blockquote>{_esc(short_reason)}</blockquote>"
+                        f"  {_reason_bq}"
                     )
                 verdict_lines.append(
                     f"  <i>Entry is conditional, not automatic. "
@@ -2364,7 +2398,11 @@ class ProScanSkill(BaseSkill):
                         "rr": str(idea.risk_reward_ratio),
                         "book_ratio": 0,
                         "trigger": f"Confidence {idea.confidence:.0%}",
-                        "thesis": idea.reasoning[:200] if idea.reasoning else "",
+                        # The website's scan card labels this "thesis". Send
+                        # the model's words or an empty string — never the
+                        # provenance tag, which the old truthiness check let
+                        # through on every idea the model gave no reason for.
+                        "thesis": (thesis_prose(idea.reasoning) or "")[:200],
                     })
             sync_scan_in_background(payload)
         except Exception as exc:

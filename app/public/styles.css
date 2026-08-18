@@ -235,7 +235,22 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
     position: sticky; top: var(--topbar-h); height: calc(100vh - var(--topbar-h));
   }
   .tabbar { display: none; }
-  .content { padding: var(--s6); padding-bottom: var(--s8); }
+  /* NO AUTO LEFT MARGIN ONCE THE RAIL EXISTS.
+     `.content` is a flex child with `flex: 1`, `max-width: var(--maxw)` and
+     `margin: 0 auto`. Below the rail breakpoint that is right: the content is
+     the only child and centring it is what you want. With the rail present it
+     opens a VOID BETWEEN THE NAV AND THE CONTENT, because auto margins split
+     the leftover space evenly — and the leftover is measured AFTER the rail is
+     subtracted, so the gap sits on the inside edge where nothing belongs.
+
+     Measured at a 2000px viewport: rail 0–208, gap 208–504, content 504–1704,
+     gap 1704–2000. The inner gap grows by half of every pixel of extra width,
+     so on a 2560 or 3440 display the nav and the content drift visibly apart
+     and the page reads as broken layout rather than as whitespace.
+
+     Left-aligned against the rail, the trailing space collects on the outside
+     edge, which is what every app shell does and what an eye reads as margin. */
+  .content { padding: var(--s6); padding-bottom: var(--s8); margin-left: 0; margin-right: auto; }
 }
 
 /* ---- View header ------------------------------------------------------- */
