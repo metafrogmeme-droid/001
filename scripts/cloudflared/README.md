@@ -84,22 +84,56 @@ being discovered by a user.
 
 ## Verify it, don't assume it
 
-```bash
-# The tunnel is up and routing (401 is CORRECT here — no shared secret sent).
-curl -s -o /dev/null -w '%{http_code}\n' https://gateway.yourdomain.com/gateway/health
+**The unauthenticated check alone could not fail, and that is how a missing
+route survived a whole tunnel build (2026-08-17).** `secret_middleware` runs
+BEFORE routing, so a request with no secret returns 403 whether the gateway has
+56 routes or none. A working tunnel and an empty one give the identical answer.
+Send the secret, or you have verified nothing past the edge.
 
-# It survives a restart — the whole point of the exercise.
+```bash
+# 1. It rejects an anonymous caller. 403 is CORRECT here — this is the bot's
+#    own middleware, NOT Cloudflare Access. Read the BODY, not just the code:
+#      {"error":"forbidden"}       → reached the bot, no secret. Good.
+#      {"error":"gateway_disabled"} → WEB_GATEWAY_SECRET unset. Broken for the
+#                                     website too, and it looks like success.
+#      HTML / *.cloudflareaccess.com → an Access policy is in front of the
+#                                     tunnel; the shared secret never gets a
+#                                     chance and server-to-server calls 403 too.
+curl -s -i https://gateway.yourdomain.com/gateway/health | head -20
+
+# 2. It SERVES something to an authenticated caller. This is the step that
+#    distinguishes a routing gateway from an empty one. Run it on the bot host,
+#    where the secret already lives; expect 200 {"ok":true,"service":"gateway"}.
+curl -s -w ' <- %{http_code}\n' \
+  -H "X-Gateway-Secret: $(grep -m1 '^WEB_GATEWAY_SECRET=' ~/.env | cut -d= -f2-)" \
+  https://gateway.yourdomain.com/gateway/health
+
+# 3. It survives a restart — the whole point of the exercise.
 sudo systemctl restart runeclaw-gateway && sleep 5
 curl -s -o /dev/null -w '%{http_code}\n' https://gateway.yourdomain.com/gateway/health
 
-# And it survives a reboot.
+# 4. It comes back UNAIDED after a crash. A unit that needs a human is not
+#    supervision; this is the check that tells the two apart.
+pkill -f 'cloudflared.*tunnel run'; sleep 8
+systemctl is-active runeclaw-gateway      # → active
+
+# 5. And it survives a reboot.
 systemctl is-enabled runeclaw-gateway     # → enabled
 ```
 
 A `000`/timeout means the tunnel is not routing. A `502` means the tunnel is
-up and the **bot** is not listening on `127.0.0.1:8080`. Those are different
+up and the **bot** is not listening on `127.0.0.1:8080`. A `404` on step 2
+means the tunnel and the secret are both fine and the gateway is not serving
+the path — which is what `bot/core/proactive_monitor.py` probes every five
+minutes, so it would page continuously for a healthy bot. Those are different
 problems on different sides — the website's own error will say
 `GATEWAY_UNREACHABLE` for the first and pass the 502 through for the second.
+
+> Running these as a `--user` unit? Drop the `sudo`, use `systemctl --user`,
+> and check `loginctl show-user "$USER" --property=Linger` reads `Linger=yes`.
+> Without lingering the user manager exits with your last session: the tunnel
+> dies at logout and never starts at boot, while `systemctl --user is-enabled`
+> still says `enabled`. That is supervision that looks installed and is not.
 
 ## What stays out of git
 

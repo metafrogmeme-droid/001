@@ -3358,12 +3358,47 @@ async def handle_web3_prepare(request: web.Request) -> web.Response:
     })
 
 
+async def handle_health(request: web.Request) -> web.Response:
+    """Liveness for the website's path to this bot. Reached only past
+    `secret_middleware`, so a 200 means BOTH the route exists and the caller's
+    shared secret matched.
+
+    IT ANSWERS EXACTLY ONE QUESTION and must not grow a second. "The gateway is
+    reachable and authenticated" is not "the engine is healthy" — a heuristic is
+    never a verdict, and a probe that starts reporting engine state will be read
+    as an all-clear for the engine the first time somebody is in a hurry. Coarse
+    and fixed, for the same reason `/readyz` is: nothing here is derived from
+    config, credentials or internal state, so there is nothing to leak.
+
+    THIS ROUTE DID NOT EXIST UNTIL 2026-08-17, and two things depended on it.
+    `bot/core/proactive_monitor.py` probes `PUBLIC_GATEWAY_URL + /gateway/health`
+    every five minutes to page when the WEBSITE can no longer reach the bot —
+    the watchdog for the 2026-07-28 tunnel outage. `scripts/cloudflared/README.md`
+    documents the same URL as the way to verify a new tunnel.
+
+    Both got a 404, because the sub-app has 56 routes and none of them was this
+    one. The monitor maps any non-200/401/403 to `state="error"`, so the probe
+    failed on every pass, hit GATEWAY_PROBE_ALERT_AT after two, and paged — for
+    a bot that was working. A watchdog that fires constantly is not a noisy
+    watchdog, it is a disabled one: the operator learns to dismiss it, and the
+    real outage it exists to catch arrives looking exactly like the noise.
+
+    The failure was invisible from inside: `secret_middleware` runs BEFORE
+    routing, so the documented unauthenticated check returns 403 whether or not
+    any route exists behind it. Only a probe carrying the secret could tell a
+    working gateway from an empty one, and the README's verification never
+    sent it.
+    """
+    return web.json_response({"ok": True, "service": "gateway"})
+
+
 def build_gateway(engine, tg_handler) -> web.Application:
     """Build the /gateway sub-app. Caller mounts it under the dashboard app."""
     app = web.Application(middlewares=[secret_middleware])
     app["engine"] = engine
     app["tg_handler"] = tg_handler
     app["proposers"] = {}
+    app.router.add_get("/health", handle_health)
     app.router.add_post("/chat", handle_chat)
     app.router.add_post("/chat/public", handle_public_chat)
     app.router.add_post("/contract/studio", handle_contract_studio)
