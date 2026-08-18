@@ -137,3 +137,42 @@ test('the sweep is measuring something', () => {
   // And the digit scan must still be able to say no.
   assert.ok(/\d/.test('a 7 here'), 'sanity');
 });
+
+// ── the catalogue door ───────────────────────────────────────────────────────
+
+test('the tool count matches what /explore actually lists', () => {
+  // DERIVED, because this is the number most likely to rot: a tool is added to
+  // explore.html and nobody thinks of a sentence on the landing page. It counts
+  // links to real sitemap paths, so a typo'd href drops the count rather than
+  // inflating it.
+  const m = index.match(/data-rc-tool-count>(\d+)</);
+  assert.ok(m, 'the tool count is not marked with data-rc-tool-count');
+  const ex = fs.readFileSync(path.join(PUB, 'explore.html'), 'utf8');
+  const { STATIC_PATHS } = require('../lib/sitemap');
+  const known = new Set(STATIC_PATHS.map((s) => s.path));
+  const listed = new Set([...ex.matchAll(/href="(\/[a-z0-9-]+)"/g)]
+    .map((x) => x[1]).filter((p) => known.has(p)));
+  assert.strictEqual(Number(m[1]), listed.size,
+    `the landing page says ${m[1]} tools and /explore lists ${listed.size}`);
+});
+
+test('the count is markup, not translated copy', () => {
+  // A figure inside a translated string is fourteen places to update it and
+  // fourteen chances for one to keep the old number.
+  const i18n = fs.readFileSync(path.join(PUB, 'js', 'i18n.js'), 'utf8');
+  const m = i18n.match(/'doors\.all_note':\s*\{([^}]*)\}/);
+  assert.ok(m, 'doors.all_note is missing');
+  assert.ok(!/\d/.test(m[1].replace(/[a-z]{2}:/g, '')),
+    `a number leaked into the translated copy: ${m[1].slice(0, 120)}`);
+});
+
+test('the catalogue has a door outside the footer and the More menu', () => {
+  // The whole finding: all 25 pages were linked, but 14 only from the footer's
+  // wall of 28. /explore lists every one of them and lived in three places you
+  // only look if you already suspect it exists.
+  const doors = index.slice(index.indexOf('id="doorsTease"'));
+  const block = doors.slice(0, doors.indexOf('<!-- Page index'));
+  assert.match(block, /class="doors-all"/,
+    'the five-doors block no longer offers a route to the full catalogue');
+  assert.match(block, /href="\/explore"/);
+});

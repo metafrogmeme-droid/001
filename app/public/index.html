@@ -26,7 +26,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=32">
+<link rel="stylesheet" href="/styles.css?v=34">
 <script src="/js/wallet_picker.js" defer></script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/three.module.min.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -493,6 +493,38 @@
     <a class="feature" href="/guardian"><svg class="icon card-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><h3 data-i18n="doors.d4_h">Safety</h3><p data-i18n="doors.d4_p">Guardian — the transaction firewall, the Escape Agent, the allowance X-ray and the portfolio stress lab.</p></a>
     <a class="feature" href="/letter"><svg class="icon" aria-hidden="true"><use href="#icon-pen"></use></svg><h3 data-i18n="doors.d5_h">Story</h3><p data-i18n="doors.d5_p">The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words.</p></a>
   </div>
+  <!-- THE CATALOGUE, GIVEN ONE VISIBLE DOOR.
+
+       Derived, not guessed: all 25 sitemap pages are already linked from this
+       page, but FOURTEEN of them only from the footer's undifferentiated wall
+       of twenty-eight links — /stress (the risk simulator), /command (the
+       command deck), /duel, /learn, and the whole Guardian suite. A reviewer
+       reading the live site concluded nine built features did not exist, and
+       that is exactly what a wall of identical links produces.
+
+       The fix is NOT fourteen more links up here. The page was de-cluttered on
+       purpose and re-cluttering it would trade one unreadable surface for
+       another. /explore already lists every one of them, grouped and explained
+       — it just lived in a "More" dropdown, the page index and the footer, all
+       three of them places you look only if you already suspect the page
+       exists. This is the door. -->
+  <p class="doors-all">
+    <!-- A LINK, NOT A BUTTON, and landing_doors.test.js is right to insist.
+         The diagnosed problem on this page was thirty-two buttons and no
+         obvious next step; a section whose fix for that is a thirty-third has
+         misread it. Prominence here comes from placement and size, which cost
+         nothing, rather than from a filled rectangle competing with the real
+         primary action. -->
+    <a class="doors-all-link" href="/explore">
+      <svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>
+      <span data-i18n="doors.all_cta">Every tool on one page</span>
+    </a>
+    <!-- The COUNT is markup, the sentence is copy. Putting a figure inside a
+         translated string means fourteen places to update it and fourteen
+         chances for one of them to keep the old number. -->
+    <span class="muted small"><b class="num" data-rc-tool-count>22</b>
+      <span data-i18n="doors.all_note">tools, grouped by what they do.</span></span>
+  </p>
 </section>
 
 <!-- Page index. The page is a CATALOGUE — fifteen sections, each carrying
@@ -855,7 +887,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=124"></script>
+<script src="/js/i18n.js?v=125"></script>
 <script src="/js/icons.js?v=5"></script>
 <script src="/js/app.js?v=11"></script>
 <script src="/js/chat.js?v=27" defer></script>
