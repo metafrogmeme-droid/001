@@ -445,6 +445,7 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
+from bot.formatters.thesis_text import thesis_prose
 from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, DEFAULT_TIER_ROUTING, create_llm_client, llm_complete, resolve_tier_config
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_confirm_reject as _scan_callback
@@ -10679,12 +10680,18 @@ class TelegramHandler:
                         pass
 
                 if not card_sent:
-                    # Text fallback
+                    # Text fallback. `idea.reasoning` opens with a provenance
+                    # tag and is therefore never empty, so slicing it to 150
+                    # printed "[gpt-4o|TREND_UP|swing|C=0.68]" in italics as
+                    # the rationale whenever the model returned none. The line
+                    # is dropped instead — the card's other four facts stand on
+                    # their own.
+                    _why = thesis_prose(idea.reasoning)
                     msg = (
                         f"{d_icon} <b>#{i} {html.escape(pair)}</b> — {_dir}{_st_tag}{_otype_tag}\n"
                         f"Entry: <code>${entry:,.4f}</code> | SL: <code>${sl:,.4f}</code> (-{sl_pct:.1f}%) | TP: <code>${tp:,.4f}</code> (+{tp_pct:.1f}%)\n"
-                        f"R:R 1:{rr:.1f} | Conf <b>{idea.confidence:.0%}</b>\n"
-                        f"<i>{html.escape(idea.reasoning[:150])}</i>"
+                        f"R:R 1:{rr:.1f} | Conf <b>{idea.confidence:.0%}</b>"
+                        + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                     )
                     await self._send(update, msg, reply_markup=kb)
             except Exception as exc:

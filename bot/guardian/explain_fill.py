@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.formatters.thesis_text import thesis_prose
+
 
 def _f(v: Any) -> Optional[float]:
     if v is None or isinstance(v, bool):
@@ -80,8 +82,12 @@ def explain(record: dict) -> dict:
     if rr is not None:
         why.append(f"Reward:risk {rr:g} (entry {idea.get('entry')}, "
                    f"stop {idea.get('sl')}, target {idea.get('tp')}).")
-    reasoning = str(idea.get("reasoning") or "").strip()
-    if reasoning:
+    # "inventing nothing" is this module's own promise, and `.strip()` on a
+    # reasoning that is only its provenance tag leaves a truthy string — so the
+    # narrative asserted a Thesis the record does not contain. The tag stays in
+    # the sealed record; it just does not get to be a sentence here.
+    reasoning = thesis_prose(idea.get("reasoning"))
+    if reasoning is not None:
         why.append("Thesis: " + reasoning[:280])
 
     # ── provenance: by whom ──

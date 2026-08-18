@@ -86,6 +86,9 @@ function sameAfterStorage(key, sealed, live) {
   return String(sealed) === String(live);
 }
 </script>
+<!-- Loaded BEFORE the renderer, not deferred: the receipt reads it inside a
+     fetch callback, and "usually resolved by then" is a race, not an order. -->
+<script src="/js/thesis-model.js?v=1"></script>
 <script>
 (function () {
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -193,6 +196,21 @@ function sameAfterStorage(key, sealed, live) {
           // confidence, and `'' + null` is the word "null" on a receipt.
           var val = function (x) { return (x === null || x === undefined) ? '—' : String(x); };
           var pct = function (x) { return (x === null || x === undefined) ? '—' : Math.round(x * 100) + '%'; };
+          // AND A SEALED `thesis` IS NOT NECESSARILY A REASON. The bot stamps a
+          // provenance tag — `[gpt-4o|TREND_UP|swing|C=0.68] ` — in front of
+          // whatever the model said, and the model sometimes says nothing at
+          // all: it returns a direction and a confidence with no reasoning,
+          // which the bot accepts. The field is then the tag and a trailing
+          // space, it is truthy, and the old `p.thesis ? …` printed it under
+          // the word "Reasoning" on the page whose whole purpose is not having
+          // to take the reason on trust.
+          //
+          // THREE STATES, deliberately. A string is the model's words; null is
+          // "sealed without one", which the receipt SAYS rather than hides —
+          // this is a single-source row, so it guards; undefined means the
+          // helper itself did not load, and an unknown gets no claim at all.
+          var TM = window.ThesisModel || null;
+          var prose = function (x) { return TM ? TM.prose(x) : undefined; };
           html += '<div class="kv">'
             + '<span class="k">Call</span><span><b class="' + dirCls + '">' + esc(p.direction) + '</b> ' + esc(p.symbol) + '</span>'
             + '<span class="k">Entry</span><span>' + esc(val(p.entry_price)) + '</span>'
@@ -204,7 +222,13 @@ function sameAfterStorage(key, sealed, live) {
             // receipt has none, and printing the row's stored thesis there
             // would put an unverifiable narrative on a verification page —
             // the exact thing sealing it was meant to end.
-            + ('thesis' in p && p.thesis ? '<span class="k">Reasoning</span><span>' + esc(p.thesis) + '</span>' : '')
+            + ('thesis' in p && prose(p.thesis) !== undefined
+              ? '<span class="k">Reasoning</span><span>'
+                + (prose(p.thesis) === null
+                  ? '<i class="muted">not recorded — this call was sealed without one</i>'
+                  : esc(prose(p.thesis)))
+                + '</span>'
+              : '')
             + '<span class="k">Called at</span><span>' + esc(p.created_at) + '</span>'
             + '<span class="k">Sealed at</span><span>' + esc(d.sealed_at || '') + '</span>'
             + '</div>';

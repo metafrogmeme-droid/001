@@ -204,10 +204,20 @@ test('the drift check only compares fields the payload actually sealed', () => {
 });
 
 test('the receipt shows the reasoning only when it is inside the hash', () => {
+  // This pinned the SPELLING `'thesis' in p && p.thesis ?` and then blocked a
+  // fix to the row it guards: `p.thesis` is truthy on calls where the model
+  // gave no reason at all, because the bot prefixes a provenance tag to every
+  // reasoning it stores (see test/thesis_prose.test.js). The claim worth
+  // keeping is the `in` check — a v1 receipt sealed no thesis, so it gets no
+  // Reasoning row and no unverifiable narrative — and that is what is asserted
+  // now. What follows the `in` check is that other test's subject.
   const fs = require('node:fs');
   const path = require('node:path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'call.html'), 'utf8');
-  assert.match(html, /'thesis' in p && p\.thesis \?/,
+  const at = html.indexOf("<span class=\"k\">Reasoning</span>");
+  assert.ok(at > 0, 'the Reasoning row is gone from the receipt');
+  const row = html.slice(Math.max(0, at - 400), at);
+  assert.match(row, /'thesis' in p/,
     'the page would print a stored thesis for a v1 receipt that never sealed '
     + 'one — an unverifiable narrative on a verification page');
 });
