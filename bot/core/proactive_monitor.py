@@ -88,6 +88,23 @@ class ProactiveMonitor:
     # Deduplication cooldown (don't re-alert same event within this window)
     DEDUP_COOLDOWN = 300  # 5 minutes
 
+    # ANOMALIES ARE STANDING CONDITIONS, NOT EVENTS, and the 5-minute cooldown
+    # treats them as events. A spread that stays widened for an hour re-pages
+    # twelve times PER SYMBOL under DEDUP_COOLDOWN, saying nothing new each
+    # time. Observed live alongside the missing type-clustering: the two
+    # compound, so a single market-wide liquidity event produced dozens of
+    # near-identical messages.
+    #
+    # An operator who is being told the same thing every five minutes stops
+    # reading, and the next alert — the one that IS new — arrives into that
+    # habit. Suppression here is not about noise, it is about keeping the
+    # channel worth reading.
+    #
+    # Escalation still pages immediately: the suppression is keyed on the
+    # severity TIER, so 0.2 -> 0.9 breaks through at once. Only a condition
+    # that is both persisting AND unchanged waits.
+    BLACK_SWAN_REPEAT = 1800  # 30 minutes for an unchanged, ongoing anomaly
+
     def __init__(self, engine) -> None:
         self.engine = engine
         self._enabled_chats: Set[str] = set()   # Chat IDs with /watch on
@@ -106,6 +123,9 @@ class ProactiveMonitor:
         # this MOVING, not on the predicate momentarily reading healthy.
         self._tick_stale_alerted_for = None
         self._dedup_cache: dict[str, float] = {}  # dedup_key -> last_alert_time
+        # dedup_key -> (last_alert_time, severity_tier) for anomalies only, so
+        # a standing condition is not re-announced while it is unchanged.
+        self._bs_last: dict[str, tuple[float, int]] = {}
 
         # State tracking for change detection
         self._last_regime: dict[str, str] = {}    # symbol -> last known regime
@@ -1859,7 +1879,60 @@ class ProactiveMonitor:
                         ),
                         dedup_key=f"bs_CORR_HUB_{peer}",
                     ))
-                for alert_obj in singles:
+                # THE SAME IDEA AS THE PEER CLUSTER ABOVE, APPLIED TO THE SET
+                # THAT ACTUALLY FLOODS. That cluster covers exactly one type,
+                # CORRELATION_BREAKDOWN; everything else fell through here and
+                # paged once per symbol. SPREAD_WIDENING is the worst case for
+                # that — a liquidity event widens spreads on EVERYTHING at once,
+                # so it is both the most likely type to arrive in bulk and the
+                # only common one with no clustering at all. Observed live:
+                # two full messages, same type, same second, ~4 lines of
+                # identical footer each.
+                #
+                # A SEVERE ALERT IS NEVER CLUSTERED. Burying a 0.9 in a digest
+                # beside a 0.2 is how the one that mattered gets skimmed past,
+                # and the alarm's credibility is the asset.
+                by_kind: dict = {}
+                keep_single = []
+                for a in singles:
+                    k_ = getattr(a.anomaly_type, "value", a.anomaly_type)
+                    if float(a.severity) >= _HALT_SEVERITY:
+                        keep_single.append(a)
+                    else:
+                        by_kind.setdefault(k_, []).append(a)
+                for kind_, group in by_kind.items():
+                    if len(group) < 2:
+                        keep_single.extend(group)
+                        continue
+                    top = max(group, key=lambda a: float(a.severity))
+                    sev_ = float(top.severity)
+                    names = ", ".join(sorted(str(a.symbol) for a in group))
+                    ts_ = datetime.now(UTC).strftime("%H:%M:%S UTC")
+                    sev_icon_ = "\U0001f7e0" if sev_ >= 0.3 else "\U0001f7e1"
+                    alerts.append(Alert(
+                        alert_type="BLACK_SWAN",
+                        severity="WARNING",
+                        title=f"Anomaly cluster: {kind_} x{len(group)}",
+                        body=(
+                            f"\U0001f440 <b>ANOMALY NOTED</b> (clustered)\n"
+                            "────────────────\n"
+                            f"- Type: <code>{kind_}</code> \u00d7 {len(group)}\n"
+                            f"- Symbols: <code>{names}</code>\n"
+                            f"- Worst severity: {sev_icon_} <code>{sev_:.2f}</code>"
+                            f" (advises {getattr(top, 'recommended_action', 'MONITOR')})\n"
+                            f"- Detected At: <code>{ts_}</code>\n\n"
+                            f"<i>{top.description}</i>\n"
+                            "────────────────\n"
+                            "\u26a0\ufe0f This is an OBSERVATION, not an action. The engine "
+                            "does NOT auto-halt on anomalies \u2014 use /halt to stop trading.\n"
+                            f"\U0001f449 /status — check engine state"
+                        ),
+                        # Keyed on the type and the MEMBERSHIP, so the same set
+                        # staying widened does not re-page, while a new symbol
+                        # joining the event does.
+                        dedup_key=f"bs_CLUSTER_{kind_}_{len(group)}_{names}",
+                    ))
+                for alert_obj in keep_single:
                     # `.value`, not the enum. AnomalyType is a `str, Enum`, and
                     # Python 3.11 formats those as "AnomalyType.PRICE_ACCELERATION"
                     # — which went into the dedup key AND into the Telegram
@@ -1905,7 +1978,66 @@ class ProactiveMonitor:
                     ))
         except Exception as exc:
             logger.debug("_check_black_swan error: %s", exc)
-        return alerts
+        return [a for a in alerts if self._bs_is_news(a)]
+
+    @staticmethod
+    def _severity_tier(alert: Alert) -> int:
+        """The three tiers the message itself already shows, as a number.
+
+        Tiers rather than the raw float on purpose: a severity drifting
+        0.31 -> 0.32 is not news, and keying suppression on the exact value
+        would re-page on every jitter, which is the behaviour being fixed.
+        """
+        body = alert.body or ""
+        if alert.severity == "CRITICAL":
+            return 2
+        return 1 if "\U0001f7e0" in body else 0
+
+    def _bs_is_news(self, alert: Alert) -> bool:
+        """Is this anomaly alert saying something the operator does not know?
+
+        Returns True the first time a condition appears, whenever it escalates
+        a tier, and once every BLACK_SWAN_REPEAT while it persists unchanged.
+
+        FAIL-OPEN, AND THE FIRST DRAFT ONLY SAID SO.
+
+        It read `self._bs_last` directly. `test_anomaly_credibility` builds a
+        monitor with `ProactiveMonitor.__new__(...)` — a deliberate, legitimate
+        way to exercise `_check_black_swan` without an engine — so the attribute
+        did not exist and this raised AttributeError.
+
+        The raise is the serious part, not the test. This is called on
+        `_check_black_swan`'s RETURN line, outside that method's try/except, so
+        the error propagates into `_check_all()`, whose caller in the monitor
+        loop swallows exceptions at debug level. A crash in the NOISE FILTER
+        would therefore have silently taken out EVERY alert — halts, gateway
+        outages, black swans — leaving a channel that looks calm because
+        nothing can reach it. A suppression bug that suppresses everything is
+        indistinguishable from a quiet market.
+
+        So it is fail-open by construction now: unknown state is created on
+        demand, and any unforeseen error sends the alert rather than eating it.
+        The operator cannot see what they were not told.
+        """
+        try:
+            if alert.alert_type != "BLACK_SWAN" or not alert.dedup_key:
+                return True
+            tier = self._severity_tier(alert)
+            if tier >= 2:
+                return True      # severe pages every time, no suppression
+            seen = getattr(self, "_bs_last", None)
+            if seen is None:
+                seen = {}
+                self._bs_last = seen
+            prev = seen.get(alert.dedup_key)
+            now = time.time()
+            if prev is None or tier > prev[1] or (now - prev[0]) >= self.BLACK_SWAN_REPEAT:
+                seen[alert.dedup_key] = (now, tier)
+                return True
+            return False
+        except Exception as exc:
+            logger.debug("anomaly repeat filter failed open: %s", exc)
+            return True
 
     def _check_state_changes(self) -> list[Alert]:
         """Alert on significant FSM state changes."""
