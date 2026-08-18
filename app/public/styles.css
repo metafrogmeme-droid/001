@@ -1777,3 +1777,50 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 @media (max-width: 639px) {
   body.past-hero { padding-bottom: calc(var(--tabbar-h, 0px) + 74px); }
 }
+
+/* The one visible door to the catalogue. A row, not a card: the five doors
+   above are the choice, and this is the "or see all of it" underneath them —
+   giving it card weight would make it a sixth door and put the summary at the
+   same level as the things it summarises. */
+.doors-all {
+  display: flex; align-items: center; gap: var(--s3);
+  flex-wrap: wrap; margin: var(--s5) 0 0;
+}
+.doors-all-link {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--font-display); font-size: var(--fs-md);
+  font-weight: 620; letter-spacing: -.01em; color: var(--gold);
+  min-height: 44px; text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+.doors-all-link .icon { width: 18px; height: 18px; flex: none; }
+.doors-all-link::after { content: '\2192'; transition: transform var(--dur-2) var(--ease-spring); }
+.doors-all-link:hover, .doors-all-link:focus-visible { border-bottom-color: var(--gold); }
+.doors-all-link:hover::after { transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) {
+  .doors-all-link, .doors-all-link::after { transition: none; }
+  .doors-all-link:hover::after { transform: none; }
+}
+.doors-all .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
+@media (max-width: 520px) {
+  /* Stacked, and the button first — on a phone the sentence after it is
+     explanation, and explanation should not stand between a reader and the
+     thing it explains. */
+  .doors-all { flex-direction: column; align-items: flex-start; gap: var(--s2); }
+
+}
+
+/* FIVE doors, and `repeat(auto-fit, minmax(240px, 1fr))` resolves to four
+   columns at every desktop width from 1100 to 1600 — so the fifth card sat
+   alone with three empty cells beside it, at every size anyone actually uses.
+   In the one block whose job is "here is the whole site, grouped", an orphaned
+   card reads as an afterthought rather than a peer.
+
+   Explicit counts, scoped to this section so the other feature grids keep
+   auto-fit. 5 -> 3 -> 1, deliberately skipping 2: two columns for five cards
+   gives 2+2+1, which is the same orphan one breakpoint lower, while three
+   gives a 3+2 that reads as intentional. */
+#doorsTease .feature-grid { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1180px) { #doorsTease .feature-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px)  { #doorsTease .feature-grid { grid-template-columns: 1fr; } }
