@@ -25,6 +25,33 @@ const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js
 const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
 const callseal = fs.readFileSync(path.join(__dirname, '..', 'lib', 'callseal.js'), 'utf8');
 
+/**
+ * The payload builder `sealCall` ACTUALLY uses, found by reading sealCall
+ * rather than by naming a function.
+ *
+ * Both checks below used to slice `canonicalPayload` by name. That was right
+ * while it was the only builder, and became a stale guard the moment new seals
+ * moved to `canonicalSignalPayload` (kind v4, which seals the reasoning too):
+ * the tests would have gone on validating the homepage against a payload the
+ * platform no longer produces, passing green the whole time. `v` in callseal.js
+ * is a KIND discriminator — 1 signal, 2 arena_trade, 3 duel_pick, 4 signal_call
+ * — so "the newest one" is not something a name can be trusted to track.
+ *
+ * v1 is deliberately still in the file and must stay byte-identical: it is the
+ * string every historical seal was computed over. It is simply no longer what
+ * the hero is describing.
+ */
+function activePayloadSource() {
+  const seal = callseal.slice(callseal.indexOf('function sealCall'));
+  const m = seal.match(/const seal_payload = (\w+)\(/);
+  assert.ok(m, 'sealCall no longer builds its payload through a named function');
+  const fn = 'function ' + m[1] + '(';
+  const at = callseal.indexOf(fn);
+  assert.ok(at > 0, `sealCall calls ${m[1]}(), which is not defined in callseal.js`);
+  const end = callseal.indexOf('\n}', at);
+  return callseal.slice(at, end);
+}
+
 test('the headline is the mechanism, not an adjective', () => {
   assert.match(i18n, /'hero\.h1':[^\n]*hashed/);
   assert.match(index, /Every call is hashed/);
@@ -36,8 +63,7 @@ test('every decision field the hero names is really in the sealed payload', () =
   // Derived from the CALLER so the copy cannot drift away from the code: if a
   // field leaves canonicalPayload, the sentence describing it fails here
   // rather than quietly becoming false on the homepage.
-  const payload = callseal.slice(callseal.indexOf('function canonicalPayload'),
-                                 callseal.indexOf('function sealOf'));
+  const payload = activePayloadSource();
   for (const [word, field] of [['symbol', 'symbol'], ['direction', 'direction'],
                                ['entry', 'entry_price'], ['stop', 'stop_loss'],
                                ['target', 'take_profit'], ['confidence', 'confidence'],
@@ -52,8 +78,7 @@ test('every decision field the hero names is really in the sealed payload', () =
 test('the hero does not claim an outcome is sealed with the call', () => {
   // The whole point is that the outcome attaches AFTERWARDS. If it ever entered
   // the decision payload the claim would collapse, so both halves are pinned.
-  const payload = callseal.slice(callseal.indexOf('function canonicalPayload'),
-                                 callseal.indexOf('function sealOf'));
+  const payload = activePayloadSource();
   for (const banned of ['pnl', 'exit_price', 'outcome', 'result']) {
     assert.ok(!payload.includes(banned + ':'),
       `canonicalPayload gained ${banned} — "sealed before the outcome" is no longer true`);
