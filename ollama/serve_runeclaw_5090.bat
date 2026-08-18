@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM RUNECLAW v7 8B - serve on the RTX 5090 laptop. NO ADMIN NEEDED:
+REM RUNECLAW v8 8B - serve on the RTX 5090 laptop. NO ADMIN NEEDED:
 REM per-session env vars, user-space ollama, localhost port only.
 REM
 REM Refuses to serve a model whose GGUF metadata does not read 8.0B -
@@ -8,7 +8,7 @@ REM the check that caught an 8B shipped under the 3B's name, pointed
 REM the other way.
 REM ================================================================
 
-set MODEL=pbdes2022/HUMANOID-TRADERS:v7-8b
+set MODEL=pbdes2022/HUMANOID-TRADERS:v8-8b
 set MODELDIR=%~dp0runeclaw-model
 
 REM [1/4] ollama present?
@@ -27,7 +27,7 @@ set OLLAMA_NUM_PARALLEL=1
 set OLLAMA_FLASH_ATTENTION=1
 
 REM [3/4] Model registered? Create from the 5090 Modelfile if not.
-ollama list | findstr /i "HUMANOID-TRADERS:v7-8b" >nul
+ollama list | findstr /i "HUMANOID-TRADERS:v8-8b" >nul
 if errorlevel 1 (
     if not exist "%MODELDIR%\Modelfile.5090" (
         echo ERROR: %MODEL% is not registered and %MODELDIR%\Modelfile.5090 is missing.
@@ -54,7 +54,7 @@ REM [4/4] Identity gate: the GGUF's own metadata must say 8.0B.
 ollama show %MODEL% | findstr /C:"8.0B" >nul
 if errorlevel 1 (
     echo ERROR: 'ollama show %MODEL%' does not read 8.0B parameters.
-    echo The registered model is NOT the v7 8B. Do not serve, do not push.
+    echo The registered model is NOT the v8 8B. Do not serve, do not push.
     echo Re-run the export chain and re-create the model. Full output:
     ollama show %MODEL%
     pause
