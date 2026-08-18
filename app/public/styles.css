@@ -1666,3 +1666,114 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 /* Text links that stand alone as an action, rather than sitting inside a
    sentence. 24px everywhere; the coarse-pointer block above takes them to 44. */
 .hero-secondary, .how-link { min-height: 24px; }
+
+/* ---- Bento -------------------------------------------------------------
+   Four cards, deliberately unequal. An even 4-up grid gives every claim the
+   same weight, which is the problem it was meant to solve: the page already
+   had fifteen equally-loud sections. The lead card is twice the area of the
+   small ones because "free paper trading, no keys, no setup" is the one thing
+   a first-time visitor can act on in the next ten seconds.
+
+       ┌───────────┬───────────┐
+       │           │     2     │      1  Arena      2 cols x 2 rows
+       │     1     ├─────┬─────┤      2  Provable   2 cols x 1 row
+       │           │  3  │  4  │      3  Guardian   1 col
+       └───────────┴─────┴─────┘      4  Venues     1 col
+
+   Built on the tokens that already exist — --glass, --edge, --elev-2, --glow,
+   --ease-spring — rather than a parallel set. A second surface vocabulary is
+   how a design system stops being one. */
+.bento {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: minmax(0, auto);
+  gap: var(--s4);
+}
+.bento-card {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s5);
+  background: var(--glass), var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--edge), var(--elev-1);
+  color: inherit; text-decoration: none;
+  transition: transform var(--dur-2) var(--ease-out),
+              border-color var(--dur-2) var(--ease-out),
+              box-shadow var(--dur-2) var(--ease-out);
+}
+.bento-card:hover, .bento-card:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--line-2);
+  box-shadow: var(--edge), var(--elev-2), var(--glow);
+}
+.bento-card--lead { grid-column: span 2; grid-row: span 2; }
+.bento-card--wide { grid-column: span 2; }
+
+.bento-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.bento-top .icon { width: 26px; height: 26px; color: var(--gold); }
+.bento-tag {
+  font-family: var(--font-data); font-size: var(--fs-xs);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--up); background: var(--up-dim);
+  border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+}
+.bento-card h3 {
+  font-family: var(--font-display); font-weight: 620;
+  letter-spacing: -.014em; margin: var(--s2) 0 0;
+}
+.bento-card--lead h3 { font-size: var(--fs-lg); }
+.bento-card p { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; margin: 0; }
+
+/* The only figures on this screen. Tabular so they line up, and no colour:
+   a paper stake is a rule of the game, not a result, and painting it green
+   would make a constant look like a gain. */
+.bento-facts {
+  list-style: none; margin: var(--s3) 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--s2);
+  font-size: var(--fs-sm); color: var(--text-2);
+}
+.bento-facts li { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.bento-facts .num {
+  font-family: var(--font-data); font-variant-numeric: tabular-nums;
+  color: var(--text); font-weight: 600;
+}
+.bento-cta {
+  margin-top: auto; padding-top: var(--s3);
+  color: var(--gold); font-size: var(--fs-sm); font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px;
+}
+.bento-cta::after { content: '\2192'; transition: transform var(--dur-2) var(--ease-spring); }
+.bento-card:hover .bento-cta::after { transform: translateX(3px); }
+
+/* Two breakpoints, because one is not enough for a 4-col bento: at tablet the
+   small cards still pair, and only on a phone does everything stack. Collapsing
+   straight from four to one wastes half the width of every tablet. */
+@media (max-width: 940px) {
+  .bento { grid-template-columns: repeat(2, 1fr); }
+  .bento-card--lead { grid-column: span 2; grid-row: span 1; }
+  .bento-card--wide { grid-column: span 2; }
+}
+@media (max-width: 600px) {
+  .bento { grid-template-columns: 1fr; gap: var(--s3); }
+  .bento-card--lead, .bento-card--wide { grid-column: span 1; }
+  .bento-card { padding: var(--s4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bento-card, .bento-cta::after { transition: none; }
+  .bento-card:hover, .bento-card:focus-visible { transform: none; }
+  .bento-card:hover .bento-cta::after { transform: none; }
+}
+
+/* The sticky CTA is `position: fixed`, and nothing reserved space for it — so
+   from the moment `.past-hero` sets, it sat on top of roughly 60px of whatever
+   was underneath. Mid-page you can scroll past it; the FOOTER cannot be
+   scrolled past, so its last row of links was permanently unreachable on a
+   phone, and any card whose call-to-action happened to land there was covered
+   too (observed over the Guardian bento card at 390px).
+
+   A fixed bar is only free if the document knows it is there. Padding is added
+   ONLY while the bar is actually visible, so a visitor who never scrolls past
+   the hero gets no phantom gap at the bottom of the page. */
+@media (max-width: 639px) {
+  body.past-hero { padding-bottom: calc(var(--tabbar-h, 0px) + 74px); }
+}

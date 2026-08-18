@@ -67,7 +67,12 @@ test('every section on the page is in the index', () => {
   // The other direction, and the one that rots: a section added later without
   // an entry is invisible in the contents, which is the defect this fixes
   // reintroduced one section at a time.
-  const skip = new Set(['doorsTease', 'pageIndex']);   // the summary above it
+  // Both summaries are skipped for the same stated reason: they sit ABOVE
+  // the index and describe the page rather than being part of what it
+  // catalogues. #bento is the at-a-glance layer directly under the hero;
+  // listing it in a contents block the reader only reaches by scrolling
+  // past it points backwards.
+  const skip = new Set(['bento', 'doorsTease', 'pageIndex']);
   const missing = sectionIds.filter((id) => !skip.has(id) && !indexTargets.includes(id));
   assert.deepStrictEqual(missing, [],
     `these sections are not in the index: ${missing.join(', ')}`);
