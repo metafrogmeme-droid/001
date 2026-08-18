@@ -318,6 +318,14 @@ RULES: list[Rule] = [
             "handle_strategies_public",   # preset catalogue: design + regime, no numbers
             "handle_agent_card_public",   # ERC-8004 card already inside the public bundle
             "handle_share_card",          # PNG from three clamped query params
+            # Liveness only, and public-safe BY CONSTRUCTION rather than by
+            # review: it returns a hardcoded literal and reads no request, no
+            # account, no engine state, so there is no per-user decision for
+            # `_guard_user` to make. It is NOT unauthenticated — the whole
+            # sub-app sits behind `secret_middleware`, so a caller without the
+            # shared secret never reaches it. Exempt from USER authorisation,
+            # not from authorisation.
+            "handle_health",
         ],
         why=("An HTTP route that reaches no authorisation decision. This surface holds "
              "the signer, the Authority Envelope, intent-policy binding and trade "
