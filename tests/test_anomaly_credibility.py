@@ -120,19 +120,24 @@ def test_monitor_clusters_one_hub_into_one_page():
     mon = ProactiveMonitor.__new__(ProactiveMonitor)
     mon.engine = _Eng()
     alerts = mon._check_black_swan()
-    bodies = [a.body for a in alerts]
-    clustered = [a for a in alerts if "clustered" in a.body]
+    # The hub is the condition, so both severe breakdowns are ONE page — and
+    # it is still a full severe card, not a digest entry. Burying a 0.9 beside
+    # a 0.03 is how the one that mattered gets skimmed past.
+    clustered = [a for a in alerts if a.dedup_key == "bs_CORR_HUB_NIL/USDT"]
     assert len(clustered) == 1, "two same-hub breakdowns -> ONE page"
-    assert "NIL/USDT" in clustered[0].body
-    assert "DFEN/USDT:USDT" in clustered[0].body and "PUMP/USDT" in clustered[0].body
-    # the tiny price-acceleration page survives, but WITHOUT the siren
+    assert clustered[0].severity == "CRITICAL"
+    assert "cluster" in clustered[0].body.lower(), "the card hides that it folded rows in"
+    assert "DFEN/USDT:USDT" in clustered[0].body and "PUMP/USDT" in clustered[0].body, (
+        "the cluster does not name the symbols it folded in")
+    # The 0.03 no longer gets a page of its own: advisory anomalies are
+    # collected into one digest (see test_anomaly_alert_volume.py). What must
+    # survive is that it is NAMED, and that it never wears the siren.
     tiny = [a for a in alerts if "VELVET" in a.body]
     assert len(tiny) == 1
     assert "\U0001f6a8" not in tiny[0].body, "0.03 severity never wears the siren"
-    assert "NOTED" in tiny[0].body
+    assert tiny[0].severity != "CRITICAL"
     assert "\U0001f7e1" in tiny[0].body, "sub-0.3 severity shows the yellow tier"
-    # dedup: the cluster keys on the hub, so the storm cannot re-page per pair
-    assert clustered[0].dedup_key == "bs_CORR_HUB_NIL/USDT"
+    assert tiny[0].dedup_key == "bs_DIGEST"
 
 
 def test_severe_single_alert_keeps_the_siren():
