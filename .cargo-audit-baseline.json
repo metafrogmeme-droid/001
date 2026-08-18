@@ -1,6 +1,6 @@
 {
   "_comment": "Known RustSec advisories in Cargo.lock, recorded deliberately. This is a RATCHET floor, not an approval: every entry is an outstanding advisory. 'shipped' means the crate is reachable through non-dev dependencies of the program and therefore belongs to its real supply chain; the rest are test-harness only. Regenerate with `python3 scripts/cargo_audit_gate.py --update` only after reviewing the delta.",
-  "recorded": "2026-07-26",
+  "recorded": "2026-08-18",
   "advisories": {
     "RUSTSEC-2022-0093": {
       "crate": "ed25519-dalek",
@@ -48,6 +48,12 @@
       "crate": "quinn-proto",
       "version": "0.10.6",
       "title": "Remote memory exhaustion in quinn-proto from unbounded out-of-order stream reassembly",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0258": {
+      "crate": "h2",
+      "version": "0.3.27",
+      "title": "h2 unbounded empty DATA frames",
       "shipped": false
     }
   }
