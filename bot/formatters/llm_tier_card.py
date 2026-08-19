@@ -34,7 +34,7 @@ endpoint may be open. It says what was seen.
 from __future__ import annotations
 
 import html
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 SEP = "─" * 16
@@ -85,6 +85,9 @@ class TierRow:
     #: that table, because an argument for a route that is not in force is a
     #: fabricated justification for a real value.
     table_reason: str = ""
+    #: The env var that carries this provider's key, so a `keyless_remote`
+    #: tier can name its own remedy instead of a generic one.
+    key_env: str = ""
 
 
 def _icon_and_note(row: TierRow) -> tuple[str, str]:
@@ -170,6 +173,20 @@ def render_tier_card(rows: Sequence[TierRow], *,
         state_icon, state_txt = _KEY_STATE.get(
             row.key_state, ("❔", "credential not checked"))
         out.append(f"- Key: {state_icon} {state_txt}")
+
+        # A DIAGNOSIS WITHOUT A REMEDY IS HALF A CARD, and the two bad
+        # credential states have DIFFERENT remedies — /setllm stores a key for
+        # a provider that has none, which is not what a keyless endpoint behind
+        # a tunnel needs. Naming one fix for both would send the operator to
+        # the wrong place on whichever half it did not fit.
+        if row.key_state == "missing":
+            out.append("  <i>Fix with <code>/setllm &lt;provider&gt; "
+                       "&lt;key&gt;</code> — validated live, stored encrypted, "
+                       "survives redeploys.</i>")
+        elif row.key_state == "keyless_remote":
+            out.append(f"  <i>If that endpoint wants a key, set <code>"
+                       f"{html.escape(row.key_env or 'the provider key env var')}"
+                       f"</code> and restart.</i>")
         out.append("")
 
     unbound = sorted(unbound_env)

@@ -555,6 +555,9 @@ def tier_report(primary_config: "LLMConfig", *,
                                else tier_env_ignored_reason(tier, primary_config)),
             "table_reason": str(reason_tables.get(cfg.source, {})
                                 .get(tier, {}).get("reason", "")),
+            # Read from the canonical map so a card can name the exact
+            # variable to set. There is one of these maps and this is it.
+            "key_env": _PROVIDER_KEY_ENV.get(cfg.provider, ""),
         })
     return rows
 

@@ -368,6 +368,39 @@ def test_a_keyless_remote_tier_is_not_given_a_green_tick():
     assert "NOT local" in out
 
 
+def test_a_missing_key_still_says_how_to_fix_it():
+    """THE REGRESSION THE REBUILD SHIPPED. The old card carried a /setllm hint
+    for an unconfigured tier and the rewrite dropped it — caught by
+    test_llmtiers_unconfigured_shows_fix_hint, which existed, and by none of
+    the tests written for the new card, which did not think to ask.
+
+    A diagnosis without a remedy is half a card."""
+    out = render_tier_card([_row(key_state="missing", env_value="")])
+    assert "❌" in out
+    assert "/setllm" in out
+
+
+def test_a_keyless_remote_tier_gets_a_DIFFERENT_remedy():
+    """The two bad credential states need different fixes. /setllm stores a
+    key for a provider that has none; a keyless endpoint behind a tunnel needs
+    its own env var. One hint for both sends the operator to the wrong place
+    on whichever half it does not fit."""
+    out = render_tier_card([_row(key_state="keyless_remote", env_value="",
+                                 provider="runeclaw",
+                                 key_env="RUNECLAW_LLM_API_KEY")])
+    assert "RUNECLAW_LLM_API_KEY" in out
+    assert "/setllm" not in out
+
+
+def test_a_healthy_tier_is_not_given_a_remedy_it_does_not_need():
+    """CONTROL. A fix hint on a working tier reads as a fault."""
+    out = render_tier_card([_row(key_state="key", env_value="")])
+    assert "/setllm" not in out and "restart" not in out.split(SEP_MARK)[0]
+
+
+SEP_MARK = "─" * 16
+
+
 def test_an_unknown_credential_state_reads_as_unknown_not_as_ok():
     out = render_tier_card([_row(key_state="", env_value="")])
     assert "❔" in out
