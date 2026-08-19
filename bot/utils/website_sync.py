@@ -45,8 +45,37 @@ _RETRY_STATUS = frozenset({500, 502, 503, 504, 408, 429})
 #: a sync is never worth delaying an order.
 _RETRY_BACKOFF = (0.5, 2.0, 5.0)
 
+#: Backoff for the pushes that run on their OWN THREAD, where the reason for
+#: the short profile above does not apply and its consequence is severe.
+#:
+#: The website is an ephemeral instance that is torn down after a short idle
+#: and COLD-STARTS on the next request — `/api/version` reported `uptime_s` in
+#: the low hundreds on a site nobody had restarted. A cold start answers the
+#: request that triggered it with a 503, quickly, and serves normally about
+#: half a minute later.
+#:
+#: Against that, `_RETRY_BACKOFF` with `retries=2` spends its whole budget in
+#: 2.5 SECONDS — three fast 503s inside the first three seconds of a thirty
+#: second warm-up — and gives up. The next scan cycle finds the instance cold
+#: again, because the only traffic that would have kept it warm is the traffic
+#: that just gave up. `Synced` sat at 0 for a day and a half with a correct
+#: secret, a correct URL and a healthy site, and the retry did not read as the
+#: cause because there WAS a retry: it was simply an order of magnitude
+#: shorter than the failure it was retrying through.
+#:
+#: A retry budget has to be scaled to the outage it exists to survive, not to
+#: the machine it runs on.
+_COLD_START_BACKOFF = (5.0, 15.0, 30.0)
 
-def _post(path: str, data: dict, *, retries: int = 0) -> Optional[dict]:
+#: Per-attempt socket timeout for those same pushes. A cold start that HANGS
+#: rather than 503-ing is the other half of the same failure, and 15s cuts off
+#: a request that would have been answered at 25.
+_COLD_START_TIMEOUT = 30
+
+
+def _post(path: str, data: dict, *, retries: int = 0,
+          backoff: tuple = _RETRY_BACKOFF,
+          timeout: int = 15) -> Optional[dict]:
     """POST JSON to the website API. Returns response dict or None on error.
 
     ``retries`` DEFAULTS TO ZERO, and that default is a safety property rather
@@ -79,10 +108,14 @@ def _post(path: str, data: dict, *, retries: int = 0) -> Optional[dict]:
         method="POST",
     )
     attempts = max(0, int(retries)) + 1
+    # Elapsed time is logged on give-up. Without it "gave up after 3 attempts"
+    # is the same sentence whether the budget was 2.5 seconds or 90, and that
+    # difference was the whole bug the cold-start profile exists to fix.
+    _began = _t.monotonic()
     for attempt in range(attempts):
         _last = attempt == attempts - 1
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 parsed = json.loads(resp.read().decode())
                 # isinstance narrows the json.loads Any for mypy (this module
                 # is now transitively type-checked via live_executor ->
@@ -104,18 +137,20 @@ def _post(path: str, data: dict, *, retries: int = 0) -> Optional[dict]:
                 # going to succeed reads very differently from a 5xx that ran
                 # out of attempts, and the old single line said neither.
                 log.error("Sync HTTP error %s (%s): %s", e.code,
-                          "gave up after %d attempts" % attempts if retryable
+                          "gave up after %d attempts over %.1fs"
+                          % (attempts, _t.monotonic() - _began) if retryable
                           else "not retryable", body)
                 return None
         except Exception as exc:
             if _last:
                 log.error("Sync error (%s): %s",
-                          "gave up after %d attempts" % attempts if retries
+                          "gave up after %d attempts over %.1fs"
+                          % (attempts, _t.monotonic() - _began) if retries
                           else "no retry configured", exc)
                 return None
             log.warning("Sync error (attempt %d/%d, retrying): %s",
                         attempt + 1, attempts, exc)
-        _t.sleep(_RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)])
+        _t.sleep(backoff[min(attempt, len(backoff) - 1)])
     return None
 
 
@@ -276,7 +311,8 @@ def sync_scan_data(scan_payload: dict) -> bool:
         timestamp: "2026-06-18 11:28 CST"
     }
     """
-    result = _post("/api/bot/sync/scan", scan_payload, retries=2)
+    result = _post("/api/bot/sync/scan", scan_payload, retries=3,
+                   backoff=_COLD_START_BACKOFF, timeout=_COLD_START_TIMEOUT)
     if result and result.get("ok"):
         log.info("Scan data synced to website dashboard")
         return True
@@ -337,7 +373,8 @@ def sync_signals(signals: list[dict]) -> bool:
     """Push a batch of signal-stream rows to the website (UPSERT by signal_key)."""
     if not signals:
         return True
-    result = _post("/api/bot/sync/signals", {"signals": signals}, retries=2)
+    result = _post("/api/bot/sync/signals", {"signals": signals}, retries=3,
+                   backoff=_COLD_START_BACKOFF, timeout=_COLD_START_TIMEOUT)
     if result and result.get("ok"):
         log.info(f"Synced {result.get('upserted', 0)} signal(s) to website")
         return True
@@ -448,7 +485,7 @@ def sync_tiers(tier_map: dict) -> bool:
     result = _post("/api/bot/sync/tiers", {
         "tiers": [{"telegram_id": k, "tier": v}
                   for k, v in tier_map.items()],
-    }, retries=2)
+    }, retries=3, backoff=_COLD_START_BACKOFF, timeout=_COLD_START_TIMEOUT)
     if result and result.get("ok"):
         _last_tiers_sent = digest
         log.info(f"Synced {result.get('updated', 0)} user tier(s) to website")
