@@ -4,8 +4,8 @@
   "v": 3
  },
  "js/app.js": {
-  "sha": "8018a95a8f1a701b",
-  "v": 11
+  "sha": "333ff77935fdbcd3",
+  "v": 12
  },
  "js/arena-risk-model.js": {
   "sha": "77d4026436966cf1",
@@ -28,8 +28,8 @@
   "v": 27
  },
  "js/dashboard.js": {
-  "sha": "45d5bffaa0681141",
-  "v": 139
+  "sha": "3340ff9061700bdb",
+  "v": 140
  },
  "js/duel.js": {
   "sha": "5dbbfd3297612824",
@@ -60,8 +60,8 @@
   "v": 1
  },
  "js/i18n.js": {
-  "sha": "085038b1f8731dac",
-  "v": 125
+  "sha": "447accc7336b3527",
+  "v": 126
  },
  "js/icons.js": {
   "sha": "45185741065c21cc",
@@ -81,6 +81,10 @@
  },
  "js/palette.js": {
   "sha": "09bd8620572d17f3",
+  "v": 1
+ },
+ "js/panel-error-model.js": {
+  "sha": "bde2f75a9947acad",
   "v": 1
  },
  "js/radar3d.js": {

@@ -5491,7 +5491,14 @@
       </div>`);
 
     let data = null;
-    const load = async () => { const r = await fetchJSON('/api/news'); data = r.ok ? r.data : null; return data; };
+    // `r.ok ? r.data : null` COLLAPSED EVERY FAILURE INTO THE EMPTY STATE. A
+    // 403 "your account is not approved on the bot", a 503 "this site is not
+    // wired to the bot" and a 502 all became `null`, which renderPanel renders
+    // as `empty.text` — never as a failure — so the reason code never reached
+    // the panel and no Retry, no explanation and no next step was offered for
+    // any of them. mustRead keeps 404 as genuinely-absent and lets the rest
+    // throw, carrying the code. Absent is not unreadable.
+    const load = async () => { data = mustRead(await fetchJSON('/api/news')); return data; };
     const icon = (imp) => imp === 'high' ? '🔴' : imp === 'medium' ? '🟠' : '⚪';
     const ago = (s) => { s = +s || 0; return s < 90 ? Math.max(s, 1) + 's' : s < 5400 ? Math.floor(s / 60) + 'm' : s < 172800 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd'; };
 
