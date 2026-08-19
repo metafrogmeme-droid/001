@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import re
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Optional
 
@@ -442,6 +442,67 @@ _PROVIDER_KEY_ENV = {
 
 _KEYLESS_PROVIDERS = (LLMProvider.OLLAMA, LLMProvider.RUNECLAW)
 
+#: The only tier names an `LLM_TIER_{N}_PROVIDER` variable can name. Anything
+#: else is read by nobody — see `unbound_tier_env`.
+_TIER_NAMES = frozenset(t.value.upper() for t in LLMTier)
+
+#: Hostnames that make a keyless endpoint genuinely keyless. `is_configured()`
+#: returns True for OLLAMA/RUNECLAW unconditionally, and that was correct while
+#: "keyless" meant "a server on this machine". `RUNECLAW_LLM_BASE_URL` now
+#: routinely points at a tunnel that demands an Authorization header, so for
+#: DISPLAY the two cases have to be told apart. See `LLMConfig.key_state`.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+def unbound_tier_env() -> list[str]:
+    """`LLM_TIER_*_PROVIDER` variables in the environment that name no tier.
+
+    `LLM_TIER_CHATS_PROVIDER` is read by nothing: the operator sets it,
+    restarts, and the tier stays on its default — which looks exactly like the
+    variable not working. Nothing anywhere reported this, so the only way to
+    find it was to already know the four names.
+    """
+    bad = []
+    for name in os.environ:
+        if name.startswith("LLM_TIER_") and name.endswith("_PROVIDER"):
+            if name[len("LLM_TIER_"):-len("_PROVIDER")] not in _TIER_NAMES:
+                bad.append(name)
+    return sorted(bad)
+
+
+def tier_env_ignored_reason(tier: "LLMTier", primary_config: "LLMConfig") -> str:
+    """Why an `LLM_TIER_{N}_PROVIDER` that IS set did not take effect.
+
+    Explains only; it decides nothing. Whether the variable was honoured is
+    already answered by `resolve_tier_config` stamping `source` from the branch
+    it actually took — asking a second function to re-derive that would be the
+    drifting duplicate that #97 was written to remove.
+
+    Returns "" when there is nothing to explain, and says so plainly rather
+    than inventing a cause when the reason is not one of the known ones.
+    """
+    raw = os.getenv(f"LLM_TIER_{tier.value.upper()}_PROVIDER", "").strip()
+    if not raw:
+        return ""
+    try:
+        provider = LLMProvider(raw.lower())
+    except ValueError:
+        return (f"<code>{raw}</code> is not a provider name — "
+                f"the override was skipped in silence")
+    if provider == LLMProvider.ANTHROPIC:
+        return ("Anthropic is never taken from the env: the admin path resolves "
+                "it through key health, which skips keys a 401 has condemned")
+    if provider in _KEYLESS_PROVIDERS:
+        return ""          # keyless providers are always honoured
+    key_env = _PROVIDER_KEY_ENV.get(provider, "")
+    has_key = bool(os.getenv(key_env, "") if key_env else "")
+    if not has_key and provider == primary_config.provider:
+        has_key = bool(primary_config.api_key)
+    if not has_key:
+        return (f"no key for {provider.value} — "
+                f"set <code>{key_env or 'its key env var'}</code>")
+    return "reason unknown"
+
 
 def set_tier_override(tier: "LLMTier", provider: "LLMProvider",
                       model: str = "") -> tuple[bool, str]:
@@ -524,6 +585,7 @@ def resolve_tier_config(
                     api_key=_rt_key or "",
                     model=_rt["model"] or _rt_catalog.get("default_model", ""),
                     base_url=_rt_catalog.get("base_url", ""),
+                    source="runtime",
                 )
         # No usable key / non-admin Anthropic → normal resolution below.
 
@@ -550,35 +612,24 @@ def resolve_tier_config(
 
     tier_upper = tier.value.upper()
 
-    # Admin + Anthropic route: resolve the KEY through key_health's
-    # deterministic candidate order (runtime BYOK > ANTHROPIC_API_KEY >
-    # primary .env), skipping keys marked invalid by a real 401. This fixes
-    # two recurring failure shapes (live incident 2026-07-11):
-    #   1. the old step-2 guard skipped the admin table whenever the PRIMARY
-    #      provider was also Anthropic, silently binding every tier to the
-    #      primary/BYOK slot — whichever key happened to live there;
-    #   2. one stale key in any slot captured the call path forever, with no
-    #      path to the other (valid) keys. Now a 401 condemns only that key
-    #      and the resolver auto-heals onto the next candidate.
-    if is_admin and routing_override is None:
-        _route = routing.get(tier, {})
-        if _route.get("provider") == LLMProvider.ANTHROPIC:
-            from bot.llm import key_health as _kh
-            _src, _key = _kh.pick_anthropic_key(
-                primary_config, BYOK._runtime_config)
-            if _key:
-                _catalog = PROVIDER_CATALOG.get(LLMProvider.ANTHROPIC, {})
-                return LLMConfig(
-                    provider=LLMProvider.ANTHROPIC,
-                    api_key=_key,
-                    model=_route.get("model",
-                                     _catalog.get("default_model", "")),
-                    base_url=_catalog.get("base_url", ""),
-                    effort=_route.get("effort", ""),
-                )
-            # No Anthropic key anywhere → fall through to the generic steps.
-
-    # For non-admin without an explicit override: check explicit tier env override
+    # An explicit tier pin is consulted BEFORE the admin premium path, and the
+    # ordering is the entire fix.
+    #
+    # #97 opened the env path for admins by relaxing `use_table_directly`. It
+    # had no effect whatsoever, because the admin+Anthropic block below RETURNS
+    # without ever consulting that gate — it asks only `is_admin and
+    # routing_override is None`. Every entry in ADMIN_TIER_ROUTING is
+    # Anthropic, so for any admin holding an Anthropic key the block fired on
+    # all four tiers and every LLM_TIER_{N}_PROVIDER was ignored, always.
+    # Which is the original symptom #97 was written to cure, surviving the
+    # cure: set it, restart, watch the calls still go to the admin table.
+    #
+    # Moving the env block above it rather than adding a second condition
+    # keeps the admin fallback intact: an admin with no pin skips this block on
+    # `use_table_directly` and reaches the premium path exactly as before, and
+    # an admin whose pin cannot resolve a key falls THROUGH to it and still
+    # gets key_health's condemned-key auto-heal. A `not _explicit_tier_provider`
+    # guard on the block below would have lost that second case.
     if not use_table_directly:
         tier_provider_str = os.getenv(f"LLM_TIER_{tier_upper}_PROVIDER", "")
         if tier_provider_str:
@@ -633,7 +684,40 @@ def resolve_tier_config(
                         api_key=tier_key,
                         model=tier_model or catalog.get("default_model", ""),
                         base_url=catalog.get("base_url", ""),
+                        source="env",
                     )
+
+    # Admin + Anthropic route: resolve the KEY through key_health's
+    # deterministic candidate order (runtime BYOK > ANTHROPIC_API_KEY >
+    # primary .env), skipping keys marked invalid by a real 401. This fixes
+    # two recurring failure shapes (live incident 2026-07-11):
+    #   1. the old step-2 guard skipped the admin table whenever the PRIMARY
+    #      provider was also Anthropic, silently binding every tier to the
+    #      primary/BYOK slot — whichever key happened to live there;
+    #   2. one stale key in any slot captured the call path forever, with no
+    #      path to the other (valid) keys. Now a 401 condemns only that key
+    #      and the resolver auto-heals onto the next candidate.
+    #
+    # Reached only when no explicit tier pin resolved above — see the ordering
+    # note there. An admin with no pin still lands here on the first pass.
+    if is_admin and routing_override is None:
+        _route = routing.get(tier, {})
+        if _route.get("provider") == LLMProvider.ANTHROPIC:
+            from bot.llm import key_health as _kh
+            _src, _key = _kh.pick_anthropic_key(
+                primary_config, BYOK._runtime_config)
+            if _key:
+                _catalog = PROVIDER_CATALOG.get(LLMProvider.ANTHROPIC, {})
+                return LLMConfig(
+                    provider=LLMProvider.ANTHROPIC,
+                    api_key=_key,
+                    model=_route.get("model",
+                                     _catalog.get("default_model", "")),
+                    base_url=_catalog.get("base_url", ""),
+                    effort=_route.get("effort", ""),
+                    source="admin-table",
+                )
+            # No Anthropic key anywhere → fall through to the generic steps.
 
     # 2. Check if the selected routing has a different provider with a key available
     # Non-admin guard: `routing` is ADMIN_TIER_ROUTING when is_admin, so this
@@ -661,6 +745,8 @@ def resolve_tier_config(
                 api_key=alt_key,
                 model=default_route.get("model", catalog.get("default_model", "")),
                 base_url=catalog.get("base_url", ""),
+                source=("user-tier" if routing_override is not None
+                        else "admin-table" if is_admin else "default-table"),
             )
 
     # 3. Fall back to primary config (single-provider mode)
@@ -673,8 +759,12 @@ def resolve_tier_config(
     # alternative key configured at all, so the tier truly has nothing to
     # route to for this non-admin caller.
     if not is_admin and primary_config.provider == LLMProvider.ANTHROPIC:
-        return LLMConfig(provider=primary_config.provider, api_key="")
-    return primary_config
+        return LLMConfig(provider=primary_config.provider, api_key="",
+                         source="blocked")
+    # `primary_config` is the caller's object, not ours to relabel — a frozen
+    # dataclass copied here so the stamp cannot leak back into the config the
+    # analyzer holds and compares.
+    return replace(primary_config, source="primary")
 
 
 # ════════════════════════════════════════════════════════════
@@ -707,6 +797,15 @@ class LLMConfig:
     # Fable/Mythos-family reasoning depth (output_config.effort): "" omits the
     # parameter; "low"/"medium"/"high"/"max" only sent for that family.
     effort: str = ""
+    #: WHICH BRANCH OF `resolve_tier_config` PRODUCED THIS. Stamped by the code
+    #: that actually decides, because the alternative is a second function
+    #: re-deriving the same answer and drifting from it — the exact duplicate
+    #: that #97 removed from key resolution.
+    #:
+    #: compare=False is load-bearing: `analyzer.py` tests `self._scan_config !=
+    #: self._llm_config` to decide whether a tier is separately routed, and a
+    #: provenance label must not make two otherwise-identical configs unequal.
+    source: str = field(default="", compare=False, repr=False)
 
     def __post_init__(self) -> None:
         # Resolve model default if not set
@@ -723,10 +822,57 @@ class LLMConfig:
 
     def is_configured(self) -> bool:
         """True if an API key is set (or for keyless local providers —
-        Ollama and the self-hosted RUNECLAW model need no key)."""
+        Ollama and the self-hosted RUNECLAW model need no key).
+
+        THIS IS THE SCORING ANSWER AND IT IS THE RIGHT ONE. Fail-open per
+        provider is correct here: the question it answers is "should a client
+        be built for this tier at all", and a keyless local endpoint genuinely
+        needs no key. `key_state()` is the DISPLAY answer — see there for why
+        they cannot be the same function.
+        """
         if self.provider in (LLMProvider.OLLAMA, LLMProvider.RUNECLAW):
             return True
         return bool(self.api_key)
+
+    def key_state(self) -> str:
+        """What is actually known about this tier's credential, for a reader.
+
+        `is_configured()` returns True unconditionally for OLLAMA and RUNECLAW,
+        and every surface that painted a checkmark from it printed a confident
+        all-clear it had not checked. That was true while "keyless" meant "a
+        server on this machine"; `RUNECLAW_LLM_BASE_URL` now routinely names a
+        tunnel that answers 401 without an Authorization header, and the client
+        is built with `api_key or "not-needed"`, so the call fails at the edge
+        with a green tick beside it.
+
+        This is `integrity_veto.is_reading()` for credentials: fail-open per
+        feature is the right rule for scoring and the wrong one for display,
+        and the two were one function until a remote endpoint made them differ.
+
+        One of:
+          ``key``            a key is set
+          ``keyless_local``  no key, and the endpoint is on this machine
+          ``keyless_remote`` no key, and the endpoint is NOT on this machine
+          ``missing``        no key, and this provider requires one
+
+        ``keyless_remote`` is an OBSERVATION, not a verdict — a remote endpoint
+        may well be open. It says what was seen; it does not predict a failure.
+        """
+        if self.api_key:
+            return "key"
+        if self.provider not in (LLMProvider.OLLAMA, LLMProvider.RUNECLAW):
+            return "missing"
+        try:
+            from urllib.parse import urlparse
+            host = (urlparse(self.resolved_base_url()).hostname or "").lower()
+        except Exception:
+            host = ""
+        if host in _LOCAL_HOSTS or host.endswith(".local"):
+            return "keyless_local"
+        # An unreadable or empty host is NOT evidence of a local endpoint, and
+        # defaulting it to "local" is how the reassuring answer gets printed
+        # from no data. Unknown reads as the case that needs looking at.
+        return "keyless_remote"
 
     def key_fingerprint(self) -> str:
         """Safe display of key — first 6 chars + hash. Never log the full key."""

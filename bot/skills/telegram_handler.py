@@ -8691,36 +8691,61 @@ class TelegramHandler:
             base_url=CONFIG.llm.base_url,
         )
         active_cfg = BYOK.get_active_config(env_config)
+        await self._send(update, self._llm_tier_card(active_cfg,
+                                                     self._lang(update)))
 
-        SEP = "─" * 16
-        lines = [f"🎯 {t('llm_tiers_title', self._lang(update))}\n{SEP}\n"]
+    def _llm_tier_card(self, active_cfg: LLMConfig, lang: str) -> str:
+        """Collect each tier's resolved facts and hand them to the renderer.
+
+        RESOLVED WITH is_admin=True, which this card did not do. It is gated on
+        `_is_admin` three lines up, so an admin is the only reader it can ever
+        have — and it was resolving the route a NON-admin call takes, then
+        presenting it as the routing. `/llmstatus` already passed is_admin=True
+        for its key fingerprints, so the two operator cards answered the same
+        question differently and neither said which it meant.
+        """
+        import os as _os
+
+        from bot.formatters.llm_tier_card import TierRow, render_tier_card
+        from bot.llm.provider import (_admin_routing, tier_env_ignored_reason,
+                                      unbound_tier_env)
+
+        # The rationale must come from the table that ACTUALLY routed the tier.
+        # Taking it from DEFAULT_TIER_ROUTING regardless is the same defect
+        # this card is being rebuilt to remove — an argument for a route that
+        # is not in force, printed beside a value that is.
+        _reason_table = {"admin-table": _admin_routing(),
+                         "default-table": DEFAULT_TIER_ROUTING}
+
+        rows = []
         for tier in LLMTier:
-            tier_cfg = resolve_tier_config(tier, active_cfg)
-            provider_name = tier_cfg.provider.value if isinstance(tier_cfg.provider, LLMProvider) else str(tier_cfg.provider)
-            default_route = DEFAULT_TIER_ROUTING.get(tier, {})
-            is_custom = tier_cfg != active_cfg
-            source = "tier-routed" if is_custom else "primary"
-            configured = "✅" if tier_cfg.is_configured() else "❌"
-            fix_hint = ("" if tier_cfg.is_configured() else
-                        "- <i>No API key found — fix with "
-                        "<code>/setllm &lt;provider&gt; &lt;key&gt;</code> "
-                        "(validated live, stored encrypted, survives "
-                        "redeploys)</i>\n")
-            lines.append(
-                f"{configured} <b>{tier.value.upper()}</b>\n"
-                f"- Provider: <code>{provider_name}</code>\n"
-                f"- Model: <code>{tier_cfg.model}</code>\n"
-                f"- Source: {source} | {default_route.get('reason', 'default')}\n"
-                f"{fix_hint}"
-            )
-
-        lines.append(
-            "\n<i>Set per-tier routing via env:\n"
-            "  LLM_TIER_SCAN_PROVIDER=groq\n"
-            "  LLM_TIER_THESIS_PROVIDER=gemini\n"
-            "  GEMINI_API_KEY=AIza...</i>"
+            cfg = resolve_tier_config(tier, active_cfg, is_admin=True)
+            env_var = f"LLM_TIER_{tier.value.upper()}_PROVIDER"
+            env_value = (_os.getenv(env_var, "") or "").strip()
+            # Only ask WHY when the stamp says the override did not win. The
+            # stamp comes from the branch resolve_tier_config actually took,
+            # so this never second-guesses the resolver.
+            reason = ("" if cfg.source == "env"
+                      else tier_env_ignored_reason(tier, active_cfg))
+            rows.append(TierRow(
+                tier=tier.value,
+                provider=(cfg.provider.value
+                          if isinstance(cfg.provider, LLMProvider)
+                          else str(cfg.provider)),
+                model=cfg.model,
+                source=cfg.source,
+                key_state=cfg.key_state(),
+                env_var=env_var,
+                env_value=env_value,
+                ignored_reason=reason,
+                table_reason=str(_reason_table.get(cfg.source, {})
+                                 .get(tier, {}).get("reason", "")),
+            ))
+        return render_tier_card(
+            rows,
+            unbound_env=unbound_tier_env(),
+            title=t('llm_tiers_title', lang),
         )
-        await self._send(update, "\n".join(lines))
 
     # ── Protected commands ────────────────────────────────────
 
