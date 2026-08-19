@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -62,17 +63,67 @@ def _load_baseline() -> set[str]:
     return out
 
 
+#: A pytest node id: a path to a .py file, optionally followed by ``::`` and
+#: the test within it.
+#:
+#: `startswith("ERROR ")` ALONE MATCHED CAPTURED LOG RECORDS. The suite prints
+#: what the code under test logs, and a logging formatter emits its level
+#: first, so a plain log line
+#:
+#:     ERROR    bot.utils.website_sync:website_sync.py:139 Sync HTTP error 403
+#:
+#: was parsed as a failed test called
+#: ``bot.utils.website_sync:website_sync.py:139``, which no test run can ever
+#: contain. On 2026-08-19 two of them entered a FAIL verdict as phantom
+#: failures, in the gate whose entire subject is not reporting one thing as
+#: another. It normally hides: the flake filter re-runs each new failure alone,
+#: pytest cannot collect a node that does not exist, and "could not run it" was
+#: read as "it passed" — so the phantoms were quietly filed as flaky. With the
+#: filter off (a tree that moved mid-run) they are reported as real.
+#:
+#: The shape is the discriminator. A node id starts with a path ending in
+#: ``.py``; the log line's second field is a dotted logger name with a colon in
+#: it, and cannot match.
+_NODE_ID = re.compile(r"^[\w./\\-]+\.py(?:::|$)")
+
+
 def _parse_failures(output: str) -> tuple[set[str], bool]:
     """Return (failed_node_ids, had_internal_error)."""
     failed: set[str] = set()
     internal_error = False
     for line in output.splitlines():
         if line.startswith("FAILED ") or line.startswith("ERROR "):
-            node = line.split(" ", 1)[1].split(" - ", 1)[0].strip()
-            failed.add(node)
+            # split(None, 1) rather than split(" ", 1): a log formatter pads
+            # its level column, so "ERROR    bot.utils..." has the payload
+            # several spaces later and the old split handed back whitespace.
+            parts = line.split(None, 1)
+            node = parts[1].split(" - ", 1)[0].strip() if len(parts) > 1 else ""
+            if node and _NODE_ID.match(node):
+                failed.add(node)
         if "INTERNALERROR" in line:
             internal_error = True
     return failed, internal_error
+
+
+def _rerun_verdict(returncode: int, node: str, node_failed: set[str]) -> str:
+    """Where a re-run of one failing node lands: flaky / confirmed / unjudged.
+
+    EXTRACTED SO IT CAN BE EXERCISED. This was three lines inline in main(),
+    and the first test written for it reproduced the decision in the test file
+    instead — which passed happily while the real branch was mutated back to
+    the broken version. A test of a copy of the code is not a test of the code.
+
+    Only exit code 0 means the re-run ran and passed. A node pytest could not
+    collect prints no FAILED line, so `node not in node_failed` alone read
+    "could not run it" as "it passed" — the behaviour that quietly absolved
+    every phantom node id parsed out of a log record, and so hid that parse bug
+    for as long as the flake filter was on.
+    """
+    if returncode == 0 and node not in node_failed:
+        return "flaky"
+    if node in node_failed:
+        return "confirmed"
+    return "unjudged"
 
 
 def _coverage_below_floor() -> bool:
@@ -236,12 +287,30 @@ def main() -> int:
                                cwd=ROOT, capture_output=True, text=True)
             node_failed, node_internal = _parse_failures(r.stdout + r.stderr)
             internal_error = internal_error or node_internal
-            if node in node_failed:
+            # THE RE-RUN HAS TO BE READABLE BEFORE ITS RESULT COUNTS.
+            #
+            # This was `if node in node_failed: confirmed else: flaky`, so a
+            # node pytest COULD NOT COLLECT — a bad id, a renamed test, a
+            # deleted one — printed no FAILED line, missed the set, and was
+            # filed as "passes alone (flaky/order-dependent)". Absent read as
+            # a pass, in the gate that exists to stop exactly that, and it is
+            # what hid the phantom node ids parsed out of log records above:
+            # they could never be collected, so they were always absolved.
+            #
+            # Only an exit code of 0 means it ran and passed. Anything else is
+            # not a verdict, and a failure that cannot be judged stays a
+            # failure.
+            verdict = _rerun_verdict(r.returncode, node, node_failed)
+            if verdict == "flaky":
+                flaky.append(node)
+                print(f"  ~ passes alone (flaky/order-dependent): {node}")
+            elif verdict == "confirmed":
                 confirmed.append(node)
                 print(f"  ✗ still fails alone: {node}")
             else:
-                flaky.append(node)
-                print(f"  ~ passes alone (flaky/order-dependent): {node}")
+                confirmed.append(node)
+                print(f"  ? could not be re-run alone (pytest exit "
+                      f"{r.returncode}) — counted as failing: {node}")
         flaky = sorted(flaky)
         new_failures = sorted(confirmed)
 
