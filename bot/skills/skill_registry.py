@@ -23,9 +23,17 @@ from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
 from bot.utils.logger import audit, system_log
 
-# Total number of pre-trade risk checks in the risk engine.
-# Update this constant when adding or removing checks in risk_engine.py.
-_TOTAL_RISK_CHECKS = 23
+# THE COUNT IS GONE, AND ITS OWN COMMENT SAID WHY IT HAD TO GO: "update this
+# constant when adding or removing checks" is a number maintained by hand
+# against a file that changes, and it drifted. `risk_engine.py` emits 36
+# distinct check labels; every surface claimed 23 — the landing page, the
+# onboarding ladder, chat, three Telegram messages, two i18n keys in fourteen
+# languages, and a test that pinned the string.
+#
+# A number nothing derives is a claim nobody can check, and it was understating
+# the product by a third. The real count is measured per trade and already
+# shown where it is measured (`checks_passed` on the trade card, /risk); the
+# marketing copy now says what is true without a figure attached to nothing.
 
 def _get_portfolio(engine: RuneClawEngine, **kwargs):
     """Return per-user portfolio if user_id provided, else system portfolio."""
@@ -620,7 +628,12 @@ class CheckRiskSkill(BaseSkill):
             f"\U0001f6e1 <b>Risk Gate</b>\n"
             f"- Breaker: <code>{'TRIPPED' if cb else 'CLEAR'}</code>\n"
             f"- Streak: <code>{streak} / {CONFIG.risk.max_consecutive_losses}</code>\n"
-            f"- Checks: {_traffic_light(_TOTAL_RISK_CHECKS if not cb else _TOTAL_RISK_CHECKS - streak, _TOTAL_RISK_CHECKS)}\n\n"
+            # A ROW OF GREEN DOTS IS A CLAIM ABOUT CHECK RESULTS. This drew
+            # one dot per check from the BREAKER STATE and the loss streak —
+            # neither of which is a check outcome — so a clear breaker painted
+            # a full set of passes that nothing had run. The breaker is what
+            # this card actually knows, and it is stated above.
+            f"- Gate: <code>{'fail-closed — blocking new entries' if cb else 'fail-closed — armed'}</code>\n\n"
             # ── Costs ──
             f"\u26a1 <b>Costs</b>\n"
             f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>\n"
@@ -662,7 +675,7 @@ class CheckRiskSkill(BaseSkill):
             f"- Max DD: <code>{CONFIG.risk.max_drawdown_pct}%</code>\n"
             f"- Max Daily: <code>{CONFIG.risk.max_daily_loss_pct}%</code>\n"
             f"- Vol Guard: <code>{CONFIG.risk.volatility_guard_atr_pct}% ATR</code>\n"
-            f"- Checks: {_traffic_light(_TOTAL_RISK_CHECKS if not cb else _TOTAL_RISK_CHECKS - streak, _TOTAL_RISK_CHECKS)}"
+            f"- Gate: <code>{'fail-closed — blocking new entries' if cb else 'fail-closed — armed'}</code>"
         )
 
 
@@ -1422,7 +1435,7 @@ class RunStrategySkill(BaseSkill):
             a = f"  <i>/{aliases[0]}</i>" if aliases else ""
             lines.append(f"  {cfg['icon']} <b>{cfg['label']}</b>{a}")
             lines.append(f"     <i>{cfg['desc']}</i>")
-        lines.append("\n<i>\u25b8 Say \"run\" + name \u2022 21 checks active</i>")
+        lines.append("\n<i>\u25b8 Say \"run\" + name \u2022 full risk gate on every entry</i>")
         lines.append("<i>\u25b8 Or: say \"run BTC\", \"run SOL\", etc.</i>")
         return "\n".join(lines)
 
@@ -2586,7 +2599,7 @@ class PlaybookSkill(BaseSkill):
         # ── Section 3: Rulebook ──
         lines.append(f"\n\U0001f6e1 <b>RULEBOOK</b>\n{SEP}")
         risk = engine.risk
-        lines.append(f"- Risk Checks: <code>{_TOTAL_RISK_CHECKS} fail-closed gates</code>")
+        lines.append("- Risk Checks: <code>fail-closed gates, every entry</code>")
         lines.append(f"- Min Confidence: <code>{CONFIG.risk.min_confidence:.0%}</code>")
         lines.append(f"- Min R:R: <code>{CONFIG.risk.min_risk_reward}x</code>")
         lines.append(f"- Max Drawdown: <code>{CONFIG.risk.max_drawdown_pct:.0f}%</code>")

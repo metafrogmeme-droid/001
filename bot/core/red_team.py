@@ -2,7 +2,7 @@
 RUNECLAW Red Team Engine -- adversarial stress testing for the risk engine.
 
 Generates adversarial TradeIdea scenarios designed to bypass or confuse
-the 23-check risk engine, runs each through the real engine, and produces
+the fail-closed risk engine, runs each through the real engine, and produces
 a structured report of what was caught and what slipped through.
 """
 

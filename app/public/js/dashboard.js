@@ -988,7 +988,7 @@
           hint: T('dd.chk_verify_h', 'Confirm your address to secure the account and enable recovery.'),
           cta: { label: T('dd.cta_verify', 'Resend verification'), href: '#account/aprof' } },
         { key: 'paper', done: traded, label: T('dd.cta_paper', 'Place a paper trade'),
-          hint: T('dd.chk_paper_h', 'Real 23-check risk gate, zero risk — watch the engine execute.'),
+          hint: T('dd.chk_paper_h', 'Real fail-closed risk gate, zero risk — watch the engine execute.'),
           cta: { label: T('dd.cta_ticket', 'Open the trade ticket'), href: '#trade' } },
         // Telegram BEFORE exchange keys — connecting keys requires a linked
         // Telegram account, so the ladder must climb in that order (the old
@@ -2501,7 +2501,7 @@
             <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.prevticket">The order ticket you'd be using</span>
               <span class="badge" style="margin-left:auto">preview</span></h2>
             <p class="small muted" style="margin-bottom:var(--s3)">Every order — paper or live — runs the engine's
-            <b>23-check risk gate</b> before it exists. New accounts trade paper by default: real prices, real
+            <b>fail-closed risk gate</b> before it exists. New accounts trade paper by default: real prices, real
             liquidation math, zero risk.</p>
             <div class="row" style="gap:var(--s3);flex-wrap:wrap;opacity:.55;pointer-events:none" aria-hidden="true">
               <input class="input" value="BTCUSDT" disabled style="max-width:9rem">
