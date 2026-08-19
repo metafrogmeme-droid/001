@@ -5027,7 +5027,7 @@ class TelegramHandler:
                 "\u2600\ufe0f <b>SOLANA MODE ACTIVE</b>\n\n"
                 f"Scanner now prioritizes {len(SOLANA_ECOSYSTEM_SYMBOLS)} Solana ecosystem tokens:\n"
                 f"<i>{tokens}</i>\n\n"
-                "All 23 risk checks still apply. Meme tokens (BONK, WIF) "
+                "The full risk gate still applies. Meme tokens (BONK, WIF) "
                 "use tighter volatility and correlation limits.\n\n"
                 "Use <code>/mode all</code> to switch back."
             ))
@@ -6436,7 +6436,7 @@ class TelegramHandler:
             "🎯 <b>Got it — you want to adjust how I trade.</b>\n\n"
             f"Current: <b>{current.capitalize()}</b>\n"
             f"Proposed: {self._STANCE_BLURB[stance]}\n\n"
-            "<i>Nothing changes until you confirm. The 23-check risk gate, "
+            "<i>Nothing changes until you confirm. The fail-closed risk gate, "
             "loss breakers and drawdown caps apply in every stance.</i>",
             reply_markup=kb)
 
@@ -6470,7 +6470,7 @@ class TelegramHandler:
                     "<code>/policy set only majors, max 5% per trade, "
                     "no shorts, min confidence 70%</code>\n\n"
                     f"<i>Enforcement flag INTENT_POLICY_ENABLED is "
-                    f"<b>{'ON' if enabled else 'OFF'}</b>. The engine's 23-check "
+                    f"<b>{'ON' if enabled else 'OFF'}</b>. The engine's fail-closed "
                     "risk gate always applies regardless.</i>")
                 return
             body = ip.human_readable(summ)
@@ -6874,7 +6874,7 @@ class TelegramHandler:
                     "hash": policy.get("compiled_hash"), "bound": bool(bound)})
         await self._send(update,
             f"🛡 Policy applied — {state}.\n"
-            "<i>The 23-check risk gate always applies; a policy can only add "
+            "<i>The fail-closed risk gate always applies; a policy can only add "
             "tighten-only rejections.</i>", edit=True)
 
     async def _cmd_agent(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

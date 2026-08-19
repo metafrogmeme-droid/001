@@ -300,7 +300,7 @@
       // First conversation ever: the agent introduces itself properly.
       appendMsg('bot',
         '👋 I\'m <b>your RUNECLAW agent</b> — the same engine that scans 60+ pairs, '
-        + 'gates every idea through a 23-check risk engine, and trades autonomously.<br><br>'
+        + 'gates every idea through a fail-closed risk engine, and trades autonomously.<br><br>'
         + 'Talk to me like a colleague: ask for a <b>market briefing</b>, the '
         + '<b>highest-conviction setup</b>, or a <b>post-mortem</b> of any trade. '
         + 'You can even place paper trades right here — try '

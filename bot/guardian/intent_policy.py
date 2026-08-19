@@ -14,7 +14,7 @@ Two invariants make this safe on a live-money engine:
 * **A policy may only TIGHTEN, never loosen.** ``compile_policy`` clamps every
   numeric rule against the engine's authoritative cap (a ``max_*`` rule can't be
   set higher than the engine cap; a ``min_*`` rule can't be set lower). The
-  engine's own 23 checks always still run — the policy is an *additional* gate.
+  engine's own checks always still run — the policy is an *additional* gate.
 * **Enforcement is deterministic and fail-open per rule.** A rule that can't be
   evaluated (missing runtime data, malformed value) is skipped, never crashes —
   the engine's own caps remain the floor, so a policy bug can't halt trading.

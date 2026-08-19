@@ -27,7 +27,6 @@ from typing import Any
 
 from bot.core.engine import RuneClawEngine
 from bot.skills.skill_registry import (
-    _TOTAL_RISK_CHECKS,
     SkillRegistry,
     build_default_registry,
 )
@@ -128,9 +127,10 @@ TOOL_CATALOGUE: tuple[MCPToolDef, ...] = (
         mcp_name="runeclaw_shield",
         skill_name="_shield_evaluate",
         description=(
-            f"RUNECLAW Shield: {_TOTAL_RISK_CHECKS} fail-closed risk checks on a "
-            "trade proposal. Any external agent can call this to get an immutable "
-            "safety decision. Returns approved/rejected with check details."
+            "RUNECLAW Shield: fail-closed risk checks on a trade proposal. "
+            "Any external agent can call this to get an immutable safety "
+            "decision. Returns approved/rejected with check details — the "
+            "checks that actually ran are named in the response."
         ),
         params=(
             MCPToolParam(

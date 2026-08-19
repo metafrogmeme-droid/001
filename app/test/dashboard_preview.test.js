@@ -17,7 +17,11 @@ const shell = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard.ht
 test('the Trade view previews the live market + a disabled ticket when logged out', () => {
   assert.match(js, /id="p-prevmkt"/);
   assert.match(js, /api\/market\/tickers/);
-  assert.match(js, /23-check risk gate/);
+  // Was `/23-check risk gate/`. It pinned a hardcoded count that nothing
+  // derived and that had drifted — the engine emits 36 distinct check labels
+  // — so this test was holding a wrong number in place across eleven
+  // surfaces. What the preview must promise is the GATE, not a figure.
+  assert.match(js, /fail-closed risk gate/);
   assert.match(js, /pointer-events:none/);            // the ticket is visibly a preview
   assert.match(js, /Or try the Paper Arena first/);
 });
