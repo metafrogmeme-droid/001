@@ -255,9 +255,26 @@ class BlackSwanDetector:
         if worst is None:
             return None
         drop, current, baseline, peer = worst
-        # Full severity means a genuinely tight pair inverting (drop ~1.0+),
-        # not merely dipping under the threshold.
-        severity = self._severity_from_ratio(drop, floor=0.0, ceiling=1.0)
+        # THE SCALE MUST SPAN THE RANGE IT MEASURES, and this one spanned half.
+        # A correlation is bounded [-1, 1], so `drop` is bounded [0, 2] — at a
+        # ceiling of 1.0 ANY pair falling from a 0.6+ baseline into negative
+        # territory scored a saturated 1.00. Observed live on 2026-08-19:
+        # LINK/RTXSTOCK 0.724 -> -0.375 (drop 1.099), HBAR/ACE 0.635 -> -0.551
+        # (1.186), ACE/NATGAS 0.700 -> -0.408 (1.108), ACE/HBAR 0.700 -> -0.598
+        # (1.298). Four maximum-severity pages in sixteen minutes, none of them
+        # a market emergency — ACE decorrelating from natural gas scored what a
+        # total inversion of a tightly-coupled pair would.
+        #
+        # Everything at/above _HALT_SEVERITY takes the severe path in
+        # proactive_monitor and gets its own card; the digest built to collapse
+        # these never saw them. A severity whose maximum is the COMMON case
+        # carries no information, and red arriving every few minutes is read as
+        # decoration — which is how the next real one becomes invisible.
+        #
+        # The comment here used to say full severity meant "a genuinely tight
+        # pair inverting". At ceiling 1.0 it did not: a tight pair inverting is
+        # 1.0 -> -1.0, a drop of two. The ceiling now says what it claimed.
+        severity = self._severity_from_ratio(drop, floor=0.0, ceiling=2.0)
         action = "HALT_NEW_TRADES" if severity >= _HALT_SEVERITY else "REDUCE_POSITION_SIZE"
         return AnomalyAlert(
             anomaly_type=AnomalyType.CORRELATION_BREAKDOWN,
@@ -428,10 +445,23 @@ class BlackSwanDetector:
         ratio = latest / baseline
 
         if ratio > _SPREAD_FACTOR:
+            # EMPIRICAL, unlike the correlation ceiling above — a spread ratio
+            # is unbounded, so no arithmetic argument fixes the top of the
+            # scale. What fixed it here is that 8x was reached constantly: the
+            # 2026-08-19 flood included BBSTOCK at 8.4x and RTXSTOCK at 10.6x,
+            # both saturating at 1.00. Those are tokenized equities outside
+            # their market's hours, where a spread several times baseline is
+            # what the instrument does, not an emergency.
+            #
+            # A 20x ceiling leaves both of those mid-scale (0.35, 0.48) and in
+            # the digest, while a genuine liquidity failure still reaches 1.00.
+            # This is a calibration judgement on observed data, not a proof —
+            # if a real 10x blowout is later judged page-worthy, this number is
+            # the one to move, and moving it changes no trading behaviour.
             severity = self._severity_from_ratio(
                 ratio,
                 floor=_SPREAD_FACTOR,
-                ceiling=_SPREAD_FACTOR * 4,  # 8x → severity 1.0
+                ceiling=_SPREAD_FACTOR * 10,  # 20x → severity 1.0
             )
             action = "HALT_NEW_TRADES" if severity >= _HALT_SEVERITY else "MONITOR"
             return AnomalyAlert(
