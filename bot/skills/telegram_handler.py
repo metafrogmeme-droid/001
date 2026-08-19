@@ -3750,9 +3750,30 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
 
+        # A ROSTER READ FROM A DATABASE THIS PROCESS JUST CREATED is not a
+        # roster of who is registered — it is a roster of who has interacted
+        # since. Both render as a confident count, which is how "the users are
+        # gone" looked identical to "nobody ever signed up".
+        fresh_db = ""
+        try:
+            from bot.db.models import database_is_new
+            if database_is_new():
+                fresh_db = (
+                    "\n\n⚠️ <b>This database was created on this run.</b>\n"
+                    "No database file existed when the bot started, so this "
+                    "list is everyone who has interacted SINCE — not "
+                    "necessarily everyone who was registered before. Check "
+                    "that the bot was launched from the directory holding the "
+                    "persistent <code>data/</code>.")
+        except Exception:
+            fresh_db = ""
+
         all_users = self.users.list_users()
         if not all_users:
-            await self._send(update, f"\U0001f4cb {t('no_registered_users', self._lang(update))}")
+            await self._send(
+                update,
+                f"\U0001f4cb {t('no_registered_users', self._lang(update))}"
+                + fresh_db)
             return
 
         counts = self.users.count()
@@ -3784,7 +3805,7 @@ class TelegramHandler:
         if len(all_users) > 15:
             lines.append(f"\n<i>{t('users_more', self._lang(update), n=len(all_users))}</i>")
 
-        await self._send(update, "\n".join(lines))
+        await self._send(update, "\n".join(lines) + fresh_db)
 
     async def _cmd_accounts(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /accounts — live risk snapshot per trading account.

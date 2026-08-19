@@ -13,16 +13,18 @@ import json
 import re
 import threading
 from datetime import datetime
-from pathlib import Path
 
 from bot.compat import UTC
 from bot.marketing.public_text import scrub_money
 from bot.utils.logger import audit, system_log
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import state_path
 
 # Persistent config file for group chat IDs
-_CONFIG_PATH = Path("data/channel_config.json")
+# Repo-root anchored (bot/utils/paths.py): cwd-relative meant the forwarder
+# silently forgot every configured channel when started from elsewhere.
+_CONFIG_PATH = state_path("data/channel_config.json")
 
 
 class ChannelForwarder:

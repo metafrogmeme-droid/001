@@ -16,16 +16,16 @@ envelope authorises nothing).
 from __future__ import annotations
 
 import json
-import os
 import threading
 from typing import Optional
 
 from bot.guardian.authority import VALID_MODES, revoke as _revoke_env
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import env_state_path
 
-_DEFAULT_PATH = os.environ.get(
-    "USER_AUTHORITY_STORE_PATH", "data/user_authority.json")
+_DEFAULT_PATH = str(env_state_path(
+    "USER_AUTHORITY_STORE_PATH", "data/user_authority.json"))
 
 
 class UserAuthorityStore:

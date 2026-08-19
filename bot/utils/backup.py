@@ -23,11 +23,14 @@ from __future__ import annotations
 import glob
 import hashlib
 import json
+import logging
 import os
 import tarfile
 import time
 from pathlib import Path
 from typing import Optional
+
+from bot.utils.paths import REPO_ROOT, env_state_path
 
 _CRITICAL = [
     "logs/audit_chain.jsonl",
@@ -44,8 +47,28 @@ _CRITICAL = [
 _CRITICAL_GLOBS = ["data/learning/*", "data/portfolio_*", "data/risk_state_*"]
 
 
+#: Same anchor as bot/db/models.py, for the same reason. Every path in
+#: `_CRITICAL` is relative, `critical_paths` defaults `root` to ".", and
+#: `_backup_dir` defaulted to a relative "data/backups" — so a process started
+#: from the wrong working directory found none of the critical files,
+#: `p.is_file()` was False for all of them, and it wrote a valid archive with
+#: an EMPTY manifest into a directory nobody looks in, reporting success.
+#:
+#: The per-file honesty was already there ("a missing file is recorded as
+#: absent, never fabricated"); what was missing is that all-absent is not a
+#: backup, and the whole set going absent at once is a configuration fault
+#: rather than a run with nothing to save.
+logger = logging.getLogger(__name__)
+
+
+def rootp_of(root: str = "") -> Path:
+    """The directory the critical set is resolved against. One definition, so
+    the message naming it and the code reading it cannot disagree."""
+    return Path(root).expanduser() if root else REPO_ROOT
+
+
 def _backup_dir() -> Path:
-    return Path(os.environ.get("BACKUP_DIR", "data/backups"))
+    return env_state_path("BACKUP_DIR", "data/backups")
 
 
 def _keep() -> int:
@@ -61,8 +84,11 @@ _ENV_OVERRIDES = {
 }
 
 
-def critical_paths(root: str = ".") -> list[Path]:
-    rootp = Path(root)
+def critical_paths(root: str = "") -> list[Path]:
+    """Resolve the critical set. `root` defaults to the REPO ROOT, not "." —
+    a cwd-relative default meant the backup contents depended on who launched
+    the process."""
+    rootp = rootp_of(root)
     found: list[Path] = []
     for rel in _CRITICAL:
         env_key = _ENV_OVERRIDES.get(rel)
@@ -85,7 +111,7 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def create_backup(root: str = ".", now: Optional[float] = None) -> tuple[Path, dict]:
+def create_backup(root: str = "", now: Optional[float] = None) -> tuple[Path, dict]:
     """Snapshot the critical set. Returns (archive_path, manifest)."""
     ts = int(now if now is not None else time.time())
     dest = _backup_dir()
@@ -106,6 +132,15 @@ def create_backup(root: str = ".", now: Optional[float] = None) -> tuple[Path, d
             rel = str(p).lstrip("/")
             manifest["files"][rel] = _sha256(p)
             tar.add(p, arcname=rel)
+    # AN EMPTY BACKUP IS NOT A BACKUP. Per-file absence is recorded honestly
+    # and always has been, but the whole critical set going absent at once is
+    # not a quiet run with nothing to save — it is the process looking in the
+    # wrong place, and it used to return an archive and a success.
+    if not files:
+        logger.error(
+            "BACKUP CAPTURED NOTHING — none of the %d critical paths exist "
+            "under %s. This archive is empty; nothing has been backed up.",
+            len(_CRITICAL), rootp_of(root))
     (dest / f"{name}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
     _rotate(dest)
     return archive, manifest
@@ -170,7 +205,7 @@ def verify_backup(archive: Path | str) -> tuple[bool, list[str]]:
     return (len(problems) == 0), problems
 
 
-def maybe_daily_backup(root: str = ".", now: Optional[float] = None) -> Optional[Path]:
+def maybe_daily_backup(root: str = "", now: Optional[float] = None) -> Optional[Path]:
     """Opportunistic throttled backup (called from the publish scheduler).
     Fail-soft by contract: callers wrap in try/except."""
     try:

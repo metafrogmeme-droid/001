@@ -43,6 +43,7 @@ from bot.config import CONFIG
 from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
 from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
 from bot.utils.logger import audit, system_log
+from bot.utils.paths import env_state_path
 
 # Fail-closed: gateway refuses all requests unless the operator configured a
 # strong shared secret on both sides (bot + Express).
@@ -1116,8 +1117,8 @@ def _web_live_ledger():
     if _WEB_LIVE_LEDGER is None:
         from bot.guardian.authority_ledger import AuthoritySpendLedger
         _WEB_LIVE_LEDGER = AuthoritySpendLedger(
-            state_file=os.environ.get("WEB_LIVE_LEDGER_PATH",
-                                      "data/web_live_ledger.json"))
+            state_file=str(env_state_path("WEB_LIVE_LEDGER_PATH",
+                                          "data/web_live_ledger.json")))
     return _WEB_LIVE_LEDGER
 
 

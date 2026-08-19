@@ -41,6 +41,7 @@ from bot.core.dashboard_pusher import (
 )
 from bot.utils.audit_chain import AuditChain, DecisionRecord
 from bot.utils.durable_io import fsync_dir
+from bot.utils.paths import env_state_path
 from bot.utils.logger import audit, system_log, trade_log, scan_log
 
 #: Stages of one analysis, in the order they run. Module-level, not a class
@@ -288,6 +289,21 @@ def _stage_profile_record(engine, stage, symbol, seconds) -> None:
     except Exception:
         pass
 
+def _of_snapshot_path() -> str:
+    """The order-flow snapshot file, repo-root anchored (bot/utils/paths.py).
+
+    ONE DEFINITION FOR BOTH ENDS. The reader (warm_oi_history) and the writer
+    (record_snapshot) each spelled out the same relative default, and a
+    relative path resolves against the working directory — so the two agreed
+    only for as long as every process was launched from the same place. A
+    writer and a reader disagreeing about where the history lives looks
+    exactly like a cold start, forever.
+    """
+    return str(env_state_path("OF_SNAPSHOT_PATH",
+                              "data/learning/order_flow_snapshots.jsonl"))
+
+
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -362,7 +378,7 @@ class RuneClawEngine:
         # Best-effort: returns 0 (cold start) on any problem.
         try:
             warmed = self.order_flow.warm_oi_history(
-                os.getenv("OF_SNAPSHOT_PATH", "data/learning/order_flow_snapshots.jsonl"))
+                _of_snapshot_path())
             if warmed:
                 system_log.info("OI history warmed from snapshots for %d symbols", warmed)
         except Exception:
@@ -4640,7 +4656,7 @@ class RuneClawEngine:
                 try:
                     from bot.backtest.recorded_order_flow import record_snapshot
                     record_snapshot(
-                        os.getenv("OF_SNAPSHOT_PATH", "data/learning/order_flow_snapshots.jsonl"),
+                        _of_snapshot_path(),
                         of_signal,
                     )
                 except Exception:

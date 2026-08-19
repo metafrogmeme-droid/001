@@ -22,13 +22,13 @@ ranks whatever sealed, public-safe publications have been registered.
 from __future__ import annotations
 
 import json
-import os
 import threading
 from typing import Any, Iterable, Optional
 
 from bot.proofofpnl.publish import verify_publication
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import env_state_path
 
 HANDLE_MAX = 20
 
@@ -190,8 +190,8 @@ def get_leaderboard_registry() -> LeaderboardRegistry:
     with _REGISTRY_LOCK:
         if _REGISTRY is None:
             _REGISTRY = LeaderboardRegistry(
-                os.environ.get("PROOFOFPNL_LEADERBOARD_PATH",
-                               "data/proofofpnl_leaderboard.json"))
+                str(env_state_path("PROOFOFPNL_LEADERBOARD_PATH",
+                                   "data/proofofpnl_leaderboard.json")))
         return _REGISTRY
 
 
