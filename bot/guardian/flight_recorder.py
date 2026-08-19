@@ -28,6 +28,13 @@ _REASONING_MAX = 320
 _MAX_VOTES = 12
 _MAX_FACTORS = 8
 _MAX_CHECKS = 40
+#: Reasoning-chain steps kept in the seal. A live report produces six —
+#: data_collection, regime_detection, multi_timeframe, smart_money,
+#: confluence_scoring, strategy_selection — with summaries of 8 to 44
+#: characters, so the whole chain costs about half a kilobyte. The cap is
+#: double the observed length: room for the pipeline to grow without a silent
+#: cut, and a bound so one pathological report cannot bloat the chain.
+_MAX_STEPS = 12
 
 
 # ── small, defensive coercers ────────────────────────────────────────
@@ -210,10 +217,35 @@ def _explain_slice(report: Any) -> Optional[dict]:
                 "contribution_pct": _round(f.get("contribution_pct"), 2),
                 "direction": _trim(f.get("direction", ""), 12),
             })
+        # THE CHAIN WAS PRODUCED AND DROPPED. `ExplainabilityReport` carries a
+        # step-by-step trace — what data went in, what came out, which way it
+        # pushed — and the slice kept the CONCLUSIONS (top_bullish, factors,
+        # summary) while discarding the derivation. A sealed record that says
+        # "bullish, 68% confluence" and cannot show the path to it asks the
+        # reader to trust the arithmetic, which is the one thing a hash chain
+        # exists to remove.
+        #
+        # Adding it is forward-only: the chain hashes
+        # sha256(f"{seq}|{type}|{json(payload)}") over the payload AS GIVEN, so
+        # historical entries keep hashing their own stored bytes. No migration,
+        # no reseal — the same property the v4 call seal has.
+        steps = [st for st in (report.get("reasoning_chain") or [])
+                 if isinstance(st, dict)]
         return {
             "top_bullish": [_trim(x, 60) for x in (report.get("top_bullish") or [])][:3],
             "top_bearish": [_trim(x, 60) for x in (report.get("top_bearish") or [])][:3],
             "factors": slim_factors,
+            "reasoning_chain": [{
+                "stage": _trim(st.get("stage") or "", 40),
+                "input": _trim(st.get("input_summary") or "", 120),
+                "output": _trim(st.get("output_summary") or "", 120),
+                "impact": _trim(st.get("impact") or "", 12),
+            } for st in steps[:_MAX_STEPS]],
+            # The TRUE length, beside the capped list. A reader who sees twelve
+            # steps has no way to know whether that was all of them; a trace
+            # that silently stops is a partial presented as a derivation, which
+            # is the defect this field was added to remove.
+            "reasoning_steps_total": len(steps),
             "compliance": _round(compliance.get("overall") if isinstance(compliance, dict) else None, 3),
             "summary": _trim(report.get("summary", ""), 240),
         }

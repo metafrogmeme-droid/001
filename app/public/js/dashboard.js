@@ -7389,6 +7389,22 @@
       <span class="small muted" style="width:52px;text-align:right;font-variant-numeric:tabular-nums">${pct === null ? '—' : pct.toFixed(1) + '%'}</span></div>`;
   }
 
+  // THE DERIVATION, not just the conclusion. The sealed record carries a
+  // step-by-step trace — what went in, what came out, which way it pushed —
+  // and the card showed only what it concluded. A receipt that states a
+  // verdict and cannot show the path to it asks for exactly the trust a hash
+  // chain exists to remove.
+  function chainStep(st) {
+    const col = st.impact === 'bullish' ? 'var(--up,#31c48d)'
+      : st.impact === 'bearish' ? 'var(--down,#f05252)' : 'var(--muted,#8a94a6)';
+    const stage = st && st.stage ? String(st.stage).replace(/_/g, ' ') : '';
+    return `<div style="display:flex;gap:8px;margin:3px 0;align-items:baseline">
+      <span style="flex:0 0 3px;align-self:stretch;background:${col};border-radius:2px"></span>
+      <span class="small" style="flex:0 0 120px;color:var(${stage ? '--text' : '--text-3'})">${stage ? esc(stage) : 'unnamed stage'}</span>
+      <span class="small muted" style="flex:1">${st.output ? esc(st.output) : '<i>no output recorded</i>'}${st.input ? `<br><span style="opacity:.65">from ${esc(st.input)}</span>` : ''}</span>
+    </div>`;
+  }
+
   function tags(list, col) {
     if (!list || !list.length) return '';
     return list.map((x) => `<span class="chip" style="font-size:11px;padding:1px 7px;border-color:${col};color:${col}">${esc(x)}</span>`).join(' ');
@@ -7433,6 +7449,14 @@
     const bullish = tags(explain.top_bullish, 'var(--up,#31c48d)');
     const bearish = tags(explain.top_bearish, 'var(--down,#f05252)');
     const factorRows = (explain.factors || []).map(factorRow).join('');
+    const chain = explain.reasoning_chain || [];
+    // The seal carries the TRUE step count beside the capped list. Showing
+    // twelve of eighteen as if it were the whole derivation is a partial
+    // presented as a total — say what is missing rather than stopping.
+    const chainTotal = explain.reasoning_steps_total;
+    const chainCut = (typeof chainTotal === 'number' && chainTotal > chain.length)
+      ? `<div class="small muted" style="margin-top:4px">Showing ${chain.length} of ${chainTotal} steps — the rest is not in the seal.</div>` : '';
+    const chainRows = chain.map(chainStep).join('');
 
     return `<article class="panel" style="margin-bottom:var(--s3)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -7449,6 +7473,7 @@
         <div style="margin-top:8px;display:grid;gap:10px">
           ${votes ? `<div><div class="small muted" style="margin-bottom:4px">Why — ranked voter contributions</div>${votes}</div>` : ''}
           ${factorRows ? `<div><div class="small muted" style="margin-bottom:4px">Factor attribution — share of the weighted decision</div>${factorRows}</div>` : ''}
+          ${chainRows ? `<div><div class="small muted" style="margin-bottom:4px">Reasoning chain — how the decision was reached</div>${chainRows}${chainCut}</div>` : ''}
           <div><div class="small muted" style="margin-bottom:2px">Risk gate</div><div class="small">${riskLine}</div></div>
           ${provline ? `<div><div class="small muted" style="margin-bottom:2px">Model &amp; data provenance</div><div class="small">${provline}</div></div>` : ''}
           <div><div class="small muted" style="margin-bottom:2px">Trade geometry</div>

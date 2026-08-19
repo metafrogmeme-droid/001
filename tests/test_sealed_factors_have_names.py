@@ -156,3 +156,76 @@ def test_the_slice_is_reached_from_the_decision_payload():
     names = [f["name"] for f in (payload.get("explain") or {}).get("factors", [])]
     assert names and all(names), (
         f"the decision payload seals nameless factors: {names}")
+
+
+# ── the derivation, not only the conclusion ─────────────────────────────────
+
+class TestTheReasoningChainIsSealed:
+    """`ExplainabilityReport` carries a step-by-step trace — what data went in,
+    what came out, which way it pushed — and `_explain_slice` kept the
+    CONCLUSIONS (top_bullish, factors, summary) while discarding the derivation.
+
+    A sealed record that states "bullish, 0.68 confluence" and cannot show the
+    path to it asks the reader to trust the arithmetic, which is the one thing
+    a hash chain exists to remove.
+
+    Adding it is forward-only. The chain hashes
+    `sha256(f"{seq}|{type}|{json(payload)}")` over the payload AS GIVEN, so
+    every historical entry keeps hashing its own stored bytes — no migration,
+    no reseal, the same property the v4 call seal has.
+    """
+
+    def test_the_chain_is_in_the_seal(self):
+        sealed = _explain_slice(_real_report())
+        chain = sealed["reasoning_chain"]
+        assert chain, "the reasoning chain is being dropped again"
+        stages = [st["stage"] for st in chain]
+        assert "regime_detection" in stages and "confluence_scoring" in stages, stages
+        for st in chain:
+            assert set(st) == {"stage", "input", "output", "impact"}, st
+
+    def test_the_true_step_count_rides_beside_the_capped_list(self):
+        """A reader who sees twelve steps has no way to know whether that was
+        all of them. A trace that silently stops is a partial presented as a
+        derivation — the defect this field exists to remove, one level in."""
+        from bot.guardian.flight_recorder import _MAX_STEPS
+
+        many = {"reasoning_chain": [
+            {"stage": f"s{i}", "input_summary": "i", "output_summary": "o", "impact": "neutral"}
+            for i in range(_MAX_STEPS + 7)]}
+        sealed = _explain_slice(many)
+        assert len(sealed["reasoning_chain"]) == _MAX_STEPS
+        assert sealed["reasoning_steps_total"] == _MAX_STEPS + 7, (
+            "the seal records only what it kept, so a truncated trace is "
+            "indistinguishable from a complete one")
+
+    def test_an_absent_chain_is_an_empty_list_and_a_zero(self):
+        sealed = _explain_slice({"top_bullish": ["x"]})
+        assert sealed["reasoning_chain"] == []
+        assert sealed["reasoning_steps_total"] == 0
+
+    def test_malformed_steps_are_skipped_not_crashed_on(self):
+        sealed = _explain_slice({"reasoning_chain": ["nope", 7, None,
+                                                    {"stage": "ok"}]})
+        assert [st["stage"] for st in sealed["reasoning_chain"]] == ["ok"]
+        assert sealed["reasoning_steps_total"] == 1, (
+            "the total counts entries that could not be read, so it overstates "
+            "what was sealed")
+
+    def test_a_step_missing_its_summaries_seals_empty_strings(self):
+        sealed = _explain_slice({"reasoning_chain": [{"stage": "regime_detection"}]})
+        st = sealed["reasoning_chain"][0]
+        assert st["stage"] == "regime_detection"
+        assert st["input"] == "" and st["output"] == "" and st["impact"] == ""
+
+    def test_the_chain_is_reached_from_the_decision_payload(self):
+        class _Idea:
+            id, direction = "TI-1", "LONG"
+            entry_price, stop_loss, take_profit = 1.0, 0.9, 1.2
+            confidence, risk_reward_ratio = 0.7, 2.0
+
+        idea = _Idea()
+        idea._explain_report = _real_report()
+        explain = decision_idea_payload(idea).get("explain") or {}
+        assert explain.get("reasoning_chain"), (
+            "the decision payload seals no reasoning chain")
