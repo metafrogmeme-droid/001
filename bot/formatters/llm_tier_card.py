@@ -43,13 +43,10 @@ SEP = "─" * 16
 #: unqualified pass. `keyless_remote` is deliberately NOT a pass: the tick that
 #: used to sit there came from `is_configured()`, which returns True for
 #: RUNECLAW unconditionally, so it was printed without anything being checked.
-_KEY_STATE = {
-    "key": ("✅", "key set"),
-    "keyless_local": ("✅", "keyless — endpoint is on this machine"),
-    "keyless_remote": ("⚠️", "no key, and the endpoint is NOT local "
-                                       "— a remote endpoint usually wants one"),
-    "missing": ("❌", "no API key found"),
-}
+#:
+#: IMPORTED, not restated. Three surfaces report this state and two had already
+#: drifted; a private copy here is how the next one gets a tick back.
+from bot.llm.provider import KEY_STATE_TEXT as _KEY_STATE  # noqa: E402
 
 #: `LLMConfig.source` in words. These are the branches `resolve_tier_config`
 #: actually takes, stamped by that function rather than re-derived here.

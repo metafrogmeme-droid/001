@@ -438,12 +438,15 @@ def test_both_operator_cards_resolve_for_the_same_audience():
     # Sliced to the NEXT definition, not to a fixed character count — a count
     # that stops short of the call passes for the wrong reason.
     # End markers must be CODE: code_only() strips comments, so a comment
-    # banner as a delimiter is not there to find.
-    for marker, end in (("_cmd_llmstatus", "def _cmd_llmreset"),
-                        ("_llm_tier_card", "def _cmd_dashboard")):
+    # banner as a delimiter is not there to find. `_llm_tier_card` resolves
+    # THROUGH `tier_report` now, so the call it must carry differs — asserting
+    # `resolve_tier_config` in both would be asserting yesterday's structure.
+    for marker, end, call in (
+            ("_cmd_llmstatus", "def _cmd_llmreset", "resolve_tier_config"),
+            ("_llm_tier_card", "def _cmd_dashboard", "tier_report")):
         i = src.index(f"def {marker}")
         body = src[i:src.index(end, i)]
-        assert "resolve_tier_config" in body, f"{marker} no longer resolves"
+        assert call in body, f"{marker} no longer resolves via {call}"
         assert "is_admin=True" in body, (
             f"{marker} resolves tier routing without is_admin=True, so it "
             "reports a route its only possible reader never takes")

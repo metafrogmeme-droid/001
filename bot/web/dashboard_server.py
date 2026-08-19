@@ -97,28 +97,51 @@ async def handle_state(request: web.Request) -> web.Response:
     except Exception:
         data["engine"] = {"state": "UNKNOWN"}
 
-    # LLM Tiers
+    # LLM Tiers — RESOLVED, not recited.
+    #
+    # This block used to serialise DEFAULT_TIER_ROUTING, a module constant,
+    # into a payload named /api/state. It never called resolve_tier_config, so
+    # the panel could not reflect an env pin, a runtime /settier override, the
+    # admin premium table, or whether a key exists — it showed the same four
+    # rows on every install, forever, and read as live engine state.
+    #
+    # THE AUDIENCE IS THE ENGINE, not the reader. This is an engine dashboard
+    # beside an LLM cost figure, and the route that spends that money is the
+    # one the autonomous analysis takes — engine.py reads
+    # `engine_analysis_as_admin` for exactly that call. Hardcoding True would
+    # be right only while that setting is left at its default, and wrong
+    # silently the moment an operator turns it off.
+    #
+    # Shares `tier_report` with the Telegram card so the two cannot drift back
+    # apart — they already had.
     try:
-        from bot.llm.provider import DEFAULT_TIER_ROUTING, LLMTier
-        tiers = {}
-        for tier in LLMTier:
-            route = DEFAULT_TIER_ROUTING.get(tier, {})
-            provider = route.get("provider")
-            tiers[tier.value] = {
-                "provider": provider.value if hasattr(provider, "value") else str(provider),
-                "model": route.get("model", ""),
-                "reason": route.get("reason", ""),
-            }
-        data["llm_tiers"] = tiers
+        from bot.llm.provider import BYOK, LLMConfig, LLMProvider, tier_report
+        from bot.config import CONFIG as _CFG
+        _env_cfg = LLMConfig(
+            provider=(LLMProvider(_CFG.llm.provider) if _CFG.llm.provider
+                      else LLMProvider.OPENAI),
+            api_key=_CFG.llm.api_key, model=_CFG.llm.model,
+            base_url=_CFG.llm.base_url,
+        )
+        _as_admin = bool(getattr(_CFG.analyzer, "engine_analysis_as_admin", True))
+        data["llm_tiers"] = {r["tier"]: r for r in
+                             tier_report(BYOK.get_active_config(_env_cfg),
+                                         is_admin=_as_admin)}
     except Exception:
-        data["llm_tiers"] = {}
+        # NOT {}. An empty mapping is a readable answer meaning "no tiers", and
+        # the panel rendered it as one — or, worse, skipped the update and left
+        # the previous poll's routing on screen, which reads as current.
+        data["llm_tiers"] = None
 
     # Cost
     try:
         cost_snap = engine.cost.snapshot()
         data["cost"] = _safe_dict(cost_snap)
     except Exception:
-        data["cost"] = {}
+        # NOT {}. `{}` is truthy, so the panel painted `0` calls and `$0.0000`
+        # — a measured claim that the brain has cost nothing, manufactured from
+        # a failed read.
+        data["cost"] = None
 
     return web.json_response(data)
 

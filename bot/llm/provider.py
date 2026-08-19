@@ -453,6 +453,19 @@ _TIER_NAMES = frozenset(t.value.upper() for t in LLMTier)
 #: DISPLAY the two cases have to be told apart. See `LLMConfig.key_state`.
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
+#: How each `LLMConfig.key_state()` reads to a person: (icon, phrase). Lives
+#: here, beside the function that produces the values, because THREE surfaces
+#: report this and two of them had already drifted. A second copy of the
+#: vocabulary is how "keyless_remote" ends up rendered as a tick again on
+#: whichever surface forgot to update.
+KEY_STATE_TEXT: dict[str, tuple[str, str]] = {
+    "key": ("✅", "key set"),
+    "keyless_local": ("✅", "keyless — endpoint is on this machine"),
+    "keyless_remote": ("⚠️", "no key, and the endpoint is NOT local "
+                             "— a remote endpoint usually wants one"),
+    "missing": ("❌", "no API key found"),
+}
+
 
 def unbound_tier_env() -> list[str]:
     """`LLM_TIER_*_PROVIDER` variables in the environment that name no tier.
@@ -502,6 +515,48 @@ def tier_env_ignored_reason(tier: "LLMTier", primary_config: "LLMConfig") -> str
         return (f"no key for {provider.value} — "
                 f"set <code>{key_env or 'its key env var'}</code>")
     return "reason unknown"
+
+
+def tier_report(primary_config: "LLMConfig", *,
+                is_admin: bool = True) -> list[dict]:
+    """Per-tier facts for every surface that reports routing to an operator.
+
+    ONE COLLECTOR, because there are two surfaces and they had already drifted
+    apart: `/llmtiers` resolved with is_admin=False while `/llmstatus` resolved
+    with True, and the web dashboard's "LLM Tier Routing" panel did not resolve
+    at all — it serialised `DEFAULT_TIER_ROUTING`, a module constant, into
+    `/api/state` and presented it as live engine state. Three renderings of one
+    fact, three different answers, none of them labelled.
+
+    Every value here is observed. `source` is the branch `resolve_tier_config`
+    actually took (it stamps itself); `table_reason` is read from the table
+    that WON, never from the default table regardless — a rationale beside a
+    route it did not choose is a fabricated justification for a real value.
+    """
+    reason_tables = {"admin-table": _admin_routing(),
+                     "default-table": DEFAULT_TIER_ROUTING}
+    rows = []
+    for tier in LLMTier:
+        cfg = resolve_tier_config(tier, primary_config, is_admin=is_admin)
+        env_var = f"LLM_TIER_{tier.value.upper()}_PROVIDER"
+        rows.append({
+            "tier": tier.value,
+            "provider": (cfg.provider.value
+                         if isinstance(cfg.provider, LLMProvider)
+                         else str(cfg.provider)),
+            "model": cfg.model,
+            "source": cfg.source,
+            "key_state": cfg.key_state(),
+            "env_var": env_var,
+            "env_value": (os.getenv(env_var, "") or "").strip(),
+            # Asked only when the stamp says the pin did not win, so this never
+            # second-guesses the resolver.
+            "ignored_reason": ("" if cfg.source == "env"
+                               else tier_env_ignored_reason(tier, primary_config)),
+            "table_reason": str(reason_tables.get(cfg.source, {})
+                                .get(tier, {}).get("reason", "")),
+        })
+    return rows
 
 
 def set_tier_override(tier: "LLMTier", provider: "LLMProvider",
@@ -1346,8 +1401,23 @@ class BYOKManager:
             f"Cost: {catalog.get('cost', '?')}",
             f"Free tier: {catalog.get('free_tier', '?')}",
         ]
-        if not cfg.is_configured():
+        # THE THIRD SURFACE MAKING THIS CLAIM, and the last one still asking
+        # the scoring function. `is_configured()` returns True unconditionally
+        # for RUNECLAW and OLLAMA, so a keyless config against a REMOTE tunnel
+        # printed `Key: NOT SET` with no warning at all — beside catalog lines
+        # reading "Cost: zero" and "Free tier: True", which read as
+        # confirmation that NOT SET is normal for this provider. It is not: the
+        # client is built with `api_key or "not-needed"` and every call 401s.
+        #
+        # The fallback sentence stays pinned to `missing` ALONE. For
+        # keyless_remote the client IS built and calls ARE attempted, so
+        # "using rule-based fallback" would be a new false claim replacing the
+        # old silent one.
+        _icon, _text = KEY_STATE_TEXT.get(cfg.key_state(), ("", ""))
+        if cfg.key_state() == "missing":
             lines.append("⚠️ No key set — using rule-based fallback")
+        elif cfg.key_state() == "keyless_remote":
+            lines.append(f"{_icon} {_text} — calls will be attempted anyway")
         return "\n".join(lines)
 
     @staticmethod

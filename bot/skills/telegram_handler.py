@@ -8704,45 +8704,15 @@ class TelegramHandler:
         for its key fingerprints, so the two operator cards answered the same
         question differently and neither said which it meant.
         """
-        import os as _os
-
         from bot.formatters.llm_tier_card import TierRow, render_tier_card
-        from bot.llm.provider import (_admin_routing, tier_env_ignored_reason,
-                                      unbound_tier_env)
+        from bot.llm.provider import tier_report, unbound_tier_env
 
-        # The rationale must come from the table that ACTUALLY routed the tier.
-        # Taking it from DEFAULT_TIER_ROUTING regardless is the same defect
-        # this card is being rebuilt to remove — an argument for a route that
-        # is not in force, printed beside a value that is.
-        _reason_table = {"admin-table": _admin_routing(),
-                         "default-table": DEFAULT_TIER_ROUTING}
-
-        rows = []
-        for tier in LLMTier:
-            cfg = resolve_tier_config(tier, active_cfg, is_admin=True)
-            env_var = f"LLM_TIER_{tier.value.upper()}_PROVIDER"
-            env_value = (_os.getenv(env_var, "") or "").strip()
-            # Only ask WHY when the stamp says the override did not win. The
-            # stamp comes from the branch resolve_tier_config actually took,
-            # so this never second-guesses the resolver.
-            reason = ("" if cfg.source == "env"
-                      else tier_env_ignored_reason(tier, active_cfg))
-            rows.append(TierRow(
-                tier=tier.value,
-                provider=(cfg.provider.value
-                          if isinstance(cfg.provider, LLMProvider)
-                          else str(cfg.provider)),
-                model=cfg.model,
-                source=cfg.source,
-                key_state=cfg.key_state(),
-                env_var=env_var,
-                env_value=env_value,
-                ignored_reason=reason,
-                table_reason=str(_reason_table.get(cfg.source, {})
-                                 .get(tier, {}).get("reason", "")),
-            ))
+        # `tier_report` is shared with the web dashboard's routing panel. The
+        # two surfaces had already drifted — this one resolved as non-admin
+        # while /api/state serialised a module constant — so collecting the
+        # facts once is the point, not a tidy-up.
         return render_tier_card(
-            rows,
+            [TierRow(**row) for row in tier_report(active_cfg, is_admin=True)],
             unbound_env=unbound_tier_env(),
             title=t('llm_tiers_title', lang),
         )

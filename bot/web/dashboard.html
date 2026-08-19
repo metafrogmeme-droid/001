@@ -338,6 +338,22 @@ body::after {
   font-size: 11px;
 }
 
+/* Where the route came from, and what is known about its credential. Muted
+   by default — this is provenance, not a reading. */
+.tier-note {
+  flex: 1;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+}
+
+/* Colour is a claim: amber only where something is genuinely unresolved —
+   an operator instruction that was dropped, or a routing table that could
+   not be read at all. Never for a tier that is simply on a default. */
+.tier-warn .tier-note,
+.tier-warn .tier-name { color: var(--amber); }
+
 /* State badge */
 .state-badge {
   display: inline-block;
@@ -489,7 +505,10 @@ body::after {
       </div>
       <div class="panel-body">
         <div style="margin-bottom:12px;">
-          <div class="stat-label" style="margin-bottom:6px;">LLM Tier Routing</div>
+          <!-- "engine" is not decoration: this resolves the route the
+               autonomous analysis takes, which is what the cost figure below
+               is spent on. An operator's own chat can route elsewhere. -->
+          <div class="stat-label" style="margin-bottom:6px;">LLM Tier Routing <span style="opacity:.6;">(engine)</span></div>
           <div id="tierRows"></div>
         </div>
         <div class="stats-row">
@@ -704,27 +723,86 @@ function updateEngine(eng, tiers, cost) {
   $('stateBadge').className = 'header-badge ' + stateClass(s);
 
   // Tiers
+  //
+  // The `if` used to have no `else`, so a failed read left the PREVIOUS poll's
+  // routing on screen unchanged — the stalest form of "unreadable is never
+  // zero": last-known-good, indistinguishable from current, refreshing every
+  // three seconds to prove it is live.
   const el = $('tierRows');
   if (tiers && Object.keys(tiers).length) {
     let html = '';
     for (const [name, t] of Object.entries(tiers)) {
-      html += '<div class="tier-row">' +
-        '<span class="tier-name">' + name + '</span>' +
-        '<span class="tier-provider">' + (t.provider||'--') + '</span>' +
-        '<span class="tier-model">' + (t.model||'--') + '</span>' +
+      // Where the route came from, and what is known about the credential.
+      // A tier the operator pinned and a tier on a default read identically
+      // without this.
+      const src = SOURCE_LABEL[t && t.source] || '';
+      const key = KEY_LABEL[t && t.key_state] || '';
+      const dropped = t && t.env_value && t.source !== 'env';
+      html += '<div class="tier-row' + (dropped ? ' tier-warn' : '') + '">' +
+        '<span class="tier-name">' + esc(name) + '</span>' +
+        '<span class="tier-provider">' + esc(t && t.provider ? t.provider : '--') + '</span>' +
+        '<span class="tier-model">' + esc(t && t.model ? t.model : '--') + '</span>' +
+        '<span class="tier-note">' + esc(dropped ? '⚠ ' + t.env_var + ' not applied' : src) +
+        (key ? ' · ' + esc(key) : '') + '</span>' +
         '</div>';
     }
     el.innerHTML = html;
+  } else {
+    el.innerHTML = '<div class="tier-row tier-warn">' +
+      '<span class="tier-name">routing unavailable</span>' +
+      '<span class="tier-note">could not be read — this is not "no tiers"</span>' +
+      '</div>';
   }
 
   // Cost
-  if (cost) {
-    $('cCalls').textContent = cost.llm_calls || 0;
-    $('cCost').textContent = '$' + fmt(cost.llm_cost_usd || 0, 4);
-    const tokens = (cost.prompt_tokens||0) + (cost.completion_tokens||0);
+  //
+  // `cost.llm_calls || 0` on a failed read printed `0` calls and `$0.0000`,
+  // which is a measurement: it says the brain has run and cost nothing. `{}`
+  // is truthy, so the old `if (cost)` did not stop it either.
+  const costOk = cost && Object.keys(cost).length;
+  $('cCalls').textContent = costOk ? orDash(cost.llm_calls) : '--';
+  $('cCost').textContent = costOk && Number.isFinite(Number(cost.llm_cost_usd))
+    && cost.llm_cost_usd !== null && cost.llm_cost_usd !== ''
+      ? '$' + fmt(Number(cost.llm_cost_usd), 4) : '--';
+  if (costOk && (cost.prompt_tokens != null || cost.completion_tokens != null)) {
+    const tokens = (Number(cost.prompt_tokens) || 0) + (Number(cost.completion_tokens) || 0);
     $('cTokens').textContent = tokens > 1000 ? (tokens/1000).toFixed(1) + 'k' : tokens;
+  } else {
+    $('cTokens').textContent = '--';
   }
 }
+
+// A number that was actually reported, or a dash. `0` is a real, measured
+// zero and must survive; null/undefined/'' must not become one.
+// `Number('') === 0` AND IS FINITE, which is why the empty string is rejected
+// before the numeric check rather than by it.
+function orDash(v) {
+  if (v === null || v === undefined || v === '') return '--';
+  const n = Number(v);
+  return Number.isFinite(n) ? String(n) : '--';
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+const SOURCE_LABEL = {
+  'runtime': 'runtime override',
+  'env': 'pinned by env',
+  'admin-table': 'admin table',
+  'default-table': 'default table',
+  'user-tier': 'user tier table',
+  'primary': 'primary provider',
+  'blocked': 'nothing to route to',
+};
+
+const KEY_LABEL = {
+  'key': 'key set',
+  'keyless_local': 'keyless, local',
+  'keyless_remote': '⚠ no key, remote endpoint',
+  'missing': '⚠ no key',
+};
 
 // ── Fetch Loop ─────────────────────────────────────────────
 async function fetchAll() {
