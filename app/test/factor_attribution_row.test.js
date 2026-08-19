@@ -85,3 +85,54 @@ test('the card actually renders the rows', () => {
   assert.match(SRC, /Factor attribution — share of the weighted decision/,
     'the section is gone, so the rows have nowhere to appear');
 });
+
+// ── the derivation, not only the conclusion ──────────────────────────────────
+
+const cfrom = SRC.indexOf('function chainStep(st) {');
+assert.ok(cfrom > 0, 'chainStep is gone from dashboard.js');
+const cbody = SRC.slice(cfrom, SRC.indexOf('\n  }', cfrom) + 4);
+vm.runInContext(cbody + '\nthis.chainStep = chainStep;', ctx);
+const chainStep = ctx.chainStep;
+
+test('a step shows its stage and what came out of it', () => {
+  const html = chainStep({ stage: 'regime_detection', input: 'ADX=28, +DI=31',
+                           output: 'Regime: TREND_UP', impact: 'bullish' });
+  assert.match(html, /regime detection/, 'underscores are not humanised');
+  assert.match(html, /Regime: TREND_UP/);
+  assert.match(html, /from ADX=28/, 'the inputs to the step are not shown');
+  assert.match(html, /--up/, 'a bullish step is not coloured as one');
+});
+
+test('a step with no recorded output says so rather than rendering blank', () => {
+  // A stage that produced nothing is a fact. An empty cell beside a coloured
+  // bar reads as a stage that ran and is simply not worth showing.
+  const html = chainStep({ stage: 'smart_money', input: '', output: '', impact: 'neutral' });
+  assert.match(html, /no output recorded/);
+  assert.ok(!/from /.test(html), 'an absent input rendered an empty "from" clause');
+});
+
+test('an unnamed stage is labelled, not left blank', () => {
+  assert.match(chainStep({ stage: '', output: 'x', impact: 'neutral' }), /unnamed stage/);
+});
+
+test('neutral is not painted as a direction', () => {
+  const n = chainStep({ stage: 's', output: 'o', impact: 'neutral' });
+  assert.ok(!/--up|--down/.test(n));
+});
+
+test('a truncated chain says how much is missing', () => {
+  // THE POINT OF SEALING THE TOTAL. Twelve steps shown as if they were the
+  // whole derivation is a partial presented as a total — the same shape as a
+  // scan card cut at 500 characters and printed whole.
+  assert.match(SRC, /chainTotal > chain\.length/,
+    'the card no longer compares the sealed total against what it shows');
+  assert.match(SRC, /Showing \$\{chain\.length\} of \$\{chainTotal\} steps/,
+    'a truncated reasoning chain is displayed as if it were complete');
+});
+
+test('the card actually renders the chain', () => {
+  assert.match(SRC, /const chainRows = chain\.map\(chainStep\)\.join\(''\)/,
+    'the card no longer builds the chain rows');
+  assert.match(SRC, /Reasoning chain — how the decision was reached/,
+    'the section is gone, so the steps have nowhere to appear');
+});
