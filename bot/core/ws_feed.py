@@ -199,6 +199,32 @@ class BitgetWSFeed:
     # Public accessors (thread-safe: return snapshots)
     # ------------------------------------------------------------------
 
+    def get_snapshot(self, max_age_sec: Optional[float] = None) -> dict[str, PriceTick]:
+        """Fresh ticks in full, for callers that need more than the last price.
+
+        `get_prices` returns `{symbol: last}` and drops the timestamp and the
+        24h change with it. A caller that wants to SAY how old a price is — the
+        chat prompt does — cannot do that from a bare float, and a price quoted
+        with no idea whether it is three seconds or three hours old is the
+        thing the freshness filter exists to prevent, moved one layer out.
+
+        Same staleness rule as `get_prices`, deliberately: an unreadable
+        timestamp is stale and is excluded. Divergence between the two would
+        mean the price a caller shows and the price the stop logic uses could
+        come from different eras.
+        """
+        if not max_age_sec:
+            return dict(self._ticks)
+        now = time.time()
+        out: dict[str, PriceTick] = {}
+        for sym, tick in self._ticks.items():
+            try:
+                if now - tick.timestamp.timestamp() <= max_age_sec:
+                    out[sym] = tick
+            except Exception:
+                continue  # unreadable timestamp → treat as stale
+        return out
+
     def get_prices(self, max_age_sec: Optional[float] = None) -> dict[str, float]:
         """Return ``{symbol: last_price}`` for tracked symbols.
 

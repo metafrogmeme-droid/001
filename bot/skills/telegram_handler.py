@@ -1390,6 +1390,98 @@ class TelegramHandler:
         "\u2694\ufe0f <i>Analyzing momentum and zones...</i>",
     ]
 
+    #: How old a tick may be and still be quoted in chat. Looser than the
+    #: stop-logic freshness (ws_max_tick_age_sec) on purpose — a conversation
+    #: is not an exit decision — but bounded, because the whole point is that
+    #: the number is CURRENT. The age is printed either way, so a reader can
+    #: judge it themselves rather than taking "live" on trust.
+    CHAT_TICKER_MAX_AGE_SEC = 90
+    #: Majors first, then whatever else is fresh, capped so the prompt does not
+    #: turn into a price list.
+    CHAT_TICKER_LEAD = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT")
+    CHAT_TICKER_MAX = 8
+
+    def _live_ticker_block(self) -> str:
+        """A timestamped snapshot of live prices for the chat prompt.
+
+        A MODEL'S WEIGHTS ARE FROZEN IN THE PAST. "BTC is around $48k" is a
+        memory, not a quote, and no amount of retraining fixes tomorrow. Scans
+        already read correctly because their prompts are built from live
+        indicators; chat was the gap, and this is the same injection one
+        section further down the function that already supplies the portfolio,
+        the equity and the engine state.
+
+        THE EMPTY CASE IS THE IMPORTANT ONE. If this block simply disappeared
+        when the feed was silent, the model would fall back to the prices in
+        its weights and state them with the same confidence — which is the
+        failure being fixed, not a neutral degradation. So a dead feed produces
+        a LOUDER block, not a missing one.
+
+        The 24h change is shown only when it is non-zero, and that is a
+        concession rather than a preference: `PriceTick.change_pct_24h` is
+        built with `_float(..., 0.0)`, so a field the exchange never sent and a
+        market that genuinely did not move are the same value. Where absent and
+        zero can be told apart they must be (see the factor-attribution row);
+        here the structure has already collapsed them, and the honest move is
+        to not assert. Making that field Optional at the tick level is the real
+        fix, and it reaches into stop logic, so it is flagged rather than done.
+        """
+        try:
+            feed = getattr(self.engine, "ws_feed", None)
+            ticks = feed.get_snapshot(max_age_sec=self.CHAT_TICKER_MAX_AGE_SEC) if feed else {}
+        except Exception:
+            ticks = {}
+
+        if not ticks:
+            return ("\n\nLIVE MARKET DATA: NONE AVAILABLE right now — the price "
+                    "feed is not returning fresh ticks. You do NOT know the "
+                    "current price of anything. Do not state, estimate or "
+                    "recall any price; say the feed is down and offer to run a "
+                    "scan when it returns.")
+
+        lead = [s for s in self.CHAT_TICKER_LEAD if s in ticks]
+        rest = sorted(s for s in ticks if s not in lead)
+        rows = []
+        for sym in (lead + rest)[:self.CHAT_TICKER_MAX]:
+            t = ticks[sym]
+            try:
+                px = float(t.last)
+            except (TypeError, ValueError):
+                continue
+            if px <= 0:
+                continue          # a zero price is not a price
+            chg = 0.0
+            try:
+                chg = float(t.change_pct_24h)
+            except (TypeError, ValueError):
+                chg = 0.0
+            # Bitget sends this as a ratio (0.021 = +2.1%); scale only when it
+            # looks like one, so a feed already emitting percent is not
+            # multiplied into nonsense.
+            pct = chg * 100 if -1.0 < chg < 1.0 else chg
+            chg_txt = f"  ({pct:+.1f}% 24h)" if chg else ""
+            # Adaptive, not rstrip("0"): stripping trailing zeros off a 4dp
+            # format turned $61,432.10 into $61,432.1 and $141.20 into $141.2 —
+            # a price that reads as though a digit went missing. Sub-dollar
+            # tokens need the extra places; dollar-plus ones must keep both.
+            dp = 2 if px >= 1 else 6
+            rows.append(f"  {sym}  ${px:,.{dp}f}" + chg_txt)
+
+        if not rows:
+            return ("\n\nLIVE MARKET DATA: NONE AVAILABLE right now — the feed "
+                    "returned no usable prices. Do not state or estimate any "
+                    "price.")
+
+        # `_dt` is a function-local import elsewhere in this class, so it is
+        # not in scope here — caught by driving the block, not by compiling it.
+        import datetime as _dtm
+        stamp = _dtm.datetime.now(UTC).strftime("%H:%M:%S UTC")
+        return ("\n\nLIVE MARKET (exchange feed, as of " + stamp + "; 24h change "
+                "shown where the feed provides it):\n" + "\n".join(rows)
+                + "\nState ONLY these prices, and only as of that timestamp. For "
+                "any symbol not listed you do NOT know the current price — say "
+                "so and offer to run a scan. Never recall a price from memory.")
+
     def _build_chat_system_prompt(self, user_id: str, user_name: str = "") -> str:
         """Build a personalized system prompt with user context."""
         base = self._CHAT_SYSTEM_PROMPT
@@ -1644,8 +1736,8 @@ class TelegramHandler:
         except Exception:
             ingest_block = ""
 
-        return (base + f"\n{time_note}" + positions_detail + context_block
-                + ingest_block)
+        return (base + f"\n{time_note}" + self._live_ticker_block()
+                + positions_detail + context_block + ingest_block)
 
     async def _llm_chat(self, question: str, user_id: str = "",
                         user_name: str = "",

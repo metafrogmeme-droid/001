@@ -60,10 +60,22 @@ def _stub(*, is_live: bool, live_open_positions=None, paper_open_positions=None)
             100.0, "live" if is_live else "paper"),
     )
     conversations = SimpleNamespace(build_context_prompt=lambda *a, **kw: "")
-    return SimpleNamespace(
+    ns = SimpleNamespace(
         engine=engine, conversations=conversations,
         _CHAT_SYSTEM_PROMPT=H._CHAT_SYSTEM_PROMPT,
+        CHAT_TICKER_MAX_AGE_SEC=H.CHAT_TICKER_MAX_AGE_SEC,
+        CHAT_TICKER_LEAD=H.CHAT_TICKER_LEAD,
+        CHAT_TICKER_MAX=H.CHAT_TICKER_MAX,
     )
+    # The prompt now injects a live-ticker block, so this stand-in `self` needs
+    # it the same way it already needs `engine` and `conversations`. Bound to
+    # the REAL method rather than stubbed to "": a stub would let the block
+    # vanish here without any test noticing, and a vanishing block is precisely
+    # the failure it was built to prevent — the model answering from the prices
+    # in its weights. This engine has no ws_feed, so it produces the honest
+    # "NONE AVAILABLE" text, which is the correct output for that state.
+    ns._live_ticker_block = H._live_ticker_block.__get__(ns)
+    return ns
 
 
 class TestNoOpenPositionsIsExplicit:
