@@ -7360,6 +7360,35 @@
       <span class="small muted" style="width:52px;text-align:right;font-variant-numeric:tabular-nums">${(Number(v.contribution) || 0).toFixed(2)}</span></div>`;
   }
 
+  // FACTOR ATTRIBUTION — how much of the decision each input actually drove.
+  // Sealed on every executed decision and, until now, rendered nowhere, which
+  // is why nobody noticed the recorder was sealing every one of them with a
+  // BLANK NAME (`f.get("name")` against a model whose field is `factor`).
+  // A field no surface reads is a field nothing can check.
+  //
+  // Deliberately NOT voteRow: that one does `Number(v.contribution) || 0`, so
+  // an unreadable contribution renders as a measured 0.00 beside a zero-width
+  // bar. A percentage nobody measured is not zero percent.
+  function factorRow(f) {
+    const col = f.direction === 'bullish' ? 'var(--up,#31c48d)'
+      : f.direction === 'bearish' ? 'var(--down,#f05252)' : 'var(--muted,#8a94a6)';
+    const raw = f && f.contribution_pct;
+    // `Number('') === 0`, AND IT IS FINITE. An empty contribution rendered as
+    // a measured 0.0% until this guard existed — the same trap `pnlClass('')`
+    // fell into, where an unreadable value became a confident break-even.
+    // Strings are only a number when they say one.
+    const known = raw !== null && raw !== undefined && raw !== ''
+      && isFinite(Number(raw));
+    const pct = known ? Math.min(100, Math.abs(Number(raw))) : null;
+    // An empty name beside a 59% bar is the same lie the seal used to tell.
+    const named = f && f.name ? String(f.name).replace(/_/g, ' ') : '';
+    return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0">
+      <span class="small" style="width:130px;flex:none;color:var(${named ? '--text' : '--text-3'})">${named ? esc(named) : 'unnamed factor'}</span>
+      <span style="flex:1;height:6px;background:var(--line,#222);border-radius:3px;overflow:hidden">
+        ${pct === null ? '' : `<span style="display:block;height:100%;width:${pct}%;background:${col}"></span>`}</span>
+      <span class="small muted" style="width:52px;text-align:right;font-variant-numeric:tabular-nums">${pct === null ? '—' : pct.toFixed(1) + '%'}</span></div>`;
+  }
+
   function tags(list, col) {
     if (!list || !list.length) return '';
     return list.map((x) => `<span class="chip" style="font-size:11px;padding:1px 7px;border-color:${col};color:${col}">${esc(x)}</span>`).join(' ');
@@ -7403,6 +7432,7 @@
       + (risk.checks_failed && risk.checks_failed.length ? `<div class="small" style="color:var(--down,#f05252);margin-top:2px">${risk.checks_failed.map(esc).join(', ')}</div>` : '');
     const bullish = tags(explain.top_bullish, 'var(--up,#31c48d)');
     const bearish = tags(explain.top_bearish, 'var(--down,#f05252)');
+    const factorRows = (explain.factors || []).map(factorRow).join('');
 
     return `<article class="panel" style="margin-bottom:var(--s3)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -7418,6 +7448,7 @@
         <summary class="small" style="cursor:pointer;color:var(--accent,#3fb6ff)">Provenance &amp; evidence</summary>
         <div style="margin-top:8px;display:grid;gap:10px">
           ${votes ? `<div><div class="small muted" style="margin-bottom:4px">Why — ranked voter contributions</div>${votes}</div>` : ''}
+          ${factorRows ? `<div><div class="small muted" style="margin-bottom:4px">Factor attribution — share of the weighted decision</div>${factorRows}</div>` : ''}
           <div><div class="small muted" style="margin-bottom:2px">Risk gate</div><div class="small">${riskLine}</div></div>
           ${provline ? `<div><div class="small muted" style="margin-bottom:2px">Model &amp; data provenance</div><div class="small">${provline}</div></div>` : ''}
           <div><div class="small muted" style="margin-bottom:2px">Trade geometry</div>

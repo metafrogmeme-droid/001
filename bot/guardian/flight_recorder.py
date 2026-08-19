@@ -194,7 +194,19 @@ def _explain_slice(report: Any) -> Optional[dict]:
             if not isinstance(f, dict):
                 continue
             slim_factors.append({
-                "name": _trim(f.get("name", ""), 40),
+                # `FactorAttribution.factor`, NOT `name`. There is no `name`
+                # field and never was, so `f.get("name", "")` sealed every
+                # attribution as {"name": "", "contribution_pct": 59.3,
+                # "direction": "bullish"} — 59.3% of a decision attributed to
+                # nothing, written into the hash chain, permanently, on every
+                # executed trade.
+                #
+                # It survived because nothing renders `factors`. The record
+                # LOOKED complete — three keys, a plausible percentage, a
+                # direction — and the one field carrying the identity was the
+                # one nobody could see. A default of "" is what let it: a
+                # KeyError here would have failed loudly the first time it ran.
+                "name": _trim(f.get("factor") or "", 40),
                 "contribution_pct": _round(f.get("contribution_pct"), 2),
                 "direction": _trim(f.get("direction", ""), 12),
             })
