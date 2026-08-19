@@ -445,6 +445,7 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
+from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
 from bot.formatters.thesis_text import thesis_prose
 from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, DEFAULT_TIER_ROUTING, create_llm_client, llm_complete, resolve_tier_config
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
@@ -2351,10 +2352,15 @@ class TelegramHandler:
 
                 try:
                     result = await skill.execute(self.engine, user_id=tg_id, **intent.kwargs)
-                    # Store skill result as assistant message (truncated)
-                    self.conversations.append(tg_id, "assistant",
-                                               f"[{intent.skill}] executed successfully",
-                                               metadata={"skill": intent.skill})
+                    # Store what the tool ACTUALLY said. This comment already
+                    # read "store skill result" while the code stored the words
+                    # "executed successfully", so the chat model was handed a
+                    # turn asserting an answer existed without saying what it
+                    # was — the gap the UNIVERSE/USDT reply was invented into.
+                    self.conversations.append(
+                        tg_id, "assistant",
+                        skill_result_memory(intent.skill, result),
+                        metadata={"skill": intent.skill})
 
                     # For analyze_asset: check if a new trade idea was created
                     if intent.skill == "analyze_asset" and ids_before is not None:
@@ -2396,6 +2402,13 @@ class TelegramHandler:
 
                     await self._send(update, result)
                 except Exception as exc:
+                    # Record the failure. Returning the apology and writing
+                    # nothing left the history with a question and no answer,
+                    # which a later turn reads as an answer to reconstruct.
+                    self.conversations.append(
+                        tg_id, "assistant", skill_failure_memory(intent.skill),
+                        metadata={"skill": intent.skill, "failed": True})
+                    system_log.debug("NL skill %s failed: %s", intent.skill, exc)
                     await self._send(update,
                         "Something went wrong. Try again or use a command.")
                 return

@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from aiohttp import web
 
 from bot.config import CONFIG
+from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
 from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
 from bot.utils.logger import audit, system_log
 
@@ -435,11 +436,18 @@ async def handle_chat(request: web.Request) -> web.Response:
             try:
                 result = await skill.execute(engine, user_id=tg_id, **intent.kwargs)
             except Exception:
+                # Same record as Telegram makes: a tool that raised is a fact,
+                # and an unrecorded failure is a hole the next turn fills in.
+                tg_handler.conversations.append(
+                    tg_id, "assistant", skill_failure_memory(intent.skill),
+                    metadata={"skill": intent.skill, "surface": "web",
+                              "failed": True})
                 return web.json_response(
                     {"reply_html": "Something went wrong. Try again or use a command.",
                      "intent": intent.skill}, status=200)
             tg_handler.conversations.append(
-                tg_id, "assistant", f"[{intent.skill}] executed successfully",
+                tg_id, "assistant",
+                skill_result_memory(intent.skill, result),
                 metadata={"skill": intent.skill, "surface": "web"})
             resp = {"reply_html": result, "intent": intent.skill}
             setup = _setup_from_new_idea(engine, ideas_before)
