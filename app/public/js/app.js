@@ -263,6 +263,13 @@
       // Carried so the panel can tell "try again" apart from "you are signed
       // out" — a Retry button on an expired session retries forever.
       e.status = r ? r.status : 0;
+      // AND THE REASON, which used to die here. The bot answers a refused read
+      // with a code from a closed set — `not_allowlisted`, `gateway_disabled`,
+      // `rate_limited` — and every one of them arrived, parsed, and was thrown
+      // away so the panel could say "Couldn't load this panel." See
+      // js/panel-error-model.js: the code crosses the wire, the words are
+      // chosen locally, and an unrecognised code still gets the old message.
+      e.code = (window.PanelErrorModel ? PanelErrorModel.codeOf(r && r.data) : '');
       throw e;
     }
     return r.ok ? r.data : null;
@@ -295,19 +302,38 @@
       if (hasContent) return;                 // stale beats blank
       // An expired session is a different answer from a failed read, and it
       // needs a different action: Retry would loop forever against a 401.
-      const expired = !!(err && err.status === 401);
-      const text = expired ? t('dd.session_expired', 'Your session expired — sign in again to see this.')
-        : errorText;
+      //
+      // SO DOES EVERY OTHER FINAL REFUSAL, which this used to miss. An account
+      // not approved on the bot, a site not wired to it, an operator-only
+      // panel — all three arrive with a reason code, all three are permanent
+      // until somebody does something OUTSIDE this tab, and all three used to
+      // render as "Couldn't load this panel." above a button that could not
+      // help. js/panel-error-model.js holds the closed vocabulary; anything it
+      // does not recognise still lands on the generic message and Retry.
+      const M = window.PanelErrorModel || null;
+      const chosen = M ? M.panelFailure(err || {}) : null;
+      // A caller-supplied errorText outranks the generic default — it is the
+      // panel's own voice for an ordinary failure — but NOT a recognised
+      // reason: "The news radar is unavailable right now" is worse than "your
+      // account is not approved yet" when the second one is what happened.
+      const named = !!(chosen && chosen.key !== 'dd.err_panel');
+      const text = named ? t(chosen.key, chosen.fallback) : errorText;
       // data-i18n on the default copy so the failure state re-translates when
       // the user switches language, and self-heals if a panel failed before
       // i18n.js finished loading. A caller-supplied errorText is already
       // resolved by its own T() and carries no key.
-      const key = expired ? 'dd.session_expired' : (opts.errorText ? null : 'dd.err_panel');
-      const action = expired
+      const key = named ? chosen.key : (opts.errorText ? null : 'dd.err_panel');
+      const icon = (chosen && chosen.icon) || 'icon-offline';
+      const act = chosen ? chosen.action : 'retry';
+      const action = act === 'signin'
         ? `<a class="btn btn--sm" href="/" data-i18n="dd.sign_in">${esc(t('dd.sign_in', 'Sign in'))}</a>`
-        : `<button class="btn btn--sm" type="button" data-i18n="dd.retry">${esc(t('dd.retry', 'Retry'))}</button>`;
+        : act === 'none'
+          // Deliberately no control. A button that cannot change the answer
+          // makes a clear refusal look intermittent.
+          ? ''
+          : `<button class="btn btn--sm" type="button" data-i18n="dd.retry">${esc(t('dd.retry', 'Retry'))}</button>`;
       el.innerHTML = `<div class="state-block">
-        <svg class="icon"><use href="#icon-offline"></use></svg>
+        <svg class="icon"><use href="#${esc(icon)}"></use></svg>
         <p${key ? ` data-i18n="${key}"` : ''}>${esc(text)}</p>
         ${action}
       </div>`;

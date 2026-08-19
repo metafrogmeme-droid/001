@@ -163,12 +163,22 @@ test('the shipped mustRead matches the behaviour asserted above', () => {
 });
 
 test('an expired session offers sign-in, not a Retry that loops forever', () => {
+  // THIS PINNED A SPELLING AND BLOCKED ITS OWN GENERALISATION. It required the
+  // literal `err && err.status === 401` inside fail(), so extending the same
+  // reasoning — "a Retry that cannot work is worse than no Retry" — to every
+  // other final refusal failed here, on the test that argues for it. The claim
+  // worth keeping is the OUTCOME: a 401 says the session expired and offers a
+  // link back in. That is asserted through the model now, and the rendering is
+  // pinned on the action rather than on how the action is decided.
+  const M = require('../public/js/panel-error-model');
+  const v = M.panelFailure({ status: 401 });
+  assert.strictEqual(v.key, 'dd.session_expired', 'a 401 is told apart from a failed read');
+  assert.strictEqual(v.action, 'signin', 'and is not sent to the Retry button');
+
   const from = APP.indexOf('function fail(');
   const failFn = APP.slice(from, APP.indexOf('\n    }', from) + 6);
-  assert.match(failFn, /err && err\.status === 401/, 'a 401 is told apart from a failed read');
-  assert.match(failFn, /dd\.session_expired/, 'it says the session expired');
-  assert.match(failFn, /dd\.sign_in/, 'and offers a way back in');
-  assert.match(failFn, /expired\s*\?[\s\S]{0,200}href="\/"/, 'sign-in is a link, not a Retry button');
+  assert.match(failFn, /dd\.sign_in/, 'it offers a way back in');
+  assert.match(failFn, /'signin'\s*\?[\s\S]{0,200}href="\/"/, 'sign-in is a link, not a Retry button');
 
   const i18n = require('../public/js/i18n');
   for (const key of ['dd.session_expired', 'dd.sign_in']) {
