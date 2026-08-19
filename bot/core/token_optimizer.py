@@ -18,6 +18,7 @@ Safety guarantees:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from bot.config import CONFIG
@@ -47,6 +48,29 @@ class TieredPipeline:
       - Confluence > 0.60 (promising but needs thesis quality)
       - Large position size at risk
     """
+
+    @staticmethod
+    def effective_tier(indicators: dict, signal: MarketSignal) -> int:
+        """`classify_tier` plus the operator's LLM_TIER1_TO_LLM promotion.
+
+        THE PROMOTION HAS TO BE VISIBLE TO EVERY READER OF THE TIER, and
+        applying it at one call site is not. `analyzer._thesis_cache_salt`
+        independently recomputes `classify_tier` to salt the LLM cache key, and
+        its own docstring says the salt exists so "a tier-1 rule result" cannot
+        leak across contexts. Bumping the tier only in `analyze()` would have
+        cached an LLM thesis under the `t1` salt — so with the flag off again,
+        or in another process, a rule-based lookup would be served that LLM
+        result, and vice versa. Same signal, same key, two different kinds of
+        answer.
+
+        One function, both call sites, and the salt describes what actually
+        ran.
+        """
+        tier = TieredPipeline.classify_tier(indicators, signal)
+        if tier == 1 and os.getenv("LLM_TIER1_TO_LLM", "").strip().lower() in (
+                "1", "true", "yes", "on"):
+            return 2
+        return tier
 
     @staticmethod
     def classify_tier(indicators: dict, signal: MarketSignal) -> int:

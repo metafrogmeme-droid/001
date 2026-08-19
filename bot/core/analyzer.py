@@ -787,7 +787,7 @@ class Analyzer:
         rather than raising on the hot path."""
         parts = []
         try:
-            parts.append(f"t{TieredPipeline.classify_tier(indicators, signal)}")
+            parts.append(f"t{TieredPipeline.effective_tier(indicators, signal)}")
         except Exception:
             parts.append("t?")
         parts.append("admin" if is_admin else "user")
@@ -3828,7 +3828,7 @@ class Analyzer:
             return result
 
         # ── Optimization 3: Tiered Pipeline ──
-        tier = TieredPipeline.classify_tier(indicators, signal)
+        tier = TieredPipeline.effective_tier(indicators, signal)
         self._opt_stats.record_tier(tier)
 
         if tier == 1:

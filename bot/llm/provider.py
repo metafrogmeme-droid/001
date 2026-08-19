@@ -529,7 +529,22 @@ def resolve_tier_config(
 
     # routing_override (user-tier table) or admin → premium routing, skip env
     # tier overrides; otherwise the default cheap routing.
-    use_table_directly = routing_override is not None or is_admin
+    #
+    # EXCEPT WHEN THE OPERATOR HAS NAMED A PROVIDER FOR THIS TIER. An explicit
+    # LLM_TIER_{N}_PROVIDER is a deliberate instruction about where this tier
+    # runs, and silently ignoring it for admins made the variable look broken:
+    # set it, restart, watch the calls still go to the admin table.
+    #
+    # Done at the GATE, not by inserting a second resolver above the admin
+    # branch. The block at "explicit tier env override" below already reads
+    # _PROVIDER/_KEY/_MODEL, maps eight providers to their key env vars, allows
+    # the keyless local ones, and falls back to the primary key — a second copy
+    # would have to be kept in step with all of that, and a drifting duplicate
+    # of key resolution is a worse bug than the one being fixed.
+    _explicit_tier_provider = os.getenv(
+        f"LLM_TIER_{tier.value.upper()}_PROVIDER", "").strip()
+    use_table_directly = (routing_override is not None
+                          or (is_admin and not _explicit_tier_provider))
     routing = (routing_override if routing_override is not None
                else (_admin_routing() if is_admin else DEFAULT_TIER_ROUTING))
 
@@ -578,17 +593,12 @@ def resolve_tier_config(
 
             # If no tier-specific key, try provider-specific env fallbacks
                 if not tier_key:
-                    key_env_map = {
-                        LLMProvider.GEMINI: "GEMINI_API_KEY",
-                        LLMProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
-                        LLMProvider.GROQ: "GROQ_API_KEY",
-                        LLMProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
-                        LLMProvider.OPENAI: "OPENAI_API_KEY",
-                        LLMProvider.ALIBABA: "ALIBABA_API_KEY",
-                        LLMProvider.GROK: "XAI_API_KEY",
-                        LLMProvider.RUNECLAW: "RUNECLAW_LLM_API_KEY",
-                    }
-                    fallback_env = key_env_map.get(tier_provider, "")
+                    # `_PROVIDER_KEY_ENV`, not a local copy. This one carried 8
+                    # of the 11 providers — Mistral, OpenRouter and Together
+                    # were unreachable, so LLM_TIER_2_PROVIDER=mistral with
+                    # MISTRAL_API_KEY set resolved nothing and fell through in
+                    # silence. The operator sees a variable that does not work.
+                    fallback_env = _PROVIDER_KEY_ENV.get(tier_provider, "")
                     tier_key = os.getenv(fallback_env, "") if fallback_env else ""
 
                 # Still no key? If the tier provider matches primary, use primary key
@@ -608,10 +618,14 @@ def resolve_tier_config(
                 # config rather than returning a keyless config that silently
                 # runs the tier with no LLM (the default-routing branch below
                 # already guards this way with `if alt_key:`).
-                # Non-admin guard: this whole branch only runs when NOT
-                # is_admin (use_table_directly is False here), so an explicit
-                # env override asking for Anthropic must not be honored —
-                # fall through to the next step instead.
+                # ANTHROPIC IS NEVER TAKEN FROM THE ENV HERE, and the reason
+                # is no longer "this branch is non-admin only" — an explicit
+                # LLM_TIER_{N}_PROVIDER now brings admins down this path too.
+                # The reason is that the admin branch above resolves an
+                # Anthropic key through key_health's candidate order, which
+                # skips keys a real 401 has condemned and auto-heals onto the
+                # next one. Honouring a bare env var for Anthropic would step
+                # around that and re-pin the failure it exists to cure.
                 if (tier_key or keyless_ok) and tier_provider != LLMProvider.ANTHROPIC:
                     catalog = PROVIDER_CATALOG.get(tier_provider, {})
                     return LLMConfig(
@@ -629,16 +643,11 @@ def resolve_tier_config(
     default_provider = default_route.get("provider")
     if (default_provider and default_provider != primary_config.provider
             and (is_admin or default_provider != LLMProvider.ANTHROPIC)):
-        # Try to find a key for the default tier provider
-        key_env_map = {
-            LLMProvider.GEMINI: "GEMINI_API_KEY",
-            LLMProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
-            LLMProvider.GROQ: "GROQ_API_KEY",
-            LLMProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
-            LLMProvider.OPENAI: "OPENAI_API_KEY",
-            LLMProvider.ALIBABA: "ALIBABA_API_KEY",
-        }
-        fallback_env = key_env_map.get(default_provider, "")
+        # Try to find a key for the default tier provider. Was a local copy
+        # of 6 of the 11 providers; a routed tier whose provider was Grok,
+        # RUNECLAW, Mistral, OpenRouter or Together found no key here and was
+        # skipped as unconfigured.
+        fallback_env = _PROVIDER_KEY_ENV.get(default_provider, "")
         alt_key = os.getenv(fallback_env, "") if fallback_env else ""
 
         # Also check if the primary provider happens to be the default tier provider
@@ -1136,16 +1145,10 @@ class BYOKManager:
 
         # If no key provided, try env variable for this provider
         if not api_key:
-            env_key_map = {
-                LLMProvider.GEMINI: "GEMINI_API_KEY",
-                LLMProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
-                LLMProvider.GROQ: "GROQ_API_KEY",
-                LLMProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
-                LLMProvider.OPENAI: "OPENAI_API_KEY",
-                LLMProvider.ALIBABA: "ALIBABA_API_KEY",
-                LLMProvider.RUNECLAW: "RUNECLAW_LLM_API_KEY",
-            }
-            env_var = env_key_map.get(provider, "")
+            # Was a local copy of 7 of the 11. A client built for Grok,
+            # Mistral, OpenRouter or Together came up keyless here even with
+            # its key in the environment.
+            env_var = _PROVIDER_KEY_ENV.get(provider, "")
             api_key = os.getenv(env_var, "") if env_var else ""
 
         self._runtime_config = LLMConfig(
