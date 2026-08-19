@@ -41,6 +41,25 @@ from bot.utils.atomic_write import atomic_write_json
 logger = logging.getLogger(__name__)
 
 
+def _host_of(url: str) -> str:
+    """Just the hostname from a URL — never the path, never a query.
+
+    A probe result is a message to a person and a URL is the one field in this
+    module most likely to carry a credential (a signed tunnel link, a token in
+    a query string). The host is what identifies the origin; the rest is not
+    needed to act on the alert.
+    """
+    try:
+        from urllib.parse import urlparse
+        # Always a usable label. An empty return renders as
+        # "Host: <code></code>", which tells the reader nothing and looks like
+        # a bug in the alert rather than a fact about the configuration.
+        return urlparse(url).hostname or (url[:60] if url else "") \
+            or "the configured URL"
+    except Exception:
+        return "the configured URL"
+
+
 # ── Alert types ───────────────────────────────────────────────────────
 
 @dataclass
@@ -164,6 +183,13 @@ class ProactiveMonitor:
         # to reach this bot. None until the first probe runs.
         self._gw_probe: dict | None = None
         self._gw_probe_at: float = 0.0
+        # Same shape for the self-hosted LLM origin — see _probe_llm_endpoint.
+        self._llm_probe: dict | None = None
+        self._llm_probe_at: float = 0.0
+        # The STATE last paged, not a bool: unreachable -> forbidden is a
+        # different fault with a different fix, and must re-page rather
+        # than be swallowed as 'already told them'. Same as _gw_alerted_state.
+        self._llm_alerted_state: str = ""
         self._gw_alerted_state: str | None = None
         self._last_llm_degraded: bool = False       # last LLM-brain-offline state
         # Strangle watchdog: rolling (wall_ts, evaluated, approved, fails_by_gate)
@@ -313,6 +339,7 @@ class ProactiveMonitor:
                 # raises; the only network I/O in the loop.
                 await self._refresh_news_radar()
                 await self._probe_public_gateway()
+                await self._probe_llm_endpoint()
                 alerts = self._check_all()
                 for alert in alerts:
                     if self._should_send(alert):
@@ -336,6 +363,7 @@ class ProactiveMonitor:
         alerts.extend(self._check_tick_failures())
         alerts.extend(self._check_scan_timeouts())
         alerts.extend(self._check_public_gateway())
+        alerts.extend(self._check_llm_endpoint())
         alerts.extend(self._check_engine_tick_stale())
         alerts.extend(self._check_warning_rate_breaker())
         alerts.extend(self._check_llm_degraded())
@@ -1088,6 +1116,183 @@ class ProactiveMonitor:
     # Consecutive probe failures before paging. One is a blip; two in a row on
     # a 5-minute interval is a real outage of the website's path to the bot.
     GATEWAY_PROBE_ALERT_AT = 2
+
+    # ── Self-hosted LLM origin ──────────────────────────────────────
+    #
+    # THE GATEWAY PROBE'S DOCSTRING DESCRIBES THIS FAILURE EXACTLY, one service
+    # over: "an ephemeral tunnel URL rotating on restart breaks it silently and
+    # looks exactly like a firewall." The in-house model is served from a
+    # machine the operator controls, reached over a tunnel, and when that URL
+    # rotates every call to it fails — but the LLM fallback chain catches them,
+    # so nothing surfaces. The symptom is not an error. It is the in-house
+    # model quietly never being used again, and slightly slower analysis.
+    #
+    # Observed 2026-08-19: the configured URL had been dead long enough that
+    # the tunnel it named no longer existed, with all three routed tiers
+    # (chat, scan, thesis) pointing at it, and the logs showed nothing.
+
+    #: Two consecutive failures before paging, matching the gateway probe: one
+    #: is a blip, two on a five-minute interval is an outage.
+    LLM_PROBE_ALERT_AT = 2
+    #: The tiers an operator can pin to a provider, and the providers that mean
+    #: "something you host yourself" — the only ones with an origin that can
+    #: vanish. A hosted API going down is Anthropic's problem, not a tunnel.
+    _LLM_TIERS = ("SCAN", "THESIS", "LEARNING", "CHAT")
+    _SELF_HOSTED = ("runeclaw", "ollama")
+
+    def _llm_origin(self) -> tuple[str, str, str]:
+        """(base_url, api_key, tier_name) for a self-hosted tier, else ("","","").
+
+        Cheap and network-free: reads the same env the resolver reads. Returns
+        the FIRST self-hosted tier found — one probe covers them all, since in
+        practice they share one endpoint.
+        """
+        for t in self._LLM_TIERS:
+            prov = (os.environ.get(f"LLM_TIER_{t}_PROVIDER") or "").strip().lower()
+            if prov in self._SELF_HOSTED:
+                env = "RUNECLAW_LLM" if prov == "runeclaw" else "OLLAMA"
+                url = (os.environ.get(f"{env}_BASE_URL") or "").strip()
+                key = (os.environ.get(f"{env}_API_KEY") or "").strip()
+                return url, key, t.lower()
+        return "", "", ""
+
+    async def _probe_llm_endpoint(self) -> None:
+        """Ask the self-hosted model endpoint whether it is still there.
+
+        PROBED WITH THE CREDENTIAL THE BOT WOULD SEND, which is the whole
+        lesson of the gateway incident: an unauthenticated check returns the
+        same 401 for a healthy endpoint and for one behind an Access policy the
+        bot can never pass, so it cannot fail and proves nothing. Sending the
+        key separates them.
+
+        Four outcomes, because they have four different remedies:
+
+          ok            reachable, authenticated, serving the configured model
+          model_missing reachable and authenticated, but the model named by
+                        LLM_TIER_*_MODEL is not on this server — every call
+                        404s, and the endpoint looks perfectly healthy
+          forbidden     reachable, key rejected (wrong key, or an Access policy
+                        in front, in which case no key will ever work)
+          unreachable   the URL is dead — the usual case, a rotated tunnel
+
+        Never raises, never blocks the loop for long: one bounded request on a
+        slow interval, and only when a tier is actually pinned to a self-hosted
+        provider — operators on hosted APIs get no probe and no noise.
+        """
+        url, key, tier = self._llm_origin()
+        if not url:
+            self._llm_probe = None      # nothing to claim about
+            return
+        every = float(getattr(CONFIG.monitoring, "llm_probe_interval_s", 300.0) or 300.0)
+        now = time.monotonic()
+        if self._llm_probe_at and (now - self._llm_probe_at) < every:
+            return
+        self._llm_probe_at = now
+
+        want = (os.environ.get(f"LLM_TIER_{tier.upper()}_MODEL") or "").strip()
+        result: dict = {"state": "unreachable", "status": None, "tier": tier,
+                        "model": want, "host": _host_of(url)}
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=10)
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get(url.rstrip("/") + "/models", headers=headers) as resp:
+                    result["status"] = resp.status
+                    if resp.status in (401, 403):
+                        result["state"] = "forbidden"
+                    elif resp.status == 200:
+                        result["state"] = "ok"
+                        if want:
+                            try:
+                                body = await resp.json()
+                                served = {str(m.get("id", "")) for m in (body.get("data") or [])}
+                                if served and want not in served:
+                                    result["state"] = "model_missing"
+                                    result["served"] = sorted(served)[:6]
+                            except Exception:
+                                pass   # unreadable list is not evidence of absence
+                    else:
+                        result["state"] = "error"
+        except Exception as exc:
+            result["state"] = "unreachable"
+            logger.debug("llm endpoint probe failed: %s", exc)
+
+        prev = self._llm_probe or {}
+        fails = int(prev.get("consecutive_failures") or 0)
+        result["consecutive_failures"] = 0 if result["state"] == "ok" else fails + 1
+        self._llm_probe = result
+
+    def _check_llm_endpoint(self) -> list[Alert]:
+        """Page when the self-hosted model has been unreachable twice running.
+
+        The host is named, never the key — a probe result is a message to a
+        person, and /readyz answers with a coarse reason for the same reason.
+        """
+        p = self._llm_probe
+        if not p:
+            return []
+        fails = int(p.get("consecutive_failures") or 0)
+        state = str(p.get("state") or "")
+        tier = str(p.get("tier") or "?")
+        host = str(p.get("host") or "the configured URL")
+
+        if state == "ok":
+            if self._llm_alerted_state and self._llm_alerted_state != "ok":
+                self._llm_alerted_state = "ok"
+                return [Alert(
+                    alert_type="STATE_CHANGE", severity="INFO",
+                    title="Self-hosted model reachable again",
+                    body=("\u2705 <b>IN-HOUSE MODEL BACK</b>\n"
+                          f"The self-hosted endpoint at <code>{host}</code> is "
+                          "answering again. Routed tiers are using it once more."),
+                    dedup_key="llm_endpoint_recovered")]
+            return []
+
+        if fails < self.LLM_PROBE_ALERT_AT:
+            return []
+        if self._llm_alerted_state == state:
+            return []          # same fault, already said; dedup handles repeats
+        self._llm_alerted_state = state
+
+        if state == "model_missing":
+            served = ", ".join(p.get("served") or []) or "none listed"
+            why = (f"The endpoint answers and the key works, but the model "
+                   f"<code>{p.get('model')}</code> is not served there.\n"
+                   f"It offers: <code>{served}</code>.\n"
+                   "Every call to this tier will 404 while the endpoint looks healthy.")
+        elif state == "forbidden":
+            why = ("The endpoint is reachable and REFUSED the key "
+                   f"(HTTP {p.get('status')}).\n"
+                   "Either the key is wrong, or an access policy sits in front "
+                   "of the tunnel — in which case no API key will ever pass.")
+        else:
+            why = ("No answer from the self-hosted model endpoint.\n"
+                   "A quick tunnel URL is bound to the cloudflared PROCESS and "
+                   "changes whenever it restarts; a named tunnel's hostname does "
+                   "not. See scripts/cloudflared/README.md.")
+
+        # `sep` as a NAME, never "..." "\u2500" * 16 inline. Adjacent string
+        # literals concatenate before `*` applies, so the line above gets
+        # repeated sixteen times with it — which is exactly how the severe
+        # anomaly card printed its header sixteen deep, in this file, and the
+        # guard written for that was scoped to that one card.
+        sep = "\u2500" * 16
+        return [Alert(
+            alert_type="STATE_CHANGE", severity="WARNING",
+            title="Self-hosted model unreachable",
+            body=("\u26a0\ufe0f <b>IN-HOUSE MODEL UNREACHABLE</b>\n"
+                  f"{sep}\n"
+                  f"- Host: <code>{host}</code>\n"
+                  f"- Routed tier: <code>{tier}</code>\n"
+                  f"- Failed checks: <code>{fails}</code>\n\n"
+                  f"<i>{why}</i>\n"
+                  f"{sep}\n"
+                  "\u26a0\ufe0f Trading is UNAFFECTED — the LLM fallback chain "
+                  "is answering these tiers from another provider, which is "
+                  "why nothing else looks wrong. The in-house model is simply "
+                  "not being used."),
+            dedup_key="llm_endpoint_down")]
 
     def _check_public_gateway(self) -> list[Alert]:
         """Page when the WEBSITE can no longer reach this bot, and say which
