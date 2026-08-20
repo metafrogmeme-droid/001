@@ -6862,34 +6862,14 @@ class TelegramHandler:
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
+        from bot.formatters.escape_card import render_escape_card
         report = self.engine.run_escape_agent()
-        if not report or not report.get("steps"):
-            await self._send(update,
-                "🪂 <b>Escape Agent</b> — no open positions to unwind.\n\n"
-                "<i>The escape plan orders the book by liquidation urgency so the "
-                "most dangerous positions close first. Nothing to plan while "
-                "flat.</i>")
-            return
-        _RISK_ICON = {"none": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴"}
-        icon = _RISK_ICON.get(report.get("risk", "none"), "⚪")
-        lines = [
-            f"🪂 <b>Escape plan</b> — {icon} unwind urgency <b>{html.escape(str(report.get('risk','none')).upper())}</b>",
-            f"<i>{report.get('position_count', 0)} position(s) · gross "
-            f"${report.get('gross_notional_usd', 0):,.0f} · margin "
-            f"${report.get('total_margin_usd', 0):,.0f}</i>", ""]
-        for s in report.get("steps", [])[:12]:
-            liq = s.get("liq_move_pct")
-            liq_txt = f" · ~{liq}% to liq" if liq is not None else ""
-            lines.append(
-                f"<b>{s.get('order')}.</b> close <b>{html.escape(s.get('symbol',''))}</b> "
-                f"{html.escape(s.get('direction',''))} "
-                f"(${s.get('notional_usd', 0):,.0f}{liq_txt})\n"
-                f"   <i>{html.escape(s.get('reason',''))} · frees "
-                f"${s.get('margin_freed_cum_usd', 0):,.0f} cum.</i>")
-        lines.append("\n<i>Execute with /closeall (flatten) or /emergency_stop (halt + flatten).</i>")
+        # The card is built by a pure renderer so a test can plant a crashed
+        # planner and assert what the operator actually reads. Built inline,
+        # nothing could — and a planner crash rendered as "no open positions
+        # to unwind", which is an all-clear assembled from a failure.
         sealed = bool(getattr(CONFIG.risk, "guardian_escape_enabled", False))
-        lines.append(f"<i>{'🟢 plan sealed to the evidence chain' if sealed else '🟡 preview only (GUARDIAN_ESCAPE_ENABLED off)'} · this plans, it does not close</i>")
-        await self._send(update, "\n".join(lines))
+        await self._send(update, render_escape_card(report, sealed=sealed))
 
     @staticmethod
     def _web_get_json(url: str, timeout: int = 20):
