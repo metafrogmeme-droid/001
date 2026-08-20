@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 from typing import Optional
+from bot.utils.paths import state_path
 
 _log = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ class AuditChain:
     """Append-only, hash-chained audit log stored as JSONL."""
 
     def __init__(self, path: str = "logs/audit_chain.jsonl") -> None:
-        self._path = Path(path)
+        self._path = state_path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._entries_since_sign = 0

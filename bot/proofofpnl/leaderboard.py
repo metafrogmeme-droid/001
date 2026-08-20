@@ -28,7 +28,7 @@ from typing import Any, Iterable, Optional
 from bot.proofofpnl.publish import verify_publication
 
 from bot.utils.atomic_write import atomic_write_json
-from bot.utils.paths import env_state_path
+from bot.utils.paths import env_state_path, state_path
 
 HANDLE_MAX = 20
 
@@ -127,7 +127,7 @@ class LeaderboardRegistry:
     leaky or tampered bundle can never enter the board."""
 
     def __init__(self, path: str = "data/proofofpnl_leaderboard.json") -> None:
-        self._path = path
+        self._path = str(state_path(path))
         self._lock = threading.RLock()
 
     def _read_raw(self) -> dict:

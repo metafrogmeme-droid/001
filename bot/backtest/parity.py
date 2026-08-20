@@ -25,8 +25,9 @@ import json
 from pathlib import Path
 
 from bot.config import CONFIG
+from bot.utils.paths import state_path
 
-DEFAULT_TRADES_FILE = "data/closed_trades.json"
+DEFAULT_TRADES_FILE = str(state_path("data/closed_trades.json"))
 
 
 def load_closed_trades(path: str | Path) -> list[dict]:

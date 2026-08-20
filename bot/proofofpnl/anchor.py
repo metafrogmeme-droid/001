@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.proofofpnl import csf
+from bot.utils.paths import env_state_path
 
 BASE_CHAIN_ID = 8453
 _DEFAULT_RPC = "https://mainnet.base.org"
@@ -50,7 +51,7 @@ def _env(key: str, default: str = "") -> str:
 
 
 def _state_path() -> Path:
-    return Path(_env("ANCHOR_STATE_PATH", "data/anchor_state.json"))
+    return env_state_path("ANCHOR_STATE_PATH", "data/anchor_state.json")
 
 
 def _chain_id() -> int:

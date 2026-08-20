@@ -49,6 +49,7 @@ from pydantic import BaseModel, Field
 
 from bot.compat import UTC
 from bot.utils.logger import audit, system_log
+from bot.utils.paths import state_path
 
 # ── Config (mirrors bot/config.py style; fold into AppConfig if you like) ──
 
@@ -315,6 +316,7 @@ class OrderFlowAnalyzer:
         (stale OI is worse than no OI), and returns the number of symbols
         warmed. Best-effort fail-open: any error returns 0 and live scanning
         proceeds with cold history exactly as before."""
+        path = str(state_path(path))
         import json as _json
         from datetime import datetime as _dt
 

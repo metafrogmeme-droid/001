@@ -1,0 +1,67 @@
+# Relative "data/…" and "logs/…" literals that are CORRECT as written.
+#
+# `test_no_module_resolves_durable_state_against_the_cwd` flags every such
+# literal, because a relative path means whoever launched the process decides
+# which file it reads, and a missing file is CREATED rather than reported.
+# The rule cannot see where a value FLOWS, so a default that its constructor
+# anchors looks identical to one nothing anchors. This file is where that
+# difference is written down.
+#
+# A RATCHET IN BOTH DIRECTIONS, same as tests/unreachable_baseline.txt:
+#   - a new entry means somebody added an unanchored durable path, and the
+#     reason has to be argued in the same commit
+#   - an entry that no longer matches must be DELETED in the same commit, so a
+#     stale exemption cannot hide a real one
+#
+# Format: <path> :: <literal> :: <reason>
+
+# ── the default is anchored by the constructor that receives it ────────────
+# Each of these is a parameter default; `__init__` passes it through
+# state_path(), so the relative form never reaches the filesystem. Anchoring
+# at the owner rather than at every call site is what lets the call sites
+# below stay relative too.
+bot/utils/user_store.py :: "data/users.json" :: UserStore.__init__ wraps it in state_path()
+bot/utils/audit_chain.py :: "logs/audit_chain.jsonl" :: AuditChain.__init__ wraps it in state_path()
+bot/core/trade_journal.py :: "data/trade_journal.json" :: TradeJournal.__init__ wraps it in state_path()
+bot/core/slippage.py :: "data/slippage_state.json" :: SlippageTracker.__init__ wraps it in state_path()
+bot/core/smart_exits.py :: "data/limit_distance_state.json" :: __init__ wraps it in state_path()
+bot/proofofpnl/leaderboard.py :: "data/proofofpnl_leaderboard.json" :: __init__ wraps it in state_path()
+bot/proofofpnl/publish.py :: "data/proofofpnl_publication.json" :: __init__ wraps it in state_path()
+bot/proofofpnl/seasons.py :: "data/proofofpnl_seasons.json" :: __init__ wraps it in state_path()
+bot/core/order_flow.py :: "data/learning/order_flow_snapshots.jsonl" :: warm_oi_history anchors `path` on its first line
+
+# ── the call site hands a relative value to an anchored owner ──────────────
+bot/core/engine.py :: "logs/audit_chain.jsonl" :: passed to AuditChain, which anchors it
+bot/core/engine.py :: "data/risk_state_{safe}.json" :: passed to RiskEngine(state_file=), which anchors it
+bot/core/engine.py :: "data/proofofpnl_user_scratch.json" :: passed to PublicationStore, which anchors it
+bot/risk/multi_portfolio.py :: "data/portfolio_{user_id}.json" :: passed to PortfolioTracker(state_file=), which anchors it
+bot/config.py :: "data/portfolio_state.json" :: CONFIG default read by PortfolioTracker, which anchors it
+bot/config.py :: "data/proactive_watch.json" :: CONFIG default read by ProactiveMonitor._watch_state_path, which anchors it
+
+# ── resolved against an EXPLICIT root, never against the cwd ───────────────
+# `critical_paths(root)` joins each of these to `rootp_of(root)`, which
+# defaults to the repo root. They are names within a tree, not paths.
+bot/utils/backup.py :: "logs/audit_chain.jsonl" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/attestation_key.bin" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/anchor_state.json" :: _CRITICAL member / _ENV_OVERRIDES key
+bot/utils/backup.py :: "data/proofofpnl_publication.json" :: _CRITICAL member / _ENV_OVERRIDES key
+bot/utils/backup.py :: "data/runeclaw.db" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/secrets_vault.enc" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/shadow_book.json" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/proactive_watch.json" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/venue_override.json" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/catalog_seen.json" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/learning/*" :: _CRITICAL_GLOBS member, joined to rootp_of()
+bot/utils/backup.py :: "data/portfolio_*" :: _CRITICAL_GLOBS member, joined to rootp_of()
+bot/utils/backup.py :: "data/risk_state_*" :: _CRITICAL_GLOBS member, joined to rootp_of()
+
+# ── offline backtest tooling, not live state ───────────────────────────────
+# Invoked as `python -m bot.backtest.runner` from the repo root. A wrong path
+# here produces an immediate "no such file" on a command somebody is watching
+# — not a silent empty read that a live surface then reports as a measurement,
+# which is the failure this rule exists to prevent. Listed rather than fixed
+# so the distinction is a decision on the record.
+bot/backtest/models.py :: "data/learning/llm_calibration.jsonl" :: backtest config default, offline
+bot/backtest/models.py :: "data/learning/order_flow_snapshots.jsonl" :: backtest config default, offline
+bot/backtest/runner.py :: "data/learning/order_flow_snapshots.jsonl" :: argparse default, offline
+bot/backtest/snapshot.py :: "data/benchmark" :: benchmark output dir, offline

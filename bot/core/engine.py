@@ -41,7 +41,7 @@ from bot.core.dashboard_pusher import (
 )
 from bot.utils.audit_chain import AuditChain, DecisionRecord
 from bot.utils.durable_io import fsync_dir
-from bot.utils.paths import env_state_path
+from bot.utils.paths import env_state_path, state_path
 from bot.utils.logger import audit, system_log, trade_log, scan_log
 
 #: Stages of one analysis, in the order they run. Module-level, not a class
@@ -173,7 +173,7 @@ def _stage_enter_guarded(engine, symbol, stage) -> None:
 
 
 #: Where the learned timeframe availability survives a restart.
-MTF_AVAILABILITY_PATH = "data/mtf_availability.json"
+MTF_AVAILABILITY_PATH = str(state_path("data/mtf_availability.json"))
 
 
 def _mtf_state(engine):

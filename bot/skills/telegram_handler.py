@@ -19,6 +19,7 @@ from collections import defaultdict
 from datetime import datetime
 from bot.compat import UTC
 from typing import Optional
+from bot.utils.paths import state_path
 
 # Module logger. Several exception/admin paths referenced bare `os`/`logger`
 # without these being in scope — latent NameErrors (flagged by ruff F821).
@@ -634,7 +635,7 @@ class TelegramHandler:
         self.conversations = ConversationStore(
             max_messages_per_user=50,
             max_users=200,
-            persist_path="data/conversations.jsonl",
+            persist_path=str(state_path("data/conversations.jsonl")),
             context_window=10,
         )
         # Proactive alert monitor (Move 2)
@@ -3750,21 +3751,27 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
 
-        # A ROSTER READ FROM A DATABASE THIS PROCESS JUST CREATED is not a
-        # roster of who is registered — it is a roster of who has interacted
-        # since. Both render as a confident count, which is how "the users are
-        # gone" looked identical to "nobody ever signed up".
+        # A ROSTER FROM A STORE THAT STARTED EMPTY is not a roster of who is
+        # registered — it is a roster of who has messaged since. Both render as
+        # a confident count, which is how "the users are gone" looked identical
+        # to "nobody ever signed up".
+        #
+        # READ FROM THE STORE THIS COMMAND ACTUALLY USES. The first version of
+        # this caveat asked `bot.db.models.database_is_new()` — the SQLite
+        # database, which /users never touches: the roster comes from
+        # UserStore and data/users.json. It could not have fired for the
+        # incident it was written for, and would have stayed silent while
+        # reporting two accounts out of eighteen.
         fresh_db = ""
         try:
-            from bot.db.models import database_is_new
-            if database_is_new():
+            if getattr(self.users, "started_empty", False):
                 fresh_db = (
-                    "\n\n⚠️ <b>This database was created on this run.</b>\n"
-                    "No database file existed when the bot started, so this "
-                    "list is everyone who has interacted SINCE — not "
-                    "necessarily everyone who was registered before. Check "
-                    "that the bot was launched from the directory holding the "
-                    "persistent <code>data/</code>.")
+                    "\n\n⚠️ <b>This user store started empty on this run.</b>\n"
+                    "There was no readable <code>users.json</code> when the "
+                    "bot started, so this list is everyone who has messaged "
+                    "SINCE — not necessarily everyone who was registered "
+                    "before. Check the <code>data/</code> symlink and any "
+                    "recent restore.")
         except Exception:
             fresh_db = ""
 
@@ -4378,9 +4385,8 @@ class TelegramHandler:
             await self._reply(update, "\n".join(lines))
             return
         if args[:1] == ["verify"] and len(args) >= 2:
-            from pathlib import Path
             name = args[1] if args[1].endswith(".tar.gz") else args[1] + ".tar.gz"
-            path = Path(__import__("os").environ.get("BACKUP_DIR", "data/backups")) / name
+            path = bkp._backup_dir() / name
             ok, problems = await asyncio.to_thread(bkp.verify_backup, path)
             if ok:
                 await self._reply(update, f"✅ <code>{name}</code> verified — every "

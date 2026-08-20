@@ -78,6 +78,7 @@ from bot.utils.logger import audit, risk_log
 from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import state_path
 
 
 # RC-AUD-007: explicit VaR result type, replacing the former magic-tuple
@@ -263,7 +264,7 @@ class RiskEngine:
         # trade's notional; None → the daily cap is checked with spent=0 (the
         # per-trade cap still binds). See bot/guardian/authority_ledger.py.
         self._authority_ledger: Any = None
-        self._state_file = state_file or _STATE_FILE
+        self._state_file = str(state_path(state_file or _STATE_FILE))
         self._macro_calendar = macro_calendar
         self._macro_provider = macro_provider  # v2: enhanced macro-event provider
         self._order_flow = order_flow_analyzer  # Gate 2 + Rule 20

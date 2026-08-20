@@ -21,6 +21,7 @@ from pathlib import Path
 from bot.backtest.data_loader import DataLoader
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.models import BacktestConfig
+from bot.utils.paths import state_path
 
 
 def _format_result_summary(result) -> str:
@@ -305,7 +306,8 @@ async def _run_backtest(args: argparse.Namespace) -> None:
 
     # Save synthetic data for reproducibility
     if used_synthetic and args.save_data:
-        data_path = f"data/{config.symbol.replace('/', '_')}_{config.timeframe}_{args.seed}.csv"
+        data_path = str(state_path(
+            f"data/{config.symbol.replace('/', '_')}_{config.timeframe}_{args.seed}.csv"))
         DataLoader.save_csv(bars, data_path)
         print(f"  Saved data to {data_path}")
 
