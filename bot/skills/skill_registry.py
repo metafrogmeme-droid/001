@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import html as _html
 import json
+import math
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -77,12 +78,58 @@ _BLOCKS = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"  # ▁▂▃▄▅�
 def _status(v: float) -> str:
     return _OK if v > 0 else _BAD if v < 0 else _NEU
 
-def _spark(v: float) -> str:
+def _spark(v: Optional[float]) -> str:
+    # "◇" is FLAT — a measured zero — so it cannot also stand for "the venue
+    # reported no percentage". Those were the same glyph for as long as the
+    # field was a float that defaulted to 0.
+    if v is None: return "?"
     if v > 2: return "\u25b2"   # ▲
     if v > 0: return "\u25b3"   # △
     if v < -2: return "\u25bc"  # ▼
     if v < 0: return "\u25bd"   # ▽
     return "\u25c7"             # ◇
+
+
+def _chg(v: Optional[float]) -> str:
+    """The 24h move as text. `+0.0%` is a claim; an unread move gets none."""
+    return "—" if v is None else f"{v:+.1f}%"
+
+
+def _maybe_pct(raw: object) -> Optional[float]:
+    """A reported percentage, or None. Never a manufactured zero.
+
+    `float(ticker.get("percentage", 0) or 0)` collapsed absent, null, empty
+    string and a genuine 0.0% into one value — and the `or 0` swallowed a
+    real, reported 0.0 as well, so even the readable flat case arrived here
+    indistinguishable from the unreadable one.
+    """
+    if raw is None:
+        return None
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return val if math.isfinite(val) else None
+
+
+#: A direction the scan pipeline could not determine.
+#:
+#: `dir` was a two-valued contract and every consumer's `else` branch meant
+#: SHORT, so absence had nowhere to go but the short side. That is why the
+#: producer below carried a "KNOWN DEFECT, DELIBERATELY NOT FIXED HERE" note:
+#: widening it needed those consumers audited first. They now have been.
+DIR_UNKNOWN = "UNKNOWN"
+
+
+def _dir_from_change(change_pct: Optional[float]) -> str:
+    """LONG / SHORT / UNKNOWN from a 24h move.
+
+    `"LONG" if x > 0 else "SHORT"` held two defects in one expression: an
+    unreadable move became SHORT, and so did a genuinely flat 0.0%.
+    """
+    if change_pct is None:
+        return DIR_UNKNOWN
+    return "LONG" if change_pct > 0 else "SHORT" if change_pct < 0 else DIR_UNKNOWN
 
 def _bar(val: float, mx: float = 1.0, w: int = 10) -> str:
     """Gradient progress bar using ━ filled and ╌ empty."""
@@ -317,7 +364,7 @@ class ScanMarketSkill(BaseSkill):
             for s in cat_sigs:
                 arrow = _spark(s.change_pct_24h)
                 vol_m = s.volume_usd_24h / 1_000_000 if s.volume_usd_24h else 0
-                chg = f"{s.change_pct_24h:+.1f}%"
+                chg = _chg(s.change_pct_24h)
                 spike = " \U0001f4a5" if s.volume_spike else ""
                 display_sym = s.symbol.replace(":USDT", "")
                 lines.append(
@@ -329,11 +376,19 @@ class ScanMarketSkill(BaseSkill):
             lines.append("</pre>")
 
         # Summary line
-        bullish = sum(1 for s in top if s.change_pct_24h > 0)
-        bearish = len(top) - bullish
+        # `bearish = len(top) - bullish` is CLAUDE.md's own banned shape: every
+        # row that is not provably bullish becomes a bearish one, so a symbol
+        # the venue reported no percentage for was COUNTED and DISPLAYED as
+        # bearish. A genuinely flat 0.0% was too. Both are now counted as what
+        # they are, and the two tallies no longer have to sum to the total.
+        bullish = sum(1 for s in top if s.change_pct_24h is not None and s.change_pct_24h > 0)
+        bearish = sum(1 for s in top if s.change_pct_24h is not None and s.change_pct_24h < 0)
+        unread = sum(1 for s in top if s.change_pct_24h is None)
         spikes = sum(1 for s in top if s.volume_spike)
         cats_found = len(by_cat)
-        lines.append(f"\n{_OK} {bullish} bullish  {_BAD} {bearish} bearish  \u2022  {cats_found} categories")
+        _unread_txt = f"  ?  {unread} unread" if unread else ""
+        lines.append(f"\n{_OK} {bullish} bullish  {_BAD} {bearish} bearish{_unread_txt}"
+                     f"  \u2022  {cats_found} categories")
         if spikes:
             lines.append(f"\U0001f4a5 {spikes} volume spike{'s' if spikes != 1 else ''} detected")
         lines.append("\n<i>\U0001f504 /mode all_markets \u2022 say \"deep scan\" for full analysis</i>")
@@ -385,7 +440,7 @@ class AnalyzeAssetSkill(BaseSkill):
                 resolved_symbol = cand
                 break
 
-        sig = MarketSignal(symbol=resolved_symbol, price=0, change_pct_24h=0,
+        sig = MarketSignal(symbol=resolved_symbol, price=0, change_pct_24h=None,
                            volume_usd_24h=0, asset_category=category,
                            timestamp=datetime.now(UTC))
         try:
@@ -431,7 +486,7 @@ class AnalyzeAssetSkill(BaseSkill):
 
             sig = MarketSignal(
                 symbol=working_symbol, price=float(ticker.get("last", 0)),
-                change_pct_24h=float(ticker.get("percentage", 0) or 0),
+                change_pct_24h=_maybe_pct(ticker.get("percentage")),
                 volume_usd_24h=float(ticker.get("quoteVolume", 0) or 0),
                 asset_category=category,
                 timestamp=datetime.now(UTC),
@@ -469,7 +524,7 @@ class AnalyzeAssetSkill(BaseSkill):
             msg = (
                 f"{_NEU} <b>{_esc(symbol)}</b>  {arrow}\n{SEP}\n\n"
                 f"- Price: <code>${sig.price:,.2f}</code>\n"
-                f"- 24h: <code>{sig.change_pct_24h:+.1f}%</code>\n"
+                f"- 24h: <code>{_chg(sig.change_pct_24h)}</code>\n"
                 f"- Volume: <code>${vol_m:,.0f}M</code>\n\n"
             )
             if diag_lines:
@@ -2013,7 +2068,13 @@ class ProScanSkill(BaseSkill):
         if cfg["sort"] == "volume":
             signals.sort(key=lambda s: s.volume_usd_24h, reverse=True)
         else:
-            signals.sort(key=lambda s: abs(s.change_pct_24h), reverse=True)
+            # Unknown moves sort LAST rather than as the smallest move. With
+            # a manufactured 0.0 they were indistinguishable from flat, and
+            # `reverse=True` put both at the bottom by accident rather than on
+            # purpose — which stops being true the moment the default changes.
+            signals.sort(reverse=True, key=lambda s: (
+                s.change_pct_24h is not None,
+                abs(s.change_pct_24h) if s.change_pct_24h is not None else 0.0))
 
         # Stash structured signals so the handler can render the grid card
         # (non-breaking: this method still returns its rich text).
@@ -2389,17 +2450,11 @@ class ProScanSkill(BaseSkill):
                 scan_results.append({
                     "sym": sig.symbol,
                     "price": sig.price,
-                    # KNOWN DEFECT, DELIBERATELY NOT FIXED HERE. `"LONG" if
-                    # x > 0 else "SHORT"` labels every unmoved or unreported
-                    # symbol SHORT, and 0 is both "flat" and "the exchange sent
-                    # no percentage". But `dir` is a two-valued contract:
-                    # _build_scan_payload compares it against "LONG" in six
-                    # places, including `book_side = "BID" if dir == "LONG"
-                    # else "ASK"`, so a third value would silently become the
-                    # short side there — the same defect one level down.
-                    # Widening it needs those consumers audited first, and a
-                    # refactor bought with no safety is a real cost.
-                    "dir": "LONG" if sig.change_pct_24h > 0 else "SHORT",
+                    # The audit that note asked for is done. Every consumer
+                    # of `dir` in _build_scan_payload now handles UNKNOWN
+                    # explicitly, so the third value has somewhere to go
+                    # instead of falling into an `else` that means SHORT.
+                    "dir": _dir_from_change(sig.change_pct_24h),
                     "score": max(sig.momentum_score, 0),
                     "rsi": 50.0,  # RSI computed per-asset above, but not stored on signal
                     "atr": 0,
@@ -2586,7 +2641,8 @@ class PlaybookSkill(BaseSkill):
         # Show recent scan results if available
         signals = await engine.scanner.scan()
         n_signals = len(signals) if signals else 0
-        movers = [s for s in (signals or []) if abs(s.change_pct_24h) > 3.0]
+        movers = [s for s in (signals or [])
+                  if s.change_pct_24h is not None and abs(s.change_pct_24h) > 3.0]
         spikes = [s for s in (signals or []) if s.volume_spike]
         lines.append(f"  {_OK} {n_signals} signals detected")
         lines.append(f"  {_spark(3.0)} {len(movers)} movers (>3%)")

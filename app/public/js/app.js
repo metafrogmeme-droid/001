@@ -193,8 +193,16 @@
   }
   // Direction chip: glyph + text, never color alone.
   function dirChip(direction) {
-    const up = String(direction).toUpperCase() === 'LONG' || String(direction).toUpperCase() === 'BUY';
-    return `<span class="chip ${up ? 'chip--up' : 'chip--down'}">${up ? '▲ LONG' : '▼ SHORT'}</span>`;
+    // A BOUNDARY, not a formatter. `up = x === 'LONG'` means every other value
+    // — null, undefined, '', a typo, or a deliberate third state — renders as
+    // a confident "▼ SHORT". The bot now emits UNKNOWN for a symbol whose
+    // direction it could not determine, and a chip is a claim: it must be able
+    // to decline. Anything it does not recognise gets the muted chip rather
+    // than a side.
+    const d = String(direction == null ? '' : direction).toUpperCase();
+    if (d === 'LONG' || d === 'BUY') return '<span class="chip chip--up">▲ LONG</span>';
+    if (d === 'SHORT' || d === 'SELL') return '<span class="chip chip--down">▼ SHORT</span>';
+    return '<span class="chip muted">— no direction</span>';
   }
 
   // ── Bot-HTML sanitizer (whitelist: b, i, code, pre, br) ─────────────────

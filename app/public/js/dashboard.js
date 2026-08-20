@@ -6063,11 +6063,16 @@
           return head + `<p class="small muted">No live signal matches this agent's gates right now${g.matched_on && g.matched_on.length ? ` (matched on ${g.matched_on.map(esc).join(', ')})` : ''}.</p>`;
         }
         const rows = g.picks.map(s => {
-          const up = String(s.direction || '').toUpperCase() === 'LONG';
+          // `up = x === 'LONG'` renders every other value as SHORT. This row
+          // carries a Ticket button, so an unrecognised direction would open a
+          // trade form pre-filled with a side nobody determined.
+          const sd = String(s.direction == null ? '' : s.direction).toUpperCase();
+          const sideKnown = sd === 'LONG' || sd === 'SHORT';
+          const up = sd === 'LONG';
           const pt = esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }));
           return `<div class="row" style="gap:8px;align-items:center;padding:5px 0;border-top:1px solid rgba(128,128,128,.12)">
               <b>${esc(String(s.symbol || '').replace(/[:/].*$/, ''))}</b>
-              <span class="chip ${up ? 'chip--up' : 'chip--down'}" style="font-size:10px">${up ? 'LONG' : 'SHORT'}</span>
+              <span class="chip ${sideKnown ? (up ? 'chip--up' : 'chip--down') : 'muted'}" style="font-size:10px">${sideKnown ? (up ? 'LONG' : 'SHORT') : '— no direction'}</span>
               <span class="muted small">conf ${s.confidence != null ? (Number(s.confidence) * 100).toFixed(0) + '%' : '—'}${s.regime ? ' · ' + esc(s.regime) : ''}</span>
               <button class="btn btn--sm btn--primary" data-pcopy='${esc(JSON.stringify({ k: s.signal_key, a: g.id }))}' style="margin-left:auto">${esc(T('rec.copy_b', '⚔️ Copy to Arena'))}</button>
               <button class="btn btn--sm btn--ghost" data-ptrade='${pt}'>${esc(T('rec.ticket_b', 'Ticket'))}</button></div>`;

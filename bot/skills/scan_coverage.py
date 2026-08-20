@@ -80,6 +80,32 @@ def coverage_note(total: int, readable: int, *, html: bool = True) -> str:
     return f"\n\n⚠️ <i>{body}</i>" if html else f"\n\n{body}"
 
 
+def no_direction_note(rows: list, *, html: bool = True) -> str:
+    """Setups dropped for having no determinable direction, or "".
+
+    Entry, stop and target are all placed relative to a SIDE. A row whose
+    direction could not be determined has no levels to carry, so it is dropped
+    from the setup list rather than given the short side's — which is what
+    `if dir == "LONG": ... else: ...` silently did, publishing a stop above the
+    price and targets below it for a symbol nobody had a direction for.
+
+    Dropping is right; dropping QUIETLY is not. A shortened list published
+    without saying what left it reads as the whole list, which is the same
+    mistake as a top-N with no total beside it.
+
+    Empty on the healthy path, for the reason `coverage_note` gives: a banner
+    printed on every scan trains the reader to skip the one that matters.
+    """
+    n = len(rows or [])
+    if n <= 0:
+        return ""
+    body = (f"{n} symbol{'s' if n != 1 else ''} had no readable 24h move, so no "
+            f"direction could be determined and no levels are shown for "
+            f"{'them' if n != 1 else 'it'}. That is missing data, not a "
+            f"missing setup.")
+    return f"\n\n⚠️ <i>{body}</i>" if html else f"\n\n{body}"
+
+
 def unreadable_verdict(label: str, total: int) -> str:
     """The message for a pass that read nothing at all.
 

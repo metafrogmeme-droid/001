@@ -18,6 +18,7 @@ from bot.formatters.rich_cards import (
 from bot.utils.site_url import site_url
 from bot.skills.scan_coverage import (
     coverage_note,
+    no_direction_note,
     empty_result_line,
     unreadable_verdict,
 )
@@ -481,7 +482,10 @@ def _build_scan_payload(results: list[dict], engine=None,
         # Book ratio from vol_ratio (capped at reasonable range)
         vr = r.get("vol_ratio", 1.0) or 1.0
         book_ratio = round(vr, 2)
-        book_side = "BID" if r["dir"] == "LONG" else "ASK"
+        # `"BID" if dir == "LONG" else "ASK"` put every non-LONG row on the
+        # ask. A side is a claim; a direction nobody determined has no side.
+        _d = r["dir"]
+        book_side = "BID" if _d == "LONG" else "ASK" if _d == "SHORT" else None
 
         symbols[sym_key] = {
             "book_ratio": book_ratio,
@@ -512,6 +516,14 @@ def _build_scan_payload(results: list[dict], engine=None,
         # so the sealed record described a call no user was ever shown, and
         # its R:R was computed off a different entry. Same formula both sides
         # now, by construction rather than by luck of mutation order.
+        # OMITTED, NOT GUESSED. Entry, stop and both targets are all placed
+        # RELATIVE TO A SIDE — the `else` arm here put the stop above the
+        # price and the targets below it. Publishing that for a symbol whose
+        # direction came from an unreadable 24h move is not a mislabelled
+        # card, it is a trade plan with the stop on the wrong side. There is
+        # no honest card to build without a direction, so no card is built.
+        if r["dir"] not in ("LONG", "SHORT"):
+            continue
         if r["dir"] == "LONG":
             entry = round(price - atr * 0.3, 8)
             sl = round(price - atr * 2.5, 8)
@@ -552,8 +564,10 @@ def _build_scan_payload(results: list[dict], engine=None,
 
     # ── Key call narrative ──
     if results:
+        # `shorts = len(results) - longs` counted every undetermined row as a
+        # short and fed it straight to the market-bias headline below.
         longs = sum(1 for r in results if r["dir"] == "LONG")
-        shorts = len(results) - longs
+        shorts = sum(1 for r in results if r["dir"] == "SHORT")
         top3 = results[:3]
         top_names = ", ".join(r["sym"].replace("/USDT", "") for r in top3)
         bias = "LONG" if longs > shorts else "SHORT" if shorts > longs else "MIXED"
@@ -1049,6 +1063,20 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
         _scan_payload, _verify = None, {}
     skipped = [r for r in results if r["score"] < 0.4]
 
+    # A SETUP WITHOUT A SIDE IS NOT A SETUP. Entry, stop and target are all
+    # placed relative to a direction, so a row whose direction could not be
+    # determined has no levels to carry — and the old `else` arm gave it SHORT
+    # ones, putting the stop above the price and the targets below it.
+    #
+    # Dropped rather than left levelless, because the renderer below reads
+    # `entry`/`sl`/`tp` unguarded and `abs(None - None)` is a crash, not a
+    # blank. Dropped is not the same as hidden: the count is disclosed under
+    # the card, next to the coverage note, for the reason scan_coverage.py
+    # already gives — a bounded list published without saying what it dropped
+    # reads as the whole.
+    _no_direction = [r for r in top_setups if r["dir"] not in ("LONG", "SHORT")]
+    top_setups = [r for r in top_setups if r["dir"] in ("LONG", "SHORT")]
+
     # Compute entry/SL/TP for each setup
     for r in top_setups:
         price = r["price"]
@@ -1096,7 +1124,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 await context.bot.send_photo(
                     chat_id=chat_id, photo=buf,
                     caption=(f"\u2694\ufe0f <b>RUNECLAW Live Scan</b> — {now_str}"
-                             + coverage_note(len(UNIVERSE), _readable)),
+                             + coverage_note(len(UNIVERSE), _readable) + no_direction_note(_no_direction)),
                     parse_mode="HTML")
                 card_sent = True
     except Exception as exc:
@@ -1151,7 +1179,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # "Below threshold" and "never read" are different facts. The line above
     # only ever counted the first one, so a pass that lost 40 symbols to the
     # exchange looked like a pass where 40 symbols simply scored badly.
-    body += coverage_note(len(UNIVERSE), _readable)
+    body += coverage_note(len(UNIVERSE), _readable) + no_direction_note(_no_direction)
 
     # Provable Calls, where screenshots are born: every setup above is sealed
     # (sha256 over its decision facts) the moment it reaches the platform, so a
@@ -1265,7 +1293,7 @@ async def _scan_single(update: Update, context: ContextTypes.DEFAULT_TYPE,
     try:
         if result:
             signal = MarketSignal(symbol=symbol, price=result["price"],
-                                  change_pct_24h=data["change_pct"] if data else 0.0,
+                                  change_pct_24h=data["change_pct"] if data else None,
                                   volume_usd_24h=data["volume_24h_usd"] if data else 0.0,
                                   momentum_score=result["score"])
             idea = await engine._analyze_signal(signal, timeframe="1h")
