@@ -250,6 +250,41 @@ Two habits stop it recurring:
   process, and since the deploy script is the parent that has not reaped it,
   the naive check passes on exactly the failure it exists to catch.
 
+- **Gate it on the code being the code you think it is**, before starting
+  anything:
+
+  ```bash
+  scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
+  ```
+
+  On 2026-08-20 a deploy ran `git fetch origin && git reset --hard
+  origin/main` and reported success while landing on a commit **255 commits
+  stale**: `origin` on that box is a GitLab mirror and the real repository is
+  a remote named `backup`. Every other check passed, because each was true of
+  the stale tree — the pull worked, the symlinks resolved, the user store
+  loaded, 18 users were present. The only thing wrong was *which code*, and
+  nothing asked. A restart would have applied new configuration to a binary
+  containing none of the fixes it was meant to deploy.
+
+  **Never reset to a remote-tracking ref. Reset to the URL:**
+
+  ```bash
+  git fetch https://github.com/metafrogmeme-droid/001 main
+  git reset --hard FETCH_HEAD
+  ```
+
+  A remote *name* is a per-machine nickname that can point anywhere, so
+  "use the right remote" is advice, and advice is what failed. Fetching a URL
+  writes `FETCH_HEAD` and no `refs/remotes/*`, so there is no stale ref left
+  to reset to by mistake — which also sidesteps the trap that `git fetch
+  origin main` updates `FETCH_HEAD` while leaving `refs/remotes/origin/main`
+  untouched.
+
+  The guard reads the URL with `git ls-remote` and consults nothing local, and
+  it separates **could not check** (exit 3) from both verdicts — a gate that
+  reads an unreachable network as "up to date" ships stale code on the one day
+  the network is down.
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps
