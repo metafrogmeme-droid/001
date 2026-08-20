@@ -77,9 +77,59 @@ link_persistent() {
   local store_path="$PERSIST_DIR/$name"
 
   if [ -L "$repo_path" ]; then
-    # Already a symlink — repoint it at the store to be safe and return.
+    # "ALREADY LINKED" WAS A CLAIM ABOUT THE WRONG FACT.
+    #
+    # This branch tested only "is it a symlink", then repointed it with
+    # `ln -sfn` and reported continuity. So when PERSIST_DIR differed from the
+    # previous run — a different value, or the DEFAULT after an earlier run
+    # used a custom one — it silently swung data/ to another store and printed
+    #
+    #     data -> already linked
+    #
+    # Reproduced: run with PERSIST_DIR=A migrates users.json into A; run again
+    # with PERSIST_DIR=B prints "already linked" while data/ now resolves to an
+    # EMPTY B, and the roster is gone from the bot's view. Nothing is deleted —
+    # A still holds everything — but the bot reads an empty directory, and a
+    # user store that loads empty and then saves becomes a roster of whoever
+    # messages next. That is the shape of the 18-users-became-2 incident.
+    local current
+    current="$(readlink "$repo_path")"
+
+    if [ "$current" = "$store_path" ]; then
+      ln -sfn "$store_path" "$repo_path"      # normalise, no change of target
+      echo "  $name -> already linked"
+      return
+    fi
+
+    # POINTING SOMEWHERE ELSE. Repointing a populated store at an empty one is
+    # never what anybody means by "deploy", so it is refused rather than
+    # warned about: a warning scrolls past, and the next thing the operator
+    # does is start the bot.
+    local had_content=0 will_have_content=0
+    [ -n "$(ls -A "$current" 2>/dev/null)" ] && had_content=1
+    [ -n "$(ls -A "$store_path" 2>/dev/null)" ] && will_have_content=1
+
+    if [ "$had_content" = "1" ] && [ "$will_have_content" = "0" ]; then
+      echo "" >&2
+      echo "  ✗ REFUSING to repoint $name at an empty store." >&2
+      echo "      now:  $current  (has contents)" >&2
+      echo "      new:  $store_path  (empty or missing)" >&2
+      echo "" >&2
+      echo "    PERSIST_DIR is '$PERSIST_DIR' on this run and the link points" >&2
+      echo "    somewhere else, so this run would hand the bot an empty" >&2
+      echo "    data directory. Nothing has been deleted — the contents are" >&2
+      echo "    still at the path above." >&2
+      echo "" >&2
+      echo "    Set PERSIST_DIR to the store you mean, or move the contents:" >&2
+      echo "      PERSIST_DIR=$(dirname "$current") ./deploy.sh" >&2
+      echo "" >&2
+      exit 1
+    fi
+
+    # A real change of store, with something to change to. Say so — this is
+    # not continuity and must not read as it.
     ln -sfn "$store_path" "$repo_path"
-    echo "  $name -> already linked"
+    echo "  $name -> REPOINTED from $current to $store_path"
     return
   fi
 
