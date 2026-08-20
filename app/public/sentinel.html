@@ -104,6 +104,13 @@
     if (a >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K'; return '$' + v.toFixed(0); };
   var root = document.getElementById('root');
 
+  // NOT a place that needs a readability guard, despite looking exactly like
+  // one. A row only reaches here by having QUALIFIED on the very field it
+  // displays: crowded_long/short are filtered on a readable funding rate past
+  // a threshold, and surging on a readable ΔOI past one. `oi_usd` is the
+  // filter that admits a coin to the universe at all. Adding a guard here
+  // would cost a refactor and buy nothing — the same conclusion `track.js`
+  // and `arena_trades.pnl` reached.
   function coinRow(c, kind) {
     var f = Number(c.funding_bps);
     return '<div class="row-c"><b>' + esc(c.base) + '</b>'
@@ -115,7 +122,23 @@
   function render(d) {
     if (!d || d.error || !d.gauge) { root.innerHTML = '<div class="empty">The market feed is unavailable right now. Try the <a href="/dashboard#markets">app</a>.</div>'; return; }
     var lvl = d.gauge.level;
-    var mk = Math.max(0, Math.min(100, d.gauge.score));
+    // `Math.min(100, null)` is 0, so an unscorable read used to park the needle
+    // at the calmest point on the track — the most reassuring position the
+    // widget has, chosen by absence. No score, no needle.
+    var scored = typeof d.gauge.score === 'number' && isFinite(d.gauge.score);
+    var mk = scored ? Math.max(0, Math.min(100, d.gauge.score)) : null;
+    var scoreTx = scored ? d.gauge.score : '—';
+    // The chip carries its own qualifier: the caveat must not be separable from
+    // the claim it qualifies.
+    var lvlTx = esc(lvl) + (d.gauge.partial ? ' · partial' : '');
+    // One helper for every tile: a value the server could not measure renders
+    // as an em dash with NO up/down class, because the colour is a claim too.
+    function tile(label, value, cls, suffix) {
+      var known = value !== null && value !== undefined;
+      return '<div class="tile"><div class="k">' + label + '</div>'
+        + '<div class="v ' + (known && cls ? cls : 'muted') + '">'
+        + (known ? value + (suffix || '') : '—') + '</div></div>';
+    }
     var flags = (d.flags || []).map(function (f) {
       return '<div class="flag sev-' + esc(f.severity) + '"><span class="dot"></span><span class="tx">' + esc(f.text) + '</span></div>';
     }).join('');
@@ -127,16 +150,25 @@
     }
     root.innerHTML =
       '<section class="panel reveal-on-scroll"><h2>Systemic stress</h2>'
-      + '<div class="gauge"><div><div class="score lvl-' + esc(lvl) + '">' + d.gauge.score + '<span class="of">/100</span></div>'
-      + '<div class="lvl lvl-' + esc(lvl) + '">' + esc(lvl) + '</div></div>'
-      + '<div class="track"><div class="gbar"><div class="mk" style="left:calc(' + mk + '% - 2px)"></div></div>'
+      + '<div class="gauge"><div><div class="score lvl-' + esc(lvl) + '">' + scoreTx + '<span class="of">/100</span></div>'
+      + '<div class="lvl lvl-' + esc(lvl) + '">' + lvlTx + '</div></div>'
+      + '<div class="track"><div class="gbar">'
+      + (mk === null ? '' : '<div class="mk" style="left:calc(' + mk + '% - 2px)"></div>') + '</div>'
       + '<div class="gscale"><span>calm</span><span>building</span><span>elevated</span><span>high</span></div></div></div>'
       + '<div class="tiles">'
       + '<div class="tile"><div class="k">Universe</div><div class="v">' + d.universe + ' perps</div></div>'
       + '<div class="tile"><div class="k">Total open interest</div><div class="v">' + fmtUsd(d.total_oi_usd) + '</div></div>'
-      + '<div class="tile"><div class="k">OI bias</div><div class="v ' + (d.bias.long_share_pct >= 50 ? 'up' : 'down') + '">' + d.bias.long_share_pct + '% ' + (d.bias.long_share_pct >= 50 ? 'long' : 'short') + '</div></div>'
-      + '<div class="tile"><div class="k">Herding</div><div class="v">' + d.herding.same_dir_pct + '% ' + esc(d.herding.direction) + '</div></div>'
-      + '<div class="tile"><div class="k">Avg funding</div><div class="v ' + (d.funding.avg_bps >= 0 ? 'up' : 'down') + '">' + (d.funding.avg_bps >= 0 ? '+' : '') + d.funding.avg_bps + ' bps</div></div>'
+      // `lean` and `direction` are decided once, server-side. The page used to
+      // re-derive them with `>= 50` and `>= 0`, and in JS `null >= 0` is TRUE —
+      // so an unreadable market-wide funding rate printed a GREEN "+null bps".
+      + tile('OI bias', d.bias.long_share_pct === null ? null
+          : d.bias.long_share_pct + '% ' + d.bias.lean,
+        d.bias.lean === 'long' ? 'up' : 'down')
+      + tile('Herding', d.herding.same_dir_pct === null ? null
+          : d.herding.same_dir_pct + '% ' + esc(d.herding.direction), '')
+      + tile('Avg funding', d.funding.avg_bps === null ? null
+          : (d.funding.lean === 'positive' ? '+' : '') + d.funding.avg_bps,
+        d.funding.lean === 'positive' ? 'up' : 'down', ' bps')
       + '</div></section>'
       + '<section class="panel reveal-on-scroll"><h2>What the Sentinel sees</h2>' + flags + '</section>'
       + '<section class="panel reveal-on-scroll"><h2>Crowded books</h2><div class="cols">'

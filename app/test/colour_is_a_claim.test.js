@@ -87,7 +87,13 @@ const BASELINE = {
   'js/sandbox.js': 2,
   'js/strengthmap.js': 1,
   'js/theater.js': 3,
-  'sentinel.html': 2,
+  // Was 2. The tile that coloured a market-wide average funding rate is gone —
+  // `d.funding.avg_bps >= 0` on a null is TRUE in JS, so an unreadable read
+  // printed a GREEN "+null bps"; the page now prints the lean the server
+  // decided. The remaining one is `coinRow`, which is NOT a defect: a row only
+  // reaches it by having qualified on the very field it colours, so the
+  // filters upstream are the readability check. Same call as `track.js`.
+  'sentinel.html': 1,
   'strategy.html': 1,
 };
 

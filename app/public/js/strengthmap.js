@@ -18,14 +18,28 @@ const now = () => (window.performance && performance.now ? performance.now() : D
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmtUsd = (v) => {
-  v = Number(v) || 0; const a = Math.abs(v);
-  if (a >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
-  if (a >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
-  if (a >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
-  return '$' + v.toFixed(2);
+// A readable finite number, or null. The single gate every value passes
+// through before this file is willing to print or colour it.
+const rd = (v) => {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
 };
-const fmtPrice = (v) => { v = Number(v) || 0; return '$' + (v >= 1 ? v.toFixed(4) : v.toPrecision(4)); };
+const fmtUsd = (v) => {
+  // `Number(v) || 0` printed "$0.00" for an open interest nobody could read —
+  // the smallest number on the screen, presented as a measurement.
+  const n = rd(v); if (n === null) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (a >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (a >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(2);
+};
+// Price is in fact guaranteed here — the scorer drops any row it could not
+// read one for — but this is a rendering boundary, and the file now holds the
+// rule that nothing prints a number it did not receive.
+const fmtPrice = (v) => { const n = rd(v); return n === null ? '—' : '$' + (n >= 1 ? n.toFixed(4) : n.toPrecision(4)); };
 const pct = (v) => {
   // `(v >= 0 ? '+' : '') + (Number(v) || 0).toFixed(2)` rendered FOUR kinds of
   // absent as two different confident answers:
@@ -52,24 +66,44 @@ const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 *
 
 // ── axis / colour maths (shared by 3D + fallback) ────────────────────
 function norm(v, mm) { if (!mm || mm.max <= mm.min) return 0; return ((v - mm.min) / (mm.max - mm.min)) * 2 - 1; }
+// A coordinate on the chosen axis, or null when this coin has no readable
+// value for it. `|| 0` used to park an unreadable open interest at the very
+// bottom of the axis, which on a scatter plot reads as "lowest in the
+// universe" — a position is a claim exactly like a colour is.
 function axisValue(c, key) {
-  if (key === 'volume') return norm(Math.log10((c.volume_usd || 0) + 1), state.vmm);
-  if (key === 'oi') return norm(Math.log10((c.oi_usd || 0) + 1), state.omm);
-  const f = c.factors && c.factors[key];
-  return Math.max(-1, Math.min(1, Number(f) || 0));
+  if (key === 'volume') { const v = rd(c.volume_usd); return v === null ? null : norm(Math.log10(v + 1), state.vmm); }
+  if (key === 'oi') { const v = rd(c.oi_usd); return v === null ? null : norm(Math.log10(v + 1), state.omm); }
+  const f = rd(c.factors && c.factors[key]);
+  return f === null ? null : Math.max(-1, Math.min(1, f));
 }
+//: Coins the server could not score at all still exist and still have readable
+//: market data; they are drawn in a neutral grey rather than dropped, so the
+//: map does not quietly shrink. Grey is the one hue that claims nothing.
+const UNSCORED_HUE = 220;
 // Green (long-dominant) ↔ red (short-dominant); brightness by the chosen bias.
 function coinColor(c) {
-  const hue = c.dir >= 0 ? 135 : 0;               // green vs red
-  const strong = (state.bias === 'long' ? c.long_score : c.short_score) / 100;
-  const sat = 0.55 + 0.35 * Math.min(1, Math.abs(c.dir) * 1.6);
-  const light = 0.34 + 0.30 * strong;
-  return { hue, sat, light, strong };
+  const dir = rd(c.dir);
+  const score = rd(state.bias === 'long' ? c.long_score : c.short_score);
+  if (dir === null || score === null) {
+    // `c.dir >= 0` with dir null is TRUE in JS, so an unscored coin used to
+    // come out at hue 135 — full green, "long-dominant", from no data at all.
+    return { hue: UNSCORED_HUE, sat: 0.05, light: 0.38, strong: 0, unscored: true };
+  }
+  return {
+    hue: dir >= 0 ? 135 : 0,                      // green vs red
+    sat: 0.55 + 0.35 * Math.min(1, Math.abs(dir) * 1.6),
+    light: 0.34 + 0.30 * (score / 100),
+    strong: score / 100,
+    unscored: false,
+  };
 }
 
 // ── small animation helpers (panel) ──────────────────────────────────
 function countUp(el, to, dec) {
-  if (!el) return;
+  // A score that does not exist has nothing to count up TO. Left alone, the
+  // element keeps whatever the template put there — an em dash — rather than
+  // animating from 0.0 to a number nobody computed.
+  if (!el || to === null || to === undefined || !isFinite(to)) return;
   if (REDUCED) { el.textContent = to.toFixed(dec); return; }
   const t0 = now(), dur = 620;
   (function step() {
@@ -81,6 +115,15 @@ function countUp(el, to, dec) {
 
 // ── detail panel ─────────────────────────────────────────────────────
 function facBar(label, v) {
+  // A factor with nothing behind it gets no bar and no colour. It used to
+  // arrive here as `Number(x) || 0` and render a centred zero-width bar
+  // labelled "+0.000" in green — the panel's own heading calls this the
+  // "Factor breakdown", so a row reading +0.000 is a measured neutral.
+  if (v === null) {
+    return `<div class="sm-frow"><span>${esc(label)}</span>`
+      + `<span class="bar"><span class="mid"></span></span>`
+      + `<span class="val muted">—</span></div>`;
+  }
   const w = Math.min(50, Math.abs(v) * 50);
   const col = v >= 0 ? 'var(--up)' : 'var(--down)';
   const left = v >= 0 ? 50 : 50 - w;
@@ -92,27 +135,39 @@ function facBar(label, v) {
 }
 async function openPanel(c) {
   state.sel = c.symbol;
-  const facs = FACTORS.map((f) => facBar(f.label, Number((c.factors && c.factors[f.key]) || 0))).join('');
+  const facs = FACTORS.map((f) => facBar(f.label, rd(c.factors && c.factors[f.key]))).join('');
+  const dir = rd(c.dir);
+  // THE TRADE TICKET. This link pre-fills a direction on the dashboard, so
+  // `c.dir >= 0 ? 'LONG' : 'SHORT'` on a null turned an unreadable coin into a
+  // pre-filled LONG ticket — the furthest downstream a manufactured zero got.
+  // With no direction to claim, the link still opens the ticket; it just does
+  // not choose a side for you.
+  const trade = dir === null
+    ? { href: `/dashboard?trade=${encodeURIComponent(c.base)}#trade`,
+        tag: '<span class="muted">Direction not scored</span>' }
+    : { href: `/dashboard?trade=${encodeURIComponent(c.base)}&dir=${dir >= 0 ? 'LONG' : 'SHORT'}#trade`,
+        tag: `${dir >= 0 ? '▲ Long' : '▼ Short'} · paper/live` };
+  const fundingPct = rd(c.funding);
   const body = $('smPanelBody');
   body.innerHTML = `
     <h2>${esc(c.base)}<span class="muted" style="font-size:var(--fs-sm)">USDT</span></h2>
     <div class="px">${fmtPrice(c.price)} <span class="${moveClass(c.change_pct)}">${pct(c.change_pct)}</span></div>
     <div class="sm-ls">
-      <div class="c long${state.bias === 'long' ? ' on' : ''}"><div class="k">Long</div><div class="v">0.0</div></div>
-      <div class="c short${state.bias === 'short' ? ' on' : ''}"><div class="k">Short</div><div class="v">0.0</div></div>
+      <div class="c long${state.bias === 'long' ? ' on' : ''}"><div class="k">Long</div><div class="v">${dir === null ? '—' : '0.0'}</div></div>
+      <div class="c short${state.bias === 'short' ? ' on' : ''}"><div class="k">Short</div><div class="v">${dir === null ? '—' : '0.0'}</div></div>
     </div>
     <div class="sm-stats">
       <span class="k">24h volume</span><span class="v">${fmtUsd(c.volume_usd)}</span>
       <span class="k">Open interest</span><span class="v">${fmtUsd(c.oi_usd)}</span>
-      <span class="k">Funding</span><span class="v ${moveClass(c.funding)}">${(c.funding * 100).toFixed(4)}%</span>
+      <span class="k">Funding</span><span class="v ${moveClass(c.funding)}">${fundingPct === null ? '—' : (fundingPct * 100).toFixed(4) + '%'}</span>
       <span class="k">ΔOI</span><span class="v ${moveClass(c.doi_pct)}">${pct(c.doi_pct)}</span>
     </div>
     <div class="sm-fac"><div class="h">Factor breakdown</div>${facs}</div>
     <div class="sm-venues"><div class="h">Open the trade — pick a venue</div>
       <div class="sm-vgrid">
-        <a class="sm-v sm-v--rc" href="/dashboard?trade=${encodeURIComponent(c.base)}&dir=${c.dir >= 0 ? 'LONG' : 'SHORT'}#trade">
+        <a class="sm-v sm-v--rc" href="${trade.href}">
           <span class="nm">Trade in RUNECLAW</span>
-          <span class="tag">${c.dir >= 0 ? '▲ Long' : '▼ Short'} · paper/live</span>
+          <span class="tag">${trade.tag}</span>
           <span class="rc">◆ risk-gated</span><span class="go">Open ticket →</span></a>
       </div>
       <div class="h" style="margin-top:var(--s2)">…or on an exchange</div>
@@ -150,11 +205,18 @@ function closePanel() { state.sel = null; $('smPanel').classList.remove('open');
 function renderFallback() {
   $('smFallback').style.display = 'block';
   $('smEmpty').style.display = 'none';
-  const rows = state.coins.slice().sort((a, b) => b.long_score - a.long_score).slice(0, 80).map((c) =>
-    `<tr style="cursor:pointer" data-sym="${esc(c.symbol)}"><td><b>${esc(c.base)}</b></td>
+  // Unscored coins sort LAST rather than wherever `null - null` (NaN) leaves
+  // them: a NaN comparator is not a ranking, it is an arbitrary order that
+  // looks like one. They are still listed — the market data on the row is real.
+  const rank = (c) => { const s = rd(c.long_score); return s === null ? -Infinity : s; };
+  const rows = state.coins.slice().sort((a, b) => rank(b) - rank(a)).slice(0, 80).map((c) => {
+    const ls = rd(c.long_score), ss = rd(c.short_score), fu = rd(c.funding);
+    return `<tr style="cursor:pointer" data-sym="${esc(c.symbol)}"><td><b>${esc(c.base)}</b></td>
       <td class="${moveClass(c.change_pct)}">${pct(c.change_pct)}</td>
-      <td class="up">${c.long_score.toFixed(1)}</td><td class="down">${c.short_score.toFixed(1)}</td>
-      <td class="${moveClass(c.funding)}">${(c.funding * 100).toFixed(3)}%</td></tr>`).join('');
+      <td class="${ls === null ? 'muted' : 'up'}">${ls === null ? '—' : ls.toFixed(1)}</td>
+      <td class="${ss === null ? 'muted' : 'down'}">${ss === null ? '—' : ss.toFixed(1)}</td>
+      <td class="${moveClass(c.funding)}">${fu === null ? '—' : (fu * 100).toFixed(3) + '%'}</td></tr>`;
+  }).join('');
   $('smFbBody').innerHTML = rows;
   $('smFbBody').addEventListener('click', (e) => {
     const tr = e.target.closest('[data-sym]'); if (!tr) return;
@@ -187,10 +249,15 @@ async function loadData() {
   if (!r.ok) throw new Error('data');
   const d = await r.json();
   state.coins = (d && d.coins) || [];
-  const vols = state.coins.map((c) => Math.log10((c.volume_usd || 0) + 1));
-  const ois = state.coins.map((c) => Math.log10((c.oi_usd || 0) + 1));
-  state.vmm = { min: Math.min.apply(null, vols), max: Math.max.apply(null, vols) };
-  state.omm = { min: Math.min.apply(null, ois), max: Math.max.apply(null, ois) };
+  // The axis extents are taken over READ values only. `|| 0` dragged the
+  // minimum down to log10(1) = 0 for every coin whose open interest was
+  // missing, which then rescaled where every OTHER coin sat on that axis —
+  // one unreadable field moving the whole map.
+  const logs = (key) => state.coins
+    .map((c) => rd(c[key])).filter((v) => v !== null).map((v) => Math.log10(v + 1));
+  const extent = (xs) => (xs.length ? { min: Math.min.apply(null, xs), max: Math.max.apply(null, xs) } : null);
+  state.vmm = extent(logs('volume_usd'));
+  state.omm = extent(logs('oi_usd'));
   $('smCount').textContent = state.coins.length + ' coins · updated ' + new Date().toLocaleTimeString();
 }
 
@@ -275,12 +342,20 @@ async function loadData() {
   let createSeq = 0;
   const tgtColor = new THREE.Color(), tgtEmis = new THREE.Color();
 
+  // null when this coin cannot be PLACED — it has no readable value for one of
+  // the three axes currently selected, or no open interest to size it by.
+  // There is no honest position for it in a scatter plot, and `null * SPREAD`
+  // is NaN, which three.js renders as a sphere at the origin: dead centre of
+  // every axis, the most authoritative-looking spot on the map.
   function targetFor(c) {
+    const x = axisValue(c, state.ax.x);
+    const y = axisValue(c, state.ax.y);
+    const z = axisValue(c, state.ax.z);
+    const oi = rd(c.oi_usd);
+    if (x === null || y === null || z === null || oi === null) return null;
     return {
-      x: axisValue(c, state.ax.x) * SPREAD,
-      y: axisValue(c, state.ax.y) * SPREAD,
-      z: axisValue(c, state.ax.z) * SPREAD,
-      s: 0.12 + 0.42 * ((norm(Math.log10((c.oi_usd || 0) + 1), state.omm) + 1) / 2),
+      x: x * SPREAD, y: y * SPREAD, z: z * SPREAD,
+      s: 0.12 + 0.42 * ((norm(Math.log10(oi + 1), state.omm) + 1) / 2),
     };
   }
   function colorFor(c) {
@@ -293,9 +368,14 @@ async function loadData() {
   }
   function layout() {
     const seen = new Set();
+    let unplaced = 0;
     state.coins.forEach((c) => {
-      seen.add(c.symbol);
       const tgt = targetFor(c), cl = colorFor(c);
+      // Omitted, not faked. The coin is still in the 2D table with its readable
+      // fields intact — this view just has no coordinates to draw it at, and
+      // the count below says so rather than letting the map quietly shrink.
+      if (tgt === null) { unplaced++; return; }
+      seen.add(c.symbol);
       let n = nodes.get(c.symbol);
       if (!n) {
         const mat = new THREE.MeshStandardMaterial({
@@ -317,6 +397,12 @@ async function loadData() {
     });
     for (const [sym, n] of nodes) if (!seen.has(sym)) { group.remove(n.mesh); group.remove(n.halo); nodes.delete(sym); }
     pickables = Array.from(nodes.values()).map((n) => n.mesh);
+    if (unplaced) {
+      const el = $('smCount');
+      if (el && el.textContent.indexOf('not plotted') === -1) {
+        el.textContent += ` · ${unplaced} not plotted on these axes`;
+      }
+    }
   }
   window.__smRelayout = layout;
   layout();
