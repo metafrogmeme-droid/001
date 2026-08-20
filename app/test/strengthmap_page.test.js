@@ -44,8 +44,15 @@ test('the venue picker leads with a "Trade in RUNECLAW" deep link into the app',
   // long/short bias so the ticket lands ready to size (see dashboard test).
   assert.match(js, /Trade in RUNECLAW/);
   assert.match(js, /\/dashboard\?trade=/);
-  assert.match(js, /dir=\$\{c\.dir >= 0 \? 'LONG' : 'SHORT'\}/);
   assert.match(js, /#trade/);
+  // The bias is carried WHEN THERE IS ONE. This line used to assert the exact
+  // expression `dir=${c.dir >= 0 ? 'LONG' : 'SHORT'}`, which pinned the defect:
+  // `null >= 0` is true in JS, so a coin the scorer could not score at all
+  // produced a ticket pre-filled LONG. The funnel is the property worth
+  // pinning; that one expression was not.
+  assert.match(js, /dir=\$\{dir >= 0 \? 'LONG' : 'SHORT'\}/);
+  assert.match(js, /Direction not scored/,
+    'an unscored coin must still reach the ticket, just without a side');
 });
 
 test('the dashboard ticket prefills from ?trade=SYMBOL&dir= (symbol only, nothing placed)', () => {

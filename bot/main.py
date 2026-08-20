@@ -22,6 +22,7 @@ from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
 from bot.skills.skill_registry import build_default_registry
 from bot.skills.telegram_handler import TelegramHandler
+from bot.utils.build_info import short as build_short
 from bot.utils.logger import audit, system_log
 
 _PID_FILE = os.path.join(os.environ.get("RUNECLAW_STATE_DIR", "data"), "runeclaw.pid")
@@ -36,6 +37,13 @@ def _banner() -> str:
         "  ║   RUNECLAW  --  AI Trading Core      ║\n"
         "  ║   Bitget AI Base Camp · S1           ║\n"
         "  ╚══════════════════════════════════════╝\n"
+        # WHICH CODE, first. Everything below this line describes how the bot
+        # is configured, and on 2026-08-20 all of it was correct while the
+        # binary was 255 commits stale — the configuration was the new deploy's
+        # and the code was not. A banner that reports mode, venue and balance
+        # but not provenance is answering every question except the one that
+        # was wrong.
+        f"  Build: {build_short()}\n"
         f"  Mode: {'SIMULATION' if CONFIG.simulation_mode else 'LIVE'}\n"
         f"  Live Trading: {'ENABLED' if CONFIG.live_trading_enabled else 'DISABLED'}\n"
         f"  Bitget environment: {bitget_env}\n"

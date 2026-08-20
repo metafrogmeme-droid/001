@@ -37,7 +37,14 @@ test('positive funding is a contrarian (negative) factor — crowded longs', () 
 test('OI is reported in USD (base * price) and ΔOI needs a prior snapshot', () => {
   const first = scoreTicker(tk({ holdingAmount: '1000', lastPr: '2' }));
   assert.equal(first.oi_usd, 2000);
-  assert.equal(first.doi_pct, 0, 'no history → ΔOI 0');
+  // THIS LINE USED TO READ `assert.equal(first.doi_pct, 0, 'no history → ΔOI 0')`
+  // and it was pinning the defect. With no previous poll there is no delta to
+  // measure, and 0 is not "no delta" — it is "open interest did not move",
+  // which is a measurement. The baseline starts empty on every restart, so
+  // that zero was published for the ENTIRE universe on the first read after
+  // each one, and the Sentinel scored a 0% leverage component off it.
+  assert.equal(first.doi_pct, null, 'no history → not measured, not zero');
+  assert.equal(first.factors.doi, null, 'and no factor to weigh either');
   const grown = scoreTicker(tk({ holdingAmount: '1500', lastPr: '2' }), 2000);
   assert.equal(grown.doi_pct, 50, 'OI 2000→3000 = +50%');
   assert.ok(grown.factors.doi > 0);

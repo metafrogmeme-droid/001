@@ -328,6 +328,50 @@ moves and every open tab still runs the old bundle. Check both:
 curl -s https://YOUR_HOST/dashboard | grep -o 'js/[a-z0-9-]*\.js?v=[0-9]*'
 ```
 
+**Which build the BOT is running.** Everything above is the *web* half. The
+Python half had no equivalent until 2026-08-20, and that day a deploy ran
+
+```bash
+git fetch origin && git reset --hard origin/main    # ← origin is a MIRROR
+```
+
+reported "Deploy-pull completed successfully", and landed on a commit **255
+commits stale**. Every check the operator ran passed, because each was true of
+the stale tree: the pull worked, the symlinks were right, the user store
+loaded, eighteen users were present. The bot's only self-report was
+`⚔️ RUNECLAW v0.1.0` — a hand-maintained constant that reads identically
+before and after every deploy this repo will ever do.
+
+Three surfaces now name the running commit, all from one renderer so they
+cannot disagree:
+
+```bash
+grep Build: bot.log                 # the startup banner, above Mode/venue/balance
+curl -s localhost:8080/health       # {"status":"ok","build":"0449bc7 (git)",…}
+# /version in Telegram
+```
+
+Read the label, not just the sha:
+
+| label | means |
+|---|---|
+| `0449bc7 (git)` | resolved from the tree, and tracked files match the commit |
+| `0449bc7-dirty (git)` | **the box has been hand-patched** — the sha is not the code |
+| `0449bc7 (build stamp, tree unchecked)` | from `BUILD_SHA`/`build-info.json`; the files were never compared to it |
+| `unknown` | nothing resolved. Not a pass, and never rendered as blank |
+
+`-dirty` counts tracked modifications only — `data/`, `logs/`, `.env` and a
+stray `nohup.out` are not code, and a gate that cries wolf on every deploy is
+one somebody disables.
+
+**Check it BEFORE you start, too.** `scripts/verify_deploy_source.sh` asks the
+canonical URL directly with `git ls-remote`, so a mis-pointed remote *name*
+cannot fool it, and it exits 3 — never 0 — when it could not check at all.
+
+```bash
+scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
+```
+
 **Where the web app's diagnostics actually are.** The Node app logs to stdout,
 and `logs/*.log` belongs to the **Python bot** — docker-compose mounts `./logs`
 into the bot and api_bridge containers, never the web one. So grepping
