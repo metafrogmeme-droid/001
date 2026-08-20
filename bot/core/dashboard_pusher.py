@@ -17,6 +17,7 @@ from typing import Optional
 import aiohttp
 
 from bot.config import CONFIG
+from bot.utils.paths import state_path
 
 log = logging.getLogger("runeclaw.dashboard_pusher")
 
@@ -71,7 +72,7 @@ class DashboardPusher:
     def _build_snapshot(self) -> dict:
         """Build a full dashboard snapshot from all user portfolios."""
         # Load user names
-        users_file = "data/users.json"
+        users_file = str(state_path("data/users.json"))
         user_names = {}
         try:
             with open(users_file) as f:

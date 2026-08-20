@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+from bot.utils.paths import state_path
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class SlippageTracker:
 
     def __init__(self, state_file: str = "data/slippage_state.json") -> None:
         self._records: dict[str, list[SlippageRecord]] = defaultdict(list)
-        self._state_file = state_file
+        self._state_file = str(state_path(state_file))
         self._max_records_per_symbol = 500
         self._load_state()
 

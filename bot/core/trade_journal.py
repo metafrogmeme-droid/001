@@ -21,6 +21,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
+from bot.utils.paths import state_path
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class TradeJournal:
 
     def __init__(self, journal_file: str = "data/trade_journal.json") -> None:
         self._entries: list[JournalEntry] = []
-        self._journal_file = journal_file
+        self._journal_file = str(state_path(journal_file))
         self._max_entries = 1000
         self._load()
 

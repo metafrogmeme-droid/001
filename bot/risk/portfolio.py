@@ -31,6 +31,7 @@ from bot.utils.models import (
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import state_path
 
 
 @dataclass
@@ -90,7 +91,7 @@ class PortfolioTracker:
         self._combined_saver: Optional[Callable[[], None]] = None
         # Persistence: only auto-load if no explicit initial_balance was given
         # (explicit balance = test/reset mode; default = production mode)
-        self._state_file: str = state_file or CONFIG.portfolio_state_file
+        self._state_file: str = str(state_path(state_file or CONFIG.portfolio_state_file))
         self._persistence_active: bool = False  # enabled after successful load or explicit save
         if initial_balance is None:
             self._load_state_on_init()

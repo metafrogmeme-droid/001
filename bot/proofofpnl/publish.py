@@ -30,7 +30,7 @@ from bot.proofofpnl import csf
 from bot.proofofpnl.assemble import is_public_safe
 
 from bot.utils.atomic_write import atomic_write_json
-from bot.utils.paths import env_state_path
+from bot.utils.paths import env_state_path, state_path
 
 PUBLICATION_FORMAT = "runeclaw.proofofpnl.publication.v0"
 DEFAULT_MAX_AGE_S = 86_400          # a day-old statement is stale
@@ -113,7 +113,7 @@ class PublicationStore:
     """Thread-safe JSON store for the single latest publication."""
 
     def __init__(self, path: str = "data/proofofpnl_publication.json") -> None:
-        self._path = path
+        self._path = str(state_path(path))
         self._lock = threading.RLock()
 
     def write(self, publication: dict) -> bool:

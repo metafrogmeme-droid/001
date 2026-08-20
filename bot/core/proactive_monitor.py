@@ -37,6 +37,7 @@ from bot.config import CONFIG
 from bot.utils.logger import audit, system_log
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import state_path
 
 logger = logging.getLogger(__name__)
 
@@ -259,9 +260,9 @@ class ProactiveMonitor:
     def _watch_state_path(self) -> str:
         try:
             from bot.config import CONFIG
-            return CONFIG.proactive_watch_state_file
+            return str(state_path(CONFIG.proactive_watch_state_file))
         except Exception:
-            return "data/proactive_watch.json"
+            return str(state_path("data/proactive_watch.json"))
 
     def _load_enabled_chats(self) -> None:
         import json

@@ -28,7 +28,7 @@ from typing import Optional
 from bot.proofofpnl.leaderboard import rank_entries
 
 from bot.utils.atomic_write import atomic_write_json
-from bot.utils.paths import env_state_path
+from bot.utils.paths import env_state_path, state_path
 
 _SEASON_RE = re.compile(r"^(\d{4})-(\d{2})$")
 
@@ -57,7 +57,7 @@ class SeasonStore:
     """Thread-safe JSON store: season_id -> {handle: frozen publication}."""
 
     def __init__(self, path: str = "data/proofofpnl_seasons.json") -> None:
-        self._path = path
+        self._path = str(state_path(path))
         self._lock = threading.RLock()
 
     def _read_raw(self) -> dict:

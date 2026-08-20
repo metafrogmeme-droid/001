@@ -26,6 +26,7 @@ from typing import Optional
 from bot.utils.logger import audit, system_log
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import state_path
 
 # ── Roles: access control ──────────────────────────────────────
 # Order is most-privileged first; /users renders in this order.
@@ -269,10 +270,36 @@ class UserStore:
     """JSON-file backed user database with roles and tiers."""
 
     def __init__(self, path: str | Path = "data/users.json") -> None:
-        self._path = Path(path)
+        self._path = state_path(path)
         self._lock = threading.Lock()
         self._users: dict[str, dict] = {}
         self._load()
+
+    #: True when this process started with an empty store because there was
+    #: nothing to read — as opposed to a store that is empty because nobody has
+    #: registered. Surfaced by /users, because the two are the same list.
+    started_empty: bool = False
+
+    def _empty_because(self, why: str) -> None:
+        """Say, once and loudly, that the roster is starting from nothing.
+
+        Observed 2026-08-19: /users listed two accounts where there had been
+        eighteen. The store was not corrupt — the quarantine guard below had
+        never fired — and there is no code path anywhere that deletes a user.
+        What it can do is start empty and then save, and from that moment the
+        file on disk legitimately contains only whoever has messaged since.
+
+        Unlike a failed READ there is nothing to refuse: no file to protect,
+        and refusing would strand a real first boot. So the defence is that it
+        cannot happen quietly.
+        """
+        self.started_empty = True
+        log.warning(
+            "user store starting EMPTY — %s. On a first boot this is correct. "
+            "Otherwise every registered user will appear unregistered, and the "
+            "first person to message the bot will be saved into the empty "
+            "store. Check the data/ symlink and any recent restore before "
+            "letting the bot write.", why)
 
     def _load(self) -> None:
         """An unreadable store is not an empty one.
@@ -293,6 +320,7 @@ class UserStore:
         """
         self._load_failed = False
         if not self._path.exists():
+            self._empty_because("no file at %s" % self._path)
             self._users = {}
             return
         # A ZERO-BYTE file counts as fresh, not damaged. It is ambiguous in
@@ -302,8 +330,21 @@ class UserStore:
         # written it yet. Callers legitimately create the path first:
         # tests/test_web_live_gate.py hands UserStore an mkstemp path, and
         # treating that as corruption moved the file aside mid-test.
+        #
+        # THAT REASONING ONLY COVERS WRITES THIS CODE MADE. atomic_write
+        # protects the destination from a partial write by _save(); it says
+        # nothing about a truncating `cp`, a restore script, a disk-full from
+        # another writer, or a shell redirect. Those produce a zero-byte file
+        # too, and this branch cannot tell them from a `touch`.
+        #
+        # Loading empty is still right (there is nothing to read) and SAVING is
+        # still right (first boot must work, and refusing would strand a real
+        # fresh install). What was missing is that either way it is a store
+        # that started with nobody in it, which is indistinguishable from a
+        # healthy one the moment the first person registers.
         try:
             if self._path.stat().st_size == 0:
+                self._empty_because("zero-byte file at %s" % self._path)
                 self._users = {}
                 return
         except OSError:
