@@ -125,6 +125,23 @@ test('a cold start still scores — only ΔOI is missing, and that is 0.14 of th
   assert.equal(s.dir_coverage, 1 - WEIGHTS.doi);
 });
 
+test('at full coverage the renormalisation is a no-op, to the bit', () => {
+  // `dir` is now `Σ w·f / Σ w` over the readable factors. That equals the old
+  // plain `Σ w·f` ONLY because the weights sum to exactly 1 — which is a
+  // separate test's invariant, and is now load-bearing here. If someone
+  // retunes the blend to sum to 0.9, every fully-readable score silently
+  // rescales by 1/0.9 and nothing else would notice.
+  const s = scoreTicker(tk(), 4.9e7);         // a prior snapshot: all 5 factors read
+  assert.equal(s.dir_coverage, 1, 'setup: this fixture must read every factor');
+  const plain = Object.entries(WEIGHTS)
+    .reduce((acc, [k, w]) => acc + w * s.factors[k], 0);
+  // s.factors are rounded to 3dp, so compare at that resolution, not exactly.
+  assert.ok(Math.abs(s.dir - plain) < 2e-3,
+    `dir ${s.dir} drifted from the unnormalised blend ${plain}`);
+  assert.ok(Math.abs(Object.values(WEIGHTS).reduce((a, b) => a + b, 0) - 1) < 1e-12,
+    'the weights no longer sum to 1, so renormalisation now rescales every score');
+});
+
 test('a price or volume that cannot be read drops the row entirely', () => {
   assert.equal(scoreTicker(tk({ lastPr: undefined })), null);
   const { coins } = buildStrengthMap([tk({ symbol: 'XUSDT', usdtVolume: undefined })], null, 10);
@@ -265,6 +282,97 @@ test('coverage is published, so an agent can tell "quiet" from "barely looked"',
 });
 
 
+// ── 4. what an adversarial review found that the mutation pass did not ──────
+
+test('the leverage flag can actually fire at production universe size', () => {
+  // `surging` is a top-8 DISPLAY list and its length was the component's
+  // numerator AND the flag's gate. At UNIVERSE=400 that made the gate
+  // `8 >= Math.max(3, 400*0.08)` — `8 >= 32` — so the "fresh leverage piling
+  // in" flag could NEVER fire and the component saturated at 0.111, worth 2.4
+  // of the 22 points it is weighted for. A whole market surging read as quiet.
+  const coins = [];
+  for (let i = 0; i < 400; i++) {
+    coins.push({ base: 'C' + i, symbol: 'C' + i + 'USDT', funding: 0,
+      oi_usd: 1e8, doi_pct: i < 40 ? 25 : 1, dir: 0, change_pct: (i % 2 ? 1 : -1) });
+  }
+  const s = buildSentinel(coins, AT);
+  assert.ok(kinds(s).includes('leverage'),
+    'a 10%-of-market OI surge did not raise the leverage flag');
+  assert.equal(s.leverage.surging.length, 8, 'the display list is still capped');
+  assert.equal(s.leverage.surging_count, 40,
+    'a capped display list published without its total reads as the total');
+  assert.match(s.flags.find((f) => f.kind === 'leverage').text, /^40 coins/);
+});
+
+test('a near-total OI blackout does not report full coverage of the remnant', () => {
+  // Every coverage denominator is the SURVIVOR set — coins with unreadable OI
+  // leave at `list`. So nine-in-ten going dark left a tenth with 100% funding
+  // coverage and an unqualified all-clear about "the market". omitted_no_oi
+  // was recorded and gated nothing.
+  const coins = [];
+  for (let i = 0; i < 40; i++) {
+    coins.push({ base: 'C' + i, symbol: 'C' + i + 'USDT', funding: 0,
+      oi_usd: i < 4 ? 1e8 : null, doi_pct: 0, dir: 0, change_pct: (i % 2 ? 1 : -1) });
+  }
+  const s = buildSentinel(coins, AT);
+  assert.equal(s.gauge.score, null, 'a tenth of the market was scored as the market');
+  assert.equal(s.gauge.partial, true);
+  assert.ok(!kinds(s).includes('calm'));
+  assert.equal(s.coverage.universe_share, 0.1);
+  assert.match(s.flags.find((f) => f.kind === 'coverage').text, /10% of the coins/);
+});
+
+test('a component that merely scrapes past the floor still marks the read partial', () => {
+  // The floor decides whether to SPEAK; this decides whether to HEDGE. They
+  // were the same boolean, so a component renormalised from 61% of the market
+  // published as a whole-market fact with no caveat on any surface.
+  const coins = [];
+  for (let i = 0; i < 100; i++) {
+    coins.push({ base: 'C' + i, symbol: 'C' + i + 'USDT', funding: 0, oi_usd: 1e8,
+      doi_pct: 0, dir: 0, change_pct: i < 70 ? (i % 2 ? 1 : -1) : null });
+  }
+  const s = buildSentinel(coins, AT);
+  assert.equal(s.coverage.change, 0.7, 'setup: above the 0.6 floor, below complete');
+  assert.ok(s.herding.same_dir_pct !== null, 'it should still score at 70%');
+  assert.equal(s.gauge.partial, true, 'but the read must not present as complete');
+  assert.ok(!kinds(s).includes('calm'));
+});
+
+test('the empty-universe payload has the same shape as every other read', () => {
+  // It omitted `partial` and `components_missing`, so the read that covered
+  // NOTHING was the one whose `!gauge.partial` said "complete".
+  const s = buildSentinel([{ base: 'A', symbol: 'AUSDT', oi_usd: null }], AT);
+  assert.equal(s.gauge.partial, true);
+  assert.deepEqual(s.coverage.components_missing.sort(),
+    ['bias', 'funding', 'herding', 'leverage']);
+  assert.equal(s.leverage.available, false);
+  assert.equal(s.leverage.surging_count, null);
+  assert.equal(s.coverage.universe_share, 0);
+});
+
+test('the coverage note states what is true and does not name a cause', () => {
+  // "the first read after a restart has none" asserted a CAUSE from a
+  // condition that only establishes no coin carried a delta — a venue-wide OI
+  // outage looks identical. A heuristic is never a verdict.
+  const s = buildSentinel(universe({ doi_pct: null }), AT);
+  const txt = s.flags.find((f) => f.kind === 'coverage').text;
+  assert.ok(!/restart/.test(txt), `a cause was asserted: ${txt}`);
+  assert.match(txt, /delta against a previous poll/);
+  assert.ok(!/: \./.test(txt), `empty enumeration leaked into the note: ${txt}`);
+});
+
+test('every partial reason names itself rather than printing an empty list', () => {
+  const reasons = [
+    [universe({ doi_pct: null }), /Not measured this read: open-interest change/],
+    [universe((i) => (i % 10 ? {} : { change_pct: null })), /Partial coverage: 24h moves/],
+  ];
+  for (const [coins, re] of reasons) {
+    const txt = buildSentinel(coins, AT).flags.find((f) => f.kind === 'coverage').text;
+    assert.match(txt, re);
+    assert.ok(!/undefined|\[object/.test(txt), txt);
+  }
+});
+
 // ── 3. the renderers: no null reaches a comparison ──────────────────────────
 
 const SM = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'strengthmap.js'), 'utf8');
@@ -332,6 +440,33 @@ test('a genuinely short-leaning coin still reads red', () => {
   assert.equal(coinColor({ dir: -0.4, long_score: 30, short_score: 70 }).hue, 0);
 });
 
+test('the "not plotted" disclosure cannot go stale', () => {
+  // `funding` is one of the DEFAULT axes, so coins with no funding rate are
+  // unplaced from the very first render and this line is load-bearing.
+  //
+  // The first version APPENDED to whatever was already on screen, guarded by
+  // "have I appended before?". Two ways that goes false: switch axes and the
+  // count changes but the guard blocks the update; switch to axes where
+  // everything places and the branch is skipped entirely, leaving a stale
+  // "5 not plotted" on screen while nothing is missing. A disclosure that goes
+  // false is the defect this whole change exists to remove.
+  const vm = require('node:vm');
+  const i = SM.indexOf('function countLine');
+  assert.ok(i >= 0, 'countLine moved — this test slices it out by name');
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(SM.slice(i, SM.indexOf('\n}', i) + 2), ctx);
+  const countLine = vm.runInContext('countLine', ctx);
+
+  const base = '240 coins · updated 12:00:00';
+  assert.equal(countLine(base, 5), base + ' · 5 not plotted on these axes');
+  assert.equal(countLine(base, 0), base, 'a stale count survived a clean relayout');
+  // Idempotent across relayouts: the same base always yields the same line.
+  assert.equal(countLine(countLine(base, 0), 0), base);
+  assert.equal(countLine(base, 12), countLine(base, 12));
+  assert.ok(!countLine(base, 12).includes('5 not plotted'));
+});
+
 test('the sentinel page reads the lean the server decided, not `>= 0` on a null', () => {
   assert.ok(!/d\.funding\.avg_bps >= 0/.test(SENTINEL_PAGE),
     'null >= 0 is TRUE, so this printed a GREEN "+null bps"');
@@ -344,6 +479,58 @@ test('an unscorable gauge parks no needle at the calmest end of the track', () =
   assert.ok(!/Math\.max\(0, Math\.min\(100, d\.gauge\.score\)\)\s*;/.test(SENTINEL_PAGE),
     'Math.min(100, null) is 0 — the most reassuring spot on the widget, chosen by absence');
   assert.match(SENTINEL_PAGE, /mk === null \? '' :/);
+});
+
+/**
+ * THE THIRD SURFACE. /sentinel and the MCP tool were fixed first; this card
+ * was missed, and turned up only by asking which OTHER surface makes the same
+ * claim — the corollary that found five of the ten defects in the July sweep.
+ *
+ * Plant the state, assert what the card says.
+ */
+function guardianSentinelCard(payload) {
+  const vm = require('node:vm');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'guardian-console.js'), 'utf8');
+  const i = src.indexOf('function sentinelView');
+  assert.ok(i >= 0, 'sentinelView moved — this test slices it out by name');
+  const ctx = { esc: (s) => String(s == null ? '' : s), card: (t, b) => b };
+  vm.createContext(ctx);
+  vm.runInContext(src.slice(i, src.indexOf('\n  }', i) + 4), ctx);
+  return vm.runInContext('sentinelView', ctx)(payload);
+}
+
+test('the guardian console card does not print "null% short" for an unread market', () => {
+  const out = guardianSentinelCard({
+    gauge: { score: null, level: 'unknown', partial: true },
+    bias: { long_share_pct: null, label: 'unknown', lean: null },
+    herding: { same_dir_pct: null, direction: null },
+    funding: { avg_bps: null, lean: null },
+    flags: [{ text: 'Not measured this read: funding rates.' }],
+  });
+  // `d.bias.long_share_pct >= 50` on a null is FALSE in JS, so an unread
+  // market used to announce a direction — "OI bias null% short".
+  assert.ok(!/null/.test(out), `a null reached the card text: ${out}`);
+  assert.ok(!/\bshort\b|\blong\b/.test(out),
+    `a side was named for a market with no readable lean: ${out}`);
+  assert.ok(!/NaN|undefined/.test(out), out);
+  assert.match(out, /partial read/, 'the card does not say the read was partial');
+  assert.match(out, /Not measured this read/, 'the coverage note did not reach the card');
+});
+
+test('the same card is unchanged when the market IS readable', () => {
+  const out = guardianSentinelCard({
+    gauge: { score: 71, level: 'elevated', partial: false },
+    bias: { long_share_pct: 64.2, label: 'crowded long', lean: 'long' },
+    herding: { same_dir_pct: 78.5, direction: 'up' },
+    funding: { avg_bps: 7.4, lean: 'positive' },
+    flags: [{ text: 'Funding is positive market-wide.' }],
+  });
+  assert.match(out, /71\/100/);
+  assert.match(out, /OI bias 64\.2% long/);
+  assert.match(out, /herding 78\.5% up/);
+  assert.match(out, /avg funding 7\.4 bps/);
+  assert.ok(!/partial read/.test(out), 'a complete read was marked partial');
 });
 
 /**

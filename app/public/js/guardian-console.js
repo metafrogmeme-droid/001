@@ -61,10 +61,25 @@
   function sentinelView(d) {
     if (!d || !d.gauge) return card('📡 Systemic Risk Sentinel', 'The market feed is unavailable right now.', '/sentinel', 'Open the Sentinel →');
     var f = (d.flags || [])[0];
-    var body = 'Systemic stress <b>' + esc(d.gauge.level) + '</b> (' + d.gauge.score + '/100). '
-      + 'OI bias ' + d.bias.long_share_pct + '% ' + (d.bias.long_share_pct >= 50 ? 'long' : 'short')
-      + ' · herding ' + d.herding.same_dir_pct + '% ' + esc(d.herding.direction)
-      + ' · avg funding ' + d.funding.avg_bps + ' bps.' + (f ? ' ' + esc(f.text) : '');
+    // Every one of these can be null when the Sentinel could not read enough
+    // of the market to have an opinion. Interpolated raw they print "null/100"
+    // and "null bps", and `d.bias.long_share_pct >= 50` on a null is FALSE in
+    // JS — so an unread market announced "OI bias null% short".
+    //
+    // This card is the THIRD surface on the same payload, after /sentinel and
+    // the MCP tool. It was missed on the first pass and found by asking which
+    // other surface makes the same claim.
+    var n = function (v, suffix) { return (v === null || v === undefined) ? '—' : v + (suffix || ''); };
+    var part = function (label, v, suffix, word) {
+      return label + ' ' + n(v, suffix) + (v === null || v === undefined || !word ? '' : ' ' + word);
+    };
+    var body = 'Systemic stress <b>' + esc(d.gauge.level) + '</b> ('
+      + n(d.gauge.score) + '/100)'
+      + (d.gauge.partial ? ', partial read' : '') + '. '
+      + part('OI bias', d.bias.long_share_pct, '%', esc(d.bias.lean || ''))
+      + ' · ' + part('herding', d.herding.same_dir_pct, '%', esc(d.herding.direction || ''))
+      + ' · ' + part('avg funding', d.funding.avg_bps, ' bps') + '.'
+      + (f ? ' ' + esc(f.text) : '');
     return card('📡 Systemic Risk Sentinel', body, '/sentinel', 'Open the full Sentinel →');
   }
 

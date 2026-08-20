@@ -52,6 +52,10 @@
   .flag:first-child { border-top: 0; }
   .flag .dot { flex: none; width: 10px; height: 10px; border-radius: 999px; margin-top: 5px; }
   .sev-high .dot { background: #ff5c6c; } .sev-medium .dot { background: #ff9f45; } .sev-low .dot { background: var(--up); }
+  /* Colour is a claim. `sev-low` is green because it used to mean exactly one
+     thing — the calm all-clear. The coverage note is also low severity and is
+     the opposite message: we could not read this. Grey claims nothing. */
+  .kind-coverage .dot { background: var(--text-3); }
   .flag .tx { color: var(--text-1); font-size: var(--fs-sm); }
   /* Coin lists */
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); }
@@ -140,7 +144,8 @@
         + (known ? value + (suffix || '') : '—') + '</div></div>';
     }
     var flags = (d.flags || []).map(function (f) {
-      return '<div class="flag sev-' + esc(f.severity) + '"><span class="dot"></span><span class="tx">' + esc(f.text) + '</span></div>';
+      return '<div class="flag sev-' + esc(f.severity) + ' kind-' + esc(f.kind)
+        + '"><span class="dot"></span><span class="tx">' + esc(f.text) + '</span></div>';
     }).join('');
     var cl = (d.funding && d.funding.crowded_long) || [];
     var cs = (d.funding && d.funding.crowded_short) || [];
@@ -175,7 +180,21 @@
       + '<div class="col"><h3>▲ Crowded long — funding hot (squeeze-down risk)</h3>' + list(cl, 'long', 'None — no crowded-long funding.') + '</div>'
       + '<div class="col"><h3>▼ Crowded short — funding hot (squeeze-up risk)</h3>' + list(cs, 'short', 'None — no crowded-short funding.') + '</div>'
       + '</div></section>'
-      + '<section class="panel reveal-on-scroll"><h2>Leverage piling in — open-interest surges</h2>' + list(sg, 'surge', 'No notable OI surges right now.') + '</section>'
+      // "No notable OI surges right now" is a confident statement ABOUT the
+      // market. On a cold start there is no previous poll to difference
+      // against, so an empty list means nothing was measured — the server now
+      // says which via `leverage.available`, and this panel was still printing
+      // the reassuring version over it. `surging_count` names the total when
+      // the displayed list is capped at eight, so a bounded list cannot read
+      // as the whole.
+      + '<section class="panel reveal-on-scroll"><h2>Leverage piling in — open-interest surges</h2>'
+      + (d.leverage && d.leverage.available === false
+        ? '<div class="muted small" style="padding:6px 0">Open-interest change was not measured this read — it is a delta against a previous poll. Not measured is not the same as no surges.</div>'
+        : list(sg, 'surge', 'No notable OI surges right now.')
+          + (d.leverage && d.leverage.surging_count > sg.length
+            ? '<div class="muted small" style="padding:6px 0">Showing the ' + sg.length
+              + ' largest of ' + d.leverage.surging_count + ' surging.</div>' : ''))
+      + '</section>'
       + '<p class="muted small">Updated ' + (d.generated_at ? new Date(d.generated_at).toLocaleTimeString() : '') + ' · refreshes live.</p>';
   }
 

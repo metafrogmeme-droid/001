@@ -76,6 +76,12 @@ function axisValue(c, key) {
   const f = rd(c.factors && c.factors[key]);
   return f === null ? null : Math.max(-1, Math.min(1, f));
 }
+// The count line, built from scratch every time. Pure, and module-level, so a
+// test can drive it: this line is a DISCLOSURE, and a disclosure that can go
+// stale is worse than not making one.
+function countLine(base, unplaced) {
+  return base + (unplaced ? ` · ${unplaced} not plotted on these axes` : '');
+}
 //: Coins the server could not score at all still exist and still have readable
 //: market data; they are drawn in a neutral grey rather than dropped, so the
 //: map does not quietly shrink. Grey is the one hue that claims nothing.
@@ -258,7 +264,11 @@ async function loadData() {
   const extent = (xs) => (xs.length ? { min: Math.min.apply(null, xs), max: Math.max.apply(null, xs) } : null);
   state.vmm = extent(logs('volume_usd'));
   state.omm = extent(logs('oi_usd'));
-  $('smCount').textContent = state.coins.length + ' coins · updated ' + new Date().toLocaleTimeString();
+  // Kept as its own field because `layout()` rewrites the line whenever the
+  // axes change. Appending to whatever is already on screen makes the count a
+  // running total of past renders.
+  state.countBase = state.coins.length + ' coins · updated ' + new Date().toLocaleTimeString();
+  $('smCount').textContent = state.countBase;
 }
 
 // ── boot ─────────────────────────────────────────────────────────────
@@ -397,12 +407,17 @@ async function loadData() {
     });
     for (const [sym, n] of nodes) if (!seen.has(sym)) { group.remove(n.mesh); group.remove(n.halo); nodes.delete(sym); }
     pickables = Array.from(nodes.values()).map((n) => n.mesh);
-    if (unplaced) {
-      const el = $('smCount');
-      if (el && el.textContent.indexOf('not plotted') === -1) {
-        el.textContent += ` · ${unplaced} not plotted on these axes`;
-      }
-    }
+    // REBUILT, never appended. `layout()` re-runs on every axis and bias
+    // change, and the count is per-axis: `funding` is one of the DEFAULT axes,
+    // so any coin without a funding rate is unplaced from the first render.
+    //
+    // The first version appended once and then refused to touch the line
+    // again, which produced the exact failure this whole change is about — a
+    // disclosure that goes false. Switch to axes where everything places and
+    // the `if (unplaced)` branch is skipped entirely, leaving "5 not plotted"
+    // on screen while nothing is missing.
+    const el = $('smCount');
+    if (el && state.countBase) el.textContent = countLine(state.countBase, unplaced);
   }
   window.__smRelayout = layout;
   layout();
@@ -448,8 +463,17 @@ async function loadData() {
     if (tip) {
       if (hovered) {
         const c = hovered.coin;
+        // The scores are nullable, and an unscored coin is REACHABLE here by
+        // design: `coinColor` deliberately keeps it on the map in grey rather
+        // than dropping it, so it stays pickable. `null.toFixed(0)` throws,
+        // and this runs inside frame() before its requestAnimationFrame — so
+        // the exception would not merely blank a tooltip, it would freeze the
+        // entire map on the first hover of a coin the server declined to score.
+        const ls = rd(c.long_score), ss = rd(c.short_score);
         tip.innerHTML = `<b>${esc(c.base)}</b> <span class="${moveClass(c.change_pct)}">${pct(c.change_pct)}</span>`
-          + `<span class="sm-tip-ls"><span class="up">L ${c.long_score.toFixed(0)}</span> · <span class="down">S ${c.short_score.toFixed(0)}</span></span>`;
+          + (ls === null || ss === null
+            ? '<span class="sm-tip-ls muted">not scored</span>'
+            : `<span class="sm-tip-ls"><span class="up">L ${ls.toFixed(0)}</span> · <span class="down">S ${ss.toFixed(0)}</span></span>`);
         tip.style.left = hoverNDC[0] + 'px'; tip.style.top = hoverNDC[1] + 'px';
         tip.classList.add('on');
         canvas.style.cursor = 'pointer';
