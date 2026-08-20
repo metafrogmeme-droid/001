@@ -26,7 +26,28 @@ const fmtUsd = (v) => {
   return '$' + v.toFixed(2);
 };
 const fmtPrice = (v) => { v = Number(v) || 0; return '$' + (v >= 1 ? v.toFixed(4) : v.toPrecision(4)); };
-const pct = (v) => (v >= 0 ? '+' : '') + (Number(v) || 0).toFixed(2) + '%';
+const pct = (v) => {
+  // `(v >= 0 ? '+' : '') + (Number(v) || 0).toFixed(2)` rendered FOUR kinds of
+  // absent as two different confident answers:
+  //     null      -> "+0.00%" green      undefined -> "0.00%" red
+  //     ""        -> "+0.00%" green      NaN       -> "0.00%" red
+  // Same missing data, opposite claims, decided by which flavour of absent
+  // arrived. `null >= 0` is TRUE and `undefined >= 0` is FALSE; `Number('')`
+  // is 0 AND finite. Every row of CLAUDE.md's table in one expression.
+  if (v == null || (typeof v === 'string' && v.trim() === '')) return '—';
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+};
+
+// Colour is a claim, so an unreadable value gets no colour class at all.
+// 0 is a real, measured, flat move and keeps its own.
+const moveClass = (v) => {
+  if (v == null || (typeof v === 'string' && v.trim() === '')) return '';
+  const n = Number(v);
+  if (!isFinite(n)) return '';
+  return n >= 0 ? 'up' : 'down';
+};
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 
 // ── axis / colour maths (shared by 3D + fallback) ────────────────────
@@ -75,7 +96,7 @@ async function openPanel(c) {
   const body = $('smPanelBody');
   body.innerHTML = `
     <h2>${esc(c.base)}<span class="muted" style="font-size:var(--fs-sm)">USDT</span></h2>
-    <div class="px">${fmtPrice(c.price)} <span class="${c.change_pct >= 0 ? 'up' : 'down'}">${pct(c.change_pct)}</span></div>
+    <div class="px">${fmtPrice(c.price)} <span class="${moveClass(c.change_pct)}">${pct(c.change_pct)}</span></div>
     <div class="sm-ls">
       <div class="c long${state.bias === 'long' ? ' on' : ''}"><div class="k">Long</div><div class="v">0.0</div></div>
       <div class="c short${state.bias === 'short' ? ' on' : ''}"><div class="k">Short</div><div class="v">0.0</div></div>
@@ -83,8 +104,8 @@ async function openPanel(c) {
     <div class="sm-stats">
       <span class="k">24h volume</span><span class="v">${fmtUsd(c.volume_usd)}</span>
       <span class="k">Open interest</span><span class="v">${fmtUsd(c.oi_usd)}</span>
-      <span class="k">Funding</span><span class="v ${c.funding >= 0 ? 'up' : 'down'}">${(c.funding * 100).toFixed(4)}%</span>
-      <span class="k">ΔOI</span><span class="v ${c.doi_pct >= 0 ? 'up' : 'down'}">${pct(c.doi_pct)}</span>
+      <span class="k">Funding</span><span class="v ${moveClass(c.funding)}">${(c.funding * 100).toFixed(4)}%</span>
+      <span class="k">ΔOI</span><span class="v ${moveClass(c.doi_pct)}">${pct(c.doi_pct)}</span>
     </div>
     <div class="sm-fac"><div class="h">Factor breakdown</div>${facs}</div>
     <div class="sm-venues"><div class="h">Open the trade — pick a venue</div>
@@ -131,9 +152,9 @@ function renderFallback() {
   $('smEmpty').style.display = 'none';
   const rows = state.coins.slice().sort((a, b) => b.long_score - a.long_score).slice(0, 80).map((c) =>
     `<tr style="cursor:pointer" data-sym="${esc(c.symbol)}"><td><b>${esc(c.base)}</b></td>
-      <td class="${c.change_pct >= 0 ? 'up' : 'down'}">${pct(c.change_pct)}</td>
+      <td class="${moveClass(c.change_pct)}">${pct(c.change_pct)}</td>
       <td class="up">${c.long_score.toFixed(1)}</td><td class="down">${c.short_score.toFixed(1)}</td>
-      <td class="${c.funding >= 0 ? 'up' : 'down'}">${(c.funding * 100).toFixed(3)}%</td></tr>`).join('');
+      <td class="${moveClass(c.funding)}">${(c.funding * 100).toFixed(3)}%</td></tr>`).join('');
   $('smFbBody').innerHTML = rows;
   $('smFbBody').addEventListener('click', (e) => {
     const tr = e.target.closest('[data-sym]'); if (!tr) return;
@@ -341,7 +362,7 @@ async function loadData() {
     if (tip) {
       if (hovered) {
         const c = hovered.coin;
-        tip.innerHTML = `<b>${esc(c.base)}</b> <span class="${c.change_pct >= 0 ? 'up' : 'down'}">${pct(c.change_pct)}</span>`
+        tip.innerHTML = `<b>${esc(c.base)}</b> <span class="${moveClass(c.change_pct)}">${pct(c.change_pct)}</span>`
           + `<span class="sm-tip-ls"><span class="up">L ${c.long_score.toFixed(0)}</span> · <span class="down">S ${c.short_score.toFixed(0)}</span></span>`;
         tip.style.left = hoverNDC[0] + 'px'; tip.style.top = hoverNDC[1] + 'px';
         tip.classList.add('on');

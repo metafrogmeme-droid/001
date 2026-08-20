@@ -93,6 +93,33 @@
     return `<span class="spark spark--${dir}" aria-hidden="true"><span class="spark-fill" style="width:${w}%"></span></span>`;
   }
 
+  // The up/down class for a MOVE, or '' when there is nothing to claim.
+  //
+  // COLOUR IS A CLAIM, and three cells made it from a value they had already
+  // admitted they could not read. The pattern was:
+  //
+  //   <td class="${x.delta_bps >= 0 ? 'up' : 'down'}">
+  //      ${x.delta_bps != null ? fmt(x.delta_bps) : '—'}</td>
+  //
+  // The TEXT is null-guarded — the author knew the value goes missing — and
+  // the COLOUR is not. `null >= 0` is TRUE in JS, so the cell printed an
+  // em-dash and painted it green: "no reading" and "up" in the same cell, and
+  // the green is the half a reader takes in at a glance.
+  //
+  // `undefined >= 0` is FALSE, so the same shape renders red instead. Two
+  // absent values, opposite colours, neither measured.
+  //
+  // Mirrors app.js's `pnlClass`, including the trap it records: `Number('')`
+  // is 0 AND is finite, so an empty string — what several serialisers emit for
+  // SQL NULL — slips past an isFinite check and paints break-even green.
+  // Unknown is muted; 0 is a real, measured, flat move and keeps its colour.
+  function moveClass(n) {
+    if (n == null || (typeof n === 'string' && n.trim() === '')) return '';
+    const v = Number(n);
+    if (!isFinite(v)) return '';
+    return v >= 0 ? 'up' : 'down';
+  }
+
   // A segmented composition bar: turns a set of {label, value, cls} parts into a
   // single stacked bar (widths ∝ value) plus a labelled legend. Used for the
   // net-worth split. Returns '' when there's nothing positive to show.
@@ -1245,7 +1272,7 @@
             <td><b>${esc(x.base)}</b></td>
             <td class="num r">$${fmtPrice(x.dex_mid)}</td>
             <td class="num r">${x.cex_price != null ? '$' + fmtPrice(x.cex_price) : '—'}</td>
-            <td class="num r ${x.delta_bps >= 0 ? 'up' : 'down'}">${x.delta_bps != null ? (x.delta_bps >= 0 ? '+' : '') + fmt(x.delta_bps, 1) + ' bps' : '—'}</td></tr>`).join('')}</tbody>
+            <td class="num r ${moveClass(x.delta_bps)}">${x.delta_bps != null ? (x.delta_bps >= 0 ? '+' : '') + fmt(x.delta_bps, 1) + ' bps' : '—'}</td></tr>`).join('')}</tbody>
         </table></div>
         <p class="muted small" style="margin-top:var(--s2)">${esc(d.execution_note)}</p>`;
     }, { timeoutMs: 14000, empty: { icon: 'icon-globe', text: T('dd.e_dex', 'No pairs quoted on both venues right now — the comparison needs a symbol listed on each side.') } });
@@ -1395,7 +1422,7 @@
       const rows = d.tokens.slice(0, 12).map(t => `<tr>
           <td><b>${esc(t.symbol)}</b> <span class="muted small">${esc(t.chain_label)}</span></td>
           <td class="num r">$${fmtPrice(t.price_usd)}</td>
-          <td class="num r ${t.change_24h_pct >= 0 ? 'up' : 'down'}">${t.change_24h_pct != null ? (t.change_24h_pct >= 0 ? '+' : '') + fmt(t.change_24h_pct, 1) + '%' : '—'}${sparkBar(t.change_24h_pct)}</td>
+          <td class="num r ${moveClass(t.change_24h_pct)}">${t.change_24h_pct != null ? (t.change_24h_pct >= 0 ? '+' : '') + fmt(t.change_24h_pct, 1) + '%' : '—'}${sparkBar(t.change_24h_pct)}</td>
           <td class="num r">$${fmtK(t.volume_24h_usd)}</td>
           <td class="num r">${t.liquidity_usd != null ? '$' + fmtK(t.liquidity_usd) : '—'}</td>
           <td class="r" title="${esc((t.risk.flags || []).join(', ') || 'no extra flags — memecoins are high-risk by default')}">${TIER[t.risk.tier] || `<span class="badge muted">${esc(t.risk.tier)}</span>`}</td>
@@ -2232,7 +2259,7 @@
       const b = esc(sym.replace(/USDT$/, ''));
       return `<span class="chip" data-sym="${b}" role="button" tabindex="0" title="Chart, patterns & structure" style="cursor:pointer">⭐ ${b}`
         + (t ? ` <b class="num">${esc(t.lastPr)}</b>` : '')
-        + (chg != null ? ` <span class="${chg >= 0 ? 'pos' : 'neg'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span>` : '')
+        + (chg != null ? ` <span class="${moveClass(chg)}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span>` : '')
         + `</span>`;
     }).join('') + `</div>`;
   }
