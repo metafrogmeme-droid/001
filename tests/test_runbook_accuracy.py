@@ -206,3 +206,56 @@ def test_the_knobs_it_names_for_a_sizing_problem_all_exist():
                 "TICK_PHASE_TIMEOUT_SEC"):
         assert env in RUNBOOK
         assert env in CONFIG, f"the runbook offers {env} as a fix; config never reads it"
+
+
+# ── the bot's build provenance ────────────────────────────────────────────
+
+class TestTheBuildSectionDescribesWhatTheCodeActuallyDoes:
+    """Added after 2026-08-20, when a deploy landed 255 commits stale and the
+    bot could not be asked what it was running. The section is only useful if
+    every command in it works, so each is pinned to the code that serves it —
+    a runbook read mid-incident is acted on."""
+
+    def test_the_port_it_tells_you_to_curl_is_the_port_bound(self):
+        from tests.source_scan import code_only
+        main = code_only(Path("bot/main.py").read_text(encoding="utf-8"))
+        assert "curl -s localhost:8080/health" in RUNBOOK
+        assert "8080)" in main, "the dashboard no longer binds the documented port"
+
+    def test_the_health_payload_really_carries_the_field(self):
+        from tests.source_scan import code_only
+        src = code_only(
+            Path("bot/web/dashboard_server.py").read_text(encoding="utf-8"))
+        assert '"build": build_short()' in src, (
+            "the runbook tells an operator to read /health for the build")
+
+    def test_every_label_in_the_table_is_one_the_renderer_can_emit(self):
+        """The table is a decode key. A row the code cannot produce is a
+        reader deciding their deploy is fine on a shape that never appears —
+        and a shape the code produces that is missing from the table is worse,
+        because `-dirty` is the row that means 'this sha is not the code'."""
+        from bot.utils import build_info as bi
+        sha = "0" * 40
+        produced = {
+            bi.short(bi.BuildInfo(sha, "git", False)),
+            bi.short(bi.BuildInfo(sha, "git", True)),
+            bi.short(bi.BuildInfo(sha, "image", None)),
+            bi.short(bi.BuildInfo(None, "none", None)),
+        }
+        for label in produced:
+            shape = label.replace("0000000", "0449bc7")
+            assert shape in RUNBOOK, (
+                f"the renderer emits {shape!r} and the decode table omits it")
+
+    def test_the_pre_launch_gate_it_names_exists_and_still_exits_three(self):
+        guard = Path("scripts/verify_deploy_source.sh")
+        assert "scripts/verify_deploy_source.sh" in RUNBOOK
+        src = guard.read_text(encoding="utf-8")
+        assert "exit 3" in src, (
+            "the runbook promises 'never 0 when it could not check'")
+
+    def test_it_does_not_promise_dirty_covers_untracked_files(self):
+        """`-dirty` is tracked-only, deliberately. An operator told otherwise
+        would read a clean label over an untracked stray and mistrust the
+        instrument, or worse, trust it about the wrong thing."""
+        assert "tracked modifications only" in RUNBOOK

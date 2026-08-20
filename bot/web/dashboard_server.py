@@ -18,6 +18,8 @@ from typing import Any
 
 from aiohttp import web
 
+from bot.utils.build_info import short as build_short
+
 # Lazy imports — engine may not be available during module load
 _ENGINE = None
 
@@ -329,8 +331,22 @@ def _is_ready(snap) -> bool:
 
 
 async def handle_health(request: web.Request) -> web.Response:
-    """Liveness: the web server is up and serving. Always 200 (it answered)."""
-    return web.json_response({"status": "ok", "timestamp": _ts()})
+    """Liveness: the web server is up and serving. Always 200 (it answered).
+
+    `build` names WHICH COMMIT answered — the machine-readable twin of the web
+    app's /api/version, which has carried the same field since July for the
+    same stated reason: "lets anyone confirm a deploy actually landed instead
+    of guessing." On 2026-08-20 the bot could not be asked that at all; a
+    deploy had reset to a mirror 255 commits stale and every other check
+    agreed it was fine.
+
+    Public metadata only — a short commit id, already published by /api/version
+    from this same repository, so nothing new is disclosed. Resolved once and
+    memoised, and every failure path inside it yields "unknown" rather than
+    raising, so liveness cannot be made to fail by asking.
+    """
+    return web.json_response(
+        {"status": "ok", "build": build_short(), "timestamp": _ts()})
 
 
 async def handle_ready(request: web.Request) -> web.Response:

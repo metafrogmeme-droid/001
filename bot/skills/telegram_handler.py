@@ -1136,9 +1136,16 @@ class TelegramHandler:
         if not self._limiter.allow(uid):
             return
         from bot import __version__
+
+        from bot.utils.build_info import short as build_short
         mode = "LIVE" if CONFIG.is_live() else ("PAPER" if CONFIG.simulation_mode else "IDLE")
+        # `__version__` is hand-maintained and has read "0.1.0" since the repo
+        # was created, so /version answered "which code is running?" with a
+        # constant. The build line is the part that can actually differ between
+        # two runs, which is the only reason anyone asks.
         await self._send(update,
             f"⚔️ <b>RUNECLAW</b> v{html.escape(__version__)}\n"
+            f"Build: <code>{html.escape(build_short())}</code>\n"
             f"Mode: <code>{mode}</code>")
 
     async def _send_photo(self, update: Update, png: bytes, caption: str,
