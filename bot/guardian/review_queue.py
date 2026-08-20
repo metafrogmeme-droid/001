@@ -28,7 +28,6 @@ The hard invariant (property-tested): for every action,
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from typing import Optional
@@ -36,6 +35,7 @@ from typing import Optional
 from bot.guardian.authority import _addr, _base_symbol, envelope_hash
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import env_state_path
 
 
 # ── numeric helper (mirrors authority._num semantics) ─────────────────
@@ -164,8 +164,8 @@ def tighten_envelope(current: dict, tighten: dict) -> dict:
 
 # ── the append-only review queue ──────────────────────────────────────
 
-_DEFAULT_PATH = os.environ.get(
-    "GUARDIAN_REVIEW_QUEUE_PATH", "data/guardian_review_queue.json")
+_DEFAULT_PATH = str(env_state_path(
+    "GUARDIAN_REVIEW_QUEUE_PATH", "data/guardian_review_queue.json"))
 _MAX_ITEMS = 500
 
 

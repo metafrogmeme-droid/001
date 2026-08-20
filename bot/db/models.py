@@ -14,14 +14,51 @@ Tables:
 """
 
 from __future__ import annotations
-import hashlib, hmac, os, secrets, sqlite3, time, json
+import hashlib, hmac, logging, secrets, sqlite3, time, json
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
-DB_PATH = Path(os.getenv("DB_PATH", "data/runeclaw.db"))
+from bot.utils.paths import env_state_path
+
+logger = logging.getLogger(__name__)
+
+#: THE PATH WAS RELATIVE: `Path(os.getenv("DB_PATH", "data/runeclaw.db"))`,
+#: which is resolved against the process's WORKING DIRECTORY — so which
+#: database the bot opened was decided by whoever launched it, and starting it
+#: from anywhere but the repo root silently created an empty one. The whole
+#: story, and why the anchor is a module rather than a `parents[2]` here, is in
+#: bot/utils/paths.py.
+DB_PATH = env_state_path("DB_PATH", "data/runeclaw.db")
+
+#: Whether a database file existed BEFORE this process touched it.
+#:
+#: Read here, at import, because the two lines after this one both create
+#: silently — after them the question can no longer be asked, and "brand-new
+#: empty database" becomes indistinguishable from "everybody left".
+DB_EXISTED_AT_STARTUP: bool = DB_PATH.exists()
+
+#: Keyed by path, seeded with the answer for the real one above. Tests point
+#: DB_PATH at a tmpdir, and "did THIS database exist" has to be answered for
+#: the database actually in use, not for whichever one was configured at
+#: import.
+_db_existed: dict[str, bool] = {str(DB_PATH): DB_EXISTED_AT_STARTUP}
+
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def database_is_new() -> bool:
+    """True when the database in use did not exist when this process first
+    looked at it.
+
+    The distinction every surface needs and none could make: a roster read from
+    a database this process just created is not a roster of who is registered,
+    it is a roster of who has interacted since. Both render as a number.
+    """
+    key = str(DB_PATH)
+    if key not in _db_existed:
+        _db_existed[key] = DB_PATH.exists()
+    return not _db_existed[key]
 
 # -- Schema ----------------------------------------------------------------
 
@@ -118,7 +155,20 @@ def get_db():
 
 
 def init_db() -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist.
+
+    CREATING A DATABASE IS NOT THE SAME EVENT AS OPENING ONE, and until now
+    both were silent. A bot started from the wrong directory built a fresh
+    empty database and carried on as though nothing had happened.
+    """
+    if database_is_new():
+        logger.warning(
+            "CREATING A NEW DATABASE at %s — no file existed there. If users "
+            "were already registered, this process is not reading the file "
+            "that holds them; check the working directory it was launched "
+            "from and the data/ symlink deploy.sh maintains.", DB_PATH)
+    else:
+        logger.info("database: %s", DB_PATH)
     with get_db() as db:
         db.executescript(SCHEMA)
 

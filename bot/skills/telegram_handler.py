@@ -447,7 +447,7 @@ from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
 from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
 from bot.formatters.thesis_text import thesis_prose
-from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, DEFAULT_TIER_ROUTING, create_llm_client, llm_complete, resolve_tier_config
+from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, llm_complete, resolve_tier_config
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_confirm_reject as _scan_callback
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
@@ -3750,9 +3750,30 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
 
+        # A ROSTER READ FROM A DATABASE THIS PROCESS JUST CREATED is not a
+        # roster of who is registered — it is a roster of who has interacted
+        # since. Both render as a confident count, which is how "the users are
+        # gone" looked identical to "nobody ever signed up".
+        fresh_db = ""
+        try:
+            from bot.db.models import database_is_new
+            if database_is_new():
+                fresh_db = (
+                    "\n\n⚠️ <b>This database was created on this run.</b>\n"
+                    "No database file existed when the bot started, so this "
+                    "list is everyone who has interacted SINCE — not "
+                    "necessarily everyone who was registered before. Check "
+                    "that the bot was launched from the directory holding the "
+                    "persistent <code>data/</code>.")
+        except Exception:
+            fresh_db = ""
+
         all_users = self.users.list_users()
         if not all_users:
-            await self._send(update, f"\U0001f4cb {t('no_registered_users', self._lang(update))}")
+            await self._send(
+                update,
+                f"\U0001f4cb {t('no_registered_users', self._lang(update))}"
+                + fresh_db)
             return
 
         counts = self.users.count()
@@ -3784,7 +3805,7 @@ class TelegramHandler:
         if len(all_users) > 15:
             lines.append(f"\n<i>{t('users_more', self._lang(update), n=len(all_users))}</i>")
 
-        await self._send(update, "\n".join(lines))
+        await self._send(update, "\n".join(lines) + fresh_db)
 
     async def _cmd_accounts(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /accounts — live risk snapshot per trading account.
@@ -8691,36 +8712,31 @@ class TelegramHandler:
             base_url=CONFIG.llm.base_url,
         )
         active_cfg = BYOK.get_active_config(env_config)
+        await self._send(update, self._llm_tier_card(active_cfg,
+                                                     self._lang(update)))
 
-        SEP = "─" * 16
-        lines = [f"🎯 {t('llm_tiers_title', self._lang(update))}\n{SEP}\n"]
-        for tier in LLMTier:
-            tier_cfg = resolve_tier_config(tier, active_cfg)
-            provider_name = tier_cfg.provider.value if isinstance(tier_cfg.provider, LLMProvider) else str(tier_cfg.provider)
-            default_route = DEFAULT_TIER_ROUTING.get(tier, {})
-            is_custom = tier_cfg != active_cfg
-            source = "tier-routed" if is_custom else "primary"
-            configured = "✅" if tier_cfg.is_configured() else "❌"
-            fix_hint = ("" if tier_cfg.is_configured() else
-                        "- <i>No API key found — fix with "
-                        "<code>/setllm &lt;provider&gt; &lt;key&gt;</code> "
-                        "(validated live, stored encrypted, survives "
-                        "redeploys)</i>\n")
-            lines.append(
-                f"{configured} <b>{tier.value.upper()}</b>\n"
-                f"- Provider: <code>{provider_name}</code>\n"
-                f"- Model: <code>{tier_cfg.model}</code>\n"
-                f"- Source: {source} | {default_route.get('reason', 'default')}\n"
-                f"{fix_hint}"
-            )
+    def _llm_tier_card(self, active_cfg: LLMConfig, lang: str) -> str:
+        """Collect each tier's resolved facts and hand them to the renderer.
 
-        lines.append(
-            "\n<i>Set per-tier routing via env:\n"
-            "  LLM_TIER_SCAN_PROVIDER=groq\n"
-            "  LLM_TIER_THESIS_PROVIDER=gemini\n"
-            "  GEMINI_API_KEY=AIza...</i>"
+        RESOLVED WITH is_admin=True, which this card did not do. It is gated on
+        `_is_admin` three lines up, so an admin is the only reader it can ever
+        have — and it was resolving the route a NON-admin call takes, then
+        presenting it as the routing. `/llmstatus` already passed is_admin=True
+        for its key fingerprints, so the two operator cards answered the same
+        question differently and neither said which it meant.
+        """
+        from bot.formatters.llm_tier_card import TierRow, render_tier_card
+        from bot.llm.provider import tier_report, unbound_tier_env
+
+        # `tier_report` is shared with the web dashboard's routing panel. The
+        # two surfaces had already drifted — this one resolved as non-admin
+        # while /api/state serialised a module constant — so collecting the
+        # facts once is the point, not a tidy-up.
+        return render_tier_card(
+            [TierRow(**row) for row in tier_report(active_cfg, is_admin=True)],
+            unbound_env=unbound_tier_env(),
+            title=t('llm_tiers_title', lang),
         )
-        await self._send(update, "\n".join(lines))
 
     # ── Protected commands ────────────────────────────────────
 

@@ -922,7 +922,10 @@ class RunBacktestSkill(BaseSkill):
         import asyncio as _aio
         import sys as _sys
         import uuid as _uuid
-        out_file = Path("data/lab") / f"chat_{_uuid.uuid4().hex[:10]}.json"
+        # Repo-root anchored (bot/utils/paths.py) so the runner and this
+        # caller agree on where the result lands regardless of cwd.
+        from bot.utils.paths import state_path as _state_path
+        out_file = _state_path("data/lab") / f"chat_{_uuid.uuid4().hex[:10]}.json"
         out_file.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
             _sys.executable, "-m", "bot.backtest.runner",

@@ -20,7 +20,6 @@ No new trust surface, by construction:
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -29,6 +28,7 @@ from typing import Optional
 from bot.proofofpnl.leaderboard import rank_entries
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import env_state_path
 
 _SEASON_RE = re.compile(r"^(\d{4})-(\d{2})$")
 
@@ -143,8 +143,8 @@ def get_season_store() -> SeasonStore:
     with _STORE_LOCK:
         if _STORE is None:
             _STORE = SeasonStore(
-                os.environ.get("PROOFOFPNL_SEASONS_PATH",
-                               "data/proofofpnl_seasons.json"))
+                str(env_state_path("PROOFOFPNL_SEASONS_PATH",
+                                   "data/proofofpnl_seasons.json")))
         return _STORE
 
 

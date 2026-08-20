@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import threading
 from typing import Any, Optional
 
@@ -31,6 +30,7 @@ from bot.proofofpnl import csf
 from bot.proofofpnl.assemble import is_public_safe
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paths import env_state_path
 
 PUBLICATION_FORMAT = "runeclaw.proofofpnl.publication.v0"
 DEFAULT_MAX_AGE_S = 86_400          # a day-old statement is stale
@@ -143,8 +143,8 @@ def get_publication_store() -> PublicationStore:
     with _STORE_LOCK:
         if _STORE is None:
             _STORE = PublicationStore(
-                os.environ.get("PROOFOFPNL_PUBLICATION_PATH",
-                               "data/proofofpnl_publication.json"))
+                str(env_state_path("PROOFOFPNL_PUBLICATION_PATH",
+                                   "data/proofofpnl_publication.json")))
         return _STORE
 
 

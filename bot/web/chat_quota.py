@@ -18,7 +18,8 @@ import json
 import os
 import threading
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+
+from bot.utils.paths import env_state_path
 from typing import Optional
 
 from bot.utils.atomic_write import atomic_write_json
@@ -30,7 +31,10 @@ DEFAULT_FREE_DAILY_LIMIT = 5
 # Tiers that are NEVER quota-limited (paid + operator).
 _EXEMPT_TIERS = frozenset({"pro", "elite", "admin", "premium"})
 
-_STORE_PATH = Path(os.getenv("FREE_CHAT_QUOTA_PATH", "data/free_chat_quota.json"))
+# Anchored to the repo root, not the cwd — see bot/utils/paths.py. A quota
+# store that moves with the working directory silently resets every free
+# user's counter to zero, which reads as 'nobody has used their quota'.
+_STORE_PATH = env_state_path("FREE_CHAT_QUOTA_PATH", "data/free_chat_quota.json")
 _LOCK = threading.Lock()
 
 
