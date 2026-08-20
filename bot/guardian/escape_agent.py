@@ -95,9 +95,22 @@ def _urgency(notional: float, liq_move_frac: Optional[float]) -> float:
     return notional * (0.10 / max(move, 0.01))
 
 
-def _book_risk(min_move_pct: Optional[float]) -> str:
+def _book_risk(min_move_pct: Optional[float]) -> Optional[str]:
+    """Unwind urgency, or None when fragility could not be measured at all.
+
+    `min_move_pct` is None only when NO position had a readable leverage, so
+    nothing here knows how close anything sits to liquidation. Returning
+    "none" for that said the book was as calm as a book can be, on the exact
+    evidence that it could not be assessed.
+
+    Note the contrast with `_urgency` above, which deliberately treats unknown
+    leverage as a wide, low-urgency move. That is an ORDERING choice — where
+    to sort a position we cannot rank — and it is right. This is a VERDICT
+    about the whole book, and the same substitution is wrong here. Fail-open
+    per item, fail-loud on the summary.
+    """
     if min_move_pct is None:
-        return "none"
+        return None
     if min_move_pct < _URGENT_HIGH:
         return "high"
     if min_move_pct < _URGENT_MEDIUM:
@@ -139,10 +152,26 @@ def plan(positions: list[dict]) -> dict:
           "recommended": str,                      # the execution primitive to use
         }
     """
-    base = {"version": ESCAPE_VERSION, "position_count": 0,
+    base = {"version": ESCAPE_VERSION, "ok": True, "position_count": 0,
             "gross_notional_usd": 0.0, "total_margin_usd": 0.0,
             "risk": "none", "steps": [],
             "recommended": "no open positions — nothing to unwind"}
+    #: THE SAME DOCUMENT MEANT TWO OPPOSITE THINGS. `base` was returned both
+    #: for a genuinely flat book and from the `except` arm below — so a planner
+    #: that crashed with positions open answered with a document that asserts
+    #: `position_count: 0`, `risk: "none"` and "nothing to unwind", and
+    #: `/escape` rendered it as "🪂 no open positions to unwind".
+    #:
+    #: That is this repository's central rule broken on the emergency-exit
+    #: surface: a failed read rendered as a confident empty result, to an
+    #: operator who is reading it precisely because something is wrong.
+    #: `ok` is what lets a caller tell the two apart, and `risk: None` means
+    #: unknown rather than "none" — the word for the calmest reading there is.
+    failed = {"version": ESCAPE_VERSION, "ok": False, "position_count": None,
+              "gross_notional_usd": None, "total_margin_usd": None,
+              "risk": None, "steps": [],
+              "recommended": "the escape plan could not be built — this says "
+                             "nothing about whether the book is flat"}
     try:
         rows = [p for p in (positions or []) if _notional(p) > 0]
         if not rows:
@@ -192,6 +221,7 @@ def plan(positions: list[dict]) -> dict:
 
         return {
             "version": ESCAPE_VERSION,
+            "ok": True,
             "position_count": len(rows),
             "gross_notional_usd": round(gross, 2),
             "total_margin_usd": round(sum(r["margin"] for r in ranked), 2),
@@ -202,7 +232,7 @@ def plan(positions: list[dict]) -> dict:
                             "executor.close_all_positions)"),
         }
     except Exception:
-        return base
+        return failed
 
 
 def escape_payload(positions: list[dict]) -> dict:
@@ -212,10 +242,17 @@ def escape_payload(positions: list[dict]) -> dict:
     p = plan(positions)
     return {
         "version": ESCAPE_VERSION,
+        "ok": p["ok"],
         "risk": p["risk"],
         "position_count": p["position_count"],
         "gross_notional_usd": p["gross_notional_usd"],
         "total_margin_usd": p["total_margin_usd"],
+        # THE SEALED RECORD MUST NOT LOOK COMPLETE WHEN IT IS NOT. This goes on
+        # the tamper-evident chain as proof of "what the plan was", and `[:12]`
+        # dropped steps 13+ without a trace — a permanent record of a partial
+        # plan, indistinguishable from a record of a whole one.
+        "order_total": len(p["steps"]),
+        "order_truncated": max(0, len(p["steps"]) - 12),
         "order": [
             {"order": s["order"], "symbol": s["symbol"], "direction": s["direction"],
              "liq_move_pct": s["liq_move_pct"], "reason": s["reason"]}

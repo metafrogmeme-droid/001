@@ -1423,9 +1423,15 @@ class RuneClawEngine:
         ``close_all_positions`` / ``emergency_halt_all``."""
         try:
             from bot.guardian import escape_agent as _ea
+            # FLAT AND FAILED WERE BOTH `None`, and the caller rendered None
+            # as "no open positions to unwind" — so a planner fault produced an
+            # all-clear. An empty book is now the planner's own flat document
+            # (ok=True, "nothing to unwind"); None is reserved for the `except`
+            # arm below, i.e. "could not tell", which the card renders as a
+            # failure rather than as an empty book.
             positions = self._twin_positions(user_id)
             if not positions:
-                return None
+                return _ea.plan([])
             report = _ea.plan(positions)
             if getattr(CONFIG.risk, "guardian_escape_enabled", False):
                 try:
@@ -1459,10 +1465,17 @@ class RuneClawEngine:
             },
             "chain": {"length": 0, "ok": None, "tip": ""},
             "policy": None,
-            "twin": {"risk": "none", "position_count": 0},
-            "sentinel": {"risk": "none"},
-            "escape": {"risk": "none"},
-            "posture": "none",
+            # EVERY FAIL-OPEN DEFAULT ON THIS CONSOLE POINTED AT "SAFE".
+            # The book assessment below is wrapped in try/except, and
+            # `_twin_positions` returns [] for an unreadable book as well as a
+            # flat one — so a console that could assess nothing reported
+            # `posture: "none"`, the calmest reading it has, about a book it
+            # never read. None means unknown here, and stays unknown all the
+            # way to `posture` below.
+            "twin": {"risk": None, "position_count": None},
+            "sentinel": {"risk": None},
+            "escape": {"risk": None},
+            "posture": None,
         }
         # Evidence chain — length + tip cheaply; verification is best-effort.
         try:
@@ -1493,18 +1506,49 @@ class RuneClawEngine:
                 except Exception:
                     equity = 0.0
                 twin = _dt.run(positions, equity)
-                status["twin"] = {"risk": twin.get("risk", "none"),
-                                  "position_count": twin.get("position_count", 0)}
-                status["sentinel"] = {"risk": _rs.analyze(positions).get("risk", "none")}
-                status["escape"] = {"risk": _ea.plan(positions).get("risk", "none")}
+                # `.get(k, "none")` turned an assessor that answered nothing
+                # into one that answered "calm". `.get(k)` leaves absent absent.
+                status["twin"] = {"risk": twin.get("risk"),
+                                  "position_count": twin.get("position_count")}
+                status["sentinel"] = {"risk": _rs.analyze(positions).get("risk")}
+                status["escape"] = {"risk": _ea.plan(positions).get("risk")}
+            else:
+                # A genuinely flat book IS assessable and its risk really is
+                # "none". That is a different fact from the None defaults
+                # above, which survive only when the read or the assessment
+                # RAISED — the case that used to report the calmest posture
+                # there is about a book nobody managed to look at.
+                #
+                # `_twin_positions` is itself fail-open and returns [] for an
+                # unreadable book too, so this branch is not a perfect
+                # discriminator. Probing the executor to close that gap was
+                # tried and removed: it coupled this to executor internals to
+                # buy a case nothing demonstrated, and the try/except already
+                # covers every fault that actually raises.
+                status["twin"] = {"risk": "none", "position_count": 0}
+                status["sentinel"] = {"risk": "none"}
+                status["escape"] = {"risk": "none"}
         except Exception as exc:
             logger.debug("Guardian status book assessment skipped: %s", exc)
         # Overall posture = worst live-book risk across the three assessments.
         try:
+            # `order.get(r, 0)` ranked anything unrecognised — including a
+            # missing assessment — as the SAFEST input, so `max` would discard
+            # it in favour of any real reading. An unknown is not a low risk;
+            # it is the absence of a reading, and the posture says so rather
+            # than quietly reporting the worst of what happened to work.
             order = {"none": 0, "low": 1, "medium": 2, "high": 3}
-            worst = max((status["twin"]["risk"], status["sentinel"]["risk"],
-                         status["escape"]["risk"]), key=lambda r: order.get(r, 0))
-            status["posture"] = worst
+            reads = [status["twin"]["risk"], status["sentinel"]["risk"],
+                     status["escape"]["risk"]]
+            known = [r for r in reads if r in order]
+            if not known:
+                status["posture"] = None
+            else:
+                worst = max(known, key=lambda r: order[r])
+                # A worst-of over a partial set is a partial answer. Say so
+                # rather than presenting it as the whole book's posture.
+                status["posture"] = worst
+                status["posture_partial"] = len(known) < len(reads)
         except Exception:
             pass
         return status

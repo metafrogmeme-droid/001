@@ -43,11 +43,42 @@ def _set_flag(monkeypatch, on):
     monkeypatch.setattr(engine_mod, "CONFIG", fake)
 
 
-def test_no_positions_is_a_noop(monkeypatch):
+def test_no_positions_returns_a_flat_plan_not_none(monkeypatch):
+    """This test used to assert `is None` for a flat book.
+
+    That was the conflation: `None` was returned both for "nothing to unwind"
+    and from the `except` arm for "the plan could not be built", and the
+    `/escape` card rendered both as "🪂 no open positions to unwind" — an
+    all-clear assembled from a failure, on the emergency-exit surface.
+
+    A flat book now gets the planner's own flat document, and `None` is
+    reserved for could-not-tell. Sealing nothing is unchanged: there is no
+    plan to seal while flat.
+    """
     _set_flag(monkeypatch, True)
     eng = _FakeEngine([])
-    assert eng.run_escape_agent() is None
+    report = eng.run_escape_agent()
+    assert report is not None, "a flat book is a real, assessable answer"
+    assert report["ok"] is True
+    assert report["steps"] == []
+    assert report["position_count"] == 0
+    assert report["risk"] == "none", "a flat book genuinely is calm"
     assert eng.audit_chain.events == []
+
+
+def test_a_planner_fault_is_none_and_seals_nothing(monkeypatch):
+    """The other half of what `None` now means, and the reason it was worth
+    separating: this is the case that used to answer "you are flat"."""
+    import bot.guardian.escape_agent as _ea
+    _set_flag(monkeypatch, True)
+
+    def _boom(*a, **k):
+        raise RuntimeError("planner fault")
+
+    monkeypatch.setattr(_ea, "plan", _boom)
+    eng = _FakeEngine(_BOOK)
+    assert eng.run_escape_agent() is None
+    assert eng.audit_chain.events == [], "a failed plan was sealed as evidence"
 
 
 def test_flag_off_previews_but_records_nothing(monkeypatch):

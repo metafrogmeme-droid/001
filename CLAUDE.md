@@ -170,7 +170,36 @@ tests**.
 
 Rank candidates by what a wrong claim would cost. The surfaces that still
 build cards inline and make halt/breaker/stop-loss claims — `_status_lines`,
-`_cmd_escape`, `_cmd_open_positions` — are where to look next.
+`_cmd_open_positions` — are where to look next.
+
+`_cmd_escape` was on that list and came off it, and the extraction paid for
+itself immediately. Inline, nothing could plant a crashed planner and read what
+the operator would see — and what they would have seen was
+**"🪂 no open positions to unwind"**, because `escape_agent.plan()` returned
+the same document for "the book is flat" and for "an exception happened". An
+all-clear on the emergency-exit screen, assembled from a failure, shown to
+someone reading it precisely because something is wrong.
+
+Three more came out of the same seam, all leaning the same way: an urgency
+nobody could measure rendered 🟢 (the `⚪` fallback was real but unreachable,
+because `report.get("risk", "none")` resolved the absent case to a word the
+icon map knows); a twelve-step cap on an *ordered exit plan* with nothing
+saying so, on the card **and** on the tamper-evident chain record; and
+`_book_risk(None)` — reached when no position had a readable leverage —
+answering `"none"`, the calmest verdict there is, on the exact evidence that it
+could not be assessed.
+
+The corollary found the rest: `guardian_status` makes the same claim, and every
+one of its fail-open defaults pointed at safe — `twin`, `sentinel`, `escape`
+and `posture` all `"none"`, inside a `try/except` that swallows the read. Its
+rollup then ranked an unknown as the *safest* input (`order.get(r, 0)`), so
+`max()` discarded it in favour of whatever happened to work.
+
+One fix was made and then removed on purpose: a probe of the executor to tell a
+flat book from an unreadable one. It coupled the console to executor internals
+to buy a case nothing demonstrated, and broke four tests doing it. The
+`try/except` already covers every fault that raises. *Check reachability before
+fixing* applies to your own fixes too.
 
 ### A module nothing calls is indistinguishable from one that does not work
 
