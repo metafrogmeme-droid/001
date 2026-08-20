@@ -28,8 +28,8 @@
   "v": 28
  },
  "js/dashboard.js": {
-  "sha": "856d98a4fd0741ca",
-  "v": 144
+  "sha": "ee6f6168ef13cd5f",
+  "v": 145
  },
  "js/duel.js": {
   "sha": "5dbbfd3297612824",
@@ -108,8 +108,8 @@
   "v": 2
  },
  "js/strengthmap.js": {
-  "sha": "564e4402bdb171d8",
-  "v": 4
+  "sha": "a15fc9317c0a938d",
+  "v": 5
  },
  "js/stress-model.js": {
   "sha": "5d27a0aa000d121b",
