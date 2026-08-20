@@ -1456,12 +1456,25 @@ class Analyzer:
         # Per-strategy-type volume bonus (scalps benefit most from volume spikes)
         vol_bonus = CONFIG.strategy_types.get_volume_bonus(strategy_type)
         if signal.volume_spike:
-            price_moving_up = signal.change_pct_24h > 0
-            if (price_moving_up and direction == Direction.LONG) or \
-               (not price_moving_up and direction == Direction.SHORT):
-                blended_confidence += vol_bonus  # volume confirms direction
-            else:
-                blended_confidence -= vol_bonus  # volume contradicts direction
+            # A BINARY ON A VALUE WITH THREE STATES. `signal.change_pct_24h > 0`
+            # is False for "fell" AND for 0 — and 0 is what this field holds
+            # both when the market is genuinely flat and when the exchange sent
+            # no `percentage` at all. So an ABSENT 24h change handed every
+            # SHORT +vol_bonus under the label "volume confirms direction" and
+            # docked every LONG the same amount, on a number nobody measured,
+            # into the confidence that `min_confidence` gates trades on.
+            #
+            # Flat and absent get the same treatment because for a DIRECTION
+            # question they mean the same thing: the spike confirms nothing.
+            # Volume with no move is not agreement with either side.
+            _chg = signal.change_pct_24h or 0.0
+            if _chg != 0.0:
+                price_moving_up = _chg > 0
+                if (price_moving_up and direction == Direction.LONG) or \
+                   (not price_moving_up and direction == Direction.SHORT):
+                    blended_confidence += vol_bonus  # volume confirms direction
+                else:
+                    blended_confidence -= vol_bonus  # volume contradicts direction
 
         # IMPROVEMENT #2: order-flow opposition guard.
         # Microstructure (book imbalance, CVD trend, CVD-price divergence) is
@@ -3063,9 +3076,29 @@ class Analyzer:
             # bar-level spike, 24h change for the scanner flag.
             if _bar_spike:
                 votes.append(float(indicators.get("vol_spike_bar_dir", 1)))
+                aw(0.8, "volume_spike")
             else:
-                votes.append(1.0 if (signal.change_pct_24h or 0) > 0 else -1.0)
-            aw(0.8, "volume_spike")
+                # A SPIKE WITH NO DIRECTION IS NOT A BEARISH SPIKE. This read
+                # `1.0 if (signal.change_pct_24h or 0) > 0 else -1.0`, so a
+                # 24h change of 0 cast a full-weight BEARISH vote — and 0 is
+                # what this field holds both when the market is genuinely flat
+                # and when the exchange sent no `percentage` at all
+                # (`float(ticker.get("percentage", 0) or 0)` at the scanner).
+                #
+                # Both of those mean the same thing for a DIRECTION question:
+                # the spike points nowhere. Neither is evidence of a fall.
+                # That is why this needs no Optional plumbing to be correct —
+                # absent and flat deserve the same answer here.
+                _chg = signal.change_pct_24h or 0.0
+                if _chg != 0.0:
+                    votes.append(1.0 if _chg > 0 else -1.0)
+                    aw(0.8, "volume_spike")
+                elif not _skip_missing:
+                    # Same policy the RSI/MACD/BB voters already follow: skip
+                    # when configured to, otherwise vote neutral. Never invent
+                    # a side.
+                    votes.append(0.0)
+                    aw(0.8, "volume_spike")
         elif not _skip_missing:
             votes.append(0.0)
             aw(0.8, "volume_spike")
