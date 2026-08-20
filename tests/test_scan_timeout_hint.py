@@ -15,6 +15,15 @@ times running, sending the operator to look at the exchange for a problem
 that was not there. A green health check rules one cause out; it never names
 the cause. The hint now reports what is measured, including the engine's own
 analysis-timeout record when one is recent.
+
+Third follow-up (2026-08-20). The healthy branch was still reading
+`degraded_streak == 0`, which by its own docstring means "healthy or
+LLM-by-design-off" and is ALSO 0 before the first call has run. THIS FILE
+ASSERTED THAT DEFECT: `_analyzer` hardcoded `last_ok_seconds_ago: None`, so
+every `_analyzer(0)` planted an untested brain, and the case named
+"healthy_brain_rules_out_the_llm" required the hint to rule the LLM out on a
+negative nobody had measured — the same error as 2026-07-29, one step earlier.
+`last_ok` is a parameter now, and the two states are separate tests.
 """
 import time
 from types import SimpleNamespace
@@ -25,10 +34,13 @@ from bot.skills.telegram_handler import (
 )
 
 
-def _analyzer(streak):
+def _analyzer(streak, last_ok=30.0):
+    """`last_ok` is now a PARAMETER, and that is the whole of the third
+    follow-up below: this helper hardcoded `None`, so every test calling
+    `_analyzer(0)` was planting an UNTESTED brain and calling it healthy."""
     return SimpleNamespace(llm_health=lambda: {
         "degraded_streak": streak, "degraded_seconds": streak * 30.0,
-        "last_ok_seconds_ago": None})
+        "last_ok_seconds_ago": last_ok})
 
 
 def test_degraded_brain_named_as_likely_cause():
@@ -44,13 +56,35 @@ def _engine(*, skipped=3, of=200, cap_s=90.0, age_s=10.0):
         "at": time.monotonic() - age_s})
 
 
-def test_healthy_brain_rules_out_the_llm():
-    hint = _scan_timeout_hint(_analyzer(0))
+def test_measured_healthy_brain_rules_out_the_llm():
+    """A brain with a SUCCESS ON RECORD may still narrow the search — that is
+    the whole value of the line, and softening it everywhere would be the
+    opposite error."""
+    hint = _scan_timeout_hint(_analyzer(0, last_ok=30.0))
     assert "healthy" in hint
     # It may say what it RULED OUT...
-    assert "rules out" in hint
+    assert "ruled out" in hint
     # ...and must point at the instrument that can actually name the cause.
     assert "/status" in hint
+
+
+def test_an_untested_brain_is_not_ruled_out():
+    """THIS FILE ASSERTED THE DEFECT.
+
+    `_analyzer` hardcoded `last_ok_seconds_ago: None`, so the case named
+    "healthy_brain_rules_out_the_llm" was in fact an UNTESTED brain — nothing
+    had been attempted, the streak was 0 because it could not yet be anything
+    else — and the assertion demanded the hint rule the LLM out on that basis.
+
+    Which is the same error as the 2026-07-29 incident above, one step
+    earlier: not a green check misread as a verdict, but an UNRUN check
+    rendered as a green one. The test that existed to prevent unfounded
+    verdicts was requiring one.
+    """
+    hint = _scan_timeout_hint(_analyzer(0, last_ok=None))
+    assert "untested" in hint
+    assert "NOT ruled out" in hint
+    assert "ruled out." not in hint.replace("NOT ruled out", "")
 
 
 def test_healthy_brain_does_not_blame_the_exchange():

@@ -20,6 +20,9 @@ from datetime import datetime
 from bot.compat import UTC
 from typing import Optional
 from bot.utils.paths import state_path
+from bot.formatters.brain_state import BRAIN_TEXT as _BRAIN_TEXT
+from bot.formatters.brain_state import brain_state as _brain_state
+from bot.formatters.brain_state import UNTESTED as _BRAIN_UNTESTED
 
 # Module logger. Several exception/admin paths referenced bare `os`/`logger`
 # without these being in scope — latent NameErrors (flagged by ruff F821).
@@ -219,6 +222,28 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
                     f"provider has failed {streak} analyses in a row, so each "
                     "symbol burns through the fallback chain. Check "
                     "<code>/llmstatus</code> and the configured model id.")
+
+        # WHAT THE HEALTH SNAPSHOT ACTUALLY ENTITLES THIS LINE TO SAY.
+        #
+        # Every branch below opened "LLM brain is healthy" and then ruled the
+        # fallback chain OUT — off `degraded_streak == 0`, which by its own
+        # docstring means "healthy or LLM-by-design-off", and which is also 0
+        # when nothing has been ATTEMPTED yet. On an untested brain that
+        # sentence excludes the one subsystem nobody has checked, inside the
+        # message an operator reads while diagnosing a timeout.
+        #
+        # This function's docstring already records what reading a green check
+        # as a verdict cost: 37 tick timeouts blamed on the exchange. An UNRUN
+        # check rendered as a green one is the same error, one step earlier.
+        # /llmstatus was given the distinction and this surface was not.
+        _icon, _label, _may_exclude = _BRAIN_TEXT[_brain_state(h)]
+        _ruled = (
+            "LLM brain is healthy, so the fallback chain is ruled out."
+            if _may_exclude else
+            f"{_icon} LLM brain is <b>{_label}</b> — no successful LLM call is "
+            "on record, so it is NOT ruled out here. <code>/llmstatus</code> "
+            "confirms on the first scan.")
+
         # Measured, not inferred: the background loop caps each analysis, and
         # records the batch when any of them hit that cap. If it fired
         # recently, THAT is the slowness — same dependency, same symptom.
@@ -251,10 +276,10 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
                 _shape = ""
             return ("\n\n⚠️ <b>Analyses are hanging</b> — the last background "
                     f"sweep gave up on {at['skipped']} of {at['of']} symbols "
-                    f"after {float(at['cap_s']):.0f}s each{_who}. LLM health "
-                    "is green, so the stall is in a per-symbol dependency "
-                    "(exchange fetch or a single provider call), not the "
-                    "fallback chain. See <code>/status</code>." + _shape)
+                    f"after {float(at['cap_s']):.0f}s each{_who}. {_ruled} "
+                    "The stall is in a per-symbol dependency (exchange fetch "
+                    "or a single provider call). See <code>/status</code>."
+                    + _shape)
         # The interactive scan runs through the same batched analyzer, so the
         # engine's in-flight progress record covers the batch this deadline
         # just cancelled. Report what it MEASURED — "got through 12 of 40 in
@@ -264,22 +289,21 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
         # 2026-07-30 with the progress record populated both times.)
         p = _inflight_analysis_progress(engine)
         if p and p["done"] > 0:
-            return ("\n\nℹ️ LLM brain is healthy. The analyze batch in "
+            return (f"\n\nℹ️ {_ruled} The analyze batch in "
                     f"flight had finished {p['done']} of {p['of']} signals "
                     f"in {p['elapsed_s']:.0f}s when the deadline hit — "
                     "measured progress, so this is slow, not hung. If it "
                     "repeats, the per-symbol dependency (exchange fetch or "
-                    "a single provider call) is the bottleneck. See "
+                    "a single provider call) is a candidate. See "
                     "<code>/status</code>.")
         if p:
-            return ("\n\nℹ️ LLM brain is healthy, but the analyze batch in "
+            return (f"\n\nℹ️ {_ruled} The analyze batch in "
                     f"flight had finished 0 of {p['of']} signals after "
                     f"{p['elapsed_s']:.0f}s — nothing completed, which "
                     "points at a blocked dependency (exchange fetch or a "
                     "single provider call) rather than slowness. See "
                     "<code>/status</code>.")
-        return ("\n\nℹ️ LLM brain is healthy — that rules out the fallback "
-                "chain, but does not identify the cause. Check "
+        return (f"\n\nℹ️ {_ruled} That does not identify the cause. Check "
                 "<code>/status</code> for a tick-phase timeout.")
     except Exception:
         return ""
@@ -8584,6 +8608,11 @@ class TelegramHandler:
             if analyzer is not None and hasattr(analyzer, "llm_health"):
                 h = analyzer.llm_health()
                 streak = int(h.get("degraded_streak", 0) or 0)
+                # Same three-way split as _scan_timeout_hint, through the same
+                # function. The two surfaces answer "is the brain answering?"
+                # and only this one had the distinction; the scan-timeout hint
+                # was ruling the LLM out on an untested one.
+                _state = _brain_state(h)
                 if streak > 0:
                     mins = float(h.get("degraded_seconds", 0.0) or 0.0) / 60.0
                     health_line = (
@@ -8597,7 +8626,7 @@ class TelegramHandler:
                     if _err:
                         health_line += (f"\nLast error: "
                                         f"<code>{html.escape(_err[:160])}</code>")
-                elif h.get("last_ok_seconds_ago") is None:
+                elif _state == _BRAIN_UNTESTED:
                     # streak==0 but no success recorded either: nothing has been
                     # attempted since restart. Don't claim "answering" — the
                     # live incident showed "healthy" at 18:07 then 18 failures

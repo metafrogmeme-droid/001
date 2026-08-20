@@ -2595,8 +2595,24 @@ class PlaybookSkill(BaseSkill):
         lines.append("- Order Flow: <code>CVD \u00b7 Book \u00b7 Whale \u00b7 Funding</code>")
 
         # LLM status
-        llm_provider = CONFIG.llm.provider if CONFIG.llm and CONFIG.llm.provider else "groq"
-        lines.append(f"  🤖 LLM: <b>{_esc(llm_provider.upper())}</b> + cascading fallback")
+        #
+        # `... else "groq"` invented a provider name. An unset or unreadable
+        # CONFIG.llm.provider rendered as a confident `GROQ` on the card that
+        # describes the system to its user — the string form of
+        # `.get("pnl", 0)`, and worse than a zero because a name carries no
+        # hint that it was defaulted.
+        #
+        # It also says PRIMARY, not "where this runs": every tier can be routed
+        # elsewhere by LLM_TIER_*_PROVIDER, the admin table or /settier, so the
+        # name is labelled rather than left to read as the answer. /llmtiers is
+        # the surface that resolves it.
+        _prov = getattr(getattr(CONFIG, "llm", None), "provider", "") or ""
+        _prov = str(_prov).strip()
+        lines.append(
+            f"  🤖 LLM primary: <b>{_esc(_prov.upper())}</b> + cascading fallback"
+            if _prov else
+            "  🤖 LLM primary: <b>not configured</b> — running on the rule engine"
+            " unless a tier is routed (<code>/llmtiers</code>)")
         lines.append("")
 
         # ── Section 3: Rulebook ──
