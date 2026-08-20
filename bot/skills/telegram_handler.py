@@ -4055,23 +4055,17 @@ class TelegramHandler:
         from bot.config import RUNTIME, CONFIG as _CFG
 
         def _status_lines() -> list:
-            st = {}
+            # Two layers used to swallow this — `drawdown_status()` is itself
+            # "best-effort; returns empty on any error", and this wrapped it in
+            # another try/except — with one outcome: a heading and nothing
+            # under it, on the control that decides how much real money is lost
+            # before the bot halts. The renderer refuses to produce that.
+            from bot.formatters.drawdown_card import render_drawdown_status
             try:
                 st = self.engine.risk.drawdown_status()
             except Exception:
                 st = {}
-            lines = ["📉 <b>Live drawdown backstop</b>"]
-            if st:
-                lines.append(f"• Current drawdown: <b>{st['drawdown_pct']:.1f}%</b>")
-                lines.append(f"• Limit in force: <b>{st['effective_limit_pct']:.1f}%</b>")
-                ov = st.get("override_pct")
-                lines.append(
-                    f"• Override: <b>{ov:.1f}%</b> (default {st['config_live_limit_pct']:.1f}%)"
-                    if ov is not None else
-                    f"• Override: <b>none</b> (default {st['config_live_limit_pct']:.1f}%)")
-                if not st.get("live_hardening"):
-                    lines.append("• ⚠️ Live hardening OFF — override only bites on live.")
-            return lines
+            return render_drawdown_status(st)
 
         args = ctx.args or []
         if not args or args[0].strip().lower() in ("status", "show"):
