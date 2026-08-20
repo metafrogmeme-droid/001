@@ -4,8 +4,8 @@
   "v": 3
  },
  "js/app.js": {
-  "sha": "333ff77935fdbcd3",
-  "v": 12
+  "sha": "6630b1e4b8e76fed",
+  "v": 13
  },
  "js/arena-risk-model.js": {
   "sha": "77d4026436966cf1",
@@ -28,8 +28,8 @@
   "v": 28
  },
  "js/dashboard.js": {
-  "sha": "ee6f6168ef13cd5f",
-  "v": 145
+  "sha": "54e35e1edf1a77be",
+  "v": 146
  },
  "js/duel.js": {
   "sha": "5dbbfd3297612824",

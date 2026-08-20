@@ -53,7 +53,24 @@ class MarketSignal(BaseModel):
     """A structured signal emitted by the market scanner."""
     symbol: str
     price: float = Field(..., ge=0)  # C2-60 FIX: non-negative constraint
-    change_pct_24h: float
+    #: The 24h move, or None when the venue did not report one.
+    #:
+    #: It was a required float, and every producer manufactured the missing
+    #: case as 0.0 — `float(ticker.get("percentage", 0) or 0)`. 0.0 is also a
+    #: real, measured, flat symbol, so the two were indistinguishable from
+    #: here on, and the consumers all resolved the ambiguity the same way:
+    #:
+    #:   bearish = len(top) - bullish        an unread symbol, counted bearish
+    #:   "LONG" if x > 0 else "SHORT"        an unread symbol, labelled SHORT
+    #:
+    #: and that label became a `book_side`, a market-bias headline, and a full
+    #: SHORT entry/stop/target card published to the dashboard. A trade plan
+    #: with the stop on a side nobody computed.
+    #:
+    #: None is not a number and cannot be compared, so every consumer has to
+    #: say what it means — which is the point. `bot/core/analyzer.py` was cured
+    #: of the same defect and could not reach this path.
+    change_pct_24h: Optional[float] = None
     volume_usd_24h: float = Field(..., ge=0)  # C2-60 FIX: non-negative constraint
     volume_spike: bool = False
     volume_spike_ratio: float = Field(default=0.0, ge=0)  # C2-22 FIX: actual field for spike filter

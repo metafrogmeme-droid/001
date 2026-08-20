@@ -142,31 +142,57 @@ def test_the_bar_level_spike_is_untouched():
 
 # ── what was deliberately not changed ───────────────────────────────────────
 
-def test_the_scan_board_direction_is_left_alone_with_its_reason_recorded():
-    """`"LONG" if x > 0 else "SHORT"` on the scan payload has the same defect,
-    and widening it would push a third value into `dir` — which
-    `_build_scan_payload` compares against "LONG" in six places, including
-    `book_side = "BID" if dir == "LONG" else "ASK"`, where an unknown would
-    silently become the short side. The consumers need auditing first."""
+def test_the_scan_board_deferral_has_been_resolved_not_forgotten():
+    """THIS TEST USED TO PIN THE DEFECT.
+
+    It asserted that `"dir": "LONG" if sig.change_pct_24h > 0 else "SHORT"`
+    was still present, and that the "KNOWN DEFECT, DELIBERATELY NOT FIXED
+    HERE" note explaining why was still beside it — a deferral with its reason
+    attached, so a known defect could not quietly become an unknown one.
+
+    The deferral named its own precondition: the six `dir` consumers in
+    `_build_scan_payload` had to be audited before a third value could exist,
+    because each one's `else` branch meant SHORT. That audit is done and those
+    consumers are fixed, so the pin has to go in the same commit — the
+    `known_failures.txt` rule, for the same reason. A stale pin protects a
+    defect that is no longer there and hides the one that is.
+
+    What replaces it is the opposite assertion: the two-valued expression must
+    be GONE. Behaviour is covered by
+    `tests/test_absent_move_is_not_a_short_setup.py`.
+    """
     from tests.source_scan import code_only
 
-    src = code_only((ROOT / "bot" / "skills" / "skill_registry.py")
-                    .read_text(encoding="utf-8"))
-    assert '"dir": "LONG" if sig.change_pct_24h > 0 else "SHORT"' in src
     raw = (ROOT / "bot" / "skills" / "skill_registry.py").read_text(encoding="utf-8")
-    assert "KNOWN DEFECT, DELIBERATELY NOT FIXED HERE" in raw, (
-        "the deferral lost its reason, which is how a known defect becomes an "
-        "unknown one")
+    src = code_only(raw)
+    assert '"LONG" if sig.change_pct_24h > 0 else "SHORT"' not in src, (
+        "the two-valued expression is back: an unreadable 24h move is being "
+        "labelled SHORT again")
+    assert "_dir_from_change(sig.change_pct_24h)" in src, (
+        "the scan payload no longer routes direction through the helper that "
+        "can answer UNKNOWN")
+    # NOT a check that the old deferral note is gone. The first draft asserted
+    # exactly that against the raw file, and failed — because the replacement
+    # comment QUOTES the note it replaced, which is indistinguishable from the
+    # note still being there. That is the trap CLAUDE.md records under "strip
+    # comments first", and this is the fifth time it has fired. The two
+    # assertions above are about code, which is what can actually regress.
+    assert raw  # (raw is read above only so this reasoning has somewhere to live)
 
 
-def test_dir_really_is_a_two_valued_contract():
-    """The premise of that deferral, pinned so it cannot rot silently. If
-    `_build_scan_payload` ever learns a third value, the deferral above stops
-    being justified and this test says so."""
+def test_dir_is_now_a_three_valued_contract_everywhere_it_is_read():
+    """The premise the old deferral rested on, inverted.
+
+    Every consumer that used to resolve "not LONG" as SHORT must now name
+    SHORT explicitly, so a third value falls through to a branch that says so
+    rather than to one that picks a side.
+    """
     from tests.source_scan import code_only
 
     src = code_only((ROOT / "bot" / "skills" / "scan_skill.py")
                     .read_text(encoding="utf-8"))
-    assert 'book_side = "BID" if r["dir"] == "LONG" else "ASK"' in src, (
-        "the scan payload's dir consumers changed — re-check whether the "
-        "deferred fix in skill_registry can now be made")
+    assert 'book_side = "BID" if r["dir"] == "LONG" else "ASK"' not in src, (
+        "book_side still puts every non-LONG row on the ask")
+    assert 'shorts = len(results) - longs' not in src, (
+        "the market-bias headline still counts undetermined rows as shorts")
+    assert 'shorts = sum(1 for r in results if r["dir"] == "SHORT")' in src
