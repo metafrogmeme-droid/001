@@ -61,6 +61,10 @@ const HERD_FLOOR = 0.55;    // same-direction share where herding starts to coun
  */
 const MIN_COVERAGE = 0.6;      // per component, share of the universe read
 const MIN_COMPOSITE = 0.6;     // share of component weight present to publish a score
+//: Above this a read is treated as complete. Between MIN_COVERAGE and this,
+//: a component still scores but the read is marked partial — speaking and
+//: hedging are different decisions.
+const FULL_COVERAGE = 0.95;
 
 const COMPONENT_WEIGHTS = { herding: 0.32, funding: 0.28, leverage: 0.22, bias: 0.18 };
 
@@ -88,12 +92,18 @@ function buildSentinel(coins, now) {
     universe: 0, total_oi_usd: 0,
     // NOT `score: 0, level: 'calm'`. That published the lowest risk reading the
     // gauge has for a market it had not read at all.
-    gauge: { score: null, level: 'unknown' },
+    // Same SHAPE as every other return path. This one omitted `partial` and
+    // `components_missing`, so the read that covered NOTHING was the single
+    // read whose `!gauge.partial` said "complete" — a consumer checking that
+    // flag got the most confident answer from the least data.
+    gauge: { score: null, level: 'unknown', partial: true },
     bias: { long_share_pct: null, label: 'unknown', lean: null },
     funding: { avg_bps: null, lean: null, crowded_long: [], crowded_short: [] },
-    leverage: { surging: [], available: false },
+    leverage: { surging: [], surging_count: null, available: false },
     herding: { same_dir_pct: null, direction: null },
-    coverage: { universe: 0, omitted_no_oi: omittedNoOi, funding: 0, dir: 0, change: 0, doi: 0 },
+    coverage: { universe: 0, universe_share: 0, omitted_no_oi: omittedNoOi,
+      funding: 0, dir: 0, change: 0, doi: 0,
+      components_missing: Object.keys(COMPONENT_WEIGHTS) },
     flags: [{ kind: 'coverage', severity: 'low',
       text: 'No open interest could be read for any coin, so there is nothing to weigh a systemic read against. This is missing data, not a calm market.' }],
     note: 'No market data right now.',
@@ -132,11 +142,22 @@ function buildSentinel(coins, now) {
   const cover = {
     universe: n,
     omitted_no_oi: omittedNoOi,
-    funding: totalOi > 0 ? fundOi / totalOi : 0,      // OI-weighted
-    dir: totalOi > 0 ? dirOi / totalOi : 0,           // OI-weighted
-    change: changeRead / n,                            // per coin
-    doi: doiRead / n,                                  // per coin
+    // EVERY OTHER DENOMINATOR BELOW IS THE SURVIVOR SET. Coins with no
+    // readable open interest have already left at `list`, so `totalOi` and `n`
+    // describe what remained — and a market where nine coins in ten went dark
+    // would report 100% funding coverage over the tenth and publish a
+    // confident, unqualified all-clear about "the market". `omitted_no_oi` was
+    // recorded and gated nothing. This is the share that survived, and it
+    // gates the read like any other coverage number.
+    universe_share: all.length > 0 ? n / all.length : 0,
+    funding: totalOi > 0 ? fundOi / totalOi : 0,      // OI-weighted, of survivors
+    dir: totalOi > 0 ? dirOi / totalOi : 0,           // OI-weighted, of survivors
+    change: changeRead / n,                            // per surviving coin
+    doi: doiRead / n,                                  // per surviving coin
   };
+
+  // Too little of the market left to describe the market at all.
+  const universeUsable = cover.universe_share >= MIN_COVERAGE;
 
   const avgFundingBps = cover.funding >= MIN_COVERAGE && fundOi > 0
     ? (fundWeighted / fundOi) * 10000 : null;
@@ -159,7 +180,20 @@ function buildSentinel(coins, now) {
     .sort(byOi).slice(0, 8).map(slim);
   const crowdedShort = list.filter((c) => read(c.funding) !== null && c.funding * 10000 <= -FUND_HOT_BPS)
     .sort(byOi).slice(0, 8).map(slim);
-  const surging = list.filter((c) => read(c.doi_pct) !== null && c.doi_pct >= DOI_SURGE_PCT)
+  // COUNT FIRST, TRUNCATE SECOND. `surging` is a top-8 DISPLAY list, and its
+  // length was being used as the leverage component's numerator and as the
+  // flag's gate. At the production universe of 400 that made the gate
+  // `8 >= Math.max(3, 400 * 0.08)` — i.e. `8 >= 32` — so the "fresh leverage
+  // piling in" flag could NEVER fire, and the component saturated at 0.111,
+  // contributing at most 2.4 of the 22 points it is weighted for. A whole
+  // market surging read the same as a quiet one.
+  //
+  // Pre-existing rather than introduced here, but it is the same defect as the
+  // rest of this file — a risk component structurally understated — and the
+  // count is published so a bounded display list cannot read as the total.
+  const surgingAll = list.filter((c) => read(c.doi_pct) !== null && c.doi_pct >= DOI_SURGE_PCT);
+  const surgingCount = surgingAll.length;
+  const surging = surgingAll.slice()
     .sort((a, b) => b.doi_pct - a.doi_pct).slice(0, 8).map(slim);
 
   // Breadth is a share of the coins that HAD a 24h change, not of the universe.
@@ -176,7 +210,7 @@ function buildSentinel(coins, now) {
   const herding = sameDirShare === null ? null
     : clamp((sameDirShare - HERD_FLOOR) / (1 - HERD_FLOOR), 0, 1);
   const leverage = cover.doi >= MIN_COVERAGE && doiRead > 0
-    ? clamp((surging.length / doiRead) / 0.18, 0, 1) : null;
+    ? clamp((surgingCount / doiRead) / 0.18, 0, 1) : null;
   const sideLean = longSharePct === null ? null
     : clamp(Math.abs(longSharePct - 50) / 30, 0, 1);   // >80/20 → max
 
@@ -190,7 +224,7 @@ function buildSentinel(coins, now) {
     weighted += wgt * parts[k];
     presentWeight += wgt;
   }
-  const score = presentWeight >= MIN_COMPOSITE
+  const score = universeUsable && presentWeight >= MIN_COMPOSITE
     ? Math.round(100 * (weighted / presentWeight)) : null;
   const missing = Object.keys(COMPONENT_WEIGHTS).filter((k) => parts[k] === null);
 
@@ -209,9 +243,10 @@ function buildSentinel(coins, now) {
     flags.push({ kind: 'herding', severity: herding >= 0.75 ? 'high' : 'medium',
       text: `${Math.round(sameDirShare * 100)}% of the coins with a readable 24h move are moving ${herdDir} together — correlated, low-dispersion tape where a single shock hits everything at once.` });
   }
-  if (leverage !== null && surging.length >= Math.max(3, doiRead * 0.08)) {
+  if (leverage !== null && surgingCount >= Math.max(3, doiRead * 0.08)) {
     flags.push({ kind: 'leverage', severity: leverage >= 0.7 ? 'high' : 'medium',
-      text: `${surging.length} coins are seeing open-interest surge ≥${DOI_SURGE_PCT}% — fresh leverage piling in, which fuels a faster unwind if it turns.` });
+      text: `${surgingCount} coins are seeing open-interest surge ≥${DOI_SURGE_PCT}% — fresh leverage piling in, which fuels a faster unwind if it turns.`
+        + (surgingCount > surging.length ? ` (largest ${surging.length} listed)` : '') });
   }
   if (sideLean !== null && sideLean >= 0.5) {
     flags.push({ kind: 'bias', severity: sideLean >= 0.8 ? 'high' : 'medium',
@@ -233,17 +268,55 @@ function buildSentinel(coins, now) {
   // becomes conditional. The two questions are separate, so they are separate
   // variables: `quiet` is about the market, `partial` is about the read.
   const quiet = flags.length === 0;
-  const partial = missing.length > 0;
+  // `missing.length > 0` alone only fired when a component was ENTIRELY
+  // absent. A component renormalised from 61% of the market scored, published
+  // as a market-wide fact, and carried no caveat anywhere — the floor decides
+  // whether to speak, and this decides whether to hedge. They are different
+  // questions and were the same boolean.
+  const thin = Object.entries({ universe: cover.universe_share, funding: cover.funding,
+    dir: cover.dir, change: cover.change, doi: cover.doi })
+    .filter(([k, v]) => v < FULL_COVERAGE
+      && !(k === 'doi' && missing.includes('leverage'))    // already named below
+      && !(k === 'funding' && missing.includes('funding'))
+      && !(k === 'dir' && missing.includes('bias'))
+      && !(k === 'change' && missing.includes('herding')))
+    .map(([k]) => k);
+  const partial = missing.length > 0 || thin.length > 0 || !universeUsable;
   if (partial) {
     const NAMES = { herding: '24h breadth', funding: 'funding rates',
       leverage: 'open-interest change', bias: 'directional lean' };
-    const what = missing.map((k) => NAMES[k]).join(', ');
-    flags.push({ kind: 'coverage', severity: 'low',
-      text: `Not measured this read: ${what}. `
-        + (missing.includes('leverage') && cover.doi === 0
-          ? 'Open-interest change needs a previous poll to compare against, so the first read after a restart has none. '
-          : '')
-        + 'Those conditions are unknown here, not absent — this read covers the rest.' });
+    // `thin` is keyed by COVERAGE FIELD, not by component, so it needs its own
+    // vocabulary — NAMES.change is undefined and would print the raw key.
+    const FIELDS = { universe: 'the coin universe', funding: 'funding rates',
+      dir: 'directional lean', change: '24h moves', doi: 'open-interest change' };
+    // Three different reasons a read is partial, and the note must name the one
+    // that applies. Joining an empty `missing` produced the literal
+    // "Not measured this read: ." on the case where every component scored but
+    // the UNIVERSE was too thin to represent the market.
+    const say = [];
+    if (missing.length) {
+      say.push(`Not measured this read: ${missing.map((k) => NAMES[k]).join(', ')}.`);
+      if (missing.includes('leverage') && cover.doi === 0) {
+        // NOT "the first read after a restart has none". That names a CAUSE
+        // from a condition which only establishes that no coin carried a
+        // delta — a venue-wide open-interest outage looks identical. State
+        // what is true and let the reader draw it: a heuristic is never a
+        // verdict, and not overclaiming is this file's whole job.
+        say.push('Open-interest change is a delta against a previous poll, and no coin had one.');
+      }
+    }
+    if (!universeUsable) {
+      say.push(`Only ${Math.round(cover.universe_share * 100)}% of the coins offered a readable `
+        + 'open interest, which is too little to describe the market — no systemic score is '
+        + 'published for this read.');
+    } else if (thin.length) {
+      say.push(`Partial coverage: ${thin.map((k) => FIELDS[k] || k).join(', ')}.`);
+    }
+    if (omittedNoOi > 0 && universeUsable) {
+      say.push(`${omittedNoOi} coin(s) had no readable open interest and are outside this read.`);
+    }
+    say.push('Those conditions are unknown here, not absent — this read covers the rest.');
+    flags.push({ kind: 'coverage', severity: 'low', text: say.join(' ') });
   } else if (quiet) {
     flags.push({ kind: 'calm', severity: 'low',
       text: 'No systemic crowding stands out — positioning is broad and funding is near neutral.' });
@@ -272,7 +345,12 @@ function buildSentinel(coins, now) {
       lean: avgFundingBps === null ? null : (avgFundingBps >= 0 ? 'positive' : 'negative'),
       crowded_long: crowdedLong, crowded_short: crowdedShort,
     },
-    leverage: { surging, available: leverage !== null },
+    //: `surging` is a top-8 display list; `surging_count` is how many there
+    //: actually are. A bounded list published without its total reads as the
+    //: total — the same silent-cap mistake the repo's own workflow guidance
+    //: calls out.
+    leverage: { surging, surging_count: leverage === null ? null : surgingCount,
+      available: leverage !== null },
     herding: {
       same_dir_pct: sameDirShare === null ? null : Math.round(sameDirShare * 1000) / 10,
       direction: herdDir,
@@ -282,6 +360,7 @@ function buildSentinel(coins, now) {
     //: not "we could only see a third of it".
     coverage: {
       universe: n,
+      universe_share: Math.round(cover.universe_share * 1000) / 1000,
       omitted_no_oi: omittedNoOi,
       funding: Math.round(cover.funding * 1000) / 1000,
       dir: Math.round(cover.dir * 1000) / 1000,

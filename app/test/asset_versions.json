@@ -52,8 +52,8 @@
   "v": 1
  },
  "js/guardian-console.js": {
-  "sha": "5fc7f8580d52067e",
-  "v": 3
+  "sha": "6df23a41831248fd",
+  "v": 4
  },
  "js/guardian-orbit.js": {
   "sha": "c2dffd9f3305eabf",
@@ -108,8 +108,8 @@
   "v": 2
  },
  "js/strengthmap.js": {
-  "sha": "2d63f132b3c69262",
-  "v": 6
+  "sha": "bdc0a2b104d65974",
+  "v": 8
  },
  "js/stress-model.js": {
   "sha": "5d27a0aa000d121b",
