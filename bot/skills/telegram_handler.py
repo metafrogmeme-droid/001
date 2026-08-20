@@ -309,6 +309,76 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
         return ""
 
 
+def _live_positions_block(executor) -> str:
+    """The ACTIVE POSITIONS section of the chat prompt, from live state.
+
+    AN UNFILLED LIMIT ORDER IS NOT A POSITION, and this section counted it
+    as one. `live_executor.py` says so itself — "A pending_fill position
+    has no open position on exchange — only an unfilled limit order" — and
+    it carries an 8-hour force-close safety net for pending records
+    precisely because "the exchange silently cancelled the order" leaves
+    them stuck. So they go stale, and they went stale under a heading
+    reading ACTIVE POSITIONS (live exchange): two false claims in one line.
+    They are not active positions, and they did not come from the exchange;
+    `executor.open_positions` is an in-memory list.
+
+    Observed 2026-08-20: the prompt listed three PENDING entries (DOGE,
+    SOL, AVAX) while /orders, which asks Bitget, replied "No pending orders
+    on Bitget right now."
+
+    AND IT DEFEATED THE GUARD ABOVE IT. `if executor.open_positions:` is
+    truthy on stale pendings alone, so the "none right now — do not
+    reference any open position" instruction never fired, and a user
+    holding nothing was never told so. That is verbatim the incident
+    recorded above the call site ("a user with zero live positions was told
+    by chat 'HYPE (your open short)'"), arriving through the one door the
+    fix for it left open: the list was non-empty without any of it being
+    true.
+
+    Pure and static — takes the executor, returns the text, reads nothing
+    else. The section was built inline, which is why none of this was ever
+    asserted.
+    """
+    positions = list(getattr(executor, "open_positions", None) or [])
+    filled = [p for p in positions
+              if getattr(p, "status", "") != "pending_fill"]
+    pending = [p for p in positions
+               if getattr(p, "status", "") == "pending_fill"]
+
+    if filled:
+        lines = [
+            f"  - {p.direction} {p.symbol}: entry ${p.entry_price:,.4f}, "
+            f"size ${p.cost_usd:,.2f}, lev {p.leverage}x, "
+            f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}"
+            for p in filled
+        ]
+        out = ("\n\nACTIVE POSITIONS (held on the exchange):\n"
+               + "\n".join(lines))
+    else:
+        out = ("\n\nACTIVE POSITIONS: none right now. Do not reference "
+               "any open position -- if the user asks about a specific "
+               "symbol, treat it as a fresh question, not an existing "
+               "trade.")
+
+    # Reported, but as what it is: the bot's own record of orders it placed
+    # and has not seen fill. Not a holding, and not confirmed against the
+    # exchange on this read.
+    if pending:
+        plines = [
+            f"  - {p.direction} {p.symbol}: limit ${p.entry_price:,.4f}, "
+            f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}"
+            for p in pending
+        ]
+        out += ("\n\nUNFILLED LIMIT ORDERS (the bot's own record, NOT "
+                "confirmed against the exchange just now, and NOT "
+                "positions -- the user does NOT hold these):\n"
+                + "\n".join(plines)
+                + "\nNever describe these as open positions or as "
+                "something the user is holding. They may already have been "
+                "cancelled or expired; /orders asks the exchange.")
+    return out
+
+
 def _inflight_analysis_progress(engine, *, max_age_s: float = 600.0):
     """Measured progress of the analyze batch in flight moments ago, or None.
 
@@ -1286,6 +1356,12 @@ class TelegramHandler:
         "ACTIVE POSITIONS section below. If that section says none, say they "
         "have no open positions — never reference a position from earlier in "
         "the conversation as if it's still open; positions close.\n"
+        "- UNFILLED LIMIT ORDERS ARE NOT POSITIONS. If a section by that name "
+        "appears, those are orders the bot placed and has not seen fill. The "
+        "user does not hold them, they may already have been cancelled, and "
+        "they must never be counted, summed, or described as open positions. "
+        "'ACTIVE POSITIONS: none' means none even when unfilled orders are "
+        "listed.\n"
         "- You do NOT have a live market-data feed in this chat. Never state a "
         "specific current price (BTC, ETH, or any asset) as if it's live or "
         "current — you don't know it. If asked for current price or "
@@ -1514,7 +1590,17 @@ class TelegramHandler:
         # Inject user-specific context
         portfolio_summary = ""
         engine_state = ""
-        positions_detail = ""
+        # NOT "". The whole block below sits inside a broad `except
+        # Exception`, so ANY error in it silently drops this section — and the
+        # comment at the injection site says "NEVER leave this section blank
+        # when is_live", because an LLM given no statement about positions
+        # invents one from conversation history. The except allowed exactly
+        # what the comment forbids. A default that still states the rule means
+        # a failure degrades to "cannot confirm" instead of to silence.
+        positions_detail = (
+            "\n\nACTIVE POSITIONS: could not be read just now. Do not "
+            "reference any open position and do not infer one from earlier "
+            "messages -- say the position list could not be confirmed.")
         try:
             user_portfolio = self.engine.user_portfolios.get(user_id)
             state = user_portfolio.snapshot()
@@ -1602,35 +1688,7 @@ class TelegramHandler:
             # chat "HYPE (your open short)" -- there was no position at all;
             # the prompt simply never said so either way.
             if is_live and executor:
-                # Use live executor positions (actual exchange positions)
-                if executor.open_positions:
-                    pos_lines = []
-                    for pos in executor.open_positions:
-                        if pos.status == "pending_fill":
-                            pos_lines.append(
-                                f"  - PENDING {pos.direction} {pos.symbol}: "
-                                f"limit ${pos.entry_price:,.4f}, "
-                                f"SL ${pos.stop_loss:,.4f}, TP ${pos.take_profit:,.4f}"
-                            )
-                        else:
-                            size_usd = pos.quantity * pos.entry_price
-                            pos_lines.append(
-                                f"  - {pos.direction} {pos.symbol}: "
-                                f"entry ${pos.entry_price:,.4f}, "
-                                f"size ${pos.cost_usd:,.2f}, lev {pos.leverage}x, "
-                                f"SL ${pos.stop_loss:,.4f}, TP ${pos.take_profit:,.4f}"
-                            )
-                    positions_detail = (
-                        "\n\nACTIVE POSITIONS (live exchange):\n" +
-                        "\n".join(pos_lines)
-                    )
-                else:
-                    positions_detail = (
-                        "\n\nACTIVE POSITIONS (live exchange): none right now. "
-                        "Do not reference any open position -- if the user "
-                        "asks about a specific symbol, treat it as a fresh "
-                        "question, not an existing trade."
-                    )
+                positions_detail = _live_positions_block(executor)
             elif user_portfolio.open_positions:
                 pos_lines = []
                 for pos in user_portfolio.open_positions:
@@ -4083,8 +4141,14 @@ class TelegramHandler:
         try:
             open_count = len(self.engine.live_executor.open_positions)
             if open_count:
-                lines.append(f"• ⚠️ {open_count} open position(s) — switching "
-                             "is blocked until they are closed.")
+                # The COUNT is right — an unfilled limit order blocks a venue
+                # switch just as a held position does, so it belongs in this
+                # total. Only the wording was wrong: `open_positions` includes
+                # pending_fill records, and calling them all "open position(s)"
+                # tells the operator they hold something they may not.
+                lines.append(f"• ⚠️ {open_count} open position(s) or unfilled "
+                             "order(s) — switching is blocked until they are "
+                             "closed or cancelled.")
         except Exception:
             pass
         return lines
