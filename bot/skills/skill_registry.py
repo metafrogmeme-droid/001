@@ -2389,6 +2389,16 @@ class ProScanSkill(BaseSkill):
                 scan_results.append({
                     "sym": sig.symbol,
                     "price": sig.price,
+                    # KNOWN DEFECT, DELIBERATELY NOT FIXED HERE. `"LONG" if
+                    # x > 0 else "SHORT"` labels every unmoved or unreported
+                    # symbol SHORT, and 0 is both "flat" and "the exchange sent
+                    # no percentage". But `dir` is a two-valued contract:
+                    # _build_scan_payload compares it against "LONG" in six
+                    # places, including `book_side = "BID" if dir == "LONG"
+                    # else "ASK"`, so a third value would silently become the
+                    # short side there — the same defect one level down.
+                    # Widening it needs those consumers audited first, and a
+                    # refactor bought with no safety is a real cost.
                     "dir": "LONG" if sig.change_pct_24h > 0 else "SHORT",
                     "score": max(sig.momentum_score, 0),
                     "rsi": 50.0,  # RSI computed per-asset above, but not stored on signal
