@@ -87,15 +87,42 @@ done
 
 [ -n "$URL" ] || { echo "SOURCE USAGE: empty URL. Nothing was checked." >&2; exit 2; }
 
-if ! HEAD_SHA="$(git rev-parse HEAD 2>/dev/null)"; then
-  echo "SOURCE UNKNOWN: not a git repository (or no commits)." >&2
+# THE CHECKOUT THIS SCRIPT IS PART OF — not whatever the caller's shell happens
+# to be standing in.
+#
+# The first version of this file ran a bare `git rev-parse HEAD`, so git
+# resolved the repository from the CALLER'S CWD. That is fatal for the one
+# usage this script documents: a launcher living OUTSIDE the repo, which is
+# where a launcher belongs. Called that way it answered "not a git repository"
+# and exited 3 — a gate that never checks anything is a gate nobody keeps.
+#
+# And the dangerous half is quieter. If the caller's cwd is a DIFFERENT git
+# repo — a dotfiles checkout in $HOME is enough — it would read that repo's
+# HEAD, compare it to this project's branch tip, and could return 0. The guard
+# written to prevent a false pass could produce one.
+#
+# deploy.sh:24 already had the pattern and this file did not use it. Found by
+# an audit of the deploy path, not by the tests written alongside it, because
+# every one of those ran with cwd inside the repo.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [ -z "$SELF_DIR" ] \
+   || ! REPO_DIR="$(git -C "$SELF_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
+  echo "SOURCE UNKNOWN: $0 is not inside a git repository." >&2
+  echo "  This check reports on the checkout it SHIPS WITH, so it cannot" >&2
+  echo "  answer from here." >&2
+  echo "  NOTHING WAS CHECKED — this is not a pass." >&2
+  exit 3
+fi
+
+if ! HEAD_SHA="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null)"; then
+  echo "SOURCE UNKNOWN: no commits in $REPO_DIR." >&2
   echo "  NOTHING WAS CHECKED — this is not a pass." >&2
   exit 3
 fi
 
 # `git ls-remote <url>` reads the URL and NOTHING local: no remote name, no
 # refs/remotes/*, no FETCH_HEAD. That is the entire reason this check exists.
-REMOTE_LINE="$(git ls-remote "$URL" "refs/heads/$BRANCH" 2>/dev/null)"
+REMOTE_LINE="$(git -C "$REPO_DIR" ls-remote "$URL" "refs/heads/$BRANCH" 2>/dev/null)"
 if [ -z "$REMOTE_LINE" ]; then
   echo "SOURCE UNKNOWN: could not read '$BRANCH' from $URL" >&2
   echo "  No network, no access, or the branch does not exist." >&2
@@ -121,17 +148,17 @@ fi
 #
 # The verdict above does NOT depend on this succeeding. If the fetch fails the
 # answer stays "differs", because a failed fetch is not evidence of anything.
-if ! git cat-file -e "$REMOTE_SHA" 2>/dev/null; then
-  git fetch --quiet "$URL" "$BRANCH" 2>/dev/null || true
+if ! git -C "$REPO_DIR" cat-file -e "$REMOTE_SHA" 2>/dev/null; then
+  git -C "$REPO_DIR" fetch --quiet "$URL" "$BRANCH" 2>/dev/null || true
 fi
 
 DETAIL=""
-if git cat-file -e "$REMOTE_SHA" 2>/dev/null; then
-  if git merge-base --is-ancestor "$HEAD_SHA" "$REMOTE_SHA" 2>/dev/null; then
-    N="$(git rev-list --count "$HEAD_SHA..$REMOTE_SHA" 2>/dev/null || echo '?')"
+if git -C "$REPO_DIR" cat-file -e "$REMOTE_SHA" 2>/dev/null; then
+  if git -C "$REPO_DIR" merge-base --is-ancestor "$HEAD_SHA" "$REMOTE_SHA" 2>/dev/null; then
+    N="$(git -C "$REPO_DIR" rev-list --count "$HEAD_SHA..$REMOTE_SHA" 2>/dev/null || echo '?')"
     DETAIL="BEHIND the branch tip by $N commit(s) — this is STALE code"
-  elif git merge-base --is-ancestor "$REMOTE_SHA" "$HEAD_SHA" 2>/dev/null; then
-    N="$(git rev-list --count "$REMOTE_SHA..$HEAD_SHA" 2>/dev/null || echo '?')"
+  elif git -C "$REPO_DIR" merge-base --is-ancestor "$REMOTE_SHA" "$HEAD_SHA" 2>/dev/null; then
+    N="$(git -C "$REPO_DIR" rev-list --count "$REMOTE_SHA..$HEAD_SHA" 2>/dev/null || echo '?')"
     DETAIL="AHEAD of the branch tip by $N commit(s)"
     if [ "$ALLOW_AHEAD" = "1" ]; then
       echo "SOURCE OK (ahead): HEAD is $N commit(s) ahead of $BRANCH at $URL."
