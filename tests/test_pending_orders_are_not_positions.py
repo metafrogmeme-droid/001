@@ -49,11 +49,11 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from bot.skills.telegram_handler import TelegramHandler
+from bot.skills.telegram_handler import _live_positions_block
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-block = TelegramHandler._live_positions_block
+block = _live_positions_block
 
 
 def _pos(symbol, status="open", direction="LONG"):
@@ -184,6 +184,45 @@ def test_the_block_is_reached_from_the_prompt():
                     .read_text(encoding="utf-8"))
     i = src.index("def _build_chat_system_prompt")
     body = src[i:src.index("async def _llm_chat", i)]
-    assert "self._live_positions_block(executor)" in body, (
+    assert "_live_positions_block(executor)" in body, (
         "the chat prompt no longer builds its positions section from the "
         "seam, so none of the separation above is reached")
+
+
+def test_the_section_can_never_be_silence():
+    """THE DEFECT THE TEST FAILURE EXPOSED, which is older than this change.
+
+    The whole positions block sits inside a broad `except Exception:`, so ANY
+    error in it silently dropped the section — while the comment at the
+    injection site says, in capitals, "NEVER leave this section blank when
+    is_live", because an LLM given no statement about positions invents one
+    from conversation history. The except allowed precisely what the comment
+    forbids, and it took a stub missing one attribute to show it: two grounding
+    tests went from passing to failing with no position text in the prompt at
+    all.
+
+    So `positions_detail` starts as a statement rather than "". A failure now
+    degrades to "could not be confirmed" instead of to silence.
+    """
+    from tests.source_scan import code_only
+
+    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
+                    .read_text(encoding="utf-8"))
+    assert 'positions_detail = ""' not in src, (
+        "the positions section defaults to empty again — an exception "
+        "anywhere in that block now produces a prompt that says nothing "
+        "about positions, which is the state the guard exists to prevent")
+    i = src.index("positions_detail = (")
+    assert "could not be read" in src[i:i + 400]
+
+
+def test_the_helper_needs_no_instance():
+    """It is module-level, not a method, and that is deliberate: the call site
+    `self._live_positions_block(...)` failed on every stub-based caller and the
+    broad except turned that AttributeError into a missing section rather than
+    a crash. A free function has nothing to look up."""
+    import inspect
+
+    from bot.skills import telegram_handler as th
+    assert inspect.isfunction(th._live_positions_block)
+    assert not hasattr(th.TelegramHandler, "_live_positions_block")
