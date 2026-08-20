@@ -176,9 +176,16 @@ function evaluateAlert(a, tk) {
   let v;
   if (a.metric === 'price') v = tk.price;
   else if (a.metric === 'change_24h') v = tk.change;
-  else if (a.metric === 'change_abs_24h') v = Math.abs(tk.change);
-  else return null;
-  if (!isFinite(v)) return null;
+  else if (a.metric === 'change_abs_24h') {
+    // `Math.abs(null)` is 0, so an unreadable change became a measured
+    // zero-magnitude move before the guard below ever saw it.
+    v = tk.change == null ? null : Math.abs(tk.change);
+  } else return null;
+  // `Number.isFinite`, NOT the global `isFinite`. The global coerces, and
+  // `isFinite(null)` is TRUE because `Number(null)` is 0 — so the guard that
+  // exists to reject an unreadable value would have admitted it as a flat 0%
+  // and fired "notify me when 24h change < 5%" on a token nobody could read.
+  if (!Number.isFinite(v)) return null;
   const hit = a.op === '>' ? v > Number(a.threshold) : v < Number(a.threshold);
   return hit ? v : null;
 }

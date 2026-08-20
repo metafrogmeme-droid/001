@@ -57,18 +57,37 @@ function buildRadar(tickers) {
       tokens.push({
         base,
         price: tk.price,
-        change_24h_pct: round2(tk.change),
+        // The guard above covers PRICE only. `round2(tk.change)` turned an
+        // absent change into 0 (`Math.round(null*100)/100`) — a measured flat
+        // token — and an undefined one into NaN, which then poisoned the sort
+        // below and every average built from it.
+        change_24h_pct: tk.change == null ? null : round2(tk.change),
         volume_24h_usd: Math.round(tk.volume || 0),
       });
     }
-    tokens.sort((a, b) => b.change_24h_pct - a.change_24h_pct);
+    // A row with no readable change cannot be ranked BY that change, and a
+    // NaN comparator returns NaN, which leaves the whole category in an
+    // implementation-defined order — one unreadable token scrambled the
+    // ranking of every other one. Unrankable rows sort last, deterministically.
+    tokens.sort((a, b) => {
+      const av = a.change_24h_pct, bv = b.change_24h_pct;
+      if (av == null && bv == null) return a.base.localeCompare(b.base);
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return bv - av;
+    });
     const vol = tokens.reduce((a, t) => a + t.volume_24h_usd, 0);
-    // Volume-weighted 24h change (equal-weight when no volume data).
+    // Volume-weighted 24h change over the tokens that actually reported one,
+    // renormalised by the share they cover. Summing a manufactured 0 as a real
+    // flat reading is what dragged a sector average toward neutral — the same
+    // dilution the systemic sentinel was cured of, in a different radar.
+    const read = tokens.filter((t) => t.change_24h_pct != null);
+    const readVol = read.reduce((a, t) => a + t.volume_24h_usd, 0);
     let wChange = null;
-    if (tokens.length) {
-      wChange = vol > 0
-        ? tokens.reduce((a, t) => a + t.change_24h_pct * t.volume_24h_usd, 0) / vol
-        : tokens.reduce((a, t) => a + t.change_24h_pct, 0) / tokens.length;
+    if (read.length) {
+      wChange = readVol > 0
+        ? read.reduce((a, t) => a + t.change_24h_pct * t.volume_24h_usd, 0) / readVol
+        : read.reduce((a, t) => a + t.change_24h_pct, 0) / read.length;
     }
     categories.push({
       key: cat.key,
@@ -99,7 +118,10 @@ function buildRadar(tickers) {
       listed: all.length,
       volume_24h_usd: totalVol,
       change_24h_pct: sectorChange !== null ? round2(sectorChange) : null,
-      vs_btc_pct: sectorChange !== null && btc ? round2(sectorChange - btc.change) : null,
+      // `btc.change` is nullable too, and `x - null` is `x` — a sector would
+      // have been reported as beating a BTC that was never read.
+      vs_btc_pct: (sectorChange !== null && btc && btc.change != null)
+        ? round2(sectorChange - btc.change) : null,
       top_gainer: sorted[0] || null,
       top_loser: sorted.length ? sorted[sorted.length - 1] : null,
     },
@@ -137,9 +159,10 @@ async function maybeHandleRwaChat(userId, text) {
       };
     }
     const catLines = r.categories.filter(c => c.listed).map((c) => {
+      const pct = (v) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v}%`);
       const top = c.tokens.slice(0, 3).map(t =>
-        `${t.base} ${t.change_24h_pct >= 0 ? '+' : ''}${t.change_24h_pct}%`).join(' · ');
-      return `• <b>${c.title}</b> (${c.listed} listed, ${c.change_24h_pct >= 0 ? '+' : ''}${c.change_24h_pct}% wtd): ${top}`;
+        `${t.base} ${pct(t.change_24h_pct)}`).join(' · ');
+      return `• <b>${c.title}</b> (${c.listed} listed, ${pct(c.change_24h_pct)} wtd): ${top}`;
     });
     const s = r.sector;
     return {

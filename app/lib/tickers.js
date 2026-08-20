@@ -48,9 +48,30 @@ async function doFetch(now) {
   for (const t of (data && data.data) || []) {
     const price = parseFloat(t.lastPr);
     if (!t.symbol || !isFinite(price)) continue;
+    // `change: (parseFloat(t.change24h) || 0) * 100` was CLAUDE.md's banned
+    // shape at the root of a map twelve modules read — and note that `price`
+    // two lines up IS guarded, so the inconsistency was visible in place.
+    //
+    // A venue that reported no 24h change produced a measured 0.0%, and
+    // "flat" is a real reading, so nothing downstream could tell them apart:
+    //
+    //   - the RWA radar counted it as a flat token in a VOLUME-WEIGHTED
+    //     sector average, pulling the sector toward neutral
+    //   - `/api/market/rwa` coloured the cell green, because 0 >= 0
+    //   - a price ALERT is the sharp one. `evaluateAlert` guards with
+    //     `isFinite(v)`, and `isFinite(null)` is TRUE in JS — but with the
+    //     `|| 0` the value was already 0, so "notify me when 24h change < 5%"
+    //     FIRED for every token whose change could not be read, reporting a
+    //     0% move as a threshold crossing.
+    //
+    // null is not a number and cannot be compared, so each consumer has to
+    // say what it means. `volume` keeps its `|| 0` for now: an unreadable
+    // volume drops the token out of volume weighting rather than into it,
+    // which is the safe direction — but it is the same shape and is noted.
+    const chg = parseFloat(t.change24h);
     map[t.symbol] = {
       price,
-      change: (parseFloat(t.change24h) || 0) * 100,
+      change: Number.isFinite(chg) ? chg * 100 : null,
       volume: parseFloat(t.usdtVolume ?? t.quoteVolume) || 0,
     };
   }
