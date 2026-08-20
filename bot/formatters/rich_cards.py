@@ -123,8 +123,23 @@ def compute_atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
     return float(np.mean(tr[-period:]))
 
 
-def _fmt_price(p: float) -> str:
-    """Smart price formatter — fewer decimals for larger prices."""
+def _fmt_price(p) -> str:
+    """Smart price formatter — fewer decimals for larger prices.
+
+    None renders as an em dash, never `$0.00`. Every caller is a display path,
+    and a price is exactly the field this repo's doctrine opens on: an
+    unfetchable one shown as a number is the defect, not the crash. Guarding
+    here rather than at each call site means a new caller inherits the honest
+    behaviour instead of having to remember it.
+    """
+    if p is None:
+        return "—"
+    try:
+        p = float(p)
+    except (TypeError, ValueError):
+        return "—"
+    if p != p:            # NaN: not a price, and every comparison below is False
+        return "—"
     if p >= 100:
         return f"${p:,.2f}"
     if p >= 1:
@@ -872,7 +887,12 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
         pnl = p.get("pnl_pct")
         _unread = pnl is None or p.get("price_unavailable")
         current = p.get("current")
-        size_usd = p.get("size_usd", 0)
+        # None is now reachable: an orphan whose venue response omitted
+        # initialMargin has no size to state. `.get(k, 0)` printed "$0" for it,
+        # and the f-string below crashes on None — a blank is the honest
+        # rendering and neither of the other two is.
+        size_usd = p.get("size_usd")
+        size_str = "—" if size_usd is None else f"${size_usd:.0f}"
         if _unread:
             # No mark, so no P&L, no direction-of-travel, and NO COLOUR. A
             # green stripe beside an unknown says "in profit" as loudly as
@@ -883,18 +903,22 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
             pnl_icon = "\U0001f7e2" if pnl > 0 else "\U0001f534" if pnl < 0 else ""
             pnl_usd_val = p.get("pnl_usd")
             if pnl_usd_val is None:
-                pnl_usd_val = size_usd * pnl / 100
+                pnl_usd_val = (size_usd * pnl / 100
+                               if size_usd is not None else None)
         leverage = p.get("leverage")
         rr_live = p.get("rr_live")
-        sl = p.get("sl", 0)
-        tp = p.get("tp", 0)
+        sl = p.get("sl")
+        tp = p.get("tp")
         sl_dist = p.get("sl_dist_pct")
         tp_dist = p.get("tp_dist_pct")
         sl_order = p.get("sl_order")
-        hold_h = p.get("hold_hours", 0)
+        hold_h = p.get("hold_hours")
 
-        # Hold time
-        if hold_h < 1:
+        # Hold time. An orphan the venue gave no timestamp for has an age
+        # nobody knows; `0` rendered that as "0m", i.e. just opened.
+        if hold_h is None:
+            hold_str = "?"
+        elif hold_h < 1:
             hold_str = f"{hold_h * 60:.0f}m"
         elif hold_h < 24:
             hold_str = f"{hold_h:.1f}h"
@@ -904,10 +928,21 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
         lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
         rr_str = f" | R:R {rr_live:.1f}" if rr_live else ""
         sl_tag = f" {t('lbl_on_exchange', lang)}" if sl_order == "exchange" else ""
-        # Show "None" for missing SL/TP (untracked exchange positions)
+        # THREE STATES, NOT TWO. "None" is a finding — this position has no
+        # protective order. It was also what an UNREADABLE order book produced,
+        # because one failed `fetch_open_orders` left every symbol at 0 and
+        # every row therefore said the position was unprotected. On a list of
+        # positions the bot did not open, that is the line an operator acts on.
         _none = f"<i>{t('val_none', lang)}</i>"
-        sl_str = _fmt_price(sl) if sl and sl > 0 else _none
-        tp_str = _fmt_price(tp) if tp and tp > 0 else _none
+        _unknown = "<i>unknown</i>"
+
+        def _level(price, order_state):
+            if order_state == "unknown":
+                return _unknown
+            return _fmt_price(price) if price and price > 0 else _none
+
+        sl_str = _level(sl, sl_order)
+        tp_str = _level(tp, p.get("tp_order"))
         untracked = p.get("untracked", False)
         strategy_type = p.get("strategy_type", "").upper()
         st_tag = f" [{strategy_type}]" if strategy_type else ""
@@ -920,7 +955,7 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
             _mark_cell = _fmt_price(current)
         lines.extend([
             f"{d_icon} <b>{pair}</b> {direction}{st_tag} | {_pnl_cell}",
-            f"  {_fmt_price(entry)} -> {_mark_cell} | ${size_usd:.0f}{lev_str}{rr_str} | {hold_str}",
+            f"  {_fmt_price(entry)} -> {_mark_cell} | {size_str}{lev_str}{rr_str} | {hold_str}",
             f"  {t('lbl_sl', lang)} {sl_str} / {t('lbl_tp', lang)} {tp_str}{sl_tag}",
         ])
         if untracked:
