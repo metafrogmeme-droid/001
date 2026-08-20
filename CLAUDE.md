@@ -168,9 +168,41 @@ the behaviour is covered elsewhere and the file locks *wiring*. The narrow
 failure mode is a source scan **standing in for behaviour nothing else
 tests**.
 
-Rank candidates by what a wrong claim would cost. The surfaces that still
-build cards inline and make halt/breaker/stop-loss claims — `_status_lines`,
-`_cmd_open_positions` — are where to look next.
+Rank candidates by what a wrong claim would cost. `_status_lines` is the last
+surface on that list still building its card inline.
+
+`_cmd_open_positions` came off it, and the most expensive claim in the product
+turned out to be sitting behind a comment that said the opposite:
+
+```python
+except Exception:
+    pass  # Orders fetch not critical
+```
+
+True of the listing, false of everything built on it. One failed
+`fetch_open_orders` left every symbol at `0`, and `sl_str = ... if sl and sl >
+0 else _none` rendered that as **SL None** — *this position is unprotected* —
+for every orphan at once. Orphans are the positions the bot did not open, shown
+to an operator reading the list *because they do not know what is out there*.
+`sl_order` is three-valued now: a price, `none` (the venue answered and there
+is no stop), `unknown` (nobody looked).
+
+The extraction is what found the rest. `orphan_position_row` is pure, and the
+mutation that reverted the mark price to `0` had passed the **entire suite**
+before it existed — the renderer was thoroughly covered and the row builder was
+covered only by grep. Behind it: an age of `0.0` rendering as "0m" (just
+opened) for a position of unknown age, an `rr_live` of `0` for an orphan that
+has no thesis to measure a reward against, and `_fmt_price` happily formatting
+whatever it was handed.
+
+Two things worth copying from it. `_fmt_price(None)` now returns an em dash
+rather than each of a dozen call sites remembering to check — guard at the
+boundary and new callers inherit the honest behaviour. And the first draft of
+the colour test asserted no green anywhere on the row and **failed**, on
+`d_icon` — which encodes direction (🟢 long / 🔴 short), and the direction of a
+position whose mark we could not read is still perfectly well known. Not every
+match is a defect, including in your own new tests; that assertion would have
+removed a true statement to satisfy a rule about false ones.
 
 `_cmd_escape` was on that list and came off it, and the extraction paid for
 itself immediately. Inline, nothing could plant a crashed planner and read what

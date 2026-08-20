@@ -11361,6 +11361,14 @@ class TelegramHandler:
                         prices = {s: float(t.get("last", 0)) for s, t in tickers.items() if t.get("last")}
                         # Try to fetch open trigger/conditional orders for SL/TP
                         sl_tp_map = {}  # symbol -> {"sl": price, "tp": price}
+                        # WHETHER WE LOOKED, kept separate from what we found.
+                        # This fetch is wrapped in `except: pass`, and an empty
+                        # map is indistinguishable from "this book has no stop
+                        # orders" — so one failed call reported EVERY orphan as
+                        # unprotected. On a list of positions the bot did not
+                        # open and is discovering, "SL: None" is the line that
+                        # makes an operator act.
+                        _orders_read = True
                         try:
                             open_orders = await exchange.fetch_open_orders()
                             for o in (open_orders or []):
@@ -11385,78 +11393,26 @@ class TelegramHandler:
                                 elif oside == "buy":
                                     sl_tp_map[osym].setdefault("_buys", []).append(trigger)
                         except Exception:
-                            pass  # Orders fetch not critical
-                        from datetime import datetime, timezone
+                            # Not critical to the listing, but fatal to any
+                            # claim about stops: absent is not "none".
+                            _orders_read = False
+                        from bot.formatters.orphan_position import (
+                            orphan_position_row,
+                        )
                         for p in open_ex:
                             sym = p.get("symbol", "")
-                            side = (p.get("side") or "long").upper()
-                            contracts = float(p.get("contracts") or 0)
-                            entry_price = float(p.get("entryPrice") or p.get("info", {}).get("openPriceAvg") or 0)
-                            notional = float(p.get("notional") or 0)
-                            margin = float(p.get("initialMargin") or p.get("collateral") or 0)
-                            lev = float(p.get("leverage") or 1)
-                            # ABSENT is not ZERO, and the venue omits
-                            # unrealizedPnl more often than it reports a real
-                            # 0.00. `or 0` collapsed both into "break-even",
-                            # which for an orphan — a position the bot did not
-                            # open and is discovering — is the single worst
-                            # thing to assert: the operator is looking at this
-                            # list precisely because they do not know what is
-                            # out there. A genuine 0 from the venue still reads
-                            # as 0; only a missing field is unknown.
-                            _raw_upnl = p.get("unrealizedPnl")
-                            unrealized = (float(_raw_upnl)
-                                          if _raw_upnl is not None else None)
-                            # No entry-price fallback: echoing the entry back as
-                            # "current" asserts the market is sitting exactly
-                            # there, which is a price claim we did not make.
-                            _mark = prices.get(sym)
-                            last_price = _mark if (_mark is not None and _mark > 0) else 0
-                            pnl_pct = ((unrealized / margin * 100)
-                                       if (unrealized is not None and margin > 0)
-                                       else None)
-                            # SL/TP from conditional orders
                             sym_orders = sl_tp_map.get(sym, {})
-                            sl_price = sym_orders.get("sl", 0)
-                            tp_price = sym_orders.get("tp", 0)
-                            # Timestamp handling
-                            ts = p.get("timestamp")
-                            if ts:
-                                opened = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
-                                hold_h = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
-                            else:
-                                hold_h = 0.0
-                            sl_dist = abs(last_price - sl_price) / last_price * 100 if sl_price and last_price else 0
-                            tp_dist = abs(tp_price - last_price) / last_price * 100 if tp_price and last_price else 0
-                            positions_data.append({
-                                "pair": sym.replace("/", "").replace(":USDT", ""),
-                                "direction": side,
-                                "entry": round(entry_price, 6),
-                                "current": round(last_price, 6),
-                                # None flows through: every consumer of this
-                                # list (the position card, render_open_positions,
-                                # the caption) already renders an unknown as "—"
-                                # with a muted accent. Rounding None would crash;
-                                # defaulting it to 0 is what hid the unknown.
-                                "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
-                                "pnl_usd": round(unrealized, 4) if unrealized is not None else None,
-                                "sl": round(sl_price, 6),
-                                "tp": round(tp_price, 6),
-                                "sl_dist_pct": round(sl_dist, 2),
-                                "tp_dist_pct": round(tp_dist, 2),
-                                "size_usd": round(margin, 2),
-                                "notional_usd": round(notional, 2),
-                                "leverage": round(lev, 2),
-                                "rr_live": 0,
-                                "quantity": contracts,
-                                "comm_pct": CONFIG.risk.commission_pct,
-                                "hold_hours": round(hold_h, 1),
-                                "sl_order": "exchange" if sl_price > 0 else "none",
-                                "tp_order": "exchange" if tp_price > 0 else "none",
-                                "trade_id": sym,
-                                "untracked": True,
-                                "status": "open",
-                            })
+                            # None = the conditional-order book could not be
+                            # read, which is NOT the answer "this position has
+                            # no stop". The row keeps them apart; one failed
+                            # fetch used to report every orphan as unprotected.
+                            positions_data.append(orphan_position_row(
+                                p,
+                                mark=prices.get(sym),
+                                sl_price=(sym_orders.get("sl", 0) if _orders_read else None),
+                                tp_price=(sym_orders.get("tp", 0) if _orders_read else None),
+                                commission_pct=CONFIG.risk.commission_pct,
+                            ))
                 except Exception as exc:
                     logger.warning("Exchange position fallback failed: %s", exc)
         else:
