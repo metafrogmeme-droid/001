@@ -308,3 +308,37 @@ class TestTheTestSandboxHolds:
                 "alice arrived with a loss streak from a previous run")
         finally:
             p.stop()
+
+
+# ── the cleanup list has to cover per-user files too ────────────────────────
+
+class TestConftestCleansPerUserRiskState:
+    """Belt to the fixture's braces, and the reason they are different.
+
+    The fixture sandboxes this file. The conftest glob covers EVERY test that
+    builds a per-user engine, including ones written later that do not know
+    they need to sandbox anything — which is the situation that produced the
+    leak in the first place.
+    """
+
+    def test_the_glob_covers_per_user_risk_state(self):
+        from tests import conftest
+        import fnmatch
+        for name in ("data/risk_state_alice.json", "data/risk_state_12345.json"):
+            assert any(fnmatch.fnmatch(name, pat) for pat in conftest._STATE_GLOBS), (
+                f"{name} matches no cleanup glob, so per-user risk state "
+                f"survives every test and accumulates across runs")
+
+    def test_the_shared_engines_file_is_still_covered(self):
+        """CONTROL. `data/risk_state.json` is on the explicit list and the new
+        glob requires an underscore, so it must not have been displaced."""
+        from tests import conftest
+        assert "data/risk_state.json" in conftest._STATE_FILES
+
+    def test_the_glob_does_not_reach_outside_data(self):
+        """A cleanup pattern is a DELETE list — `_clean_runtime_state` runs it
+        before and after every test, thousands of times a run."""
+        from tests import conftest
+        for pat in conftest._STATE_GLOBS:
+            assert pat.startswith("data/"), f"{pat} deletes outside data/"
+            assert ".." not in pat

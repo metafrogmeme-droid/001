@@ -36,6 +36,24 @@ _STATE_FILES = (
 )
 _STATE_GLOBS = (
     "data/portfolio_*.json",
+    # AN ENUMERATED LIST THAT A FEATURE OUTGREW. `data/risk_state.json` is on
+    # the list above — the SHARED operator engine's file, correct when it was
+    # the only one. Per-user risk engines came later and persist to
+    # `data/risk_state_{user}.json`, which matches nothing here, so their state
+    # survived every test and accumulated across RUNS.
+    #
+    # `test_win_does_not_trip_other_user` is the test that noticed: alice's
+    # consecutive_losses reached 38, `_bust(a, 4)` stopped leaving 4, and the
+    # gate's flake filter re-ran it against a data/ that had moved again and
+    # filed it "passes alone". Green build, real failure.
+    #
+    # Note `portfolio_*.json` directly above: per-user PORTFOLIOS were added
+    # and somebody remembered the glob. Per-user RISK ENGINES were added and
+    # nobody did. That is the failure mode of an allowlist, not an oversight
+    # by anyone in particular.
+    "data/risk_state_*.json",
+    "data/risk_state_*.json.bak",
+    "data/risk_state_*.json.tmp",
 )
 _STATE_DIRS = (
     "data/learning",
