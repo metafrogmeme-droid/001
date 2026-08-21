@@ -303,7 +303,13 @@ function buildRounds(day, signals, tickers) {
   // via a `|| 0` that would rank it as a measured zero.
   const conf = (s) => (Number.isFinite(Number(s.confidence)) ? Number(s.confidence) : -1);
   const vol = (sym) => {
-    const v = marks[sym] == null ? NaN : Number(marks[sym].volume);
+    // `Number(null)` is 0 AND finite, so a null volume slipped past the
+    // isFinite check and ranked as a measured zero — above the -1 this
+    // function already reserves for unknown, and against the intent stated
+    // for `confidence` three lines up.
+    const raw = marks[sym] == null ? null : marks[sym].volume;
+    if (raw == null) return -1;
+    const v = Number(raw);
     return Number.isFinite(v) ? v : -1;
   };
 

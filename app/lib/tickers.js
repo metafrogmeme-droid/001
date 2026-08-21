@@ -65,14 +65,28 @@ async function doFetch(now) {
     //     0% move as a threshold crossing.
     //
     // null is not a number and cannot be compared, so each consumer has to
-    // say what it means. `volume` keeps its `|| 0` for now: an unreadable
-    // volume drops the token out of volume weighting rather than into it,
-    // which is the safe direction — but it is the same shape and is noted.
+    // say what it means.
+    //
+    // `volume` was left with its `|| 0` when `change` was fixed, on the
+    // reasoning that an unreadable volume drops a token OUT of volume
+    // weighting rather than into it. That was true of the weighting and false
+    // everywhere else, and the sharpest counter-example is `token_safety.js`,
+    // which holds exactly the right guard:
+    //
+    //     const volume = ticker ? num(ticker.volume) : null;
+    //     if (volume != null && volume < THIN_VOLUME_USD) flags.push('thin-cex-volume')
+    //
+    // `num()` maps a non-finite value to null, so that guard is correct and
+    // the `|| 0` upstream defeated it: a token the venue reported no volume
+    // for was flagged "thin books slip harder and are easier to push around"
+    // — a SAFETY claim manufactured from absence, on the surface whose whole
+    // job is telling someone whether a token is safe to touch.
     const chg = parseFloat(t.change24h);
+    const vol = parseFloat(t.usdtVolume ?? t.quoteVolume);
     map[t.symbol] = {
       price,
       change: Number.isFinite(chg) ? chg * 100 : null,
-      volume: parseFloat(t.usdtVolume ?? t.quoteVolume) || 0,
+      volume: Number.isFinite(vol) ? vol : null,
     };
   }
   cache = { at: now, map };

@@ -62,7 +62,10 @@ function buildRadar(tickers) {
         // token — and an undefined one into NaN, which then poisoned the sort
         // below and every average built from it.
         change_24h_pct: tk.change == null ? null : round2(tk.change),
-        volume_24h_usd: Math.round(tk.volume || 0),
+        // `a + null` is `a` in JS, so a null volume would slide through every
+        // reduce below as a silent zero. Kept explicitly nullable and handled
+        // at each aggregate instead.
+        volume_24h_usd: tk.volume == null ? null : Math.round(tk.volume),
       });
     }
     // A row with no readable change cannot be ranked BY that change, and a
@@ -76,17 +79,28 @@ function buildRadar(tickers) {
       if (bv == null) return -1;
       return bv - av;
     });
-    const vol = tokens.reduce((a, t) => a + t.volume_24h_usd, 0);
+    // Sum only what was reported. `a + null` is `a`, so this is arithmetically
+    // identical to coercing the nulls to 0 — the filter states the INTENT
+    // rather than leaning on a coercion that a later edit could change out
+    // from under it. Mutating it back is an equivalent mutant and no test
+    // catches it, which is the honest reason it is written this way.
+    const volTokens = tokens.filter((t) => t.volume_24h_usd != null);
+    const vol = volTokens.reduce((a, t) => a + t.volume_24h_usd, 0);
     // Volume-weighted 24h change over the tokens that actually reported one,
     // renormalised by the share they cover. Summing a manufactured 0 as a real
     // flat reading is what dragged a sector average toward neutral — the same
     // dilution the systemic sentinel was cured of, in a different radar.
+    // A token can only be VOLUME-weighted if its volume was read too. Also
+    // an equivalent mutant against the coercion (`change * null` is 0, and it
+    // adds 0 to the denominator as well, so such a token is already excluded
+    // in effect) — kept explicit for the same reason as above.
     const read = tokens.filter((t) => t.change_24h_pct != null);
-    const readVol = read.reduce((a, t) => a + t.volume_24h_usd, 0);
+    const readW = read.filter((t) => t.volume_24h_usd != null);
+    const readVol = readW.reduce((a, t) => a + t.volume_24h_usd, 0);
     let wChange = null;
     if (read.length) {
       wChange = readVol > 0
-        ? read.reduce((a, t) => a + t.change_24h_pct * t.volume_24h_usd, 0) / readVol
+        ? readW.reduce((a, t) => a + t.change_24h_pct * t.volume_24h_usd, 0) / readVol
         : read.reduce((a, t) => a + t.change_24h_pct, 0) / read.length;
     }
     categories.push({
