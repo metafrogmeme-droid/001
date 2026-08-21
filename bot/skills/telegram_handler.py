@@ -702,6 +702,39 @@ def guard(command: str = ""):
     return _decorate
 
 
+def resolve_profile_note(profile_note: str, user_id) -> str:
+    """The agent-profile line to attach, preferring what the caller supplied.
+
+    A SEAM, not a convenience. This was six inline lines inside `_llm_chat`,
+    which is async and needs a whole TelegramHandler to reach — so nothing
+    could plant a profile and read what the agent would be told. #999 is the
+    cautionary case: a card was built inline, source-scanned, shipped, and
+    rendered ZERO times in production because the code was present and never
+    reached. A scan cannot tell those apart; a callable can be called.
+
+    The web supplies `profile_note` on its own requests, so that wins. Telegram
+    supplies nothing, which is the whole gap: `profile_note` defaults to "" and
+    the only callers that ever passed it were three lines in user_gateway.py,
+    so the same person was personalised in the browser and anonymous on
+    Telegram.
+
+    Returns "" — never a sentence — when there is nothing to say. An unreadable
+    store and a user who saved nothing are different facts, but the ACTION is
+    the same for both: tell the model nothing. Rendering either as "this user
+    has no watchlist" would be a claim about the user built from no evidence.
+    """
+    if profile_note:
+        return profile_note
+    if not user_id:
+        return ""
+    try:
+        from bot.core import user_profile_store as _ups
+        return _ups.note_for(user_id) or ""
+    except Exception:
+        # A preferences lookup must never take a chat down.
+        return ""
+
+
 class TelegramHandler:
     def __init__(self, engine: RuneClawEngine, registry: Optional[SkillRegistry] = None) -> None:
         self.engine = engine
@@ -1922,10 +1955,28 @@ class TelegramHandler:
             system_prompt = self._build_chat_system_prompt(
                 user_id,
                 user_name=_sanitize_chat_input(user_name) if user_name else user_name)
-            # Web agent profile (whitelisted words only — see the gateway's
-            # build_profile_note): lets the agent tailor tone/examples to the
-            # user's own risk preference and watchlist. Advisory context only;
-            # it changes nothing about gates or execution.
+            # Agent profile (whitelisted words only): lets the agent tailor
+            # tone/examples to the user's own risk preference and watchlist.
+            # Advisory context only; it changes nothing about gates or
+            # execution.
+            #
+            # THE SAME PERSON WAS A STRANGER ON TELEGRAM. `profile_note` is a
+            # parameter, and the only callers that ever passed it were three
+            # lines in user_gateway.py — the WEB. So a user who saved
+            # "conservative" and a watchlist got an agent that knew them in the
+            # browser and an agent that knew nothing about them in Telegram,
+            # which is the surface most of them actually use.
+            #
+            # Not a bug in either path: the profile lived in a web request body
+            # and existed nowhere the bot could read. It has a store now, so
+            # fall back to it when the caller did not supply one.
+            #
+            # `or ""` on the store read, never a fabricated blank profile: an
+            # unreadable file and a user who saved nothing both produce "", the
+            # block below is skipped, and the model is told NOTHING about their
+            # preferences. Saying "this user has no watchlist" would be a claim
+            # we cannot support.
+            profile_note = resolve_profile_note(profile_note, user_id)
             if profile_note:
                 system_prompt += (
                     "\n\nThis user's saved agent profile: " + profile_note[:300])

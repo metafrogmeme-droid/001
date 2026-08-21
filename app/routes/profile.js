@@ -19,6 +19,12 @@ const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
+// For the bot-sync push below. Required lazily-safe at module load like the
+// rest — gateway.isConfigured() gates the actual call, so an unconfigured
+// deployment simply never pushes.
+const { postGateway, isConfigured } = require('../lib/gateway');
+const gateway = { isConfigured };
+const { resolveBotIdentity } = require('../lib/identity');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -141,6 +147,37 @@ router.put('/', putLimit, async (req, res) => {
          watchlist = VALUES(watchlist), prefs = VALUES(prefs)`,
       [uid, riskPref, JSON.stringify(watchlist), JSON.stringify(prefs)]);
     res.json({ ok: true, risk_pref: riskPref, watchlist, prefs });
+
+    // PUSH THE PROFILE DOWN TO THE BOT, so Telegram knows the same person.
+    //
+    // Until this existed the profile reached the agent only as a field on a
+    // WEB chat request, so a user who saved "conservative" and a watchlist got
+    // an agent that knew them in the browser and a stranger on Telegram —
+    // which is the surface most of them use. This row stays the source of
+    // truth; the bot keeps a readable copy.
+    //
+    // AFTER res.json and fully best-effort, deliberately: the save already
+    // succeeded and is durable in this table. An unreachable bot must not turn
+    // a successful save into a 500, and must not make the user think their
+    // preference was lost when it was not. The cost of a missed push is that
+    // Telegram lags until the next save — bounded, and the opposite trade
+    // (failing the write) is unbounded.
+    try {
+      if (gateway.isConfigured()) {
+        const ident = await resolveBotIdentity(req);
+        if (ident && ident.id) {
+          await postGateway('/profile', {
+            telegram_id: ident.id,
+            // Sent even when both are empty: that is how "I cleared my
+            // watchlist" reaches the bot. Omitting it would leave a stale copy
+            // outliving the preference it describes.
+            profile: { risk_pref: riskPref, watchlist },
+          }, 8000);
+        }
+      }
+    } catch (e) {
+      console.warn('Profile bot-sync skipped:', e.message);
+    }
   } catch (err) {
     console.error('Profile write error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to save profile' });
