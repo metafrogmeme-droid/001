@@ -61,6 +61,21 @@ def _parse_ts(s: str) -> float | None:
 
 def load_snapshots(path: str) -> list[dict]:
     rows: list[dict] = []
+    if not Path(path).exists():
+        # THE EXPECTED FIRST-RUN STATE, not an error. Recording is on by
+        # default (OF_RECORD_SNAPSHOTS / OF_CROSS_VENUE_FUNDING) but the file
+        # only appears once the live bot has scanned, so an operator running
+        # this before any snapshots exist — or with a typo'd path — got a raw
+        # FileNotFoundError traceback from a tool that is otherwise careful to
+        # state its findings in words. "There is nothing to measure yet" is the
+        # same class of answer as "not enough samples yet", and gets the same
+        # treatment: say it, and exit non-zero so a script can tell.
+        print(f"NO SNAPSHOT FILE at {path}")
+        print("That is the finding, not a crash: nothing has been recorded here yet.")
+        print("Recording is on by default on the live bot (OF_RECORD_SNAPSHOTS,")
+        print("OF_CROSS_VENUE_FUNDING). Check the path, or let it accumulate and")
+        print("re-run — the verdict rule needs >= 200 samples before it will conclude.")
+        raise SystemExit(2)
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
