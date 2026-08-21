@@ -43,6 +43,7 @@ non-admin", not the public. Worth fixing, not worth alarm.
 """
 
 import ast
+import functools
 import json
 import pathlib
 import re
@@ -51,6 +52,22 @@ import pytest
 
 from bot.skills.command_catalog import GROUPS
 from bot.utils.user_store import ROLE_PERMISSIONS
+from tests.source_scan import segment_reader
+
+
+@functools.lru_cache(maxsize=4)
+def _seg_for(src: str):
+    """One line-split per source, reused by every lookup in this module.
+
+    `ast.get_source_segment` re-splits the whole file on every call. The four
+    call sites below all read `bot/skills/telegram_handler.py` — 13,575 lines —
+    once per handler they inspect, which cost this file 27.7s with a single
+    test at 11.8s. Same segments, byte for byte; 1.6s now.
+
+    Cached on the source TEXT rather than a module global, so two different
+    files in one session cannot be handed each other's line list.
+    """
+    return segment_reader(src)
 
 HANDLER = pathlib.Path(__file__).resolve().parent.parent / "bot" / "skills" / "telegram_handler.py"
 
@@ -81,7 +98,7 @@ def _permission_string(src, node):
         m = re.match(r"guard\('([^']*)'\)", ast.unparse(d))
         if m:
             return m.group(1)
-    m = re.search(r'_guard\(update,\s*["\'](\w+)["\']', ast.get_source_segment(src, node) or "")
+    m = re.search(r'_guard\(update,\s*["\'](\w+)["\']', _seg_for(src)(node) or "")
     return m.group(1) if m else None
 
 
@@ -102,7 +119,7 @@ def test_operator_only_commands_are_actually_operator_only():
         assert handler, f"/{cmd} is in the catalog but bound to no handler"
         node = funcs.get(handler)
         assert node, f"{handler} not found in the handler module"
-        body = ast.get_source_segment(src, node) or ""
+        body = _seg_for(src)(node) or ""
         if _gates_on_admin(body):
             continue  # explicitly operator-gated in the body
         perm = _permission_string(src, node)
@@ -147,7 +164,7 @@ def test_no_NEW_user_facing_command_becomes_unreachable():
         handler = registry.get(cmd)
         if not handler or handler not in funcs:
             continue
-        body = ast.get_source_segment(src, funcs[handler]) or ""
+        body = _seg_for(src)(funcs[handler]) or ""
         perm = _permission_string(src, funcs[handler])
         if _gates_on_admin(body) or (perm and not any(perm in p for p in non_admin.values())):
             unreachable.add(cmd)
@@ -170,7 +187,7 @@ def test_llm_config_commands_require_admin():
     key fingerprints. `@guard('status')` alone put that in the viewer role's set."""
     src, funcs, _ = _handler_index()
     for handler in ("_cmd_llmstatus", "_cmd_llmtiers"):
-        body = ast.get_source_segment(src, funcs[handler]) or ""
+        body = _seg_for(src)(funcs[handler]) or ""
         assert "_is_admin" in body, f"{handler} no longer checks _is_admin"
 
 

@@ -396,13 +396,19 @@ def test_every_bot_access_gate_consults_admission(path):
     """
     import ast
     import pathlib
+
+    from tests.source_scan import segment_reader
     src = pathlib.Path(path).read_text(encoding="utf-8")
     tree = ast.parse(src)
     offenders = []
+    # Split once. `ast.get_source_segment` re-splits the whole file per call,
+    # which on telegram_handler.py (13,575 lines, 260 functions) was 29.6s and
+    # tipped past the 60s pytest-timeout under load. Byte-identical output.
+    seg_of = segment_reader(src)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        body = ast.get_source_segment(src, node) or ""
+        body = seg_of(node) or ""
         if "_allowlist_ids()" not in body:
             continue
         if node.name in _ENV_ONLY_BY_DESIGN:

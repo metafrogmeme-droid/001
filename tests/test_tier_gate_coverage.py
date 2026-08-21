@@ -34,6 +34,7 @@ import pathlib
 import pytest
 
 import bot.token.tier_gate as tg
+from tests.source_scan import segment_reader
 
 HANDLER = pathlib.Path(__file__).resolve().parent.parent / "bot" / "skills" / "telegram_handler.py"
 
@@ -49,10 +50,16 @@ def _functions_dispatching_gated_skills():
     src = HANDLER.read_text()
     mapping = {**{k: k for k in tg.FEATURE_MIN_TIER}, **SKILL_TO_FEATURE}
     out = []
+    # `ast.get_source_segment` re-splits the WHOLE source on every call, so
+    # this loop was quadratic: 260 function nodes x 13,575 lines = 29.6s, and
+    # under full-suite load it crossed the 60s pytest-timeout and was filed by
+    # the CI gate as "passes alone (flaky/order-dependent)". `segment_reader`
+    # splits once and is byte-identical; 0.004s here.
+    seg_of = segment_reader(src)
     for node in ast.walk(ast.parse(src)):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        seg = ast.get_source_segment(src, node) or ""
+        seg = seg_of(node) or ""
         hit = sorted({mapping[n] for n in mapping if f'dispatch("{n}"' in seg})
         if hit:
             out.append((node.name, hit, seg))

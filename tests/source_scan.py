@@ -25,7 +25,87 @@ from __future__ import annotations
 import io
 import tokenize
 
-__all__ = ["code_only"]
+__all__ = ["code_only", "segment_reader"]
+
+
+def segment_reader(source: str):
+    """Return ``seg(node)`` — a node's source text, splitting `source` ONCE.
+
+    Byte-identical to ``ast.get_source_segment(source, node)``; the only thing
+    that changes is how many times the source is split.
+
+    ``ast.get_source_segment`` calls ``_splitlines_no_ff(source)`` on EVERY
+    call, so scanning a file node-by-node re-splits the whole file per node.
+    That is quadratic and it is not academic — measured 2026-08-21 on
+    ``bot/skills/telegram_handler.py``, 13,575 lines and 260 function nodes:
+
+        ast.get_source_segment over every node : 29.60s
+        split once, slice per node             :  0.004s   (7,184x)
+
+    Two tests were spending that 30s each and dying at the 60s pytest-timeout
+    under full-suite load, which the CI gate then filed as "passes alone
+    (flaky/order-dependent)". True, and a green build over two real timeouts.
+
+    The body below is CPython's ``get_source_segment`` with the split hoisted
+    out of the loop — including the ``.encode()`` round-trips, because
+    ``col_offset`` is a UTF-8 BYTE offset and this file is full of emoji. Naive
+    character slicing silently cuts the wrong place on any line with one.
+    ``padded=`` is not supported; nothing here uses it.
+
+    `tests/test_source_segment_reader.py` asserts equivalence against the
+    stdlib for every node of several real files, so a CPython change in either
+    direction shows up as a failure rather than as a subtly different segment.
+    """
+    lines = _splitlines_no_ff(source)
+
+    def seg(node):
+        try:
+            if node.end_lineno is None or node.end_col_offset is None:
+                return None
+            lineno = node.lineno - 1
+            end_lineno = node.end_lineno - 1
+            col_offset = node.col_offset
+            end_col_offset = node.end_col_offset
+        except AttributeError:
+            return None
+
+        if end_lineno == lineno:
+            return lines[lineno].encode()[col_offset:end_col_offset].decode()
+
+        first = lines[lineno].encode()[col_offset:].decode()
+        last = lines[end_lineno].encode()[:end_col_offset].decode()
+        middle = lines[lineno + 1:end_lineno]
+        return "".join([first, *middle, last])
+
+    return seg
+
+
+def _splitlines_no_ff(source: str) -> list[str]:
+    """Split like the Python parser does, not like ``str.splitlines()``.
+
+    Copied from ``ast`` rather than imported: it is private there, and
+    ``str.splitlines()`` is NOT a substitute — it also breaks on form feed,
+    vertical tab and \\x1c-\\x1e, which the parser treats as ordinary
+    characters. Using it would shift every line index after the first such
+    character and hand back the wrong function body.
+    """
+    idx = 0
+    lines = []
+    next_line = ''
+    while idx < len(source):
+        c = source[idx]
+        next_line += c
+        idx += 1
+        # Keep \r\n together
+        if c == '\r' and idx < len(source) and source[idx] == '\n':
+            next_line += '\n'
+            idx += 1
+        if c in '\r\n':
+            lines.append(next_line)
+            next_line = ''
+    if next_line:
+        lines.append(next_line)
+    return lines
 
 #: Token types after which a bare string literal may be a docstring.
 #:
