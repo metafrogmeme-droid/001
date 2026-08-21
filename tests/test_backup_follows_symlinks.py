@@ -223,6 +223,171 @@ class TestTheDrillCannotPassOnAnEmptyArchive:
         )
 
 
+class TestTheDrillVerifiesTheStateItExistsToProtect:
+    """The drill checked three files by name, and they were the wrong three.
+
+    `data/secrets_vault.enc`, `data/runeclaw.db`, `logs/audit_chain.jsonl` are
+    INFRASTRUCTURE. This script's own header names something else as the point:
+    "open/closed positions, risk state, the learning store ... The learning
+    loop's value COMPOUNDS in these files." An archive that restored all three
+    infrastructure files and lost every trade, every per-user risk engine and
+    the whole learning/ tree printed `restore drill PASSED`.
+
+    Same shape as the conftest cleanup allowlist found one commit earlier: a
+    hand-kept list of important files, correct when it was written, silently
+    outgrown by every feature that added a file after it. The fix is the same —
+    stop enumerating. The inventory now comes from the live tree, so a file a
+    future feature adds is covered the day it is written.
+
+    Note every assertion here is on a POSITIVE rendering or an anchored verdict
+    line. `"PASSED" not in stdout` is the loose form this repo keeps getting
+    burned by; `"restore drill PASSED"` is the line that actually decides.
+    """
+
+    def _backdated(self, path: Path, archive: Path, content: bytes = b"{}") -> None:
+        """A file that EXISTED before the backup but is not in the archive.
+
+        Written after the fact and stamped older, because that is precisely what
+        `tar --ignore-failed-read` produces when it cannot read a file: the file
+        is on disk, predates the run, and is missing from the tarball. Creating
+        it normally would postdate the archive, which is the legitimate case.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        older = os.stat(archive).st_mtime - 60
+        os.utime(path, (older, older))
+
+    def test_an_archive_that_lost_the_trading_state_is_not_a_pass(self, deployed):
+        repo, home = deployed
+        _run(repo, home)
+        archive = _newest_archive(home)
+        data = repo.parent / "persist" / "data"
+        for name in ("closed_trades.json", "live_positions.json"):
+            self._backdated(data / name, archive)
+
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 1, (
+            "the drill passed over an archive missing the state the script's "
+            "own header calls the point:\n" + r.stdout)
+        assert "restore drill FAILED" in r.stdout
+        assert "data/closed_trades.json" in r.stdout
+        assert "data/live_positions.json" in r.stdout
+
+    def test_the_inventory_is_derived_from_the_live_tree_not_a_list(self, deployed):
+        """The property, not the instance.
+
+        `risk_state_zeta.json` is on no list anywhere in this repo — that is the
+        point. A per-user risk engine for a user who does not exist yet is the
+        file class that defeated the conftest allowlist, so it is the file class
+        the drill has to notice without being told.
+        """
+        repo, home = deployed
+        _run(repo, home)
+        archive = _newest_archive(home)
+        data = repo.parent / "persist" / "data"
+        self._backdated(data / "risk_state_zeta.json", archive)
+        self._backdated(data / "learning" / "voter_weights.json", archive)
+
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 1, r.stdout
+        assert "data/risk_state_zeta.json" in r.stdout
+        assert "data/learning/voter_weights.json" in r.stdout, (
+            "a whole subtree can go missing; the inventory must walk it"
+        )
+
+    def test_a_file_created_after_the_backup_is_not_held_against_it(self, deployed):
+        """The half that decides whether anyone leaves this gate switched on.
+
+        A file written since the last backup is legitimately absent from it. A
+        drill that fails on that is wrong every time the bot is running, and a
+        gate that cries wolf gets disabled — deploy.sh carries the same note
+        about its interpreter check, for the same reason.
+        """
+        repo, home = deployed
+        _run(repo, home)
+        data = repo.parent / "persist" / "data"
+        (data / "risk_state_zeta.json").write_bytes(b'{"after": true}')
+
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 0, (
+            "a file created after the backup was reported as a backup "
+            "defect:\n" + r.stdout)
+        assert "restore drill PASSED" in r.stdout
+        assert "risk_state_zeta.json" not in r.stdout
+
+    def test_the_coverage_it_actually_achieved_is_reported(self, deployed):
+        """`PASSED` alone cannot distinguish three files from three thousand."""
+        repo, home = deployed
+        _run(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert r.returncode == 0, r.stdout
+        assert "coverage: all 3 file(s) predating the archive are in it" in r.stdout, (
+            "the fixture holds vault + db + chain; the count has to say so\n"
+            + r.stdout)
+
+
+class TestADrillThatCheckedNothingDoesNotSayPassed:
+    """`restore drill PASSED`, exit 0, zero bytes verified.
+
+    With none of its three hardcoded files present, every iteration of the check
+    loop hit `continue`, rc stayed 0, and the verdict printed with not one line
+    of output above it. "Nothing was checked" and "everything checked out" are
+    different findings and this printed the second for the first — the same trap
+    as `integrity_veto.assess({})` answering `clear` over checked == 0, and the
+    same one as a section heading with nothing under it.
+
+    It matters here more than most places: this drill is the ONLY mechanism that
+    claims the backups work, on a box that was found on 2026-08-07 with its
+    entire runtime state deleted and no archive on any path.
+    """
+
+    @pytest.fixture
+    def bare(self, tmp_path):
+        """A box with a data/ store that holds none of the three named files."""
+        persist = tmp_path / "persist"
+        (persist / "data").mkdir(parents=True)
+        repo = tmp_path / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        (repo / "scripts" / "backup_data.sh").write_bytes(SCRIPT.read_bytes())
+        os.symlink(persist / "data", repo / "data")
+        home = tmp_path / "home"
+        home.mkdir()
+        return repo, home
+
+    def test_it_reports_inconclusive_rather_than_a_pass(self, bare):
+        repo, home = bare
+        _run(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert "restore drill PASSED" not in r.stdout, (
+            "the drill certified an archive it never opened a file from:\n"
+            + r.stdout)
+        assert r.returncode == 2, (
+            f"expected the third outcome, got {r.returncode}:\n" + r.stdout)
+        assert "INCONCLUSIVE" in r.stdout
+
+    def test_it_says_plainly_that_it_verified_nothing(self, bare):
+        """An operator reading this is deciding whether they have a recovery
+        plan. The exit code is for scripts; the sentence is for them."""
+        repo, home = bare
+        _run(repo, home)
+        r = _run(repo, home, "--verify-restore")
+        assert "verified no bytes at all" in r.stdout, r.stdout
+
+    def test_inconclusive_is_distinct_from_failed(self, bare):
+        """Three outcomes, not two. A drill that cannot check anything has not
+        found a broken backup, and reporting it as one would train the operator
+        to ignore the exit code that means a backup really is broken."""
+        repo, home = bare
+        no_archive = _run(repo, home, "--verify-restore")   # a real failure
+        _run(repo, home)                                    # now there is one
+        inconclusive = _run(repo, home, "--verify-restore")
+
+        assert no_archive.returncode == 1, no_archive.stdout
+        assert "nothing to restore FROM" in no_archive.stdout
+        assert inconclusive.returncode == 2, inconclusive.stdout
+        assert no_archive.returncode != inconclusive.returncode
+
+
 class TestTheArchiveLivesOutsideTheRepo:
     def test_no_backups_directory_is_created_in_the_working_tree(self, deployed):
         repo, home = deployed
