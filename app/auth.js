@@ -368,29 +368,69 @@ function genReferralCode() {
 }
 
 // Referral tiers — milestones by how many friends signed up through your link.
-// The perks are aspirational and mostly land with the token/billing layer (see
-// docs/ROADMAP.md); this endpoint only computes and reports the tier so the UI
-// can motivate sharing. It does NOT grant fee credits or change live limits —
-// nothing here touches the money path or the live-eligibility gate.
+//
+// A PERK IS A PROMISE, SO EACH ONE CARRIES WHETHER IT IS IN FORCE.
+//
+// This table used to be five prose strings and a comment saying they were
+// "aspirational and mostly land with the token/billing layer". The comment was
+// true and the card could not show it: `Protocol revenue share when the token
+// launches.` rendered in the same voice, at the same weight, beside the same
+// gold chip as `Your invite link is live.` — one of which is true today and one
+// of which needs a token that docs/TOKEN_ROADMAP.md opens by saying does not
+// exist. The code knew and the surface did not say.
+//
+// Two of them were worse than aspirational: "Priority support" and "Early
+// access to new agents & features" are the PAID Pro and Elite plans' own
+// selling points, offered here for one and three invites and granted by
+// nothing. Connector's replacement is the perk that was already REAL and went
+// unmentioned — app/lib/duel_squads.js builds squads out of exactly this
+// referral graph, and one recruit is what turns you into a captain.
+//
+// `state` is read by app/public/js/referral-tier-model.js, which paints planned
+// perks differently AND prints `requires` beside them, because colour is a
+// claim and colour alone does not survive greyscale or a screen reader. This
+// endpoint still grants nothing: `referralTier` has one caller, right below,
+// and nothing in the tree gates a feature on a referral count.
 const REFERRAL_TIERS = [
-  { at: 0, name: 'Starter', perk: 'Your invite link is live — share it to climb.' },
-  { at: 1, name: 'Connector', perk: 'You’re on the board. Priority support.' },
-  { at: 3, name: 'Advocate', perk: 'Early access to new agents & features.' },
-  { at: 10, name: 'Ambassador', perk: 'Fee credits when the token launches.' },
-  { at: 25, name: 'Legend', perk: 'Protocol revenue share when the token launches.' },
+  { at: 0, name: 'Starter', state: 'live', requires: null,
+    perk: 'Your invite link is live — share it to climb.' },
+  { at: 1, name: 'Connector', state: 'live', requires: null,
+    perk: 'Everyone who joins on your link rides in your squad on the Daily '
+      + 'Duel board — you both need a public handle for it to show.' },
+  { at: 3, name: 'Advocate', state: 'planned',
+    perk: 'A say in what gets built next.',
+    requires: 'Not in force yet — nothing in the product is weighted by '
+      + 'referrals today, so this is an intention rather than a benefit.' },
+  { at: 10, name: 'Ambassador', state: 'planned',
+    perk: 'Fee credits.',
+    requires: 'Would ride on the $RCLAW token, which does not exist yet — no '
+      + 'token has launched and no sale has run.' },
+  { at: 25, name: 'Legend', state: 'planned',
+    perk: 'A share of protocol revenue.',
+    requires: 'Would ride on the $RCLAW token, which does not exist yet — no '
+      + 'token has launched and no sale has run. Not an offer.' },
 ];
 
+// The tier for a referral count, or NULL when the count is not a measurement.
+//
+// Not `Math.max(0, Number(count) || 0)`: that answered Starter for null,
+// undefined, NaN, '' and 'abc' alike, and Starter is also a real and common
+// true state — so five distinct failures were indistinguishable from the most
+// ordinary success. A tier is a statement about how many people someone
+// brought; computing one from a number nobody read makes that statement from
+// no evidence. Callers omit the tier instead.
 function referralTier(count) {
-  const n = Math.max(0, Number(count) || 0);
+  if (!Number.isInteger(count) || count < 0) return null;
   let idx = 0;
   for (let i = 0; i < REFERRAL_TIERS.length; i++) {
-    if (n >= REFERRAL_TIERS[i].at) idx = i;
+    if (count >= REFERRAL_TIERS[i].at) idx = i;
   }
   const cur = REFERRAL_TIERS[idx];
   const nx = REFERRAL_TIERS[idx + 1] || null;
   return {
-    tier: { name: cur.name, perk: cur.perk, index: idx },
-    next: nx ? { name: nx.name, at: nx.at, remaining: Math.max(0, nx.at - n) } : null,
+    tier: { name: cur.name, perk: cur.perk, index: idx,
+            state: cur.state, requires: cur.requires },
+    next: nx ? { name: nx.name, at: nx.at, remaining: Math.max(0, nx.at - count) } : null,
   };
 }
 
@@ -737,7 +777,13 @@ router.get('/referrals', authMiddleware, async (req, res) => {
     }
     const [joined] = await pool.execute('SELECT id FROM users WHERE referred_by = ?', [uid]);
     const count = joined.length;
-    res.json({ code, count, ...referralTier(count) });
+    // Spread whatever the tier says, or nothing. OMIT rather than guard: the
+    // panel above the tier block — the invite link and the share buttons — is
+    // independently true and must not be blanked because the ladder could not
+    // be computed. The browser model treats a missing `tier` as "print no
+    // ladder", which is the honest reading; it used to treat it as Starter.
+    const t = referralTier(count);
+    res.json({ code, count, ...(t || {}) });
   } catch (err) {
     console.error('Referrals error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to load referrals' });
@@ -1514,4 +1560,8 @@ module.exports = {
   router, authMiddleware, optionalAuth, verifyTelegramAuth, findOrCreateOAuthUser,
   revokeUserTokens, tokenIsCurrent, signToken,
   sendVerificationEmail, sessionResponse,
+  // Exported so app/test/referral_tier_honesty.test.js can read the table
+  // itself. What a tier PROMISES is the load-bearing part, and it cannot be
+  // pinned through the endpoint without registering twenty-five accounts.
+  REFERRAL_TIERS, referralTier,
 };

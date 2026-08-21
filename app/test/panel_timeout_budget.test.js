@@ -15,8 +15,21 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { codeOnly } = require('./helpers/code_only');
+
 const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
-const DASH = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+// COMMENTS BLANKED FIRST, because `panels()` below finds a loader's end by
+// counting parentheses and a comment can hold one that never closes. A comment
+// quoting `.referralTierState(` — prose about a method call, which is how
+// anyone writes it — made the walker run past the end of the invite panel and
+// swallow eighteen later panels' fetch budgets, reporting them all against
+// C('ainvite'). That was the harmless direction. A stray `)` truncates a body
+// EARLY, and a loader whose fetch then falls outside the slice is a panel this
+// guard silently stops checking.
+//
+// `codeOnly` blanks in place rather than deleting, so `p.line` still points at
+// the right line in the original file.
+const DASH = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
 
 function panelDefault() {
   const m = APP.match(/const \{ timeoutMs = (\d+), empty = \{\} \} = opts;/);

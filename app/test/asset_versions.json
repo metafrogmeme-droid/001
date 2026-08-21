@@ -28,8 +28,8 @@
   "v": 28
  },
  "js/dashboard.js": {
-  "sha": "2cb8a817bca557cb",
-  "v": 148
+  "sha": "8b0d14f05caf745a",
+  "v": 149
  },
  "js/duel.js": {
   "sha": "5dbbfd3297612824",
@@ -91,6 +91,10 @@
   "sha": "bcb4a613a57ea9dc",
   "v": 3
  },
+ "js/referral-tier-model.js": {
+  "sha": "6bd6bb863e2a31b5",
+  "v": 1
+ },
  "js/reveal.js": {
   "sha": "04b3822436eb04e1",
   "v": 1
@@ -140,7 +144,7 @@
   "v": 1
  },
  "styles.css": {
-  "sha": "f1033a3464235ce5",
-  "v": 35
+  "sha": "4b537caac5e8a603",
+  "v": 36
  }
 }

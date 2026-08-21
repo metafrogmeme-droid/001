@@ -4812,22 +4812,39 @@
       mustRead(r);
       if (!r.data?.code) return null;
       const link = `${location.origin}/?ref=${encodeURIComponent(r.data.code)}`;
-      const count = r.data.count || 0;
       const share = encodeURIComponent(link);
       const text = encodeURIComponent('Trade alongside an autonomous AI on RUNECLAW:');
-      // Reward tier + progress to the next milestone (server-computed).
-      const tier = r.data.tier || { name: 'Starter', perk: '' };
-      const next = r.data.next;
-      const pct = next ? Math.min(100, Math.round((count / next.at) * 100)) : 100;
-      const tierBlock = `
+      // Reward tier + progress, decided by a PURE model (referral-tier-model.js)
+      // so "this response renders that card" is assertable — see
+      // app/test/referral_tier_honesty.test.js. It returns null when there is
+      // nothing honest to print, and null means OMIT this block: the link and
+      // the share buttons above are independently true. This used to open with
+      // `r.data.tier || { name: 'Starter' }` and `r.data.count || 0`, so a
+      // response carrying a link and no tier rendered as Starter · 0 joined ·
+      // 0% to Connector — a bottom-rung verdict made from no data.
+      //
+      // A PERK IS A PROMISE. Four of the five are not in force (two of them
+      // wait on a token that does not exist), and the model says which; a
+      // planned one is muted AND carries its caveat in words, because colour
+      // is a claim and a claim made only in colour is not readable aloud.
+      // Guarded rather than assumed: if the model script failed to load, the
+      // ladder is omitted and the invite link — the part that actually does
+      // something — still renders. A bare `.referralTierState(` would throw
+      // inside the loader and paint the whole panel as an error over a
+      // motivational badge. The script tag itself is pinned by a test, so
+      // "never loaded at all" is caught before it ships rather than here.
+      const M = window.ReferralTierModel;
+      const t = M ? M.referralTierState(r.data) : null;
+      const tierBlock = !t ? '' : `
         <div class="ref-tier mt-3">
           <div class="row" style="justify-content:space-between;align-items:baseline">
-            <span class="chip chip--gold">${esc(tier.name)}</span>
-            <span class="muted small">${count} joined</span>
+            <span class="chip chip--gold">${esc(t.name)}</span>
+            <span class="muted small">${t.count} joined</span>
           </div>
-          <p class="small mt-1" style="color:var(--text-2)">${esc(tier.perk)}</p>
-          ${next ? `<div class="ref-bar mt-2"><span style="width:${pct}%"></span></div>
-            <p class="muted small mt-1">${next.remaining} more to reach <b style="color:var(--gold)">${esc(next.name)}</b></p>`
+          <p class="small mt-1 ${t.perk.cls}">${esc(t.perk.text)}</p>
+          ${t.perk.note ? `<p class="muted small ref-perk-note">${esc(t.perk.note)}</p>` : ''}
+          ${t.next ? `<div class="ref-bar mt-2"><span style="width:${t.next.pct}%"></span></div>
+            <p class="muted small mt-1">${t.next.remaining} more to reach <b style="color:var(--gold)">${esc(t.next.name)}</b></p>`
           : `<p class="muted small mt-2">Top tier reached — thank you. 🏆</p>`}
         </div>`;
       return `<p class="small mb-2" style="color:var(--text-2)">Share your link — anyone who signs up through it is credited to you.</p>

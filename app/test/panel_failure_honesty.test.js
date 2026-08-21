@@ -16,9 +16,25 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { codeOnly } = require('./helpers/code_only');
 
 const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
-const DASH = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+// COMMENTS BLANKED FIRST — the rule CLAUDE.md states and this file was missing.
+//
+// `loaderBodies` finds a loader's end by counting parentheses, and a comment
+// can hold one that never closes. Prose about a method call writes it exactly
+// that way (`.referralTierState(`), and one such comment made the walker run
+// past its panel and swallow the eighteen that followed. The overlong body then
+// INHERITS a later panel's `mustRead(` and the honesty check `continue`s over a
+// panel it never actually inspected — a false negative on the structural
+// enforcer of this repo's central rule, produced by a comment.
+//
+// Blanking is in place, so `line` still points at the right line, and string
+// contents survive verbatim, so the wording assertions below are unaffected.
+// The `mustRead(` floor is unchanged at 70 either way: no comment was propping
+// it up.
+const DASH = codeOnly(
+  fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
 
 test('no loader treats a non-ok response as emptiness', () => {
   // The banned shape: an .ok check that short-circuits into the empty state.
