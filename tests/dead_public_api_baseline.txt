@@ -1,0 +1,37 @@
+# Names declared in a module's __all__ and referenced by NOTHING — not another
+# module, not their own module, not even a test.
+#
+# This is not a list of things to delete. It is a record of promises with no
+# taker, kept so the set cannot grow unnoticed. tests/test_no_new_dead_public_api.py
+# fails in BOTH directions: a new entry means somebody just added public API
+# nothing calls, and an entry that leaves (wired up, or deleted) must be removed
+# from this file in the same commit.
+#
+# ── bot/warroom/warroom_bot.py ──────────────────────────────────────────────
+#
+# Four of the eleven names this module promises. The module itself IS reachable
+# — the Telegram handler imports eight of its renderers — which is exactly why
+# the module-level ratchet cannot see these.
+#
+# All four are superseded rather than merely forgotten, and that is worth
+# recording because it changes what the right fix is:
+#
+#   render_positions   the "Positions" button IS live, but the MAIN handler
+#                      owns `data == "positions"` and routes it to
+#                      _cmd_open_positions — the real, tested command. This
+#                      renderer would show a per-position P&L built from
+#                      `sum(p.get("pnl", 0))`, which is the shape #122 has just
+#                      finished removing from the surfaces people can see.
+#   handle_callback    the main handler registers its own CallbackQueryHandler;
+#                      this dispatch table is a parallel, unwired copy whose
+#                      "positions" branch returns a "Loading..." placeholder
+#                      that never resolves.
+#   render_status      superseded by rich_cards.render_status_card.
+#   render_signal      superseded by signal_card.render_signal_card.
+#
+# Deleting them looks right, and deliberately is not done here: removing names
+# from a module's declared public surface is a product call, not a test's.
+bot/warroom/warroom_bot.py::render_status
+bot/warroom/warroom_bot.py::render_signal
+bot/warroom/warroom_bot.py::render_positions
+bot/warroom/warroom_bot.py::handle_callback
