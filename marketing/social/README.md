@@ -4,80 +4,96 @@ Off-site distribution only. **Nothing in this directory is served** —
 `api_bridge.py` mounts `website/` at `/` and nothing else, so these files reach
 people only when somebody uploads them somewhere.
 
-## runeclaw-promo-15s-2x3.mp4 · runeclaw-promo-15s-9x16.mp4
+| file | ratio | length | size |
+|---|---|---|---|
+| `runeclaw-promo-2x3.mp4` | 768×1168 | 6.4s | 0.60 MB |
+| `runeclaw-promo-9x16.mp4` | 1080×1920 | 6.4s | 0.77 MB |
 
-15s promo, derived from an AI-generated source clip (Grok, 2026-08-21).
+Derived from an AI-generated source clip (Grok, 2026-08-21, 11.45 MB / 15.0s).
+`retouch.py` regenerates both from that source.
 
-### What was changed, and why
+## What was changed, and why
 
-The source clip rendered a chart panel reading:
+Three clips were generated. Every one of them invented figures, because the
+prompt asked for a trading product and image models draw trading UI, and
+trading UI is made of numbers. What each one claimed:
 
-    TOP SIGNAL
-    BTC/USDT
-    +2.47%          ← drifts to +2.51% by the final frame
-    HIGH CONFIDENCE
+| clip | invented | outcome |
+|---|---|---|
+| 1 | `TOP SIGNAL · BTC/USDT · +2.47%` drifting to `+2.51%`, `HIGH CONFIDENCE` | masked, superseded |
+| 2 | `10,000+ ACTIVE USERS` (the box reports **18**), `95% USER SATISFACTION`, `PROVEN RESULTS`, a `78%` gauge | unusable — see below |
+| 3 | `AI EDGE +2.47%`, `SUPERIOR RESULTS.`, `PROVEN PERFORMANCE`, `Your capital is protected.` | **shipped, retouched** |
 
-That is a fabricated trading signal with a confidence label and a return
-figure, animated so the number changes on screen. It is the same defect as the
-`$72,669` BTC price frozen into `submission.html` — a figure that reads as a
-measurement, which nobody measured — except attached to a *performance* claim
-on a financial product, which is the version that carries real consequences.
+Clip 2 was rejected outright. Its false stats sat in a persistent band across
+most of the runtime rather than in one panel, so masking would have blacked out
+a third of the frame permanently — and it would not have fixed the other half
+of the problem, which is that the art reads `HUMANOID TRADEERS`,
+`BY INTFEE.I GENCE.`, `BUJSTED BY TRAEIEVC.` and `KRESL EMIZFTAREStORM`.
+Diffusion models do not spell. See `PROMPT.md`.
 
-CLAUDE.md's rule is "unreadable is never zero, and absent is never a
-measurement". Inventing a measurement outright is the same rule broken harder.
+### The four regions replaced in clip 3
 
-So the panel is **masked** in both outputs and replaced with the product's
-actual promise:
+    AI EDGE +2.47%              → blurred out (an invented performance figure)
+    SUPERIOR RESULTS.           → removed (tagline now ends "HUMAN INTELLIGENCE.")
+    PROVEN PERFORMANCE          → RISK-GATED / 23 pre-trade checks / before any order
+      "Backtested strategies.
+       Transparent results."
+    Your capital is protected.  → Simulation-first by default.
 
-    PAPER FIRST
-    RISK-GATED
-    HUMAN-CONFIRMED
+Replacement copy is quoted from `README.md:62`, which says the engine runs 23
+pre-trade risk checks and operates simulation-first by default. Nothing here was
+written to fill the space.
 
-Three claims the code backs, in the voice `docs/ROADMAP.md` and the platform
-already use.
+"Your capital is protected" is the one that mattered most. It is not a
+sales exaggeration on a leveraged-futures product; it is false, and the
+footer of every page on the new site says the opposite in as many words.
 
-### How the mask is built
+The clip is trimmed to 6.4s — the poster phase. After that the source cuts to
+robot close-ups whose background panels carry their own invented tables
+(`6.30 −5.250`, `+28.70 −3.235`, …), which are neither trackable nor worth
+keeping.
 
-The clip is a Ken Burns zoom over a static poster, so the panel moves and
-scales continuously — a fixed box cannot cover it, and there is no segment
-where it is absent. The mask is therefore **eight time-sliced boxes** whose
-geometry comes from a quadratic fit through the panel position measured at
-t=0, t=7 and t=14, sampled at 13 points per slice and padded 48px.
+## How the retouch works
 
-Two ffmpeg traps are baked into that choice and are worth knowing:
+The poster zooms continuously, so a static box does not hold. Two approaches
+were tried before the one that works:
 
-* **`drawbox` expressions have no time variable.** `t` inside a `drawbox`
-  expression is the *thickness*, not the timestamp, and `n` is undefined
-  entirely. A tracked box written the obvious way silently evaluates its
-  position from the border width — which is why the first attempt drew the
-  fill and the border in two different wrong places while the `drawtext`
-  layer, where `t` *is* time, tracked correctly.
+1. **Fitted curve** (linear, then quadratic through three measured points).
+   Wrong twice. It tracked well enough to look right in thumbnails and left the
+   claim legible at full resolution.
+2. **Per-frame template matching** (`retouch.py`). Each region is matched in
+   every frame over a scale sweep, so the mask follows what the frame actually
+   does rather than what a model of it predicted. 153/153 frames matched on all
+   four regions.
+
+A region with no replacement text is **blurred**, not filled: a black rectangle
+over a lit plate reads as a redaction, which draws the eye to precisely the
+thing being removed.
+
+### Two ffmpeg traps, both of which cost real time
+
+* **`drawbox` expressions have no clock.** Inside one, `t` is the *thickness*
+  and `n` is undefined. A tracked box written the obvious way silently
+  evaluates its position from the border width — which is why one attempt drew
+  the fill and the border at two different wrong places while the `drawtext`
+  layer, where `t` *is* time, tracked correctly. Only
+  `enable='between(t,a,b)'` sees the real timeline.
 * **`-ss` resets the filter clock.** Sampling a frame at `-ss 12` to check a
-  time-varying filter shows you the filter at t≈0, so the check passes or
-  fails for reasons unrelated to the thing being checked. Verify by filtering
-  the whole clip and sampling the *output*.
+  time-varying filter shows the filter at t≈0, so the check passes or fails for
+  reasons unrelated to what is being checked. Filter the whole clip, sample the
+  output.
 
-`enable='between(t,a,b)'` uses the real timeline and is unaffected by both,
-which is why the mask is expressed as slices rather than as motion.
+`retouch.py` uses neither: it composites in OpenCV/PIL per frame, where the
+frame index is just a loop variable.
 
-### Regenerating
+## Known limits
 
-The source clip is not committed (9.7MB, and it is an input rather than a
-deliverable). The filter is reproducible from the measurements above; see the
-session that produced it, or re-measure with:
-
-    ffmpeg -i SOURCE -vf "drawgrid=w=96:h=96:t=1:c=yellow@0.5" -ss N -frames:v 1 grid.jpg
-
-### Known limits
-
-* The clip's remaining copy — "SMARTER TRADING. STRONGER FUTURE.", "THE FUTURE
-  OF TRADING IS HERE." — is generic hype, not the product's voice, and the
-  humanoid-robot art is the AI-stock aesthetic the site rebuild deliberately
-  drops. Masking fixed the false claim; it did not make this on-brand.
-* "PERFORMANCE OPTIMIZED — Continuous learning for better results over time"
-  is still legible in the first ~5 seconds. It is a capability claim nothing in
-  the repo backs. It is small and brief, and it was left rather than adding a
-  second mask over the feature strip; if this gets real distribution, cut it.
-* The palette carries purple/violet accents. The brand accent is
-  `--gold: #3fb6ff` (electric rune-blue, historical token name) from
+* The remaining copy — "SMARTER TRADING. AUTONOMOUS ADVANTAGE.", "DISCOVER THE
+  FUTURE OF TRADING" — is generic, and the humanoid-robot art is the AI-stock
+  aesthetic the site rebuild deliberately drops. Retouching removed the false
+  claims; it did not make this on-brand.
+* The palette carries purple/magenta. The brand accent is `--gold: #3fb6ff`
+  (electric rune-blue; the token name is historical) from
   `app/public/styles.css`.
+* Small background text in the source is garbled in places. It is illegible at
+  playback size rather than wrong, but it is there.
