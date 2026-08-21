@@ -242,9 +242,14 @@ async def _json_body(request: web.Request) -> dict:
 
 # ── Chat (all authorized users; LLM tier follows the caller's real role) ────
 
-_PROFILE_RISK_PREFS = frozenset({"conservative", "balanced", "aggressive"})
-_PROFILE_WATCHLIST_MAX = 20
-_PROFILE_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,20}$")
+from bot.core import user_profile_store as _profile_store
+
+# Aliases onto the store's canonical definitions. Kept as names because other
+# modules and tests import them; kept as ALIASES because a second literal copy
+# is how two surfaces start disagreeing about what a valid profile is.
+_PROFILE_RISK_PREFS = _profile_store.RISK_PREFS
+_PROFILE_WATCHLIST_MAX = _profile_store.WATCHLIST_MAX
+_PROFILE_SYMBOL_RE = _profile_store.SYMBOL_RE
 
 
 def build_profile_note(profile) -> str:
@@ -254,20 +259,15 @@ def build_profile_note(profile) -> str:
     (defense-in-depth) because the note lands in the LLM system prompt:
     risk_pref must be one of three known words and watchlist symbols must be
     bare uppercase tickers — nothing free-form can ride through here.
+
+    DELEGATES rather than re-implementing. The Telegram path reads the same
+    profile from `user_profile_store` and renders it for the same system
+    prompt, so a second copy of the whitelist here would be two definitions of
+    "valid" for one payload — and they would drift, which on a surface that
+    feeds an LLM prompt is a security question, not a tidiness one. The
+    constants above are kept as aliases so existing importers still resolve.
     """
-    if not isinstance(profile, dict):
-        return ""
-    parts = []
-    risk = str(profile.get("risk_pref") or "").lower()
-    if risk in _PROFILE_RISK_PREFS:
-        parts.append(f"Their self-declared risk preference is {risk}.")
-    wl = profile.get("watchlist")
-    if isinstance(wl, list):
-        syms = [s for s in (str(x or "").upper() for x in wl[:_PROFILE_WATCHLIST_MAX])
-                if _PROFILE_SYMBOL_RE.match(s)]
-        if syms:
-            parts.append("They are watching: " + ", ".join(syms) + ".")
-    return " ".join(parts)
+    return _profile_store.render_note(profile)
 
 
 async def handle_chat(request: web.Request) -> web.Response:
@@ -1004,6 +1004,39 @@ async def handle_chat_history(request: web.Request) -> web.Response:
         {"role": m.role, "content": m.content, "timestamp": m.timestamp}
         for m in msgs
     ]})
+
+
+async def handle_profile_sync(request: web.Request) -> web.Response:
+    """POST /profile — the web pushes a user's saved agent profile down.
+
+    The web `user_profiles` table stays the SOURCE OF TRUTH; this keeps a
+    bot-side copy so the Telegram path can read it. Without it the profile
+    only ever existed inside a web chat request body, and the same person got
+    a personalised agent in the browser and an anonymous one in Telegram.
+
+    Goes through `_guard_user` like every other route on this surface, and
+    `set_profile` re-validates through the same `normalize()` the chat path
+    uses — the caller is trusted (shared secret) but the CONTENT reaches an
+    LLM system prompt, and that is validated on its own merits regardless of
+    who sent it.
+
+    An empty/invalid profile is a DELETE, which is what makes "the user
+    cleared their watchlist" reach the bot rather than leaving a stale copy
+    that outlives the preference it describes.
+    """
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    tg_id = str(body.get("telegram_id") or "").strip()
+
+    err = _guard_user(tg_handler, tg_id)
+    if err is not None:
+        return err
+
+    stored = _profile_store.set_profile(tg_id, body.get("profile"))
+    # `stored is None` covers "nothing valid was sent" AND "the write failed",
+    # and the caller cannot act differently on those, so it is reported as
+    # what it is: nothing is stored for this user now.
+    return web.json_response({"stored": stored is not None, "profile": stored})
 
 
 async def handle_research_web(request: web.Request) -> web.Response:
@@ -3416,6 +3449,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/cross/plan", handle_cross_plan)
     app.router.add_get("/chat/history", handle_chat_history)
     # AI-4: admin-only cited web research enrichment for the coin dossier.
+    app.router.add_post("/profile", handle_profile_sync)
     app.router.add_post("/research/web", handle_research_web)
     app.router.add_get("/portfolio", handle_portfolio)
     app.router.add_get("/positions", handle_positions)

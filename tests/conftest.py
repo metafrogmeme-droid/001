@@ -33,6 +33,14 @@ _STATE_FILES = (
     "data/users.json",
     "data/users.json.bak",
     "data/users.json.tmp",
+    # Per-user agent profile (risk_pref + watchlist), added 2026-08-21 with
+    # bot/core/user_profile_store.py. Listed IN THE SAME COMMIT as the feature
+    # rather than the first time a test mysteriously depends on suite order —
+    # which is the whole lesson of the glob block below. A durable per-user file
+    # that nothing cleans accumulates across RUNS, not just across tests.
+    "data/user_profile.json",
+    "data/user_profile.json.bak",
+    "data/user_profile.json.tmp",
 )
 _STATE_GLOBS = (
     "data/portfolio_*.json",
