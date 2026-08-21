@@ -168,8 +168,49 @@ the behaviour is covered elsewhere and the file locks *wiring*. The narrow
 failure mode is a source scan **standing in for behaviour nothing else
 tests**.
 
-Rank candidates by what a wrong claim would cost. `_status_lines` is the last
-surface on that list still building its card inline.
+Rank candidates by what a wrong claim would cost. That list is empty now —
+`_status_lines` was the last, and it had the same shape as the other two:
+
+```python
+st = {}
+try:
+    st = self.engine.risk.drawdown_status()
+except Exception:
+    st = {}
+lines = ["📉 <b>Live drawdown backstop</b>"]
+if st:
+    ...
+```
+
+`drawdown_status()` is *itself* documented "best-effort; returns empty on any
+error", so two layers swallowed the same fault and produced **a heading with
+nothing under it**. Neither guard nor omit — the section still announces
+itself and then says nothing, which reads as the third thing the table warns
+about: *nothing to report*. On the control that decides how much real money is
+lost before the bot halts, printed directly above "a looser cap means the bot
+tolerates **more loss** before halting".
+
+The engine also computes `drawdown_source` — live high-water mark vs paper
+snapshot — with a comment recording that reporting one as the other let an
+operator "read ~0% from a gate that was refusing trades at 9%". The card
+dropped the label, so the number was unattributable. It prints it now.
+
+**Still open, deliberately not fixed here:** `/risk` reads the same status and,
+on failure, silently substitutes `state.max_drawdown_pct` — the paper number —
+for the enforced one, re-creating exactly what that comment describes. It is
+left because the card's *verdict* comes from `entry_gate` rather than this
+number, and making it honest ripples into a scoring renderer. Fix it with that
+renderer, not before.
+
+### Asserting a short string is ABSENT is the assertion that keeps misfiring
+
+Three times in one sweep, each a test failing on prose rather than code:
+`"to liq" not in out` matched "sits **to liq**uidation" in the card's own
+caveat; `"0.0%" not in out` matched inside "(default 1**0.0%**)"; and a colour
+test asserting no green anywhere matched `d_icon`, which encodes DIRECTION and
+was telling the truth. Anchor to the field's own line, or assert the positive
+rendering instead — and when a fresh assertion fails, check whether the code
+or the assertion is wrong before touching the code.
 
 `_cmd_open_positions` came off it, and the most expensive claim in the product
 turned out to be sitting behind a comment that said the opposite:

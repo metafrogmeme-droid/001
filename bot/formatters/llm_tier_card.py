@@ -206,3 +206,62 @@ def render_tier_card(rows: Sequence[TierRow], *,
                "plus that provider's key env var, then restart — the "
                "provider catalog is read at import.</i>")
     return "\n".join(out)
+
+
+def render_engine_uses(rows: Sequence[TierRow]) -> str:
+    """One compact line per tier: what answers, and on what credential.
+
+    THE THIRD RENDERING. `tier_report`'s own docstring says it exists because
+    "there are two surfaces and they had already drifted apart" and names
+    `/llmstatus` as one of them — but only `/llmtiers` and the web panel were
+    moved onto it. `/llmstatus` kept a hand-rolled loop of its own:
+
+        <b>Anthropic key slots</b>
+        🟢 .env: sk-ant...abc12345 [valid]
+        — engine uses → scan: NOT SET | thesis: NOT SET
+
+    Three things wrong in those two lines.
+
+    THE HEADING CLAIMS ANTHROPIC. "engine uses →" sits inside a block listing
+    Anthropic key candidates, so it reads as "of these slots, the engine picked
+    this one". Once `LLM_TIER_*_PROVIDER` began binding, SCAN and THESIS
+    resolve to the self-hosted model and the line is not about Anthropic at
+    all.
+
+    "NOT SET" IS A FINGERPRINT'S IDEA OF KEYLESS. `key_fingerprint()` answers
+    "NOT SET" whenever there is no key, so a correctly-configured keyless tier
+    printed NOT SET directly beneath a VALID key — which reads as "the key
+    isn't being picked up", i.e. a healthy engine reported as broken.
+    `key_state()` exists to say this properly and this surface never called it.
+
+    TWO TIERS OF FOUR, unlabelled. LEARNING and CHAT were omitted, and they are
+    the ones most likely to differ — an operator pinning SCAN/THESIS/LEARNING
+    to the in-house model and leaving CHAT on a hosted default saw nothing
+    about CHAT here at all.
+    """
+    if not rows:
+        return ("❔ <b>Tier routing could not be read.</b> <i>This is a failed "
+                "read, not an absence of routing — nothing here says which "
+                "brain is answering.</i>")
+
+    out = ["<b>What answers right now</b>"]
+    for row in rows:
+        # The ICON only. `_icon_and_note`'s note is "credential unknown" for an
+        # unchecked state, which is the same fact the credential text below
+        # already carries — the first draft printed both and read
+        # "credential not checked · pinned by env · credential unknown".
+        # The override case is the one that adds something, so it is derived
+        # here from the same condition rather than round-tripped as prose.
+        icon, _ = _icon_and_note(row)
+        _, cred = _KEY_STATE.get(row.key_state, ("", "credential not checked"))
+        src = _SOURCE.get(row.source, "")
+        bits = [f"<code>{html.escape(row.provider or 'unknown')}/"
+                f"{html.escape(row.model or 'default')}</code>",
+                cred]
+        if src:
+            bits.append(src)
+        if row.env_value and row.source != "env":
+            bits.append("<b>override not applied</b>")
+        out.append(f"{icon} <code>{html.escape(row.tier.upper())}</code> → "
+                   + " · ".join(bits))
+    return "\n".join(out)

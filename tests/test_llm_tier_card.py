@@ -474,8 +474,14 @@ def test_both_operator_cards_resolve_for_the_same_audience():
     # banner as a delimiter is not there to find. `_llm_tier_card` resolves
     # THROUGH `tier_report` now, so the call it must carry differs — asserting
     # `resolve_tier_config` in both would be asserting yesterday's structure.
+    # BOTH now resolve through `tier_report`. `_llm_tier_card` moved first and
+    # this list was updated for it then; `_cmd_llmstatus` kept a hand-rolled
+    # `resolve_tier_config` loop that printed `key_fingerprint()` under an
+    # "Anthropic key slots" heading — so a keyless self-hosted tier read as
+    # "NOT SET" beside a valid key. It is on the collector now, which is what
+    # this test was really guarding: one collector, one answer.
     for marker, end, call in (
-            ("_cmd_llmstatus", "def _cmd_llmreset", "resolve_tier_config"),
+            ("_cmd_llmstatus", "def _cmd_llmreset", "tier_report"),
             ("_llm_tier_card", "def _cmd_dashboard", "tier_report")):
         i = src.index(f"def {marker}")
         body = src[i:src.index(end, i)]

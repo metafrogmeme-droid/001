@@ -1353,7 +1353,7 @@
           <tbody>${c.tokens.map(t => `<tr>
             <td><b>${esc(t.base)}</b></td>
             <td class="num r">$${fmtPrice(t.price)}</td>
-            <td class="num r ${t.change_24h_pct >= 0 ? 'up' : 'down'}">${t.change_24h_pct >= 0 ? '+' : ''}${fmt(t.change_24h_pct, 2)}%${sparkBar(t.change_24h_pct)}</td>
+            <td class="num r ${moveClass(t.change_24h_pct)}">${t.change_24h_pct != null ? (t.change_24h_pct >= 0 ? '+' : '') + fmt(t.change_24h_pct, 2) + '%' : '—'}${sparkBar(t.change_24h_pct)}</td>
             <td class="num r">$${fmtK(t.volume_24h_usd)}</td></tr>`).join('')}</tbody>
         </table></div>`).join('');
       return head + cats;

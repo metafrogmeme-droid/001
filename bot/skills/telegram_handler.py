@@ -4055,23 +4055,17 @@ class TelegramHandler:
         from bot.config import RUNTIME, CONFIG as _CFG
 
         def _status_lines() -> list:
-            st = {}
+            # Two layers used to swallow this — `drawdown_status()` is itself
+            # "best-effort; returns empty on any error", and this wrapped it in
+            # another try/except — with one outcome: a heading and nothing
+            # under it, on the control that decides how much real money is lost
+            # before the bot halts. The renderer refuses to produce that.
+            from bot.formatters.drawdown_card import render_drawdown_status
             try:
                 st = self.engine.risk.drawdown_status()
             except Exception:
                 st = {}
-            lines = ["📉 <b>Live drawdown backstop</b>"]
-            if st:
-                lines.append(f"• Current drawdown: <b>{st['drawdown_pct']:.1f}%</b>")
-                lines.append(f"• Limit in force: <b>{st['effective_limit_pct']:.1f}%</b>")
-                ov = st.get("override_pct")
-                lines.append(
-                    f"• Override: <b>{ov:.1f}%</b> (default {st['config_live_limit_pct']:.1f}%)"
-                    if ov is not None else
-                    f"• Override: <b>none</b> (default {st['config_live_limit_pct']:.1f}%)")
-                if not st.get("live_hardening"):
-                    lines.append("• ⚠️ Live hardening OFF — override only bites on live.")
-            return lines
+            return render_drawdown_status(st)
 
         args = ctx.args or []
         if not args or args[0].strip().lower() in ("status", "show"):
@@ -8698,7 +8692,6 @@ class TelegramHandler:
         slots_block = ""
         try:
             from bot.llm import key_health as _kh
-            from bot.llm.provider import LLMTier, resolve_tier_config
             active_cfg = BYOK.get_active_config(env_config)
             lines = []
             for _src, _key in _kh.anthropic_candidates(
@@ -8706,19 +8699,33 @@ class TelegramHandler:
                 _st = _kh.status_of(_key)
                 _icon = {"valid": "🟢", "invalid": "🔴"}.get(_st, "⚪")
                 lines.append(f"{_icon} {_src}: {_kh.fp(_key)} [{_st}]")
-            tier_bits = []
-            for _tier in (LLMTier.SCAN, LLMTier.THESIS):
-                _cfg = resolve_tier_config(_tier, active_cfg, is_admin=True)
-                tier_bits.append(
-                    f"{_tier.value}: {_cfg.key_fingerprint()}")
             if lines:
+                # ANTHROPIC SLOTS ONLY. The "— engine uses → ..." line that
+                # used to close this block resolved each tier and printed
+                # `key_fingerprint()` — under a heading that says Anthropic,
+                # for tiers that now resolve to the self-hosted model, using a
+                # helper whose answer for "keyless" is the words NOT SET. A
+                # healthy keyless tier therefore read as a missing key, sitting
+                # directly beneath a valid one.
                 slots_block = (
                     "\n\n<b>Anthropic key slots</b>\n<pre>"
                     + html.escape("\n".join(lines))
-                    + "\n— engine uses → " + html.escape(" | ".join(tier_bits))
                     + "</pre>")
         except Exception:
             slots_block = ""
+        # What actually answers, for EVERY tier — via the same `tier_report`
+        # collector `/llmtiers` and the web panel use. That collector was
+        # written because these surfaces had drifted and it names /llmstatus
+        # as one of them; this block is the rendering it never reached.
+        engine_block = ""
+        try:
+            from bot.formatters.llm_tier_card import TierRow, render_engine_uses
+            from bot.llm.provider import tier_report
+            engine_block = "\n\n" + render_engine_uses(
+                [TierRow(**_row) for _row in
+                 tier_report(BYOK.get_active_config(env_config), is_admin=True)])
+        except Exception:
+            engine_block = ""
         # Runtime tier overrides (/settier) — the routing that actually
         # answers calls right now, ahead of env/default tables.
         override_block = ""
@@ -8760,7 +8767,7 @@ class TelegramHandler:
             f"🤖 {t('llm_status_title', self._lang(update))}\n"
             f"{SEP}\n"
             f"<pre>{html.escape(status)}</pre>"
-            f"{health_line}{slots_block}{override_block}{usage_block}")
+            f"{health_line}{engine_block}{slots_block}{override_block}{usage_block}")
 
     @guard("mode")
     async def _cmd_llmreset(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

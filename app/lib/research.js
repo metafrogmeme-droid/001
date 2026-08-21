@@ -70,8 +70,15 @@ async function buildDossier(base) {
   // Market read (always present — it gated entry).
   sections.push({
     title: 'Market read',
-    html: `${fmtUsd(tk.price)} · 24h <b class="${tk.change >= 0 ? 'up' : 'down'}">`
-      + `${tk.change >= 0 ? '+' : ''}${round2(tk.change)}%</b> · ${fmtVol(tk.volume)} volume`,
+    // Colour is a claim, and `null >= 0` is true — an unreadable 24h change
+    // used to print a green "+0%" here on a research card whose whole purpose
+    // is telling the reader what is actually known.
+    html: `${fmtUsd(tk.price)} · 24h `
+      + (tk.change == null
+        ? '<b class="muted">—</b>'
+        : `<b class="${tk.change >= 0 ? 'up' : 'down'}">`
+          + `${tk.change >= 0 ? '+' : ''}${round2(tk.change)}%</b>`)
+      + ` · ${fmtVol(tk.volume)} volume`,
     source: 'venue public tickers (live)',
   });
   sources.add('Bitget USDT-M public tickers (live)');

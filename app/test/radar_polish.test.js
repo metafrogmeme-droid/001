@@ -26,9 +26,13 @@ test('sparkBar helper exists, caps magnitude, and is decorative (aria-hidden)', 
 
 test('the spark-bar is wired into both the RWA and meme 24h cells', () => {
   // RWA category token row + meme token row each append a spark after the %.
-  const hits = dash.match(/\}%\$\{sparkBar\(t\.change_24h_pct\)\}/g) || [];
-  assert.ok(hits.length >= 1, 'RWA % cell renders a spark bar');
-  assert.match(dash, /: '—'\}\$\{sparkBar\(t\.change_24h_pct\)\}/);  // meme cell (nullable %)
+  // BOTH now use the nullable form. The RWA cell used to end `}%${sparkBar(`
+  // because it printed the percentage unconditionally — and coloured it from
+  // a bare `>= 0`, so an unreadable 24h change rendered `--` in green. The
+  // meme cell beside it already had the guarded shape; they match now.
+  const hits = dash.match(/: '—'\}\$\{sparkBar\(t\.change_24h_pct\)\}/g) || [];
+  assert.strictEqual(hits.length, 2,
+    'both the RWA and meme 24h cells render a spark bar after a NULLABLE %');
 });
 
 test('the spark bar is styled and reduced-motion safe', () => {

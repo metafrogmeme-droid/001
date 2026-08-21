@@ -82,7 +82,13 @@ const BASELINE = {
   'compare.html': 1,
   'index.html': 2,
   'js/app.js': 1,
-  'js/dashboard.js': 11,
+  // Was 11. The RWA token cell is gone: it coloured `t.change_24h_pct >= 0`
+  // and printed `fmt(...)`, which renders '--' for null — so an unreadable
+  // 24h change showed an em-dash painted GREEN, the exact pair this file's
+  // header records. The root was `lib/tickers.js`, which built the shared
+  // ticker map with `change: (parseFloat(t.change24h) || 0) * 100` and handed
+  // every one of its twelve consumers a measured 0.
+  'js/dashboard.js': 10,
   'js/engine-card-model.js': 1,
   'js/sandbox.js': 2,
   'js/strengthmap.js': 1,
