@@ -178,16 +178,27 @@ class TestItReachesTheOperator:
             open("bot/skills/telegram_handler.py", encoding="utf-8").read())
         assert "active=not cb" in src
         i = src.index("active=not cb")
-        # Window sized by MEASURING the gap (3666 chars), not guessed. A 2500
-        # guess put the anchor outside the window and failed on correct code —
-        # the same window-slicing error as the overrun that made a different
-        # test pass on wrong code. Both directions come from picking a number.
-        window = src[max(0, i - 4200):i]
-        assert 'cb = bool(_g["blocked"])' in window, (
+        # STOP PICKING A NUMBER. The previous version sliced a fixed 4200-char
+        # window backwards, above a comment observing that a 2500 guess had
+        # already failed on correct code and that "both directions come from
+        # picking a number" — and then picked 4200. Adding four comment lines
+        # to _cmd_status grew the real gap from 3666 to 4433 and it failed
+        # again, on code whose behaviour was unchanged.
+        #
+        # The property is ORDER, not distance: whatever assigns `cb` nearest
+        # ABOVE the render call must be the broad gate. Measured from the
+        # source each run, so it cannot drift out of a window.
+        import re as _re
+        assigns = [m.start() for m in _re.finditer(r'\bcb = ', src) if m.start() < i]
+        assert assigns, "nothing assigns cb before the status card is rendered"
+        nearest = src[assigns[-1]:i]
+        assert 'cb = bool(_g["blocked"])' in nearest, (
             "the /status headline printed a green ACTIVE while the "
-            "warning-rate breaker was rejecting every entry"
+            "warning-rate breaker was rejecting every entry; the nearest cb "
+            f"assignment is: {nearest[:80]!r}"
         )
-        assert "entry_gate(self.engine" in window
+        assert "entry_gate(self.engine" in src[:i], (
+            "cb must come from the broad entry gate, not the narrow field")
 
     def test_the_web_dashboard_chip_is_not_driven_by_the_narrow_field(self):
         # The website is the primary surface. Its "Circuit Breaker" chip is

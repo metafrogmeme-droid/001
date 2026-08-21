@@ -105,3 +105,28 @@ def realized_totals(closed: Iterable[Any]) -> dict:
         "unpriced": len(rows) - priced,
         "total": len(rows),
     }
+
+
+def best_and_worst(rows: Iterable[Any]) -> tuple:
+    """(best, worst) by realized P&L, considering ONLY rows that were priced.
+
+    A sort key is usually not a claim — putting unreadable rows at one end of
+    an ordering is a choice, not an assertion. This is the exception, because
+    the ORDER ITSELF is published: the performance card prints the ends of it
+    as "Best 🏆" and "Worst".
+
+        sorted(user_trades, key=lambda t: (t.pnl_usd or 0))
+
+    mapped every unpriced close to 0.0, so on a book of losses the row nobody
+    could price sorted HIGHEST and was crowned best. With
+    [A: -5.0 priced, B: unpriced] it named B the best trade.
+
+    Returns (None, None) when nothing was priced — the caller's existing "N/A"
+    is the honest answer, and inventing a winner out of an unscorable book is
+    the same defect as inventing its total.
+    """
+    rankable = [r for r in rows if _num(getattr(r, "pnl_usd", None)) is not None]
+    if not rankable:
+        return (None, None)
+    ordered = sorted(rankable, key=lambda r: _num(getattr(r, "pnl_usd", None)))
+    return (ordered[-1], ordered[0])
