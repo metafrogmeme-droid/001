@@ -667,6 +667,13 @@ a.mc-chip:hover { border-color: var(--accent, var(--up)); }
 .ref-tier { border-top: 1px solid var(--line); padding-top: var(--s3); }
 .ref-bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
 .ref-bar span { display: block; height: 100%; background: var(--gold); border-radius: 99px; transition: width .4s ease; }
+/* A perk you HAVE and a perk we INTEND must not read alike. Colour is a claim,
+   so the planned one loses the confident text colour and gains a rule; the
+   caveat sentence beside it (.ref-perk-note) is the half that survives
+   greyscale, a screen reader, and a stylesheet that failed to load. */
+.ref-perk { color: var(--text-2); }
+.ref-perk--planned { color: var(--text-3); border-left: 2px solid var(--line); padding-left: var(--s2); font-style: italic; }
+.ref-perk-note { margin-top: 2px; opacity: .85; }
 
 /* ---- Landing page -------------------------------------------------------- */
 .hero { max-width: var(--maxw); margin: 0 auto; padding: 64px var(--s4) var(--s8); }

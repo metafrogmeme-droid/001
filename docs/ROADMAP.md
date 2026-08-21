@@ -100,7 +100,7 @@ just shipped.
 | Capability | Horizon | Status | Builds on |
 | --- | --- | --- | --- |
 | **Invite friends** — unique links, signup attribution, live "friends joined" count | Now | 🟢 | live today |
-| **Referral rewards &amp; tiers** — turn invites into perks (fee credits, higher limits, post-token rewards) with milestone tiers | Next | 🟡 | the invite system |
+| **Referral rewards &amp; tiers** — turn invites into perks (fee credits, higher limits, post-token rewards) with milestone tiers | Next | 🟡 | the invite system. **The tiers are live** — five milestones on `/api/auth/referrals`, shown on the Account panel. The **rewards are not**, and the card now says which is which: each perk declares whether it is in force, and a planned one prints what it waits on. Two of the five ride on the token and say so. The one perk that is real is the squad — [Daily Duel](../app/lib/duel_squads.js) squads are built from this same referral graph |
 | **Leaderboards &amp; shareable cards** — opt-in performance leaderboards and one-tap shareable trade cards for Telegram/X | Now | 🟢 | live: `/leaderboard` (percent + ratios, anonymous handles), `/trader` cards, Arena board + seasons |
 | **Copy-trading marketplace** — follow top agents/users; creators earn a share of follower fees | Later | 🔵 | verifiable track record |
 | **Agent marketplace — catalogue** — browse real strategy presets, each with a verified reproducible backtest; follow one and copy its picks on paper | Now | 🟢 | live: `/agents` |
