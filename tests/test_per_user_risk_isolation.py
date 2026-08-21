@@ -31,6 +31,22 @@ from bot.risk.multi_portfolio import MultiUserPortfolio
 def engine(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data").mkdir()
+    # `chdir` ALONE STOPPED SANDBOXING THIS. The operator engine below gets an
+    # explicit state_file under tmp_path, but `risk_for("alice")` builds a
+    # PER-USER RiskEngine with `state_file="data/risk_state_alice.json"` — a
+    # relative path this test never sets.
+    #
+    # That used to resolve against the working directory, so chdir contained
+    # it. `bot/utils/paths.state_path` now anchors relative state to
+    # REPO_ROOT precisely so a process's cwd cannot decide which database it
+    # opens — correct for production, and it routed this test's writes into
+    # the repo's REAL data/ directory instead.
+    #
+    # The state then PERSISTED BETWEEN RUNS: alice's consecutive_losses
+    # climbed a few per run and reached 38, so `_bust(a, 4)` no longer left 4
+    # and the assertion below failed — on a test whose subject is that one
+    # user's streak cannot reach another's.
+    monkeypatch.setattr("bot.utils.paths.REPO_ROOT", tmp_path)
     eng = RuneClawEngine.__new__(RuneClawEngine)
     eng.macro_calendar = None
     eng.macro_provider = None
@@ -236,3 +252,59 @@ class TestCloseCallbackRouting:
         tracker = m.get("dave")
         # Neither callback set — must not raise.
         tracker._on_trade_close(-1.0)
+
+
+# ── the isolation that isolates the isolation test ──────────────────────────
+
+class TestTheTestSandboxHolds:
+    """This file's SUBJECT is that one user's breaker cannot reach another's.
+    It is worth very little if the fixture itself leaks across runs.
+
+    It did. `risk_for()` builds each per-user engine with a RELATIVE
+    `state_file="data/risk_state_{user}.json"`, and `state_path` anchors
+    relative state to REPO_ROOT so a process's cwd cannot decide which file it
+    opens. Correct for production; it routed this test's writes into the
+    repo's real data/ directory, where they persisted BETWEEN RUNS. Alice's
+    consecutive_losses climbed a few per run and reached 38 — so `_bust(a, 4)`
+    stopped leaving 4, and `test_win_does_not_trip_other_user` failed.
+    """
+
+    def test_per_user_state_lands_under_the_sandbox(self, engine, tmp_path):
+        p = _cfg(per_user=True)
+        try:
+            eng = engine.risk_for("alice")
+            assert str(tmp_path) in eng._state_file, (
+                f"per-user risk state is being written to {eng._state_file}, "
+                f"outside the test sandbox at {tmp_path}")
+        finally:
+            p.stop()
+
+    def test_it_actually_writes_there_and_not_to_the_repo(self, engine, tmp_path):
+        """The path being right is not the same as the write landing there —
+        the property that failed was about files on disk, so assert on files."""
+        # Derived from THIS FILE, not from bot.utils.paths — the fixture
+        # monkeypatches REPO_ROOT, so importing it here would resolve to the
+        # sandbox and the assertion would compare the sandbox against itself.
+        # The first draft of this test did exactly that and failed.
+        import pathlib
+        real = pathlib.Path(__file__).resolve().parent.parent / "data" \
+            / "risk_state_alice.json"
+        before = real.exists()
+        p = _cfg(per_user=True)
+        try:
+            _bust(engine.risk_for("alice"), 2)
+        finally:
+            p.stop()
+        assert (tmp_path / "data" / "risk_state_alice.json").exists(), \
+            "the sandboxed state file was never written"
+        assert real.exists() is before, \
+            f"the test suite wrote per-user risk state into {real}"
+
+    def test_a_fresh_engine_starts_clean(self, engine):
+        """The symptom, stated directly: state must not survive the fixture."""
+        p = _cfg(per_user=True)
+        try:
+            assert engine.risk_for("alice")._consecutive_losses == 0, (
+                "alice arrived with a loss streak from a previous run")
+        finally:
+            p.stop()
