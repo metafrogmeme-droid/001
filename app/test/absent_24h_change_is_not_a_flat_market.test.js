@@ -317,3 +317,57 @@ test('a duel ranks an unknown volume below every known one', () => {
   // unknown volume as a measured zero — above the -1 reserved for unknown.
   assert.match(src.slice(i, i + 400), /raw == null/);
 });
+
+// ── the colour-ternary audit: all five candidates were defensive ───────────
+//
+// `colour_is_a_claim.test.js` baselines 10 ternaries in dashboard.js. Tracing
+// each to its producer, EVERY remaining candidate is guarded upstream and
+// refactoring any of them would buy no safety:
+//
+//   flow_bias    `if (!txns) return null` precedes the division
+//   net_usd      row() inits all three legs to 0; only finite positives added
+//   net_pnl_usd  intel.js AND replay.js both `continue` on a non-finite pnl
+//   chip()       the RWA panel's own formatter is `v == null ? '—' : …`
+//   dist_pct     I called this one a real defect and it is not — see below
+//
+// THE ONE I GOT WRONG, kept as the note rather than the fix. `chartread.js`
+// ends its VWAP with
+//
+//     dist_pct: center > 0 ? ((last.c - center) / center) * 100 : 0
+//
+// and `center = seg.pv / seg.vol`, so I read `0/0 = NaN`, `NaN > 0` false,
+// and concluded an uncomputable VWAP rendered as a green "+0.00%". Twenty
+// lines above, the function already says
+//
+//     if (!(seg.vol > 0)) { seg = accum(0); anchor = 0; }
+//     if (!(seg.vol > 0)) return null;
+//
+// so `center` is only ever reached with volume behind it. I checked the
+// expression and the ternary and did not read the guard above them.
+//
+// Two mutations proved it: removing my added guard, and weakening it, were
+// BOTH indistinguishable by any test — because the behaviour never differed.
+// The change was reverted. "Check reachability before fixing" applies to your
+// own findings, and a match is not a defect until the guard above it is read.
+
+test('the VWAP already refuses a window with no volume behind it', () => {
+  // Pinning the PRE-EXISTING guard, not a new one — so the next reader who
+  // finds `center > 0 ? … : 0` and reaches for it can see it is covered.
+  const vm = require('node:vm');
+  const ctx = { window: {}, document: {}, T: (k, d) => d };
+  ctx.self = ctx; ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'chartread.js'), 'utf8'), ctx);
+  const R = ctx.window.RCChartRead;
+  const candles = (n, v) => Array.from({ length: n }, (_, i) =>
+    ({ o: 25, h: 25.1, l: 24.9, c: 25 + 0.01 * (i % 3), v, t: i }));
+
+  assert.strictEqual(R.vwap(candles(30, 0)), null,
+    'the zero-volume guard was removed — `center` is now 0/0 = NaN and the '
+    + 'trailing `: 0` turns that into "price sits exactly on VWAP"');
+
+  const ok = R.vwap(candles(30, 1000));
+  assert.ok(ok && Number.isFinite(ok.value) && ok.value > 0);
+  assert.ok(Number.isFinite(ok.dist_pct));
+});
