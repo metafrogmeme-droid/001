@@ -266,6 +266,26 @@ def main() -> int:
     # carries the same lesson one layer down: it used to ignore pytest's exit
     # code and announce PASS having executed nothing. An unreadable result is
     # not a passing one.
+    #
+    # AND THE SAME HOLE EXISTS FOR STATE, which the sentence above does not
+    # cover. `_tree_fingerprint` watches SOURCE; nothing watches the durable
+    # state the suite writes.
+    #
+    # Observed 2026-08-21. `tests/test_per_user_risk_isolation.py` sandboxed
+    # its engine with `monkeypatch.chdir(tmp_path)`, but `risk_for()` builds
+    # each per-user RiskEngine with a RELATIVE `state_file`, and `state_path`
+    # anchors relative state to REPO_ROOT so a process's cwd cannot decide
+    # which file it opens. Correct for production — and it routed the test's
+    # writes into the repo's real data/, where they PERSISTED BETWEEN RUNS.
+    # Alice's consecutive_losses climbed a few per run to 38, the test began
+    # failing, and this filter re-ran it against a data/ that had moved again
+    # in the meantime and filed it "passes alone".
+    #
+    # So the gate reported ALL GREEN for a run containing a real, reproducible
+    # failure — the defect it exists to prevent, reached through the one door
+    # the fingerprint does not watch. The test is fixed and pins its own
+    # sandbox now; this note is here because the FILTER's verdict is only as
+    # good as the state being identical too, and it cannot currently tell.
     tree_changed = _tree_fingerprint() != fingerprint_before
 
     flaky: list[str] = []
