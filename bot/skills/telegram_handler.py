@@ -1770,12 +1770,24 @@ class TelegramHandler:
                 if recent_trades_live:
                     trade_lines = []
                     for t in recent_trades_live:
-                        pnl_val = t.pnl_usd or 0
+                        # THE SAME PLACE, FOR THE SAME REASON — see the comment
+                        # 53 lines above, which refuses to invent a number for
+                        # PAPER open positions because "a fabrication laundered
+                        # through natural language is harder to catch than a
+                        # wrong number on a card, because the sentence sounds
+                        # considered". This block is the LIVE closed trades and
+                        # it did `t.pnl_usd or 0`, so a close nobody could price
+                        # reached the model as "PnL $+0.00" — and the model,
+                        # having no way to know that was a fallback, tells the
+                        # user the trade closed flat.
+                        _p = getattr(t, "pnl_usd", None)
+                        _pnl_txt = ("not recorded" if _p is None
+                                    else f"${float(_p):+,.2f}")
                         exit_px = t.close_price or t.entry_price
                         trade_lines.append(
                             f"  - {t.direction} {t.symbol}: "
                             f"entry ${t.entry_price:,.4f}, exit ${exit_px:,.4f}, "
-                            f"PnL ${pnl_val:+,.2f}"
+                            f"PnL {_pnl_txt}"
                         )
                     positions_detail += (
                         "\n\nRECENT CLOSED TRADES (live):\n" +
@@ -7403,14 +7415,38 @@ class TelegramHandler:
                            and getattr(t, "close_reason", "") not in _non_trade_reasons_bal]
             adopted_closed = [t for t in closed_pos
                               if any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)]
-            realized_pnl = sum(p.pnl_usd or 0 for p in user_closed)
-            total_fees = sum(p.commission or 0 for p in user_closed)
-            adopted_pnl = sum(p.pnl_usd or 0 for p in adopted_closed)
+            # /balance is /portfolio's un-cured sibling: the same store, the
+            # same three sums, the same `or 0`. /portfolio now routes these
+            # through realized_totals() and prints "unknown ⚠️" when nothing
+            # could be priced; this card still folded every unpriced close in
+            # at break-even and printed the result beside "{n} trades", so the
+            # total read as covering all of them.
+            #
+            # scripts/rebuild_closed_trades.py sets commission to null on EVERY
+            # rebuilt row, so "absent fee" is not hypothetical here.
+            from bot.formatters.realized_totals import realized_totals
+            _bal = realized_totals(user_closed)
+            _bal_adopted = realized_totals(adopted_closed)
+            _realized_known = _bal["net"] is not None
+            _fees_known = _bal["fees"] is not None
+            realized_pnl = _bal["net"] if _realized_known else 0.0
+            total_fees = _bal["fees"] if _fees_known else 0.0
+            adopted_pnl = _bal_adopted["net"]
             exposure = executor.total_exposure_usd
 
             # PnL sign
             pnl_sign = "+" if realized_pnl >= 0 else ""
-            pnl_icon = "\u26aa" if realized_pnl == 0 else ("\U0001f7e2" if realized_pnl > 0 else "\U0001f534")
+            # ⚪ already meant "exactly break-even" here, so an unreadable total
+            # would have taken the SAME glyph as a measured flat book. The
+            # unknown case gets ⚠️ and the word, not a colour it has not earned.
+            pnl_icon = ("\u26a0\ufe0f" if not _realized_known
+                        else "\u26aa" if realized_pnl == 0
+                        else ("\U0001f7e2" if realized_pnl > 0 else "\U0001f534"))
+            _realized_str = (f"${pnl_sign}{realized_pnl:.2f}" if _realized_known
+                             else "unknown")
+            _fees_str = f"${total_fees:.2f}" if _fees_known else "unknown"
+            _partial = (f" \u2014 {_bal['unpriced']} of {_bal['total']} unpriced"
+                        if _realized_known and _bal["unpriced"] else "")
 
             # "Used" from exchange only counts filled positions in cross margin.
             # Show the higher of exchange-reported or bot-tracked exposure for accuracy.
@@ -7431,7 +7467,7 @@ class TelegramHandler:
             lines = [
                 f"💰 <b>{account_label}</b>",
                 f"{SEP}",
-                f"   {pnl_icon}  Net PnL: <code>${pnl_sign}{realized_pnl:.2f}</code> (fees: ${total_fees:.2f})",
+                f"   {pnl_icon}  Net PnL: <code>{_realized_str}</code> (fees: {_fees_str}){_partial}",
                 "",
                 "💳 <b>Balance</b>",
                 f"{SEP}",
@@ -7465,7 +7501,9 @@ class TelegramHandler:
             lines.append("")
             lines.append("📈 <b>PnL Waterfall</b>")
             lines.append(SEP)
-            lines.append(f"- Realized: <code>${pnl_sign}{realized_pnl:.4f}</code>")
+            lines.append("- Realized: <code>"
+                         + (f"${pnl_sign}{realized_pnl:.4f}" if _realized_known
+                            else "unknown") + "</code>")
             lines.append(f"- Exposure: <code>${exposure:,.2f}</code>")
             lines.append(SEP)
             lines.append(f"- <b>NET: <code>${total_usd:,.2f}</code></b>")
@@ -7481,7 +7519,8 @@ class TelegramHandler:
                 lines.append(
                     f"<i>⚠️ Excluded {len(adopted_closed)} adopted orphan"
                     f"{'s' if len(adopted_closed) != 1 else ''}"
-                    f" ({'+' if adopted_pnl >= 0 else ''}{adopted_pnl:.2f})</i>"
+                    + (f" ({'+' if adopted_pnl >= 0 else ''}{adopted_pnl:.2f})</i>"
+                       if adopted_pnl is not None else " (P&L not recorded)</i>")
                 )
 
             await self._send(update, "\n".join(lines))
@@ -9487,9 +9526,19 @@ class TelegramHandler:
                     + f"{t('lbl_win_rate_lc', lang)}: <code>{_wr_str}</code>",
                 ])
                 if adopted_trades:
-                    adopted_pnl = sum((t.pnl_usd or 0) for t in adopted_trades)
+                    # THE ONE LINE ON THIS CARD THAT WAS NOT CONVERTED. 180
+                    # lines above, the realized total, the fees, the per-row
+                    # P&L, the W/L split and the win rate were all rewritten
+                    # around realized_totals()/win_stats() with explicit
+                    # unknown states. This parenthetical kept `or 0`, so
+                    # "($+0.00)" read as "excluding them changed nothing" —
+                    # which is exactly the reassuring reading, on the rows the
+                    # bot did not open and knows least about.
+                    _ad = realized_totals(adopted_trades)
+                    _ad_str = ("P&L not recorded" if _ad["net"] is None
+                               else f"${_ad['net']:+,.2f}")
                     lines.append(
-                        f"<i>⚠️ Excluded {len(adopted_trades)} adopted orphans (${adopted_pnl:+,.2f})</i>")
+                        f"<i>⚠️ Excluded {len(adopted_trades)} adopted orphans ({_ad_str})</i>")
             else:
                 lines.extend(["", f"<i>{t('portfolio_no_live_trades', lang)}</i>"])
 
@@ -9810,10 +9859,16 @@ class TelegramHandler:
             # made "Daily PnL" an all-time cumulative figure that never reset.
             # Filter to positions closed TODAY (UTC) so it's genuinely daily.
             _today = datetime.now(UTC).date()
-            daily_pnl = round(sum(
-                (t.pnl_usd or 0) for t in (executor.closed_positions or [])
-                if _closed_on_utc_date(t, _today)
-            ), 2)
+            # Tri-state, because "nothing closed today" and "today's closes
+            # could not be priced" are different days. The first really is
+            # $0.00; the second rendered as "⚪ 0.00%" beside a "/ +5.0% limit",
+            # a measured flat day manufactured from no measurement.
+            from bot.formatters.realized_totals import realized_totals as _rt_daily
+            _today_closed = [t for t in (executor.closed_positions or [])
+                             if _closed_on_utc_date(t, _today)]
+            _daily = _rt_daily(_today_closed)
+            daily_pnl = (round(_daily["net"], 2)
+                         if _daily["net"] is not None else None)
         else:
             equity = state.equity_usd if hasattr(state, "equity_usd") else 10_000.0
             open_count = state.open_positions
@@ -9849,7 +9904,12 @@ class TelegramHandler:
         # (appends "%"), and the adjacent "/ +X% limit" is a percent-of-equity
         # daily-loss cap — so daily_pnl must be a PERCENT, not raw dollars.
         # Previously a −$56 daily figure printed as "−56.0%". Convert here.
-        daily_pnl_pct = (daily_pnl / equity * 100.0) if equity and equity > 0 else 0.0
+        # None travels: dividing an unknown by equity would TypeError, and
+        # substituting 0.0 here would put the manufactured zero back one line
+        # after removing it.
+        daily_pnl_pct = (None if daily_pnl is None
+                         else (daily_pnl / equity * 100.0)
+                         if equity and equity > 0 else 0.0)
 
         # Loop liveness for the card. The stall VERDICT comes from the
         # watchdog's own predicate, not from the age — time inside a declared
@@ -9862,7 +9922,7 @@ class TelegramHandler:
             active=not cb,
             equity=equity,
             open_positions=open_count,
-            daily_pnl=round(daily_pnl_pct, 2),
+            daily_pnl=(None if daily_pnl_pct is None else round(daily_pnl_pct, 2)),
             drawdown=drawdown,
             max_drawdown=drawdown_limit,
             market_bias=macro.state.value.replace("_", " ").title(),
@@ -11874,7 +11934,11 @@ class TelegramHandler:
                            and getattr(t, "close_reason", "") not in _NON_TRADE_REASONS_PERF]
             adopted_trades = [t for t in live_closed
                               if any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)]
-            adopted_pnl = sum((t.pnl_usd or 0) for t in adopted_trades)
+            # Third copy of the same parenthetical (see /balance and
+            # /portfolio). The win rate six lines below was carefully made to
+            # pass None through; this total beside it was not.
+            from bot.formatters.realized_totals import realized_totals
+            adopted_pnl = realized_totals(adopted_trades)["net"]
 
             total_trades = len(user_trades)
             _ws = _win_stats(user_trades)
@@ -11885,7 +11949,9 @@ class TelegramHandler:
             # recover it — the card was handed a measured-looking 0.0 and had
             # no way to know. win_stats returns None for a reason; pass it on.
             win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
-            total_pnl = sum((t.pnl_usd or 0) for t in user_trades)
+            _tot = realized_totals(user_trades)
+            total_pnl = _tot["net"] if _tot["net"] is not None else 0.0
+            _total_known = _tot["net"] is not None
 
             # ── Date-filtered PnL ──
             from datetime import datetime as _dt, timedelta as _td
@@ -11897,6 +11963,8 @@ class TelegramHandler:
             today_pnl = 0.0
             week_pnl = 0.0
             trades_today = 0
+            _today_priced = _today_unpriced = 0
+            _week_priced = _week_unpriced = 0
             for t in user_trades:
                 closed_at = getattr(t, "closed_at", None)
                 if closed_at:
@@ -11909,25 +11977,53 @@ class TelegramHandler:
                         # Ensure timezone-aware
                         if closed_at.tzinfo is None:
                             closed_at = closed_at.replace(tzinfo=_UTC)
-                        pnl = t.pnl_usd or 0
+                        # An unpriced close contributes NOTHING and is
+                        # counted as unpriced, rather than contributing 0 and
+                        # being counted as a measurement. `or 0` made an
+                        # all-unpriced day print "$+0.00" in green (>= 0 picks
+                        # green for the manufactured zero) and, worse, fed the
+                        # `today_pnl == 0 and week_pnl == 0` fallback below,
+                        # which then silently re-labels the ALL-TIME total as
+                        # this week's.
+                        _p = getattr(t, "pnl_usd", None)
                         if closed_at >= _today_start:
-                            today_pnl += pnl
                             trades_today += 1
+                            if _p is None:
+                                _today_unpriced += 1
+                            else:
+                                today_pnl += float(_p)
+                                _today_priced += 1
                         if closed_at >= _week_start:
-                            week_pnl += pnl
+                            if _p is None:
+                                _week_unpriced += 1
+                            else:
+                                week_pnl += float(_p)
+                                _week_priced += 1
                         continue
                 # Fallback: if no closed_at, count in total only
             # If no date info at all, fall back to total for both
-            if today_pnl == 0 and week_pnl == 0 and total_pnl != 0:
+            # Guard the fallback on "nothing was PRICED", not on the sum being
+            # zero: a genuinely flat week and a week nobody could price both
+            # gave 0.0, and only the second should borrow the all-time figure.
+            if (_today_priced == 0 and _week_priced == 0
+                    and _today_unpriced == 0 and _week_unpriced == 0
+                    and total_pnl != 0):
                 week_pnl = total_pnl
                 trades_today = total_trades
 
             best_pair = "N/A"
             worst_pair = "N/A"
-            if user_trades:
-                sorted_t = sorted(user_trades, key=lambda t: (t.pnl_usd or 0))
-                worst_pair = sorted_t[0].symbol.replace("/USDT", "").replace(":USDT", "")
-                best_pair = sorted_t[-1].symbol.replace("/USDT", "").replace(":USDT", "")
+            # A SORT KEY IS USUALLY NOT A CLAIM — but here the ORDER ITSELF is
+            # published, as "Best 🏆" and "Worst". `t.pnl_usd or 0` maps every
+            # unpriced close to 0.0, so on a book of losses the row nobody
+            # could price sorts HIGHEST and gets crowned best. Rank only what
+            # was actually priced; if nothing was, the honest answer is the
+            # "N/A" both already default to.
+            from bot.formatters.realized_totals import best_and_worst
+            _best_t, _worst_t = best_and_worst(user_trades)
+            if _best_t is not None:
+                worst_pair = _worst_t.symbol.replace("/USDT", "").replace(":USDT", "")
+                best_pair = _best_t.symbol.replace("/USDT", "").replace(":USDT", "")
             data = {
                 "today_pnl": round(today_pnl, 2),
                 "week_pnl": round(week_pnl, 2),

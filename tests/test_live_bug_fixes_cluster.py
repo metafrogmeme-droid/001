@@ -104,5 +104,12 @@ def test_status_card_converts_daily_pnl_to_percent_and_filters_today():
     # LIVE daily must be filtered to today's UTC close date (was all-time).
     assert '_closed_on_utc_date(t, _today)' in src
     # And dollars are converted to percent-of-equity before rendering.
-    assert 'daily_pnl_pct = (daily_pnl / equity * 100.0)' in src
-    assert 'daily_pnl=round(daily_pnl_pct, 2)' in src
+    #
+    # The CONVERSION, not the statement that once contained it. This asserted
+    # `daily_pnl_pct = (daily_pnl / equity * 100.0)` verbatim, so it failed the
+    # moment daily_pnl became three-valued and the assignment grew a
+    # `None if ... else` around the same arithmetic. The behaviour it protects
+    # — dollars divided by equity, times 100, before the card sees it — was
+    # never in question. Pinning a whole statement pins the formatting too.
+    assert 'daily_pnl / equity * 100.0' in src
+    assert 'daily_pnl=' in src and 'daily_pnl_pct' in src

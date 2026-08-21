@@ -986,7 +986,7 @@ def render_status_card(
     active: bool,
     equity: Optional[float],
     open_positions: int,
-    daily_pnl: float,
+    daily_pnl: Optional[float],
     drawdown: float,
     max_drawdown: float,
     market_bias: str,
@@ -1001,7 +1001,15 @@ def render_status_card(
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
     mode_label = f"\U0001f534 {t('val_live', lang)}" if mode == "LIVE" else f"\U0001f7e1 {t('val_paper', lang)}"
-    pnl_icon = "\U0001f7e2\u25b2" if daily_pnl > 0 else "\U0001f534\u25bc" if daily_pnl < 0 else "\u26aa"
+    # Three outcomes, the same shape this card already uses for `equity`.
+    # `daily_pnl` is None when today's closes exist but none could be priced —
+    # "⚪ 0.0%" beside a "/ +5.0% limit" reads as a measured flat day, which is
+    # the one thing it is not. A genuinely empty day is still a real 0.0.
+    _dp_known = isinstance(daily_pnl, (int, float)) and not isinstance(daily_pnl, bool)
+    pnl_icon = ("\u26a0\ufe0f" if not _dp_known
+                else "\U0001f7e2\u25b2" if daily_pnl > 0
+                else "\U0001f534\u25bc" if daily_pnl < 0 else "\u26aa")
+    _dp_str = _pct(daily_pnl) if _dp_known else t("pnl_unknown", lang)
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
@@ -1084,7 +1092,7 @@ def render_status_card(
         f"- {t('lbl_equity', lang)}: "
         f"{_fmt_price(equity) if equity is not None else 'unavailable'}",
         f"- {t('lbl_open_positions', lang)}: {open_positions}",
-        f"- {t('lbl_daily_pnl', lang)}: {pnl_icon} {_pct(daily_pnl)}",
+        f"- {t('lbl_daily_pnl', lang)}: {pnl_icon} {_dp_str}",
         "",
         f"<b>{t('hdr_risk', lang)}</b>",
         f"- {t('lbl_drawdown', lang)}: {_pct(drawdown)} / {_pct(max_drawdown)} {t('lbl_limit_word', lang)}",
