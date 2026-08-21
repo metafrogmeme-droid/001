@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /archive/
+
+Sitemap: https://www.humanoid-traders.com/sitemap.xml

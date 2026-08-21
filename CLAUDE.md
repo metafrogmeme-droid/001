@@ -8,9 +8,11 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Eleven gates: two ruff passes, mypy, bandit, pip-audit, the
+step for free. Fourteen gates: two ruff passes, mypy, bandit, pip-audit, the
 baseline test gate, the red team, the web app's parse check, its npm advisory
-ratchet, its suite, and guard reachability. ~12 minutes.
+ratchet, its suite, the marketing site's build, its published-output honesty
+tests, the check that the committed site is the built site, and guard
+reachability. ~14 minutes.
 
 That "for free" is literal and has now been collected three times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
@@ -18,6 +20,14 @@ plan with no change to `preflight.py`, and the red-team gate did the same. This
 paragraph's own gate count is pinned by `tests/test_claude_md_accuracy.py`,
 which failed the moment each of them landed — including on the sentence you are
 reading, which said "Ten" until the red team made it eleven.
+
+**"For free" covers a new STEP, not a new JOB.** `LOCAL_JOBS` is a deliberate
+allow-list — token tooling is excluded because one of its steps curl-pipes a
+Solana validator installer, and a preflight that installs a toolchain behind
+your back is not a preflight. So `Marketing site (vite)` needed one line added
+there, and a job that is added to `ci.yml` and not to that tuple runs in CI
+while `--list` reports it under "NOT covered locally". That line is the honest
+half of the design and worth reading before trusting a green preflight.
 
 ```bash
 python3 scripts/preflight.py --fast   # tight loop; drops only the network gates

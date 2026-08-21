@@ -2,108 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="RUNECLAW — the AI trading engine you can talk to. Scan 800+ symbols, chat with the engine, and place risk-gated trades. Paper by default.">
-<meta name="author" content="Humanoid Traders">
-<meta property="og:title" content="RUNECLAW — AI Trading, Paper to Live">
-<meta property="og:description" content="An AI trading engine you can watch, chat with, and trade alongside. 23 fail-closed risk checks, human-in-the-loop confirmation, simulation-first.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RUNECLAW — the AI trading engine you can talk to</title>
+<meta name="description" content="Paper by default, risk-gated, human-confirmed. Every call is hashed before the market moves, so the record can be checked by someone who does not trust the operator.">
+<link rel="canonical" href="https://www.humanoid-traders.com/">
+<meta name="theme-color" content="#0a0b10">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="512x512" href="/app_icon_512.png">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
 <meta property="og:type" content="website">
-<meta property="og:image" content="og_image_1200x630.jpg">
+<meta property="og:site_name" content="RUNECLAW">
+<meta property="og:title" content="RUNECLAW — the AI trading engine you can talk to">
+<meta property="og:description" content="Paper by default, risk-gated, human-confirmed. Every call is hashed before the market moves, so the record can be checked by someone who does not trust the operator.">
+<meta property="og:url" content="https://www.humanoid-traders.com/">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="RUNECLAW — AI Trading, Paper to Live">
-<meta name="twitter:description" content="An AI trading engine you can watch, chat with, and trade alongside. Simulation-first, risk-gated, human-in-the-loop.">
-<meta name="twitter:image" content="og_image_1200x630.jpg">
-<link rel="icon" type="image/png" sizes="256x256" href="app_icon_256.png">
-<link rel="icon" type="image/png" sizes="512x512" href="app_icon_512.png">
-<link rel="apple-touch-icon" href="app_icon_512.png">
-<meta name="google-site-verification" content="IcG28X1xg9HFbxYubMHnk2cIr6YAKRo9V5AUEd-Ws7U" />
-<meta name="google-site-verification" content="bp37kdQKB4qmgSO6gt66OaUKuNP9enunEyZ_LCWnjys" />
-<title>RUNECLAW — AI Trading, Paper to Live</title>
-<style>
-  /* Self-contained: this page is served standalone (nginx / api_bridge /
-     dashboard_api) without the app platform's assets. Tokens mirror
-     app/public/styles.css so the whole product reads as one surface. */
-  :root {
-    --bg: #0a0b10; --surface: #12141c; --surface-2: #181b25;
-    --line: #232838; --line-2: #313950;
-    --gold: #cbb06a; --gold-bright: #e8d391;
-    --up: #2fbf71; --text: #edeef2; --text-2: #a9b1c1; --text-3: #8f99ab;
-    --font-brand: Georgia, 'Times New Roman', serif;
-    --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    --font-data: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: var(--bg); color: var(--text);
-    font-family: var(--font-ui); font-size: 15px; line-height: 1.55;
-    min-height: 100vh; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; padding: 24px;
-    -webkit-font-smoothing: antialiased;
-  }
-  a { color: var(--gold); text-decoration: none; }
-  a:hover { color: var(--gold-bright); }
-  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-  .card {
-    width: min(560px, 100%); background: var(--surface);
-    border: 1px solid var(--line-2); border-top: 2px solid var(--gold);
-    border-radius: 14px; padding: 40px 32px; text-align: center;
-    box-shadow: 0 1px 2px rgba(0,0,0,.45), 0 10px 30px rgba(0,0,0,.3);
-  }
-  .brand {
-    font-family: var(--font-brand); font-weight: 700; font-size: 26px;
-    letter-spacing: .12em; margin-bottom: 6px;
-  }
-  .eyebrow {
-    font-family: var(--font-data); font-size: 12px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--up); margin-bottom: 20px;
-  }
-  h1 { font-size: 22px; font-weight: 600; margin-bottom: 12px; text-wrap: balance; }
-  p { color: var(--text-2); max-width: 46ch; margin: 0 auto 12px; }
-  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 7px;
-    font-size: 14px; font-weight: 600; padding: 11px 20px; border-radius: 8px;
-    border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text);
-  }
-  .btn:hover { border-color: var(--gold); color: var(--gold-bright); }
-  .btn--primary { background: var(--gold); border-color: var(--gold); color: #14120a; }
-  .btn--primary:hover { background: var(--gold-bright); color: #14120a; }
-  .foot { margin-top: 28px; font-size: 12px; color: var(--text-3); }
-  .foot a { color: var(--text-3); text-decoration: underline; }
-  [hidden] { display: none !important; }
-</style>
+<meta name="twitter:title" content="RUNECLAW — the AI trading engine you can talk to">
+<meta name="twitter:description" content="Paper by default, risk-gated, human-confirmed. Every call is hashed before the market moves, so the record can be checked by someone who does not trust the operator.">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://www.humanoid-traders.com/#org","name":"Humanoid Traders","url":"https://www.humanoid-traders.com/","logo":"https://www.humanoid-traders.com/app_icon_512.png"},{"@type":"SoftwareApplication","@id":"https://www.humanoid-traders.com/#app","name":"RUNECLAW","applicationCategory":"FinanceApplication","operatingSystem":"Web, Telegram","url":"https://www.humanoid-traders.com/","publisher":{"@id":"https://www.humanoid-traders.com/#org"},"description":"An AI trading engine with a pre-trade risk gate, simulation-first defaults, human confirmation before live orders, and hashed decision records."}]}</script>
+  <script type="module" crossorigin src="/assets/index.Y18tRf0X.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index.rM4SzmXs.css">
 </head>
 <body>
-<main class="card">
-  <div class="brand">RUNECLAW</div>
-  <div class="eyebrow">● AI trading · Bitget USDT-M futures</div>
-  <h1>The platform has a new home.</h1>
-  <p>RUNECLAW is now a full web platform: register in a minute, chat with the engine, paper-trade through the real risk gate, and follow the autonomous scanner live.</p>
-  <div class="btns">
-    <a class="btn btn--primary" id="platformBtn" href="#" hidden>Open the RUNECLAW platform →</a>
-    <a class="btn" href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">Telegram bot</a>
-    <a class="btn" href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener">Docs</a>
-  </div>
-  <div class="foot">
-    Built by Humanoid Traders · <a href="privacy.html">Privacy</a> · <a href="submission.html">Hackathon submission (archive)</a>
-  </div>
-</main>
-<script>
-  // The platform runs as a separate deployment; its URL is operator-config
-  // (WEBSITE_URL). Ask whichever backend serves this page — api_bridge
-  // exposes /platform-url directly, nginx proxies it under /api/.
-  (async () => {
-    const btn = document.getElementById('platformBtn');
-    for (const path of ['/platform-url', '/api/platform-url']) {
-      try {
-        const r = await fetch(path);
-        if (!r.ok) continue;
-        const d = await r.json();
-        if (d && d.url) { btn.href = d.url; btn.hidden = false; return; }
-      } catch (e) { /* try next */ }
-    }
-    // No platform URL configured: Telegram/Docs stay as the CTAs.
-  })();
-</script>
+<div id="root"><a class="skip-link" href="#main">Skip to content</a><header class="sticky top-0 z-50 border-b border-line bg-bg/85 backdrop-blur-md"><nav class="mx-auto flex max-w-6xl items-center gap-6 px-5 py-3.5" aria-label="Primary"><a class="shrink-0 text-ink hover:text-ink active" href="/" data-status="active" aria-current="page"><span class="inline-flex items-center gap-2.5"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" class="text-accent"><path d="M12 1.6 21 6.8v10.4L12 22.4 3 17.2V6.8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path><path d="M9 16V8h3.4a2.6 2.6 0 0 1 0 5.2H9.6L14 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="font-[family-name:var(--font-brand)] text-[17px] font-bold tracking-[0.1em]">RUNECLAW</span></span></a><ul class="ml-auto hidden items-center gap-6 md:flex"><li><a href="/privacy" class="text-sm text-ink-2 transition-colors hover:text-ink">Privacy</a></li></ul><div class="ml-auto flex items-center gap-2 md:ml-0"><a data-platform-path="" hidden="" class="inline-flex min-h-11 items-center justify-center rounded-md px-5 py-2.5 text-sm font-semibold transition-colors bg-accent text-bg hover:bg-accent-bright !px-4">Open platform</a><a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener" class="inline-flex min-h-11 items-center rounded-md border border-line-2 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent-bright">Telegram</a></div></nav></header><main id="main"><!--$--><section class="relative overflow-hidden border-b border-line"><div aria-hidden="true" class="pointer-events-none absolute inset-0 opacity-70" style="background:radial-gradient(60rem 32rem at 50% -10%, var(--gold-dim), transparent 70%)"></div><div class="relative mx-auto max-w-4xl px-5 py-24 text-center sm:py-32"><p class="data mb-5 inline-flex items-center gap-2 rounded-full border border-line-2 px-3 py-1 text-xs text-ink-2"><span class="size-1.5 rounded-full bg-up" aria-hidden="true"></span>Simulation-first · human-confirmed</p><h1 class="font-[family-name:var(--font-brand)] font-bold leading-[1.05] tracking-tight" style="font-size:var(--text-hero)">The AI trading engine you can talk to.</h1><p class="mx-auto mt-6 max-w-2xl text-ink-2" style="font-size:var(--text-lead)">Paper by default, risk-gated, human-confirmed — and every call is hashed before the market moves.</p><div class="mt-9 flex flex-wrap items-center justify-center gap-3"><a data-platform-path="" hidden="" class="inline-flex min-h-11 items-center justify-center rounded-md px-5 py-2.5 text-sm font-semibold transition-colors bg-accent text-bg hover:bg-accent-bright ">Paper trade — free</a><a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener" class="inline-flex min-h-11 items-center justify-center rounded-md border border-line-2 px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent-bright">Talk to it on Telegram</a></div></div></section><section class="mx-auto max-w-5xl px-5 py-20"><div class="reveal overflow-hidden rounded-xl border border-line bg-surface"><video controls="" preload="metadata" playsInline="" class="block aspect-video w-full bg-surface-2"><source src="/demo-recording.mp4" type="video/mp4"/><source src="/demo-recording.webm" type="video/webm"/>Your browser cannot play embedded video.<!-- --> <a href="/demo-recording.mp4">Download the demo (MP4)</a>.</video></div><p class="mt-3 text-center text-xs text-ink-3">A recorded session. Not a live feed.</p></section><section class="mx-auto max-w-6xl px-5 py-20"><h2 class="font-[family-name:var(--font-brand)] font-bold" style="font-size:var(--text-h2)">Don’t trust it. Check it.</h2><p class="mt-3 max-w-2xl text-ink-2">The record is designed to be verified by someone who does not trust the operator — including you.</p><ul class="mt-8 grid gap-4 sm:grid-cols-3"><li><a data-platform-path="/proof" class="reveal block h-full rounded-xl border border-line bg-surface p-5 transition-colors [&amp;[href]]:hover:border-accent"><span class="text-sm font-semibold text-accent">Verify a call</span><span class="mt-2 block text-sm leading-relaxed text-ink-2">Every decision is hashed before the market moves. Check one yourself.</span></a></li><li><a data-platform-path="/arena" class="reveal block h-full rounded-xl border border-line bg-surface p-5 transition-colors [&amp;[href]]:hover:border-accent"><span class="text-sm font-semibold text-accent">Enter the arena</span><span class="mt-2 block text-sm leading-relaxed text-ink-2">Paper-trade against the engine. No deposit, no keys.</span></a></li><li><a data-platform-path="/provable" class="reveal block h-full rounded-xl border border-line bg-surface p-5 transition-colors [&amp;[href]]:hover:border-accent"><span class="text-sm font-semibold text-accent">How the proof works</span><span class="mt-2 block text-sm leading-relaxed text-ink-2">The full verification contract, in public.</span></a></li></ul><p class="mt-6 text-xs text-ink-3">These open on the live platform. Docs live at<!-- --> <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" class="text-ink-2 underline">the handbook</a>.</p></section><script>(function(a,f){let l;try{l=JSON.parse(sessionStorage.getItem(a)||"{}")}catch{return}const n=l?.[f||history.state?.__TSR_key];let c=!1;for(const t in n){const e=n[t],o=e?.scrollX,s=e?.scrollY;if(Number.isFinite(o)&&Number.isFinite(s)){if(t==="window")scrollTo(o,s),c=!0;else if(t)try{const r=document.querySelector(t);r&&(r.scrollLeft=o,r.scrollTop=s)}catch{}}}if(c)return;const i=location.hash.slice(1);if(i){const t=history.state?.__hashScrollIntoViewOptions??!0;if(t){const e=document.getElementById(i);e&&e.scrollIntoView(t)}return}scrollTo(0,0)})("tsr-scroll-restoration-v1_3");document.currentScript.remove()</script><!--/$--></main><footer class="mt-24 border-t border-line"><div class="mx-auto max-w-6xl px-5 py-12"><div class="flex flex-wrap items-start justify-between gap-8"><div class="max-w-sm"><span class="inline-flex items-center gap-2.5"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" class="text-accent"><path d="M12 1.6 21 6.8v10.4L12 22.4 3 17.2V6.8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path><path d="M9 16V8h3.4a2.6 2.6 0 0 1 0 5.2H9.6L14 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="font-[family-name:var(--font-brand)] text-[17px] font-bold tracking-[0.1em]">RUNECLAW</span></span><p class="mt-3 text-sm text-ink-3">The AI trading engine you can talk to.</p></div><nav aria-label="Footer" class="flex flex-wrap gap-x-10 gap-y-3 text-sm"><ul class="space-y-2"><li><a href="/privacy" class="text-ink-2 hover:text-ink">Privacy</a></li><li><a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" class="text-ink-2 hover:text-ink">Docs</a></li><li><a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener" class="text-ink-2 hover:text-ink">Telegram</a></li><li><a href="/archive/hackathon" class="text-ink-2 hover:text-ink">Hackathon archive</a></li></ul></nav></div><p class="mt-10 border-t border-line pt-6 text-xs leading-relaxed text-ink-3">RUNECLAW is trading software, not financial advice. Nothing here is a recommendation to buy or sell any asset. Trading leveraged cryptocurrency carries substantial risk of loss, including loss of your entire balance. Past or simulated performance does not indicate future results. 18+.</p></div></footer></div>
 </body>
 </html>

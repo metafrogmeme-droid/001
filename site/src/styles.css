@@ -1,0 +1,108 @@
+/**
+ * RUNECLAW site stylesheet.
+ *
+ * Tokens come from `tokens.css`, which is GENERATED from the platform's
+ * `app/public/styles.css`. Nothing here may hand-write a brand colour — see
+ * site/scripts/tokens.mjs for why that rule exists and what it cost.
+ */
+@import './tokens.css';
+@import 'tailwindcss';
+
+/* Bridge the derived tokens into Tailwind v4's theme so utilities compile from
+   the SAME values the platform uses. Referencing var() rather than restating a
+   hex is the whole point: there is one definition and it lives upstream. */
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-accent: var(--gold);
+  --color-accent-bright: var(--gold-bright);
+  --color-steel: var(--steel);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-warn: var(--warn);
+  --color-ink: var(--text);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+
+  /* Type. system-ui for UI, a serif for the wordmark, mono for data.
+     No webfont download: the platform self-hosts Cinzel and Inter behind its
+     own CSP, and a marketing page that blocks first paint on a font request is
+     arguing against itself. */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-brand: Georgia, 'Times New Roman', serif;
+  --font-data: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  /* Fluid scale. clamp() rather than breakpoint steps so 390px and 1440px are
+     both first-class instead of one being the other's leftovers. */
+  --text-hero: clamp(2.25rem, 1.2rem + 4.4vw, 4.5rem);
+  --text-h2: clamp(1.5rem, 1.05rem + 1.9vw, 2.5rem);
+  --text-lead: clamp(1.0625rem, 0.98rem + 0.38vw, 1.25rem);
+}
+
+html { color-scheme: dark; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Every motion in this file is opt-out. The old site ran GSAP fades with no
+   reduced-motion query at all, which is a vestibular-trigger shipped to people
+   who explicitly asked their OS not to. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Skip link — the static pages had none, on a site whose first interactive
+   element sits behind a nav. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 100;
+  background: var(--gold);
+  color: var(--bg);
+  padding: 0.75rem 1.25rem;
+  border-radius: 0 0 6px 0;
+  font-weight: 600;
+}
+.skip-link:focus { left: 0; top: 0; }
+
+/* Scroll-driven reveal in pure CSS. No GSAP: 90KB of JavaScript to fade a
+   heading in is a performance budget spent on decoration, and it degrades to
+   nothing when the script fails. This degrades to "already visible". */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 32%;
+    }
+  }
+}
+@keyframes reveal-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Data figures are mono and tabular so a column of numbers lines up and a
+   changing value does not reflow its neighbours. */
+.data { font-family: var(--font-data); font-variant-numeric: tabular-nums; }

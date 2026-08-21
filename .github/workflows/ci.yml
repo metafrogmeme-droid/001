@@ -240,6 +240,56 @@ jobs:
             echo "::warning::Anchor placeholder program id is still present. Run 'anchor keys sync' before any deployment (docs/TOKEN_ROADMAP.md, 'Before any deployment holding value')."
           fi
 
+  site:
+    name: Marketing site (vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install (locked)
+        working-directory: site
+        run: npm ci --no-audit --no-fund
+
+      # The build is the gate. `site/` compiles React 19 + TanStack Router +
+      # Tailwind v4 into static HTML in `website/`, which api_bridge.py serves
+      # straight from the checkout — so a build that fails here is a site that
+      # cannot be regenerated, and a build that SUCCEEDS but emits an empty
+      # shell is a site that is blank to every crawler. prerender.js refuses to
+      # write a page under 200 bytes of markup for exactly that reason.
+      #
+      # It also regenerates the design tokens from app/public/styles.css and
+      # fails if that file moved — the marketing site's brand is derived from
+      # the platform's, never copied. A copy is what drifted last time.
+      - name: Build — static site + prerender
+        working-directory: site
+        run: npm run build
+
+      # Asserts properties of the BUILT OUTPUT, not the source: absolute share
+      # urls, real markup rather than a JS shell, every local link resolving,
+      # no baked-in market price, no CDN script, the archive noindexed, and the
+      # client payload staying small.
+      - name: Tests — published-output honesty
+        working-directory: site
+        run: npm test
+
+      # A dirty tree here means the committed `website/` is not what `site/`
+      # produces — someone edited the generated output by hand, or built and
+      # did not commit. Either way the deployed site and its source disagree,
+      # silently, until the next build overwrites the edit.
+      - name: The committed site is the built site
+        run: |
+          git diff --stat -- website/ | tail -5
+          git diff --quiet -- website/ || {
+            echo "::error::website/ differs from what site/ builds — commit the rebuild"
+            exit 1
+          }
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
