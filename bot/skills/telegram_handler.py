@@ -1638,16 +1638,34 @@ class TelegramHandler:
                 # can be priced; a rate of None means nothing could be.
                 _ws = _win_stats(live_closed)
                 wins = _ws["wins"]
-                win_rate_val = _ws["rate"] if _ws["rate"] is not None else 0
-                total_pnl = sum(t.pnl_usd or 0 for t in live_closed)
-                total_fees = sum(t.commission or 0 for t in live_closed)
+                # ...and then the very next line put the 0 back. The comment
+                # above is right and the code under it rendered `0%`, which to
+                # a reader — and to the MODEL this string is fed to — is the
+                # claim that every trade lost. This is the LLM's context, so a
+                # manufactured zero does not just mislead a person, it shapes
+                # the advice that comes back.
+                _rate = _ws["rate"]
+                _wr_ctx = "not measurable" if _rate is None else f"{_rate:.0%}"
+                # Same rule for the totals: `t.pnl_usd or 0` inside a sum makes
+                # a partial figure look like a whole one. Count the priced rows
+                # and say so when some were not.
+                _priced_rows = [t for t in live_closed
+                                if getattr(t, "pnl_usd", None) is not None]
+                total_pnl = sum(float(t.pnl_usd) for t in _priced_rows)
+                _pnl_ctx = (f"${total_pnl:+,.2f}" if _priced_rows or not live_closed
+                            else "not measurable")
+                _fee_rows = [t for t in live_closed
+                             if getattr(t, "commission", None) is not None]
+                total_fees = sum(float(t.commission) for t in _fee_rows)
+                _fee_ctx = (f"${total_fees:.2f}" if _fee_rows or not live_closed
+                            else "not measurable")
                 _eq_ctx = (f"~${eq_display:,.2f}" if eq_display is not None
                            else "unavailable (live balance temporarily unreadable)")
                 portfolio_summary = (
                     f"{len(live_open)} open positions, "
                     f"equity {_eq_ctx}, "
-                    f"net PnL ${total_pnl:+,.2f} (fees ${total_fees:.2f}), "
-                    f"win rate {win_rate_val:.0%}"
+                    f"net PnL {_pnl_ctx} (fees {_fee_ctx}), "
+                    f"win rate {_wr_ctx}"
                     + (f" (over {_ws['scored']} of {total_trades} — "
                        f"{_ws['unscored']} have no recorded P&L)"
                        if _ws["unscored"] else "")
@@ -9262,10 +9280,39 @@ class TelegramHandler:
             adopted_trades = [t for t in all_closed
                               if any(getattr(t, "trade_id", "").startswith(p) for p in _ORPHAN_PREFIXES)]
 
-            # Calculate live PnL from closed positions (net of fees)
-            live_total_pnl = sum((p.pnl_usd or 0) for p in live_closed)
-            live_total_fees = sum((p.commission or 0) for p in live_closed)
-            live_total_gross = sum((p.gross_pnl or p.pnl_usd or 0) for p in live_closed)
+            # Calculate live PnL from closed positions (net of fees).
+            #
+            # THE LINE THE COMMENT BELOW WAS WRITTEN FOR. Five lines down, the
+            # UNREALIZED total was rewritten to count what marked and say so
+            # when the count was short, under the sentence "a partial sum
+            # presented as a whole one is a wrong number wearing a measured
+            # number's authority". This line was left as
+            #
+            #     sum((p.pnl_usd or 0) for p in live_closed)
+            #
+            # which is that exact defect on the REALIZED total — the bigger of
+            # the two claims, because it is the money already gone.
+            #
+            # `pnl_usd` is None by design, not by accident: live_executor's
+            # loader preserves a JSON null verbatim, under its own comment
+            # recording that `float(x or 0)` reading it back as 0.0 "silently
+            # converted 'we could not price this' into 'this broke even'".
+            #
+            # This function already KNOWS: `_win_stats` + `_unpriced_tag` below
+            # print the unpriced count on the Session line. So the card
+            # disclosed the unpriced closes for the W/L counts and folded the
+            # same rows into Net as break-even, on one line, in one message.
+            from bot.formatters.realized_totals import realized_totals
+            _rt = realized_totals(live_closed)
+            _pnl_known = _rt["net"] is not None
+            _fees_known = _rt["fees"] is not None
+            _unpriced_closes = _rt["unpriced"]
+            # Kept as floats for the existing format strings; the display
+            # branches below gate on the *_known flags, so a None total can
+            # never reach a `:+,.2f`.
+            live_total_pnl = _rt["net"] if _pnl_known else 0.0
+            live_total_fees = _rt["fees"] if _fees_known else 0.0
+            live_total_gross = _rt["gross"] if _rt["gross"] is not None else 0.0
             # Unrealized P&L for open positions -- the SAME rule /open_positions
             # now enforces, because this surface was left with the disease
             # after that one was cured. Two bugs sat in the old two lines:
@@ -9305,6 +9352,22 @@ class TelegramHandler:
             if _pending_count > 0:
                 _pos_display += f" + {_pending_count} pending"
 
+            # The realized line, built the way the unrealized one below is:
+            # three outcomes, and the shortfall said out loud when it is
+            # partial. Colour is a claim — a green accent asserts "in profit"
+            # as loudly as the number, and `>= 0` would have painted the
+            # manufactured 0.00 green, which is the reading that costs most.
+            if not _pnl_known:
+                _net_pnl_line = (f"- {t('lbl_net_pnl', lang)}: "
+                                 f"<code>{t('pnl_unknown', lang)}</code> ⚠️")
+            else:
+                _net_pnl_line = (f"- {t('lbl_net_pnl', lang)}: "
+                                 f"<code>${live_total_pnl:+,.2f}</code> "
+                                 f"{'🟢' if live_total_pnl >= 0 else '🔴'}")
+                if _unpriced_closes:
+                    _net_pnl_line += (f" ⚠️ <i>"
+                                      f"{t('total_partial', lang, n=_unpriced_closes)}</i>")
+
             lines = [
                 f"\U0001f4bc <b>{t('portfolio_title', lang)}</b> (LIVE)",
                 sep,
@@ -9312,8 +9375,11 @@ class TelegramHandler:
                 f"- {t('lbl_equity', lang)}: <code>{_eq_str}</code>",
                 f"- {t('lbl_open_positions', lang)}: <code>{_pos_display}</code>",
                 f"- {t('lbl_exposure', lang)}: <code>${live_exposure:,.2f}</code>",
-                f"- {t('lbl_net_pnl', lang)}: <code>${live_total_pnl:+,.2f}</code> {'🟢' if live_total_pnl >= 0 else '🔴'}",
-                f"- {t('lbl_fees_paid', lang)}: <code>${live_total_fees:,.2f}</code>",
+                _net_pnl_line,
+                (f"- {t('lbl_fees_paid', lang)}: <code>${live_total_fees:,.2f}</code>"
+                 if _fees_known else
+                 f"- {t('lbl_fees_paid', lang)}: "
+                 f"<code>{t('pnl_unknown', lang)}</code> ⚠️"),
             ]
             if live_open and _marked == 0:
                 # Every mark missing. A "$0.00" here, or the old silent
@@ -9380,12 +9446,21 @@ class TelegramHandler:
                 # for the whole function — so every t('key', lang) call above
                 # raises UnboundLocalError before this loop is ever reached.
                 for tr in recent:
-                    pnl_val = tr.pnl_usd or 0
+                    # Per-row, the same rule as the total. `tr.pnl_usd or 0`
+                    # with `>= 0` rendered an unpriced close as
+                    # "✅ BTCUSDT LONG → $+0.00" — a tick and a measured
+                    # break-even for a trade nobody could price. ⚪ and an em
+                    # dash say the one true thing instead.
+                    _p = getattr(tr, "pnl_usd", None)
                     fee_val = tr.commission or 0
-                    pnl_icon = "✅" if pnl_val >= 0 else "❌"
                     pair = tr.symbol.replace("/", "").replace(":USDT", "")
                     fee_note = f" (fee ${fee_val:.2f})" if fee_val > 0 else ""
-                    lines.append(f"  {pnl_icon} {pair} {tr.direction} → <code>${pnl_val:+,.2f}</code>{fee_note}")
+                    if _p is None:
+                        lines.append(f"  ⚪ {pair} {tr.direction} → <code>—</code>{fee_note}")
+                    else:
+                        pnl_val = float(_p)
+                        pnl_icon = "✅" if pnl_val >= 0 else "❌"
+                        lines.append(f"  {pnl_icon} {pair} {tr.direction} → <code>${pnl_val:+,.2f}</code>{fee_note}")
 
             # Session tally from LiveExecutor
             if live_closed:
@@ -9395,13 +9470,21 @@ class TelegramHandler:
                 _ws = _win_stats(live_closed)
                 wins = _ws["wins"]
                 losses = _ws["scored"] - wins
-                wr = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
+                # `else 0` printed "0%" when NOTHING was scorable. A 0% win
+                # rate is a claim that everything lost — the public daily post
+                # says so in its own comment and renders 'n/a'; this line, on
+                # the surface the operator actually reads, still printed the
+                # confident negative.
+                _rate = _ws["rate"]
+                _wr_str = "n/a" if _rate is None else f"{_rate * 100:.0f}%"
+                _net_str = (f"${live_total_pnl:+,.2f}" if _pnl_known
+                            else "unreadable")
                 lines.extend([
                     "", sep, "",
                     f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L"
                     + _unpriced_tag(_ws) + " | "
-                    + f"{t('lbl_net', lang)}: <code>${live_total_pnl:+,.2f}</code> | "
-                    + f"{t('lbl_win_rate_lc', lang)}: <code>{wr:.0f}%</code>",
+                    + f"{t('lbl_net', lang)}: <code>{_net_str}</code> | "
+                    + f"{t('lbl_win_rate_lc', lang)}: <code>{_wr_str}</code>",
                 ])
                 if adopted_trades:
                     adopted_pnl = sum((t.pnl_usd or 0) for t in adopted_trades)
@@ -11796,7 +11879,12 @@ class TelegramHandler:
             total_trades = len(user_trades)
             _ws = _win_stats(user_trades)
             wins = _ws["wins"]
-            win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else 0
+            # None travels. `... if rate is not None else 0` converted "nothing
+            # could be scored" into "everything lost" one layer ABOVE the
+            # renderer, so no amount of care in render_performance could
+            # recover it — the card was handed a measured-looking 0.0 and had
+            # no way to know. win_stats returns None for a reason; pass it on.
+            win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
             total_pnl = sum((t.pnl_usd or 0) for t in user_trades)
 
             # ── Date-filtered PnL ──

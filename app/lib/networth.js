@@ -80,9 +80,36 @@ async function buildNetWorth(ident, userId) {
       sections.wallet = { linked: false };
     } else {
       const p = await wallet.getWalletPortfolio(address);
+      // KEEPING total_usd AND DROPPING p.chains DESTROYED THE ONLY EVIDENCE.
+      //
+      // readChain() never throws — a chain whose RPC is down returns
+      // `{assets: [], total_usd: 0, error: 'rpc unreadable'}` — and readWallet
+      // sums those zeros. So a dead chain contributes 0 to a total that is
+      // then presented as the whole wallet. Discarding `chains` here meant
+      // nothing downstream could tell a $0 chain from an unread one.
+      //
+      // The sibling reading the identical payload gets this right:
+      // holdings.js does `total_usd: c.error ? null : ...` plus an
+      // `anyUnreadable` flag, and the /web3 panel on the same dashboard says
+      // "ethereum, arbitrum unreadable right now (RPC)". Two panels, one
+      // dataset, opposite claims — the fix landed on one and not the other.
+      // test/networth_connected_honesty.test.js records the production case:
+      // "Three chains all reported 'rpc unreadable'".
+      //
+      // OMIT is wrong here and GUARD is right: this is a single-source total,
+      // and a wallet total missing a chain is not a smaller wallet, it is an
+      // unknown one. dashboard.js ALREADY renders `total_usd != null ? ... :
+      // 'unreadable'` — the honest branch existed and was simply never
+      // reachable, because this line could not produce null.
+      const _chains = (p && Array.isArray(p.chains)) ? p.chains : [];
+      const _unreadable = _chains.filter((c) => c && c.error);
       sections.wallet = p
-        ? { linked: true, address: p.address, total_usd: p.total_usd,
-            assets: p.assets.length, unpriced: p.unpriced }
+        ? { linked: true, address: p.address,
+            total_usd: _unreadable.length ? null : p.total_usd,
+            assets: p.assets.length, unpriced: p.unpriced,
+            // Carry WHY, and which — an operator cannot act on "unreadable".
+            unreadable_chains: _unreadable.map((c) => c.label || c.chain),
+            partial: _unreadable.length > 0 }
         : { linked: true, available: false };
     }
   } catch (e) {
@@ -112,13 +139,24 @@ async function buildNetWorth(ident, userId) {
   // Real total: only real money. Paper stays out by design.
   let total = 0;
   let counted = 0;
+  // `Number.isFinite`, not the global. The global COERCES first, so
+  // `isFinite(null)` is TRUE (Number(null) === 0) and `isFinite('')` is TRUE
+  // — both would count an absent reading as a measured zero, and the null
+  // this function now produces for an unreadable wallet would have sailed
+  // straight through the guard meant to catch it. Number.isFinite(null) is
+  // false, which is the question actually being asked.
+  let unknown = 0;
   if (sections.cex && sections.cex.connected && sections.cex.ok
-      && isFinite(sections.cex.equity_usd)) {
+      && Number.isFinite(sections.cex.equity_usd)) {
     total += Number(sections.cex.equity_usd); counted++;
+  } else if (sections.cex && sections.cex.connected) {
+    unknown++;
   }
   if (sections.wallet && sections.wallet.linked
-      && isFinite(sections.wallet.total_usd)) {
+      && Number.isFinite(sections.wallet.total_usd)) {
     total += Number(sections.wallet.total_usd); counted++;
+  } else if (sections.wallet && sections.wallet.linked) {
+    unknown++;
   }
 
   return {
@@ -126,8 +164,19 @@ async function buildNetWorth(ident, userId) {
     sections,
     total_real_usd: counted ? round2(total) : null,
     sources_counted: counted,
+    // OMIT, with the omission stated. A composite of two sources should not
+    // blank because one died — but a partial sum printed as "Real net worth"
+    // is a wrong number wearing a measured number's authority, so the caller
+    // is told how many sources it is missing rather than being left to infer
+    // it from `sources_counted` alone.
+    sources_unknown: unknown,
+    partial: counted > 0 && unknown > 0,
     note: 'Real total = connected exchange + on-chain wallet. '
-      + 'Paper equity is simulated and never included.',
+      + 'Paper equity is simulated and never included.'
+      + (counted > 0 && unknown > 0
+          ? ` ${unknown} source${unknown === 1 ? '' : 's'} could not be read, `
+            + 'so this total is incomplete.'
+          : ''),
     generated_at: new Date().toISOString(),
   };
 }

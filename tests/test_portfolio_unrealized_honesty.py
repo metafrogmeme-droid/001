@@ -77,12 +77,34 @@ class TestThePartialTotalDisclosesItself:
         )
 
     def test_a_complete_book_adds_no_caveat(self):
-        # The caveat is inside `if _unmarked:`, so a fully marked book is
-        # quiet. A banner on every healthy render is how a real one is
-        # skipped.
+        # The caveat must sit behind a shortfall check, so a fully readable
+        # book is quiet. A banner on every healthy render is how a real one
+        # gets skipped.
+        #
+        # THIS ASSERTION USED `block.index("total_partial")` — the FIRST
+        # occurrence — and asserted `if _unmarked:` preceded it. That pinned
+        # ONE site and read as though it pinned the rule. When the REALIZED
+        # total gained the same caveat (guarded by `if _unpriced_closes:`) it
+        # landed earlier in the function, `index()` found the new one, and the
+        # test failed over a correctly guarded line while still never checking
+        # the second. Same shape as the `/portfolio` label pinned by grepping
+        # the file that builds it: it passed with the label present AND moved
+        # below the thing it labelled.
+        #
+        # Every occurrence now, so a third caveat is covered the day it is
+        # written rather than the day someone remembers.
         block = _portfolio_block()
-        i = block.index("total_partial")
-        assert "if _unmarked:" in block[i - 200:i]
+        guards = ("if _unmarked:", "if _unpriced_closes:")
+        sites = [i for i in range(len(block))
+                 if block.startswith("total_partial", i)]
+        assert sites, "the caveat vanished entirely"
+        for i in sites:
+            window = block[max(0, i - 200):i]
+            assert any(g in window for g in guards), (
+                f"a total_partial caveat at offset {i} is not behind a "
+                f"shortfall check; one of {guards} must precede it:\n"
+                f"...{window[-160:]}"
+            )
 
 
 class TestTheArithmeticItself:
