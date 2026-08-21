@@ -387,6 +387,16 @@ RULES: list[Rule] = [
             "track",       # mounted under /api/public
             "mcp",         # its header enumerates the public-data tools it exposes
             "tool8257",    # ERC-8257 manifest over the SAME read-only registry as /mcp
+            "discovery",   # /.well-known/mcp.json and the ai-tool slug index. A
+                           # DISCOVERY document is public by construction: it is
+                           # what a caller reads BEFORE it has any credential, so
+                           # authenticating it would make it unreachable by the
+                           # only audience it has. Its payload is the endpoint
+                           # URL, the protocol version, the auth INSTRUCTIONS,
+                           # and counts derived from the same registry `mcp` and
+                           # `tool8257` already publish — no account, no user
+                           # store, no dollar figure in reach, and it reads
+                           # nothing from the request but the host header.
             "server",      # app/server.js: 29 of its 37 routes are res.sendFile of a
                            # static page, plus /api/version, assetlinks.json, robots.txt
                            # and the leaderboard/arena/trader pages. It is the WEBSITE.

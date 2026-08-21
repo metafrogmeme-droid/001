@@ -360,6 +360,13 @@ app.use('/api/ingest', require('./routes/ingest'));
 app.use('/mcp', require('./routes/mcp'));
 // ERC-8257 tool surface (well-known manifest + invoke endpoint + operator
 // registration plan) — mounted at root because /.well-known/ is absolute.
+// Agent discovery front door. MOUNTED BEFORE tool8257 DELIBERATELY: that
+// router's `/.well-known/ai-tool/:slug.json` pattern matches `index.json` with
+// slug="index" and returns 404 "unknown tool", so mounting discovery second
+// made its own advertised index URL dead. Caught by fetching the document this
+// file serves rather than by reading it.
+app.use(require('./routes/discovery'));
+
 app.use(require('./routes/tool8257'));
 app.use('/api/public/status', require('./routes/public_status'));
 // GET /api/version — which commit is serving this process. Public build

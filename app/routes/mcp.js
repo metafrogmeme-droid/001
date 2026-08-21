@@ -1169,3 +1169,9 @@ module.exports.TOOLS = TOOLS;
 // to reach the read-only registry above.
 module.exports.WRITE_TOOLS = WRITE_TOOLS;
 module.exports.validateArgs = validateArgs;
+// Exported so the discovery document at /.well-known/mcp.json states the same
+// name, version and protocol this server actually answers with, rather than a
+// second copy that drifts. A discovery doc advertising a protocol version the
+// server does not speak is worse than no discovery doc.
+module.exports.SERVER_INFO = SERVER_INFO;
+module.exports.PROTOCOL_VERSION = PROTOCOL_VERSION;
