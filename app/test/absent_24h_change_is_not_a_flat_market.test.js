@@ -242,3 +242,78 @@ test('the dashboard RWA cell routes through the guarded helper', () => {
     'the cell is colouring a value it prints as an em-dash again');
   assert.match(src, /moveClass\(t\.change_24h_pct\)/);
 });
+
+// ── the other half of the same map: volume ──────────────────────────────────
+//
+// `volume` kept its `|| 0` when `change` was fixed, on the reasoning that an
+// unreadable volume drops a token OUT of volume weighting rather than into it,
+// which is the safe direction. That was true of the weighting and false
+// everywhere else — and the counter-example was a SAFETY surface.
+
+test('an unreported volume does not raise a thin-books safety flag', () => {
+  // token_safety.js holds exactly the right guard —
+  //     const volume = ticker ? num(ticker.volume) : null;
+  //     if (volume != null && volume < THIN_VOLUME_USD) ...
+  // — and `num()` maps non-finite to null, so the guard was correct and the
+  // `|| 0` upstream defeated it. A token the venue reported no volume for was
+  // told to the user as "thin books slip harder and are easier to push
+  // around", on the surface whose whole job is safety.
+  const { buildSafetyRead } = require('../lib/token_safety');
+  const keys = (t) => buildSafetyRead({ base: 'FOO', ticker: t, pair: null, context: {} })
+    .flags.map((f) => f.key);
+
+  assert.ok(!keys({ price: 1, change: 2, volume: null }).includes('thin-cex-volume'),
+    'a safety flag was raised from a volume nobody read');
+  // THE RED HERRING: a genuinely thin token must still be flagged.
+  assert.ok(keys({ price: 1, change: 2, volume: 50_000 }).includes('thin-cex-volume'),
+    'a genuinely thin book stopped being flagged — the mirror defect');
+  assert.ok(!keys({ price: 1, change: 2, volume: 900e6 }).includes('thin-cex-volume'));
+});
+
+test('the ticker map no longer manufactures a zero volume', () => {
+  const src = codeOnly(
+    fs.readFileSync(path.join(__dirname, '..', 'lib', 'tickers.js'), 'utf8'));
+  assert.ok(!/volume:\s*parseFloat\([^)]*\)\s*\|\|\s*0/.test(src),
+    'the `|| 0` is back on volume at the root of the shared map');
+  assert.match(src, /Number\.isFinite\(vol\)/);
+});
+
+test('a sector volume total covers only the tokens that reported one', () => {
+  const all = listed(buildRadar(tickers()))[0];
+  const one = listed(buildRadar((() => {
+    const m = tickers(); m.ONDOUSDT = { ...m.ONDOUSDT, volume: null }; return m;
+  })()))[0];
+  assert.ok(one.volume_24h_usd < all.volume_24h_usd,
+    'an unread volume was counted into the sector total as something');
+  assert.equal(one.tokens.find((t) => t.base === 'ONDO').volume_24h_usd, null);
+});
+
+test('an unread volume is excluded from weighting, not weighted at zero', () => {
+  // A zero WEIGHT and an unknown weight look identical in the arithmetic —
+  // `a + null` is `a` — so this pins the intent rather than the coercion.
+  const m = tickers();
+  m.ONDOUSDT = { ...m.ONDOUSDT, volume: null, change: 99 };   // wild mover, no volume
+  const c = listed(buildRadar(m))[0];
+  assert.ok(Math.abs(c.change_24h_pct - 5) < 1e-9,
+    `a token with no readable volume moved the weighted average to ${c.change_24h_pct}`);
+});
+
+test('the research card does not print $0 for a volume it never read', () => {
+  const src = codeOnly(
+    fs.readFileSync(path.join(__dirname, '..', 'lib', 'research.js'), 'utf8'));
+  const i = src.indexOf('function fmtVol');
+  assert.ok(i >= 0, 'fmtVol moved');
+  const body = src.slice(i, i + 400);
+  assert.ok(!/Number\(v\)\s*\|\|\s*0/.test(body), 'fmtVol still floors to zero');
+  assert.match(body, /v == null/);
+});
+
+test('a duel ranks an unknown volume below every known one', () => {
+  const src = codeOnly(
+    fs.readFileSync(path.join(__dirname, '..', 'lib', 'duel.js'), 'utf8'));
+  const i = src.indexOf('const vol = (sym)');
+  assert.ok(i >= 0, 'the volume ranker moved');
+  // `Number(null)` is 0 AND finite, so the isFinite check alone ranked an
+  // unknown volume as a measured zero — above the -1 reserved for unknown.
+  assert.match(src.slice(i, i + 400), /raw == null/);
+});
