@@ -441,8 +441,13 @@ jobs:
 
       # SCA — deliberately a RATCHET, not `npm audit --audit-level=high`.
       #
-      # This tree carries 1 critical and 15 high advisories today, nearly all
-      # transitive through the Wormhole SDK. A plain --audit-level=high gate
+      # This tree carries 0 critical and 9 high advisories today (35 in total),
+      # nearly all transitive through the Wormhole SDK. Those numbers are the
+      # ones recorded in token/.audit-baseline.json and are pinned against it by
+      # tests/test_documented_counts_are_real.py — the previous text said "1
+      # critical and 15 high", which the gate's own output had contradicted for
+      # some time. A number in prose is the part that rots first.
+      # A plain --audit-level=high gate
       # would be red on its first run and stay red on every unrelated PR, which
       # trains people to merge past a red check rather than fixing anything.
       # The known set is committed to token/.audit-baseline.json; this fails only

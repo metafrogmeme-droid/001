@@ -19,7 +19,7 @@ designed to consume:
 | Sealed Proof-of-PnL statement | `/proof`, `/api/public/proofofpnl`, MCP `get_proof_of_pnl` | `publish_hash = SHA-256(canonical bundle)`; any consumer re-derives it in any language |
 | Signed verification | server-side re-derivation + Ed25519 | `verify_card` re-checks hash and signature; failures are reported, never hidden |
 | On-chain anchor | card `anchor` field | **Honestly UNVERIFIED** until a real transaction confirms it — no anchoring claim is ever fabricated |
-| Machine-consumable tools | `POST /mcp` (17 read-only tools), documented at `/developers` | Any MCP-capable agent consumes the above without trusting this server: the re-derivation recipe rides the payload |
+| Machine-consumable tools | `POST /mcp` (30 read-only tools + 3 key-gated Arena tools), discoverable at `/.well-known/mcp.json`, documented at `/developers` | Any MCP-capable agent consumes the above without trusting this server: the re-derivation recipe rides the payload |
 
 The design principle carried through all of it: **counterparties verify
 artifacts, not reputations.** An agent deciding whether to trust RUNECLAW's
