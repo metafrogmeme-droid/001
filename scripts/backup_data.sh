@@ -104,6 +104,78 @@ if [ "${1:-}" = "--verify-restore" ]; then
             fi
         fi
     done
+    # ── Coverage: ask the LIVE TREE, never a list somebody maintained ────────
+    #
+    # The three files checked above are INFRASTRUCTURE — vault, db, chain. The
+    # header of this script names something else as the point: "open/closed
+    # positions, risk state, the learning store ... The learning loop's value
+    # COMPOUNDS in these files — losing them resets months of accumulated
+    # evidence." None of that was ever checked. Demonstrated 2026-08-21: an
+    # archive holding exactly those three members, against a live tree also
+    # holding closed_trades.json, live_positions.json, risk_state_alice.json
+    # and data/learning/, printed
+    #
+    #     [verify]   OK      data/secrets_vault.enc (11 bytes)
+    #     [verify] restore drill PASSED
+    #
+    # A hand-kept list of "the important files" is the defect one level up, and
+    # it had just been found there: tests/conftest.py's cleanup allowlist had
+    # `data/portfolio_*.json` because somebody remembered the glob when per-user
+    # portfolios landed, and nothing for `data/risk_state_{user}.json` because
+    # nobody remembered when per-user risk engines landed. Not an oversight by
+    # anyone in particular — the failure mode of an allowlist.
+    #
+    # So this enumerates NOTHING. It asks the live tree what exists and requires
+    # the archive to account for it, which means a file a future feature adds is
+    # covered the day it is written rather than the day someone remembers.
+    #
+    # `! -newer "$ARCHIVE"` is the discriminator that keeps it from crying wolf:
+    # a file created AFTER tar ran is legitimately absent from the archive, and
+    # a gate that fails on that gets switched off — deploy.sh has the same note
+    # about its interpreter check, for the same reason.
+    #
+    # -L, not -H: `tar -h` dereferences, so the inventory must dereference too
+    # or the two sides are describing different trees.
+    #
+    # No realpath/escape check per file, deliberately: the symlink-member guard
+    # above rejects the entire archive before extraction, so nothing reaching
+    # here can be a link. And `sed -n '1,20p'` rather than `head` — head exits
+    # early, and an early-exiting reader after a pipe is what inverted both
+    # content guards on the box (see TestNoGuardIsDefeatedBySIGPIPE).
+    LIVE_LIST="$PROBE/.live"; ARCH_LIST="$PROBE/.arch"; MISS_LIST="$PROBE/.missing"
+    find -L data/ -type f ! -newer "$ARCHIVE" 2>/dev/null > "$LIVE_LIST" || true
+    if [ -e logs/audit_chain.jsonl ] && [ ! logs/audit_chain.jsonl -nt "$ARCHIVE" ]; then
+        echo "logs/audit_chain.jsonl" >> "$LIVE_LIST"
+    fi
+    LC_ALL=C sort -o "$LIVE_LIST" "$LIVE_LIST"
+    tar -tzf "$ARCHIVE" 2>/dev/null | grep -v '/$' | LC_ALL=C sort > "$ARCH_LIST" || true
+    LC_ALL=C comm -23 "$LIVE_LIST" "$ARCH_LIST" > "$MISS_LIST"
+    live_n="$(wc -l < "$LIVE_LIST")"
+    miss_n="$(wc -l < "$MISS_LIST")"
+
+    if [ "$live_n" -eq 0 ]; then
+        # NOT a pass. "Nothing was checked" and "everything checked out" are
+        # different findings, and this drill printed the second for the first:
+        # with none of the three files above present it reported PASSED after
+        # verifying zero bytes. `integrity_veto.assess({})` returning `clear`
+        # over checked == 0 is the same trap, recorded in CLAUDE.md.
+        echo "[verify] INCONCLUSIVE: nothing in the live tree predates this"
+        echo "[verify] archive, so nothing in the archive could be checked."
+        echo "[verify] That is not a pass — the drill verified no bytes at all."
+        exit 2
+    fi
+    if [ "$miss_n" -gt 0 ]; then
+        echo "[verify]   $miss_n of $live_n file(s) that existed before the backup"
+        echo "[verify]   are ABSENT from the archive:"
+        sed -n '1,20{s#^#[verify]     #;p}' "$MISS_LIST"
+        if [ "$miss_n" -gt 20 ]; then
+            echo "[verify]     ... and $((miss_n - 20)) more, not listed"
+        fi
+        rc=1
+    else
+        echo "[verify]   coverage: all $live_n file(s) predating the archive are in it"
+    fi
+
     [ "$rc" -eq 0 ] && echo "[verify] restore drill PASSED" || echo "[verify] restore drill FAILED"
     exit "$rc"
 fi
