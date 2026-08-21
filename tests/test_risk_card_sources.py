@@ -92,13 +92,28 @@ def test_a_zero_cap_never_divides_by_zero():
 # ── the caller's sources ──────────────────────────────────────────────────
 
 def test_the_reading_comes_from_the_gate_not_the_paper_worst_ever():
-    block = SRC[SRC.index("_dd_now = round(state.max_drawdown_pct"):
+    """RE-ANCHORED, and the reason is worth keeping.
+
+    This sliced from `_dd_now = round(state.max_drawdown_pct` — the paper seed
+    — to the leverage line, and asserted the gate's reading overwrote it. Its
+    intent was always "do not report the paper number as the enforced one";
+    its ANCHOR was the paper number itself, so removing the seed entirely —
+    a strictly stronger version of what it asks for — broke it.
+
+    The seed is now None, so a failed read stays a failed read instead of
+    silently becoming the paper snapshot, and the assertion below says so
+    directly rather than relying on an overwrite happening later.
+    """
+    block = SRC[SRC.index("_dd_now = None"):
                 SRC.index('"leverage_cap": CONFIG.exchange.default_leverage,')]
     assert "drawdown_status()" in block, \
         "the paper monotonic worst-ever is ~0 forever in live mode"
     assert '_st["drawdown_pct"]' in block
     assert '_st["effective_limit_pct"]' in block
     assert "except Exception:" in block, "a reporter outage must not break /risk"
+    assert "state.max_drawdown_pct" not in block, (
+        "the paper snapshot is being used as the fallback again — that is the "
+        "substitution this test is named after")
 
 
 def test_the_card_passes_the_drawdown_limit_through():
