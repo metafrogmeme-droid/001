@@ -35,14 +35,21 @@ Diffusion models do not spell. See `PROMPT.md`.
 
     AI EDGE +2.47%              → blurred out (an invented performance figure)
     SUPERIOR RESULTS.           → removed (tagline now ends "HUMAN INTELLIGENCE.")
-    PROVEN PERFORMANCE          → RISK-GATED / 23 pre-trade checks / before any order
+    PROVEN PERFORMANCE          → PAPER FIRST / Live trading is off / until you enable it.
       "Backtested strategies.
        Transparent results."
     Your capital is protected.  → Simulation-first by default.
 
-Replacement copy is quoted from `README.md:62`, which says the engine runs 23
-pre-trade risk checks and operates simulation-first by default. Nothing here was
-written to fill the space.
+Replacement copy is verified against `bot/config.py:2142-2143`:
+`simulation_mode` defaults to `True` and `live_trading_enabled` defaults to
+`False`. Nothing here was written to fill the space.
+
+**The first cut said "23 pre-trade checks" and that came straight back out.**
+README.md says 23, but the repo deliberately RETIRED that number:
+`tests/test_no_hardcoded_risk_check_count.py` bans it on seven surfaces because
+it was hand-maintained, drifted, and understated a gate that emits 36 distinct
+labels. Replacing an invented figure with a retired one is not a fix — it is
+the same defect wearing the product's own documentation as cover.
 
 "Your capital is protected" is the one that mattered most. It is not a
 sales exaggeration on a leveraged-futures product; it is false, and the

@@ -124,17 +124,27 @@ def test_guard_lint_is_included_even_though_it_lives_in_another_job():
     assert "python3 scripts/guard_lint.py" in planned
 
 
-def test_the_web_suite_is_covered_and_runs_in_its_own_directory():
-    """The first version of this script omitted it while printing "this is
-    what CI will run" — the exact overclaim it exists to prevent, in itself."""
+def test_every_npm_suite_is_covered_and_runs_in_its_own_directory():
+    """The first version of this script omitted the web suite while printing
+    "this is what CI will run" — the exact overclaim it exists to prevent, in
+    itself."""
     # The step is now a script that re-prints failures within log-tail reach
     # (PR #993's flake failed with its NAME beyond the log API's window) —
-    # so "covered" means the script still runs `npm test`, from app/.
-    hits = [(c, wd) for _, c, wd in preflight.steps(fast=False)
-            if "npm test" in c]
-    assert [(True, wd) for c, wd in hits] == [(True, "app")], (
-        "the web app suite runs in app/, and running it from the repo root "
-        "would fail for a reason that has nothing to do with the code")
+    # so "covered" means the script still runs `npm test`, from its own package.
+    #
+    # THIS ASSERTED A LIST OF EXACTLY ONE until `site/` arrived, so adding a
+    # second npm package failed it — for the right reason (a new suite showed
+    # up) with the wrong message (it read as the app suite having moved). The
+    # property worth pinning was never "there is one npm suite"; it is that
+    # NONE of them runs from the repo root, where it would fail for a reason
+    # that has nothing to do with the code. Both halves are checked now: every
+    # npm suite has its own directory, and the app one is still among them.
+    dirs = sorted(wd for _, c, wd in preflight.steps(fast=False) if "npm test" in c)
+    assert dirs, "no npm suite is covered at all"
+    assert "." not in dirs, (
+        f"an npm suite runs from the repo root: {dirs} — there is no "
+        "package.json there for it to find")
+    assert "app" in dirs, "the web app suite must stay covered"
 
 
 def test_the_summary_names_what_it_cannot_judge():

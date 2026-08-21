@@ -37,9 +37,12 @@ function Hero() {
         }}
       />
       <div className="relative mx-auto max-w-4xl px-5 py-24 text-center sm:py-32">
+        {/* "human-confirmed" was here too, and was false for the same reason
+            as the promise below it — see the note in facts.ts. Auto-confirm
+            places live orders with no human press on shipped defaults. */}
         <p className="data mb-5 inline-flex items-center gap-2 rounded-full border border-line-2 px-3 py-1 text-xs text-ink-2">
           <span className="size-1.5 rounded-full bg-up" aria-hidden="true" />
-          Simulation-first · human-confirmed
+          Paper by default · live is opt-in
         </p>
         <h1
           className="font-[family-name:var(--font-brand)] font-bold leading-[1.05] tracking-tight"

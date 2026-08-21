@@ -45,9 +45,31 @@ export const SITE = {
   /** Overridable at build time via SITE_ORIGIN; see site/prerender.js. */
   origin: 'https://www.humanoid-traders.com',
   tagline: 'The AI trading engine you can talk to.',
+  /**
+   * "HUMAN-CONFIRMED" WAS HERE AND IT WAS FALSE.
+   *
+   * The first draft read "Paper by default, risk-gated, human-confirmed". Two
+   * of those three survived a check against the code; the third did not.
+   *
+   *   bot/config.py:2188-2190
+   *     # Allow auto-confirm to place LIVE (real-money) orders with no human
+   *     # press. OPERATOR-ACTIVATED default ON. Set AUTO_CONFIRM_LIVE_ENABLED=0
+   *     # to require a human tap for every live trade (the fail-closed posture).
+   *     auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
+   *
+   * With that default and `auto_confirm_threshold` at 0.85, a signal clearing
+   * the bar places a real-money order with nobody pressing anything. README.md
+   * says "explicit human confirmation before execution" in three places and is
+   * wrong in all three. The homepage would have been the fourth.
+   *
+   * What replaced it is the pair that IS true on shipped defaults:
+   *   bot/config.py:2142  simulation_mode: bool = _env_bool("SIMULATION_MODE", True)
+   *   bot/config.py:2143  live_trading_enabled: bool = _env_bool("LIVE_TRADING_ENABLED", False)
+   */
   promise:
-    'Paper by default, risk-gated, human-confirmed — and every call is hashed '
-    + 'before the market moves.',
+    'Simulation-first: paper is the default and live trading stays off until '
+    + 'you switch it on. Every call is hashed before the market moves, so the '
+    + 'record can be checked by someone who does not trust the operator.',
 } as const
 
 /**

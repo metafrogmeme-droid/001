@@ -45,9 +45,16 @@ Negative prompt, if the tool takes one:
     ffmpeg -i clip.mp4 -vf "drawtext=fontfile=<font>:text='PAPER FIRST':\
       fontcolor=0x3fb6ff:fontsize=48:x=(w-text_w)/2:y=h*0.72" out.mp4
 
-Only claims the code backs. Today that is: paper by default, risk-gated before
-every order, human confirmation before a live one, decisions hashed before the
-market moves. Not a user count, not a satisfaction rate, not a return.
+Only claims the code backs, checked against the code and not against README.
+Today that is: paper is the default (`bot/config.py:2142`), live trading is off
+until switched on (`:2143`), and decisions are hashed before the market moves.
+
+NOT "human-confirmed". `bot/config.py:2190` sets
+`auto_confirm_live_enabled` to `True` by default, so a signal clearing the 0.85
+threshold places a real-money order with no human press. README.md claims
+human confirmation in three places and is wrong in all three.
+
+Not a risk-check count, not a user count, not a satisfaction rate, not a return.
 
 Two ffmpeg traps if you script this — both cost time on clip 1:
 

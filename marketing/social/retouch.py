@@ -40,10 +40,15 @@ END_S = 6.4
 REGIONS = {
     "edge":     ((628, 452, 768, 560), None),
     "superior": ((470, 128, 648, 162), None),
+    # "23 pre-trade checks" was here and came straight back out. The repo
+    # DELIBERATELY removed that number: tests/test_no_hardcoded_risk_check_count.py
+    # bans it on seven surfaces, because 23 was hand-maintained, drifted, and
+    # understated a gate that emits 36 distinct labels. Replacing one invented
+    # figure with a retired one is not a fix.
     "proven":   ((556, 876, 744, 956),
-                 [("RISK-GATED", 17, (0x3f, 0xb6, 0xff), FONT),
-                  ("23 pre-trade checks", 13, (0xed, 0xee, 0xf2), FONT_R),
-                  ("before any order.", 13, (0xed, 0xee, 0xf2), FONT_R)]),
+                 [("PAPER FIRST", 17, (0x3f, 0xb6, 0xff), FONT),
+                  ("Live trading is off", 13, (0xed, 0xee, 0xf2), FONT_R),
+                  ("until you enable it.", 13, (0xed, 0xee, 0xf2), FONT_R)]),
     "capital":  ((384, 930, 552, 958),
                  [("Simulation-first by default.", 13, (0xed, 0xee, 0xf2), FONT_R)]),
 }
