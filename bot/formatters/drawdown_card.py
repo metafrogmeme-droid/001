@@ -61,6 +61,24 @@ def _pct(v: Optional[float]) -> str:
         return "—"
 
 
+def drawdown_tile(dd: object) -> tuple:
+    """(value, colour) for the /risk PNG's drawdown tile.
+
+    A seam, because the tile was built inline and the only test that could
+    reach it was a source scan — which duly passed against a mutation that
+    reintroduced the defect under a different variable name.
+
+    `"red" if dd > 0 else "green"` painted an unreadable drawdown GREEN, and
+    on a tile labelled "Current Drawdown" green is an all-clear. 0.0 keeps its
+    green: a measured flat book is a measurement, and it is the most common
+    state the bot is ever in.
+    """
+    known = isinstance(dd, (int, float)) and not isinstance(dd, bool)
+    if not known:
+        return "--", "gray"
+    return f"{dd:.1f}%", ("red" if dd > 0 else "green")
+
+
 def render_drawdown_status(st: Optional[dict]) -> list:
     """The backstop block. Never a bare heading.
 

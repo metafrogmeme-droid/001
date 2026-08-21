@@ -9615,7 +9615,14 @@ class TelegramHandler:
         # it against the DAILY-LOSS cap to produce the HEALTHY/WARNING verdict,
         # the health score and the drawdown gauge. Two different controls, so
         # /risk could read HEALTHY with the drawdown breaker about to trip.
-        _dd_now = round(state.max_drawdown_pct, 2) if state.max_drawdown_pct else 0.0
+        # NOT `state.max_drawdown_pct` as the fallback. That is the PAPER
+        # snapshot, and substituting it when the enforced reading cannot be had
+        # re-creates precisely what `drawdown_status()`'s own comment records:
+        # "an operator could read ~0% from a gate that was refusing trades at
+        # 9%". The seed is None, so a failed read stays a failed read and the
+        # renderer says UNKNOWN instead of scoring the card from a number that
+        # describes a different book.
+        _dd_now = None
         _dd_limit = CONFIG.risk.max_drawdown_pct
         try:
             _st = self.engine.risk.drawdown_status() or {}
@@ -9670,13 +9677,15 @@ class TelegramHandler:
             # gates discovered after that fix.
             cb = bool(data["trading_blocked_by"])
             dd = data["current_drawdown"]
+            from bot.formatters.drawdown_card import drawdown_tile
+            _dd_txt, _dd_col = drawdown_tile(dd)
             _png = render_stats_card({
                 "title": t("lbl_risk_title", lang),
                 "subtitle": f"{datetime.now(UTC).strftime('%H:%M')} UTC",
                 "tiles": [
                     {"label": t("lbl_daily_loss_limit", lang), "value": f"{data['daily_loss_limit']:.1f}%", "color": "yellow"},
-                    {"label": t("lbl_current_drawdown", lang), "value": f"{dd:.1f}%",
-                     "color": "red" if dd > 0 else "green"},
+                    {"label": t("lbl_current_drawdown", lang), "value": _dd_txt,
+                     "color": _dd_col},
                     {"label": t("lbl_open_trades", lang), "value": f"{data['open_trades']}/{data['max_open_trades']}", "color": "white"},
                     {"label": t("lbl_leverage_cap", lang), "value": f"{data['leverage_cap']}x", "color": "cyan"},
                     {"label": t("lbl_circuit_breaker", lang), "value": t("val_tripped", lang) if cb else t("val_ok", lang),
