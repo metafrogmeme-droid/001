@@ -359,16 +359,32 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
     today = data.get("today_pnl", 0.0)
     week = data.get("week_pnl", 0.0)
     total = data.get("total_pnl", week)
-    wr = data.get("win_rate", 0.0)
+    # `.get("win_rate", 0.0)` — an absent rate rendered as 0%, an empty ring
+    # and an empty bar: the picture of total defeat, drawn from no data. The
+    # caller ALREADY sends win_rate_scored / win_rate_unscored (the PNG tile
+    # beside this card uses them to label itself "Win Rate (of N)"); this
+    # renderer ignored both and took the reassuring default instead.
+    wr = data.get("win_rate")
     trades = data.get("trades_today", 0)
     total_trades = data.get("total_trades", trades)
+    _wr_scored = data.get("win_rate_scored")
+    _wr_unscored = data.get("win_rate_unscored") or 0
     best = data.get("best_pair", "N/A")
     worst = data.get("worst_pair", "N/A")
     adopted_count = data.get("adopted_count", 0)
     adopted_pnl = data.get("adopted_pnl", 0.0)
 
-    wr_bar = _bar(wr, 100.0, 10)
-    wr_ring = _progress_ring(wr)
+    # The gauge is drawn at zero when the rate is unknown, but it is LABELLED
+    # n/a — an empty ring next to "n/a" reads as "no reading", while an empty
+    # ring next to "0%" reads as "measured, and terrible".
+    _wr_known = isinstance(wr, (int, float)) and not isinstance(wr, bool)
+    wr_bar = _bar(wr if _wr_known else 0.0, 100.0, 10)
+    wr_ring = _progress_ring(wr if _wr_known else 0.0)
+    wr_str = f"{wr:.0f}%" if _wr_known else "n/a"
+    wr_note = ("" if not _wr_unscored else
+               f"\n  <i>Rate covers {_wr_scored if _wr_scored is not None else '?'}"
+               f" of {total_trades} closes — {_wr_unscored} carry no recorded "
+               f"P&amp;L and are scored neither way.</i>")
 
     # Fake sparkline for PnL trend
     pnl_trend = _sparkline([0, today * 0.3, today * 0.5, today * 0.8, today], w=8) if today != 0 else "━━━━━━━━"
@@ -387,7 +403,7 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
         "</pre>\n\n"
         # ── Win Rate gauge ──
         f"\U0001f3af <b>Win Rate</b>\n"
-        f"  {wr_ring} \u2502{wr_bar}\u2502 {_pill(f'{wr:.0f}%')}\n\n"
+        f"  {wr_ring} \u2502{wr_bar}\u2502 {_pill(wr_str)}{wr_note}\n\n"
         # ── Pair breakdown ──
         f"\U0001f4ca <b>Pair Breakdown</b>\n"
         "<pre>"
@@ -473,9 +489,36 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     risk_s = data.get("risk_status", "Healthy")
     risk_icon = _OK if risk_s.lower() == "healthy" else _WARN if risk_s.lower() == "warning" else _BAD
 
-    wr = (wins / trades * 100) if trades > 0 else 0.0
-    wr_bar = _bar(wr, 100.0, 10)
-    wr_ring = _progress_ring(wr)
+    # A WIN RATE WHOSE NUMERATOR AND DENOMINATOR CAME FROM DIFFERENT SETS.
+    #
+    # `wins / trades` divided SCORED wins by ALL closes. The caller passes
+    # `trades = len(closed)` and `wins = _win_stats(closed)["wins"]`, and
+    # win_stats skips rows whose pnl_usd is None — which live_executor's loader
+    # preserves by design. So every unpriced close silently counted against the
+    # operator, and `Total 10 / Wins 4 / Losses 2` printed three numbers that
+    # did not add up, directly above the gauge.
+    #
+    # `losses` is already the scored non-wins, so `wins + losses` IS the scored
+    # count. Deriving the denominator from the two numbers printed beside the
+    # gauge makes the card self-consistent by construction — it can no longer
+    # show a rate over a population different from the one it just listed.
+    #
+    # The PUBLIC daily post got this right and this card did not, one call
+    # frame apart. Its comment: "A 0% win rate is a claim that everything
+    # lost." Same rule here — nothing scorable is `n/a`, not 0%, and the ring
+    # and bar render empty rather than pretending to a measured zero.
+    scored = wins + losses
+    wr = (wins / scored * 100) if scored > 0 else None
+    _unscored = max(0, trades - scored)
+    wr_bar = _bar(wr if wr is not None else 0.0, 100.0, 10)
+    wr_ring = _progress_ring(wr if wr is not None else 0.0)
+    wr_str = "n/a" if wr is None else f"{wr:.0f}%"
+    # Say the shortfall out loud rather than letting the reader assume the
+    # rate covers the Total on the line above.
+    wr_note = ("" if not _unscored else
+               f"\n  <i>Rate covers {scored} of {trades} closes — "
+               f"{_unscored} carry no recorded P&amp;L and are scored "
+               f"neither way.</i>")
 
     text = (
         f"{_header(chr(0x1F4D3), 'DAILY REPORT')}\n"
@@ -490,7 +533,7 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         "</pre>\n\n"
         # ── Win Rate ──
         f"\U0001f3af <b>Win Rate</b>\n"
-        f"  {wr_ring} \u2502{wr_bar}\u2502 {_pill(f'{wr:.0f}%')}\n\n"
+        f"  {wr_ring} \u2502{wr_bar}\u2502 {_pill(wr_str)}{wr_note}\n\n"
         # ── Highlights ──
         f"\U0001f3c6 <b>Highlights</b>\n"
         "<pre>"
