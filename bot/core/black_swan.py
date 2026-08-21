@@ -37,6 +37,19 @@ class AnomalyType(str, Enum):
     SPREAD_WIDENING = "SPREAD_WIDENING"
 
 
+def _too_flat(arr) -> bool:
+    """True when a series has too little relative movement to correlate.
+
+    Absolute std is not comparable across price levels — a $0.02 wobble is
+    noise on a $25 stock token and a real move on a $0.05 alt — so this is
+    measured against the mean level.
+    """
+    mean = float(np.mean(np.abs(arr)))
+    if mean <= 0:
+        return True
+    return (float(np.std(arr)) / mean) < _MIN_REL_STD
+
+
 class AnomalyAlert(BaseModel):
     """Immutable record of a detected anomaly."""
 
@@ -68,6 +81,40 @@ _CORRELATION_THRESHOLD = 0.3
 _CORRELATION_BASELINE = 0.6
 _VOLUME_WINDOW = 20
 _VOLUME_COLLAPSE_RATIO = 0.30
+
+#: A COLLAPSE NEEDS LIQUIDITY TO COLLAPSE FROM.
+#:
+#: `_check_volume_collapse` guards `avg_volume == 0` and not `avg_volume ≈ 0`,
+#: which is the same shape as the zero-std guard below and excludes exactly the
+#: case that hurts. Observed live on 2026-08-21: `EWH/USDT:USDT` — a tokenised
+#: ETF perp averaging a few contracts a bar — had one bar with no trades and
+#: paged
+#:
+#:     EWH/USDT:USDT volume collapsed to 0.0% of 20-period average
+#:     Severity: 1.00 (advises HALT_NEW_TRADES)
+#:
+#: at the MAXIMUM severity the scale has. Three contracts a bar is not
+#: liquidity that evaporated; it is a symbol that trades intermittently, and a
+#: quiet bar in it is the normal case. The ratio is arithmetically correct and
+#: means nothing.
+#:
+#: Base-asset volume is not comparable across symbols (BTC trades in tens, a
+#: memecoin in millions), so the floor is expressed in QUOTE terms using the
+#: latest price — roughly the turnover of one bar.
+_MIN_BAR_NOTIONAL = 10_000.0
+
+#: CORRELATION OVER A NEARLY-FLAT SERIES IS ROUNDING NOISE.
+#:
+#: The `std == 0` guard below rejects a perfectly constant series and admits
+#: one that ticks 25.00 / 25.01 / 25.00 — whose correlation with anything is
+#: dominated by the last decimal and swings between +1 and -1 between windows.
+#: That is how a tokenised stock and an AI token "decorrelated": on the same
+#: night, `TAO/USDT` vs `RTXSTOCK/USDT:USDT` reported a collapse from 0.776 to
+#: -0.949, which is not a market event between two things that have no reason
+#: to move together at all.
+#:
+#: Relative, not absolute, so it means the same thing at any price level.
+_MIN_REL_STD = 0.0005      # 0.05% of the mean level
 _PRICE_ACCEL_WINDOW = 5
 _PRICE_ACCEL_LOOKBACK = 20
 _PRICE_ACCEL_SIGMA = 3.0
@@ -238,9 +285,12 @@ class BlackSwanDetector:
                 continue
             peer_now = np.array(pp[-_CORRELATION_WINDOW:])
             peer_base = np.array(pp[-2 * _CORRELATION_WINDOW:-_CORRELATION_WINDOW])
-            # Guard against constant series (zero std)
-            if min(np.std(target_now), np.std(target_base),
-                   np.std(peer_now), np.std(peer_base)) == 0:
+            # Guard against constant AND near-constant series. `== 0` rejected
+            # only the perfectly flat case and admitted the one that ticks in
+            # the last decimal, whose correlation is rounding noise — see
+            # _MIN_REL_STD.
+            if any(_too_flat(a) for a in
+                   (target_now, target_base, peer_now, peer_base)):
                 continue
             baseline = float(np.corrcoef(target_base, peer_base)[0, 1])
             if baseline < _CORRELATION_BASELINE:
@@ -304,6 +354,15 @@ class BlackSwanDetector:
         window = np.array(volumes[-(_VOLUME_WINDOW + 1): -1])
         avg_volume = float(np.mean(window))
         if avg_volume == 0:
+            return None
+
+        # Too thin for the ratio to mean anything. See _MIN_BAR_NOTIONAL: this
+        # is the `≈ 0` half of the guard above, and without it a symbol that
+        # turns over a few dollars a bar pages at severity 1.00 the first time
+        # a bar has no trades.
+        _prices = self._price_history.get(symbol) or []
+        _last_price = float(_prices[-1]) if _prices else 0.0
+        if avg_volume * _last_price < _MIN_BAR_NOTIONAL:
             return None
 
         current_volume = volumes[-1]

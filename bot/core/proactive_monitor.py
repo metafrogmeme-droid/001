@@ -91,6 +91,24 @@ _SEVERITY_ICON = {
 
 # ── Proactive Monitor ─────────────────────────────────────────────────
 
+def select_severe_cards(groups: dict, cap: int) -> tuple:
+    """(cards to send, symbols only named in the overflow line).
+
+    Pure, and module-level, so a test can drive it. The first version of this
+    lived inline and its only test was a source scan — which duly passed
+    against a mutation that made the overflow branch unreachable, because the
+    string it grepped for was still sitting in the dead code.
+
+    Most severe first: the cap must never be able to drop the worst condition
+    of the pass.
+    """
+    ordered = sorted(groups.items(),
+                     key=lambda kv: -max(float(a.severity) for a in kv[1]))
+    shown, hidden = ordered[:cap], ordered[cap:]
+    spill = sorted({str(a.symbol) for _k, g in hidden for a in g})
+    return shown, spill
+
+
 class ProactiveMonitor:
     """Background monitor that generates alerts from engine state.
 
@@ -139,6 +157,11 @@ class ProactiveMonitor:
     # immediate and unconditional, and so is any escalation into this tier;
     # only the unchanged repeat waits, and it waits half as long as a mild one.
     BLACK_SWAN_SEVERE_REPEAT = 900  # 15 minutes for an unchanged severe anomaly
+
+    #: Severe anomaly CARDS per tick. Each is a distinct first-sighting and is
+    #: individually correct; the flood is their number. The rest are named in
+    #: one trailing line rather than dropped in silence.
+    _SEVERE_CARDS_PER_TICK = 3
 
     def __init__(self, engine) -> None:
         self.engine = engine
@@ -2082,7 +2105,22 @@ class ProactiveMonitor:
                        if kind == "CORRELATION_BREAKDOWN" and peer
                        else f"bs_{kind}_{a.symbol}")
                 groups.setdefault(key, []).append(a)
-            for key, group in sorted(groups.items()):
+            # A CAP, BECAUSE BREADTH IS ITS OWN FLOOD. The suppression above is
+            # per-key and per-repeat: every group here is a FIRST sighting of a
+            # distinct condition, so it pages immediately and correctly — and
+            # six of them in one tick is still six messages thirty seconds
+            # apart. Observed live on 2026-08-21.
+            #
+            # Ordered most-severe first and truncated, NOT digested: the
+            # decision above to keep a severe card prominent is right, and the
+            # loudest conditions are the ones worth a card each. What is
+            # dropped is stated rather than silently omitted — a bounded list
+            # published as though it were the whole one is the mistake this
+            # repo keeps finding, and here it would read as "these are all the
+            # anomalies", which is the opposite of true.
+            shown, _more = select_severe_cards(
+                groups, self._SEVERE_CARDS_PER_TICK)
+            for key, group in shown:
                 alert_obj = max(group, key=lambda a: float(a.severity))
                 kind = getattr(alert_obj.anomaly_type, "value", alert_obj.anomaly_type)
                 syms = sorted({str(a.symbol) for a in group})
@@ -2120,6 +2158,27 @@ class ProactiveMonitor:
                         "\U0001f449 Say \"positions\" to review exposure"
                     ),
                     dedup_key=key,
+                ))
+
+            if _more:
+                alerts.append(Alert(
+                    alert_type="BLACK_SWAN",
+                    severity="CRITICAL",
+                    title="Anomaly: more severe conditions this pass",
+                    body=(
+                        "\U0001f6a8 <b>+" + str(len(_more)) + " more severe "
+                        "anomal" + ("y" if len(_more) == 1 else "ies")
+                        + " this pass</b>\n"
+                        + "\u2500" * 16 + "\n"
+                        "<i>The " + str(self._SEVERE_CARDS_PER_TICK) + " loudest "
+                        "are carded above. Also flagged: <code>"
+                        + ", ".join(_more[:12]) + "</code>"
+                        + ("\u2026" if len(_more) > 12 else "") + "</i>\n"
+                        + "\u2500" * 16 + "\n"
+                        "\u26a0\ufe0f Still an OBSERVATION. The engine does NOT "
+                        "auto-halt \u2014 use /halt to stop trading."
+                    ),
+                    dedup_key="bs_overflow",
                 ))
 
             # ── everything else: ONE digest, not one message per type ────

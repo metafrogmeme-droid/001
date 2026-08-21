@@ -195,12 +195,20 @@ snapshot — with a comment recording that reporting one as the other let an
 operator "read ~0% from a gate that was refusing trades at 9%". The card
 dropped the label, so the number was unattributable. It prints it now.
 
-**Still open, deliberately not fixed here:** `/risk` reads the same status and,
-on failure, silently substitutes `state.max_drawdown_pct` — the paper number —
-for the enforced one, re-creating exactly what that comment describes. It is
-left because the card's *verdict* comes from `entry_gate` rather than this
-number, and making it honest ripples into a scoring renderer. Fix it with that
-renderer, not before.
+`/risk` was left open here on purpose — it substituted the paper number for
+the enforced one on failure, and the note said "fix it with that renderer, not
+before". **Done**, and the renderer half was the larger one:
+`render_risk` did `data.get("current_drawdown", 0.0)`, so an absent reading
+scored `healthy = 0.0 < ddl` and printed **HEALTHY · Health 100%**. The two
+comments already inside that function describe that exact contradiction —
+they were about a high-water mark erased by a restart; this was the reading
+never arriving. Same output, different door. There are three outcomes now, not
+two, because *could not read it* is not one of the other two.
+
+A test wrote itself into the same trap on the way: the PNG tile's colour was
+checked by asserting the old expression was **absent from the handler**, and
+that passed against a mutation reintroducing it under a different variable
+name two lines up. `drawdown_tile()` is the seam; it is now simply called.
 
 ### Asserting a short string is ABSENT is the assertion that keeps misfiring
 

@@ -258,7 +258,14 @@ def render_signal(data: Dict[str, Any]) -> Dict[str, Any]:
 # ═════════════════════════════════════════════════════════════════
 
 def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
-    dd = data.get("current_drawdown", 0.0)
+    # `.get("current_drawdown", 0.0)` scored an ABSENT reading as a measured
+    # 0% drawdown — `healthy = 0.0 < ddl` — so this card printed
+    # "HEALTHY · Health 100%" from a number nobody could read. That is the
+    # exact contradiction the two comments below record, reached through a
+    # different door: they were about a high-water mark erased by a restart;
+    # this is about the reading never arriving at all.
+    dd = data.get("current_drawdown")
+    dd_known = isinstance(dd, (int, float)) and not isinstance(dd, bool)
     dll = data.get("daily_loss_limit", 5.0)
     # The DRAWDOWN cap, which is a different control from the daily-loss cap.
     # This whole card used to measure drawdown against `dll`: the verdict, the
@@ -286,29 +293,44 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     #
     # Absent key => unchanged behaviour for any caller that does not supply it.
     blocked = str(data.get("trading_blocked_by") or "")
-    healthy = dd < ddl and not blocked
-    status_icon = _OK if healthy else _BAD
+    # THREE OUTCOMES, because "could not read it" is not one of the other two.
+    # HEALTHY asserts the drawdown is inside its cap; WARNING asserts it is
+    # not. Neither is available without the number, and defaulting to the
+    # first is how an unreadable gauge comes out as an all-clear.
+    healthy = dd_known and dd < ddl and not blocked
     if blocked:
-        status_label = f"BLOCKED ({blocked})"
+        status_icon, status_label = _BAD, f"BLOCKED ({blocked})"
+    elif not dd_known:
+        status_icon, status_label = "⚠️", "UNKNOWN (drawdown unreadable)"
     else:
+        status_icon = _OK if healthy else _BAD
         status_label = "HEALTHY" if healthy else "WARNING"
 
     # Risk health score — against the cap that actually governs drawdown.
-    risk_score = max(0, 100 - int(dd / ddl * 100)) if ddl > 0 else 100
+    # None, not 100. The score measures how much headroom is left, and there
+    # is none to compute without a drawdown — while 100% is the single most
+    # reassuring value on the card.
+    if not dd_known:
+        risk_score = None
+    else:
+        risk_score = max(0, 100 - int(dd / ddl * 100)) if ddl > 0 else 100
     # A blocked engine cannot score 100% "risk health" — that is the number
     # the operator reads to decide whether anything needs attention, and a
     # green 100 beside a halted engine is the contradiction this card exists
     # to avoid.
     if blocked:
         risk_score = 0
-    health_bar = _bar(risk_score, 100, 14)
+    health_bar = _bar(risk_score, 100, 14) if risk_score is not None else "┄" * 14
+    score_txt = "--" if risk_score is None else f"{risk_score}%"
+    dd_gauge = (_gauge("Drawdown", dd, ddl) if dd_known
+                else "  Drawdown │" + "┄" * 14 + "│ -- (unreadable)")
 
     text = (
         f"{_header(_SHIELD, 'RISK CONTROL')}\n\n"
         f"  {status_icon} Status: <b>{status_label}</b>\n"
-        f"  \u25cf Health \u2502{health_bar}\u2502 {_pill(f'{risk_score}%')}\n\n"
+        f"  \u25cf Health \u2502{health_bar}\u2502 {_pill(score_txt)}\n\n"
         # ── Gauges ──
-        f"{_gauge('Drawdown', dd, ddl)}\n"
+        f"{dd_gauge}\n"
         f"{_gauge('Positions', float(open_t), float(max_t), unit='#')}\n"
         f"{_gauge('Leverage', 1.0, float(lev), unit='x')}\n\n"
         # ── Limits ──
