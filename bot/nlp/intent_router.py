@@ -341,6 +341,55 @@ _rule(r"\b(support.{0,5}resistance|price (levels?|targets?)|fibonacci levels?|fi
 _rule(r"\b(what.?s the (price|entry) (of|for))\b",
       "analyze_asset", needs_symbol=True, explanation="Price inquiry")
 
+# --- Symbol-first phrasing -------------------------------------------------
+# Every rule above assumes the VERB comes first: "analyze BTC", "scan ETH".
+# People type the asset first at least as often — "BTC elliott waves",
+# "ETH rsi", "SOL setup" — and none of that matched anything, so it fell
+# through to the tool-less chat model, which answered about the chart it
+# cannot see. Measured before writing: of eighteen realistic phrasings, the
+# eight that failed were all symbol-first.
+#
+# The indicator vocabulary is the anchor, not the symbol. Requiring a known
+# ticker would miss every asset not in the list; requiring only a ticker-shaped
+# word would swallow ordinary sentences. A named analysis TERM is what makes
+# "BTC elliott waves" a request for a chart read and "BTC to the moon" not one.
+_ANALYSIS_TERMS = (
+    r"elliott(?:\s+waves?)?|wave\s+(?:count|analysis|structure)|"
+    r"rsi|macd|stoch(?:astic)?|bollinger|ichimoku|vwap|atr|"
+    r"ema|sma|moving averages?|"
+    r"fib(?:onacci)?(?:\s+(?:levels?|zones?|retracements?))?|"
+    r"support|resistance|levels?|targets?|"
+    r"setup|entry|entries|structure|trend|momentum|breakout|"
+    r"order\s?blocks?|fair\s?value\s?gaps?|fvg|liquidity|"
+    r"ta|technicals?|chart"
+)
+_rule(rf"^\s*[A-Za-z]{{2,15}}(?:/[A-Za-z]{{2,10}})?\s+(?:{_ANALYSIS_TERMS})\b",
+      "analyze_asset", needs_symbol=True, explanation="Symbol-first analysis request")
+
+# "check BTC", "what about ETH", "how about SOL", "thoughts on BTC" — a bare
+# verb plus an asset. Kept separate from the rule above because these carry no
+# analysis term, so the ticker itself has to do the work: the trailing group is
+# anchored to the end of the message, which is what stops "check my portfolio"
+# from matching.
+#
+# The stop list is load-bearing and was added AFTER the first draft answered
+# "how about tomorrow" with "which asset?". Anchoring alone is not enough —
+# any single word in that slot is ticker-SHAPED, so the rule has to know which
+# words are never assets. Same words `_extract_symbol` already skips, for the
+# same reason, plus the time words that make this phrasing ordinary English.
+_NOT_A_TICKER = (
+    r"the|it|this|that|them|us|me|you|my|mine|"
+    r"today|tomorrow|yesterday|now|later|tonight|"
+    r"everything|anything|something|all|stuff|things|"
+    r"market|markets|price|prices|chart|charts|trading|"
+    r"docs|help|news|here|there|then|what|why|how"
+)
+_rule(rf"^\s*(?:check|look at|thoughts on|opinion on|view on|what about|how about|"
+      rf"whats up with|what.?s (?:up )?with|any(?:thing)? on)\s+"
+      rf"(?!(?:{_NOT_A_TICKER})\b)"
+      rf"[A-Za-z]{{2,15}}(?:/[A-Za-z]{{2,10}})?\s*[?!.]*$",
+      "analyze_asset", needs_symbol=True, explanation="Bare asset enquiry")
+
 # --- Portfolio ---
 _rule(r"\b(my (positions?|portfolio|book|trades?|holdings?|balance|equity)|show (my )?portfolio|check (my )?pnl|how.?s my (portfolio|pnl))\b",
       "get_portfolio", explanation="Portfolio status request")
