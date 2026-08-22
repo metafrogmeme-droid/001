@@ -155,16 +155,61 @@ test('a follow of an unknown slug is refused — the slot is not burned', async 
   assert.strictEqual(r.body.error, 'unknown_agent');
   // and the honesty split is pinned in source: absence claims need a readable
   // catalogue; unreadable refuses 503 instead of guessing.
+  //
+  // `stale beats blind` was asserted here and is a COMMENT. Dropped rather
+  // than replaced: the two lines above it are code, and they are the property
+  // — a 404 is only reachable when the catalogue was readable, and an
+  // unreadable one has its own refusal code. The comment explains why; it does
+  // not enforce anything, and pinning it made a reworded sentence look like a
+  // regression in the gate.
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'copy.js'), 'utf8');
   assert.match(src, /catalogue_unreadable/);
   assert.match(src, /if \(cat\.readable\) return res\.status\(404\)/);
-  assert.match(src, /stale beats blind/);
 });
 
-test('counts decorate, never fabricate: omitted on unreadable, engine cards too', () => {
-  const fc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'follow_counts.js'), 'utf8');
-  assert.match(fc, /return null; {3}\/\/ unreadable ≠ zero/);
-  assert.match(fc, /COUNT\(DISTINCT user_id\)/);
+test('counts decorate, never fabricate: omitted on unreadable, engine cards too', async () => {
+  // THE LOAD-BEARING LINE WAS MATCHED WITH ITS COMMENT ATTACHED:
+  //
+  //     assert.match(fc, /return null; {3}\/\/ unreadable ≠ zero/)
+  //
+  // Three literal spaces and a comment. Reformatting that line broke the test
+  // on unchanged behaviour, and — the direction that costs — `return 0;` with
+  // the comment left in place would have been just as red for the wrong
+  // reason, teaching the next person to loosen the pattern rather than look.
+  //
+  // It is a pure function with a cache reset exported. Drive it.
+  const { pool } = require('../db');
+  const counts = require('../lib/follow_counts');
+  const real = pool.execute.bind(pool);
+  counts._resetCache();
+  pool.execute = async (sql, params) => {
+    if (/FROM copy_subscriptions/i.test(sql)) throw new Error('injected');
+    return real(sql, params);
+  };
+  let unreadable;
+  try { unreadable = await counts.followerCounts(); } finally { pool.execute = real; }
+  counts._resetCache();
+
+  assert.strictEqual(unreadable, null,
+    'an unreadable follower count came back as a value — `{}` or `0` here puts '
+    + '"0 followers" on every card in the marketplace, which is a measurement '
+    + 'nobody took');
+
+  // And the decoration is genuinely omitted rather than zeroed downstream.
+  const cards = [{ slug: 'a' }, { slug: 'b' }];
+  const real2 = pool.execute.bind(pool);
+  counts._resetCache();
+  pool.execute = async (sql, params) => {
+    if (/FROM copy_subscriptions/i.test(sql)) throw new Error('injected');
+    return real2(sql, params);
+  };
+  try { await counts.decorate(cards); } finally { pool.execute = real2; }
+  counts._resetCache();
+  for (const c of cards) {
+    assert.ok(!('followers' in c),
+      'a card carries a followers key when the count could not be read');
+  }
+
   const ps = fs.readFileSync(path.join(__dirname, '..', 'routes', 'public_strategies.js'), 'utf8');
   assert.match(ps, /decorate\(r\.data\.agents\)/, 'engine catalogue cards carry counts too');
 });

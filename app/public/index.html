@@ -1775,10 +1775,14 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
 // because a receipt-shaped card containing nothing verifiable is a stronger
 // claim than showing nothing at all, and a false one.
 //
-// It sits below the mind-stream marker because hero_signup.test.js slices
-// from id="heroSignup" to this comment and forbids a fetch( inside that
-// window — the hero hand-off must reuse the real register form, not talk to
-// the network itself.
+// IT NO LONGER HAS TO SIT ANYWHERE IN PARTICULAR. This block used to be placed
+// below the mind-stream marker because hero_signup.test.js sliced from
+// id="heroSignup" to that comment and forbade a fetch( anywhere inside — so a
+// real feature was positioned on the page to stay outside a test's
+// comment-delimited window. That test now bounds itself to the hero IIFE, and
+// the constraint is gone. Left recorded rather than deleted: "the ordering here
+// is arbitrary" is worth knowing, and the next person to move this block should
+// not go looking for the reason it was pinned.
 (function () {
   var box = document.getElementById('latestCall');
   if (!box) return;

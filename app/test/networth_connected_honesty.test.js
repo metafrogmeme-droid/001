@@ -39,11 +39,35 @@ test('the gateway answer is never overwritten when it DID answer', () => {
     'the fallback must be gated on the gateway NOT reporting a connection');
 });
 
+/**
+ * The body of the `catch` that follows a given SELECT, with comments stripped.
+ *
+ * Returns `''` for a catch that does nothing — which is the whole point: an
+ * EMPTY catch is the honest one here. The gateway already answered; a failed
+ * second-guessing read must leave that answer exactly as it found it.
+ */
+function catchBodyAfter(source, needle) {
+  const { codeOnly } = require('./helpers/code_only');
+  const code = codeOnly(source);
+  const at = code.indexOf(needle);
+  assert.ok(at > 0, `the ${needle} lookup is gone`);
+  const m = code.slice(at).match(/catch\s*\(\w*\)\s*\{([\s\S]*?)\}/);
+  assert.ok(m, 'the lookup is no longer wrapped in a try/catch at all');
+  return m[1].trim();
+}
+
 test('the lookup failing leaves the original answer alone', () => {
-  const block = src.slice(src.indexOf('SELECT exchange FROM exchange_status') - 400,
-    src.indexOf('SELECT exchange FROM exchange_status') + 900);
-  assert.match(block, /catch \(e\) \{ \/\* leave the gateway's answer as-is \*\/ \}/,
-    'a failed DB read must not invent a connection state');
+  // THIS MATCHED THE COMMENT INSIDE THE CATCH — literally
+  // `/catch \(e\) \{ \/\* leave the gateway's answer as-is \*\/ \}/`. Rewording
+  // the comment broke the test on unchanged behaviour, and the more expensive
+  // direction: nothing here described what the catch may not DO.
+  //
+  // Asking whether the body is EMPTY is both robust to rewording and stronger.
+  // The defect this guards is a catch that assigns something — a fabricated
+  // `connected: false` written over a gateway that had already answered.
+  assert.strictEqual(catchBodyAfter(src, 'SELECT exchange FROM exchange_status'), '',
+    'the catch does something now — a failed DB read must not invent a '
+    + "connection state over the gateway's answer");
 });
 
 test('the panel renders the reason instead of a dollar figure', () => {
@@ -80,8 +104,12 @@ test('holdings distinguishes "no balance" from "no answer"', () => {
 });
 
 test('a failed lookup leaves the gateway answer untouched', () => {
-  const tail = holdings.slice(holdings.indexOf('SELECT exchange FROM exchange_status'));
-  assert.match(tail, /catch \(e\) \{ \/\* leave the gateway's answer as-is \*\/ \}/);
+  // Same defect, same file, second surface. `holdings.js` carries the identical
+  // catch and the identical comment, and the identical test matched the same
+  // prose — so both would have gone quiet together. CLAUDE.md: ask which OTHER
+  // surface makes the same claim.
+  assert.strictEqual(catchBodyAfter(holdings, 'SELECT exchange FROM exchange_status'), '',
+    'holdings now writes something on a failed DB read');
 });
 
 // ── RPC failures must be diagnosable ────────────────────────────────────────
