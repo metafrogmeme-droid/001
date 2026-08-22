@@ -176,3 +176,38 @@ test('the baseline is a measurement, not a number typed into prose', () => {
   assert.ok(kb > 40 && kb < 80,
     `the landing page loads ${kb.toFixed(0)} KB; this file's prose says ~58 KB`)
 })
+
+/**
+ * A TEST FILE MUST NOT BE ABLE TO CHANGE THE SHIPPED STYLESHEET.
+ *
+ * Tailwind v4 auto-detects its sources when nothing says otherwise, and it
+ * detected `site/test/`. Adding a test containing the strings `mt-96`,
+ * `text-fuchsia-500` and `rounded-3xl` compiled those three utilities into the
+ * production CSS and moved both asset hashes.
+ *
+ * The visible cost was CI: `The committed site is the built site` went red on
+ * a commit that added two TEST files and touched nothing else, and its message
+ * — "commit the rebuild" — is true while pointing at the output rather than
+ * the cause. The quiet cost is that a stylesheet a visitor downloads was
+ * partly determined by files that never reach a visitor.
+ *
+ * Checked over the BUILT CSS rather than the config, because the config is
+ * one `@source` line away from re-including the world and the built file is
+ * the thing that actually ships.
+ */
+test('no class name from the test directory reaches the built CSS', () => {
+  const css = walk(path.join(OUT, 'assets'), /\.css$/)
+    .map((f) => fs.readFileSync(f, 'utf8')).join('\n')
+  assert.ok(css.length > 1000, 'no built stylesheet found — run npm run build')
+
+  // Utilities that appear ONLY in this file, in this sentence, and nowhere in
+  // site/src. If Tailwind is scanning the tests again, it compiles them.
+  for (const probe of ['mt-96', 'text-fuchsia-500', 'rounded-3xl']) {
+    assert.ok(!css.includes(probe),
+      `the built stylesheet contains \`${probe}\`, which appears only in `
+      + 'site/test — Tailwind is scanning the test directory again, so a test '
+      + 'file can change what every visitor downloads and can turn the '
+      + '"committed site is the built site" gate red on its own')
+  }
+})
+
