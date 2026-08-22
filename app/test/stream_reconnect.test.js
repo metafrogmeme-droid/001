@@ -44,10 +44,60 @@ const DASH = fs.readFileSync(P('dashboard.js'), 'utf8');
  * Extract connectStream and run it against a fake EventSource, so the
  * reconnect behaviour is EXERCISED rather than pattern-matched.
  */
+/**
+ * Index just past the `}` that closes the function `decl` opens.
+ *
+ * Brace-matched over comment-blanked source, so a `{` inside a comment or a
+ * string cannot move the boundary — `codeOnly` keeps line lengths, so offsets
+ * computed on the blanked copy are valid in the original.
+ *
+ * THE PARAMETER LIST IS SKIPPED FIRST, and the first draft did not: the next
+ * `{` after `function connectStream` is the DEFAULT VALUE in
+ * `(handlers, opts = {})`, so the matcher closed on it immediately and handed
+ * back a 42-character "function". Seven tests failed with
+ * `Unexpected identifier 'module'`, which names the symptom and points nowhere
+ * near the cause.
+ */
+function endOfFunction(source, decl) {
+  const { codeOnly } = require('./helpers/code_only');
+  const code = codeOnly(source);
+  const at = code.indexOf(decl);
+  if (at < 0) return -1;
+  // Walk the parameter list to its matching ')', then take the body's '{'.
+  let p = code.indexOf('(', at);
+  if (p < 0) return -1;
+  let pd = 0;
+  for (; p < code.length; p += 1) {
+    if (code[p] === '(') pd += 1;
+    else if (code[p] === ')') { pd -= 1; if (pd === 0) { p += 1; break; } }
+  }
+  let i = code.indexOf('{', p);
+  if (i < 0) return -1;
+  let depth = 0;
+  for (; i < code.length; i += 1) {
+    if (code[i] === '{') depth += 1;
+    else if (code[i] === '}') { depth -= 1; if (depth === 0) return i + 1; }
+  }
+  return -1;
+}
+
 function loadConnectStream() {
+  // THE END OF THIS SLICE USED TO BE A COMMENT — `indexOf('// ── Modal a11y')`.
+  //
+  // Extracting a function body and running it in a VM is the right shape here
+  // (CLAUDE.md keeps it as a worked example), and the extraction is what makes
+  // these seven tests real rather than source-matched. But a window whose far
+  // edge is a section heading measures DISTANCE: rewording that heading takes
+  // all seven out at once with "connectStream block not found", and moving it
+  // silently grows the window until the sandbox is evaluating unrelated code.
+  //
+  // Both edges are code now. The start is the constant the block opens with,
+  // and the end is the brace that closes `function connectStream` — found by
+  // matching, so nothing between here and the next section can shift it.
   const start = APP.indexOf('const STREAM_RETRY_MIN_MS');
-  const end = APP.indexOf('// ── Modal a11y');
-  assert.ok(start > 0 && end > start, 'connectStream block not found');
+  assert.ok(start > 0, 'the stream retry block is gone from app.js');
+  const end = endOfFunction(APP, 'function connectStream');
+  assert.ok(end > start, 'connectStream is no longer a function declaration here');
   const src = APP.slice(start, end);
 
   const made = [];
