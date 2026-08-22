@@ -239,25 +239,49 @@ def _extract_symbol(text: str) -> Optional[str]:
         candidate = f"{dollar.group(1)}/USDT"
         return _validate_symbol(candidate)
 
-    # Fallback: any word that looks like a ticker (2-10 uppercase letters)
-    # next to a command keyword — treat as symbol even if not in known list
+    # Fallback: a word that LOOKS like a ticker next to a command keyword, so a
+    # coin too new for the list above is still tradeable from chat.
+    #
+    # THE GUARD THIS COMMENT PROMISED WAS NEVER IMPLEMENTED. It said "2-10
+    # uppercase letters" and then tested `word.isalpha()` against `words`, which
+    # is built from `text.lower()` — case is destroyed two lines before it is
+    # checked, so `isalpha()` was always true and "uppercase" was never tested
+    # at all. What remained was a hand-maintained denylist of English nouns
+    # standing between the user and a fabricated ticker, and it lost:
+    #
+    #     look at the docs        -> DOCS/USDT
+    #     analyze the situation   -> SITUATION/USDT
+    #     look at the code        -> CODE/USDT
+    #     analyze the results     -> RESULTS/USDT
+    #     check out the news      -> OUT/USDT      (the verb's own particle)
+    #     check out my portfolio  -> OUT/USDT      (a portfolio request)
+    #
+    # All at confidence 1.0, so each dispatched analyze_asset against a symbol
+    # nobody named. A denylist of English words can only ever lose that race —
+    # so this reads the case from the ORIGINAL text, which is the signal the
+    # comment always claimed to use. Someone who means a ticker writes BTC, WIF
+    # or $PEPE; a lowercase unknown word is a noun. When nothing qualifies the
+    # result is None, the caller drops to 0.5 and asks WHICH asset, which is the
+    # honest answer to "I think you want a chart and I cannot tell of what".
     _CMD_WORDS = {"analyze", "scan", "check", "trade", "buy", "sell", "long",
-                  "short", "signal", "setup", "look", "analyse", "chart", "read"}
+                  "short", "signal", "setup", "look", "analyse", "chart", "read",
+                  # Particles of the multi-word verbs above. Without these,
+                  # "check out the news" reads OUT as the asset.
+                  "out", "at", "on", "up", "into"}
     has_cmd = any(w in _CMD_WORDS for w in words)
     if has_cmd:
-        for word in words:
-            if word not in _CMD_WORDS and len(word) >= 2 and word.isalpha():
-                # Skip common English words that aren't tickers
-                _SKIP = {"the", "at", "is", "in", "on", "up", "my", "me", "it",
-                         "do", "to", "for", "what", "how", "and", "or", "not",
-                         "this", "that", "with", "from", "into", "like", "want",
-                         "good", "bad", "now", "can", "will", "set", "get",
-                         # generic market words that are not tickers
-                         "charts", "chart", "market", "markets", "price",
-                         "prices", "everything", "all", "stuff", "things"}
-                if word not in _SKIP and len(word) <= 10:
-                    candidate = f"{word.upper()}/USDT"
-                    return _validate_symbol(candidate)
+        # Case-preserving tokens, in order, so "the" and "DOCS" stay tellable
+        # apart. `words` is lowercased and cannot answer this.
+        for raw in re.findall(r'[A-Za-z]+', text):
+            if raw.lower() in _CMD_WORDS or not (2 <= len(raw) <= 10):
+                continue
+            if raw.isupper():
+                return _validate_symbol(f"{raw}/USDT")
+            # A lowercase or Capitalised word is prose, not a ticker. Stop at
+            # the first candidate either way: scanning past it to find some
+            # later all-caps word would pick a symbol out of the middle of a
+            # sentence the user never meant as one.
+            return None
 
     return None
 
@@ -266,6 +290,45 @@ def _extract_symbol(text: str) -> Optional[str]:
 
 # Each entry: (compiled_pattern, skill_name, needs_symbol, explanation)
 _INTENT_RULES: list[tuple[re.Pattern, str, bool, str]] = []
+
+
+#: Words that can sit outside a matched verb without being its object —
+#: articles, possessives and the particles of the multi-word verbs…
+_FILLER = {"the", "a", "an", "my", "your", "our", "this", "that", "these",
+           "those", "it", "its", "me", "us", "to", "of", "for", "on", "in",
+           "at", "up", "out", "into", "with", "and", "or", "is", "are",
+           "please", "now", "some", "any",
+           #: …and the generic market nouns, which name the THING being asked
+           #: for rather than a different subject. "analyze the charts" is an
+           #: asset request missing its asset — asking which coin is the right
+           #: answer, and a test has pinned that since long before this
+           #: function existed. Leaving them out made it a docs question.
+           "chart", "charts", "market", "markets", "price", "prices",
+           "level", "levels", "setup", "setups", "trend", "chartings"}
+
+
+def _names_a_non_asset(text: str, match) -> bool:
+    """Did the user name an object, and was it not an asset?
+
+    Only consulted when a symbol-needing rule matched and `_extract_symbol`
+    found nothing, and the distinction it draws is the whole point:
+
+        "analyze"            no object   -> ask which coin. Right answer.
+        "check the setup"    no object   -> ask which coin. Right answer.
+        "look at the docs"   object      -> not ours. Do not claim it.
+
+    Both used to take the first branch, so a docs question was answered with
+    "what coin do you want me to look at?". That is not a lie, but it answers
+    a question nobody asked — and it used to be far worse: before the extractor
+    was fixed, the same message resolved to DOCS/USDT and ran an analysis.
+
+    Anything INSIDE the match is part of the trigger phrase, not an object;
+    "check the setup" is matched whole by its own rule and correctly has
+    nothing left over. Only leftover, non-filler words count.
+    """
+    leftover = text[:match.start()] + " " + text[match.end():]
+    return any(w.lower() not in _FILLER
+               for w in re.findall(r"[A-Za-z]{2,}", leftover))
 
 
 def _rule(pattern: str, skill: str, needs_symbol: bool = False, explanation: str = ""):
@@ -516,14 +579,23 @@ class IntentRouter:
         symbol = _extract_symbol(text)
 
         for pattern, skill, needs_symbol, explanation in self._rules:
-            if pattern.search(text):
+            m = pattern.search(text)
+            if m:
                 kwargs = {}
                 if needs_symbol:
                     if symbol:
                         kwargs["symbol"] = symbol
+                    elif _names_a_non_asset(text, m):
+                        # The message HAS an object and it is not an asset —
+                        # "look at the docs", "check out my portfolio". Asking
+                        # "which coin?" answers a question nobody asked, so let
+                        # a later rule or chat take it instead of claiming it.
+                        continue
                     else:
-                        # Skill needs a symbol but we couldn't extract one
-                        # Return a partial match -- caller can ask for clarification
+                        # A bare verb: "analyze", "check the setup", "where is
+                        # liquidity". The user does want a chart and has not
+                        # said of what, so asking IS the answer. Partial match —
+                        # the caller asks for clarification.
                         return IntentResult(
                             skill=skill,
                             kwargs={},
