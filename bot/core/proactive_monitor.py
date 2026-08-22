@@ -10,8 +10,22 @@ alerts to the operator when thresholds are crossed:
   - Trade SL/TP proximity warnings
   - Macro event approaching
 
-Gated behind /watch on|off toggle per chat. Only sends to authorized
-admin users in the allow-list (F-04 compliant).
+Gated behind /watch on|off toggle per chat.
+
+AUDIENCE. This paragraph used to read "Only sends to authorized admin users in
+the allow-list (F-04 compliant)", and that was never true of the code beneath
+it: ``/watch`` is ``@guard("scan")``, so any scan-tier user who ran
+``/watch on`` joined ``_enabled_chats`` and received every alert this module
+produces. An operator noticed when users started being told to "add or rotate
+an LLM API key" — an action only the operator can take, about an account only
+the operator holds.
+
+So the audience is now a property of the ALERT, not a claim in a docstring:
+``Alert.audience`` is ``"all"`` (every watching chat) or ``"admin"``, and
+``_admin_recipients`` resolves the second against an injected predicate — the
+handler's ``_is_admin_id``, which stays the one definition of admin. Alerts
+about the operator's own infrastructure carry ``audience="admin"``; alerts a
+trader can act on stay ``"all"``.
 
 Safety: the monitor is read-only. It observes engine state and emits
 alerts. It never creates trades, modifies risk limits, or bypasses
@@ -78,6 +92,20 @@ class Alert:
     # send_fn converts them to an InlineKeyboardMarkup. Callback data must be
     # an already-guarded route (e.g. "yld:s:USDT" re-checks admin + amounts).
     buttons: list = field(default_factory=list)
+    # Who this alert is FOR: "all" (every watching chat) or "admin".
+    #
+    # The module docstring above has claimed "Only sends to authorized admin
+    # users in the allow-list" since this file was written, and it was never
+    # true: /watch is `@guard("scan")`, so any scan-tier user who ran
+    # `/watch on` is in `_enabled_chats` and receives everything. An operator
+    # asked why users were being told to "add or rotate an LLM API key".
+    #
+    # Default "all" on purpose. This field decides an AUDIENCE, and a default
+    # of "admin" would silently narrow every existing alert — including the
+    # position and drawdown ones a trader needs — the first time somebody
+    # constructed an Alert without thinking about it. Narrowing is the change
+    # that has to be written down, per alert, on purpose.
+    audience: str = "all"
 
 
 # ── Alert severity icons ──────────────────────────────────────────────
@@ -299,11 +327,28 @@ class ProactiveMonitor:
         # Optional async callback(chat_id, idea) -> None to push a setup chart
         # alongside a signal alert. Set via set_chart_fn(); never required.
         self._chart_fn: Optional[Callable] = None
+        # Decides who is an admin, for audience="admin" alerts. Injected via
+        # set_admin_fn() so this module keeps importing no telegram.
+        self._admin_fn: Optional[Callable] = None
 
     def set_chart_fn(self, chart_fn) -> None:
         """Register an async callback(chat_id, idea) that pushes a setup chart
         for signal alerts. Optional — alerts work fine without it."""
         self._chart_fn = chart_fn
+
+    def set_admin_fn(self, admin_fn) -> None:
+        """Register ``callable(chat_id) -> bool`` deciding who is an admin.
+
+        INJECTED rather than imported, for the reason this module imports no
+        telegram: the one definition of "who is an admin" lives in
+        ``TelegramHandler._is_admin_id`` (user-store role OR
+        ``ADMIN_TELEGRAM_IDS``), and a second copy here is exactly the kind
+        that drifts silently and grants or denies more than intended.
+
+        Optional. When it is absent, ``_admin_recipients`` falls back to the
+        CONFIGURED operator chats rather than guessing — see there.
+        """
+        self._admin_fn = admin_fn
 
     def enable_chat(self, chat_id: str) -> None:
         """Enable proactive alerts for a chat."""
@@ -606,7 +651,7 @@ class ProactiveMonitor:
                 f"{drift}\n\n<i>/parity for the full bucketed report.</i>")
             return [Alert(alert_type="PARITY_DIGEST", severity="INFO",
                           title="Weekly parity digest", body=body,
-                          dedup_key=f"parity_{week}")]
+                          dedup_key=f"parity_{week}", audience="admin")]
         except Exception as exc:
             logger.debug("parity digest skipped: %s", exc)
             return []
@@ -825,7 +870,7 @@ class ProactiveMonitor:
                       f"<b>{name}</b> now clears its evidence bar and is "
                       "ready to apply.\n\n" + render_report(assessment) +
                       "\n\n\U0001f449 /readiness — full report"),
-                dedup_key=f"learning_ready_{name}",
+                dedup_key=f"learning_ready_{name}", audience="admin",
             ))
         return alerts
 
@@ -898,6 +943,7 @@ class ProactiveMonitor:
                     title="Nightly self-audit report",
                     body=report + "\n\n\U0001f449 /audit — re-show this report",
                     dedup_key=f"self_audit_{int(item.get('ts', 0))}",
+                    audience="admin",
                 ))
         except Exception as exc:
             logger.debug("self-audit check failed: %s", exc)
@@ -1130,7 +1176,7 @@ class ProactiveMonitor:
                         "────────────────\n"
                         "\U0001f449 /status — check engine state\n"
                         "\U0001f449 /positions — verify SL/TP are in place"),
-                    dedup_key="tick_degraded"))
+                    dedup_key="tick_degraded", audience="admin"))
             self._last_tick_degraded = degraded
         except Exception as exc:
             system_log.debug("tick-failure check failed: %s", exc)
@@ -1394,7 +1440,7 @@ class ProactiveMonitor:
                               f"{sep}\n"
                               "The website's path to this bot is working again — "
                               "chat and web trade are back."),
-                        dedup_key="gateway_recovered"))
+                        dedup_key="gateway_recovered", audience="admin"))
                 else:
                     self._gw_alerted_state = "ok"
                 return alerts
@@ -1422,7 +1468,7 @@ class ProactiveMonitor:
                       "Web chat and web trade are down. Trading is unaffected — "
                       "this is the website's path to me, not the exchange.\n"
                       f"{sep}"),
-                dedup_key=f"gateway_down_{state}"))
+                dedup_key=f"gateway_down_{state}", audience="admin"))
         except Exception as exc:
             system_log.debug("public-gateway check failed: %s", exc)
         return alerts
@@ -1466,7 +1512,7 @@ class ProactiveMonitor:
                     f"{sep}\n"
                     "\U0001f449 /status \u2014 engine health\n"
                     "\U0001f449 /fullscan \u2014 force a deep sweep"),
-                dedup_key="scan_timeout"))
+                dedup_key="scan_timeout", audience="admin"))
         except Exception as exc:
             system_log.debug("scan-timeout check failed: %s", exc)
         return alerts
@@ -1633,7 +1679,7 @@ class ProactiveMonitor:
                       f"This looks like a HANG, not a crash: positions are NOT "
                       f"being monitored. Check the process and consider a restart."
                       f"{hung_at}"),
-                dedup_key="tick_stall",
+                dedup_key="tick_stall", audience="admin",
             ))
         elif not stalled and last != self._tick_stale_alerted_for:
             self._tick_stale_alerted = False
@@ -1661,7 +1707,7 @@ class ProactiveMonitor:
                         "error rate falls.\n"
                         "────────────────\n"
                         "\U0001f449 /status — review engine health"),
-                    dedup_key="warn_rate_tripped"))
+                    dedup_key="warn_rate_tripped", audience="admin"))
             self._last_warn_rate = tripped
         except Exception as exc:
             system_log.debug("warning-rate check failed: %s", exc)
@@ -1709,14 +1755,26 @@ class ProactiveMonitor:
                         "\U0001f449 Add or rotate an LLM API key (paid tier "
                         "avoids the daily quota wall).\n"
                         "\U0001f449 /llmstatus — current provider + key"),
-                    dedup_key="llm_degraded"))
+                    dedup_key="llm_degraded",
+                    # OPERATOR INFRASTRUCTURE. The two actions this card asks
+                    # for — rotate an API key, run /llmstatus — are things only
+                    # the operator can do, and `last_error` is a raw provider
+                    # string that has no business on a user's screen. A trader
+                    # who ran /watch on to hear about their positions was being
+                    # told to top up somebody else's LLM billing.
+                    audience="admin"))
             elif not degraded and self._last_llm_degraded:
                 alerts.append(Alert(
                     alert_type="LLM_RESTORED", severity="INFO",
                     title="LLM brain restored",
                     body="✅ <b>LLM brain restored</b> — a provider answered "
                          "again. AI theses are back online.",
-                    dedup_key="llm_restored"))
+                    dedup_key="llm_restored",
+                    # Same audience as the alert it clears. An all-clear that
+                    # reaches a wider audience than the warning is its own
+                    # small dishonesty: it answers a question those readers
+                    # were never asked.
+                    audience="admin"))
             self._last_llm_degraded = degraded
         except Exception as exc:
             system_log.debug("llm-degraded check failed: %s", exc)
@@ -1751,7 +1809,7 @@ class ProactiveMonitor:
                             "polling until it reconnects.\n"
                             "────────────────\n"
                             "\U0001f449 /health — check system vitals"),
-                        dedup_key="ws_down"))
+                        dedup_key="ws_down", audience="admin"))
             else:
                 if not self._last_ws_ok:
                     alerts.append(Alert(
@@ -1759,7 +1817,7 @@ class ProactiveMonitor:
                         title="Price feed reconnected",
                         body="✅ <b>Price WebSocket reconnected</b> — "
                              "real-time monitoring restored.",
-                        dedup_key="ws_up"))
+                        dedup_key="ws_up", audience="admin"))
                 self._ws_down_since = 0.0
                 self._last_ws_ok = True
         except Exception as exc:
@@ -1805,7 +1863,7 @@ class ProactiveMonitor:
                         "Position sizing may use out-of-date equity.\n"
                         "────────────────\n"
                         "\U0001f449 /livebalance — force a refresh"),
-                    dedup_key="stale_balance"))
+                    dedup_key="stale_balance", audience="admin"))
         except Exception as exc:
             system_log.debug("stale-balance check failed: %s", exc)
         return alerts
@@ -1956,7 +2014,7 @@ class ProactiveMonitor:
                     "────────────────\n"
                     "\U0001f449 Refresh the macro schedule (extend the calendar "
                     "or wire a live feed)."),
-                dedup_key="macro_calendar_stale"))
+                dedup_key="macro_calendar_stale", audience="admin"))
         except Exception as exc:
             system_log.debug("macro-calendar-stale check failed: %s", exc)
         return alerts
@@ -2625,22 +2683,100 @@ class ProactiveMonitor:
 
     # ── Dispatch ──────────────────────────────────────────────────
 
+    def _configured_operator_chats(self) -> set:
+        """Operator chats straight out of config: TELEGRAM_CHAT_ID + ADMIN_IDS.
+
+        Definitionally admin, and requires no lookup of anything that can be
+        unavailable \u2014 which is what makes it the right floor when the admin
+        predicate cannot answer.
+        """
+        out: set = set()
+        try:
+            from bot.config import CONFIG
+            for raw in (CONFIG.telegram.chat_id, CONFIG.telegram.admin_ids):
+                for part in str(raw or "").split(","):
+                    if part.strip():
+                        out.add(part.strip())
+        except Exception as exc:
+            logger.debug("operator chat lookup skipped: %s", exc)
+        return out
+
+    def _admin_recipients(self, alert: Alert) -> list:
+        """The watching chats that may see an ``audience="admin"`` alert.
+
+        There are three ways to get this wrong and only one of them looks like
+        a bug in testing:
+
+        * Send to everyone when the admin predicate is missing or raises. That
+          is the leak this exists to close, arriving through the error path
+          instead of the happy one.
+        * Send to nobody, silently. LLM_DEGRADED is CRITICAL \u2014 the bot is
+          trading blind \u2014 and an alert that evaporates because a user-store
+          read failed is worse than the leak: nobody learns anything, and the
+          logs say the alert was produced.
+        * Trust the predicate's exception as a "no". Per chat, an unreadable
+          role is not a verdict of "not an admin" \u2014 it is no answer at all.
+
+        So: ask the predicate per chat, and treat a raise as UNKNOWN rather
+        than as False. Then union in the CONFIGURED operator chats that are
+        already watching, which need no lookup and cannot go unreadable. If
+        that still leaves nobody, say so at WARNING \u2014 a silence that is
+        recorded is a different thing from one that is not.
+        """
+        watching = list(self._enabled_chats)
+        allowed: list = []
+        unknown = 0
+        if self._admin_fn is not None:
+            for cid in watching:
+                try:
+                    if self._admin_fn(cid):
+                        allowed.append(cid)
+                except Exception as exc:
+                    unknown += 1
+                    logger.debug("admin check failed for %s: %s", cid, exc)
+
+        # The floor. Config cannot be "unreadable per chat" the way a user
+        # store can, so these are admins whether or not the predicate ran.
+        operators = self._configured_operator_chats()
+        for cid in watching:
+            if cid in operators and cid not in allowed:
+                allowed.append(cid)
+
+        if not allowed:
+            # NOT swallowed. An admin-only alert with no admin to send it to is
+            # a configuration fact worth logging loudly, and the alternative \u2014
+            # falling back to "everyone" \u2014 is the leak.
+            system_log.warning(
+                "Admin-only alert %s had no admin recipient: %d watching chat(s), "
+                "%d unreadable, %d operator chat(s) configured. Set "
+                "TELEGRAM_CHAT_ID or ADMIN_TELEGRAM_IDS, or the alert goes "
+                "nowhere.", alert.alert_type, len(watching), unknown, len(operators))
+        return allowed
+
     async def _dispatch(self, alert: Alert, send_fn) -> None:
-        """Send alert to all enabled chats."""
+        """Send alert to its audience \u2014 every watching chat, or admins only."""
         icon = _SEVERITY_ICON.get(alert.severity, "\u2139\ufe0f")
         full_msg = f"{icon} {alert.body}"
 
         # Public mind-stream: title + type only \u2014 alert BODIES can carry
         # operator-account detail (drawdown amounts, idle-cash balances) that
         # must not reach the public feed.
-        try:
-            from bot.core.agent_feed import FEED
-            _sev = {"INFO": "info", "WARNING": "warning",
-                    "CRITICAL": "critical"}.get(alert.severity, "info")
-            FEED.emit("alert", alert.title, severity=_sev,
-                      data={"type": alert.alert_type})
-        except Exception as _feed_exc:
-            logger.debug("Agent feed alert event skipped: %s", _feed_exc)
+        #
+        # An admin-audience alert is not emitted here AT ALL. Narrowing the
+        # Telegram fan-out while still publishing the title to the landing
+        # page would move the message to a WIDER audience than the one it was
+        # taken away from \u2014 "LLM brain offline" is contract-clean by the feed's
+        # own rules (no balance, no size), and it still announces to every
+        # visitor that the bot is running blind.
+        if alert.audience != "admin":
+            try:
+                from bot.core.agent_feed import FEED
+                _sev = {"INFO": "info", "WARNING": "warning",
+                        "CRITICAL": "critical"}.get(alert.severity, "info")
+                FEED.emit("alert", alert.title, severity=_sev,
+                          data={"type": alert.alert_type})
+            except Exception as _feed_exc:
+                logger.debug("Agent feed alert event skipped: %s", _feed_exc)
 
         async def _send_to_chat(chat_id: str) -> None:
             try:
@@ -2663,7 +2799,9 @@ class ProactiveMonitor:
             except Exception as exc:
                 logger.debug("Failed to send alert to %s: %s", chat_id, exc)
 
-        await asyncio.gather(*[_send_to_chat(cid) for cid in list(self._enabled_chats)])
+        recipients = (self._admin_recipients(alert) if alert.audience == "admin"
+                      else list(self._enabled_chats))
+        await asyncio.gather(*[_send_to_chat(cid) for cid in recipients])
 
     # ── Time Stops (Rules 6/17) ──────────────────────────────────
 
