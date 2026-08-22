@@ -98,6 +98,22 @@ is not per-venue. A breaker is a statement about a book behaving badly, and a
 book is. But this is a decision to make deliberately, not to inherit from
 whichever is easier to code.
 
+> **DECIDED, 2026-08-22 — all three as recommended.** Caps and drawdown per
+> person; breakers per venue. Implemented in Phase 3
+> (`bot/risk/venue_aggregate.py`), and the tests encode the decision rather
+> than the arithmetic, per §7: a loss streak on one venue does NOT trip a
+> breaker on another, and a cap counted per person is NOT multiplied by the
+> venue count.
+>
+> The implementation added one thing this scope did not anticipate, and it is
+> the part worth reading. Summing venues is easy; the MISSING ADDEND is not. A
+> venue whose book cannot be read drops out of the sum, and a smaller total is
+> a LOOSER cap — so an honest total over an incomplete set is not a total, it
+> is a **floor**. A floor proves somebody is over a cap and can never prove
+> they are under one, so `cap_verdict` refuses on an incomplete reading even
+> when the number looks fine, and names the venue it could not read. Allowing
+> there is how a timeout quietly raises a limit.
+
 ## 4. The one real blocker
 
 **`TradeExecution` has no `venue` field.** Neither does `TradeIdea`.

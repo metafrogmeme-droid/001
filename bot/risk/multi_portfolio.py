@@ -240,6 +240,53 @@ class MultiUserPortfolio:
                          user_id, v, self._default_balance)
             return self._venue_portfolios[key]
 
+    def venue_readings(self, user_id: str) -> list:
+        """One ``VenueReading`` per book this user holds, default venue first.
+
+        Phase 3 feeds this to ``venue_aggregate.aggregate`` to count the
+        person-level caps. Each book is read INDIVIDUALLY inside its own
+        try/except, so one unreadable venue costs that venue's numbers and not
+        the whole reading — the "omit, do not blank the rest" half of the
+        repo's guard-or-omit rule.
+
+        A book that raises yields a reading whose fields are ``None``. That is
+        the entire point: ``None`` propagates into the total as INCOMPLETE, and
+        an incomplete total can refuse but never allow. Returning zeroes here
+        would silently loosen every cap the moment a snapshot failed.
+        """
+        from bot.core.venue_key import DEFAULT_VENUE
+        from bot.risk.venue_aggregate import VenueReading
+
+        try:
+            uid = self._sanitize(user_id)
+        except ValueError:
+            return []
+
+        out: list = []
+        books = []
+        if uid in self._portfolios:
+            books.append((DEFAULT_VENUE, self._portfolios[uid]))
+        for (u, v), book in sorted(self._venue_portfolios.items()):
+            if u == uid:
+                books.append((v, book))
+
+        for venue, book in books:
+            try:
+                snap = book.snapshot()
+                out.append(VenueReading(
+                    venue=venue,
+                    open_positions=int(snap.open_positions),
+                    equity_usd=float(snap.equity_usd),
+                    daily_pnl_usd=float(snap.daily_pnl),
+                ))
+            except Exception as exc:
+                log.warning("Could not read %s book for user %s: %s",
+                            venue, uid, exc)
+                # Fields stay None. Never 0.0 — see the docstring.
+                out.append(VenueReading(venue=venue,
+                                        unreadable_reason="snapshot_failed"))
+        return out
+
     def venue_portfolios(self) -> dict:
         """``{(user_id, venue): tracker}`` for split venues only.
 
