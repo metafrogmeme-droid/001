@@ -248,3 +248,56 @@ def test_the_engine_binds_the_hook_for_every_per_user_engine():
         "risk_for never wires the person-level totals, so the cap silently "
         "stays per-venue")
     assert "venue_readings" in src
+
+
+# ── daily loss, which is NOT a floor ─────────────────────────────────────
+
+def test_daily_loss_is_measured_over_total_equity():
+    """Per-person means BOTH halves of the ratio move together. $-50 across
+    $2000 of total equity is 2.5%, not the 5% one $1000 book would report."""
+    from bot.risk.venue_aggregate import person_daily_loss_pct
+    t = aggregate([_r("bitget", eq=1000.0, daily=-50.0),
+                   _r("bybit", eq=1000.0, daily=0.0)])
+    assert person_daily_loss_pct(t) == pytest.approx(2.5)
+
+
+def test_a_partial_daily_loss_is_refused_rather_than_bounded():
+    """THE distinction between this cap and the position count, and the reason
+    it needed its own function.
+
+    A position count only RISES as venues are added, so a partial count is a
+    floor and a floor above the cap still proves a breach. A P&L is signed: the
+    venue that did not answer might have made money (real loss smaller) or lost
+    money (larger). A partial daily loss is not a floor, not a ceiling, and not
+    usable — so there is nothing to reason from and the honest answer is None.
+    """
+    from bot.risk.venue_aggregate import person_daily_loss_pct
+    t = aggregate([_r("bitget", eq=1000.0, daily=-50.0), VenueReading(venue="bybit")])
+    assert person_daily_loss_pct(t) is None, (
+        "an unbounded partial P&L was reported as a measured percentage")
+
+
+def test_zero_or_unreadable_equity_is_not_a_divide(tmp_path):
+    from bot.risk.venue_aggregate import person_daily_loss_pct
+    assert person_daily_loss_pct(aggregate([_r("bitget", eq=0.0, daily=-5.0)])) is None
+    assert person_daily_loss_pct(PersonTotals(equity_usd=None,
+                                              daily_pnl_usd=-5.0)) is None
+
+
+def test_the_daily_loss_check_consults_the_person_total_and_tightens_only(tmp_path):
+    eng = _engine(tmp_path)
+    assert eng._person_daily_loss_pct() is None, "unwired must be a no-op"
+
+    eng.set_person_totals_fn(lambda: aggregate(
+        [_r("bitget", eq=1000.0, daily=-100.0), _r("bybit", eq=1000.0, daily=0.0)]))
+    assert eng._person_daily_loss_pct() == pytest.approx(5.0)
+
+    import inspect
+
+    from bot.risk.risk_engine import RiskEngine
+    src = inspect.getsource(RiskEngine._evaluate_locked)
+    assert "_person_daily_loss_pct()" in src, (
+        "the person-level daily loss is computed and never used by the cap")
+    # Tighten-only: the person number REPLACES the local one only when larger.
+    assert "_person_dl > daily_loss_pct" in src, (
+        "the person-level daily loss can lower this book's own measured loss")

@@ -876,6 +876,24 @@ class RiskEngine:
         t = self._person_totals()
         return None if t is None else int(getattr(t, "open_positions", 0) or 0)
 
+    def _person_daily_loss_pct(self) -> Optional[float]:
+        """Today's loss over the person's TOTAL equity, or ``None``.
+
+        ``None`` on an incomplete reading, on purpose — see
+        ``venue_aggregate.person_daily_loss_pct``. It also covers the
+        single-venue case, where there is nothing to aggregate and the local
+        number already IS the person's number.
+        """
+        t = self._person_totals()
+        if t is None:
+            return None
+        try:
+            from bot.risk.venue_aggregate import person_daily_loss_pct
+            return person_daily_loss_pct(t)
+        except Exception as exc:
+            risk_log.warning("person-level daily loss unreadable: %s", exc)
+            return None
+
     def _person_totals_incomplete(self) -> str:
         """``''`` when the reading is whole, else which venues went unread.
 
@@ -1279,6 +1297,16 @@ class RiskEngine:
                 _daily_pnl = state.daily_pnl
                 loss_base = min(sizing_equity, state.equity_usd) if sizing_equity > 0 and state.equity_usd > 0 else max(sizing_equity, state.equity_usd)
             daily_loss_pct = abs(_daily_pnl / loss_base * 100) if loss_base > 0 else 0
+            # MULTI-VENUE, Phase 3: this cap is PER PERSON. Both halves of the
+            # ratio move together or neither does — a person-level numerator
+            # over one venue's equity overstates the loss, and one venue's PnL
+            # over person-level equity UNDERSTATES it, which is the direction
+            # that spends money. `person_daily_loss_pct` returns None unless it
+            # has both, and TIGHTEN-ONLY (max) so this can raise the measured
+            # loss and never lower it below what this book alone already shows.
+            _person_dl = self._person_daily_loss_pct()
+            if _person_dl is not None and _person_dl > daily_loss_pct:
+                daily_loss_pct = _person_dl
             self._last_known_daily_loss_pct = daily_loss_pct  # C2-42: persist for fallback
             # Absolute-dollar floor: on a micro account the % cap is only a few
             # dollars, so require a meaningful $ loss too before halting the day.
@@ -1291,6 +1319,17 @@ class RiskEngine:
                 self._trip_circuit_breaker("daily loss limit breached", cause="daily_loss")
                 if "CIRCUIT_BREAKER: tripped during evaluation" not in failed:
                     failed.append("CIRCUIT_BREAKER: tripped during evaluation — current trade rejected")
+            elif self._person_totals_incomplete():
+                # Unlike the position count, a partial daily loss is NOT a
+                # floor. A count only rises as venues are added; a P&L can go
+                # either way, so the venue that did not answer might have made
+                # money or lost it. There is no bound to reason from, so this
+                # cannot say the person is under their daily limit — and
+                # saying so anyway is how an unread venue spends a day's
+                # allowance twice.
+                failed.append(
+                    f"DAILY_LOSS: {daily_loss_pct:.1f}% measured here, but not "
+                    f"across the account — {self._person_totals_incomplete()}")
             else:
                 passed.append(f"DAILY_LOSS: {daily_loss_pct:.1f}% OK")
         except Exception as exc:
