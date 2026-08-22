@@ -732,12 +732,20 @@ router.post('/2fa/setup', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '2FA is already enabled — disable it first to rotate.' });
     }
     const secret = totp.generateSecret();
+    // SEALED FOR STORAGE, PLAIN IN THE RESPONSE. The user has to scan the real
+    // secret exactly once; what the database keeps is the envelope. Without
+    // WEB_CREDS_KEY sealSecret passes through and the row stays plaintext —
+    // reported honestly below rather than assumed.
     await pool.execute(
       'UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_backup_codes = ? WHERE id = ?',
-      [secret, 0, null, req.user.user_id]);
+      [totp.sealSecret(secret), 0, null, req.user.user_id]);
     res.json({
       secret,
       otpauth: totp.otpauthUri(secret, rows[0].email),
+      // A user enrolling a permanent second factor is entitled to know whether
+      // the seed is encrypted where it lands. Absent a key it is not, and
+      // saying so is cheaper than a claim nobody checked.
+      encrypted_at_rest: totp.secretsAreSealed(),
       note: 'Scan or enter this in your authenticator app, then confirm a code '
         + 'at /2fa/enable. 2FA is NOT active until confirmed.',
     });
@@ -758,9 +766,16 @@ router.post('/2fa/enable', authMiddleware, async (req, res) => {
       return res.status(401).json({ error: 'Code does not match — check your authenticator app.' });
     }
     const { codes, hashes } = totp.generateBackupCodes();
+    // MIGRATE THE ROW HERE. This used to write `user.totp_secret` straight
+    // back, so a legacy plaintext seed stayed plaintext for the life of the
+    // account — the fix would have covered new enrolments and nobody else.
+    // The code was just verified against this secret, so it is readable; if it
+    // somehow is not, keep what was there rather than writing a sealed null.
+    const opened = totp.openSecret(user.totp_secret);
+    const stored = opened ? totp.sealSecret(opened) : user.totp_secret;
     await pool.execute(
       'UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_backup_codes = ? WHERE id = ?',
-      [user.totp_secret, 1, JSON.stringify(hashes), req.user.user_id]);
+      [stored, 1, JSON.stringify(hashes), req.user.user_id]);
     res.json({
       enabled: true,
       backup_codes: codes,
