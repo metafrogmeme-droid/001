@@ -149,10 +149,12 @@ def gen_state_gate_reject():
                         "high-impact macro event imminent — spreads and slippage unquantifiable"),
         "CIRCUIT_BREAKER": (2, f"ACCOUNT STATE: drawdown from peak equity is {rng.uniform(10.1, 12.5):.1f}%.",
                             "system halted — drawdown exceeds the 10% circuit breaker"),
-        "COOLDOWN": (2, f"ACCOUNT STATE: a stop loss on this symbol was hit {rng.randint(1, 4)} bars ago; "
+        # Weight 3: cooldown/stale are the gates that stayed broken across
+        # THREE training generations (v9/v10/v11) at weight 2.
+        "COOLDOWN": (3, f"ACCOUNT STATE: a stop loss on this symbol was hit {rng.randint(1, 4)} bars ago; "
                         f"the post-stop cooldown is 6 bars.",
                      "cooldown after the last stop loss has not elapsed"),
-        "STALE_DATA": (2, f"DATA STATE: the most recent candle in the feed is {rng.randint(12, 40)} minutes "
+        "STALE_DATA": (3, f"DATA STATE: the most recent candle in the feed is {rng.randint(12, 40)} minutes "
                           f"old on a {tf} timeframe.",
                        "market data is stale — indicators reflect a price that no longer exists"),
         # Weight 3, not 1: the v8 model trained at weight 1 wrote
@@ -307,20 +309,47 @@ def gen_regime_sizing():
 
 
 def gen_meme_atr_reject():
+    """CONTRASTIVE since v12: v11 wrote 'Meme Coin Guard: 4.6% > 4.0% — PASS',
+    computing the breach correctly and then mislabeling it. A guard trained
+    only on breaches teaches 'meme + guard mention -> some verdict', not the
+    comparison. Both branches now spell out the inequality AND its verdict."""
     sym, price0, decimals, _ = pick_symbol(meme=True)
     price = round(price0 * rng.uniform(0.8, 1.3), decimals)
-    atr = rng.uniform(4.1, 7.5)
     instruction = f"Analyze {sym} (meme coin) on the 1H. Generate a RUNECLAW TradeIdea with risk verdict."
-    inp = (f"RSI {rng.randint(25, 33)}, MACD positive, volume {rng.uniform(2.2, 3.4):.1f}x — a clean-looking "
-           f"long. ATR is {atr:.1f}% of price; the meme-coin ATR guard is 4.0%.")
-    output = (f"Trade Scan: {sym}\n"
-              f"Direction considered: LONG\n"
-              f"Risk Check: REJECTED\n\n"
-              f"Failed Checks:\n"
-              f"- VOLATILITY: ATR {atr:.1f}% exceeds the 4.0% meme-coin guard\n\n"
-              f"Reasoning: Meme-coin volatility at {atr:.1f}% makes any stop placement a coin "
-              f"flip; the guard exists because these fills gap. Signals do not override it.\n\n"
-              f"Action: NO TRADE. Capital preservation above all.")
+    passes = rng.random() < 0.45
+    if passes:
+        atr = rng.uniform(1.8, 3.9)
+        inp = (f"RSI {rng.randint(25, 33)}, MACD positive, volume {rng.uniform(2.2, 3.4):.1f}x — a clean-looking "
+               f"long. ATR is {atr:.1f}% of price; the meme-coin ATR guard is 4.0%.")
+        rr = round(rng.uniform(1.4, 2.6), 2)
+        sl, tp, rr = trade_numbers(price, decimals, "LONG", rr)
+        conf = rng.uniform(0.58, 0.76)
+        output = (f"TRADE IDEA\n"
+                  f"Direction: LONG\n"
+                  f"Asset: {sym}\n"
+                  f"Timeframe: 1H\n"
+                  f"Entry: {fmt(price, decimals)}\n"
+                  f"Stop Loss: {fmt(sl, decimals)}\n"
+                  f"Take Profit: {fmt(tp, decimals)}\n"
+                  f"Risk:Reward: 1:{rr:.2f}\n"
+                  f"Confidence: {conf:.2f}\n"
+                  f"Risk Check: APPROVED\n"
+                  f"- MEME_ATR_GUARD: ATR {atr:.1f}% <= 4.0% limit -> PASS "
+                  f"(below the limit passes; above it fails)\n"
+                  f"- RISK_REWARD: {rr:.2f} >= 1.2 minimum\n")
+    else:
+        atr = rng.uniform(4.1, 7.5)
+        inp = (f"RSI {rng.randint(25, 33)}, MACD positive, volume {rng.uniform(2.2, 3.4):.1f}x — a clean-looking "
+               f"long. ATR is {atr:.1f}% of price; the meme-coin ATR guard is 4.0%.")
+        output = (f"Trade Scan: {sym}\n"
+                  f"Direction considered: LONG\n"
+                  f"Risk Check: REJECTED\n\n"
+                  f"Failed Checks:\n"
+                  f"- MEME_ATR_GUARD: ATR {atr:.1f}% > 4.0% limit -> FAIL "
+                  f"(above the limit fails; a breach can NEVER be a pass)\n\n"
+                  f"Reasoning: Meme-coin volatility at {atr:.1f}% makes any stop placement a coin "
+                  f"flip; the guard exists because these fills gap. Signals do not override it.\n\n"
+                  f"Action: NO TRADE. Capital preservation above all.")
     return instruction, inp, output
 
 
