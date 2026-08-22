@@ -9,7 +9,8 @@
     "build": "vite build && vite build --ssr src/entry-server.tsx && node prerender.js",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "prebuild": "node scripts/require-deps.mjs"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.31",
