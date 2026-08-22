@@ -55,6 +55,11 @@ class JournalEntry:
 
     # Analysis
     exit_reason: str = ""  # "sl_hit", "tp_hit", "trailing", "manual", "partial_tp"
+    # WHERE THIS TRADE HAPPENED. The live close path records here, not into the
+    # paper portfolio's TradeExecution, so attributing only that one would leave
+    # every REAL trade venue-blind — the half that matters. Defaults to the
+    # venue every existing entry is on; it is a back-fill of a fact, not a guess.
+    venue: str = "bitget"
     lessons: list = field(default_factory=list)
     tags: list = field(default_factory=list)  # "winner", "loser", "breakeven", "runner", etc.
 
@@ -88,6 +93,7 @@ class TradeJournal:
         volatility: str = "",
         holding_hours: float = 0.0,
         exit_reason: str = "",
+        venue: str = "bitget",
     ) -> JournalEntry:
         """Record a completed trade in the journal."""
         # Calculate R-multiple
@@ -126,6 +132,7 @@ class TradeJournal:
             confidence=confidence,
             signals_used=signals_used or [],
             exit_reason=exit_reason,
+            venue=venue,
             lessons=lessons,
             tags=tags,
             timestamp=time.time(),
@@ -284,6 +291,7 @@ class TradeJournal:
                     "vol": e.volatility, "conf": e.confidence,
                     "signals": e.signals_used, "exit_reason": e.exit_reason,
                     "lessons": e.lessons, "tags": e.tags, "ts": e.timestamp,
+                    "venue": e.venue,
                 })
             with open(self._journal_file, "w") as f:
                 json.dump(data, f)
@@ -309,6 +317,9 @@ class TradeJournal:
                     signals_used=d.get("signals", []), exit_reason=d.get("exit_reason", ""),
                     lessons=d.get("lessons", []), tags=d.get("tags", []),
                     timestamp=d.get("ts", 0),
+                    # Absent on every entry written before venues existed, and
+                    # those really are Bitget — a back-fill of a fact.
+                    venue=d.get("venue", "bitget"),
                 ))
             logger.info("Loaded %d journal entries", len(self._entries))
         except Exception as exc:

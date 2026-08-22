@@ -100,14 +100,22 @@ class PortfolioTracker:
 
     # -- Public API --
 
-    def open_position(self, idea: TradeIdea, size_usd: float, leverage: int = 1) -> TradeExecution:
-        """Open a new paper position from an approved TradeIdea."""
+    def open_position(self, idea: TradeIdea, size_usd: float, leverage: int = 1,
+                      venue: str = "bitget") -> TradeExecution:
+        """Open a new paper position from an approved TradeIdea.
+
+        ``venue`` records WHERE the trade is, and defaults to the venue every
+        existing position is on. It is a parameter rather than something read
+        from config because the caller is the only thing that knows: the engine
+        takes it from the executor it is about to place through.
+        """
         with self._lock:
-            result = self._open_position_locked(idea, size_usd, leverage)
+            result = self._open_position_locked(idea, size_usd, leverage, venue)
             self._auto_save()
             return result
 
-    def _open_position_locked(self, idea: TradeIdea, size_usd: float, leverage: int = 1) -> TradeExecution:
+    def _open_position_locked(self, idea: TradeIdea, size_usd: float, leverage: int = 1,
+                              venue: str = "bitget") -> TradeExecution:
         # Guard: prevent division by zero or negative entry
         if idea.entry_price <= 0:
             audit(trade_log, f"Invalid entry price: {idea.entry_price}",
@@ -148,6 +156,7 @@ class PortfolioTracker:
             is_paper=True,
             leverage=leverage,
             strategy_type=getattr(idea, 'strategy_type', 'swing'),
+            venue=venue,
             opened_at=datetime.now(UTC),
         )
 
