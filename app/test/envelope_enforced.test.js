@@ -145,12 +145,54 @@ test('the UI arms from the intent page and the arena translates refusals', () =>
   assert.ok(i18n.includes('caps a position at {max}%'));
 });
 
-test('an unreadable armed envelope fails CLOSED', () => {
-  const src = require('fs').readFileSync(
-    require('path').join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
-  assert.match(src, /fail CLOSED/i);
-  assert.match(src, /opens are refused until it can be/,
-    'unlike the season read, an armed envelope outage refuses');
-  // and the season read's fail-open comment still holds for seasons
-  assert.match(src, /season read failure never blocks an open/);
+/**
+ * Fail the next `pool.execute` whose SQL matches, then restore.
+ *
+ * `pool` is the same object the route holds, so this reaches the exact read
+ * the route makes without stubbing the module graph.
+ */
+async function withFailingRead(pattern, fn) {
+  const real = pool.execute.bind(pool);
+  pool.execute = async (sql, params) => {
+    if (pattern.test(sql)) throw new Error('injected read failure');
+    return real(sql, params);
+  };
+  try { return await fn(); } finally { pool.execute = real; }
+}
+
+test('an unreadable armed envelope fails CLOSED', async () => {
+  // EXERCISED, NOT MATCHED. This asserted three phrases out of arena.js —
+  // `fail CLOSED`, `opens are refused until it can be`, and the season read's
+  // fail-open note. All three are COMMENTS. Deleting the try/catch that
+  // implements the refusal left every one of them in place, so the test that
+  // guards the envelope's central promise passed against a route that had
+  // stopped keeping it.
+  //
+  // Found by stripping comments from every shipped source and re-running the
+  // suite: 41 of 2,955 tests failed, and this was one of them.
+  const armed = await req('PUT', '/api/arena/envelope', { text: 'only majors, max leverage 5' });
+  assert.strictEqual(armed.body.armed, true, 'the fixture envelope did not arm');
+
+  const refused = await withFailingRead(/FROM arena_envelopes/i, () =>
+    req('POST', '/api/arena/open',
+      { symbol: 'BTCUSDT', direction: 'LONG', margin: 10, leverage: 2 }));
+  assert.strictEqual(refused.status, 503, JSON.stringify(refused.body));
+  assert.match(refused.body.error, /could not be read/i,
+    'the refusal must say the envelope was unreadable, not invent another reason');
+  assert.match(refused.body.error, /fail closed/i);
+});
+
+test('a season read failure does NOT block an open', async () => {
+  // THE OTHER HALF, and the reason the first one is not simply "wrap
+  // everything in a refusal". A season is a competition rule; an envelope is
+  // the user's own authority. Only one of them earns a refusal when it cannot
+  // be read, and a test that only pinned the strict side would be satisfied by
+  // a route that refuses on both.
+  await req('DELETE', '/api/arena/envelope');
+  const ok = await withFailingRead(/FROM arena_seasons/i, () =>
+    req('POST', '/api/arena/open',
+      { symbol: 'BTCUSDT', direction: 'LONG', margin: 10, leverage: 2 }));
+  assert.notStrictEqual(ok.status, 503,
+    'an unreadable SEASON now blocks opens — the two reads have been collapsed '
+    + 'into one policy and the envelope no longer means anything specific');
 });
