@@ -113,6 +113,41 @@ A moved `assets` hash is still not a *fetched* file — browsers cache on the `?
 in the script tag. Any change to a bundle must bump that query in every page
 referencing it; `app/test/cache_buster_ratchet.test.js` fails the build otherwise.
 
+### 7. Confirm the *marketing site* deploy actually landed
+
+Step 6 covers the platform. It says nothing about the site, which is a separate
+artefact on a possibly separate host — and "we deployed but still don't see any
+changes to website" was a real morning, with no way to tell a stale host from a
+stale browser cache from a build that never contained the change.
+
+The site now publishes its own fingerprint. **Ask the live URL, not the box** —
+that is the whole point, since the box being right is exactly what is in doubt:
+
+```bash
+curl -s https://<site>/version.json                  # what is actually served
+node site/scripts/site_fingerprint.mjs               # what this checkout builds
+```
+
+| `pages` | `assets` | means |
+|---|---|---|
+| moved | moved | full publish landed |
+| moved | unchanged | content/markup change only |
+| unchanged | moved | bundle change only |
+| unchanged | unchanged | **nothing published**, whatever the log says |
+
+If the two sides disagree, the served site is not this commit — republish. If
+they agree and you still cannot see the change, the change is not in this
+commit, and no amount of redeploying will produce it.
+
+**Media is deliberately outside both hashes.** `pages` covers every served
+`.html`, `assets` covers `website/assets/`. A publish that changed only an image
+or the demo video moves neither, and this check must not be read as saying it
+did.
+
+For the host `api_bridge.py` serves, there is nothing separate to publish —
+`website/` is served straight out of the checkout, so step 2 already answers it.
+The fingerprint is for every other copy.
+
 ---
 
 ## One-liner
