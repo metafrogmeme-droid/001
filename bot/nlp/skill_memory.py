@@ -102,3 +102,19 @@ def skill_failure_memory(skill: str) -> str:
     """
     return (f"[{skill}] FAILED — the tool raised an error and returned no "
             "result. Nothing was measured.")
+
+
+def skill_unavailable_memory(skill: str) -> str:
+    """The assistant turn to record when the named skill could not be run.
+
+    DISTINCT FROM ``skill_failure_memory`` on purpose. A skill that raised was
+    reached and returned nothing; a skill that is unavailable was never reached
+    at all, and the difference is what a later turn needs to avoid inventing.
+    "The tool errored" invites a retry. "There is no such tool here" does not.
+
+    Like the failure memory, it names no internals: memory feeds the model and
+    the model writes to a user.
+    """
+    return (f"[{skill}] UNAVAILABLE — this bot has no such tool wired up, so it "
+            "was never run. Nothing was measured, and nothing about it can be "
+            "answered from here.")

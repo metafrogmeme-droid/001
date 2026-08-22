@@ -199,6 +199,29 @@ async function main() {
   writeSitemap()
   writeRobots()
   writeLlms()
+  await writeVersion()
+}
+
+/**
+ * LAST, because it fingerprints the finished output.
+ *
+ * Everything above has to be on disk before this reads it: the bundles vite
+ * emitted, every prerendered page, and the three text files just written. A
+ * stamp taken earlier would describe a site that never existed.
+ */
+async function writeVersion() {
+  const { stampText, fingerprint } = await import('./scripts/site_fingerprint.mjs')
+  const fp = fingerprint(OUT)
+  if (fp.counts.pages < ROUTES.length) {
+    // Fewer pages than routes means the loop above did not write what it said
+    // it did. Stamping anyway would publish a confident fingerprint of a
+    // half-built site.
+    throw new Error(
+      `fingerprint sees ${fp.counts.pages} HTML files for ${ROUTES.length} `
+      + `routes — refusing to stamp an incomplete build.`)
+  }
+  writeFileSync(join(OUT, 'version.json'), stampText(OUT), 'utf8')
+  console.log(`version: pages ${fp.pages} · assets ${fp.assets}`)
 }
 
 function writeSitemap() {

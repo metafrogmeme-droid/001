@@ -5,15 +5,45 @@
 # tree. Pinned by site/test/payload_budget.test.js, which fails on a NEW
 # entry and equally on a STALE one.
 #
-# THIS IS NOT A DELETION LIST. Each of these has a public URL, and a tweet, a
-# deck or a README on another branch is invisible from in here — "nothing in
-# this repo links to it" is not "nothing links to it". Removing one is the
-# operator's call; this file exists so the pile stops growing and so the
-# decision can be made against a real list.
-#
 # Total: 20.5 MB across 22 files.
 # The site itself loads in ~58 KB — none of this is on the critical path.
-
+#
+# THE DECISION, AND WHY IT IS NOT "DELETE THEM"
+# ---------------------------------------------
+# This file used to end "removing one is the operator's call". It was left open
+# on the reasoning that a tweet or a deck could link one and be invisible from
+# in here. That reasoning was never measured. It has been now, and the answer
+# changes the question rather than settling it.
+#
+#   1. NOTHING HAS EVER REFERENCED THEM. All 427 commits were searched, every
+#      text file in each, for all 22 basenames. Zero hits outside this list.
+#      Not "unreferenced today" — never referenced, by any page this repo has
+#      ever published. They arrived together in 6645bab, a 1,833-file bulk
+#      import, and no page was ever written that would teach anyone the URL.
+#      (The search was canary-checked against demo-recording, a live asset it
+#      finds immediately — a scan that finds nothing proves nothing.)
+#
+#   2. DELETING THEM WOULD SAVE ZERO BYTES FOR ANYONE. The blobs are in git
+#      history permanently; the pack is 77.6 MiB either way. The box deploys by
+#      `git fetch <url> && git reset --hard`, so it downloads them regardless of
+#      whether HEAD still lists them. The only thing deletion changes is 21 MB
+#      of working tree — and the possibility of a 404 on a hand-shared URL.
+#
+# So the premise of the concern was wrong: this was never publish weight. It is
+# history weight, and it is already spent. Deleting buys nothing measurable and
+# risks something real, so they stay. The ratchet above keeps the pile from
+# growing, which was always the part that mattered.
+#
+# If the operator disagrees, recovery is exact and one command per file:
+#     git show 6645bab:website/qr_bot.png > website/qr_bot.png
+#
+# Several of these will also never be referenced BY DESIGN, and reading the
+# list as 22 mistakes gets that wrong. The header images are sized for
+# uploading to other platforms — mule_page_header_1600x600 and
+# website_header_2400x800 are dimensions, not filenames — so the copy that
+# matters lives on those platforms and this is the source. The infographics
+# (13 MB of the 20.5) are deck material. A future "cleanup" should know that
+# before treating the list as a to-do.
 website/audit_card.png   # 0.45 MB
 website/backtest_card.png   # 0.50 MB
 website/dark_mode_toggle_rune_active.png   # 0.02 MB

@@ -540,7 +540,8 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
-from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
+from bot.nlp.skill_memory import (skill_failure_memory, skill_result_memory,
+                                  skill_unavailable_memory)
 from bot.formatters.thesis_text import thesis_prose
 from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, llm_complete, resolve_tier_config
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
@@ -2558,6 +2559,19 @@ class TelegramHandler:
                 await self._cmd_orders(update, ctx)
                 return
 
+            # ── help / status → the real commands ──────────────────
+            # Both classify at confidence 1.0 and neither is a registered
+            # skill, so before this they fell through to the chat model: a
+            # user typing "status" got a language model's impression of
+            # whether the engine was running. These are the two things it is
+            # least excusable to improvise, and the commands already exist.
+            if intent.skill == "help":
+                await self._cmd_help(update, ctx)
+                return
+            if intent.skill == "status":
+                await self._cmd_status(update, ctx)
+                return
+
             # ── Dangerous intents → their GUARDED command (H3) ──
             # "stop trading", "halt the bot", "kill the bot" and "emergency
             # stop" are one regex in intent_router.py, and they resolved to the
@@ -2675,6 +2689,29 @@ class TelegramHandler:
                     await self._send(update,
                         "Something went wrong. Try again or use a command.")
                 return
+
+            # ── The skill the router named cannot be run ──────────
+            # `if skill:` above had no else, so a confident intent whose skill
+            # is not in the registry fell PAST every branch here and into the
+            # AI chat fallback at the bottom — which has no tools and answers
+            # anyway. Typing "status" or "help" does exactly that today: both
+            # classify at confidence 1.0, neither is registered, and the user
+            # gets a language model's impression of the system's state.
+            #
+            # That is the house rule at its plainest. An unavailable tool is
+            # not a measurement, and a chat model improvising over the gap is
+            # the confident negative the rest of this codebase spends its
+            # tests preventing. Say what happened instead.
+            self.conversations.append(
+                tg_id, "assistant", skill_unavailable_memory(intent.skill),
+                metadata={"skill": intent.skill, "unavailable": True})
+            audit(system_log, f"NL intent matched an unavailable skill: {intent.skill}",
+                  action="intent_unavailable", result="UNAVAILABLE",
+                  data={"skill": intent.skill, "confidence": intent.confidence})
+            from bot.formatters.onboarding import skill_unavailable_notice
+            await self._send(update, skill_unavailable_notice(
+                intent.skill, lang=self._lang(update)))
+            return
 
         if intent.matched and intent.confidence >= 0.5 and not intent.kwargs.get("symbol"):
             # Partial match — skill needs a symbol we couldn't extract

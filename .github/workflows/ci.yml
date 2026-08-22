@@ -282,11 +282,18 @@ jobs:
       # produces — someone edited the generated output by hand, or built and
       # did not commit. Either way the deployed site and its source disagree,
       # silently, until the next build overwrites the edit.
+      #
+      # `git diff` was the whole check and it CANNOT SEE A NEW FILE. A build
+      # that starts emitting one — as adding website/version.json just did —
+      # leaves an untracked file, `git diff --quiet` reports the tree clean,
+      # and the gate passes while the committed site is missing a page. Same
+      # shape as everything else this repo guards: the check was true of what
+      # it looked at, and it was not looking at all of it.
       - name: The committed site is the built site
         run: |
-          git diff --stat -- website/ | tail -5
-          git diff --quiet -- website/ || {
-            echo "::error::website/ differs from what site/ builds — commit the rebuild"
+          git status --porcelain -- website/
+          [ -z "$(git status --porcelain -- website/)" ] || {
+            echo "::error::website/ differs from what site/ builds (modified OR untracked) — commit the rebuild"
             exit 1
           }
 

@@ -108,3 +108,47 @@ def admin_access_request(name: str, tg_id: str, lang: str = "en") -> str:
     should be able to read what the tap does without going to the source.
     """
     return t("reg_admin_request", lang, name=name, tg_id=tg_id)
+
+
+#: Free-text intents whose skill is not wired, mapped to the nearest thing the
+#: user CAN reach. A suggestion is only worth printing if it is real, so this
+#: holds commands that exist; an intent absent from it gets no suggestion
+#: rather than an invented one.
+_UNAVAILABLE_ALTERNATIVES = {
+    "analyze_asset": "/analyze BTC",
+    "scan_market": "/scan",
+    "get_portfolio": "/portfolio",
+    "check_risk": "/risk",
+    "get_orders": "/orders",
+}
+
+
+def skill_unavailable_notice(skill: str, lang: str = "en") -> str:
+    """Said when the router recognised the request and the tool is not there.
+
+    THE ALTERNATIVE TO THIS MESSAGE IS NOT SILENCE — it is the chat model. A
+    matched intent whose skill is unregistered used to fall past every branch
+    in the handler into the tool-less AI fallback, which answers anyway. On
+    "status" that produced a language model's impression of whether the engine
+    was running, and on "analyze BTC" a description of a chart nothing had
+    read.
+
+    So this says the two things that are true and separable: the request WAS
+    understood, and it was NOT run. Collapsing those into "sorry, I didn't get
+    that" would be its own small lie — the router understood perfectly.
+
+    ``lang`` is accepted for symmetry with the other notices here and is not
+    yet keyed into the translation table; the English string is returned for
+    every locale rather than a missing-key placeholder.
+    """
+    alt = _UNAVAILABLE_ALTERNATIVES.get(skill)
+    lines = [
+        "I understood that as <b>" + skill.replace("_", " ") + "</b>, "
+        "but that tool is not available on this bot right now.",
+        "",
+        "I have not looked anything up, so I am not going to guess at an "
+        "answer.",
+    ]
+    if alt:
+        lines += ["", f"Closest thing you can run: <code>{alt}</code>"]
+    return "\n".join(lines)
