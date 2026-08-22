@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import Optional
 
 from bot.compat import UTC
+from bot.utils.atomic_write import atomic_write_json
 
 log = logging.getLogger("runeclaw.validation_gate")
 
@@ -106,6 +107,8 @@ class BacktestValidationGate:
     # strategy has ever been validated", so the load logs what it could not read.
 
     def _load(self) -> None:
+        if self._path is None:
+            return                                   # in-memory gate, nothing to read
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -131,12 +134,15 @@ class BacktestValidationGate:
             return
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(f".{os.getpid()}.tmp")
-            tmp.write_text(
-                json.dumps({k: asdict(v) for k, v in self._validations.items()},
-                           indent=2, sort_keys=True),
-                encoding="utf-8")
-            tmp.replace(self._path)                  # atomic
+            # `bot.utils.atomic_write`, NOT a hand-rolled `.tmp` beside the
+            # destination. The first draft here did exactly that and
+            # tests/test_atomic_write.py caught it: a scratch name derived from
+            # its own destination is the shape that guard exists to keep out,
+            # and it was written months before this file needed it.
+            atomic_write_json(
+                self._path,
+                {k: asdict(v) for k, v in self._validations.items()},
+                sort_keys=True)
         except Exception as exc:                     # noqa: BLE001
             log.warning("could not persist validations (%s) — this run's "
                         "results will not survive a restart.", exc)

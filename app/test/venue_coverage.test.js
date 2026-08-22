@@ -110,8 +110,22 @@ test('the page separates connecting from reading', () => {
   assert.match(connect[1], /any one of them|the venue you connect/i,
     'the connect line must say ONE venue per account, not eight at once: '
     + `"${connect[1]}"`);
-  assert.match(read[1], /at the same time|at once|across venues/i,
-    `the read line must be the one claiming simultaneity: "${read[1]}"`);
+  // WAS a phrase match on "at the same time|at once|across venues", and it was
+  // pinning a claim that turned out to be false. The copy said "The scan reads
+  // funding and positioning across venues at the same time" — and nothing in
+  // market_scanner.py, analyzer.py or engine.py imports cross_venue. Its only
+  // callers are _cmd_funding and _cmd_fundingscan, which a USER invokes. The
+  // page promised the engine did automatically what you actually have to ask
+  // for, in fourteen languages.
+  //
+  // So the assertion moved from the phrasing to the PROPERTY it was trying to
+  // protect: the read line is the one about SEVERAL venues, as against the
+  // connect line's one-per-account. Naming two or more of them is that
+  // property, and it cannot be satisfied by a turn of phrase over one venue.
+  const named = VENUES.filter((v) => read[1].includes(v.label.split(' ')[0]));
+  assert.ok(named.length >= 2,
+    'the read line must be the one about several venues, and it names '
+    + `${named.length}: "${read[1]}"`);
   // And the strip must not promise order routing anywhere.
   const sec = index.slice(index.indexOf('id="venuesTease"'));
   const body = sec.slice(0, sec.indexOf('</section>'));

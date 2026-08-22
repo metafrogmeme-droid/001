@@ -317,10 +317,17 @@
      TWO CLAIMS, KEPT APART ON PURPOSE. You can CONNECT any one of the eight and
      your live account trades there — that is per-user, one venue per account,
      not eight at once, and saying otherwise would promise routing this does not
-     do. Separately the SCAN reads several venues at the same time: cross-venue
-     funding (bot/core/cross_venue.py) pulls the whole funding map from Bybit and
-     Hyperliquid and merges it with Bitget's, so crowd positioning is compared
-     rather than assumed from one book.
+     do. Separately, cross-venue funding (bot/core/cross_venue.py) pulls the
+     funding map from Bybit and Hyperliquid and merges it with Bitget's, so
+     crowd positioning is compared rather than assumed from one book.
+
+     THE SECOND CLAIM USED TO SAY "THE SCAN" DOES THAT, AND IT DOES NOT. Nothing
+     in bot/core/market_scanner.py, analyzer.py or engine.py imports
+     cross_venue; its only callers are _cmd_funding and _cmd_fundingscan, which
+     a user invokes. The copy said the engine reads several venues at once, in
+     fourteen languages, on a capability the scan has never had. It now says
+     what is true — compared when you ask for it — and names the THREE venues
+     the comparison actually covers rather than implying all eight.
 
      The list is written out rather than fetched: it is indexable, it survives a
      dead API, and app/test/venue_coverage.test.js derives the expected names
@@ -330,7 +337,7 @@
   <div class="section-head">
     <div class="eyebrow"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg> <span data-i18n="lp.venues_eyebrow">Multi-venue</span></div>
     <h2 id="venues-h" data-i18n="lp.venues_h">Eight venues, not one exchange</h2>
-    <p class="muted" data-i18n="lp.venues_sub">Connect the exchange you already use. The engine reads several of them at once.</p>
+    <p class="muted" data-i18n="lp.venues_sub">Connect the exchange you already use. Funding across several of them, compared side by side.</p>
   </div>
   <ul class="venue-strip" aria-label="Supported venues" data-i18n-attr="aria-label:a11y.venues">
       <li class="venue-chip" data-venue="bitget">Bitget</li>
@@ -349,7 +356,7 @@
     </p>
     <p class="venue-note">
       <svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg>
-      <span data-i18n="lp.venues_read">The scan reads funding and positioning across venues at the same time. When one book pays 0.01% and another pays 0.10%, the crowd is somewhere specific — a single-venue bot cannot see that.</span>
+      <span data-i18n="lp.venues_read">Funding and positioning across Bitget, Bybit and Hyperliquid, compared side by side when you ask for it. When one book pays 0.01% and another pays 0.10%, the crowd is somewhere specific — a single-venue read cannot see that.</span>
     </p>
   </div>
 </section>
@@ -906,7 +913,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=129"></script>
+<script src="/js/i18n.js?v=130"></script>
 <script src="/js/icons.js?v=5"></script>
 <script src="/js/panel-error-model.js?v=1"></script>
 <script src="/js/app.js?v=13"></script>
@@ -1119,13 +1126,45 @@
     host.hidden = false; host.style.display = 'flex';
   }
   function clearSkel() { if (host) { host.innerHTML = ''; host.hidden = true; host.style.display = ''; } }
+  /**
+   * The strip above the fold. A NAMED PURE FUNCTION so it can be tested —
+   * app/test/hero_eyebrow.test.js slices it out and runs it, which is the only
+   * way to know what an inline renderer actually prints.
+   *
+   * THE FIRST THING A VISITOR READ SAID ONE EXCHANGE. Eight are connectable and
+   * the section further down says so, but this line overwrote the static copy
+   * with a hardcoded "Bitget USDT-M futures" — so the page contradicted itself
+   * above the fold, and the product looked like a single-venue bot to anyone
+   * who read no further.
+   *
+   * TWO FACTS, KEPT APART exactly as the payload keeps them. `venue` is where
+   * THIS RECORD was traded — the operator's own account, genuinely Bitget, and
+   * broadening it would misdescribe the trades it decorates. `venues_connectable`
+   * is how many venues a visitor could link, which is one-per-account and not a
+   * claim about routing across eight at once.
+   *
+   * Nothing here is invented: a segment whose field is missing is OMITTED, so a
+   * payload without the count reads as it did before rather than announcing
+   * "0 venues".
+   */
+  function heroEyebrow(d) {
+    var mode = d.mode === 'LIVE' ? 'Live' : 'Paper mode';
+    // Joined, not a separate segment: "Live · on Bitget" reads as two facts
+    // where it is one.
+    var bits = [d.venue ? mode + ' on ' + d.venue : mode];
+    if (typeof d.venues_connectable === 'number'
+        && isFinite(d.venues_connectable) && d.venues_connectable > 1) {
+      bits.push(d.venues_connectable + ' venues connectable');
+    }
+    bits.push('every trade recorded');
+    return bits.join(' · ');
+  }
   RC.fetchJSON('/api/public/track-record', { auth: false }).then(function (r) {
     var d = r && r.ok && r.data; if (!d) return clearSkel();
     var eb = document.querySelector('.hero .eyebrow span');
     if (eb && d.mode) {
       eb.removeAttribute('data-i18n');   // honest mode beats the static copy
-      eb.textContent = (d.mode === 'LIVE' ? 'Live' : 'Paper mode')
-        + ' · Bitget USDT-M futures · every trade recorded';
+      eb.textContent = heroEyebrow(d);
     }
     var s = d.stats || {};
     if (!host) return;
