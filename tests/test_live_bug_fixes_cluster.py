@@ -35,7 +35,10 @@ def test_futures_entry_normalizes_to_swap_symbol():
     # And it must happen before the order price pipeline (create_order).
     conv = src.index('symbol = self._venue.swap_symbol(idea.asset)')
     # the old buggy line (bare assignment with the misleading comment) is gone
-    assert 'Convert symbol to the perpetual/swap format' in src
+    # `Convert symbol to the perpetual/swap format` was asserted here and is
+    # a COMMENT. Dropped rather than replaced: the line above already
+    # requires the conversion CALL, which is the property. The comment
+    # explains it and enforces nothing.
     assert conv < src.index('active_exchange = exchange')
 
 

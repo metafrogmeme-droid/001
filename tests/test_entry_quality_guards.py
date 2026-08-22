@@ -45,7 +45,14 @@ class TestEntrySafeguardsExistBeforeMoneyPath:
         src = inspect.getsource(LiveExecutor.execute)
         stale = src.find("BLOCKED_STALE_TICKER")
         spread = src.find("BLOCKED_WIDE_SPREAD")
-        sg1 = src.find("SAFEGUARD 1")
+        # `sg1` WAS `src.find("SAFEGUARD 1")` — a comment. The claim here is an
+        # ORDERING one on the entry path, and its reference point was a
+        # sentence: reword the banner and `find` returns -1, which makes
+        # `0 < stale < -1` false and fails on unchanged code. Anchored on the
+        # first line SAFEGUARD 1 actually executes, which is what "before any
+        # money step" means.
+        sg1 = src.find("current_price <= idea.stop_loss")
+        assert sg1 > 0, "SAFEGUARD 1's price check is gone from execute()"
         assert 0 < stale < sg1, "staleness guard must run before any money step"
         assert 0 < spread < sg1, "spread gate must run before any money step"
         # Both are audited blocks that place nothing.
