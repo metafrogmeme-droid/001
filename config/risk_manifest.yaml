@@ -331,6 +331,43 @@ defaults:
       blocks nothing) until explicitly set to enforce. Fail-open bridge over a
       fail-closed core.
 
+  validation_gate_enabled:
+    value: false
+    env_var: VALIDATION_GATE_ENABLED
+    description: >
+      Backtest Validation Gate: when on, the risk gate asks
+      bot/core/validation_gate.py whether this idea's strategy_type has ever
+      been backtested to a passing Sharpe (>= 0.6) over a real sample (>= 10
+      trades). Tighten-only and fail-open, like the intent-policy and authority
+      hooks: it can only add a rejection, and any fault leaves the trade
+      untouched. Default OFF. Records are written automatically by
+      bot/backtest/runner.py and persist to <state>/validations.json — a
+      SYNTHETIC backtest records nothing, so a fabricated Sharpe can never sit
+      behind a gate that answers "has this been shown to work on real data".
+
+  validation_gate_mode:
+    value: shadow
+    env_var: VALIDATION_GATE_MODE
+    description: >
+      off / shadow / enforce, the same ladder as the integrity veto and the
+      authority envelope. Default shadow, and the ordering matters: the store
+      starts EMPTY, so on the first run after enabling the gate every strategy
+      reads never_tested. In enforce that is a full trading halt attributable to
+      nothing the operator changed that day. Shadow records what it would have
+      rejected until the backtest runner has populated the store; only then is
+      enforce a decision about strategies rather than about an empty file.
+
+  validation_gate_allow_untested:
+    value: true
+    env_var: VALIDATION_GATE_ALLOW_UNTESTED
+    description: >
+      Under enforce, may a strategy nobody has ever backtested still trade?
+      Default TRUE. never_tested is an ABSENT measurement, not a failed one, and
+      refusing every unmeasured strategy is the empty-store halt made permanent.
+      Set false once the runner has validated the strategies you actually run;
+      then "never tested" genuinely means "not approved" rather than "not yet
+      looked at".
+
   guardian_firewall_enabled:
     value: true
     env_var: GUARDIAN_FIREWALL_ENABLED

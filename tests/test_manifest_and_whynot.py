@@ -178,6 +178,18 @@ class TestRiskManifest:
                     f"Default mismatch for '{f.name}': "
                     f"manifest={manifest_val}, code={code_val}"
                 )
+            elif isinstance(code_val, str):
+                # A string-valued knob — the mode ladders (off/shadow/enforce).
+                # `validation_gate_mode` was the first, and this branch did not
+                # exist: every non-bool field went through float(), so the check
+                # died with "could not convert string to float: 'shadow'"
+                # instead of comparing anything. Exact match, not a skip — the
+                # default a manifest STATES is exactly the promise this test is
+                # here to keep, and a mode is as much a default as a threshold.
+                assert manifest_val == code_val, (
+                    f"Default mismatch for '{f.name}': "
+                    f"manifest={manifest_val!r}, code={code_val!r}"
+                )
             else:
                 assert float(manifest_val) == pytest.approx(float(code_val), abs=0.01), (
                     f"Default mismatch for '{f.name}': "

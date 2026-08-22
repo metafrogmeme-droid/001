@@ -549,6 +549,27 @@ class RiskLimits:
     # run in production before anything blocks. Unlike intent_policy (strategy),
     # this is the CUSTODY boundary — what the credential is permitted to do.
     authority_envelope_enabled: bool = _env_bool("AUTHORITY_ENVELOPE_ENABLED", False)
+    # Backtest Validation Gate: master switch for consulting
+    # bot/core/validation_gate.py in evaluate() — has this idea's strategy_type
+    # ever been backtested to a passing Sharpe over a real sample? Default OFF →
+    # the hook is skipped entirely, byte-identical to before.
+    #
+    # Its MODE is separate and defaults to `shadow`, because the failure this
+    # ordering prevents is specific: the gate's store starts empty, so on the
+    # first run after enabling it EVERY strategy reads NEVER_TESTED. In enforce
+    # that is a full trading halt attributable to nothing an operator changed
+    # today. Shadow records what it would have rejected until the backtest
+    # runner has populated the store, and only then is `enforce` a decision
+    # about strategies rather than about an empty file.
+    validation_gate_enabled: bool = _env_bool("VALIDATION_GATE_ENABLED", False)
+    validation_gate_mode: str = os.getenv("VALIDATION_GATE_MODE", "shadow").strip().lower()
+    # Whether a strategy nobody has ever backtested may trade under `enforce`.
+    # Default True — NEVER_TESTED is an absent measurement, not a failed one,
+    # and refusing every unmeasured strategy is the halt described above made
+    # permanent. Set False once the runner has validated the strategies you
+    # actually run; then "never tested" genuinely means "not approved".
+    validation_gate_allow_untested: bool = _env_bool(
+        "VALIDATION_GATE_ALLOW_UNTESTED", True)
     # Guardian Prompt-Injection & Transaction Firewall: master switch for scanning
     # inbound chat-action text (Telegram free text / web chat) for manipulation
     # shapes (bot/guardian/firewall.py) before it can steer an agent that acts.

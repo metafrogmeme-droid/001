@@ -34,8 +34,18 @@
 # a runner that reported CONFIRMED from no probe would be worse than no runner.
 # Wiring it is a product decision about where posture gets checked, not a
 # cleanup this file can make.
+#
+# validation_gate LEFT this list. Its own docstring carried the accusation —
+# "the engine does not consult this gate before executing trades" — and it
+# could not simply be consulted: storage was in-memory so every restart emptied
+# it, nothing called record_validation so it was empty anyway, and
+# is_validated() answered False for a strategy nobody had ever tested. Those
+# three make fail-closed a halt at every redeploy and fail-open a decorative
+# gate. It persists now, bot/backtest/runner.py records into it (never from
+# SYNTHETIC data), the verdict is three-valued, and the risk gate consults it
+# as a tighten-only fail-open hook beside intent_policy and the authority
+# envelope — default OFF, and shadow before enforce.
 bot/guardian/authority_preflight.py
-bot/core/validation_gate.py
 
 # ── execution paths built and not connected ─────────────────────────────────
 # meme_executor LEFT this list: /memeplan reaches its PLANNER. There was never
