@@ -361,3 +361,78 @@ def test_the_uppercase_guard_is_read_from_the_original_text():
     assert _extract_symbol("analyze fartcoin") is None, (
         "a lowercase unknown word is a noun; treating it as a ticker is what "
         "produced DOCS/USDT")
+
+
+# ── 6. The WEB surface, because the corollary says to check it ────────────
+#
+# "Ask which OTHER surface makes the same claim — before calling the fix done."
+# `bot/web/user_gateway.py` routes free text through the same router and had
+# the same `if skill:` with no else: a confident intent whose skill is neither
+# registered nor aliased fell past into the LLM chat fallback, which has no
+# tools and answers regardless.
+#
+# It was narrower than Telegram's — _INTENT_ALIASES already maps status and the
+# scan modes — so `help` was the one that escaped. Someone asking a trading
+# platform what it can do got a language model's guess at its own command list.
+
+GATEWAY = REPO / "bot" / "web" / "user_gateway.py"
+
+
+def _web_aliases() -> dict:
+    src = GATEWAY.read_text()
+    block = src[src.index("_INTENT_ALIASES"):src.index("skill_name = _INTENT_ALIASES")]
+    return dict(re.findall(r'"(\w+)":\s*"(\w+)"', block))
+
+
+def test_the_alias_extractor_sees_the_map():
+    al = _web_aliases()
+    assert len(al) >= 5 and al.get("status"), f"only parsed {al}"
+
+
+def test_no_web_intent_can_fall_through_to_the_chat_model():
+    """Same guard as the Telegram one, on the other transport.
+
+    Registered, aliased to something registered, handled by prefix, or caught
+    by the unavailable branch. Never silently answered by an LLM.
+    """
+    registry = build_default_registry()
+    src = GATEWAY.read_text()
+    aliases = _web_aliases()
+    prefixes = re.findall(r'intent\.skill\.startswith\(\s*["\']([\w_]+)["\']', src)
+
+    unreachable = []
+    for skill in sorted(_emitted_skills()):
+        if registry.get(aliases.get(skill, skill)) is not None:
+            continue
+        if any(skill.startswith(p) for p in prefixes):
+            continue
+        unreachable.append(skill)
+
+    # The unavailable branch is what makes the remainder honest rather than
+    # invisible, so it must exist for this list to be allowed to be non-empty.
+    assert "skill_unavailable_notice" in src, (
+        f"web intents {unreachable} reach no skill and there is no unavailable "
+        "branch — the LLM answers them")
+
+
+def test_the_web_unavailable_branch_precedes_the_chat_fallback():
+    """Placement is the fix. After the fallback it is dead code."""
+    src = GATEWAY.read_text()
+    notice = src.index("skill_unavailable_notice(")
+    fallback = src.index("# Fallback: LLM chat")
+    assert notice < fallback, (
+        "the web unavailable notice sits after the LLM fallback, so chat "
+        "answers first and the notice never runs")
+
+
+def test_the_web_branch_records_the_same_memory_as_telegram():
+    """One vocabulary across surfaces, or a shared history contradicts itself.
+
+    Both write into the SAME conversation store keyed by telegram id, so a web
+    turn recorded as FAILED and a Telegram turn recorded as UNAVAILABLE would
+    have the model reading two different accounts of one event.
+    """
+    src = GATEWAY.read_text()
+    assert "skill_unavailable_memory" in src, (
+        "the web branch tells the user honestly and records nothing, which is "
+        "the gap skill_failure_memory was written to close on the other side")
