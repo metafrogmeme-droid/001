@@ -16,7 +16,7 @@ The `PortfolioTracker` maintains a ledger that tracks:
 
 When a trade idea is confirmed:
 
-1. The risk engine re-checks all 20 gates.
+1. The risk engine re-checks all gates.
 2. Position size is calculated: `equity * MAX_POSITION_PCT / 100`.
 3. Quantity is derived: `position_usd / entry_price`.
 4. The position is recorded with entry price, direction, SL, and TP.
@@ -42,7 +42,7 @@ Positions can also be closed through the skill system (future enhancement).
 ## PnL Calculation
 
 ```
-LONG:  PnL = (exit_price - entry_price) * quantity
+LONG: PnL = (exit_price - entry_price) * quantity
 SHORT: PnL = (entry_price - exit_price) * quantity
 ```
 

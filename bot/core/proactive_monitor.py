@@ -109,6 +109,37 @@ def select_severe_cards(groups: dict, cap: int) -> tuple:
     return shown, spill
 
 
+def apply_hourly_budget(shown: list, spill: list, sent_at: list,
+                        now: float, per_hour: int, window: float) -> tuple:
+    """Trim `shown` to what an hourly budget still allows.
+
+    Returns `(shown, spill, sent_at)` — the cards to send, the spill list with
+    anything demoted appended, and the pruned send-time list to persist.
+
+    PURE, AND MODULE-LEVEL, for the reason stated on `select_severe_cards`
+    directly above: the inline version of that helper was covered only by a
+    source scan, which passed against a mutation that made its overflow branch
+    unreachable. A rate limiter is exactly the kind of code where the
+    interesting cases — budget exactly exhausted, window boundary, empty
+    history — never occur in a manual test and never occur in production until
+    the day they matter.
+
+    THE DEMOTED CARDS ARE NAMED, NOT DROPPED. A budget that silently swallowed
+    the ninth severe anomaly of the hour would be the flood traded for a worse
+    defect: an operator reading a quiet channel and concluding the market is
+    quiet. Over budget, a card stops being a notification and becomes a name in
+    the overflow line, which is the same treatment the per-tick cap already
+    gives and for the same reason.
+    """
+    fresh = [t for t in sent_at if now - t < window]
+    room = max(0, per_hour - len(fresh))
+    if room >= len(shown):
+        return shown, spill, fresh + [now] * len(shown)
+    kept, demoted = shown[:room], shown[room:]
+    extra = {str(a.symbol) for _k, g in demoted for a in g}
+    return kept, sorted(set(spill) | extra), fresh + [now] * len(kept)
+
+
 class ProactiveMonitor:
     """Background monitor that generates alerts from engine state.
 
@@ -162,6 +193,30 @@ class ProactiveMonitor:
     #: individually correct; the flood is their number. The rest are named in
     #: one trailing line rather than dropped in silence.
     _SEVERE_CARDS_PER_TICK = 3
+
+    # A PER-TICK CAP BOUNDS THE WIDTH OF A BURST AND NOT ITS RATE.
+    #
+    # Everything above suppresses a REPEAT: same key, unchanged tier, inside a
+    # window. None of it touches a stream of genuinely NEW keys, and that is
+    # what a market-wide event produces — every fresh `(type, symbol)` pair is a
+    # first sighting, correctly exempt from every filter here, and pages at
+    # once. With CHECK_INTERVAL at 30s and three cards a tick, the ceiling was
+    # 360 severe cards an hour. Each one individually justified; the operator
+    # still stops reading.
+    #
+    # So the tick cap gets an hourly budget behind it. Over budget, a card
+    # becomes an entry in the overflow line instead of a message — the
+    # information survives, the notification does not. The overflow line is
+    # itself dedup-keyed and rate-limited, so the worst hour is now a handful of
+    # messages rather than hundreds.
+    #
+    # Deliberately NOT exempting escalations. Tier only rises, so "escalation
+    # bypasses the budget" is unbounded in exactly the scenario the budget
+    # exists for: a market-wide move escalates dozens of conditions at once.
+    # Escalations sort to the front and spend the budget first, which is the
+    # bounded version of the same priority.
+    _SEVERE_CARDS_PER_HOUR = 8
+    _SEVERE_BUDGET_WINDOW = 3600
 
     def __init__(self, engine) -> None:
         self.engine = engine
@@ -2120,6 +2175,21 @@ class ProactiveMonitor:
             # anomalies", which is the opposite of true.
             shown, _more = select_severe_cards(
                 groups, self._SEVERE_CARDS_PER_TICK)
+            # …and then the hourly budget, which is what actually bounds a
+            # market-wide event. See _SEVERE_CARDS_PER_HOUR for why the
+            # per-tick cap alone could not: it limits how wide one burst is,
+            # not how many bursts an hour holds.
+            #
+            # `getattr` rather than an __init__ default, matching `_bs_last`
+            # above: `test_anomaly_credibility` builds this class with
+            # `__new__` to exercise `_check_black_swan` without an engine, and
+            # a missing attribute here would raise inside the alert path.
+            _budget = getattr(self, "_bs_card_times", None)
+            if _budget is None:
+                _budget = []
+            shown, _more, self._bs_card_times = apply_hourly_budget(
+                shown, _more, _budget, time.time(),
+                self._SEVERE_CARDS_PER_HOUR, self._SEVERE_BUDGET_WINDOW)
             for key, group in shown:
                 alert_obj = max(group, key=lambda a: float(a.severity))
                 kind = getattr(alert_obj.anomaly_type, "value", alert_obj.anomaly_type)

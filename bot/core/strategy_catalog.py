@@ -76,7 +76,7 @@ _META: dict[str, dict[str, str]] = {
         "horizon": "scalp",
     },
     "full scan": {
-        "tagline": "The house strategy — the full 21-check pipeline with every "
+        "tagline": "The house strategy — the full fail-closed pipeline with every "
                    "proven default on.",
         "regime": "All regimes",
         "risk": "balanced",

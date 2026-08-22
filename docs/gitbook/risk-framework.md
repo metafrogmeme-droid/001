@@ -19,7 +19,7 @@ This means the system may miss opportunities. That is an acceptable trade-off. M
 Risk is enforced at multiple layers:
 
 1. **Analyzer level** -- Ideas with blended confidence below 0.60 are never generated.
-2. **Risk engine level** -- 20 independent checks must all pass.
+2. **Risk engine level** -- independent checks must all pass.
 3. **Confirmation level** -- Risk is re-evaluated when the human confirms (the market may have moved).
 4. **Configuration level** -- `SIMULATION_MODE=true` and `LIVE_TRADING_ENABLED=false` are both set by default. Live trading requires both flags to be flipped.
 
@@ -207,7 +207,7 @@ The `BacktestEngine` creates **isolated temporary state files** for portfolio an
 
 ## Re-Check on Confirmation
 
-When a human taps "Confirm" on a pending trade idea, the risk engine runs all 20 checks again against the current portfolio state. This catches scenarios where:
+When a human taps "Confirm" on a pending trade idea, the risk engine runs every check again against the current portfolio state. This catches scenarios where:
 
 - Another trade was confirmed between idea generation and confirmation.
 - Market movement changed the risk profile.
@@ -222,9 +222,9 @@ If the re-check fails, the confirmation is rejected with an explanation.
 Position size uses fixed-fractional risk sizing based on stop distance:
 
 ```
-risk_budget = equity * (MAX_POSITION_PCT / 100)   # e.g. 2% = max dollar loss
+risk_budget = equity * (MAX_POSITION_PCT / 100) # e.g. 2% = max dollar loss
 position_usd = risk_budget / stop_distance_pct
-position_usd = min(position_usd, equity * 0.20)   # capped at 20% notional
+position_usd = min(position_usd, equity * 0.20) # capped at 20% notional
 ```
 
 With default settings ($10,000 equity, 2% risk budget, 2.5% stop distance via 2.5x ATR):

@@ -12,22 +12,22 @@ This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each sce
 
 ```text
 1. /scan
-   → Bot returns top 5 movers with volume spikes and regime labels
+ → Bot returns top 5 movers with volume spikes and regime labels
 
 2. /analyze BTC
-   → Bot runs full analysis pipeline:
-      - Fetches 100 hourly candles
-      - Computes 10+ technical indicators
-      - Detects market regime (TREND/RANGE/CHOP)
-      - Generates LLM thesis (or rule-based fallback)
-      - Produces TradeIdea with entry, SL, TP, confidence
+ → Bot runs full analysis pipeline:
+ - Fetches 100 hourly candles
+ - Computes 10+ technical indicators
+ - Detects market regime (TREND/RANGE/CHOP)
+ - Generates LLM thesis (or rule-based fallback)
+ - Produces TradeIdea with entry, SL, TP, confidence
 
 3. Trade idea appears with [✅ Confirm] [❌ Reject] buttons
-   → Tap Confirm to execute paper trade
-   → Tap Reject to discard
+ → Tap Confirm to execute paper trade
+ → Tap Reject to discard
 
 4. /portfolio
-   → Shows updated balance, equity, open positions, PnL
+ → Shows updated balance, equity, open positions, PnL
 ```
 
 ### What judges should observe
@@ -48,24 +48,24 @@ This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each sce
 
 ```text
 1. /analyze BTC
-   → Generate a trade idea (may or may not pass risk)
+ → Generate a trade idea (may or may not pass risk)
 
 2. If passed, confirm it. Repeat /analyze on different assets until
-   you have 5 open positions (MAX_OPEN_POSITIONS default).
+ you have 5 open positions (MAX_OPEN_POSITIONS default).
 
 3. /analyze SOL
-   → Risk engine REJECTS: "Max open positions exceeded"
+ → Risk engine REJECTS: "Max open positions exceeded"
 
 4. /rejected
-   → Shows the rejected trade with the specific check that failed
+ → Shows the rejected trade with the specific check that failed
 
 5. /risk
-   → Shows current exposure, daily PnL, circuit breaker status
+ → Shows current exposure, daily PnL, circuit breaker status
 ```
 
 ### What judges should observe
 
-- Specific rejection reason identifying which of 20 checks failed
+- Specific rejection reason identifying which check failed
 - No override mechanism -- rejection is final
 - `/rejected` command provides transparency into blocked trades
 - Risk metrics visible via `/risk`
@@ -80,23 +80,23 @@ This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each sce
 
 ```text
 1. Execute several trades via /analyze + Confirm
-   → Some will hit stop-loss and close at a loss
+ → Some will hit stop-loss and close at a loss
 
 2. When cumulative daily loss exceeds 5% (or drawdown exceeds 10%):
-   → Circuit breaker automatically trips
+ → Circuit breaker automatically trips
 
 3. /analyze BTC
-   → REJECTED: "Circuit breaker is active"
+ → REJECTED: "Circuit breaker is active"
 
 4. /status
-   → Shows "Circuit Breaker: TRIPPED"
+ → Shows "Circuit Breaker: TRIPPED"
 
 5. /risk
-   → Shows daily loss %, drawdown %, breaker status
+ → Shows daily loss %, drawdown %, breaker status
 
 6. /reset
-   → Admin command to manually reset the breaker
-   → Trading resumes
+ → Admin command to manually reset the breaker
+ → Trading resumes
 ```
 
 ### What judges should observe
@@ -116,19 +116,19 @@ This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each sce
 
 ```text
 1. /macro
-   → Shows current macro risk state and upcoming events
-   → Example: "State: PRE_EVENT_CAUTION | Next: CPI in 2h 15m"
+ → Shows current macro risk state and upcoming events
+ → Example: "State: PRE_EVENT_CAUTION | Next: CPI in 2h 15m"
 
 2. When state is EVENT_LOCKDOWN (30min before to 30min after):
-   → /analyze BTC
-   → REJECTED: "Macro event gate: EVENT_LOCKDOWN"
+ → /analyze BTC
+ → REJECTED: "Macro event gate: EVENT_LOCKDOWN"
 
 3. /rejected
-   → Shows macro event as the rejection reason
+ → Shows macro event as the rejection reason
 
 4. After lockdown window passes:
-   → /macro shows "State: POST_EVENT_VOLATILITY" or "NORMAL"
-   → /analyze BTC proceeds normally
+ → /macro shows "State: POST_EVENT_VOLATILITY" or "NORMAL"
+ → /analyze BTC proceeds normally
 ```
 
 ### What judges should observe
@@ -148,12 +148,12 @@ This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each sce
 
 ```text
 1. /backtest
-   → Runs backtest with 720 bars of synthetic data (GBM + GARCH)
-   → Returns: total trades, win rate, PnL, max drawdown, Sharpe ratio
+ → Runs backtest with 720 bars of synthetic data (GBM + GARCH)
+ → Returns: total trades, win rate, PnL, max drawdown, Sharpe ratio
 
 2. /backtest 1440 99
-   → Custom run: 1440 bars, seed 99
-   → Different synthetic data, different results
+ → Custom run: 1440 bars, seed 99
+ → Different synthetic data, different results
 
 3. Compare metrics across runs to show consistency
 ```
@@ -181,15 +181,15 @@ This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each sce
 3. /analyze DOGE → Let risk engine reject it
 
 4. Check audit logs:
-   logs/trade.jsonl  → trade ideas, executions, closures
-   logs/risk.jsonl   → risk checks, approvals, rejections
-   logs/system.jsonl → engine state changes, scan results
+ logs/trade.jsonl → trade ideas, executions, closures
+ logs/risk.jsonl → risk checks, approvals, rejections
+ logs/system.jsonl → engine state changes, scan results
 
 5. Each log entry contains:
-   - Timestamp (UTC)
-   - Action (trade_idea_generated, risk_check, trade_executed, etc.)
-   - Result (APPROVED, REJECTED, EXECUTED)
-   - Structured data (asset, direction, confidence, checks)
+ - Timestamp (UTC)
+ - Action (trade_idea_generated, risk_check, trade_executed, etc.)
+ - Result (APPROVED, REJECTED, EXECUTED)
+ - Structured data (asset, direction, confidence, checks)
 ```
 
 ### What judges should observe
@@ -211,12 +211,12 @@ For judges who prefer terminal output over Telegram:
 python -m bot.main --mode cli
 
 # At the runeclaw> prompt:
-scan_market          # Show top movers
-analyze_asset BTC    # Generate trade idea
-check_risk           # Show risk status
-get_portfolio        # Show portfolio
-explain_trade        # Explain last trade decision
-quit                 # Exit
+scan_market # Show top movers
+analyze_asset BTC # Generate trade idea
+check_risk # Show risk status
+get_portfolio # Show portfolio
+explain_trade # Explain last trade decision
+quit # Exit
 ```
 
 ---
@@ -228,7 +228,7 @@ quit                 # Exit
 pytest tests/test_core.py -v
 
 # Key test categories:
-# - Risk engine: all 20 checks, circuit breaker, edge cases
+# - Risk engine: every check, circuit breaker, edge cases
 # - Portfolio: position lifecycle, PnL, drawdown
 # - Analyzer: indicators, candlestick patterns, Fibonacci, OBV, VWAP
 # - Backtest: replay engine, trailing stops, commission/slippage, state isolation

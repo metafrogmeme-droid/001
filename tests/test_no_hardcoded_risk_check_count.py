@@ -45,6 +45,17 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: Every file that speaks to a user or to another agent about the risk gate.
+#:
+#: THE FIRST SEVEN WERE NOT ALL OF THEM. This list was written for the surfaces
+#: that carried `_TOTAL_RISK_CHECKS`, and the count survived everywhere else —
+#: on 2026-08-22 the tree still stated FOUR different totals: 23 on the explore
+#: page and the static dashboard's og:description, 21 in the agent card and the
+#: house strategy's tagline, and 18 and 20 across the GitBook docs. README.md
+#: managed 21 and 23 in the same file.
+#:
+#: A guard whose coverage is narrower than the rule it states is the defect this
+#: repo names most often, and this was an instance of it: the number was banned
+#: on the seven files somebody had already fixed, and nowhere else.
 SURFACES = [
     "bot/skills/skill_registry.py",
     "bot/skills/telegram_handler.py",
@@ -53,13 +64,49 @@ SURFACES = [
     "app/public/js/dashboard.js",
     "app/public/js/chat.js",
     "app/public/js/i18n.js",
+    # Added 2026-08-22, each one a live leak at the time it was added.
+    "app/public/index.html",
+    "app/public/explore.html",
+    "bot/core/strategy_catalog.py",
+    "agent_card.json",
+    "dashboard_static/index.html",
+    "README.md",
 ]
 
 #: "23-check", "23 checks", "36 fail-closed gates", "runs 23 risk checks" …
+#: The lookbehind keeps two non-counts from reading as counts.
+#:
+#: `.` — a THRESHOLD is not a total. README documents
+#: `/autoconfirm — toggle admin auto-confirm (0.85 gate)`, and without the
+#: lookbehind the `85 gate` inside `0.85 gate` matched: a confidence bar
+#: reported as a number of gates. Not every match is a defect, and removing a
+#: true statement to satisfy a rule about false ones is the more expensive
+#: mistake — CLAUDE.md loses a paragraph to that exact trap.
+#:
+#: `%` — PERCENT-ENCODING is not a total either. The README badge links
+#: `shields.io/badge/risk%20gate-fail--closed-red`, and `%20` is an encoded
+#: space, so `20gate` matched a URL that contains no number at all. Found by
+#: writing the badge that replaced the old one, which is the ordinary way this
+#: kind of match is found: the guard fired on the fix.
 _COUNTED_GATE = re.compile(
-    r"\b\d{1,3}[\s‑-]*(?:check|checks|-check|risk check|fail-closed|gates?|"
+    r"(?<![.\d%])\b\d{1,3}[\s‑-]*(?:check|checks|-check|risk check|fail-closed|gates?|"
     r"Pr[üu]fungen|controlli|comprobaciones|verifica|v[ée]rifications|controles|"
     r"項|项|ग्र)", re.IGNORECASE)
+
+
+def _strip_comments(rel: str, text: str, code_only) -> str:
+    """Blank the comment syntax the file actually has, and nothing else."""
+    if rel.endswith(".py"):
+        return code_only(text)
+    if rel.endswith((".js", ".ts", ".mjs")):
+        return re.sub(r"//[^\n]*|/\*[\s\S]*?\*/", " ", text)
+    if rel.endswith(".html"):
+        # `//` inside an html file is a URL far more often than a comment, and
+        # its <script> blocks are covered by the html comment rule anyway.
+        return re.sub(r"<!--[\s\S]*?-->", " ", text)
+    if rel.endswith(".md"):
+        return re.sub(r"<!--[\s\S]*?-->", " ", text)
+    return text          # .json has no comments to strip
 
 
 @pytest.mark.parametrize("rel", SURFACES)
@@ -73,7 +120,15 @@ def test_no_surface_states_a_risk_check_count(rel):
     # Comments explain the removed number, and a comment quoting the thing it
     # forbids is indistinguishable from the code doing it — CLAUDE.md counts
     # five false failures from exactly that, one of them this week.
-    src = code_only(text) if rel.endswith(".py") else re.sub(r"//.*|/\*[\s\S]*?\*/", "", text)
+    #
+    # STRIPPED PER LANGUAGE, not uniformly. The single `//.*` rule was right for
+    # the .js surfaces it was written against and silently wrong the moment a
+    # .md or .html file joined the list: it eats everything after the `//` in
+    # `https://…`, so a count sitting later on a line with a URL — which is most
+    # lines in a docs file — would never be seen. A blind spot in a guard reads
+    # as coverage while providing none, which is the same failure that let the
+    # count survive on six surfaces in the first place.
+    src = _strip_comments(rel, text, code_only)
     hits = [m.group(0) for m in _COUNTED_GATE.finditer(src)]
     assert not hits, (
         f"{rel} states a risk-check count ({hits[:3]}). There is no total to "
@@ -94,14 +149,37 @@ def test_the_hand_maintained_constant_is_gone():
             "and which drifted from 36 down to 23")
 
 
-def test_the_gate_is_still_promised_without_the_number():
+#: Surfaces that must still SAY the gate exists, and what each one must say.
+#: The pairing matters: a guard that only forbids is one careless edit away from
+#: deleting the product's central safety claim to satisfy itself.
+_MUST_STILL_PROMISE = [
+    ("app/public/js/dashboard.js", "fail-closed risk gate"),
+    ("app/public/js/chat.js", "fail-closed risk engine"),
+    # Added with their surfaces on 2026-08-22. Each of these had the claim and a
+    # number; removing the number must not have removed the claim.
+    ("app/public/explore.html", "fail-closed risk gate"),
+    ("bot/core/strategy_catalog.py", "fail-closed pipeline"),
+    ("agent_card.json", "fail-closed pre-trade risk gate"),
+    ("dashboard_static/index.html", "fail-closed risk gate"),
+    ("README.md", "Fail-closed risk gate"),
+]
+
+
+@pytest.mark.parametrize("rel,phrase", _MUST_STILL_PROMISE)
+def test_the_gate_is_still_promised_without_the_number(rel, phrase):
     """THE CONTROL. Deleting the claim entirely would be the opposite error —
     the fail-closed gate is real, is the product's central safety property, and
     must still be stated."""
-    js = (ROOT / "app" / "public" / "js" / "dashboard.js").read_text(encoding="utf-8")
-    assert "fail-closed risk gate" in js
-    chat = (ROOT / "app" / "public" / "js" / "chat.js").read_text(encoding="utf-8")
-    assert "fail-closed risk engine" in chat
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    assert phrase in text, (
+        f"{rel} no longer promises the gate at all. The number had to go; the "
+        "claim did not — 'we removed the count' must never become 'we stopped "
+        "saying the product is risk-gated'")
+
+
+def test_the_gate_is_still_promised_on_telegram():
+    tg = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+    assert tg.count("fail-closed risk gate") >= 2
     tg = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
     assert tg.count("fail-closed risk gate") >= 2
 

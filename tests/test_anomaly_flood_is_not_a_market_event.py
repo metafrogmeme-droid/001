@@ -193,8 +193,17 @@ class TestTheCardsPerTickAreBoundedAndTheRestAreNamed:
         src = code_only(open("bot/core/proactive_monitor.py", encoding="utf-8").read())
         # Anchored on the CALL, not the name — a bare `select_severe_cards(`
         # matches the def first and windows over the function's own body.
+        # WINDOWED TO THE ENCLOSING METHOD, not to a character count. This
+        # read `src[i:i + 4000]`, and the fixed span made the test a distance
+        # measurement wearing a wiring check's clothes: adding fifteen correct
+        # lines between the anchor and the Alert pushed `bs_overflow` to 4431
+        # characters and failed a file whose wiring was untouched. A scan that
+        # breaks when correct code is inserted teaches people to widen the
+        # number, and the next widening hides a real break.
         i = src.index("shown, _more = select_severe_cards(")
-        window = src[i:i + 4000]
+        rest = src[i:]
+        end = rest.find("\n    def ")          # next method at class indent
+        window = rest if end == -1 else rest[:end]
         assert "if _more:" in window, (
             "the spill is computed and never branched on — the dropped "
             "conditions are silently dropped after all")
