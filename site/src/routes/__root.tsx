@@ -98,6 +98,8 @@ function Footer() {
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-10 gap-y-3 text-sm">
             <ul className="space-y-2">
+              <li><Link to="/proof" className="text-ink-2 hover:text-ink">How the proof works</Link></li>
+              <li><Link to="/risk" className="text-ink-2 hover:text-ink">The risk gate</Link></li>
               <li><Link to="/privacy" className="text-ink-2 hover:text-ink">Privacy</Link></li>
               <li>
                 <a href={DOCS} target="_blank" rel="noopener" className="text-ink-2 hover:text-ink">

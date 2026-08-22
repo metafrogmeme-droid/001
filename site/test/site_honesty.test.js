@@ -271,3 +271,51 @@ test('the true version of that promise IS still stated', () => {
     'llms.txt no longer tells a summariser what the live-trading default is')
 })
 
+/**
+ * THE SITE MUST NOT BECOME THE FOURTEENTH SURFACE TO STATE A CHECK COUNT.
+ *
+ * `tests/test_no_hardcoded_risk_check_count.py` bans a number in front of the
+ * word "check" on thirteen files. `_TOTAL_RISK_CHECKS = 23` was maintained by
+ * hand against a file that changes, drifted DOWNWARD while the engine grew to
+ * emit 36 labels, and ended up asserted across a dozen surfaces at three
+ * different values — each one looking like a specific, confident measurement.
+ *
+ * A marketing page is exactly the surface that acquires such a number next,
+ * and the Python guard does not scan `website/`. This is the same rule, on the
+ * side of the tree it cannot see.
+ *
+ * The lookbehind is inherited from that guard along with its scars: `0.85 gate`
+ * is a confidence THRESHOLD and `risk%20gate` is percent-encoding, and both
+ * matched a naive pattern.
+ */
+test('no published page states a risk-check count', () => {
+  const COUNTED = /(?<![.\d%])\b\d{1,3}[\s‑-]*(?:pre-trade |risk )?(?:check|checks|gates?)\b/i
+  const files = [...PAGES]
+  for (const extra_ of ['proof/index.html', 'risk/index.html', 'llms.txt']) {
+    if (fs.existsSync(path.join(OUT, extra_))) files.push(extra_)
+  }
+  assert.ok(files.length >= 4, 'too few pages checked — is the build stale?')
+  for (const f of files) {
+    const visible = fs.readFileSync(path.join(OUT, f), 'utf8')
+      .replace(/<script[\s\S]*?<\/script>/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+    const hit = visible.match(COUNTED)
+    assert.ok(!hit, `${f} states a risk-check count (${JSON.stringify(hit && hit[0])}). `
+      + 'There is no total to state: the number that matters is per-trade and is '
+      + 'already reported where it is measured, on the decision record.')
+  }
+})
+
+test('the fail-closed property IS still claimed, since it is the real one', () => {
+  // THE CONTROL, same shape as the Python guard's. Removing the count must not
+  // become removing the claim: fail-closed is the product's central safety
+  // property and it is true.
+  const risk = path.join(OUT, 'risk', 'index.html')
+  assert.ok(fs.existsSync(risk), 'the risk page is not built')
+  const html = fs.readFileSync(risk, 'utf8')
+  assert.match(html, /fail-closed/i, 'the page no longer states the contract at all')
+  assert.match(html, /cannot be evaluated/i,
+    'the page no longer says what happens to an unanswerable check, which is '
+    + 'the entire property')
+})
+

@@ -62,6 +62,14 @@ const ROUTES = [
       + 'the three things it does not prove.',
   },
   {
+    path: '/risk',
+    title: 'The gate that fails closed — RUNECLAW',
+    description:
+      'Every entry passes a pre-trade risk gate. A check that cannot be '
+      + 'evaluated rejects the trade rather than passing it — and there is '
+      + 'deliberately no headline count on this page.',
+  },
+  {
     path: '/privacy',
     title: 'Privacy — RUNECLAW',
     description:
