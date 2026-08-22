@@ -7,6 +7,11 @@ const mailer = require('./lib/mailer');
 const oauth2 = require('./lib/oauth2');
 const { VENUES } = require('./lib/venues');
 const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
+const { stepUpBlock } = require('./lib/stepup');
+const { postGateway, isConfigured } = require('./lib/gateway');
+const gateway = { isConfigured };
+const { erasurePlan } = require('./lib/account_erasure');
+const { secLog } = require('./lib/seclog');
 
 // Self-custody sign-in verifier — optional dependency. Lazy so the app still
 // boots (and every other auth route works) if ethers isn't installed on a
@@ -1581,6 +1586,143 @@ router.get('/oauth/:provider/callback', async (req, res) => {
   } catch (err) {
     console.error(`OAuth ${provider} callback error:`, err.stack || err.message);
     return fail('login failed');
+  }
+});
+
+/**
+ * DELETE /api/auth/account — erase this account, here and on the bot.
+ *
+ * THERE WAS NO DELETION PATH AT ALL. Not a broken one: no route, no SQL, no
+ * deactivate flag that anything set. The privacy page had to say so outright,
+ * because "you may request erasure" written over a system that cannot perform
+ * it is the same defect as any other confident claim about a state that does
+ * not exist.
+ *
+ * THE BOT IS PURGED FIRST, AND A FAILURE THERE ABORTS EVERYTHING.
+ *
+ * A user's exchange API keys live in the bot's encrypted vault, not in this
+ * database. So the dangerous ordering is the obvious one: delete the rows,
+ * report success, and leave the bot holding the credentials that move real
+ * money under a message saying the account is gone. Purging the bot first
+ * inverts the failure — a bot that clears and a database that then fails
+ * leaves an account whose bot state is gone, which is visible, recoverable and
+ * retryable. Keys surviving an account are none of those.
+ *
+ * So: bot first; abort with 502 and change NOTHING here if it does not confirm
+ * every store. `handle_account_purge` answers per store precisely so this can
+ * tell "deleted" from "nothing to delete" from "that store raised".
+ *
+ * AUTHENTICATION IS DELIBERATELY HEAVY. Password re-entry even for a session
+ * that is already valid, plus a 2FA step-up when enrolled — the same bar as
+ * enabling live trading, because this is equally irreversible and a stolen
+ * session must not be able to erase somebody's history.
+ */
+router.delete('/account', authMiddleware, async (req, res) => {
+  const uid = req.user.user_id;
+  let started = false;                 // has any row been touched? (see below)
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, email, password_hash, telegram_id, totp_enabled, totp_secret, '
+      // Read BEFORE they are nulled: `wallet_link_nonces` is keyed by the
+      // address itself, so once the users row is blanked there is nothing left
+      // to find those rows by.
+      + 'wallet_address, sol_address FROM users WHERE id = ?', [uid]);
+    if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    const user = rows[0];
+    const b = req.body || {};
+
+    // A password-less account (OAuth, wallet, Telegram-only) has no password to
+    // re-enter; 2FA and the confirmation phrase carry the weight there.
+    if (user.password_hash) {
+      const ok = b.password && await bcrypt.compare(String(b.password), user.password_hash);
+      if (!ok) {
+        secLog('account_delete_bad_password', req);
+        return res.status(401).json({ error: 'Password is incorrect.' });
+      }
+    }
+    const blk = stepUpBlock(user.totp_enabled, user.totp_secret, b.totp_code,
+      'Enter your 6-digit authenticator code to delete your account.');
+    if (blk) { secLog('account_delete_2fa', req); return res.status(blk.status).json(blk.body); }
+
+    // A typed phrase, because every other control on this account is
+    // reversible and this one is not. Cheap, and the only thing standing
+    // between a mis-click and an irreversible action.
+    if (String(b.confirm || '').trim().toUpperCase() !== 'DELETE') {
+      return res.status(400).json({
+        error: 'Type DELETE to confirm. This cannot be undone.',
+        confirm_required: true,
+      });
+    }
+
+    // ── the bot half, first ──────────────────────────────────────────────
+    let botStores = null;
+    if (user.telegram_id && gateway.isConfigured()) {
+      let purge;
+      try {
+        purge = await postGateway('/account/purge',
+          { telegram_id: String(user.telegram_id) }, 15000);
+      } catch (e) {
+        secLog('account_delete_bot_unreachable', req, e.message);
+        return res.status(502).json({
+          error: 'Your account was NOT deleted. The trading bot could not be '
+            + 'reached, and it holds your exchange credentials — deleting here '
+            + 'first would leave them behind. Nothing has been changed. Please '
+            + 'try again shortly.',
+        });
+      }
+      // `postGateway` resolves an ENVELOPE — `{status, data}` — and does not
+      // reject on a 4xx or 5xx. Reading `purge.purged` off the envelope was
+      // always `undefined`, so this branch refused every deletion that reached
+      // a working gateway. The route test caught it on its first run; no
+      // source scan of "does it check purged" could have, because the check
+      // was there and was reading the wrong object.
+      const body = (purge && purge.data) || {};
+      botStores = body.stores || null;
+      if (!purge || purge.status !== 200 || body.purged !== true) {
+        secLog('account_delete_bot_partial', req, JSON.stringify(botStores));
+        return res.status(502).json({
+          error: 'Your account was NOT deleted. The trading bot could not '
+            + 'clear everything it holds, so nothing here was changed either.',
+          bot_stores: botStores,
+        });
+      }
+    }
+
+    // ── the web half ─────────────────────────────────────────────────────
+    //
+    // `started` is what makes the catch below able to tell the truth. Its
+    // first version answered "Account deletion failed — nothing was removed."
+    // to every exception, and the route test then drove a fault AFTER the
+    // deletes had run (a two-argument function called with one) — so the
+    // reassuring half of that sentence was false in exactly the case where it
+    // mattered. A blanket "nothing happened" is a claim about a state nobody
+    // measured.
+    const plan = erasurePlan(uid, {
+      addresses: [user.wallet_address, user.sol_address],
+    });
+    for (const step of plan) {
+      started = true;
+      await pool.execute(step.sql, step.params);
+    }
+    clearSession(req, res);
+    secLog('account_deleted', req, `bot=${JSON.stringify(botStores)}`);
+    res.json({
+      deleted: true,
+      bot_stores: botStores,
+      note: 'Your account and its data have been erased. Records that name '
+        + 'only an account id — such as who referred whom — keep that id so '
+        + 'other people\'s history stays intact; nothing in them identifies you.',
+    });
+  } catch (err) {
+    console.error('Account delete error:', err.stack || err.message);
+    res.status(500).json({
+      error: started
+        ? 'Account deletion failed part-way through. Some of your data has '
+          + 'already been removed and some may remain. Please contact support '
+          + 'rather than assuming either outcome.'
+        : 'Account deletion failed — nothing was removed.',
+      partial: started,
+    });
   }
 });
 

@@ -25,11 +25,18 @@
  * that taught the Telegram path to read a user's saved profile.
  *
  * WHAT THIS DOCUMENT WILL NOT DO. It states what the code does and stops there.
- * Where a protection does not exist — self-service deletion, a retention
- * period — it says so plainly instead of describing an intention in the present
- * tense. "We retain data only as long as necessary" is the sentence every
- * policy reaches for when nothing purges anything, and it is how a document
- * like this becomes untrue again.
+ * Where a protection does not exist — a retention period — it says so plainly
+ * instead of describing an intention in the present tense. "We retain data only
+ * as long as necessary" is the sentence every policy reaches for when nothing
+ * purges anything, and it is how a document like this becomes untrue again.
+ *
+ * SELF-SERVICE DELETION WAS ON THAT LIST AND IS NOT ANY MORE. This page said,
+ * correctly, that no endpoint in the product deleted an account. Writing the
+ * absence down is what made it visible, and `DELETE /api/auth/account` now
+ * exists — bot first, then the web database, aborting rather than half-erasing.
+ * The test that pinned the old sentence failed on the commit that built it,
+ * which is the ratchet doing its job in the direction that matters: the page
+ * cannot fall behind the product without something going red.
  *
  * NOT LEGAL ADVICE, AND NOT LEGAL SIGN-OFF. This is an accurate description of
  * observed behaviour, written by reading the source. Jurisdictional obligations
@@ -201,10 +208,31 @@ function Privacy() {
       </P>
 
       <H>Keeping and deleting your data</H>
-      <Gap title="There is no self-service account deletion yet.">
-        No endpoint in the product deletes an account, and we would rather say
-        that than imply a button exists. To have your account and its data
-        removed, contact the operator directly and it will be done by hand.
+      <P>
+        You can delete your account yourself. It asks for your password, your
+        authenticator code if you have one enrolled, and the word DELETE typed
+        out, because it cannot be undone.
+      </P>
+      <P>
+        Deletion clears the bot first and the website second, and if the bot
+        does not confirm, nothing is deleted anywhere and you are told so. That
+        order is deliberate: your exchange API keys live in the bot, and the
+        failure worth preventing is a website that reports your account gone
+        while the keys that move money are still held.
+      </P>
+      <P>
+        It removes your trades, positions, snapshots, alerts, watchlist,
+        strategies, profile, diary, notification subscriptions, wallet links,
+        and any exchange credentials on either side. Your sessions end
+        immediately.
+      </P>
+      <Gap title="One row survives, with nothing in it that names you.">
+        Your account row is kept as an empty shell — every identifying field
+        cleared, the address replaced with a synthetic one. It stays because
+        other people&rsquo;s referral history points at it, and deleting it
+        would take their standing down with yours. What remains is the fact
+        that an id once existed. We would rather write that here than describe
+        the deletion as total.
       </Gap>
       <Gap title="There is no automatic retention limit.">
         Nothing currently expires or purges account records, trade history or
@@ -221,6 +249,7 @@ function Privacy() {
         <>Sign out everywhere. Logging out, or changing your password, ends
           every session on every device.</>,
         <>Export your closed trades as CSV for tax purposes.</>,
+        <>Delete the account outright, as above.</>,
       ]} />
 
       <H>Security</H>

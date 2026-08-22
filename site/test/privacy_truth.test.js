@@ -102,19 +102,56 @@ test('it does not deny sending user data to AI providers, because the bot sends 
 
 // ── absences stated as absences ───────────────────────────────────────────
 
-test('it does not imply a deletion path that does not exist', () => {
-  // Verified from the source, not assumed: no route deletes an account.
-  const files = ['auth.js', ...fs.readdirSync(path.join(REPO, 'app', 'routes'))
-    .filter((f) => f.endsWith('.js')).map((f) => path.join('routes', f))]
-  const deletes = files.filter((f) => {
-    const s = repo('app', ...f.split(path.sep))
-    return /DELETE FROM users|delete-?account|account\/delete/i.test(s)
-  })
-  assert.deepStrictEqual(deletes, [],
-    'an account-deletion path now exists — say so on the page and drop this test')
+/**
+ * THIS TEST RAN THE OTHER WAY ROUND UNTIL DELETION SHIPPED.
+ *
+ * It used to verify from the source that no route deleted an account, and then
+ * require the page to say `no self-service account deletion`. That is what the
+ * file's opening promises — "when the code changes back, when deletion ships,
+ * the corresponding test fails and the page gets corrected in the same commit"
+ * — and it is exactly what happened: `DELETE /api/auth/account` landed, this
+ * test went red on a page that had become wrong, and both halves moved
+ * together. The ratchet is the point, in both directions.
+ */
+test('the page describes the deletion path, because one exists', () => {
+  const auth = repo('app', 'auth.js')
+  assert.match(auth, /router\.delete\('\/account'/,
+    'the account-deletion route is gone — the page now over-promises and this '
+    + 'test must go back to asserting the absence')
   const t = text()
-  assert.match(t, /no self-service account deletion/i,
-    'with no deletion endpoint, the page must say so rather than stay silent')
+  assert.ok(!/no self-service account deletion/i.test(t),
+    'the page still says deletion does not exist, and it does')
+  assert.match(t, /delete your account/i,
+    'a product with a deletion endpoint must say so on its privacy page')
+})
+
+test('the page states the order deletion happens in, because the order is the safety', () => {
+  // The load-bearing property, and the one a reader has to be told: the bot
+  // holds the exchange keys, so it is purged first and a failure there aborts
+  // everything. A page that says "we delete your data" over a system that can
+  // half-delete it is making a claim it cannot keep.
+  const auth = repo('app', 'auth.js')
+  const route = auth.slice(auth.indexOf("router.delete('/account'"))
+  assert.ok(route.indexOf('/account/purge') < route.indexOf('erasurePlan('),
+    'the web rows are now erased before the bot confirms — the page describes '
+    + 'the opposite, and the code is the half that is wrong')
+  const t = text().toLowerCase()
+  assert.match(t, /bot first/,
+    'the page must say which side is cleared first and why')
+  assert.match(t, /nothing is deleted anywhere/,
+    'the page must say what happens when the bot does not confirm')
+})
+
+test('the page admits the row that survives, because one does', () => {
+  const lib = repo('app', 'lib', 'account_erasure.js')
+  assert.match(lib, /UPDATE users SET email = \?/,
+    'the users row is deleted outright now — the page says it is kept as an '
+    + 'empty shell, which would be a false admission rather than a false promise')
+  assert.ok(!/DELETE FROM users/.test(lib), 'the users row must not be deleted')
+  const t = text().toLowerCase()
+  assert.match(t, /one row survives/,
+    'erasure keeps the account row; a page that describes deletion as total '
+    + 'would be overstating it')
 })
 
 test('it does not promise a retention limit nothing enforces', () => {

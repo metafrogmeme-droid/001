@@ -578,6 +578,36 @@ class UserStore:
                   action="user_revoke", result="OK")
             return True
 
+    def forget(self, telegram_id: int | str) -> bool:
+        """Erase a user's record entirely. Returns True if one existed.
+
+        REVOKE IS NOT ERASURE, AND THE STORE HAD NOTHING ELSE.
+
+        `revoke` above sets a record to pending and drops its admission — the
+        right answer for withdrawing access, and the wrong one for "delete my
+        account", because everything identifying stays: telegram id, name,
+        referrer, language, timestamps. Until this existed there was no way for
+        the bot to forget anybody, which is half of why the product had no
+        deletion path at all.
+
+        The key IS the identifier here, so the record goes rather than being
+        blanked. A tombstone keyed by telegram id would still be a record that
+        this telegram id used the product.
+
+        The audit line deliberately records only that a deletion happened and
+        for which id — the id is needed to make the erasure itself auditable,
+        and nothing else about the person is written on the way out.
+        """
+        key = str(telegram_id)
+        with self._lock:
+            if key not in self._users:
+                return False
+            del self._users[key]
+            self._save()
+            audit(system_log, f"User erased: {key}",
+                  action="user_forget", result="OK")
+            return True
+
     def is_authorized(self, telegram_id: int | str) -> bool:
         """Check if user exists and is authorized."""
         user = self.get(telegram_id)

@@ -2730,6 +2730,76 @@ async def handle_llm_clear(request: web.Request) -> web.Response:
     return web.json_response({"connected": False})
 
 
+async def handle_account_purge(request: web.Request) -> web.Response:
+    """POST /gateway/account/purge — erase everything the BOT holds for a user.
+
+    THE WEB CANNOT DELETE AN ACCOUNT ON ITS OWN, AND THAT IS THE WHOLE POINT.
+    A user's exchange API keys live in this process's encrypted vault, not in
+    the web database. Their agent profile, their user record and their language
+    preference live here too. Deleting the MySQL rows and reporting success
+    would leave the bot holding the credentials that move real money, under a
+    message telling the person their account was removed. That is the worst
+    version of this repo's central defect: a confident report of a state that
+    is not true.
+
+    REPORTS PER STORE, NEVER A BLANKET OK. Each store answers separately and
+    each answer is returned, because "deleted" and "there was nothing to
+    delete" and "this store raised" are three different facts and the caller
+    must be able to tell them apart. The web half refuses to proceed unless
+    every store it asked about came back resolved — see the DELETE route in
+    app/auth.js, which aborts rather than half-deleting.
+
+    An exception in any single store is caught and reported as `error` for that
+    store rather than failing the whole request: the caller needs to know
+    exactly which one did not clear, and a 500 here would say only "something".
+    """
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    tg_id = str(body.get("telegram_id") or "").strip()
+
+    err = _guard_user(tg_handler, tg_id)
+    if err is not None:
+        return err
+
+    result: dict = {}
+
+    # Credentials first: this is the one that matters most if the rest fails.
+    try:
+        from bot.core.exchange_credentials import get_credential_store
+        result["exchange_credentials"] = (
+            "deleted" if get_credential_store().delete(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        log.warning("purge: credentials failed for %s: %s", tg_id, exc)
+        result["exchange_credentials"] = "error"
+
+    try:
+        result["agent_profile"] = (
+            "deleted" if _profile_store.clear(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        log.warning("purge: profile failed for %s: %s", tg_id, exc)
+        result["agent_profile"] = "error"
+
+    try:
+        store = getattr(tg_handler, "user_store", None)
+        if store is None:
+            result["user_record"] = "error"
+        else:
+            result["user_record"] = "deleted" if store.forget(tg_id) else "none"
+    except Exception as exc:                      # pragma: no cover - defensive
+        log.warning("purge: user record failed for %s: %s", tg_id, exc)
+        result["user_record"] = "error"
+
+    ok = all(v in ("deleted", "none") for v in result.values())
+    audit(system_log, f"Account purge requested: {tg_id}",
+          action="account_purge", result="OK" if ok else "PARTIAL",
+          data={"user": tg_id, "stores": result})
+    # 409, not 500: the request was well-formed and was partly carried out.
+    # The caller must not read this as "retry the whole thing blindly", and
+    # must not read it as success either.
+    return web.json_response({"purged": ok, "stores": result},
+                             status=200 if ok else 409)
+
+
 async def handle_news_key_save(request: web.Request) -> web.Response:
     """POST /gateway/news/key — connect the caller's own BYON news-provider key
     (NEWS-2). Body: {telegram_id, provider, api_key}. The key is validated for
@@ -3450,6 +3520,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_get("/chat/history", handle_chat_history)
     # AI-4: admin-only cited web research enrichment for the coin dossier.
     app.router.add_post("/profile", handle_profile_sync)
+    app.router.add_post("/account/purge", handle_account_purge)
     app.router.add_post("/research/web", handle_research_web)
     app.router.add_get("/portfolio", handle_portfolio)
     app.router.add_get("/positions", handle_positions)
