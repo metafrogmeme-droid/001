@@ -30,7 +30,12 @@ test('SSE live pushes refresh in place (soft), never a full teardown', () => {
 
 test('loaded panels refresh in place — no skeleton flash on timers', () => {
   assert.match(app, /el\.dataset\.rcLoaded === '1'/);
-  assert.match(app, /if \(hasContent\) return;\s*\/\/ stale beats blank/);
+  // The trailing `// stale beats blank` used to be part of this pattern, so a
+  // reworded comment read as a removed guard. The guard is `if (hasContent)
+  // return;` — that is what keeps a loaded panel from being replaced by a
+  // skeleton on a timer refresh. The comment names the reason and enforces
+  // nothing.
+  assert.match(app, /if \(hasContent\) return;/);
 });
 
 test('panel hover lift is alive: entrance uses backwards, not both', () => {

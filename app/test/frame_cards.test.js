@@ -191,16 +191,57 @@ test('the trader page shares the record: share row after i18n, brand labels, hon
 test('the trader card draws §4 strictly — the honesty line is on the image itself', () => {
   const src = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '..', 'routes', 'frame.js'), 'utf8');
+  // These three are DRAWN STRINGS — they appear on the image a reader sees.
   assert.match(src, /PERCENT AND COUNTS ONLY - NEVER AN AMOUNT/);
   assert.match(src, /SETTLED RETURN/, 'the number is named for what it is');
-  assert.match(src, /open positions and marks deliberately excluded/i);
   assert.match(src, /60_000/, 'trader records change — a TTL cache, not a permanent one');
+});
+
+test('"SETTLED RETURN" really is settled — marks cannot move it', () => {
+  // THIS ASSERTED A COMMENT. The line above used to require frame.js to
+  // contain the phrase "open positions and marks deliberately excluded",
+  // which is `//` prose. Passing live positions into the card would have left
+  // that sentence untouched, and the card would have gone on saying SETTLED
+  // over a mark-to-market number — a snapshot guess labelled as a fact, on a
+  // public surface.
+  //
+  // The code turned out to be RIGHT: frame.js passes `positions: [], marks: {}`
+  // explicitly. Checking that before writing the fix is the point — the phrase
+  // being unreachable by a test does not make the claim behind it false.
+  const { buildTraderCard } = require('../lib/arena_trader');
+  const trades = [{ pnl: 100, margin: 100, symbol: 'BTCUSDT', direction: 'LONG',
+    leverage: 2, closed_at: new Date(), seal: null }];
+
+  const settled = buildTraderCard({ handle: 'x', balance: 11000, positions: [], marks: {}, trades });
+  const marked = buildTraderCard({ handle: 'x', balance: 11000, trades,
+    positions: [{ symbol: 'BTCUSDT', direction: 'LONG', entry: 100, margin: 1000, leverage: 10 }],
+    marks: { BTCUSDT: { price: 200 } } });
+
+  assert.notStrictEqual(settled.return_pct, marked.return_pct,
+    'an open position at double its entry does not move return_pct at all — '
+    + 'then passing empty positions proves nothing and this test is vacuous');
+
+  // The wiring: the route feeds it the empty ones, so what it draws is the
+  // settled figure and not the marked one.
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'routes', 'frame.js'), 'utf8');
+  const { codeOnly } = require('./helpers/code_only');
+  const call = codeOnly(src).match(/buildTraderCard\(\{[\s\S]*?\}\)/);
+  assert.ok(call, 'the trader card is no longer built here');
+  assert.match(call[0], /positions:\s*\[\]/,
+    'the card is built with live positions — SETTLED RETURN would be a lie');
+  assert.match(call[0], /marks:\s*\{\}/,
+    'the card is built with live marks — SETTLED RETURN would be a lie');
 });
 
 test('the card never carries prices or outcomes — source pin', () => {
   const src = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '..', 'routes', 'frame.js'), 'utf8');
-  assert.match(src, /symbol \+ direction only/i);
+  // `symbol + direction only` was asserted here and is a COMMENT. Dropped
+  // rather than replaced: the drawn-scan below already checks the property it
+  // describes, and does it better — it reads what reaches the image instead of
+  // what the file says about itself.
+  //
   // Scan what is DRAWN, not what is queried: every center()/text() call.
   const drawn = [...src.matchAll(/c\.(?:center|text)\(([^;]*)\)/g)].map((m) => m[1]).join('\n');
   assert.doesNotMatch(drawn, /entry|stop_loss|take_profit|\bpnl\b|balance|vusdt|\$/i,

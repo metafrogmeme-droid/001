@@ -39,10 +39,28 @@ test('a page with a visible error banner shows rejections too, not just throws',
 });
 
 test('the reporter can never make things worse', () => {
+  // THE WRAP WAS PINNED TO THE COMMENT INSIDE IT — the pattern literally
+  // included `\/\* the reporter itself must never throw`. Rewording that
+  // sentence broke the test on unchanged code, and replacing the empty body
+  // with something that CAN throw would have left it green as long as the
+  // comment stayed. On a handler whose entire job is to survive a page that is
+  // already failing.
+  //
+  // Ask what the catch DOES instead, which is: nothing. A reporter that
+  // rethrows, logs through a helper, or touches the DOM again inside its own
+  // failure path is the defect — and an empty body is the only shape that
+  // cannot be any of them.
   const arena = pub('arena.html');
-  const fn = arena.slice(arena.indexOf('function rcReportPageError'));
-  assert.match(fn.slice(0, 1400), /catch \(err\) \{ \/\* the reporter itself must never throw/,
-    'the reporter is wrapped — a failing reporter must not replace the failure');
+  const at = arena.indexOf('function rcReportPageError');
+  assert.ok(at > 0, 'the page error reporter is gone');
+  const fn = arena.slice(at, arena.indexOf('window.addEventListener(\'error\'', at));
+  const m = fn.match(/catch\s*\(\w*\)\s*\{([\s\S]*?)\}/);
+  assert.ok(m, 'the reporter is no longer wrapped at all — it can now replace '
+    + 'the very failure it exists to display');
+  const { codeOnly } = require('./helpers/code_only');
+  assert.strictEqual(codeOnly(m[1]).trim(), '',
+    'the reporter\'s own catch does something now; anything it does can throw, '
+    + 'and then the page fails twice and shows neither');
   assert.match(fn.slice(0, 400), /getElementById\('jsErr'\)/,
     'and shows at most one banner');
 });
@@ -71,7 +89,24 @@ test('no writer anywhere bare-INSERTs a full primary key or unique', () => {
   // The class, not the instance: an INSERT that supplies a whole PK or UNIQUE
   // and has no ON DUPLICATE / IGNORE is a duplicate-key 500 waiting for a
   // second call or a concurrent one.
-  const db = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
+  // COMMENTS STRIPPED FIRST, and this guard was reading a fiction without it.
+  //
+  // `describeSql`'s own docstring in db.js quotes the string
+  // `'CREATE TABLE IF NOT EXISTS users (…'`, so the scan matched the COMMENT,
+  // ran its body capture past the end of it, and gave the users table a UNIQUE
+  // key of `(user_id, symbol)` — scraped out of an unrelated block further
+  // down the file. Stripped, users has exactly the one it really has.
+  //
+  // Nothing is currently mis-flagged by that phantom: `users` has no `symbol`
+  // column, so no INSERT can supply the pair. This is a latent defect rather
+  // than a live one, and the distinction is worth stating — the fix is worth
+  // making because the extraction is not reading what it claims to read, not
+  // because something is broken today. The next UNIQUE added near a comment
+  // gets a wrong answer with no signal at all.
+  //
+  // Sixth time this trap has been hit in this repo, and the second this week.
+  const { codeOnly } = require('./helpers/code_only');
+  const db = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8'));
   const keys = {};
   for (const m of db.matchAll(/CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\s*\)/g)) {
     const cols = m[2].split('\n');

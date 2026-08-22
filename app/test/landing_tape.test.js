@@ -26,8 +26,27 @@ test('a quiet tape keeps the strip hidden — no fake liveliness', () => {
   assert.match(html, /getElementById\('landingTape'\)\.hidden = false/);
 });
 
+/**
+ * The live-tape IIFE, bounded at both ends by CODE.
+ *
+ * It used to be sliced from `// Live tape strip` to `/* strip is decoration` —
+ * two comments. Either one being reworded silently moved a boundary, and the
+ * §4 check below is a `!/vUSDT|balance|margin|pnl\b/` over whatever the window
+ * happened to contain: shrink it and the check passes over nothing, grow it
+ * and it fails on code that has no business being in scope. A negative
+ * assertion over a comment-delimited span is the weakest shape in this repo,
+ * and this file had two.
+ */
+function stripBlock() {
+  const at = html.indexOf("fetch('/api/arena/tape'");
+  assert.ok(at > 0, 'the landing tape no longer fetches the Arena tape');
+  const end = html.indexOf('})();', at);
+  assert.ok(end > at, 'the tape strip is no longer a self-contained IIFE');
+  return html.slice(at, end);
+}
+
 test('§4: the strip shows percent, handle, counts — never dollar amounts', () => {
-  const strip = html.slice(html.indexOf('// Live tape strip'), html.indexOf("/* strip is decoration"));
+  const strip = stripBlock();
   assert.ok(strip.length > 200, 'strip script found');
   assert.match(strip, /toFixed\(2\) \+ '%/);       // percent rendering
   assert.match(strip, /t\.handle/);
@@ -37,7 +56,7 @@ test('§4: the strip shows percent, handle, counts — never dollar amounts', ()
 
 test('the strip caps at five rows and escapes user-controlled text', () => {
   assert.match(html, /d\.rows\.slice\(0, 5\)/);
-  const strip = html.slice(html.indexOf('// Live tape strip'), html.indexOf("/* strip is decoration"));
+  const strip = stripBlock();
   assert.match(strip, /esc\(t\.handle\)/);
   assert.match(strip, /esc\(t\.symbol\)/);
   assert.match(strip, /esc\(t\.reason\)/);

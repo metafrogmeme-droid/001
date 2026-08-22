@@ -42,9 +42,25 @@ test('mint, list and revoke are all wired', () => {
   assert.match(html, /\/api\/arena\/keys\/revoke/, 'revoke');
 });
 
+/**
+ * The agent-keys panel, bounded at both ends by CODE.
+ *
+ * The start anchor was `// ── Agent keys` — a section heading. The end
+ * (`function sigAgo`) was already real, so half this window was solid and half
+ * moved whenever somebody retitled a comment. Both callers share it now, so
+ * there is one boundary to be right about instead of two copies of one to be
+ * wrong about together.
+ */
+function keyBlock() {
+  const start = html.indexOf('function keyMsg(');
+  const end = html.indexOf('function sigAgo');
+  assert.ok(start > 0 && end > start, 'the agent-keys panel is gone from arena.html');
+  return html.slice(start, end);
+}
+
 test('every fetch the panel makes is bounded', () => {
   // An unbounded fetch on a panel behind a login is a spinner that never ends.
-  const block = html.slice(html.indexOf('// ── Agent keys'), html.indexOf('function sigAgo'));
+  const block = keyBlock();
   // A fixed WINDOW after each call site, not a non-greedy match to the first
   // `)`. The first version did the latter and truncated every multi-line call
   // before its options object, reporting the panel unbounded when all three
@@ -90,7 +106,7 @@ test('a failed copy says so instead of claiming success', () => {
 // ── the plaintext key is handled once ─────────────────────────────────────
 
 test('the page never stores the key', () => {
-  const block = html.slice(html.indexOf('// ── Agent keys'), html.indexOf('function sigAgo'));
+  const block = keyBlock();
   for (const sink of ['localStorage', 'sessionStorage', 'document.cookie']) {
     assert.ok(!block.includes(sink),
       `${sink} must never hold a key — the server keeps only a hash`);
