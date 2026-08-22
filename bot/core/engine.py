@@ -936,6 +936,43 @@ class RuneClawEngine:
             pass
         return str(getattr(self.risk, "_current_regime", "") or "")
 
+    def _venue_of_closed_position(self, pos, user_id: str = "") -> str:
+        """Which venue did this live close happen on?
+
+        Asked in three places, most specific first, because each later source is
+        a weaker claim than the one before it:
+
+        1. the position itself, if the executor stamped it;
+        2. the executor that owns this caller — it was constructed with its
+           venue and is the thing that placed the order;
+        3. the venue the credential store calls this user's ACTIVE one.
+
+        Falls back to the default rather than to empty, because every trade this
+        bot has actually placed went to Bitget and an unlabelled record would
+        make a real trade look like one from an unknown venue. That is a safe
+        answer TODAY and stops being one the moment a second venue can trade —
+        at which point this must become a stamp on the position, not a guess
+        made after the fact. `docs/MULTI_VENUE_RISK_SPLIT.md` §Phase 2.
+        """
+        v = str(getattr(pos, "venue", "") or "").strip().lower()
+        if v:
+            return v
+        try:
+            ex = self._executor_for(user_id)
+            v = str(getattr(ex, "venue", "") or "").strip().lower()
+            if v:
+                return v
+        except Exception:
+            pass
+        try:
+            from bot.core.exchange_credentials import get_credential_store
+            v = str(get_credential_store().get_venue(user_id) or "").strip().lower()
+            if v:
+                return v
+        except Exception:
+            pass
+        return "bitget"
+
     def _on_live_position_closed(self, pos, user_id: str = "") -> None:
         """Handle live position close: invalidate cache + set SL cooldown.
 
@@ -982,6 +1019,17 @@ class RuneClawEngine:
         #
         # Fail-open like every other recorder on this path: a journal write
         # must never cost a close its breaker feed below.
+        # Resolved BEFORE the journal write, and guarded separately, because the
+        # first version of this called the resolver inline — so anything it
+        # raised was swallowed by the fail-open `except` below and the whole
+        # trade went unrecorded. A missing LABEL must never cost the RECORD:
+        # a journal entry marked with the default venue is a small
+        # inaccuracy, and a live close that never reaches the journal is the
+        # exact defect tests/test_journal_records_live_closes.py exists to stop.
+        try:
+            _venue = self._venue_of_closed_position(pos, user_id)
+        except Exception:
+            _venue = "bitget"
         try:
             _jpnl = getattr(pos, "pnl_usd", None)
             if _jpnl is not None:
@@ -1002,6 +1050,7 @@ class RuneClawEngine:
                     regime=self._outcome_regime(getattr(pos, "symbol", "")),
                     holding_hours=_hold,
                     exit_reason=str(getattr(pos, "close_reason", "") or ""),
+                    venue=_venue,
                 )
         except Exception as _j_exc:
             logger.debug("Journal record skipped for live close: %s", _j_exc)

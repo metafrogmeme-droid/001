@@ -214,6 +214,21 @@ class TradeExecution(BaseModel):
     entry_atr: float = 0.0     # C2-48: actual ATR at trade entry (0 = legacy/unavailable)
     strategy_type: str = "swing"  # "scalp" | "intraday" | "swing" | "position"
     signal_type: str = "momentum_confluence"  # momentum_confluence | vwap_reversion | regime_trend | volume_spike | funding_arb | unknown
+    # WHERE THIS TRADE HAPPENED. Added for multi-venue: without it a closed
+    # trade cannot say which exchange it was on, so PnL, the track record, the
+    # loss streak and drawdown would all pool two venues into one number the
+    # moment a second venue starts trading — silently, and in the direction that
+    # flatters the total.
+    #
+    # NOT on TradeIdea, deliberately. An idea is a MARKET read — "BTC long at
+    # X" is true whichever book you look at — and only becomes venue-specific
+    # when something executes it. Putting the venue on the idea would claim the
+    # scanner picked an exchange, which it does not.
+    #
+    # Defaults to "bitget" because that is what every existing record IS: it is
+    # a back-fill of a fact, not a guess. Every live trade this bot has ever
+    # placed went to Bitget, and paper marks come from Bitget too.
+    venue: str = "bitget"
     opened_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     closed_at: Optional[datetime] = None
 
