@@ -92,8 +92,14 @@ class TestAllowlistEligibility:
 class TestManualOverrideRespectsCapAndClamp:
     def _block(self) -> str:
         src = inspect.getsource(RuneClawEngine._confirm_trade_inner)
-        i = src.index("Manual margin override: if user specified")
-        j = src.index("C2-53 FIX", i)
+        # Was comment-to-comment across the manual-override clamp — the path
+        # that re-applies the per-user cap and the free-balance clamp to a
+        # /trade-specified margin. Anchored on the override read and the ATR
+        # rejection that follows it, both code.
+        i = src.index("self._manual_margin_override.pop(idea.id)")
+        i = src.rindex("\n", 0, i) + 1
+        # The block ends where its `if` does — the last statement inside it.
+        j = src.index("size_usd = _avail", i) + len("size_usd = _avail")
         return src[i:j]
 
     def test_manual_override_reapplies_per_user_cap(self):
