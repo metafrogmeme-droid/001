@@ -634,9 +634,37 @@ router.post('/login', async (req, res) => {
             error: 'Invalid two-factor code', two_factor_required: true,
           });
         }
-        await pool.execute(
-          'UPDATE users SET totp_backup_codes = ? WHERE id = ?',
-          [JSON.stringify(remaining), user.id]);
+        // COMPARE-AND-SWAP, BECAUSE THE OBVIOUS WRITE RESURRECTS SPENT CODES.
+        //
+        // This was a bare `UPDATE ... SET totp_backup_codes = ?`, and the
+        // read-modify-write around it had no transaction. `consumeBackupCode`
+        // returns a COPY of the list with one hash removed, so two logins
+        // racing on the same row do not merely both succeed — the second write
+        // puts the first one's code back:
+        //
+        //   both read [c1, c2, c3]
+        //   A spends c1 -> writes [c2, c3]
+        //   B spends c2 -> writes [c1, c3]      <- c1 is valid again
+        //
+        // A spent backup code returning to the list is worse than the
+        // double-use it starts as, and /2fa/enable tells the user in as many
+        // words that each code "works a single time".
+        //
+        // The WHERE clause pins the exact bytes we read. A racing write changes
+        // them, this UPDATE matches zero rows, and the login is refused rather
+        // than served from a list we no longer understand. Fail-closed is right
+        // here: a concurrent backup-code redemption on one account is either a
+        // double-submit or an attack, and neither deserves a session.
+        const [upd] = await pool.execute(
+          'UPDATE users SET totp_backup_codes = ? WHERE id = ? AND totp_backup_codes <=> ?',
+          [JSON.stringify(remaining), user.id, user.totp_backup_codes]);
+        if (!upd || upd.affectedRows !== 1) {
+          recordAccountFailure(normalizedEmail);
+          return res.status(409).json({
+            error: 'That backup code was just used. Try another one.',
+            two_factor_required: true,
+          });
+        }
       }
     }
 

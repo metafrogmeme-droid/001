@@ -84,6 +84,34 @@ router.post('/', ctlLimit, async (req, res) => {
       if (!Number.isFinite(m) || m < 0) return res.status(400).json({ error: 'max_margin must be a non-negative number' });
       margin = Math.min(m, 1e9);
     }
+
+    // RAISING the cap is a money-unlock too, and the comment above said so
+    // before the code did. It promised that "lowering margin stays
+    // frictionless" — but nothing distinguished lowering from raising, so
+    // every margin change went through ungated, including the one that
+    // increases how much of your balance the bot may put at risk. A stated
+    // policy the code does not implement is the shape this repo keeps finding.
+    //
+    // WHAT THE WEB CAN ACTUALLY KNOW. The effective cap lives with the bot;
+    // the web sees only the value it last proposed in `pending_controls`. So
+    // "is this a raise?" is answered against that, and against nothing when no
+    // proposal exists — in which case any positive cap is treated as a raise,
+    // which errs toward asking. The bot re-verifies regardless; this is the
+    // web half of the gate, not the whole of it.
+    //
+    // Lowering, clearing, pausing and disabling stay frictionless. De-risking
+    // is never gated — that half of the comment was always true.
+    if (margin !== null && margin > 0) {
+      const [prev] = await pool.execute(
+        'SELECT max_margin FROM pending_controls WHERE user_id = ?', [uid]);
+      const known = prev[0] && prev[0].max_margin !== null
+        ? Number(prev[0].max_margin) : null;
+      if (known === null || margin > known) {
+        const blk = stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
+          'Enter your 6-digit authenticator code to raise your margin cap.');
+        if (blk) { secLog('controls_margin_raise_2fa', req); return res.status(blk.status).json(blk.body); }
+      }
+    }
     if (live === null && paused === null && margin === null) {
       return res.status(400).json({ error: 'No control changes provided.' });
     }
