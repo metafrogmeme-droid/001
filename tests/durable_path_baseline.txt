@@ -35,6 +35,7 @@ bot/core/engine.py :: "logs/audit_chain.jsonl" :: passed to AuditChain, which an
 bot/core/engine.py :: "data/risk_state_{safe}.json" :: passed to RiskEngine(state_file=), which anchors it
 bot/core/engine.py :: "data/proofofpnl_user_scratch.json" :: passed to PublicationStore, which anchors it
 bot/risk/multi_portfolio.py :: "data/portfolio_{user_id}.json" :: passed to PortfolioTracker(state_file=), which anchors it
+bot/core/venue_key.py :: "data/venue" :: _VENUE_SUBDIR; both readers go through state_path() — venue_state_path() joins it inside state_path(), and venue_root() IS state_path(). The relative form never reaches the filesystem. Added because the FIRST version of this module did leak it: _load_existing_venues globbed the bare literal, so the restore scanned whatever directory the process was launched from, found nothing, and every split venue silently reset to the default paper balance. This test caught that.
 bot/config.py :: "data/portfolio_state.json" :: CONFIG default read by PortfolioTracker, which anchors it
 bot/config.py :: "data/proactive_watch.json" :: CONFIG default read by ProactiveMonitor._watch_state_path, which anchors it
 

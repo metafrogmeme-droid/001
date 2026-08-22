@@ -52,9 +52,14 @@ class MultiUserPortfolio:
         self._on_trade_close_user = on_trade_close_user
         self._trailing_config = trailing_config
         self._portfolios: dict[str, PortfolioTracker] = {}
+        # Split-venue books, keyed by (user_id, venue). A SECOND map rather
+        # than a composite key in the first one — see get(). Declared before
+        # _load_existing() because that populates it.
+        self._venue_portfolios: dict[tuple, PortfolioTracker] = {}
         self._lock = threading.Lock()
         # Auto-load existing portfolios from disk
         self._load_existing()
+        self._load_existing_venues()
 
     def _make_close_cb(self, user_id: str) -> Callable[[float], None]:
         """Build a stable per-tracker close callback for ``user_id``.
@@ -110,6 +115,53 @@ class MultiUserPortfolio:
                 log.error("Failed to load portfolio for user %s from %s: %s",
                           user_id, path, e)
 
+    def _load_existing_venues(self) -> None:
+        """Restore split-venue books from ``data/venue/{venue}/portfolio_*.json``.
+
+        Without this, a restart silently resets every split venue to the
+        default paper balance with no open positions — which reads on every
+        surface as "nothing is happening on Bybit" while a real position sits
+        there unmonitored. The single-venue path has had this since it was
+        written (``_load_existing``); the split path needs it for the same
+        reason.
+
+        The venue comes from the DIRECTORY, and is accepted only if the
+        credential store recognises it. A stray directory is skipped rather
+        than turned into a venue nobody can trade.
+        """
+        try:
+            from bot.core.venue_key import normalize_venue, venue_root
+        except Exception as e:                      # pragma: no cover - import guard
+            log.debug("venue portfolio restore skipped: %s", e)
+            return
+        for path in glob.glob(os.path.join(venue_root(), "*", "portfolio_*.json")):
+            venue = normalize_venue(os.path.basename(os.path.dirname(path)))
+            if not venue:
+                log.warning("Skipping portfolio under an unrecognised venue "
+                            "directory: %s", path)
+                continue
+            filename = os.path.basename(path)
+            raw = filename[len("portfolio_"):-len(".json")]
+            try:
+                user_id = self._sanitize(raw)
+            except ValueError:
+                continue
+            try:
+                portfolio = PortfolioTracker(
+                    initial_balance=None,  # None triggers _load_state_on_init()
+                    on_trade_close=self._make_close_cb(user_id),
+                    state_file=path,
+                    trailing_config=self._trailing_config,
+                )
+                self._venue_portfolios[(user_id, venue)] = portfolio
+                snap = portfolio.snapshot()
+                log.info("Restored %s portfolio for user %s: balance=$%.2f, "
+                         "%d open positions, %d trades", venue, user_id,
+                         snap.balance_usd, snap.open_positions, snap.total_trades)
+            except Exception as e:
+                log.error("Failed to load %s portfolio for user %s from %s: %s",
+                          venue, user_id, path, e)
+
     @staticmethod
     def _sanitize(user_id: str) -> str:
         """Canonical key for a user_id.  Must be applied consistently across
@@ -123,26 +175,88 @@ class MultiUserPortfolio:
             raise ValueError("Invalid user_id: empty after sanitization")
         return cleaned
 
-    def get(self, user_id: str) -> PortfolioTracker:
-        """Get or create a portfolio for the given user."""
-        user_id = self._sanitize(user_id)
-        if user_id in self._portfolios:
-            return self._portfolios[user_id]
+    def get(self, user_id: str, venue: str = "") -> PortfolioTracker:
+        """Get or create a portfolio for the given user, optionally per-venue.
 
+        ``venue=""`` (and the default venue, and any venue the credential store
+        does not recognise) resolves to the ORIGINAL single-venue tracker —
+        same key, same ``data/portfolio_{user}.json``, same object. That is not
+        a convenience: Phase 2 of multi-venue must be byte-identical to Phase 1
+        on the default path, and the cheapest way to guarantee that is for the
+        default path to be the same code it always was.
+
+        A SPLIT venue gets its own tracker under ``data/venue/{venue}/``. The
+        venue is a directory rather than part of the filename because
+        ``_load_existing`` reconstructs the user id from the filename and
+        ``_sanitize`` would either strip the separator or make user and venue
+        ambiguous — see ``bot/core/venue_key`` for the measurement.
+        """
+        user_id = self._sanitize(user_id)
+        try:
+            from bot.core.venue_key import is_split, venue_state_path
+            split = is_split(venue)
+        except Exception:
+            # Fail to the single-venue path. An import or lookup fault must
+            # never invent a second book; it must fall back to the one that
+            # already holds the money.
+            split = False
+
+        if not split:
+            if user_id in self._portfolios:
+                return self._portfolios[user_id]
+            with self._lock:
+                if user_id not in self._portfolios:
+                    self._portfolios[user_id] = PortfolioTracker(
+                        initial_balance=self._default_balance,
+                        on_trade_close=self._make_close_cb(user_id),
+                        state_file=f"data/portfolio_{user_id}.json",
+                        trailing_config=self._trailing_config,
+                    )
+                    log.info("Created portfolio for user %s (balance=$%.2f)",
+                             user_id, self._default_balance)
+                return self._portfolios[user_id]
+
+        # Split venues live in their OWN map, deliberately. `_portfolios` is
+        # read as a user_id → tracker mapping by six modules, and two of them
+        # feed its keys straight back into get() — `proactive_monitor` does
+        # `for uid in all_portfolios(): get(uid)`. A composite key there would
+        # be re-sanitized ('bybit/alice' → 'bybitalice', the slash stripped)
+        # and CREATE A PHANTOM ACCOUNT on the way past: the same silent
+        # corruption the on-disk layout avoids, arriving through the in-memory
+        # key instead of the filename.
+        v = str(venue).strip().lower()
+        key = (user_id, v)
+        if key in self._venue_portfolios:
+            return self._venue_portfolios[key]
         with self._lock:
-            # Double-check after acquiring lock
-            if user_id not in self._portfolios:
-                state_file = f"data/portfolio_{user_id}.json"
-                portfolio = PortfolioTracker(
+            if key not in self._venue_portfolios:
+                self._venue_portfolios[key] = PortfolioTracker(
                     initial_balance=self._default_balance,
                     on_trade_close=self._make_close_cb(user_id),
-                    state_file=state_file,
+                    state_file=venue_state_path("portfolio", user_id, v),
                     trailing_config=self._trailing_config,
                 )
-                self._portfolios[user_id] = portfolio
-                log.info("Created portfolio for user %s (balance=$%.2f)",
-                         user_id, self._default_balance)
-            return self._portfolios[user_id]
+                log.info("Created portfolio for user %s on %s (balance=$%.2f)",
+                         user_id, v, self._default_balance)
+            return self._venue_portfolios[key]
+
+    def venue_portfolios(self) -> dict:
+        """``{(user_id, venue): tracker}`` for split venues only.
+
+        Separate from ``all_portfolios()`` because that one answers "which
+        USERS have a book", and every caller of it treats the key as a user id.
+        """
+        return dict(self._venue_portfolios)
+
+    def _every_tracker(self):
+        """Every tracker this manager owns, default-venue and split alike.
+
+        The distinction between the two maps is about KEYS. It is not about
+        money: a total that skips the split venues under-reports real exposure,
+        and an under-reported exposure is a cap that does not bind. Every
+        aggregate below goes through here for that reason.
+        """
+        return list(self._portfolios.values()) + list(self._venue_portfolios.values())
 
     def has_user(self, user_id: str) -> bool:
         """Check if a user has an active portfolio."""
@@ -160,8 +274,13 @@ class MultiUserPortfolio:
         return dict(self._portfolios)
 
     def mark_to_market_all(self, prices: dict[str, float]) -> None:
-        """Update mark-to-market prices across ALL user portfolios."""
-        for portfolio in self._portfolios.values():
+        """Update mark-to-market prices across ALL portfolios, every venue.
+
+        A position whose venue tracker never gets marked keeps its ENTRY price
+        as its mark for ever — so its unrealised PnL reads 0.00 and its stop is
+        measured against a price from the moment it opened. Not a reporting
+        gap; a stop that does not fire."""
+        for portfolio in self._every_tracker():
             portfolio.mark_to_market(prices)
 
     def check_stops_all(self, prices: dict[str, float]) -> dict[str, list[TradeExecution]]:
@@ -171,6 +290,14 @@ class MultiUserPortfolio:
             closed = portfolio.check_stops(prices)
             if closed:
                 results[user_id] = closed
+        # Split venues too — a stop-loss that only runs on the default venue is
+        # the "half-done version worse than not doing it" the scope opens with.
+        # Keyed by USER (never a composite), and EXTENDED rather than assigned,
+        # so a user closing on two venues in one tick keeps both.
+        for (user_id, _venue), portfolio in self._venue_portfolios.items():
+            closed = portfolio.check_stops(prices)
+            if closed:
+                results.setdefault(user_id, []).extend(closed)
         return results
 
     def snapshot_all(self) -> dict[str, PortfolioState]:
@@ -178,8 +305,11 @@ class MultiUserPortfolio:
         return {uid: p.snapshot() for uid, p in self._portfolios.items()}
 
     def total_open_positions(self) -> int:
-        """Total open positions across all users."""
-        return sum(len(p.open_positions) for p in self._portfolios.values())
+        """Total open positions across all users, on every venue.
+
+        This feeds exposure checks. An under-count here is a cap that does not
+        bind — §2 of the scope: the split must never loosen a gate."""
+        return sum(len(p.open_positions) for p in self._every_tracker())
 
     def combined_snapshot(self) -> PortfolioState:
         """Combined portfolio state for system-level risk checks."""
@@ -194,7 +324,7 @@ class MultiUserPortfolio:
         total_gross_pnl = 0.0
         total_commission = 0.0
 
-        for p in self._portfolios.values():
+        for p in self._every_tracker():
             snap = p.snapshot()
             total_balance += snap.balance_usd
             total_equity += snap.equity_usd
@@ -219,7 +349,7 @@ class MultiUserPortfolio:
 
         wins = 0
         total_count = 0
-        for p in self._portfolios.values():
+        for p in self._every_tracker():
             for t in p.trade_history:
                 total_count += 1
                 if t.pnl > 0:

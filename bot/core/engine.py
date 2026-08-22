@@ -1982,8 +1982,21 @@ class RuneClawEngine:
             return None
         return ex
 
-    def risk_for(self, user_id: str = ""):
+    def risk_for(self, user_id: str = "", venue: str = ""):
         """Return the RiskEngine whose stateful safety breakers apply to THIS caller.
+
+        ``venue`` is Phase 2 of multi-venue: an ACCOUNT breaker is per
+        (user, venue), because a book behaving badly on Bybit says nothing
+        about the book on Bitget. Everything the per-user split already
+        guarantees holds one dimension over, and the paragraph below about
+        market context is the reason — a venue must separate account breakers
+        and must never loosen a market gate. BTC's regime does not change
+        because you are looking at it from Bybit.
+
+        The empty venue, the default venue, and any venue the credential store
+        does not recognise all resolve to the caller's existing engine — so
+        every call site that has not been classified yet keeps today's exact
+        behaviour rather than quietly acquiring a second set of breakers.
 
         Default (PER_USER_LIVE_ENABLED off): ALWAYS the shared operator engine —
         byte-identical to before. When per-user live trading is on, a real human
@@ -2006,22 +2019,40 @@ class RuneClawEngine:
         # Operators/admins trade the operator account → operator engine.
         if self._is_operator_user(user_id):
             return self.risk
-        key = str(user_id)
+        try:
+            from bot.core.venue_key import is_split, venue_state_path
+            split_venue = str(venue).strip().lower() if is_split(venue) else ""
+        except Exception:
+            # Fail to the single-venue path: an unreadable venue registry must
+            # not hand this caller a fresh, empty set of breakers.
+            split_venue = ""
+        # The cache key carries the venue. '/' cannot appear in a sanitized
+        # user id, so a venue-scoped key can never be mistaken for a plain one.
+        key = f"{split_venue}/{user_id}" if split_venue else str(user_id)
         eng = self._user_risk.get(key)
         if eng is None:
             try:
                 safe = self.user_portfolios._sanitize(user_id)
+                state_file = (venue_state_path("risk_state", safe, split_venue)
+                              if split_venue else f"data/risk_state_{safe}.json")
             except Exception:
                 return self.risk
             eng = RiskEngine(
-                self.user_portfolios.get(user_id),
-                state_file=f"data/risk_state_{safe}.json",
+                self.user_portfolios.get(user_id, split_venue),
+                state_file=state_file,
                 macro_calendar=self.macro_calendar,
                 macro_provider=self.macro_provider,
             )
             self._user_risk[key] = eng
-            audit(system_log, f"Per-user risk engine bound for user {user_id}",
-                  action="per_user_risk", result="BOUND", data={"user": key})
+            audit(system_log,
+                  f"Per-user risk engine bound for user {user_id}"
+                  + (f" on {split_venue}" if split_venue else ""),
+                  action="per_user_risk", result="BOUND",
+                  data={"user": str(user_id), "venue": split_venue or "default"})
+        # Market context is synced onto EVERY engine, venue-scoped included.
+        # Skipping it here is precisely how the split turns into a loosening:
+        # an engine with no regime evaluates against UNKNOWN and the market
+        # gates it should be failing never fire.
         self._sync_risk_market_context(eng)
         return eng
 
