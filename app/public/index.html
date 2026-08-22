@@ -812,6 +812,25 @@
       <div class="form-err" id="tfa-msg" aria-live="polite"></div>
     </div>
 
+    <!-- Delete account.
+         A route nobody can reach is indistinguishable from one that does not
+         work, and the privacy page now tells people this exists — so it needs
+         a door. Collapsed behind a toggle rather than hidden: findable when
+         looked for, not adjacent to "Change password" as a mis-click. -->
+    <div id="del-box" class="mt-4">
+      <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.del_title">Delete account</h3>
+      <p class="muted small" data-i18n="acc.del_lead">Erases your account here and everything the trading bot holds for you, including any exchange API keys. It cannot be undone.</p>
+      <button class="btn btn--ghost btn--sm mt-2" id="del-open" data-act="delOpen" data-i18n="acc.del_open">Delete my account…</button>
+      <div id="del-form" class="hidden mt-2">
+        <div class="field" id="del-pw-field"><label class="visually-hidden" for="del-pw" data-i18n="a11y.del_pw">Your password</label><input class="input" type="password" id="del-pw" placeholder="Your password" autocomplete="current-password" data-i18n-attr="placeholder:acc.del_ph_pw"></div>
+        <div class="field mt-2 hidden" id="del-code-field"><label class="visually-hidden" for="del-code" data-i18n="a11y.del_code">Authenticator code</label><input class="input" type="text" id="del-code" placeholder="Authenticator code" inputmode="numeric" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.del_ph_code"></div>
+        <div class="field mt-2"><label class="visually-hidden" for="del-confirm" data-i18n="a11y.del_confirm">Type DELETE to confirm</label><input class="input" type="text" id="del-confirm" placeholder="Type DELETE to confirm" autocomplete="off" data-i18n-attr="placeholder:acc.del_ph_confirm"></div>
+        <button class="btn btn--ghost btn--sm mt-2" data-act="delGo" data-i18n="acc.del_go">Permanently delete</button>
+        <button class="btn btn--ghost btn--sm mt-2" data-act="delCancel" data-i18n="acc.del_cancel">Cancel</button>
+      </div>
+      <div class="form-err" id="del-msg" aria-live="polite"></div>
+    </div>
+
     <a href="/dashboard" class="btn btn--primary btn-block mt-4" data-i18n="acc.open_dash">Open trading dashboard →</a>
   </div>
 </main>
@@ -887,7 +906,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=128"></script>
+<script src="/js/i18n.js?v=129"></script>
 <script src="/js/icons.js?v=5"></script>
 <script src="/js/panel-error-model.js?v=1"></script>
 <script src="/js/app.js?v=13"></script>
@@ -1360,6 +1379,58 @@ async function doChangePassword(){
   document.getElementById('pw-current').value='';document.getElementById('pw-new').value='';document.getElementById('pw-new2').value='';
   refreshAccountMeta();
 }
+// ── Delete account ──
+//
+// THE SERVER DECIDES, THIS FORM ONLY COLLECTS. The password, the 2FA code and
+// the typed phrase are all re-checked server-side; nothing here is a gate.
+// The 2FA field is shown when the account has 2FA enrolled, and hiding it is a
+// convenience — an account with 2FA that somehow never saw the field still
+// gets a 401 asking for a code rather than a deletion.
+function delOpen(){
+  document.getElementById('del-form').classList.remove('hidden');
+  document.getElementById('del-open').classList.add('hidden');
+  setErr('del-msg','');
+  // Reuse what the 2FA box already knows rather than asking /me again.
+  const on=document.getElementById('tfa-on');
+  if(on&&!on.classList.contains('hidden'))
+    document.getElementById('del-code-field').classList.remove('hidden');
+  // A password-less account (OAuth / wallet / Telegram) has none to re-enter.
+  if(document.getElementById('pw-current-field').classList.contains('hidden'))
+    document.getElementById('del-pw-field').classList.add('hidden');
+}
+function delCancel(){
+  document.getElementById('del-form').classList.add('hidden');
+  document.getElementById('del-open').classList.remove('hidden');
+  document.getElementById('del-pw').value='';
+  document.getElementById('del-code').value='';
+  document.getElementById('del-confirm').value='';
+  setErr('del-msg','');
+}
+async function delGo(){
+  setErr('del-msg','');
+  const confirm=document.getElementById('del-confirm').value;
+  if(confirm.trim().toUpperCase()!=='DELETE'){
+    setErr('del-msg','Type DELETE in the last box to confirm.');return;
+  }
+  setErr('del-msg','Deleting…');
+  const res=await apiAuth('/auth/account',{
+    password:document.getElementById('del-pw').value,
+    totp_code:document.getElementById('del-code').value,
+    confirm:confirm,
+  },'DELETE');
+  // The error text is the SERVER'S, verbatim. A 502 here means the bot did not
+  // confirm and NOTHING was deleted anywhere, and a 500 with partial:true means
+  // some of it was — three different outcomes that must not be flattened into
+  // one "something went wrong".
+  if(res.error){setErr('del-msg',res.error);return;}
+  if(!res.deleted){setErr('del-msg','The server did not confirm the deletion. Nothing has been changed.');return;}
+  try{localStorage.removeItem('rc_session');}catch(e){}
+  SESSION=null;
+  document.body.innerHTML='<main class="wrap" style="padding:var(--s6) var(--s3)">'
+    +'<h1 style="font-size:var(--fs-xl)">Your account has been deleted.</h1>'
+    +'<p class="muted mt-2">'+String(res.note||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p>'
+    +'<p class="mt-4"><a class="btn btn--ghost btn--sm" href="/">Back to the homepage</a></p></main>';
+}
 // Wallet link on the account card — same SIWE-style proof as wallet login,
 // attached to the LOGGED-IN account. Read-only: unlocks balance mirroring only.
 function renderWalletBox(data){
@@ -1652,7 +1723,7 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
   var ALLOWED = ['switchTab','showForgot','doRegister','doLogin','doForgot',
     'doLogout','getToken','copyToken','resendVerification','linkWalletToAccount',
     'unlinkWalletFromAccount','showWalletQr','doChangePassword','tfaSetup',
-    'tfaEnable','tfaDisable'];
+    'tfaEnable','tfaDisable','delOpen','delCancel','delGo'];
   function copySelf(){
     if(navigator.clipboard) navigator.clipboard.writeText(this.textContent);
   }

@@ -216,6 +216,44 @@ if (USE_MYSQL) {
 // ── In-memory database ──────────────────────────────────────────
 
 class MemoryDB {
+  /**
+   * Which in-memory store backs each `user_id`-keyed table, for erasure.
+   *
+   * `key: 'user_id'` means the object is keyed BY the user id, so the delete
+   * is one property lookup. The plain objects without it (`walletLinkCodes`)
+   * are keyed by something else and carry `user_id` in the VALUE, which is the
+   * distinction the old wallet_link_codes branch got wrong.
+   *
+   * Pinned against `account_erasure.js` by a test: a table added to the
+   * erasure list with no store here would throw at runtime, and this map is
+   * the only place that knowledge lives.
+   */
+  static USER_SCOPED_STORES = {
+    pending_credentials: { field: 'pendingCreds' },
+    exchange_status: { field: 'exchangeStatus', key: 'user_id' },
+    pending_controls: { field: 'pendingControls' },
+    user_controls: { field: 'userControls', key: 'user_id' },
+    pending_flatten: { field: 'pendingFlatten' },
+    arena_api_keys: { field: 'arenaApiKeys' },
+    arena_envelopes: { field: 'envelopes' },
+    trades: { field: 'trades' },
+    equity_snapshots: { field: 'snapshots' },
+    arena_accounts: { field: 'arenaAccounts', key: 'user_id' },
+    arena_positions: { field: 'arenaPositions' },
+    arena_trades: { field: 'arenaTrades' },
+    wallet_link_codes: { field: 'walletLinkCodes' },
+    push_subscriptions: { field: 'pushSubs' },
+    copy_subscriptions: { field: 'copySubs' },
+    user_profiles: { field: 'userProfiles', key: 'user_id' },
+    user_alerts: { field: 'userAlerts' },
+    user_strategies: { field: 'userStrategies' },
+    user_watchlist: { field: 'watchlist' },
+    arena_follows: { field: 'arenaFollows', key: 'user_id' },
+    duel_picks: { field: 'duelPicks' },
+    learn_diary: { field: 'learnDiary' },
+    learn_progress: { field: 'learnProgress' },
+  };
+
   constructor() {
     this.users = [];
     this.trades = [];
@@ -265,6 +303,12 @@ class MemoryDB {
     this._nextDuelRoundId = 1;
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
     this._nextDuelPickId = 1;
+    // Nothing in this shim writes arena_api_keys — the arena key routes are
+    // not implemented here at all. The array exists so that erasing an account
+    // can honestly delete from the table (there is provably nothing in it)
+    // rather than fall through to the unimplemented throw, and so that key
+    // storage, if it is ever added here, is already covered by erasure.
+    this.arenaApiKeys = [];
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
@@ -301,6 +345,54 @@ class MemoryDB {
         || cmd.startsWith('CREATE INDEX') || cmd.startsWith('CREATE UNIQUE INDEX')
         || cmd.startsWith('DROP TABLE') || cmd.startsWith('DROP INDEX')) {
       return [[], []];
+    }
+
+    // ACCOUNT ERASURE — every `DELETE FROM <t> WHERE user_id = ?` in one place.
+    //
+    // `app/lib/account_erasure.js` emits this one statement shape against 23
+    // tables. Half of them had no DELETE branch here at all, so the deletion
+    // route threw ER_MEMORYDB_UNIMPLEMENTED on the first uncovered table — in
+    // the suite AND in the no-DATABASE_URL deployment mode this class exists
+    // to serve.
+    //
+    // Deliberately matched with an ANCHORED regex on the whole statement
+    // rather than `cmd.includes('DELETE FROM …')`. Sitting this high in the
+    // dispatcher, a substring test would shadow the narrower deletes below it
+    // — `DELETE FROM user_alerts WHERE id = ? AND user_id = ?` deletes ONE
+    // alert, and swallowing it here would silently erase the lot. Extra
+    // clauses fall through to the branch that understands them.
+    //
+    // It also fixes a wrong answer that was already here: the generic
+    // `DELETE FROM wallet_link_codes` branch treats `params[0]` as the CODE
+    // (its primary key), so the erasure statement, which passes a user id,
+    // deleted nothing and reported `affectedRows: 1` while doing it.
+    const erase = cmd.match(/^DELETE FROM (\w+) WHERE USER_ID = \?$/);
+    if (erase) {
+      const store = MemoryDB.USER_SCOPED_STORES[erase[1].toLowerCase()];
+      if (store) {
+        const uid = String(params[0]);
+        let removed = 0;
+        if (store.key === 'user_id') {              // object keyed BY user id
+          if (Object.prototype.hasOwnProperty.call(this[store.field], uid)) {
+            delete this[store.field][uid]; removed = 1;
+          }
+        } else if (Array.isArray(this[store.field])) {
+          const before = this[store.field].length;
+          this[store.field] = this[store.field].filter(
+            (r) => String(r.user_id) !== uid);
+          removed = before - this[store.field].length;
+        } else {                                    // object whose VALUES carry it
+          for (const k of Object.keys(this[store.field])) {
+            if (String(this[store.field][k].user_id) === uid) {
+              delete this[store.field][k]; removed += 1;
+            }
+          }
+        }
+        return [{ affectedRows: removed }, []];
+      }
+      // No entry in the map is NOT "nothing to delete" — it is an unmapped
+      // table, and answering `affectedRows: 0` would report a successful
+      // erasure of rows nobody looked for. Fall through to the throw.
     }
 
     // -- SIGNALS -- (checked before TRADES: the stats query shares COUNT(*)/wins
@@ -1038,6 +1130,15 @@ class MemoryDB {
       return [{ affectedRows: 1 }, []];
     }
     if (cmd.includes('DELETE FROM PENDING_STANCE')) {
+      // `WHERE requested_by = ?` comes from account erasure and must clear the
+      // row only when it is that person's request. The approval path deletes
+      // `WHERE id = 1` and still clears unconditionally.
+      if (cmd.includes('REQUESTED_BY')) {
+        const mine = this.pendingStance
+          && String(this.pendingStance.requested_by) === String(params[0]);
+        if (mine) this.pendingStance = null;
+        return [{ affectedRows: mine ? 1 : 0 }, []];
+      }
       this.pendingStance = null;
       return [{ affectedRows: 1 }, []];
     }
@@ -1483,6 +1584,29 @@ class MemoryDB {
       const u = this.users.find(x => String(x.telegram_id) === String(params[1]));
       if (u) u.plan = params[0];
       return [{ affectedRows: u ? 1 : 0 }, []];
+    }
+
+    // The users half of account erasure: tombstone the row in place.
+    //
+    // Identified by its `plan = 'deleted'` clause rather than by a prefix — an
+    // `UPDATE USERS SET EMAIL = ?` also fits an ordinary address change, and
+    // answering that one with a full identity wipe would be catastrophic.
+    //
+    // The nulled columns are read OUT OF THE STATEMENT rather than restated
+    // here. `IDENTIFYING_COLUMNS` changes when somebody adds an identifying
+    // field, and a second hand-maintained copy of that list in the shim would
+    // drift exactly once: silently, the day it started to matter.
+    if (cmd.startsWith('UPDATE USERS SET EMAIL = ?')
+        && cmd.includes("PLAN = 'DELETED'")) {
+      const u = this.users.find(x => String(x.id) === String(params[params.length - 1]));
+      if (!u) return [{ affectedRows: 0 }, []];
+      u.email = params[0];
+      for (const m of sql.matchAll(/(\w+)\s*=\s*NULL/gi)) u[m[1]] = null;
+      u.telegram_linked = false;
+      u.email_verified = false;
+      u.token_epoch = (u.token_epoch || 0) + 1;
+      u.plan = 'deleted';
+      return [{ affectedRows: 1 }, []];
     }
 
     if (cmd.includes('UPDATE TRADES SET NOTES')) {

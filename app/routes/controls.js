@@ -18,6 +18,7 @@ const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { postGateway, relay, isConfigured } = require('../lib/gateway');
 const { stepUpBlock } = require('../lib/stepup');
+const { secLog } = require('../lib/seclog');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -27,10 +28,6 @@ router.use(authMiddleware);
 const ctlLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
 const stopLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
 
-function secLog(event, req, extra) {
-  const uid = req.user && req.user.user_id;
-  console.log(`[SECURITY] ${event} user=${uid}${extra ? ' ' + extra : ''}`);
-}
 
 // GET /api/controls/status -> current applied state + any pending change
 router.get('/status', async (req, res) => {
