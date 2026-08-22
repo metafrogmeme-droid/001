@@ -249,3 +249,115 @@ def test_the_unavailable_branch_is_before_the_chat_fallback():
     assert notice < fallback, (
         "the unavailable notice sits after the AI chat fallback, so the chat "
         "model answers first and the notice is dead code")
+
+
+# ── 5. The extractor must not invent a ticker ─────────────────────────────
+#
+# The rule `\b(analy[sz]e|look at|check out|...)` is broad on purpose, and
+# `_extract_symbol`'s last-resort fallback turned whatever noun followed it
+# into a symbol. Its own comment promised "2-10 UPPERCASE letters" and then
+# tested `word.isalpha()` against a list built from `text.lower()` — case was
+# destroyed two lines before it was checked, so the uppercase guard never ran
+# and a hand-maintained denylist of English words was all that stood between a
+# user and a fabricated asset. It lost, at confidence 1.0:
+#
+#     look at the docs        -> DOCS/USDT
+#     analyze the situation   -> SITUATION/USDT
+#     check out the news      -> OUT/USDT     (the verb's own particle)
+#     check out my portfolio  -> OUT/USDT     (a portfolio request, analysed
+#                                              as a coin called OUT)
+#
+# A denylist of English nouns can only ever lose that race. Case is the signal
+# the comment always claimed to use, so it is the signal now.
+
+MANUFACTURED = [
+    ("look at the docs", "DOCS"), ("analyze the situation", "SITUATION"),
+    ("look at the code", "CODE"), ("analyze the results", "RESULTS"),
+    ("check out the news", "OUT"), ("check out my portfolio", "OUT"),
+    ("scan the logs", "LOGS"), ("analyze the deployment", "DEPLOYMENT"),
+]
+
+
+@pytest.mark.parametrize("text,invented", MANUFACTURED)
+def test_no_ticker_is_manufactured_from_a_noun(router, text, invented):
+    i = router.classify_rules(text)
+    got = i.kwargs.get("symbol")
+    assert got != f"{invented}/USDT", (
+        f"{text!r} produced {got} — a symbol nobody named, at confidence "
+        f"{i.confidence}. That dispatches a real analysis against a fabricated "
+        "asset.")
+    assert got is None, f"{text!r} produced a symbol at all: {got}"
+
+
+@pytest.mark.parametrize("text", [t for t, _ in MANUFACTURED
+                                  if t != "check out my portfolio"])
+def test_a_message_about_something_else_is_not_claimed(router, text):
+    """Not merely 'no symbol' — not an asset request at all.
+
+    Without this the fix would stop at confidence 0.5 and every one of these
+    would be answered "what coin do you want me to look at?". True, and an
+    answer to a question nobody asked.
+    """
+    i = router.classify_rules(text)
+    assert not (i.matched and i.confidence >= 0.5), (
+        f"{text!r} is still claimed as {i.skill!r} at {i.confidence}")
+
+
+def test_a_portfolio_question_reaches_the_portfolio(router):
+    # `check out my portfolio` used to resolve to OUT/USDT. The fix declines
+    # the analyze rule and CONTINUES rather than returning, so the portfolio
+    # rule further down gets its turn — which is why it is a `continue`.
+    assert router.classify_rules("check out my portfolio").skill == "get_portfolio"
+
+
+ASK_WHICH_COIN = [
+    "analyze", "analyze the charts", "look at the chart", "check the setup",
+    "where is liquidity", "give me entry zones", "long or short",
+    "analyze the price",
+]
+
+
+@pytest.mark.parametrize("text", ASK_WHICH_COIN)
+def test_a_bare_asset_request_still_asks_which_coin(router, text):
+    """The other half, and the half that is easy to break while fixing the first.
+
+    These name no asset either — but they name no OTHER subject, so the user
+    does want a chart and simply has not said of what. Asking is the answer.
+    `analyze the charts` is pinned by a test older than this file; the generic
+    market nouns are in the filler set for exactly that reason.
+    """
+    i = router.classify_rules(text)
+    assert i.skill == "analyze_asset" and 0.5 <= i.confidence < 1.0, (
+        f"{text!r} -> {i.skill!r} at {i.confidence}; it should ask which coin")
+
+
+UNKNOWN_TICKERS = [
+    ("analyze FARTCOIN", "FARTCOIN/USDT"),   # too new for the known list
+    ("look at $PEPE", "PEPE/USDT"),
+    ("analyze WIF", "WIF/USDT"),
+    ("analyze the BTC chart", "BTC/USDT"),   # an article before a real ticker
+]
+
+
+@pytest.mark.parametrize("text,symbol", UNKNOWN_TICKERS)
+def test_a_real_ticker_still_resolves(router, text, symbol):
+    """The fallback exists so a coin too new for the list is still tradeable.
+
+    Requiring caps must not cost that. Deleting the fallback outright would
+    have passed every test above and quietly broken every new listing.
+    """
+    assert router.classify_rules(text).kwargs.get("symbol") == symbol
+
+
+def test_the_uppercase_guard_is_read_from_the_original_text():
+    """Case must survive to the point where it is checked.
+
+    The whole defect was that it did not: `words` is lowercased, so any guard
+    reading from it can only ever see lowercase. This drives the difference
+    directly rather than trusting that the new code reads the right string.
+    """
+    from bot.nlp.intent_router import _extract_symbol
+    assert _extract_symbol("analyze FARTCOIN") == "FARTCOIN/USDT"
+    assert _extract_symbol("analyze fartcoin") is None, (
+        "a lowercase unknown word is a noun; treating it as a ticker is what "
+        "produced DOCS/USDT")
