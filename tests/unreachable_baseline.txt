@@ -22,8 +22,19 @@
 # now computes it in SHADOW, where its inputs actually exist. Enforcement still
 # does not, because its intended consumer (meme_executor, below) is unwired too
 # — that is a product decision about the meme path, not a wiring cleanup.
+# authority_redteam LEFT this list for the same reason red_team did, one layer
+# up: scripts/authority_red_team.py runs it and CI gates on it, so the 12
+# custody attacks now hit the LIVE authorize() on every change instead of being
+# 213 lines nothing could reach. It was 12/12 the first time it was ever run —
+# a regression guard, not a bug report, exactly as its sibling was.
+#
+# authority_preflight is the remaining uncomfortable one and is NOT the same
+# case. It reconciles a granted envelope against what a key can observably do,
+# which needs a live venue and a real key: there is nothing to gate in CI, and
+# a runner that reported CONFIRMED from no probe would be worse than no runner.
+# Wiring it is a product decision about where posture gets checked, not a
+# cleanup this file can make.
 bot/guardian/authority_preflight.py
-bot/guardian/authority_redteam.py
 bot/core/validation_gate.py
 
 # ── execution paths built and not connected ─────────────────────────────────
