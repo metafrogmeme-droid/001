@@ -18,7 +18,7 @@ Two independent flags must both be set before any real order is sent to the exch
 Both conditions must be met for live execution:
 
 ```text
-SIMULATION_MODE=false  AND  LIVE_TRADING_ENABLED=true  →  Live orders sent to Bitget
+SIMULATION_MODE=false AND LIVE_TRADING_ENABLED=true → Live orders sent to Bitget
 ```
 
 Any other combination defaults to paper trading:
@@ -63,11 +63,11 @@ Review and tighten risk parameters before going live:
 
 ```bash
 # .env — conservative live settings
-MAX_POSITION_PCT=1.0          # 1% risk budget per trade (down from 2%)
-MAX_DAILY_LOSS_PCT=3.0        # 3% daily loss cap (down from 5%)
-MAX_DRAWDOWN_PCT=5.0          # 5% max drawdown (down from 10%)
-MAX_OPEN_POSITIONS=3           # 3 concurrent positions (down from 5)
-MAX_PORTFOLIO_EXPOSURE_PCT=50.0  # 50% max exposure (down from 80%)
+MAX_POSITION_PCT=1.0 # 1% risk budget per trade (down from 2%)
+MAX_DAILY_LOSS_PCT=3.0 # 3% daily loss cap (down from 5%)
+MAX_DRAWDOWN_PCT=5.0 # 5% max drawdown (down from 10%)
+MAX_OPEN_POSITIONS=3 # 3 concurrent positions (down from 5)
+MAX_PORTFOLIO_EXPOSURE_PCT=50.0 # 50% max exposure (down from 80%)
 ```
 
 ### 4. Enable live mode
@@ -93,7 +93,7 @@ All safety mechanisms apply equally in live mode:
 
 | Safeguard | Behavior |
 |-----------|----------|
-| 20-check risk gate | Every trade must pass all checks. No exceptions. |
+| checks risk gate | Every trade must pass every check. No exceptions. |
 | Human confirmation | Every trade requires Telegram approval before execution. |
 | Circuit breaker | Auto-halts on daily loss or drawdown breach. |
 | Cooldown timer | Blocks trading after consecutive losses. |

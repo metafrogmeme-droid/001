@@ -14,7 +14,7 @@ RUNECLAW supports Alibaba Qwen models as a drop-in replacement for OpenAI via th
 # .env configuration for Qwen
 LLM_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 LLM_API_KEY=your-dashscope-api-key
-LLM_MODEL=qwen-max    # or qwen-plus, qwen-turbo, qwen-flash
+LLM_MODEL=qwen-max # or qwen-plus, qwen-turbo, qwen-flash
 ```
 
 ### Available Models
@@ -57,7 +57,7 @@ from openai import AsyncOpenAI
 
 llm_kwargs = {"api_key": CONFIG.llm.api_key}
 if CONFIG.llm.base_url:
-    llm_kwargs["base_url"] = CONFIG.llm.base_url
+ llm_kwargs["base_url"] = CONFIG.llm.base_url
 self._llm = AsyncOpenAI(**llm_kwargs)
 ```
 
@@ -115,7 +115,7 @@ When `ASSET_UNIVERSE=solana`, the `MarketScanner` prioritizes Solana ecosystem t
 1. **All USDT pairs** are still scanned from Bitget (full market coverage)
 2. **Solana tokens** are sorted to the top of results, regardless of momentum ranking
 3. **Remaining slots** are filled with highest-momentum non-Solana assets
-4. **Risk engine** applies identically -- all 20 checks, trailing stops, circuit breaker
+4. **Risk engine** applies identically -- every check, trailing stops, circuit breaker
 
 This ensures Solana ecosystem exposure while maintaining the full risk framework.
 
@@ -156,23 +156,23 @@ Post-hackathon integration with Dune Analytics for on-chain intelligence:
 ## Integration Architecture
 
 ```
-                    ┌─────────────────┐
-                    │   LLM Provider  │
-                    │  (Qwen / GPT)   │
-                    └────────┬────────┘
-                             │
- ┌───────────┐    ┌──────────▼──────────┐    ┌──────────────┐
- │  Bitget   │───▶│     RUNECLAW        │───▶│  Telegram    │
- │  Exchange │    │   Engine + Risk     │    │  Bot         │
- └───────────┘    └──────────┬──────────┘    └──────────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-     ┌────────▼───┐  ┌──────▼─────┐  ┌─────▼──────┐
-     │  Solana    │  │   Dune     │  │  Jupiter   │
-     │  RPC/Data  │  │  Analytics │  │  DEX API   │
-     │ (planned)  │  │ (planned)  │  │ (planned)  │
-     └────────────┘  └────────────┘  └────────────┘
+ ┌─────────────────┐
+ │ LLM Provider │
+ │ (Qwen / GPT) │
+ └────────┬────────┘
+ │
+ ┌───────────┐ ┌──────────▼──────────┐ ┌──────────────┐
+ │ Bitget │───▶│ RUNECLAW │───▶│ Telegram │
+ │ Exchange │ │ Engine + Risk │ │ Bot │
+ └───────────┘ └──────────┬──────────┘ └──────────────┘
+ │
+ ┌──────────────┼──────────────┐
+ │ │ │
+ ┌────────▼───┐ ┌──────▼─────┐ ┌─────▼──────┐
+ │ Solana │ │ Dune │ │ Jupiter │
+ │ RPC/Data │ │ Analytics │ │ DEX API │
+ │ (planned) │ │ (planned) │ │ (planned) │
+ └────────────┘ └────────────┘ └────────────┘
 ```
 
 All integrations follow the same pattern: data providers feed into the existing analysis pipeline, risk engine applies identically, and human confirmation is always required.

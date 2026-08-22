@@ -10,13 +10,13 @@ RUNECLAW supports a dedicated **Solana ecosystem mode** that focuses the scanner
 
 **Option 1 -- Environment variable:**
 ```bash
-ASSET_UNIVERSE=solana  # in .env
+ASSET_UNIVERSE=solana # in .env
 ```
 
 **Option 2 -- Live switching via Telegram:**
 ```
-/mode solana   → Focus on 15 Solana tokens
-/mode all      → Scan all Bitget USDT pairs
+/mode solana → Focus on 15 Solana tokens
+/mode all → Scan all Bitget USDT pairs
 ```
 
 No restart required. The scanner switches focus immediately.
@@ -59,7 +59,7 @@ Non-meme Solana tokens are grouped as `SOLANA_ECO` in the correlation matrix. Th
 | MEME | BONK, WIF (+ DOGE, PEPE, etc.) | 2 |
 | SOLANA_ECO | JUP, JTO, PYTH, RAY, ORCA, JITO, TENSOR, DRIFT, HNT, MOBILE, W | 2 |
 
-### Full 18-Check Coverage
+### Full checks Coverage
 All 18 risk checks apply identically in Solana mode. The circuit breaker, position limits, human confirmation, and audit trail are unchanged.
 
 ---

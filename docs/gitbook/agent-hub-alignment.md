@@ -34,7 +34,7 @@ RUNECLAW exposes 12 internal skills that map directly to MCP tools. See [MCP Int
 | Market data | `runeclaw_scan` -- fetch tickers, volume spikes, momentum signals |
 | Trading execution | `runeclaw_execute` -- paper trade execution (live via ccxt when enabled) |
 | Portfolio management | `runeclaw_portfolio` -- balance, equity, positions, PnL, drawdown |
-| Risk management | `runeclaw_risk` -- 20-check status, circuit breaker, exposure limits |
+| Risk management | `runeclaw_risk` -- checks status, circuit breaker, exposure limits |
 | Analysis | `runeclaw_analyze` -- technical indicators + LLM thesis + trade idea |
 | Explainability | `runeclaw_explain` -- full decision chain for any trade idea |
 
@@ -71,31 +71,31 @@ RUNECLAW exposes 12 internal skills that map directly to MCP tools. See [MCP Int
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
-│                  BITGET AGENT HUB                       │
-│                                                         │
-│  MCP Layer ←──── RUNECLAW Tool Adapter (planned)        │
-│     │                                                   │
-│     v                                                   │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              RUNECLAW ENGINE                      │   │
-│  │                                                   │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │   │
-│  │  │ Scanner  │  │ Analyzer │  │ Risk Engine   │  │   │
-│  │  │ (Bitget) │  │ (LLM+TA) │  │ (20 checks)  │  │   │
-│  │  └────┬─────┘  └────┬─────┘  └──────┬────────┘  │   │
-│  │       │              │               │           │   │
-│  │       v              v               v           │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │   │
-│  │  │ Macro    │  │ Order    │  │ Portfolio     │  │   │
-│  │  │ Calendar │  │ Flow     │  │ Tracker       │  │   │
-│  │  └──────────┘  └──────────┘  └───────────────┘  │   │
-│  │                                                   │   │
-│  │  FSM: IDLE → SCAN → ANALYZE → RISK → CONFIRM     │   │
-│  │       → EXECUTE → MONITOR → COOL_DOWN / HALTED   │   │
-│  └──────────────────────────────────────────────────┘   │
-│                                                         │
-│  Interfaces: Telegram Bot │ CLI │ MCP (planned)         │
-│  Audit: trade.jsonl │ risk.jsonl │ system.jsonl          │
+│ BITGET AGENT HUB │
+│ │
+│ MCP Layer ←──── RUNECLAW Tool Adapter (planned) │
+│ │ │
+│ v │
+│ ┌──────────────────────────────────────────────────┐ │
+│ │ RUNECLAW ENGINE │ │
+│ │ │ │
+│ │ ┌──────────┐ ┌──────────┐ ┌───────────────┐ │ │
+│ │ │ Scanner │ │ Analyzer │ │ Risk Engine │ │ │
+│ │ │ (Bitget) │ │ (LLM+TA) │ │ (checks) │ │ │
+│ │ └────┬─────┘ └────┬─────┘ └──────┬────────┘ │ │
+│ │ │ │ │ │ │
+│ │ v v v │ │
+│ │ ┌──────────┐ ┌──────────┐ ┌───────────────┐ │ │
+│ │ │ Macro │ │ Order │ │ Portfolio │ │ │
+│ │ │ Calendar │ │ Flow │ │ Tracker │ │ │
+│ │ └──────────┘ └──────────┘ └───────────────┘ │ │
+│ │ │ │
+│ │ FSM: IDLE → SCAN → ANALYZE → RISK → CONFIRM │ │
+│ │ → EXECUTE → MONITOR → COOL_DOWN / HALTED │ │
+│ └──────────────────────────────────────────────────┘ │
+│ │
+│ Interfaces: Telegram Bot │ CLI │ MCP (planned) │
+│ Audit: trade.jsonl │ risk.jsonl │ system.jsonl │
 └─────────────────────────────────────────────────────────┘
 ```
 

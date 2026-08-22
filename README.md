@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/tests-2644%20test%20functions%20%7C%20227%20files-brightgreen" alt="2644 Test Functions | 227 Files">
   <img src="https://img.shields.io/badge/security%20tests-29%20passing-blueviolet" alt="29 Security Tests">
   <img src="https://img.shields.io/badge/red%20team-28%20scenarios%20%7C%20framework%20included-critical" alt="Red Team 28 Scenarios | Framework Included">
-  <img src="https://img.shields.io/badge/risk%20checks-23%20(16%20strict%20%2B%207%20advisory)-red" alt="23 Risk Checks">
+  <img src="https://img.shields.io/badge/risk%20gate-fail--closed-red" alt="Fail-closed risk gate">
   <img src="https://img.shields.io/badge/mode-live%20trading-green" alt="Live Trading">
   <img src="https://img.shields.io/badge/exchange-Bitget-blue" alt="Bitget">
   <img src="https://img.shields.io/badge/bot-LIVE%20%40HTRUNECLAW__bot-26a5e4?logo=telegram" alt="Live Telegram Bot">
@@ -59,7 +59,7 @@
 
 **RUNECLAW** is an AI trading command system built by **Humanoid Traders** for the Bitget AI Base Camp · Hackathon S1. It merges multi-timeframe analysis, confluence scoring, regime detection, order-flow microstructure, and risk-first logic into a disciplined framework -- all controllable through a Telegram bot interface.
 
-The system operates in **simulation-first mode by default**. Every trade idea must pass 23 pre-trade risk checks (16 strict fail-closed gates + 1 fail-open liquidity guard + 6 advisory checks that skip when data is unavailable), an adversarial self-critique gate, and receive explicit human confirmation before execution.
+The system operates in **simulation-first mode by default**. Every trade idea must pass the full pre-trade risk gate — strict fail-closed rules, a fail-open liquidity guard, and advisory rules that skip when their data is unavailable (`config/risk_manifest.yaml` is the authoritative list) — an adversarial self-critique gate, and receive explicit human confirmation before execution.
 
 > **Shield risk engine available as MCP server -- any GetClaw agent can call it.** See `bot/mcp/server.py`.
 
@@ -312,7 +312,9 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 ## Features
 
 ### Market Intelligence
-- Real-time scanning of 67 Bitget USDT pairs (API bridge) / 324+ pairs (Telegram bot)
+- Real-time scanning of the liquid Bitget USDT-perp market (how many pairs
+  qualify depends on the 24h-volume floor in `bot/config.py` and on what the
+  venue lists that day, so no fixed count is quoted)
 - **Multi-asset:** crypto plus non-crypto USDT-M perps — metals (gold/silver/platinum/palladium/copper), energy (WTI/Brent/NatGas), US stock perps (TSLA, NVDA, AAPL, …), ETFs, and pre-IPO tokens — switchable via `/mode` (see Multi-Asset Universe)
 - Volume spike detection (2x rolling average)
 - Momentum scoring with configurable thresholds
@@ -360,7 +362,7 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 - Designed to support MiCA-style decision auditability
 
 ### Risk Engine (Fail-Closed)
-- **21-check risk gate** -- 16 strict fail-closed (one failure = rejection), 1 fail-open (#17 LIQUIDITY: no order-book data = pass), 4 advisory/skip (#18 MACRO, #19 MTF, #20 PCA, #21 VaR: skip when data unavailable), plus 2 additional advisory gates (#22 Taker 3-bar, #23 Bid dominance). See `config/risk_manifest.yaml` for the authoritative list.
+- **Fail-closed risk gate** -- strict rules where one failure rejects the trade, a fail-open liquidity guard (no order-book data = pass), and advisory rules that skip when their data is unavailable. How many run depends on the trade, so no total is quoted here; `config/risk_manifest.yaml` is the authoritative list and `checks_passed` on each decision record reports what actually ran.
 - Circuit breaker halts trading on daily loss or drawdown breach
 - Fixed-fractional position sizing: risk budget (2% of equity) divided by stop distance, capped at 20% notional
 - Max open positions limit
@@ -563,7 +565,7 @@ runeclaw/
 |   |   |-- llm_cache.py        # Semantic LLM response cache with TTL
 |   |   |-- token_optimizer.py  # Tiered pipeline, smart batching, adaptive frequency
 |   |-- risk/
-|   |   |-- risk_engine.py      # 21-check risk gate, circuit breaker
+|   |   |-- risk_engine.py      # fail-closed risk gate, circuit breaker
 |   |   |-- portfolio.py        # Paper trading ledger, PnL tracking, mark-to-market
 |   |-- learning/
 |   |   |-- orchestrator.py     # 10-step learning workflow coordinator
@@ -648,7 +650,7 @@ runeclaw/
 RUNECLAW is designed with a **fail-closed** philosophy:
 
 - **Simulation by default.** Live trading requires two explicit environment flags.
-- **Every trade passes 23 checks.** 16 strict fail-closed, 1 fail-open (liquidity), 6 advisory/skip. See `config/risk_manifest.yaml` for details.
+- **Every trade passes the full gate.** Strict fail-closed rules, a fail-open liquidity guard, advisory rules that skip without data. The number that ran is on the decision record; see `config/risk_manifest.yaml`.
 - **Circuit breaker.** Auto-halts on daily loss (5%) or max drawdown (10%).
 - **Human-in-the-loop.** No trade executes without explicit confirmation.
 - **Re-check on confirm.** Risk is re-evaluated at confirmation time because market conditions change.
@@ -786,7 +788,7 @@ python run_realdata_backtest.py --llm --output results.json
 
 | Capability | RUNECLAW | Typical Hackathon Bot |
 |------------|:--------:|:---------------------:|
-| Pre-trade risk checks | **23 checks (16 strict + 7 advisory)** | 0-3 basic checks |
+| Pre-trade risk gate | **Fail-closed, manifest-driven** | 0-3 basic checks |
 | Fail-closed design | **Yes** -- any failure = rejection | Fail-open (errors skip checks) |
 | Circuit breaker | **Auto-halt** on daily loss / drawdown | None or manual only |
 | Human confirmation | **Required** via Telegram keyboard | Auto-execute or no gate |
@@ -797,7 +799,7 @@ python run_realdata_backtest.py --llm --output results.json
 | Position sizing | **Fixed-fractional** with exposure caps | Fixed lot or % of balance |
 | Re-check on confirm | **Yes** -- market may have moved | No re-validation |
 | Backtest engine | **Built-in** with commission + slippage modeling | External or none |
-| Live market connectivity | **324+ pairs scanned** on real Bitget data (read-only market data) | Mock data only |
+| Live market connectivity | **Live Bitget market data** (read-only), volume-filtered scan universe | Mock data only |
 
 > Safety and transparency are first-class design goals, not afterthoughts.
 

@@ -8,7 +8,7 @@
 <meta name="description" content="RUNECLAW hashes every trading call before the market moves, so the record cannot be edited afterwards. Paper-trade free in your browser and verify any call from your own terminal.">
 <meta property="og:title" content="RUNECLAW — AI Trading by Humanoid Traders">
 <meta property="og:site_name" content="Humanoid Traders">
-<meta property="og:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
+<meta property="og:description" content="Scan the liquid perp market, chat with the engine, and place risk-gated trades from your browser. Paper by default, live only with explicit approval.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/">
 <!-- Absolute URL on purpose: WhatsApp/Teams/Facebook/X only unfurl a picture
@@ -18,7 +18,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="RUNECLAW — AI Trading, Paper to Live">
-<meta name="twitter:description" content="Scan 800+ symbols, chat with the engine, and place risk-gated trades from your browser.">
+<meta name="twitter:description" content="Scan the liquid perp market, chat with the engine, and place risk-gated trades from your browser.">
 <meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="256x256" href="/app_icon_256.png">
@@ -237,7 +237,7 @@
      long page on phones (where most visitors land). Hidden on desktop. -->
 <a class="mobile-cta" href="#auth-panel" data-i18n="hero.cta_create">Create free account</a>
 
-<!-- Living proof of "800+ symbols scanned": a slice of the real market feed
+<!-- A slice of the real market feed. It is a SAMPLE, not a census:
      (server-cached, percent moves only — no account data on this page). -->
 <div id="tickerStrip" class="muted small" hidden
      style="gap:var(--s4);flex-wrap:wrap;justify-content:center;padding:10px var(--s4);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"
@@ -887,7 +887,7 @@
   </form>
 </section>
 
-<script src="/js/i18n.js?v=127"></script>
+<script src="/js/i18n.js?v=128"></script>
 <script src="/js/icons.js?v=5"></script>
 <script src="/js/panel-error-model.js?v=1"></script>
 <script src="/js/app.js?v=13"></script>
@@ -967,7 +967,9 @@
   }, 30000);
 })();
 
-// Live market strip: the hero claims 800+ symbols scanned — show a slice of
+// Live market strip. Deliberately not captioned with a total: the scan
+// universe is whatever clears the configurable 24h-volume floor
+// (bot/config.py) on the connected venue, so it changes daily. Show a slice of
 // the real feed. Server-cached endpoint, symbols/prices/percent moves only.
 (function () {
   var host = document.getElementById('tickerStrip');

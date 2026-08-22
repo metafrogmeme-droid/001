@@ -5,32 +5,32 @@ This document describes the internal architecture of RUNECLAW, how data flows th
 ## High-Level Overview
 
 ```
-                     +-------------------+
-                     |   Telegram Bot    |
-                     |  (User Commands)  |
-                     +--------+----------+
-                              |
-                     +--------v----------+
-                     |  Skill Registry   |
-                     | (Command Router)  |
-                     +--------+----------+
-                              |
-                     +--------v----------+
-                     |  RuneClaw Engine  |
-                     |  (Orchestrator)   |
-                     +--+-----+------+--+
-                        |     |      |
-           +------------+     |      +------------+
-           |                  |                   |
-  +--------v-------+  +------v-------+  +--------v-------+
-  | Market Scanner  |  |  AI Analyzer |  |  Risk Engine   |
-  | (Bitget/ccxt)   |  | (LLM + TA)  |  | (18 Checks)   |
-  +----------------+  +--------------+  +--------+-------+
-                                                  |
-                                         +--------v-------+
-                                         |   Portfolio    |
-                                         |   Tracker      |
-                                         +----------------+
+ +-------------------+
+ | Telegram Bot |
+ | (User Commands) |
+ +--------+----------+
+ |
+ +--------v----------+
+ | Skill Registry |
+ | (Command Router) |
+ +--------+----------+
+ |
+ +--------v----------+
+ | RuneClaw Engine |
+ | (Orchestrator) |
+ +--+-----+------+--+
+ | | |
+ +------------+ | +------------+
+ | | |
+ +--------v-------+ +------v-------+ +--------v-------+
+ | Market Scanner | | AI Analyzer | | Risk Engine |
+ | (Bitget/ccxt) | | (LLM + TA) | | (checks) |
+ +----------------+ +--------------+ +--------+-------+
+ |
+ +--------v-------+
+ | Portfolio |
+ | Tracker |
+ +----------------+
 ```
 
 ## Pipeline Stages
@@ -168,7 +168,7 @@ RUNECLAW includes an adaptive AI learning system with **8 modules** that enable 
 The learning system enforces a **blocked-actions policy** that prevents it from:
 
 - Modifying risk engine parameters or thresholds
-- Bypassing the 20-check risk gate
+- Bypassing the checks risk gate
 - Executing trades without human confirmation
 - Altering circuit breaker state
 

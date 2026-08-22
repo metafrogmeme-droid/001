@@ -39,18 +39,18 @@ RUNECLAW's skill registry pattern was designed with MCP compatibility in mind:
 
 ```text
 MCP Client (Agent Hub / External AI)
-        |
-        v
-  MCP Tool Layer  ← thin adapter, maps tool calls to skills
-        |
-        v
-  Skill Registry  ← existing RUNECLAW skill system
-        |
-        v
-  RuneClaw Engine ← orchestrator with full state
-        |
-    ┌───┼───┐
-    v   v   v
+ |
+ v
+ MCP Tool Layer ← thin adapter, maps tool calls to skills
+ |
+ v
+ Skill Registry ← existing RUNECLAW skill system
+ |
+ v
+ RuneClaw Engine ← orchestrator with full state
+ |
+ ┌───┼───┐
+ v v v
 Scanner Analyzer Risk Engine
 ```
 
@@ -62,12 +62,12 @@ Every RUNECLAW skill follows this contract:
 
 ```python
 class BaseSkill(ABC):
-    name: str = "unnamed"
-    description: str = ""
+ name: str = "unnamed"
+ description: str = ""
 
-    @abstractmethod
-    async def execute(self, engine: RuneClawEngine, **kwargs) -> str:
-        ...
+ @abstractmethod
+ async def execute(self, engine: RuneClawEngine, **kwargs) -> str:
+ ...
 ```
 
 MCP tools call `skill.execute(engine, **params)` and return the string result. Input validation happens via Pydantic at the engine boundary.
@@ -78,18 +78,18 @@ MCP tools call `skill.execute(engine, **params)` and return the string result. I
 
 ```text
 MCP Request: { "tool": "runeclaw_analyze", "input": { "symbol": "BTC/USDT" } }
-                  |
-                  v
-         AnalyzeAssetSkill.execute(engine, symbol="BTC/USDT")
-                  |
-                  v
-         Engine: fetch candles → compute indicators → LLM thesis → TradeIdea
-                  |
-                  v
-         RiskEngine: 18 fail-closed checks
-                  |
-                  v
-         MCP Response: { "result": "LONG BTC/USDT | Confidence 72% | R:R 2.8 | ..." }
+ |
+ v
+ AnalyzeAssetSkill.execute(engine, symbol="BTC/USDT")
+ |
+ v
+ Engine: fetch candles → compute indicators → LLM thesis → TradeIdea
+ |
+ v
+ RiskEngine: fail-closed gate
+ |
+ v
+ MCP Response: { "result": "LONG BTC/USDT | Confidence 72% | R:R 2.8 | ..." }
 ```
 
 All inputs are validated. All outputs are structured. The risk gate runs on every analysis regardless of whether the call comes from Telegram, CLI, or MCP.
@@ -115,7 +115,7 @@ The MCP adapter is not yet implemented as production code. The skill registry is
 When the Bitget Agent Hub supports MCP tool registration, RUNECLAW will:
 
 1. Expose all 12 skills as MCP tools with JSON Schema input/output definitions
-2. Enforce the same 20-check risk gate on all tool invocations
+2. Enforce the same fail-closed risk gate on all tool invocations
 3. Require human confirmation for any trade execution (even via MCP)
 4. Log all MCP calls through the existing structured audit system
 
