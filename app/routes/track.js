@@ -14,6 +14,11 @@
 
 const express = require('express');
 const { pool } = require('../db');
+// Counted, never typed. The page used to print one exchange name and nothing
+// else, so eight connectable venues read as a single-exchange product — and a
+// number written into prose is the part that rots first, which is why this is
+// derived from the same list the credential route validates against.
+const { VENUES } = require('../lib/venues');
 
 /**
  * Split a column of raw P&L values into the four outcomes a record can hold.
@@ -208,7 +213,16 @@ router.get('/track-record', async (req, res) => {
     const payload = {
       generated_at: new Date().toISOString(),
       mode,                                       // 'LIVE' | 'PAPER' | null
+      // THE VENUE OF THIS RECORD — not a statement about the product. The
+      // published track record is the operator's own account and it really is
+      // on Bitget; broadening this string would misdescribe the trades below
+      // it. Breadth is the separate field.
       venue: 'Bitget USDT-M perpetuals',
+      // HOW MANY VENUES A USER CAN CONNECT. Kept apart from `venue` on purpose:
+      // you connect ONE venue per account and trade there, so this is not a
+      // claim about routing across eight at once. app/lib/venues.js is the
+      // single source of truth the credential route already validates against.
+      venues_connectable: VENUES.length,
       stats: {
         trades: trades.length,
         wins: wins.length,

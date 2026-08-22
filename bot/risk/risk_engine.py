@@ -1868,6 +1868,66 @@ class RiskEngine:
                 # A policy fault must NEVER affect a trade.
                 passed.append(f"INTENT_POLICY: skipped (error: {_ipe})")
 
+        # -- Backtest Validation Gate (gated · tighten-only · fail-open bridge) --
+        # Has this idea's STRATEGY ever been backtested to a passing Sharpe over
+        # a real sample? Until now `bot/core/validation_gate.py` said in its own
+        # docstring that "the engine does not consult this gate before executing
+        # trades" — a gate nothing consults is a claim with no mechanism.
+        #
+        # THE VERDICT IS THREE-VALUED and the third value is the point. PASSED
+        # and FAILED are measurements; NEVER_TESTED is the absence of one, and
+        # collapsing it into FAILED would refuse every strategy on a fresh store
+        # — which is exactly what the first run after enabling this looks like.
+        # `allow_untested` (default True) decides that case explicitly rather
+        # than by accident, and shadow mode records the count either way.
+        #
+        # Tighten-only and fail-open, like its neighbours: it can only append to
+        # `failed`, and any fault leaves the trade untouched so a gate bug can
+        # never halt the engine.
+        validation_result = None
+        if getattr(CONFIG.risk, "validation_gate_enabled", False):
+            try:
+                from bot.core.validation_gate import (
+                    get_validation_gate, FAILED as _VG_FAILED,
+                    NEVER_TESTED as _VG_UNTESTED)
+                _strat = str(getattr(idea, "strategy_type", "") or "").strip()
+                _vmode = str(getattr(CONFIG.risk, "validation_gate_mode",
+                                     "shadow") or "shadow").lower()
+                if _vmode not in ("off", "shadow", "enforce"):
+                    _vmode = "shadow"
+                if not _strat:
+                    # No strategy named on the idea is not "unvalidated" — it is
+                    # nothing to look up. Say so rather than scoring it.
+                    passed.append("VALIDATION: skipped (idea names no strategy)")
+                elif _vmode == "off":
+                    pass
+                else:
+                    _gate = get_validation_gate()
+                    _verdict = _gate.verdict(_strat)
+                    validation_result = {"strategy": _strat, "verdict": _verdict,
+                                         "mode": _vmode,
+                                         "store_populated": _gate.has_any_records()}
+                    _allow_untested = getattr(
+                        CONFIG.risk, "validation_gate_allow_untested", True)
+                    _would_reject = (
+                        _verdict == _VG_FAILED
+                        or (_verdict == _VG_UNTESTED and not _allow_untested))
+                    if _would_reject:
+                        _why = ("failed backtest validation"
+                                if _verdict == _VG_FAILED
+                                else "has never been backtested")
+                        if _vmode == "enforce":
+                            failed.append(f"VALIDATION: strategy '{_strat}' {_why}")
+                        else:
+                            passed.append(
+                                f"VALIDATION: shadow — would reject "
+                                f"('{_strat}' {_why})")
+                    else:
+                        passed.append(f"VALIDATION: '{_strat}' {_verdict}")
+            except Exception as _vge:
+                # A validation fault must NEVER affect a trade.
+                passed.append(f"VALIDATION: skipped (error: {_vge})")
+
         # -- Guardian Authority Envelope (gated · deterministic · fail-closed core) --
         # The CUSTODY boundary: a bound envelope may ADD deterministic rejections
         # (per-trade notional, symbol scope, expiry, revocation). Like the intent

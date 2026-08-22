@@ -278,6 +278,68 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
     }
 
 
+def _record_validations(result, used_synthetic: bool, data_source: str) -> None:
+    """Feed the validation gate what this run measured, per strategy_type.
+
+    `bot/core/validation_gate.py` had no automatic recorder — "record_validation()
+    must be called manually; no automated pipeline invokes it" — which is why a
+    gate consulting it would have found an empty store and called every strategy
+    NEVER_TESTED forever. This is that pipeline.
+
+    SYNTHETIC RUNS RECORD NOTHING, and that is the most important line here. The
+    runner already prints "these numbers come from SYNTHETIC data — NOT a real
+    backtest"; storing a validation from them would put a fabricated Sharpe
+    behind a gate whose entire job is to answer "has this been shown to work on
+    real data". A refused recording leaves the strategy NEVER_TESTED, which is
+    the true answer.
+
+    KEYED BY strategy_type, because that is what the risk engine looks up on an
+    idea. A run mixes setups, so each is scored over ITS OWN trades rather than
+    the run's headline numbers — recording one blob under a run name would
+    validate `scalp` using `swing`'s trades.
+
+    Sharpe is not computable per-subset from a BacktestResult (it is annualised
+    over the equity curve, which is not decomposable by setup), so the run-level
+    Sharpe is carried and the per-setup sample size and win rate are the parts
+    measured per strategy. That is stated rather than hidden: the alternative is
+    a per-setup Sharpe nobody actually computed.
+    """
+    try:
+        from bot.core.validation_gate import get_validation_gate
+    except Exception:                                              # noqa: BLE001
+        return
+
+    if used_synthetic:
+        print(f"  Validation gate: NOT recorded — data_source={data_source} is "
+              "not real. Those strategies stay NEVER_TESTED.")
+        return
+
+    trades = [t for t in (getattr(result, "trades", None) or [])
+              if str(getattr(t, "setup", "") or "").strip()]
+    if not trades:
+        print("  Validation gate: NOT recorded — no trade carried a strategy_type.")
+        return
+
+    by_setup: dict[str, list] = {}
+    for t in trades:
+        by_setup.setdefault(str(t.setup).strip(), []).append(t)
+
+    gate = get_validation_gate()
+    for setup, rows in sorted(by_setup.items()):
+        wins = sum(1 for t in rows if float(getattr(t, "pnl_usd", 0.0) or 0.0) > 0)
+        gate.record_validation(
+            strategy_name=setup,
+            sharpe=float(result.sharpe_ratio),
+            max_drawdown=float(result.max_drawdown_pct),
+            win_rate=(wins / len(rows)) if rows else 0.0,
+            total_trades=len(rows),
+            walk_forward_score=0.0,
+        )
+        print(f"  Validation gate: recorded '{setup}' "
+              f"({len(rows)} trades, sharpe {result.sharpe_ratio:.2f}) "
+              f"-> {gate.verdict(setup)}")
+
+
 async def _run_backtest(args: argparse.Namespace) -> None:
     """Execute a backtest with the given CLI arguments."""
     _apply_honest_fidelity(args)
@@ -327,6 +389,8 @@ async def _run_backtest(args: argparse.Namespace) -> None:
     # Stamp data provenance so the saved result is self-describing.
     result.used_synthetic = used_synthetic
     result.data_source = data_source
+
+    _record_validations(result, used_synthetic, data_source)
 
     # Display results
     print(_format_result_summary(result))
