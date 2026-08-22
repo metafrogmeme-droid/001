@@ -1,0 +1,30 @@
+{
+  "name": "runeclaw-site",
+  "private": true,
+  "type": "module",
+  "license": "BUSL-1.1",
+  "description": "RUNECLAW public marketing site. Source lives here; `npm run build` emits static HTML into ../website, which api_bridge.py serves directly from the checkout.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && vite build --ssr src/entry-server.tsx && node prerender.js",
+    "preview": "vite preview",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.170.31",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/router-plugin": "^1.168.34",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6"
+  }
+}

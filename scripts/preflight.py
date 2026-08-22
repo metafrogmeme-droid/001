@@ -48,7 +48,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 #: Token tooling is excluded on purpose despite being node: one of its steps
 #: curl-pipes a Solana validator installer, and a preflight that installs a
 #: toolchain behind your back is not a preflight.
-LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)")
+LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)",
+              "Marketing site (vite)")
 PYTHON_JOBS = LOCAL_JOBS          # back-compat alias
 
 #: Steps to skip: setup, and anything whose name matches. Substring match on
