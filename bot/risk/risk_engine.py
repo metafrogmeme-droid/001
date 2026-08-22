@@ -279,6 +279,12 @@ class RiskEngine:
         self._last_of_signal: Optional[Any] = None
         # C2-34: combined state saver — when set, _save_state delegates to this
         self._combined_saver: Optional[Callable] = None
+        # Phase 3 of multi-venue: person-level position count across EVERY
+        # venue this caller trades. Injected (set_person_totals_fn) because a
+        # RiskEngine deliberately does not know whose it is — the engine that
+        # bound it does. Unset means single-venue, and every cap below reads
+        # exactly the number it always read.
+        self._person_totals_fn: Optional[Callable] = None
         # Initialised BEFORE _load_state(), which may restore a persisted
         # value into it (PERSIST_LIVE_DRAWDOWN_PEAK). The first version set
         # this 20 lines below the load and silently stomped every restored
@@ -840,6 +846,49 @@ class RiskEngine:
         with self._lock:
             self._authority_ledger = ledger
 
+    def set_person_totals_fn(self, fn: Optional[Callable]) -> None:
+        """Register ``callable() -> PersonTotals`` covering EVERY venue.
+
+        Injected rather than looked up, because a RiskEngine does not know
+        whose it is — the engine that bound it does. Unset (the default, and
+        every single-venue deployment) leaves the caps reading exactly the
+        numbers they always read.
+        """
+        self._person_totals_fn = fn
+
+    def _person_totals(self):
+        """The cross-venue totals, or ``None`` when nothing supplies them.
+
+        Fail-soft to ``None`` — which means "single venue", i.e. the ORIGINAL
+        behaviour — rather than to a zeroed total, which would read as a
+        person holding nothing anywhere and open every cap wide.
+        """
+        fn = self._person_totals_fn
+        if fn is None:
+            return None
+        try:
+            return fn()
+        except Exception as exc:
+            risk_log.warning("person-level totals unreadable: %s", exc)
+            return None
+
+    def _person_open_positions(self) -> Optional[int]:
+        t = self._person_totals()
+        return None if t is None else int(getattr(t, "open_positions", 0) or 0)
+
+    def _person_totals_incomplete(self) -> str:
+        """``''`` when the reading is whole, else which venues went unread.
+
+        A string rather than a bool so the caller can say WHICH venue it could
+        not see. "The count may be wrong" is not actionable; "could not read
+        bybit" is.
+        """
+        t = self._person_totals()
+        if t is None:
+            return ""
+        missing = tuple(getattr(t, "unreadable", ()) or ())
+        return f"could not read {', '.join(missing)}" if missing else ""
+
     def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
@@ -1294,8 +1343,27 @@ class RiskEngine:
             # 5. Open positions limit
             # LIVE FIX: use live executor's position count when available
             effective_open = live_open_count if live_open_count is not None else state.open_positions
+            # MULTI-VENUE, Phase 3: this cap is PER PERSON, not per venue.
+            # Without this the same "max 5" applies independently on each
+            # venue's engine, so two venues is ten positions against one
+            # person's money and nobody chose ten. It TIGHTENS only — the
+            # person total is a superset of this book, so max() can raise the
+            # count and never lower it, and a single-venue caller reads the
+            # number they always read.
+            _person = self._person_open_positions()
+            if _person is not None and _person > effective_open:
+                effective_open = _person
             if effective_open >= CONFIG.risk.max_open_positions:
                 failed.append(f"MAX_POSITIONS: {effective_open} >= {CONFIG.risk.max_open_positions}")
+            elif self._person_totals_incomplete():
+                # A count over an incomplete set is a FLOOR. Under the cap it
+                # proves nothing — the venue that did not answer is exactly the
+                # one that might hold the position putting this person over.
+                # Refusing costs an opportunity; allowing spends money against
+                # a limit nobody verified.
+                failed.append(
+                    f"MAX_POSITIONS: {effective_open} < {CONFIG.risk.max_open_positions} "
+                    f"but the count is a floor — {self._person_totals_incomplete()}")
             else:
                 passed.append(f"OPEN_POSITIONS: {effective_open} OK")
         except Exception as exc:

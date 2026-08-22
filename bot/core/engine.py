@@ -2043,6 +2043,16 @@ class RuneClawEngine:
                 macro_calendar=self.macro_calendar,
                 macro_provider=self.macro_provider,
             )
+            # Phase 3: person-level caps. Bound for EVERY per-user engine, not
+            # only the venue-scoped ones — a user with one venue today may add
+            # a second tomorrow, and a cap that only starts counting across
+            # venues once somebody remembers to rebind it is a cap that was
+            # loose for exactly as long as nobody noticed. With one book the
+            # total equals that book, so this is a no-op until it is not.
+            def _totals(_uid=str(user_id)):
+                from bot.risk.venue_aggregate import aggregate
+                return aggregate(self.user_portfolios.venue_readings(_uid))
+            eng.set_person_totals_fn(_totals)
             self._user_risk[key] = eng
             audit(system_log,
                   f"Per-user risk engine bound for user {user_id}"
