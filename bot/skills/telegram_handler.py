@@ -8140,6 +8140,11 @@ class TelegramHandler:
 
         self.monitor.set_chart_fn(_chart_fn)
 
+        # Who may see an audience="admin" alert. The monitor imports no
+        # telegram, so it cannot ask this itself; `_is_admin_id` stays the ONE
+        # definition of admin rather than the monitor carrying a second copy.
+        self.monitor.set_admin_fn(self._is_admin_id)
+
         # Signal card image renderer — sends a styled PNG card for each signal
         _bot_ref = bot
         async def _signal_card_fn(chat_id: str, idea, rank: int = 1,
