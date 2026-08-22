@@ -96,13 +96,32 @@ test('refused trades report what they ACTUALLY returned', () => {
 test('no hypothetical equity curve is ever produced', () => {
   const r = replay([{ id: 'dir_long', value: 'long_only' }],
     [T({ direction: 'SHORT', pnl: 999 })], 10000);
-  const keys = Object.keys(r).join(' ');
-  for (const forbidden of ['would_have', 'hypothetical', 'equity', 'simulated_balance', 'saved']) {
-    assert.ok(!keys.includes(forbidden), `no ${forbidden} field`);
-  }
+  // WALKED, NOT JOINED. `Object.keys(r).join(' ')` sees only the TOP level, so
+  // a `summary: { would_have_saved: 4210 }` — the exact shape a "helpful"
+  // addition takes — passed straight through it. The walk below reaches every
+  // key at every depth.
+  //
+  // The prose assertion that used to close this test (`does not ship
+  // fabricated histories`, matched against envelope_replay.js) was a comment.
+  // Adding the field and leaving the comment satisfied it completely.
+  const FORBIDDEN = ['would_have', 'hypothetical', 'equity', 'simulated_balance',
+    'saved', 'counterfactual', 'curve', 'projected'];
+  const seen = [];
+  (function walk(v, at) {
+    if (!v || typeof v !== 'object') return;
+    for (const k of Object.keys(v)) {
+      const where = at ? `${at}.${k}` : k;
+      for (const f of FORBIDDEN) if (k.toLowerCase().includes(f)) seen.push(where);
+      walk(v[k], where);
+    }
+  }(r, ''));
+  assert.deepStrictEqual(seen, [],
+    'the replay is emitting a field that names a history nobody lived — it '
+    + 'reports what the envelope WOULD have refused, never what the account '
+    + 'would have been worth');
+
+  // The user-facing half of the same promise, which is a real drawn string.
   assert.match(r.sample_note, /never what your account "would have been"/);
-  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'envelope_replay.js'), 'utf8');
-  assert.match(src, /does not\s+\*?\s*ship fabricated histories/);
 });
 
 test('unreadable rows are skipped, never counted as compliant', () => {
