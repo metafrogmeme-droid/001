@@ -301,3 +301,113 @@ def test_the_daily_loss_check_consults_the_person_total_and_tightens_only(tmp_pa
     # Tighten-only: the person number REPLACES the local one only when larger.
     assert "_person_dl > daily_loss_pct" in src, (
         "the person-level daily loss can lower this book's own measured loss")
+
+
+# ── drawdown: per person, off ONE shared peak ────────────────────────────
+
+def test_drawdown_is_measured_off_the_persons_shared_peak(tmp_path, monkeypatch):
+    """Not an aggregation like the other two. The peak is state, owned once per
+    person, so every venue engine reads the same number instead of each
+    believing in its own."""
+    import bot.risk.person_peak as pp
+    from bot.risk.person_peak import PersonPeakStore
+    monkeypatch.setattr(pp, "_STORE", PersonPeakStore(path=str(tmp_path / "p.json")))
+
+    eng = _engine(tmp_path)
+    eng.set_person_totals_fn(lambda: aggregate(
+        [_r("bitget", eq=1000.0), _r("bybit", eq=1000.0)]))
+    eng.set_person_identity("alice")
+    assert eng._person_drawdown_pct()[0] == pytest.approx(0.0)   # seeds at 2000
+
+    # bybit collapses; the person is down 40% even though bitget is untouched.
+    eng.set_person_totals_fn(lambda: aggregate(
+        [_r("bitget", eq=1000.0), _r("bybit", eq=200.0)]))
+    dd, basis = eng._person_drawdown_pct()
+    assert dd == pytest.approx(40.0)
+    assert "venue" in basis, "the drawdown is reported without saying what it is over"
+
+
+def test_an_incomplete_reading_yields_no_person_drawdown(tmp_path, monkeypatch):
+    """Same rule as the daily loss and for the same reason: equity is signed
+    across venues, so a partial total bounds nothing. None, never 0.0 — zero
+    reads as "no drawdown" on the gate that decides when to stop trading."""
+    import bot.risk.person_peak as pp
+    from bot.risk.person_peak import PersonPeakStore
+    monkeypatch.setattr(pp, "_STORE", PersonPeakStore(path=str(tmp_path / "p.json")))
+
+    eng = _engine(tmp_path)
+    eng.set_person_identity("alice")
+    eng.set_person_totals_fn(lambda: aggregate(
+        [_r("bitget", eq=1000.0), VenueReading(venue="bybit")]))
+    assert eng._person_drawdown_pct() == (None, "")
+
+
+def test_an_engine_with_no_identity_has_no_person_drawdown(tmp_path):
+    """Single-venue deployments must be untouched: no identity, no lookup, no
+    change to the number the drawdown gate has always read."""
+    eng = _engine(tmp_path)
+    eng.set_person_totals_fn(lambda: aggregate([_r("bitget", eq=1000.0)]))
+    assert eng._person_drawdown_pct() == (None, "")
+
+
+def test_a_person_level_breach_halts_every_venue(tmp_path):
+    """§3's safety core, one level up. Breakers are per-venue BY DECISION, but
+    a person-level drawdown breach is a fact about their money, not about one
+    book. Halting only the venue that noticed leaves the same person trading on
+    the other against a limit already breached."""
+    from bot.core.engine import RuneClawEngine
+
+    class _Fake:
+        def __init__(self):
+            self.tripped = []
+
+        def _trip_circuit_breaker(self, reason, cause=""):
+            self.tripped.append((reason, cause))
+
+    e = RuneClawEngine.__new__(RuneClawEngine)
+    a_bitget, a_bybit, b_bitget = _Fake(), _Fake(), _Fake()
+    e._user_risk = {"alice": a_bitget, "bybit/alice": a_bybit, "bob": b_bitget}
+
+    n = e._halt_all_venues_for("alice", "person-level drawdown breached")
+    assert n == 2, f"the halt reached {n} of alice's 2 engines"
+    assert a_bitget.tripped and a_bybit.tripped
+    assert not b_bitget.tripped, "another person's venue was halted"
+
+
+def test_one_venue_failing_to_halt_does_not_hide_a_partial_halt(tmp_path):
+    """A halt that reached fewer venues than intended must not look like one
+    that reached all of them — the count is returned and the failure logged,
+    never swallowed."""
+    from bot.core.engine import RuneClawEngine
+
+    class _Broken:
+        def _trip_circuit_breaker(self, reason, cause=""):
+            raise RuntimeError("engine wedged")
+
+    class _Ok:
+        def __init__(self):
+            self.tripped = []
+
+        def _trip_circuit_breaker(self, reason, cause=""):
+            self.tripped.append(reason)
+
+    e = RuneClawEngine.__new__(RuneClawEngine)
+    ok = _Ok()
+    e._user_risk = {"alice": ok, "bybit/alice": _Broken()}
+    assert e._halt_all_venues_for("alice", "x") == 1, (
+        "a partial halt reported as complete")
+    assert ok.tripped, "the reachable venue was skipped because another failed"
+
+
+def test_the_drawdown_check_consults_the_person_number_and_the_fanout():
+    """#58 both ways: computed-and-never-called, and a halt that exists but is
+    never triggered."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    from bot.risk.risk_engine import RiskEngine
+    src = inspect.getsource(RiskEngine._evaluate_locked)
+    assert "_person_drawdown_pct()" in src
+    assert "_halt_person(" in src, (
+        "a person-level breach never reaches the other venues")
+    assert "set_person_identity" in inspect.getsource(RuneClawEngine.risk_for)

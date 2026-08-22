@@ -106,18 +106,27 @@ whichever is easier to code.
 > venue count.
 >
 > The implementation added one thing this scope did not anticipate, and it is
-> **Where Phase 3 stands.** Max-open-positions and daily loss are counted per
-> person and wired. **Drawdown is not, and it is not a third aggregation** —
-> that is why it is called out here rather than left implied. The other two are
-> functions of what the books say right now, so summing a fresh read answers
-> them. A drawdown is measured against a HIGH-WATER MARK, which is state: one
-> peak per person, shared by every venue engine that person trades, and durable
-> across restarts. Each venue engine keeping its own copy of "the person's
-> peak" would let them diverge, and the divergence is invisible — every engine
-> reports a plausible drawdown off a peak only it believes in. CLAUDE.md
+> **Phase 3 is complete.** Max-open-positions, daily loss and drawdown are all
+> counted per person.
+>
+> Drawdown was NOT a third aggregation, which is why it landed separately. The
+> other two are functions of what the books say right now, so summing a fresh
+> read answers them. A drawdown is measured against a HIGH-WATER MARK, which is
+> state: one peak per person, shared by every venue engine that person trades,
+> durable across restarts (`bot/risk/person_peak.py`). Each engine keeping its
+> own copy would let them diverge, and the divergence is invisible — every
+> engine reports a plausible drawdown off a peak only it believes in. CLAUDE.md
 > already records what a mishandled high-water mark costs: an operator reading
-> ~0% from a gate that was refusing trades at 9%. It is the next piece of work,
-> deliberately separated from the two above rather than rushed in beside them.
+> ~0% from a gate that was refusing trades at 9%.
+>
+> It also forced one thing the §3 decision did not cover. Breakers are
+> per-venue, but a person-level drawdown BREACH is a fact about their money,
+> not about one book — so it halts every venue that person trades
+> (`_halt_all_venues_for`). Tripping only the venue that noticed would leave
+> the same person trading on the other one against a limit already breached,
+> which is §3's own "kill switch that halts one venue" in a new place. The
+> fan-out returns how many engines it reached, so a partial halt cannot be
+> mistaken for a complete one.
 >
 > The implementation added one thing this scope did not anticipate, and it is
 > the part worth reading. Summing venues is easy; the MISSING ADDEND is not. A

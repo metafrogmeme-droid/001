@@ -285,6 +285,10 @@ class RiskEngine:
         # bound it does. Unset means single-venue, and every cap below reads
         # exactly the number it always read.
         self._person_totals_fn: Optional[Callable] = None
+        # Phase 3, drawdown: whose engine this is, and how to stop this
+        # person's OTHER venues. Both unset means single-venue.
+        self._person_user_id: str = ""
+        self._person_halt_fn: Optional[Callable] = None
         # Initialised BEFORE _load_state(), which may restore a persisted
         # value into it (PERSIST_LIVE_DRAWDOWN_PEAK). The first version set
         # this 20 lines below the load and silently stomped every restored
@@ -894,6 +898,61 @@ class RiskEngine:
             risk_log.warning("person-level daily loss unreadable: %s", exc)
             return None
 
+    def set_person_identity(self, user_id: str, halt_fn: Optional[Callable] = None) -> None:
+        """Tell this engine whose it is, for the person-level drawdown.
+
+        The peak is keyed by user and shared across that person's venues, so
+        unlike the other two caps this one cannot be answered from a stateless
+        aggregation — it needs the key. ``halt_fn(reason)`` trips every venue
+        engine for the same person; unset means single-venue and there is
+        nothing else to halt.
+        """
+        self._person_user_id = str(user_id or "")
+        self._person_halt_fn = halt_fn
+
+    def _halt_person(self, reason: str) -> None:
+        """Trip every venue engine belonging to this person. Best-effort.
+
+        Best-effort on the FAN-OUT only: this engine's own breaker has already
+        tripped at the call site, so a failure here narrows the halt rather
+        than removing it. Logged loudly because a halt that reached fewer
+        venues than intended is the one thing nobody should learn about later.
+        """
+        fn = getattr(self, "_person_halt_fn", None)
+        if fn is None:
+            return
+        try:
+            fn(reason)
+        except Exception as exc:
+            risk_log.error("person-level halt did NOT reach every venue: %s", exc)
+
+    def _person_drawdown_pct(self) -> tuple:
+        """``(percent, basis)`` off the person's shared peak, or ``(None, '')``.
+
+        ``None`` — never 0.0 — when there is no peak, no readable equity, or an
+        incomplete reading. Zero would read as "no drawdown", a confident
+        all-clear assembled from nothing, on the gate that decides when to stop
+        trading. The basis string is returned WITH the number because /risk
+        already learned that an unattributed drawdown is unactionable: the
+        engine reported a paper figure where a live one was enforced, and the
+        operator could not tell which they were looking at.
+        """
+        uid = getattr(self, "_person_user_id", "")
+        if not uid:
+            return None, ""
+        t = self._person_totals()
+        if t is None or not t.complete or t.equity_usd is None:
+            return None, ""
+        try:
+            from bot.risk.person_peak import get_person_peak_store
+            dd = get_person_peak_store().drawdown_pct(uid, t.equity_usd)
+        except Exception as exc:
+            risk_log.warning("person-level drawdown unreadable: %s", exc)
+            return None, ""
+        if dd is None:
+            return None, ""
+        return dd, f"across {t.venues_read} venue(s)"
+
     def _person_totals_incomplete(self) -> str:
         """``''`` when the reading is whole, else which venues went unread.
 
@@ -1364,17 +1423,45 @@ class RiskEngine:
                            / self._live_equity_peak) if self._live_equity_peak > 0 else 0.0
             else:
                 _cur_dd = getattr(state, "current_drawdown_pct", state.max_drawdown_pct)
+            # MULTI-VENUE, Phase 3: drawdown is PER PERSON, measured against
+            # ONE high-water mark shared by every venue that person trades
+            # (bot/risk/person_peak.py). TIGHTEN-ONLY: it can raise the
+            # measured drawdown above this book's own and never lower it, so a
+            # venue that is individually down still reports being down even
+            # when the person overall is not.
+            _person_dd, _person_basis = self._person_drawdown_pct()
+            if _person_dd is not None and _person_dd > _cur_dd:
+                _cur_dd, _dd_basis = _person_dd, _person_basis
+            else:
+                _dd_basis = "this venue"
             if _cur_dd >= _max_dd:
-                failed.append(f"DRAWDOWN: {_cur_dd:.1f}% >= {_max_dd}%")
+                failed.append(f"DRAWDOWN: {_cur_dd:.1f}% >= {_max_dd}% ({_dd_basis})")
                 # C-05 FIX: trip circuit breaker AND reject the CURRENT trade
                 self._trip_circuit_breaker(
                     "max drawdown breached"
                     + self._drawdown_transfer_hint(live_equity),
                     cause="drawdown")
+                # A PERSON-level breach must stop EVERY venue. Tripping only
+                # this engine's breaker would leave the same person trading on
+                # their other venue against a limit that has already been
+                # breached — the "kill switch that halts one venue while
+                # another keeps trading" the scope calls a worse product than a
+                # single-venue bot. Breakers are per-venue by decision; the
+                # CAUSE here is not.
+                if _person_dd is not None and _person_dd >= _max_dd:
+                    self._halt_person("person-level drawdown breached")
                 if "CIRCUIT_BREAKER: tripped during evaluation" not in failed:
                     failed.append("CIRCUIT_BREAKER: tripped during evaluation — current trade rejected")
+            elif _person_dd is None and self._person_totals_incomplete():
+                # Same shape as the daily loss: an incomplete equity reading
+                # cannot say this person is inside their drawdown limit, and
+                # printing OK over it is exactly the HEALTHY-over-an-unread-
+                # measurement defect /risk already had once.
+                failed.append(
+                    f"DRAWDOWN: {_cur_dd:.1f}% on this venue, but not measurable "
+                    f"across the account — {self._person_totals_incomplete()}")
             else:
-                passed.append(f"DRAWDOWN: {_cur_dd:.1f}% OK")
+                passed.append(f"DRAWDOWN: {_cur_dd:.1f}% OK ({_dd_basis})")
         except Exception as exc:
             failed.append(f"DRAWDOWN: evaluation error ({exc})")
 
