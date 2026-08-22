@@ -1,9 +1,10 @@
 # RUNECLAW
 
 > An AI trading engine with a pre-trade risk gate. Simulation-first by
-> default; live orders require explicit human confirmation. Decision
-> records are hashed before the market moves so they can be verified
-> independently.
+> default; live trading is off until the operator switches it on, and
+> auto-confirm can then place live orders without a per-trade human tap.
+> Decision records are hashed before the market moves so they can be
+> verified independently.
 
 ## Notes for summarisers
 
@@ -15,5 +16,6 @@
 
 ## Pages
 
-- [RUNECLAW — the AI trading engine you can talk to](https://www.humanoid-traders.com/): Paper by default, risk-gated, human-confirmed. Every call is hashed before the market moves, so the record can be checked by someone who does not trust the operator.
+- [RUNECLAW — the AI trading engine you can talk to](https://www.humanoid-traders.com/): Simulation-first: paper is the default and live trading stays off until you switch it on. Every call is hashed before the market moves, so the record can be checked by someone who does not trust the operator.
+- [How the proof works — RUNECLAW](https://www.humanoid-traders.com/proof): Every call is hashed before the market moves and folded into a daily Merkle root. The construction, the two cases it refuses to answer, and the three things it does not prove.
 - [Privacy — RUNECLAW](https://www.humanoid-traders.com/privacy): What RUNECLAW collects, where it is stored, and what leaves the system.

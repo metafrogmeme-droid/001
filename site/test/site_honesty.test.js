@@ -219,3 +219,55 @@ test('every published figure carries a source', () => {
       + 'A figure with no citation is how 19 and 23 both came to be published.')
   }
 })
+
+/**
+ * THE FIX WAS APPLIED TO THE PAGE AND MISSED EVERY MACHINE-READABLE COPY.
+ *
+ * `facts.ts` documents "human-confirmed" as false against
+ * `bot/config.py:2188-2190` — `auto_confirm_live_enabled` defaults to True, so
+ * a signal clearing the 0.85 bar places a real-money order with nobody
+ * pressing anything. PR #129 removed the phrase from the visible homepage.
+ *
+ * It survived in three places, all in `prerender.js`:
+ *
+ *   - `<meta name="description">`, which also feeds og: and twitter: — the
+ *     surface with the WIDEST reach, since it is what a search result and a
+ *     link preview show;
+ *   - the JSON-LD `SoftwareApplication.description`, ingested as structured
+ *     data rather than read;
+ *   - `llms.txt`, which exists SPECIFICALLY to tell language models what this
+ *     product is, so a false line there is repeated by every model that reads
+ *     it.
+ *
+ * A visible correction that leaves the machine-readable copies alone corrects
+ * the smallest audience. Checked over the BUILT OUTPUT so it holds for
+ * whatever surface the claim reappears on.
+ */
+test('no published surface claims a human confirms live trades', () => {
+  const forbidden = /human[- ]confirm/i
+  const surfaces = [...PAGES.map((p) => [p, built(p)])]
+  for (const extraFile of ['llms.txt', path.join('proof', 'index.html')]) {
+    const f = path.join(OUT, extraFile)
+    if (fs.existsSync(f)) surfaces.push([extraFile, fs.readFileSync(f, 'utf8')])
+  }
+  assert.ok(surfaces.length >= 3, 'too few surfaces checked — is the build stale?')
+  for (const [name, text] of surfaces) {
+    const hit = text.match(forbidden)
+    assert.ok(!hit, `${name} claims ${JSON.stringify(hit && hit[0])} — `
+      + 'auto_confirm_live_enabled defaults True (bot/config.py:2188-2190), so a '
+      + 'live order can be placed with nobody pressing anything')
+  }
+})
+
+test('the true version of that promise IS still stated', () => {
+  // THE CONTROL. Deleting the claim outright would be the other failure: the
+  // simulation-first default is real, it is the product's central safety
+  // property, and "we removed the false half" must not become "we stopped
+  // saying what the defaults are".
+  assert.match(built('index.html'), /paper is the default|Simulation-first/i,
+    'the homepage no longer states the simulation-first default at all')
+  assert.match(fs.readFileSync(path.join(OUT, 'llms.txt'), 'utf8'),
+    /live trading is off until/i,
+    'llms.txt no longer tells a summariser what the live-trading default is')
+})
+
