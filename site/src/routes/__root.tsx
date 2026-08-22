@@ -20,7 +20,17 @@ import { DOCS, PlatformLink, TELEGRAM } from '../components/PlatformLink'
  * assert things it cannot back. A nav is a promise about what is behind it.
  * These come back one at a time, as each page ships.
  */
+/**
+ * The header nav. Depth pages first, Privacy last.
+ *
+ * Ordered by what a sceptical reader came for. The site's pitch is "do not
+ * trust it, check it", and the two pages that answer that — how the proof
+ * works, and what the gate does when it cannot answer — were reachable only
+ * from the footer, which is where links go to be reachable in principle.
+ */
 const NAV = [
+  { to: '/proof', label: 'Proof' },
+  { to: '/risk', label: 'Risk gate' },
   { to: '/privacy', label: 'Privacy' },
 ] as const
 
