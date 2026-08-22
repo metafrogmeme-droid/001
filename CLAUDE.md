@@ -34,6 +34,20 @@ python3 scripts/preflight.py --fast   # tight loop; drops only the network gates
 python3 scripts/preflight.py --list   # show the plan, run nothing
 ```
 
+A real run **clears every `__pycache__` first**, because CI checks out a fresh
+tree and never has one. A `.pyc` is reused whenever the source's *(mtime,
+size)* match what the cache recorded, and both are coarse — mtime is stored in
+whole seconds, size says nothing about content. A mutation experiment that
+swapped `r.get("max_margin")` for `r.get("margin_cap")` and put it back 260 ms
+later changed neither, so three tests failed against source byte-identical to
+the commit CI had just passed green: `git diff` clean, `inspect.getsource`
+right, and `margin` still `None` after `margin = r.get("max_margin")` ran on a
+dict that had that key. **Mutation testing in Python can poison the tree in a
+way `git status` cannot see** — clear the cache between mutations, not just the
+source. The failing direction is the cheap one; a stale cache can as easily
+hold bytecode that *passes*, which is a preflight answering "will CI pass" from
+code CI will never load.
+
 It ends by naming the jobs it could **not** run (cargo, solidity, gitleaks,
 token tooling). Those still need CI.
 

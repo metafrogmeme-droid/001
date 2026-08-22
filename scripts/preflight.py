@@ -115,6 +115,43 @@ def uncovered() -> list[str]:
                   if j.get("name") not in LOCAL_JOBS)
 
 
+SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "site-packages"}
+
+
+def purge_pycache() -> int:
+    """Delete every ``__pycache__`` under the repo. Returns how many.
+
+    CI checks out a fresh tree, so it never has one. A local run does, and a
+    ``.pyc`` is reused whenever the source's (mtime, size) match what the cache
+    recorded — which is a WEAKER check than it looks.
+
+    It failed here, on this script's own run. A mutation experiment swapped
+    ``r.get("max_margin")`` for ``r.get("margin_cap")`` in
+    ``bot/utils/control_pull.py`` and reverted it 260 ms later. Same integer
+    second, and the two keys are the same length, so mtime and size were both
+    unchanged and the cache stayed "valid" — holding the MUTATED bytecode.
+    Three tests then failed against source byte-identical to the commit CI had
+    just passed: ``git diff`` clean, ``inspect.getsource`` correct, and
+    ``margin`` still ``None`` after ``margin = r.get("max_margin")`` ran on a
+    dict that had that key.
+
+    The direction that matters is the other one. A stale cache can as easily
+    hold code that PASSES, and preflight exists to answer "will CI pass" — a
+    local run that answers it from bytecode CI will never load is running
+    something other than what ships. Same fault as resetting to a stale
+    remote-tracking ref, one layer down: everything checks out except which
+    code.
+    """
+    removed = 0
+    for dirpath, dirnames, _ in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        if "__pycache__" in dirnames:
+            shutil.rmtree(Path(dirpath) / "__pycache__", ignore_errors=True)
+            dirnames.remove("__pycache__")
+            removed += 1
+    return removed
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--fast", action="store_true",
@@ -134,6 +171,11 @@ def main() -> int:
             print(f"{name}\n    ({wd}) {_flatten(cmd)}\n")
         print("NOT covered locally: " + ", ".join(uncovered()))
         return 0
+
+    # Before anything runs, and only on a real run — see purge_pycache().
+    purged = purge_pycache()
+    if purged:
+        print(f"cleared {purged} __pycache__ dir(s) — CI starts cold, so this does too")
 
     results: list[tuple[str, bool, float, bool]] = []
     SHELL_BUILTINS = ("set", "if", "for", "while", "cd", "export", "true")
