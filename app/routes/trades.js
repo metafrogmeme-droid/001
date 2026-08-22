@@ -4,6 +4,7 @@ const { profitFactor, sharpe: calcSharpe, winStats, realizedTotal } =
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { computePerformance } = require('../lib/trade_performance');
+const { venueBreakdown } = require('../lib/venue_breakdown');
 const { segmentByCapitalEvents } = require('../lib/equity_basis');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 
@@ -26,7 +27,7 @@ router.get('/stats', async (req, res) => {
     // and `losses: totalTrades - wins` filed every one of them as a defeat.
     // That last line is verbatim off CLAUDE.md's table of banned shapes.
     const [allPnl] = await pool.execute(
-      'SELECT pnl, size_usd, fees FROM trades WHERE user_id = ? AND status = ? ORDER BY closed_at',
+      'SELECT pnl, size_usd, fees, venue FROM trades WHERE user_id = ? AND status = ? ORDER BY closed_at',
       [uid, 'CLOSED']
     );
 
@@ -58,6 +59,15 @@ router.get('/stats', async (req, res) => {
     const pf = profitFactor(allPnl);
 
     res.json({
+      // PER-VENUE, and PRIVATE. This route is the user's own dashboard, so
+      // dollars are fine here — the public track record and every community
+      // payload stay percent/ratio/count, which is why this is added here and
+      // not in track.js.
+      //
+      // Venues that never traded are ABSENT rather than zeroed: a row of
+      // zeroes beside a venue that really did trade invites reading one as the
+      // other. See app/lib/venue_breakdown.js.
+      by_venue: venueBreakdown(allPnl),
       equity: equity != null ? Math.round(equity * 100) / 100 : null,
       net_pnl: netPnl === null ? null : Math.round(netPnl * 100) / 100,
       total_fees: Math.round(totalFees * 100) / 100,

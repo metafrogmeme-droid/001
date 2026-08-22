@@ -193,6 +193,7 @@ def sync_portfolio(user_id: int, equity: float,
             "stop_loss": float(_attr(p, "stop_loss", 0)),
             "take_profit": float(_attr(p, "take_profit", 0)),
             "opened_at": str(_attr(p, "opened_at", "")),
+            "venue": str(_attr(p, "venue", "bitget") or "bitget"),
         })
 
     # Send only what counts as a trade. The website's schema stores neither
@@ -214,6 +215,11 @@ def sync_portfolio(user_id: int, equity: float,
             "pattern": _attr(t, "pattern"),
             "opened_at": str(_attr(t, "opened_at", "")),
             "closed_at": str(_attr(t, "closed_at", "")),
+            # Phase 0 taught the bot's records where a trade happened; without
+            # this line that attribution died at the wire and the dashboard —
+            # the surface anyone actually looks at — could never show it.
+            # `_attr` defaults to the venue every existing trade IS.
+            "venue": str(_attr(t, "venue", "bitget") or "bitget"),
         })
 
     # Replace-all: this endpoint overwrites the user's website state with the

@@ -28,8 +28,8 @@
     "v": 28
   },
   "js/dashboard.js": {
-    "sha": "8b0d14f05caf745a",
-    "v": 149
+    "sha": "cad8aac56e5f2722",
+    "v": 150
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -60,8 +60,8 @@
     "v": 1
   },
   "js/i18n.js": {
-    "sha": "cc8380f42567ea48",
-    "v": 130
+    "sha": "11c56ec98d99c169",
+    "v": 131
   },
   "js/icons.js": {
     "sha": "45185741065c21cc",
@@ -141,6 +141,10 @@
   },
   "js/txray-model.js": {
     "sha": "b0690b36b0422b9b",
+    "v": 1
+  },
+  "js/venue-rows.js": {
+    "sha": "89842fe2d768161f",
     "v": 1
   },
   "styles.css": {
