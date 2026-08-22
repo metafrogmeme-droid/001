@@ -456,6 +456,31 @@ async def handle_chat(request: web.Request) -> web.Response:
                 resp["setup"] = setup
             return web.json_response(resp)
 
+        # ── The skill the router named cannot be run ──────────────────
+        # `if skill:` had no else here either — the same hole the Telegram
+        # surface had, and the corollary that says to check the other surface
+        # before calling a fix done. A confident intent whose skill is neither
+        # registered nor aliased above fell past this into the LLM chat
+        # fallback, which has no tools and answers regardless.
+        #
+        # Narrower than Telegram's was, because _INTENT_ALIASES already maps
+        # status and the scan modes: `help` is the one that still escaped.
+        # Someone asking a trading platform what it can do got a language
+        # model's guess at its own command list.
+        from bot.formatters.onboarding import skill_unavailable_notice
+        from bot.nlp.skill_memory import skill_unavailable_memory
+        tg_handler.conversations.append(
+            tg_id, "assistant", skill_unavailable_memory(intent.skill),
+            metadata={"skill": intent.skill, "surface": "web",
+                      "unavailable": True})
+        audit(system_log,
+              f"Web NL intent matched an unavailable skill: {intent.skill}",
+              action="web_intent_unavailable", result="UNAVAILABLE",
+              data={"skill": intent.skill, "confidence": intent.confidence})
+        return web.json_response(
+            {"reply_html": skill_unavailable_notice(intent.skill),
+             "intent": intent.skill, "unavailable": True}, status=200)
+
     # News radar intercept — "news"/"headlines" as free text must hit the real
     # RSS radar, not the tool-less chat LLM (which denies having a feed). Same
     # shared detector + digest helper the Telegram surface uses, so both behave

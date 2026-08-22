@@ -8,18 +8,19 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Fourteen gates: two ruff passes, mypy, bandit, pip-audit, the
-baseline test gate, the red team, the web app's parse check, its npm advisory
-ratchet, its suite, the marketing site's build, its published-output honesty
-tests, the check that the committed site is the built site, and guard
-reachability. ~14 minutes.
+step for free. Fifteen gates: two ruff passes, mypy, bandit, pip-audit, the
+baseline test gate, the red team, the custody red team, the web app's parse
+check, its npm advisory ratchet, its suite, the marketing site's build, its
+published-output honesty tests, the check that the committed site is the built
+site, and guard reachability. ~14 minutes.
 
-That "for free" is literal and has now been collected three times: the app parse
+That "for free" is literal and has now been collected four times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
-plan with no change to `preflight.py`, and the red-team gate did the same. This
-paragraph's own gate count is pinned by `tests/test_claude_md_accuracy.py`,
-which failed the moment each of them landed — including on the sentence you are
-reading, which said "Ten" until the red team made it eleven.
+plan with no change to `preflight.py`, and the two red-team gates each did the
+same. This paragraph's own gate count is pinned by
+`tests/test_claude_md_accuracy.py`, which failed the moment each of them landed
+— including on the sentence you are reading, which said "Ten" until the risk
+red team made it eleven and the custody one made it fifteen.
 
 **"For free" covers a new STEP, not a new JOB.** `LOCAL_JOBS` is a deliberate
 allow-list — token tooling is excluded because one of its steps curl-pipes a
@@ -319,7 +320,7 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**14** modules today). It is a ratchet in
+`tests/unreachable_baseline.txt` (**11** modules today). It is a ratchet in
 both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same

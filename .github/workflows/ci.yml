@@ -104,6 +104,30 @@ jobs:
       # This changes ordering only. pip-audit still fails the job, so a real
       # advisory is not suppressed — it simply no longer costs the suite its
       # voice on the way past.
+      - name: Custody red team — 12 attacks against the live authority gate
+        # The sibling gate above attacks the RiskEngine with adversarial trade
+        # IDEAS. This attacks the layer deciding whether funds can move AT ALL:
+        # bot/guardian/authority.py's authorize(), with adversarial ACTIONS —
+        # withdrawals to an attacker address, transfers under a default-deny
+        # envelope, over-cap orders, a last leg draining the daily budget,
+        # off-venue and off-allowlist symbols, replay of expired and revoked
+        # authorities, an unknown action kind, and a prompt injection talking
+        # the compiler into a bigger cap. One in-bounds control action must be
+        # ALLOWED, so a gate that refuses everything cannot pass.
+        #
+        # bot/guardian/authority_redteam.py was 213 lines NOTHING COULD RUN —
+        # tests/unreachable_baseline.txt filed it under "safety controls,
+        # uncalled" — while authorize() itself is live, called by
+        # bot/risk/risk_engine.py and bot/web/user_gateway.py. So the gate
+        # between an agent and someone's funds had never been attacked outside
+        # a unit test.
+        #
+        # Gated at zero failures, not a baseline of known gaps: it was 12/12 on
+        # the first run it was ever given, and it is deterministic (pure — no
+        # network, no clock, no state). A scenario that starts slipping through
+        # is a real regression in custody, not a pre-existing gap to triage.
+        run: python3 scripts/authority_red_team.py
+
       - name: SCA — dependency vulnerability audit (pip-audit)
         if: always()
         run: pip-audit -r requirements.lock

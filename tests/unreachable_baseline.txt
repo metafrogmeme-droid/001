@@ -22,8 +22,19 @@
 # now computes it in SHADOW, where its inputs actually exist. Enforcement still
 # does not, because its intended consumer (meme_executor, below) is unwired too
 # — that is a product decision about the meme path, not a wiring cleanup.
+# authority_redteam LEFT this list for the same reason red_team did, one layer
+# up: scripts/authority_red_team.py runs it and CI gates on it, so the 12
+# custody attacks now hit the LIVE authorize() on every change instead of being
+# 213 lines nothing could reach. It was 12/12 the first time it was ever run —
+# a regression guard, not a bug report, exactly as its sibling was.
+#
+# authority_preflight is the remaining uncomfortable one and is NOT the same
+# case. It reconciles a granted envelope against what a key can observably do,
+# which needs a live venue and a real key: there is nothing to gate in CI, and
+# a runner that reported CONFIRMED from no probe would be worse than no runner.
+# Wiring it is a product decision about where posture gets checked, not a
+# cleanup this file can make.
 bot/guardian/authority_preflight.py
-bot/guardian/authority_redteam.py
 bot/core/validation_gate.py
 
 # ── execution paths built and not connected ─────────────────────────────────
@@ -72,12 +83,17 @@ bot/core/presale_claims.py
 #   seasonality.py   time-of-day and day-of-week edges from candles already
 #                    fetched.
 #
-# The two research scripts encode the operator's own RWA thesis (tokenized
-# equity perps trade 24/7; the underlying does not, so closed-hours returns
-# should revert on the open). They have NO `__main__` guard, so they cannot be
-# run at all — which is a smaller, fixable defect than being unimported.
+# The two RWA research scripts LEFT this list, and the note that put them here
+# was wrong in a way worth keeping. It said they have no `__main__` guard "so
+# they cannot be run at all". They ran perfectly well — every statement was
+# top-level, so executing the file executed the study. What the missing guard
+# actually meant was the reverse and worse: IMPORTING either module ran the
+# whole study, every curl to Bitget and every print, fired by anything walking
+# the tree importing what it found — including the reachability checker that
+# catalogued them here. The defect was never "cannot run"; it was "runs when
+# nobody asked". Both have a main() and a guard now, which is what makes them
+# entry points to the checker and what stops the study being a side effect of
+# reading the file. Pinned by tests/test_research_scripts_are_importable.py.
 bot/core/basis.py
 bot/core/market_cap.py
 bot/core/seasonality.py
-scripts/research/rwa_funding.py
-scripts/research/rwa_session_gap.py
