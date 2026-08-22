@@ -39,10 +39,28 @@ test('a page with a visible error banner shows rejections too, not just throws',
 });
 
 test('the reporter can never make things worse', () => {
+  // THE WRAP WAS PINNED TO THE COMMENT INSIDE IT — the pattern literally
+  // included `\/\* the reporter itself must never throw`. Rewording that
+  // sentence broke the test on unchanged code, and replacing the empty body
+  // with something that CAN throw would have left it green as long as the
+  // comment stayed. On a handler whose entire job is to survive a page that is
+  // already failing.
+  //
+  // Ask what the catch DOES instead, which is: nothing. A reporter that
+  // rethrows, logs through a helper, or touches the DOM again inside its own
+  // failure path is the defect — and an empty body is the only shape that
+  // cannot be any of them.
   const arena = pub('arena.html');
-  const fn = arena.slice(arena.indexOf('function rcReportPageError'));
-  assert.match(fn.slice(0, 1400), /catch \(err\) \{ \/\* the reporter itself must never throw/,
-    'the reporter is wrapped — a failing reporter must not replace the failure');
+  const at = arena.indexOf('function rcReportPageError');
+  assert.ok(at > 0, 'the page error reporter is gone');
+  const fn = arena.slice(at, arena.indexOf('window.addEventListener(\'error\'', at));
+  const m = fn.match(/catch\s*\(\w*\)\s*\{([\s\S]*?)\}/);
+  assert.ok(m, 'the reporter is no longer wrapped at all — it can now replace '
+    + 'the very failure it exists to display');
+  const { codeOnly } = require('./helpers/code_only');
+  assert.strictEqual(codeOnly(m[1]).trim(), '',
+    'the reporter\'s own catch does something now; anything it does can throw, '
+    + 'and then the page fails twice and shows neither');
   assert.match(fn.slice(0, 400), /getElementById\('jsErr'\)/,
     'and shows at most one banner');
 });
