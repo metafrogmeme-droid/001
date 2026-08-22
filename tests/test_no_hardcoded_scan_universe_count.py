@@ -129,9 +129,15 @@ def test_the_volume_floor_that_makes_the_number_meaningless_still_exists():
     quietly continuing to forbid something that had become knowable.
     """
     cfg = (ROOT / "bot" / "config.py").read_text(encoding="utf-8")
-    assert re.search(r"Minimum 24h quote volume", cfg), (
-        "the 24h volume floor is gone from config.py — the scan universe may "
-        "now be enumerable, and this file's argument needs revisiting")
+    # PINNED TO THE FIELD, NOT TO THE SENTENCE DESCRIBING IT. This asserted the
+    # comment "Minimum 24h quote volume", so rewording it read as the floor
+    # having been deleted — and, worse, deleting the FIELD while leaving the
+    # comment would have read as the floor still being there. The settings are
+    # what the scanner actually consults.
+    for field in ("min_crypto_volume_usd", "min_tradfi_volume_usd"):
+        assert re.search(rf"\b{field}\s*:", cfg), (
+            f"{field} is gone from config.py — the scan universe may now be "
+            "enumerable, and this file's argument needs revisiting")
 
 
 def test_the_scanner_is_still_described_without_the_number():
