@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const i18n = require('../public/js/i18n.js');
+const { codeOnly } = require('./helpers/code_only');
 const codes = i18n.LANGS.map((l) => l.code);
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 const dash = read('public', 'js', 'dashboard.js');
@@ -89,11 +90,81 @@ test('every Solana string exists in all 14 languages', () => {
   }
 });
 
+/**
+ * Producers of on-chain authority. A wallet route may VERIFY a signature the
+ * user's own wallet produced; it may never produce one, hold the material that
+ * could, or broadcast anything.
+ *
+ * SERVER-SIDE ONLY. `app/public/js/solana_wallet.js` signs, and must — that is
+ * the user's own wallet in their own browser, which is what non-custodial
+ * MEANS. Extending this rule to the client would forbid the correct thing.
+ */
+const SIGNING_SURFACE = [
+  'signTransaction', 'signAllTransactions', 'signAndSendTransaction',
+  'sendTransaction', 'sendRawTransaction', 'broadcastTransaction',
+  'Keypair', 'fromSecretKey', 'secretKey', 'privateKey', 'PrivateKey',
+  'eth_sendTransaction', 'eth_signTransaction', 'new Wallet(',
+];
+
+/** Every `/wallet…` route in auth.js, as `{path, code}`. Comments stripped. */
+function walletRoutes() {
+  const src = codeOnly(auth);
+  const out = [];
+  for (const m of src.matchAll(
+    /router\.\w+\('(\/wallet[^']*)'[\s\S]*?(?=\nrouter\.|\nmodule\.exports)/g)) {
+    out.push({ path: m[1], code: m[0] });
+  }
+  return out;
+}
+
+test('no wallet route can sign or broadcast anything', () => {
+  // THE MOST EXPENSIVE CLAIM IN THE PRODUCT, AND IT WAS PINNED TO A COMMENT.
+  //
+  // This test asserted `auth` matched the sentence "Either way the address
+  // never touches a signing surface here". That sentence is a `//` comment.
+  // Adding a signing call two lines under it would have left the comment —
+  // and this test — completely intact, on the one promise the whole wallet
+  // story rests on.
+  //
+  // Found by stripping comments from every shipped source and re-running the
+  // suite. The replacement reads the ROUTE BODIES and asks what they can do.
+  const routes = walletRoutes();
+  assert.ok(routes.length >= 8,
+    `only ${routes.length} wallet routes found — the extractor is not seeing them`);
+  for (const { path: p, code } of routes) {
+    for (const bad of SIGNING_SURFACE) {
+      assert.ok(!code.includes(bad),
+        `${p} references ${bad} — a wallet route may verify a signature, never `
+        + 'produce one, hold what could, or broadcast');
+    }
+  }
+});
+
+test('the wallet routes still VERIFY, which is the half worth keeping', () => {
+  // THE CONTROL. "No signing surface" is trivially satisfied by a route that
+  // checks nothing at all, and that would be strictly worse than the defect
+  // this file exists to prevent — it would accept any address as any user's.
+  //
+  // MATCHED ON THE CALL, NOT THE NAME. The first version asserted
+  // `/verifySignedMessage/`, and a mutation that replaced the whole condition
+  // with `if (false)` still passed — because the identifier survives on the
+  // `require` line above it. A control that a broken control satisfies is not
+  // a control. Each pattern below requires the verifier to be CALLED and its
+  // result to go somewhere: assigned, or negated into a branch.
+  const byPath = Object.fromEntries(walletRoutes().map((r) => [r.path, r.code]));
+  assert.match(byPath['/wallet/verify'], /=\s*_ethers\.verifyMessage\s*\(/,
+    'EVM sign-in stopped verifying the signature');
+  assert.match(byPath['/wallet/link'], /=\s*_ethers\.verifyMessage\s*\(/,
+    'linking an EVM address stopped proving ownership');
+  assert.match(byPath['/wallet/link-by-code'], /=\s*_ethers\.verifyMessage\s*\(/,
+    'the link-by-code path stopped proving ownership');
+  assert.match(byPath['/wallet/solana'], /!\s*verifySignedMessage\s*\(/,
+    'the Solana connect-and-sign path no longer refuses on a bad ed25519 signature');
+});
+
 test('the read-only promise is unchanged by any of this', () => {
-  // §4: the Solana side has never had a signing surface beyond the login
-  // message, and verifying ownership must not read as granting anything.
+  // §4: verifying ownership must not read to a user as granting anything.
   assert.match(i18n.STRINGS['dd.s_mirror'].en, /read-only/i);
-  assert.match(auth, /Either way the address never touches a signing surface here/);
 });
 
 test('the in-memory shim honours BOTH shapes of the sol_address update', () => {
