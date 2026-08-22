@@ -2159,6 +2159,7 @@ async function migrate() {
         opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         closed_at TIMESTAMP NULL,
         notes TEXT DEFAULT NULL,
+        venue VARCHAR(20) NOT NULL DEFAULT 'bitget',
         INDEX idx_user_status (user_id, status),
         INDEX idx_user_opened (user_id, opened_at)
       )
@@ -2167,6 +2168,18 @@ async function migrate() {
     // won't add it). Ignore the duplicate-column error if already present.
     try {
       await pool.execute('ALTER TABLE trades ADD COLUMN notes TEXT DEFAULT NULL');
+    } catch (e) { /* column already exists — fine */ }
+    // WHERE THE TRADE HAPPENED. The bot learned to record this (TradeExecution
+    // and JournalEntry both carry it), and the attribution died at the wire:
+    // this table had no column for it and the sync sent none, so the dashboard
+    // — the surface someone actually looks at — could never show it.
+    //
+    // NOT NULL DEFAULT 'bitget' because that is what every existing row IS. A
+    // nullable column would make history read as "venue unknown" when it is
+    // known perfectly well, and would put a NULL through every group-by.
+    try {
+      await pool.execute(
+        "ALTER TABLE trades ADD COLUMN venue VARCHAR(20) NOT NULL DEFAULT 'bitget'");
     } catch (e) { /* column already exists — fine */ }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS equity_snapshots (

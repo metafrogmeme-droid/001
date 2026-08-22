@@ -3134,8 +3134,9 @@
         </section>
         <div class="grid grid-2">
           <section class="panel" id="p-breakdown"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.breakdown">By symbol</span></h2><div id="c-breakdown"><div class="skel"></div></div></section>
-          <section class="panel" id="p-cal"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.cal">Daily PnL — last 4 weeks</span></h2><div id="c-cal"><div class="skel"></div></div></section>
+          <section class="panel" id="p-venuepnl"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.venue_pnl">Results by venue</span></h2><div id="c-venuepnl"><div class="skel"></div></div></section>
         </div>
+        <section class="panel" id="p-cal"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.cal">Daily PnL — last 4 weeks</span></h2><div id="c-cal"><div class="skel"></div></div></section>
         <section class="panel" id="p-edge"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.edge">Edge metrics — the numbers pro desks track</span></h2><div id="c-edge"><div class="skel"></div></div></section>
         <section class="panel" id="p-hist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hist">Trade history & journal</span></h2><div id="c-hist"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`);
@@ -3733,6 +3734,31 @@
         <div class="kv-row"><span><b>${esc(String(g.symbol).split('/')[0])}</b> <span class="muted small">×${g.n}</span></span>
         <b class="num ${pnlClass(g.net_pnl)}">${signed(g.net_pnl)}</b></div>`).join('');
     }, { empty: { text: 'Per-symbol results appear after your first closed trades.' } });
+
+    // Per-venue results — the first surface that can SAY where a trade
+    // happened, from the column Phase 0 added and the sync now carries.
+    // Private, so dollars are fine; the public track record stays
+    // percent/ratio/count.
+    renderPanel(C('venuepnl'), async () => {
+      const r = await fetchJSON('/api/trades/stats');
+      mustRead(r);
+      const rows = r.data?.by_venue || [];
+      if (!rows.length) return null;
+      // OMIT, not guard, for the connected count: it decorates the footnote and
+      // nothing else, so one dead source must not blank a table that read fine.
+      // null means "not read" — venueFootnote never counts rows to fill it in,
+      // because a venue that has not traded has no row by design.
+      const cs = await fetchJSON('/api/credentials/status').catch(() => null);
+      const connected = cs && cs.ok && Array.isArray(cs.data?.venues)
+        ? cs.data.venues.filter(v => v.connected).length : null;
+      const body = rows.map(v => {
+        const c = VenueRows.venueRow(v);
+        return `<div class="kv-row"><span><b>${esc(c.venue)}</b> <span class="muted small">×${c.trades}${c.note ? ' · ' + esc(c.note) : ''}</span></span>
+        <b class="num ${c.cls}">${c.pnl} <span class="muted small">${c.winRate}</span></b></div>`;
+      }).join('');
+      const foot = VenueRows.venueFootnote(rows, connected);
+      return body + (foot ? `<p class="small muted" style="margin-top:var(--s2)">${esc(foot)}</p>` : '');
+    }, { empty: { text: 'Per-venue results appear after your first closed trades.' } });
 
     renderPanel(C('cal'), async () => {
       const r = await fetchJSON('/api/trades/history?limit=200');

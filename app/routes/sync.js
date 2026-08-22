@@ -31,6 +31,26 @@ function summaryFor(req, summary) {
     + 'counts and rates only, no dollar amounts. Sign in for equity and P&L.' };
 }
 
+const { isVenue } = require('../lib/venues');
+
+/**
+ * The venue a synced trade happened on, or the default.
+ *
+ * VALIDATED, not trusted. This is the bot-secret channel, so the sender is
+ * authenticated — but the value lands in a NOT NULL column that group-bys and
+ * a public payload read, and an unrecognised string would show up on the
+ * dashboard as a venue that does not exist. `isVenue` is the same check the
+ * credential route uses, so the two cannot disagree about what a venue is.
+ *
+ * An older bot sends no venue at all. That is not "unknown" — every trade it
+ * has ever placed went to Bitget — so the default is a back-fill of a fact and
+ * the column stays NOT NULL.
+ */
+function venueOf(t) {
+  const v = String((t && t.venue) || '').toLowerCase().trim();
+  return isVenue(v) ? v : 'bitget';
+}
+
 const router = express.Router();
 
 // Best-effort nudge to connected dashboards -- never let a broadcast issue
@@ -300,12 +320,13 @@ router.post('/', async (req, res) => {
     if (closed_trades && closed_trades.length > 0) {
       for (const t of closed_trades) {
         await pool.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?)`,
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, venue)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
           [user_id, t.symbol, t.direction, t.entry_price, t.exit_price,
            t.size_usd, t.pnl, t.fees || 0, t.pattern || null,
            t.opened_at ? new Date(t.opened_at) : new Date(),
-           t.closed_at ? new Date(t.closed_at) : new Date()]
+           t.closed_at ? new Date(t.closed_at) : new Date(),
+           venueOf(t)]
         );
       }
     }
@@ -314,12 +335,13 @@ router.post('/', async (req, res) => {
     if (positions && positions.length > 0) {
       for (const p of positions) {
         await pool.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, opened_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)`,
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, opened_at, venue)
+           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)`,
           [user_id, p.symbol, p.direction, p.entry_price,
            p.size_usd, p.fees || 0, p.pattern || null,
            p.stop_loss || null, p.take_profit || null,
-           p.opened_at ? new Date(p.opened_at) : new Date()]
+           p.opened_at ? new Date(p.opened_at) : new Date(),
+           venueOf(p)]
         );
       }
     }
