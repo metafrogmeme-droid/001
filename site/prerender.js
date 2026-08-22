@@ -42,9 +42,32 @@ const ROUTES = [
     path: '/',
     title: 'RUNECLAW — the AI trading engine you can talk to',
     description:
-      'Paper by default, risk-gated, human-confirmed. Every call is hashed '
-      + 'before the market moves, so the record can be checked by someone who '
-      + 'does not trust the operator.',
+      // "human-confirmed" WAS HERE, AND IT IS THE CLAIM facts.ts DOCUMENTS
+      // AS FALSE: bot/config.py:2188-2190 defaults auto_confirm_live_enabled
+      // to True, so a signal clearing 0.85 places a real-money order with
+      // nobody pressing anything. PR #129 removed the phrase from the visible
+      // page and missed the metadata — the surface with the WIDEST reach,
+      // since a meta description is what a search result and a link preview
+      // show. Ask which OTHER surface makes the same claim.
+      'Simulation-first: paper is the default and live trading stays off until '
+      + 'you switch it on. Every call is hashed before the market moves, so the '
+      + 'record can be checked by someone who does not trust the operator.',
+  },
+  {
+    path: '/proof',
+    title: 'How the proof works — RUNECLAW',
+    description:
+      'Every call is hashed before the market moves and folded into a daily '
+      + 'Merkle root. The construction, the two cases it refuses to answer, and '
+      + 'the three things it does not prove.',
+  },
+  {
+    path: '/risk',
+    title: 'The gate that fails closed — RUNECLAW',
+    description:
+      'Every entry passes a pre-trade risk gate. A check that cannot be '
+      + 'evaluated rejects the trade rather than passing it — and there is '
+      + 'deliberately no headline count on this page.',
   },
   {
     path: '/privacy',
@@ -88,8 +111,8 @@ function jsonLd() {
         publisher: { '@id': `${ORIGIN}/#org` },
         description:
           'An AI trading engine with a pre-trade risk gate, simulation-first '
-          + 'defaults, human confirmation before live orders, and hashed '
-          + 'decision records.',
+          + 'defaults, opt-in live trading, and decision records hashed before '
+          + 'the market moves.',
       },
     ],
   })
@@ -205,9 +228,10 @@ function writeLlms() {
     '# RUNECLAW',
     '',
     '> An AI trading engine with a pre-trade risk gate. Simulation-first by',
-    '> default; live orders require explicit human confirmation. Decision',
-    '> records are hashed before the market moves so they can be verified',
-    '> independently.',
+    '> default; live trading is off until the operator switches it on, and',
+    '> auto-confirm can then place live orders without a per-trade human tap.',
+    '> Decision records are hashed before the market moves so they can be',
+    '> verified independently.',
     '',
     '## Notes for summarisers',
     '',

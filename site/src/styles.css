@@ -6,7 +6,29 @@
  * site/scripts/tokens.mjs for why that rule exists and what it cost.
  */
 @import './tokens.css';
-@import 'tailwindcss';
+
+/* WHAT TAILWIND MAY SCAN, STATED RATHER THAN GUESSED.
+ *
+ * v4 auto-detects sources from the project root when nothing says otherwise,
+ * and it detected `site/test/`. So a TEST FILE's contents compiled into the
+ * production stylesheet: adding one containing the strings `mt-96`,
+ * `text-fuchsia-500` and `rounded-3xl` changed the shipped CSS *and* moved
+ * both asset hashes.
+ *
+ * Two costs, and the second is the one that actually bit:
+ *
+ *   Dead rules ship to every visitor because a test mentioned a class name.
+ *
+ *   The build stops being reproducible from source alone. `The committed site
+ *   is the built site` went red on a commit that added two TEST files and
+ *   touched nothing else — and its message, "commit the rebuild", is true
+ *   while pointing at the output rather than the cause.
+ *
+ * Scoped to the component tree, which is the only place a class name can
+ * legitimately come from.
+ */
+@import 'tailwindcss' source(none);
+@source './';
 
 /* Bridge the derived tokens into Tailwind v4's theme so utilities compile from
    the SAME values the platform uses. Referencing var() rather than restating a

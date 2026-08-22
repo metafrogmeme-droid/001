@@ -219,3 +219,103 @@ test('every published figure carries a source', () => {
       + 'A figure with no citation is how 19 and 23 both came to be published.')
   }
 })
+
+/**
+ * THE FIX WAS APPLIED TO THE PAGE AND MISSED EVERY MACHINE-READABLE COPY.
+ *
+ * `facts.ts` documents "human-confirmed" as false against
+ * `bot/config.py:2188-2190` — `auto_confirm_live_enabled` defaults to True, so
+ * a signal clearing the 0.85 bar places a real-money order with nobody
+ * pressing anything. PR #129 removed the phrase from the visible homepage.
+ *
+ * It survived in three places, all in `prerender.js`:
+ *
+ *   - `<meta name="description">`, which also feeds og: and twitter: — the
+ *     surface with the WIDEST reach, since it is what a search result and a
+ *     link preview show;
+ *   - the JSON-LD `SoftwareApplication.description`, ingested as structured
+ *     data rather than read;
+ *   - `llms.txt`, which exists SPECIFICALLY to tell language models what this
+ *     product is, so a false line there is repeated by every model that reads
+ *     it.
+ *
+ * A visible correction that leaves the machine-readable copies alone corrects
+ * the smallest audience. Checked over the BUILT OUTPUT so it holds for
+ * whatever surface the claim reappears on.
+ */
+test('no published surface claims a human confirms live trades', () => {
+  const forbidden = /human[- ]confirm/i
+  const surfaces = [...PAGES.map((p) => [p, built(p)])]
+  for (const extraFile of ['llms.txt', path.join('proof', 'index.html')]) {
+    const f = path.join(OUT, extraFile)
+    if (fs.existsSync(f)) surfaces.push([extraFile, fs.readFileSync(f, 'utf8')])
+  }
+  assert.ok(surfaces.length >= 3, 'too few surfaces checked — is the build stale?')
+  for (const [name, text] of surfaces) {
+    const hit = text.match(forbidden)
+    assert.ok(!hit, `${name} claims ${JSON.stringify(hit && hit[0])} — `
+      + 'auto_confirm_live_enabled defaults True (bot/config.py:2188-2190), so a '
+      + 'live order can be placed with nobody pressing anything')
+  }
+})
+
+test('the true version of that promise IS still stated', () => {
+  // THE CONTROL. Deleting the claim outright would be the other failure: the
+  // simulation-first default is real, it is the product's central safety
+  // property, and "we removed the false half" must not become "we stopped
+  // saying what the defaults are".
+  assert.match(built('index.html'), /paper is the default|Simulation-first/i,
+    'the homepage no longer states the simulation-first default at all')
+  assert.match(fs.readFileSync(path.join(OUT, 'llms.txt'), 'utf8'),
+    /live trading is off until/i,
+    'llms.txt no longer tells a summariser what the live-trading default is')
+})
+
+/**
+ * THE SITE MUST NOT BECOME THE FOURTEENTH SURFACE TO STATE A CHECK COUNT.
+ *
+ * `tests/test_no_hardcoded_risk_check_count.py` bans a number in front of the
+ * word "check" on thirteen files. `_TOTAL_RISK_CHECKS = 23` was maintained by
+ * hand against a file that changes, drifted DOWNWARD while the engine grew to
+ * emit 36 labels, and ended up asserted across a dozen surfaces at three
+ * different values — each one looking like a specific, confident measurement.
+ *
+ * A marketing page is exactly the surface that acquires such a number next,
+ * and the Python guard does not scan `website/`. This is the same rule, on the
+ * side of the tree it cannot see.
+ *
+ * The lookbehind is inherited from that guard along with its scars: `0.85 gate`
+ * is a confidence THRESHOLD and `risk%20gate` is percent-encoding, and both
+ * matched a naive pattern.
+ */
+test('no published page states a risk-check count', () => {
+  const COUNTED = /(?<![.\d%])\b\d{1,3}[\s‑-]*(?:pre-trade |risk )?(?:check|checks|gates?)\b/i
+  const files = [...PAGES]
+  for (const extra_ of ['proof/index.html', 'risk/index.html', 'llms.txt']) {
+    if (fs.existsSync(path.join(OUT, extra_))) files.push(extra_)
+  }
+  assert.ok(files.length >= 4, 'too few pages checked — is the build stale?')
+  for (const f of files) {
+    const visible = fs.readFileSync(path.join(OUT, f), 'utf8')
+      .replace(/<script[\s\S]*?<\/script>/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+    const hit = visible.match(COUNTED)
+    assert.ok(!hit, `${f} states a risk-check count (${JSON.stringify(hit && hit[0])}). `
+      + 'There is no total to state: the number that matters is per-trade and is '
+      + 'already reported where it is measured, on the decision record.')
+  }
+})
+
+test('the fail-closed property IS still claimed, since it is the real one', () => {
+  // THE CONTROL, same shape as the Python guard's. Removing the count must not
+  // become removing the claim: fail-closed is the product's central safety
+  // property and it is true.
+  const risk = path.join(OUT, 'risk', 'index.html')
+  assert.ok(fs.existsSync(risk), 'the risk page is not built')
+  const html = fs.readFileSync(risk, 'utf8')
+  assert.match(html, /fail-closed/i, 'the page no longer states the contract at all')
+  assert.match(html, /cannot be evaluated/i,
+    'the page no longer says what happens to an unanswerable check, which is '
+    + 'the entire property')
+})
+

@@ -85,6 +85,54 @@ test('the Arena follow toggle upserts — a PRIMARY KEY makes a bare INSERT a 50
     'and must never reset the balance of an account that already exists');
 });
 
+/**
+ * Is the statement at `at` inside a `try` whose `catch` swallows the error?
+ *
+ * Two shapes count as handled, and the first draft only knew about one:
+ *
+ *   1. the catch never rethrows — it logs, sets a flag, or does nothing, and
+ *      the caller survives;
+ *   2. the catch DISCRIMINATES — it names ER_DUP_ENTRY (or errno 1062),
+ *      handles that, and rethrows the rest.
+ *
+ * Shape 2 is the better practice and the first draft flagged it, on
+ * `arena_keys.js:79`, whose catch retries on a duplicate key and rethrows
+ * everything else. A rule that punishes the careful version of the thing it is
+ * asking for is worse than no rule: the cheapest way to satisfy it would have
+ * been to delete the `throw` and swallow every error. Not every match is a
+ * defect, including in a guard's own first draft.
+ *
+ * A catch that rethrows unconditionally earns nothing — it does not make a
+ * duplicate key survivable, it just moves the 500 one frame up.
+ *
+ * Comment-blanked before scanning — `codeOnly` preserves line lengths, so the
+ * caller's offset is still valid — because a `try {` or a `throw` inside a
+ * comment must not decide whether a real INSERT is exempt.
+ */
+function caughtHere(source, at) {
+  const { codeOnly } = require('./helpers/code_only');
+  const code = codeOnly(source);
+  // Nearest `try {` that opens before the statement and closes after it.
+  for (let t = code.lastIndexOf('try', at); t > 0; t = code.lastIndexOf('try', t - 1)) {
+    const open = code.indexOf('{', t);
+    if (open < 0 || open > at) continue;
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < code.length; i += 1) {
+      if (code[i] === '{') depth += 1;
+      else if (code[i] === '}') { depth -= 1; if (depth === 0) { close = i; break; } }
+    }
+    if (close < at) continue;                   // the try closed before we got here
+    const after = code.slice(close, close + 400);
+    const c = after.match(/catch\s*\(\w*\)\s*\{([\s\S]*?)\}/);
+    if (!c) return false;                       // try/finally with no catch: not caught
+    const body = c[1];
+    if (/ER_DUP_ENTRY|\b1062\b/.test(body)) return true;   // discriminates, then rethrows
+    return !/\bthrow\b/.test(body);             // otherwise, only a swallow counts
+  }
+  return false;
+}
+
 test('no writer anywhere bare-INSERTs a full primary key or unique', () => {
   // The class, not the instance: an INSERT that supplies a whole PK or UNIQUE
   // and has no ON DUPLICATE / IGNORE is a duplicate-key 500 waiting for a
@@ -146,9 +194,22 @@ test('no writer anywhere bare-INSERTs a full primary key or unique', () => {
       // A duplicate-key that is deliberately CAUGHT is fine, and sometimes it
       // is the only correct answer: /auth/register must let the insert fail
       // and return a uniform error, because a pre-check would leak whether an
-      // email is registered. Accept an insert whose file handles ER_DUP_ENTRY.
-      if (/catch \(e\) \{ \/\* concurrent/.test(src.slice(m.index, m.index + 700))) continue;
-      if (/ER_DUP_ENTRY/.test(src)) continue;
+      // email is registered.
+      //
+      // THE EXEMPTION USED TO BE BOUGHT WITH A COMMENT:
+      //
+      //     if (/catch \(e\) \{ \/\* concurrent/.test(...)) continue;
+      //
+      // Any catch carrying the word "concurrent" in a comment was excused.
+      // That is an exemption anybody can grant themselves by typing a
+      // sentence, on the guard whose whole job is to refuse exemptions — and
+      // rewording it re-flags correct code, which is how `seal_roots.js:61`
+      // surfaced. Both directions wrong, from prose.
+      //
+      // Asked of the CODE now: is this INSERT inside a try whose catch
+      // swallows the error? That is the thing that actually makes a
+      // duplicate-key survivable, and it cannot be typed into a comment.
+      if (caughtHere(src, m.index)) continue;
       const cols = m[3].split(',').map((c) => c.trim());
       const full = (t.pk.length && t.pk.every((k) => cols.includes(k)))
         || t.uniq.some((u) => u.every((c) => cols.includes(c)));
