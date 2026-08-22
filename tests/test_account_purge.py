@@ -123,6 +123,28 @@ class TestThePurgeEndpointReportsPerStore:
             "the rollup no longer requires every store to have resolved — an "
             "`error` would count as a purge")
 
+    def test_the_failure_handlers_log_through_a_name_that_exists(self):
+        """The first version called `log.warning` in all three except blocks
+        and `log` is not defined in that module.
+
+        Every one of them carries `# pragma: no cover - defensive`, so nothing
+        drove them: a store that raised would have hit a NameError INSIDE the
+        handler written to catch it, and the per-store `error` report — the
+        whole reason the endpoint answers store by store — would have become a
+        500 saying only "something". Caught by ruff F821 in preflight, which is
+        why that gate runs before a push and not after one.
+        """
+        import inspect
+
+        mod = self._module()
+        src = inspect.getsource(mod.handle_account_purge)
+        for name in {m for m in __import__("re").findall(r"^\s+(\w+)\.warning", src,
+                                                         __import__("re").M)}:
+            assert hasattr(mod, name), (
+                f"the purge handler logs through `{name}`, which does not exist "
+                "in bot/web/user_gateway.py — the except block raises instead of "
+                "reporting")
+
     def test_a_partial_purge_is_409_and_not_200(self):
         src = __import__("inspect").getsource(self._module().handle_account_purge)
         assert "status=200 if ok else 409" in src, (

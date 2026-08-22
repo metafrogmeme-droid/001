@@ -2769,14 +2769,14 @@ async def handle_account_purge(request: web.Request) -> web.Response:
         result["exchange_credentials"] = (
             "deleted" if get_credential_store().delete(tg_id) else "none")
     except Exception as exc:                      # pragma: no cover - defensive
-        log.warning("purge: credentials failed for %s: %s", tg_id, exc)
+        system_log.warning("purge: credentials failed for %s: %s", tg_id, exc)
         result["exchange_credentials"] = "error"
 
     try:
         result["agent_profile"] = (
             "deleted" if _profile_store.clear(tg_id) else "none")
     except Exception as exc:                      # pragma: no cover - defensive
-        log.warning("purge: profile failed for %s: %s", tg_id, exc)
+        system_log.warning("purge: profile failed for %s: %s", tg_id, exc)
         result["agent_profile"] = "error"
 
     try:
@@ -2786,7 +2786,7 @@ async def handle_account_purge(request: web.Request) -> web.Response:
         else:
             result["user_record"] = "deleted" if store.forget(tg_id) else "none"
     except Exception as exc:                      # pragma: no cover - defensive
-        log.warning("purge: user record failed for %s: %s", tg_id, exc)
+        system_log.warning("purge: user record failed for %s: %s", tg_id, exc)
         result["user_record"] = "error"
 
     ok = all(v in ("deleted", "none") for v in result.values())

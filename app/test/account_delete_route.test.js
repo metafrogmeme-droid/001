@@ -227,6 +227,39 @@ test('an account with no telegram link needs no bot round trip', async () => {
     + 'there"');
 });
 
+test('a fault part-way through says so, instead of "nothing was removed"', async () => {
+  // FAULT INJECTED AT THE POOL, because the property is about a failure that
+  // arrives after the deletes have started and there is no other way to reach
+  // that moment. `pool` is the same object the route holds.
+  //
+  // The route's first version answered "Account deletion failed — nothing was
+  // removed." to every exception. The sentence is two claims and only the
+  // first one was measured; the second is a reassurance about a state nobody
+  // looked at, which is the failure this repository is built around.
+  const u = await newUser({ telegram: false });
+  const real = pool.execute.bind(pool);
+  pool.execute = async (sql, params) => {
+    if (/DELETE FROM user_watchlist/i.test(sql)) throw new Error('injected');
+    return real(sql, params);
+  };
+  let res;
+  try {
+    res = await req('DELETE', '/api/auth/account', { token: u.token, body: CONFIRM });
+  } finally {
+    pool.execute = real;
+  }
+  assert.strictEqual(res.status, 500);
+  assert.strictEqual(res.data.partial, true);
+  assert.ok(!/nothing was removed/.test(res.data.error),
+    'rows were already gone and the user was told none were');
+  assert.match(res.data.error, /some may remain/i);
+
+  // And the claim is true: earlier tables really were cleared.
+  const [creds] = await pool.execute(
+    'SELECT user_id FROM pending_credentials WHERE user_id = ?', [u.id]);
+  assert.deepStrictEqual(creds, []);
+});
+
 // ── the gates in front of it ──────────────────────────────────────────────
 
 test('a valid session is not enough on its own', async () => {
@@ -253,6 +286,75 @@ test('an anonymous request cannot delete anything', async () => {
   const res = await req('DELETE', '/api/auth/account', { body: CONFIRM });
   assert.strictEqual(res.status, 401);
   assert.strictEqual((await stillThere(u.id)).watchlist, 1);
+});
+
+// ── the door ──────────────────────────────────────────────────────────────
+
+test('every element the delete handlers read exists in the markup', () => {
+  // A ROUTE NOBODY CAN REACH IS INDISTINGUISHABLE FROM ONE THAT DOES NOT WORK,
+  // and the privacy page now tells people this exists. #999 in CLAUDE.md is the
+  // same shape one level down: a card built inline, source-scanned, shipped,
+  // and rendered zero times because the lookup missed.
+  //
+  // `getElementById(x).value` on a missing id throws, so a typo here is a
+  // button that does nothing — and the two existing dispatcher tests cannot
+  // see it: they check that the action is allowlisted and that the function
+  // exists, both of which stay true.
+  const fs2 = require('node:fs');
+  const path2 = require('node:path');
+  const { codeOnly } = require('./helpers/code_only');
+  const html = codeOnly(
+    fs2.readFileSync(path2.join(__dirname, '..', 'public', 'index.html'), 'utf8'));
+
+  const fnStart = html.indexOf('function delOpen(');
+  assert.ok(fnStart > 0, 'the delete handlers are gone from the account page');
+  const fns = html.slice(fnStart, html.indexOf('function renderWalletBox('));
+  const ids = new Set([...fns.matchAll(/getElementById\('([\w-]+)'\)/g)].map((m) => m[1]));
+  assert.ok(ids.size >= 6, `only ${ids.size} elements referenced — is this the right slice?`);
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `the delete form reads #${id}, which no element has`);
+  }
+});
+
+test('the page shows the server\'s reason rather than a generic failure', () => {
+  // 502 (nothing was deleted anywhere), 500 with partial:true (some of it was)
+  // and 401 are three different outcomes. Collapsing them into "something went
+  // wrong" is the same defect as the blanket message the route itself carried:
+  // a reassurance nobody measured, on the one screen where the difference is
+  // whether your exchange keys still exist.
+  const fs2 = require('node:fs');
+  const path2 = require('node:path');
+  const { codeOnly } = require('./helpers/code_only');
+  const html = codeOnly(
+    fs2.readFileSync(path2.join(__dirname, '..', 'public', 'index.html'), 'utf8'));
+  const go = html.slice(html.indexOf('async function delGo('),
+    html.indexOf('function renderWalletBox('));
+  assert.match(go, /setErr\('del-msg',\s*res\.error\)/,
+    'the server\'s message is replaced with a generic one');
+  assert.match(go, /res\.deleted/,
+    'a 200 that does not say `deleted` is treated as success');
+});
+
+test('every translation of the confirm prompt still asks for the word DELETE', () => {
+  // The server compares the typed phrase against the literal string 'DELETE'.
+  // A translator localising that word — which is the obviously correct thing to
+  // do to a prompt — produces a confirmation step that CANNOT BE SATISFIED, in
+  // whichever language it happens in, on the one control with no other way
+  // through. The prompt is translated; the token inside it is not.
+  const fs2 = require('node:fs');
+  const path2 = require('node:path');
+  const src = fs2.readFileSync(
+    path2.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
+  for (const key of ['a11y.del_confirm', 'acc.del_ph_confirm']) {
+    const line = src.split('\n').find((l) => l.includes(`'${key}':`));
+    assert.ok(line, `${key} is gone from the dictionary`);
+    const langs = [...line.matchAll(/(\w{2}):\s*(['"])(.*?)\2/g)];
+    assert.ok(langs.length >= 14, `${key} has only ${langs.length} translations`);
+    for (const [, lang, , value] of langs) {
+      assert.ok(value.includes('DELETE'),
+        `${key}.${lang} localised the word DELETE — the server will refuse "${value}"`);
+    }
+  }
 });
 
 test('the confirmation phrase is matched loosely enough to be usable', async () => {
