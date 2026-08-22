@@ -27,8 +27,8 @@
  */
 import { createFileRoute } from '@tanstack/react-router'
 
-function P({ children }: { children: React.ReactNode }) {
-  return <p className="mt-4 leading-relaxed text-ink-2">{children}</p>
+function P({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <p className={`mt-4 leading-relaxed text-ink-2 ${className}`}>{children}</p>
 }
 
 function H({ children }: { children: React.ReactNode }) {
@@ -77,6 +77,30 @@ function Proof() {
         does, with the file it does it in — so you can read the implementation
         rather than this description of it.
       </P>
+
+      {/* THE ONE LIVE READING ON THIS SITE.
+          Static HTML claiming "paper is the default" is a claim about a
+          running system, frozen at build time — the shape that put a stale
+          BTC price on the old site for three months. This asks the engine.
+          It renders "unavailable" on every failure path and never assumes the
+          reassuring answer; see src/live.ts. Starts hidden and is revealed by
+          the script, so a reader with JS off sees no half-filled chip rather
+          than an empty promise. */}
+      <div
+        id="live-posture"
+        className="mt-8 flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3 opacity-0 transition-opacity"
+      >
+        <span data-live-dot aria-hidden="true" className="size-2 shrink-0 rounded-full bg-ink-3" />
+        <p data-live-text className="text-sm text-ink-3">
+          Reading the engine…
+        </p>
+      </div>
+      <noscript>
+        <p className="mt-3 text-xs text-ink-3">
+          The live engine-posture reading needs JavaScript. Everything else on
+          this page is static.
+        </p>
+      </noscript>
 
       <H>One call, one hash</H>
       <P>
