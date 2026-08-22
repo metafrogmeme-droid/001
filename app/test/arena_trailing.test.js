@@ -70,12 +70,55 @@ test('the trailing distance is bounded — spread noise below, not-a-stop above'
 
 // ── the lazy pass ──────────────────────────────────────────────────────────
 
+/**
+ * Index just past the `}` that closes the function `decl` opens.
+ *
+ * Brace-matched over comment-blanked source — `codeOnly` preserves line
+ * lengths, so offsets computed on the blanked copy are valid in the original.
+ * The parameter list is walked first: the next `{` after a declaration is
+ * often a DEFAULT VALUE (`opts = {}`), and closing on it yields a
+ * few-character "function" and a failure that names nothing near the cause.
+ */
+function endOfFunction(source, decl) {
+  const { codeOnly } = require('./helpers/code_only');
+  const code = codeOnly(source);
+  const at = code.indexOf(decl);
+  if (at < 0) return -1;
+  let p = code.indexOf('(', at);
+  if (p < 0) return -1;
+  let pd = 0;
+  for (; p < code.length; p += 1) {
+    if (code[p] === '(') pd += 1;
+    else if (code[p] === ')') { pd -= 1; if (pd === 0) { p += 1; break; } }
+  }
+  let i = code.indexOf('{', p);
+  if (i < 0) return -1;
+  let depth = 0;
+  for (; i < code.length; i += 1) {
+    if (code[i] === '{') depth += 1;
+    else if (code[i] === '}') { depth -= 1; if (depth === 0) return i + 1; }
+  }
+  return -1;
+}
+
 test('settleLiquidations ratchets BEFORE it tests the exit, and persists', () => {
   // Order is the honest one: today's mark first tightens the stop, then the
   // SAME mark is tested against the TIGHTENED level. Reversed, a mark that
   // should ratchet-and-survive could fire on yesterday's level.
-  const fn = routeSrc.slice(routeSrc.indexOf('async function settleLiquidations'),
-    routeSrc.indexOf("// GET /api/arena/account"));
+  // THE FAR EDGE WAS A COMMENT — `indexOf("// GET /api/arena/account")`.
+  //
+  // That matters more here than in most of these, because the last assertion
+  // in this test is a NEGATIVE one: `doesNotMatch(fn, /exits_edited/)`. A
+  // window whose end drifts forward starts failing on an `exits_edited` that
+  // belongs to a different handler, and one that drifts back passes over a
+  // shrinking span until it is asserting nothing about anything. Neither
+  // direction announces itself.
+  //
+  // Brace-matched to the close of the function instead, so the span is exactly
+  // settleLiquidations and moves only when settleLiquidations does.
+  const start = routeSrc.indexOf('async function settleLiquidations');
+  assert.ok(start > 0, 'settleLiquidations is gone from routes/arena.js');
+  const fn = routeSrc.slice(start, endOfFunction(routeSrc, 'async function settleLiquidations'));
   const ratchetAt = fn.indexOf('arena.trailRatchet(p, mark)');
   const exitAt = fn.indexOf('arena.exitCheck(p, mark)');
   assert.ok(ratchetAt > -1 && exitAt > -1 && ratchetAt < exitAt);
