@@ -89,7 +89,24 @@ test('no writer anywhere bare-INSERTs a full primary key or unique', () => {
   // The class, not the instance: an INSERT that supplies a whole PK or UNIQUE
   // and has no ON DUPLICATE / IGNORE is a duplicate-key 500 waiting for a
   // second call or a concurrent one.
-  const db = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
+  // COMMENTS STRIPPED FIRST, and this guard was reading a fiction without it.
+  //
+  // `describeSql`'s own docstring in db.js quotes the string
+  // `'CREATE TABLE IF NOT EXISTS users (…'`, so the scan matched the COMMENT,
+  // ran its body capture past the end of it, and gave the users table a UNIQUE
+  // key of `(user_id, symbol)` — scraped out of an unrelated block further
+  // down the file. Stripped, users has exactly the one it really has.
+  //
+  // Nothing is currently mis-flagged by that phantom: `users` has no `symbol`
+  // column, so no INSERT can supply the pair. This is a latent defect rather
+  // than a live one, and the distinction is worth stating — the fix is worth
+  // making because the extraction is not reading what it claims to read, not
+  // because something is broken today. The next UNIQUE added near a comment
+  // gets a wrong answer with no signal at all.
+  //
+  // Sixth time this trap has been hit in this repo, and the second this week.
+  const { codeOnly } = require('./helpers/code_only');
+  const db = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8'));
   const keys = {};
   for (const m of db.matchAll(/CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\s*\)/g)) {
     const cols = m[2].split('\n');

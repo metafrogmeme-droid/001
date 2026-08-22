@@ -109,7 +109,12 @@ test('legacy rows are never back-filled; the DDL and ALTER say NULL', () => {
   const db = fs.readFileSync(path.join(__dirname, '..', 'db.js'), 'utf8');
   assert.match(db, /published_at TIMESTAMP NULL DEFAULT NULL/);
   assert.match(db, /ADD COLUMN published_at TIMESTAMP NULL DEFAULT NULL/);
-  assert.match(db, /inventing a publish date they never had would be a fabricated number/);
+  // `inventing a publish date they never had would be a fabricated number`
+  // was asserted here and is a COMMENT in db.js. Dropped rather than
+  // replaced: the two DDL assertions above it are the property — the column
+  // is NULL in both the CREATE and the ALTER, so a legacy row has no date
+  // rather than a manufactured one. The comment says why and enforces
+  // nothing.
   const lib = fs.readFileSync(path.join(__dirname, '..', 'lib', 'user_strategies.js'), 'utf8');
   assert.match(lib, /COALESCE\(published_at, created_at\) DESC/,
     'legacy rows sort by created_at — a real date');

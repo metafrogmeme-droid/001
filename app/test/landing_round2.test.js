@@ -28,8 +28,17 @@ test('market strip exists, feeds from the cached tickers API, refreshes', () => 
 test('leaderboard tease renders percent/ratio fields only — never dollars', () => {
   assert.ok(landing.includes('id="boardTease"'));
   assert.match(landing, /fetch\('\/api\/public\/leaderboard'\)/);
-  const tease = landing.slice(landing.indexOf('Leaderboard tease'),
-    landing.indexOf('Honest hero'));
+  // BOTH ANCHORS WERE COMMENTS — `Leaderboard tease` and `Honest hero` are
+  // section headings. The window they bound carries a §4 dollar check, so
+  // rewording either heading either shrinks it to nothing (the check passes
+  // over an empty string) or grows it into the next block (it fails on code
+  // that was never in scope). Bounded by the tease IIFE's own lookup and its
+  // close now.
+  const at = landing.indexOf("getElementById('boardTease')");
+  assert.ok(at > 0, 'the leaderboard tease no longer looks its section up');
+  const close = landing.indexOf('})();', at);
+  assert.ok(close > at, 'the tease is no longer a self-contained IIFE');
+  const tease = landing.slice(at, close);
   assert.ok(tease.includes('profit_factor') && tease.includes('sharpe')
     && tease.includes('round_trips'));
   assert.ok(!/pnl_usd|equity_usd|net_pnl/.test(tease),
