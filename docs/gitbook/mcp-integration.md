@@ -100,13 +100,30 @@ All inputs are validated. All outputs are structured. The risk gate runs on ever
 
 | Component | Status |
 |-----------|--------|
-| Skill registry (internal) | Implemented -- 12 skills registered |
+| Skill registry (internal) | Implemented |
 | Pydantic schemas at all boundaries | Implemented |
 | Async execution model | Implemented |
-| MCP tool adapter layer | Planned -- architecture ready, adapter not yet written |
+| MCP tool adapter layer | **Implemented** -- `bot/mcp/server.py`, live over JSON-RPC at `POST /mcp` |
 | Bitget Agent Hub registration | Planned -- pending Agent Hub availability |
 
-The MCP adapter is not yet implemented as production code. The skill registry is the integration surface -- when Agent Hub tooling is available, wrapping each skill as an MCP tool requires only the adapter layer, no changes to core logic.
+The adapter is shipped, not planned. `bot/mcp/server.py` builds JSON Schema tool
+definitions from `TOOL_CATALOGUE` and dispatches `call_tool` into the skill
+registry; `app/routes/mcp.js` mounts it at `POST /mcp` as MCP Streamable HTTP.
+
+**A SUBSET of registered skills is exposed, not all of them.** The registry is
+larger than the catalogue, and that is a deliberate gap rather than an
+oversight: a skill reachable by an unauthenticated agent is a different security
+question from one reachable by an operator on Telegram. Read `TOOL_CATALOGUE`
+for what is actually callable.
+
+> No count appears in this table, and that is on purpose. This row used to read
+> "12 skills registered" while the registry held thirty, and the line below used
+> to promise "all 12" as MCP tools while nine were exposed. A hand-maintained
+> count against a file that changes drifts in one direction — the same defect
+> `_TOTAL_RISK_CHECKS = 23` produced against an engine emitting thirty-six
+> labels, on eleven surfaces at once. The registry and the catalogue are both
+> enumerable at runtime; a number typed into a document is a second, staler
+> copy of something already knowable.
 
 ---
 
@@ -114,9 +131,19 @@ The MCP adapter is not yet implemented as production code. The skill registry is
 
 When the Bitget Agent Hub supports MCP tool registration, RUNECLAW will:
 
-1. Expose all 12 skills as MCP tools with JSON Schema input/output definitions
-2. Enforce the same fail-closed risk gate on all tool invocations
-3. Require human confirmation for any trade execution (even via MCP)
-4. Log all MCP calls through the existing structured audit system
+1. Register the existing `POST /mcp` surface with the Hub's discovery mechanism
+2. Widen `TOOL_CATALOGUE` toward the registry where a skill is safe to expose
+   to an unauthenticated caller
 
-The fail-closed and human-in-the-loop guarantees apply regardless of interface. An MCP call cannot bypass the risk engine or skip confirmation.
+Both fail-closed guarantees already hold on every interface today: the risk gate
+runs on every analysis whether the call arrives from Telegram, the CLI or MCP,
+and every MCP call is logged through the structured audit system.
+
+**One promise was dropped from this list, not moved.** It used to read
+"require human confirmation for any trade execution (even via MCP)", and that is
+false on shipped defaults — `bot/config.py` sets `auto_confirm_live_enabled` to
+True, so a signal clearing the confidence bar places a live order with nobody
+pressing anything. The honest pair is the one that IS true by default:
+simulation mode is on and live trading is off until an operator switches it on.
+The same sentence was corrected on the homepage, the meta description, the
+JSON-LD and `llms.txt`; this was the fifth surface carrying it.

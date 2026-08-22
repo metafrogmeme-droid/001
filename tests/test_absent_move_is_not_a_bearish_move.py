@@ -59,10 +59,37 @@ class _Direction:
 
 
 def _confidence_delta(change_pct, direction, *, base=0.60, bonus=0.05):
-    """Run the real confidence branch out of the live source."""
+    """Run the real confidence branch out of the live source.
+
+    BOTH SLICE BOUNDARIES USED TO BE COMMENTS:
+
+        i = src.index("if signal.volume_spike:\n            # A BINARY ON A VALUE")
+        code = src[i:src.index("\n        # IMPROVEMENT #2", i)]
+
+    Extracting the live branch and EXECUTING it is the strongest thing a test
+    in this repo does — it cannot pass against code that was deleted, unlike
+    every source match. Anchoring it on prose gave that strength a hinge:
+    rewording either comment breaks it on unchanged behaviour, and moving the
+    `# IMPROVEMENT #2` marker earlier shrinks the extracted block, which still
+    executes and still passes while covering less.
+
+    The start anchor carried the comment for a real reason — `analyzer.py` has
+    TWO `if signal.volume_spike:` blocks and the comment disambiguated them.
+    `_chg = signal.change_pct_24h or 0.0` is unique and is code, so the block is
+    now found from there and ends where its indentation does.
+    """
     src = inspect.getsource(A)
-    i = src.index("if signal.volume_spike:\n            # A BINARY ON A VALUE")
-    code = textwrap.dedent(src[i:src.index("\n        # IMPROVEMENT #2", i)])
+    anchor = "_chg = signal.change_pct_24h or 0.0"
+    i = src.index(anchor)
+    start = src.rindex("\n", 0, i) + 1
+    indent = len(src[start:i])
+    # To the first later line that is non-blank and dedents out of the block.
+    lines, out = src[start:].split("\n"), []
+    for ln in lines:
+        if out and ln.strip() and len(ln) - len(ln.lstrip()) < indent:
+            break
+        out.append(ln)
+    code = textwrap.dedent("\n".join(out))
     ns = {
         "signal": type("S", (), {"volume_spike": True,
                                  "change_pct_24h": change_pct})(),

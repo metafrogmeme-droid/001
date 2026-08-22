@@ -61,7 +61,13 @@ class TestVpTwoPass:
         # The deferred vote runs AFTER the last regular voter and BEFORE the
         # family caps, on the full electorate.
         deferred = src.find("if _vp_deferred is not None:")
-        caps = src.find("Mean-reversion oscillator de-correlation")
+        # `caps` WAS `src.find("Mean-reversion oscillator de-correlation")` — a
+        # comment banner. Same shape as the two entry-path ordering claims fixed
+        # alongside this: reword the banner, `find` returns -1, and
+        # `0 < deferred < -1` is false on unchanged code. Anchored on the line
+        # the family cap actually runs on.
+        caps = src.find("if CONFIG.confluence.family_cap_enabled:")
+        assert caps > 0, "the family cap is gone from _score_confluence"
         assert 0 < deferred < caps, "deferred VP vote must precede the family caps"
 
 

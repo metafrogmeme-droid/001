@@ -53,12 +53,26 @@ test('the /proof page carries the paste-verifier, offline and equivalent', () =>
   assert.match(html, /Verify anyone — paste a statement/);
   assert.match(html, /entirely in your\s+browser/, 'offline promise on the page');
   assert.match(html, /MISMATCH — the pasted statement does NOT hash/);
-  // The page's inline canonicalizer must stay the same algorithm as the lib:
-  // recursive key sort over JSON.stringify — pin its two load-bearing lines.
-  assert.ok(html.includes("Object.keys(obj).sort().map(k =>"),
-    'inline canonical() keeps the recursive key sort');
-  assert.ok(html.includes("if (Array.isArray(obj)) return '[' + obj.map(canonical).join(',') + ']'"),
-    'inline canonical() keeps array handling');
+  // THE AGREEMENT CHECK USED TO LIVE HERE, AND IT WAS TWO STRING MATCHES:
+  //
+  //   assert.ok(html.includes("Object.keys(obj).sort().map(k =>"))
+  //   assert.ok(html.includes("if (Array.isArray(obj)) return '[' + ..."))
+  //
+  // The comment above them said the inline canonicalizer "must stay the same
+  // algorithm as the lib". What the assertions actually checked was that two
+  // particular lines of text were present — and the two implementations HAD
+  // already diverged, in a line neither pattern mentions: the library filters
+  // `undefined` values and refuses non-finite numbers, and the page did
+  // neither, so `{a:'1', b:undefined}` serialised here as
+  // `{"a":"1","b":undefined}` — not even valid JSON, and a different hash.
+  //
+  // A source match cannot see a difference that lives outside the line it
+  // matches. `proof_canonical_agreement.test.js` runs BOTH implementations
+  // over the CPython fixture and over the shapes that diverged, which is the
+  // property this comment was describing all along.
+  assert.ok(html.includes('function canonical(obj)'),
+    'the inline canonicalizer is gone; proof_canonical_agreement.test.js '
+    + 'extracts it by that name');
   // Fully offline: the handler never fetches.
   const handler = html.slice(html.indexOf("vaBtn.addEventListener"));
   assert.ok(!handler.includes('fetch('), 'paste verification never leaves the device');

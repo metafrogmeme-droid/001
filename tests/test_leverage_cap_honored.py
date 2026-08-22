@@ -41,8 +41,12 @@ def test_margin_risk_cap_uses_the_effective_override_leverage():
     # past the cap unchecked because the gate evaluated at the lower default.
     # The cap must now evaluate at the SAME leverage the executor will use.
     src = inspect.getsource(RiskEngine._evaluate_locked)
-    block = src[src.index("6b. Leverage-aware margin risk cap"):]
-    block = block[:block.index("MARGIN_RISK: no leverage")]  # bound to the 6b block
+    # The window opened on the comment banner "6b. Leverage-aware margin risk
+    # cap". Its far edge is a log string, which is code — so half of it was
+    # solid and half moved whenever somebody renumbered a check. The cap bounds
+    # SL-distance x leverage against max_margin_risk_pct, on the money path.
+    i = src.index("leverage = CONFIG.exchange.default_leverage")
+    block = src[i:src.index("MARGIN_RISK: no leverage", i)]
     assert "RUNTIME.leverage_override" in block, \
         "margin-risk cap must read the runtime /leverage override, not only the env default"
     # And it still falls back to the env default when no override is set.

@@ -19,7 +19,11 @@ from bot.core.engine import RuneClawEngine
 
 def _preexec_block() -> str:
     src = inspect.getsource(RuneClawEngine._confirm_trade_inner)
-    i = src.index("Kill-switch fail-closed re-check")
+    # CODE AT BOTH ENDS. This ran from the comment "Kill-switch fail-closed
+    # re-check" to a log string, over the last-mile check that stops an order
+    # being placed after /halt has landed. A window on the money path, opened by
+    # a sentence.
+    i = src.index("_user_breaker = False")
     j = src.index("Trade REJECTED: engine halted (kill-switch)", i)
     return src[i:j]
 

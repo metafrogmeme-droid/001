@@ -134,10 +134,39 @@
   // number in the bundle is already a string, so JSON.stringify on primitives
   // (which serialises strings/bools/null/integers identically to Python) plus a
   // recursive key sort reproduces the exact same bytes here.
+  //
+  // THIS IS THE COPY THAT SHIPS, AND IT WAS THE UNVERIFIED ONE.
+  // `app/lib/canonical.js` holds the same algorithm and is pinned against a
+  // CPython-generated fixture — and is imported by NOTHING except its own
+  // test. So the function a reader's browser runs was never checked against
+  // the sealer, while the function that was checked never ran anywhere.
+  //
+  // The two had drifted. Three inputs produced different bytes, which means a
+  // different hash, which means the page would say a genuine receipt does not
+  // verify:
+  //
+  //   {a:'1', b:undefined}  lib {"a":"1"}        here {"a":"1","b":undefined}
+  //   {a: NaN}              lib throws           here {"a":null}
+  //
+  // The first is not even valid JSON. Neither is reachable from a bundle that
+  // arrived over the wire — JSON has no `undefined`, and the CSF invariant
+  // keeps every number a string — so this is a latent divergence rather than a
+  // live miscount, and saying which it is matters. What is NOT latent is that
+  // the shipped copy had nothing keeping it in agreement with the sealer.
+  //
+  // `proof_canonical_agreement.test.js` extracts THIS function out of THIS
+  // file and runs it against the same fixture as the library, so the two
+  // cannot drift again without a named failure.
   function canonical(obj) {
-    if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+    if (obj === null || typeof obj !== 'object') {
+      if (typeof obj === 'number' && !Number.isFinite(obj)) {
+        throw new Error('non-finite number cannot be canonicalized');
+      }
+      return JSON.stringify(obj);
+    }
     if (Array.isArray(obj)) return '[' + obj.map(canonical).join(',') + ']';
-    return '{' + Object.keys(obj).sort().map(k =>
+    const keys = Object.keys(obj).filter(k => obj[k] !== undefined).sort();
+    return '{' + keys.map(k =>
       JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
   }
   async function sha256hex(str) {

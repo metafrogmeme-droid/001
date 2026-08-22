@@ -21,9 +21,23 @@ from bot.core.engine import RuneClawEngine
 
 
 def _clamp_block() -> str:
+    """The free-margin clamp, bounded by CODE at both ends.
+
+    It used to run from the comment `LIVE FIX: Cap position size` to the comment
+    `Manual margin override`, and the assertions inside include a NEGATIVE one —
+    that `live_bal = self._live_balance_cache` is gone. A window whose edges are
+    prose, holding a claim that something is ABSENT, is the weakest shape this
+    repo has: rewording either sentence moves the span, and a span that shrinks
+    passes the negative over less code while saying nothing about it.
+
+    The clamp is on the money path — it is what stops a per-user order being
+    sized against the OPERATOR's balance — so it earns real anchors. Both are
+    unique lines of code in the same function.
+    """
     src = inspect.getsource(RuneClawEngine._confirm_trade_inner)
-    i = src.index("LIVE FIX: Cap position size")
-    j = src.index("Manual margin override", i)
+    i = src.index("live_bal = await self.get_user_live_equity(user_id)")
+    i = src.rindex("\n", 0, i) + 1
+    j = src.index("size_usd = available", i) + len("size_usd = available")
     return src[i:j]
 
 
