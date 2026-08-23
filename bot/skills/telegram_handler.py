@@ -847,6 +847,7 @@ class TelegramHandler:
             ("setcap", self._cmd_setcap),
             ("drawdownlimit", self._cmd_drawdownlimit),
             ("venue", self._cmd_venue),
+            ("venues", self._cmd_venues),
             ("classpf", self._cmd_classpf),
             ("funding", self._cmd_funding),
             ("parity", self._cmd_parity), ("shadow", self._cmd_shadow),
@@ -4733,6 +4734,82 @@ class TelegramHandler:
             return (bool(stalled), next_in)
         except Exception:
             return (False, None)
+
+    @guard("trade")
+    async def _cmd_venues(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/venues — choose which of your connected venues actually trade.
+
+        ``/venues`` shows the current state; ``/venues bitget bybit`` sets the
+        selection; ``/venues none`` returns to a single venue.
+
+        DELIBERATELY THIN. Everything a reader could be misled by lives in
+        ``bot/formatters/venue_card.py`` where a test can plant state and read
+        the card back — the seam #999 is about. This method's only job is to
+        gather facts and pass a refusal through verbatim.
+        """
+        import asyncio as _aio
+
+        from bot.core.exchange_credentials import get_credential_store
+        from bot.core.venue_selection import (ENFORCE_IMPLEMENTED,
+                                              get_venue_selection_store,
+                                              routing_decision)
+        from bot.formatters.venue_card import venue_card
+
+        tg_id = self._get_tg_id(update)
+        store = get_venue_selection_store()
+        creds = get_credential_store()
+
+        def _connected(uid):
+            return creds.list_venues(uid)
+
+        def _open_on(uid, venue):
+            """Open positions on ONE venue, or raise.
+
+            RAISING is the point. `set_selection` treats an exception as
+            "could not check" and refuses the deselect; returning 0 on failure
+            would read as "there are none" and strand real positions.
+            """
+            ex = self.engine._executor_for(uid, venue)
+            if ex is None:
+                return 0
+            return len(getattr(ex, "open_positions", None) or [])
+
+        args = [a.strip().lower() for a in (ctx.args or []) if a.strip()]
+        if args:
+            wanted = [] if args[0] in ("none", "off", "clear", "single") else args
+            ok, why = await _aio.to_thread(
+                store.set_selection, tg_id, wanted,
+                connected=_connected, open_positions=_open_on)
+            if not ok:
+                # Verbatim. The store's refusals already name the venue and the
+                # count; rewording them here would be a second place for the
+                # reason to drift from the rule that produced it.
+                await self._send(update, f"\U0001f534 <b>Not changed</b> — {why}")
+                return
+
+        try:
+            rd = routing_decision(tg_id, connected=_connected)
+            conn = _connected(tg_id)
+        except Exception as exc:
+            system_log.warning("/venues state read failed for %s: %s", tg_id, exc)
+            await self._send(update,
+                "\U0001f534 Could not read your venue setup just now. Nothing "
+                "was changed. Try again in a moment.")
+            return
+
+        pos = {}
+        for v in (rd.get("venues") or ()):
+            try:
+                pos[v] = _open_on(tg_id, v)
+            except Exception:
+                # Omitted rather than zeroed: an unreadable count must not
+                # print as "0 open" beside a venue that may hold positions.
+                pass
+
+        await self._send(update, venue_card(
+            connected=conn, selected=store.raw_selection(tg_id),
+            dropped=rd.get("dropped") or (), mode=rd.get("mode") or "off",
+            enforce_available=ENFORCE_IMPLEMENTED, positions=pos))
 
     @guard("leverage")
     async def _cmd_leverage(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
