@@ -1729,7 +1729,7 @@ class RuneClawEngine:
             },
         }
 
-    def _executor_for(self, user_id: str = ""):
+    def _executor_for(self, user_id: str = "", venue: str = ""):
         """Return the LiveExecutor that should place THIS caller's live order.
 
         Default (PER_USER_LIVE_ENABLED off): ALWAYS the shared operator executor
@@ -1785,7 +1785,34 @@ class RuneClawEngine:
         except Exception as exc:
             logger.debug("venue routing observation skipped for %s: %s",
                          user_id, exc)
-        key = str(user_id)
+        # MULTI-VENUE: a split venue gets its OWN executor, keyed the same way
+        # `_user_risk` is (Phase 2) so `_halt_all_venues_for` can already parse
+        # it. Crucially these live in the SAME dict as the single-venue ones,
+        # because `_all_live_executors()` iterates `.values()` — so flatten,
+        # the emergency kill switch, SL/TP monitoring and reconciliation all
+        # cover every venue by construction rather than by remembering to.
+        # That is the property §3 calls the safety core; making it structural
+        # is the only way it survives someone editing one of those loops.
+        try:
+            from bot.core.venue_key import is_split
+            _rv = str(venue).strip().lower() if is_split(venue) else ""
+        except Exception:
+            _rv = ""
+        if _rv:
+            creds_v = None
+            try:
+                creds_v = _store.get_for_venue(user_id, _rv)
+            except Exception as exc:
+                logger.warning("Per-venue executor: %s credentials unreadable "
+                               "for %s: %s", _rv, user_id, exc)
+            if not creds_v:
+                # No usable keys for the venue we were asked to route to. This
+                # must NOT quietly become "use the default venue" — that places
+                # a trade somewhere the caller did not ask for. The caller
+                # checks for None and refuses.
+                return None
+            creds, venue = creds_v, _rv
+        key = f"{_rv}/{user_id}" if _rv else str(user_id)
         ex = self._user_executors.get(key)
         # Rebuild if absent or the user's credentials changed (e.g. re-/connect,
         # or switched venue). Full-dict compare is venue-agnostic — Hyperliquid
@@ -1902,8 +1929,17 @@ class RuneClawEngine:
         so the next trade — and the next balance view — rebuilds it from the
         current stored credentials. Safe to call when none exists. Never touches
         the shared operator executor."""
-        self._user_executors.pop(str(user_id), None)
-        self._balance_view_executors.pop(str(user_id), None)
+        uid = str(user_id)
+        # EVERY venue, not just the default key. Once executors are keyed
+        # `venue/user`, popping only `user` leaves per-venue executors cached
+        # holding credentials the user just revoked — a /disconnect that
+        # disconnects nothing, on the path that places orders.
+        for k in [k for k in list(self._user_executors)
+                  if k == uid or k.endswith(f"/{uid}")]:
+            self._user_executors.pop(k, None)
+        for k in [k for k in list(self._balance_view_executors)
+                  if k == uid or k.endswith(f"/{uid}")]:
+            self._balance_view_executors.pop(k, None)
 
     async def switch_venue(self, venue_id: str) -> str:
         """Hot-swap the shared operator executor onto another trading venue.
@@ -2235,6 +2271,42 @@ class RuneClawEngine:
         except Exception as exc:
             return False, f"live allowlist check failed: {exc}"
         return True, "linked keys + live-allowlisted"
+
+    async def _venue_margin_candidates(self, user_id: str, venues) -> list:
+        """``[{"venue", "free_usd"}]`` — free margin per venue, or ``None``.
+
+        ``None`` is the whole point of the shape. A venue whose balance could
+        not be read reports ``free_usd: None`` and ``choose_venue`` drops it,
+        because unreadable is not "has margin": routing an order on a number
+        nobody read is the §7 failure with an exchange rejection attached.
+
+        Each venue is read INSIDE its own try, so one dead venue costs that
+        venue's candidacy and not the whole route — guard-or-omit, the omit
+        half. A total failure yields every venue unreadable, which makes
+        ``choose_venue`` refuse rather than pick blind.
+        """
+        out: list = []
+        for v in (venues or ()):
+            free = None
+            try:
+                ex = self._executor_for(user_id, v)
+                if ex is not None:
+                    bal = await ex.fetch_balance()
+                    # `fetch_balance` returns {"error": ..., "free": 0, ...} on
+                    # failure — a measured-looking ZERO for a balance nobody
+                    # read. Taking `free` straight from that would report
+                    # "$0.00 < $50.00" about a venue that never answered, and
+                    # an order of size 0 would find it eligible. The error key
+                    # is what distinguishes the two, so it is checked FIRST.
+                    if isinstance(bal, dict) and not bal.get("error"):
+                        raw = bal.get("free")
+                        free = float(raw) if raw is not None else None
+            except Exception as exc:
+                logger.warning("venue margin unreadable for %s on %s: %s",
+                               user_id, v, exc)
+                free = None
+            out.append({"venue": v, "free_usd": free})
+        return out
 
     def _all_live_executors(self) -> list:
         """The shared operator executor plus every active per-user executor.
@@ -5962,6 +6034,49 @@ class RuneClawEngine:
         # below is byte-identical to before. With it on, a human user's confirmed
         # trade routes to THEIR own linked account.
         executor = self._executor_for(user_id)
+
+        # MULTI-VENUE ROUTING (Phase 4, `enforce`). With the flag off, off-mode,
+        # or no selection, `effective` is empty and `executor` above is exactly
+        # what it has always been.
+        try:
+            from bot.core.venue_selection import choose_venue, routing_decision
+            _rd = routing_decision(user_id)
+            if _rd.get("effective"):
+                _cands = await self._venue_margin_candidates(
+                    user_id, _rd["effective"])
+                _venue, _why = choose_venue(_cands, float(size_usd or 0.0))
+                audit(trade_log, f"Venue routing: {_why}", action="venue_route",
+                      result=("CHOSEN" if _venue else "REFUSED"),
+                      data={"user": str(user_id), "venue": _venue or "",
+                            "considered": list(_rd["effective"])})
+                if _venue is None:
+                    # REFUSE. Falling through to the default executor would
+                    # place the order on a venue the person did not select,
+                    # which is worse than not trading — and it would do it
+                    # precisely when margin was unreadable or short, i.e. when
+                    # least is known.
+                    #
+                    # A STRING, matching every other refusal here. This
+                    # function returns the text the user is shown; the first
+                    # draft returned a dict, which would have rendered a raw
+                    # Python repr into the chat at the moment a trade was
+                    # refused. The signature says `-> str` and every sibling
+                    # return is a "Trade REJECTED: ..." line.
+                    return f"Trade REJECTED: {_why}"
+                _routed = self._executor_for(user_id, _venue)
+                if _routed is None:
+                    _msg = (f"selected venue {_venue} has no usable credentials "
+                            "— not routing this order elsewhere")
+                    audit(trade_log, _msg, action="venue_route", result="REFUSED",
+                          data={"user": str(user_id), "venue": _venue})
+                    return f"Trade REJECTED: {_msg}"
+                executor = _routed
+        except Exception as exc:
+            # Routing is best-effort ONLY in the direction of doing what it did
+            # before: any fault leaves `executor` as the single-venue one. It
+            # can never widen where an order goes.
+            logger.warning("venue routing skipped for %s (%s) — single venue",
+                           user_id, exc)
 
         # ── Pyramid add: half size now; the existing winner's SL is moved to
         # breakeven ONLY after this add actually fills (see the success branch
