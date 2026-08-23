@@ -234,20 +234,24 @@ def test_the_guard_does_not_become_a_fee_pump(tmp_path):
     again, paying a round-trip fee every cycle and looking from outside exactly
     like a bot trading badly. The block is the difference between a guard and a
     fee pump, so it is tested as behaviour rather than trusted as a comment.
-    """
-    import time as _time
 
-    from bot.core.live_executor import _LEVERAGE_BLOCK_SECONDS, LiveExecutor
+    It used to plant `_leverage_blocked_until[sym]` and read back the same
+    literal, which is why it never noticed that the guard rests the PERP symbol
+    while the check is called with the SPOT one. It goes through the write path
+    now, and asks under the spelling `execute` really uses.
+    """
+    from bot.core.live_executor import LiveExecutor
 
     ex = LiveExecutor(state_dir=str(tmp_path))
-    sym = "APT/USDT:USDT"
+    perp = "APT/USDT:USDT"     # what `symbol` has become by the guard
+    asset = "APT/USDT"         # idea.asset, what _preflight_check is given
 
-    assert ex._preflight_check(10.0, symbol=sym) is None, (
+    assert ex._preflight_check(10.0, symbol=asset) is None, (
         "an unblocked symbol must pass — if this fails the test below proves "
         "nothing, because everything is blocked")
 
-    ex._leverage_blocked_until[sym] = _time.monotonic() + _LEVERAGE_BLOCK_SECONDS
-    err = ex._preflight_check(10.0, symbol=sym)
+    ex._rest_symbol(perp)
+    err = ex._preflight_check(10.0, symbol=asset)
     assert err is not None, "a flattened symbol must be refused, not re-entered"
     assert "resting" in err and "minute" in err, (
         f"the refusal must say how long and why, not just BLOCKED: {err!r}")
@@ -258,17 +262,15 @@ def test_the_guard_does_not_become_a_fee_pump(tmp_path):
 
 def test_the_block_expires_and_is_not_permanent(tmp_path):
     """A block that never lifts is a symbol quietly delisted by a bug."""
-    import time as _time
-
     from bot.core.live_executor import LiveExecutor
 
     ex = LiveExecutor(state_dir=str(tmp_path))
-    sym = "APT/USDT:USDT"
-    ex._leverage_blocked_until[sym] = _time.monotonic() - 1.0   # already expired
-    assert ex._preflight_check(10.0, symbol=sym) is None
-    assert sym not in ex._leverage_blocked_until, (
+    ex._rest_symbol("APT/USDT:USDT", seconds=-1.0)      # already expired
+    assert ex._preflight_check(10.0, symbol="APT/USDT") is None
+    assert not ex._leverage_blocked_until, (
         "an expired block should be dropped, not left to accumulate for the "
-        "lifetime of the process")
+        "lifetime of the process — and dropped under the key it was stored "
+        "under, or it never leaves")
 
 
 def test_a_raise_after_a_successful_flatten_does_not_place_sl_tp():
