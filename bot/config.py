@@ -2169,6 +2169,22 @@ class AppConfig:
     # exactly as before (single operator account). This is the master switch for
     # the per-user-accounts feature; see docs/LIVE_TRADING_ENABLEMENT.md.
     per_user_live_enabled: bool = _env_bool("PER_USER_LIVE_ENABLED", False)
+    # ── Multi-venue trading (Phase 4) ────────────────────────────────────
+    # Whether a user's SELECTED venues are honoured when routing an order.
+    # Default off: one venue, exactly as before Phases 0-3 existed.
+    #
+    # `shadow` records the routing decision it WOULD have made and executes
+    # unchanged, so the person-level caps and the cross-venue halt can be
+    # observed against real selections before an order goes anywhere new. The
+    # same ladder every other control here uses, for the same reason: the step
+    # from "built and tested" to "deciding where real money goes" is the one
+    # worth taking in two moves rather than one.
+    #
+    # NB the flag alone changes nothing for anybody. A user's selection is
+    # EMPTY until they choose, and empty means single-venue — connecting a
+    # venue is not consenting to trade on it.
+    multi_venue_trading_enabled: bool = _env_bool("MULTI_VENUE_TRADING_ENABLED", False)
+    multi_venue_trading_mode: str = os.getenv("MULTI_VENUE_TRADING_MODE", "shadow").strip().lower()
 
     # Paper auto-accept: a new Telegram user is admitted for PAPER trading on
     # first contact instead of waiting for an operator's /approve. The Arena is
