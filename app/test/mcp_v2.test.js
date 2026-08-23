@@ -147,7 +147,15 @@ test('get_airdrop_radar keeps the guided-only + anti-sybil stance on the wire', 
 
 test('get_alpha_intel returns the derived-only analytics shape', async () => {
   const r = await callTool('get_alpha_intel', {});
-  assert.ok('trades' in r.data && 'alpha' in r.data && 'max_drawdown_usd' in r.data);
+  // `max_drawdown_usd` used to be the third exemplar here. It was never an
+  // assertion that dollars BELONG on this tool — it is unauthenticated, so
+  // they do not — just three keys picked to show analytics come back. Swapped
+  // for a percent one, and the no-dollars rule is asserted outright rather
+  // than left to a curated list elsewhere.
+  assert.ok('trades' in r.data && 'alpha' in r.data && 'win_rate_pct' in r.data);
+  const dollars = JSON.stringify(r.data).match(/"[a-z_]*_usd"/g);
+  assert.equal(dollars, null,
+    `public tool returned dollar fields: ${dollars} — percent, ratio and count only`);
 });
 
 // ── /developers page ─────────────────────────────────────────────────────────

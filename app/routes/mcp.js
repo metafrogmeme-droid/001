@@ -866,8 +866,16 @@ const TOOLS = {
       + 're-derivable), expectancy, payoff ratio, profit factor, max realized '
       + 'drawdown and streaks. Same rows as get_track_record.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    // publicIntel, not getUserIntel: this tool has no requiresKey, so it is
+    // served to anyone through POST /api/tool/invoke — the endpoint the
+    // published ERC-8257 manifest names. Percent, ratio and count only.
+    // routes/portfolio.js keeps the dollars; it serves req.user.user_id.
+    // The comment lives OUTSIDE the arrow function on purpose: inside, it
+    // became part of Function.prototype.toString and made a reachability
+    // assertion pass with the call removed.
     handler: async () =>
-      require('../lib/intel').getUserIntel(parseInt(process.env.BOT_USER_ID) || 1),
+      require('../lib/intel').publicIntel(
+        await require('../lib/intel').getUserIntel(parseInt(process.env.BOT_USER_ID) || 1)),
   },
 };
 
