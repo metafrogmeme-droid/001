@@ -1759,6 +1759,32 @@ class RuneClawEngine:
             venue = "bitget"
         if not creds:
             return self.live_executor
+        # MULTI-VENUE, Phase 4 (SHADOW). Record where this order WOULD go if
+        # the user's venue selection were being routed on, without changing
+        # where it actually goes. This is the entire point of a shadow mode —
+        # the decision is observable against real traffic before an order
+        # reaches a venue it has never reached before — and it is also what
+        # makes the selection module REACHABLE. A resolver nothing calls is
+        # indistinguishable from one that does not work, and its passing tests
+        # say nothing about production (tests/test_no_new_unreachable_modules).
+        #
+        # Best-effort by construction: an observation must never be able to
+        # stop an order that would otherwise have been placed.
+        try:
+            from bot.core.venue_selection import routing_decision
+            _rd = routing_decision(user_id)
+            if _rd.get("venues") or _rd.get("dropped"):
+                audit(system_log,
+                      f"Venue routing ({_rd['mode']}) for user {user_id}: "
+                      f"{_rd['reason']}",
+                      action="venue_routing", result=_rd["mode"].upper(),
+                      data={"user": str(user_id), "mode": _rd["mode"],
+                            "selected": list(_rd["venues"]),
+                            "dropped": list(_rd["dropped"]),
+                            "effective": list(_rd["effective"])})
+        except Exception as exc:
+            logger.debug("venue routing observation skipped for %s: %s",
+                         user_id, exc)
         key = str(user_id)
         ex = self._user_executors.get(key)
         # Rebuild if absent or the user's credentials changed (e.g. re-/connect,

@@ -230,6 +230,22 @@ def get_venue_selection_store() -> VenueSelectionStore:
 
 VALID_MODES = ("off", "shadow", "enforce")
 
+#: Is there a caller that ACTS on `effective` — i.e. does an order actually
+#: reach more than one venue?
+#:
+#: False today. Selection and observation landed first, deliberately, and the
+#: order-routing change is its own step. This constant exists because the
+#: alternative is worse than the gap: with nothing acting on `effective`,
+#: `enforce` would behave EXACTLY like `shadow` while reporting that it is
+#: routing across venues. An operator who set enforce would believe the
+#: feature was live, see plausible reasons in the logs, and be wrong — a
+#: control that reports doing something it is not doing, which is the failure
+#: this repository is mostly built to prevent.
+#:
+#: So enforce is refused until this flips, LOUDLY, rather than quietly
+#: degrading. Flip it in the same commit that teaches the executor to route.
+ENFORCE_IMPLEMENTED = False
+
 
 def routing_decision(user_id: str, *, connected: Optional[Callable] = None,
                      store: Optional[VenueSelectionStore] = None) -> dict:
@@ -288,6 +304,16 @@ def routing_decision(user_id: str, *, connected: Optional[Callable] = None,
     else:
         reason = f"routing across {', '.join(venues)}"
 
+    if mode == "enforce" and not ENFORCE_IMPLEMENTED:
+        # Not a silent downgrade: an operator who asked for enforce is told
+        # they did not get it. Reporting `shadow` without saying why would let
+        # them read the logs as confirmation the feature is live.
+        log.warning("MULTI_VENUE_TRADING_MODE=enforce, but no caller routes on "
+                    "it yet — running as shadow. Nothing is routed across "
+                    "venues.")
+        mode = "shadow"
+        reason = ("ENFORCE REQUESTED BUT NOT AVAILABLE — order routing is not "
+                  "wired yet; running as shadow. " + reason)
     effective = venues if (mode == "enforce" and venues) else ()
     if dropped:
         reason += (f" · selected but not connected: {', '.join(dropped)}")

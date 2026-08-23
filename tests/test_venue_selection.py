@@ -206,10 +206,16 @@ def test_shadow_reports_what_it_would_do_and_does_nothing(store, mode):
 
 
 def test_enforce_is_the_only_mode_that_routes(store, mode):
+    """Written to track ENFORCE_IMPLEMENTED rather than to be deleted and
+    rewritten later. While routing is unwired this pins that enforce yields
+    nothing; the day the executor learns to route, the same assertion becomes
+    the real one with no edit — and if somebody flips the constant WITHOUT
+    wiring a caller, this fails."""
+    import bot.core.venue_selection as vs
     mode(True, "enforce")
     store.set_selection("alice", ["bitget", "bybit"], connected=_ALL)
-    assert routing_decision("alice", connected=_ALL, store=store)["effective"] \
-        == ("bitget", "bybit")
+    got = routing_decision("alice", connected=_ALL, store=store)["effective"]
+    assert got == (("bitget", "bybit") if vs.ENFORCE_IMPLEMENTED else ())
 
 
 def test_an_unrecognised_mode_is_off_not_the_default(store, mode):
@@ -230,13 +236,18 @@ def test_enforce_with_no_selection_is_still_single_venue(store, mode):
     assert "no venues selected" in d["reason"]
 
 
-def test_enforce_reports_a_dropped_venue_rather_than_quietly_routing_fewer(store, mode):
+def test_a_dropped_venue_is_reported_rather_than_quietly_routing_fewer(store, mode):
+    """The `dropped` half holds in every mode — it is a fact about the user's
+    credentials, not about routing — so this does not wait on
+    ENFORCE_IMPLEMENTED."""
+    import bot.core.venue_selection as vs
     mode(True, "enforce")
     store.set_selection("alice", ["bitget", "bybit"], connected=_ALL)
     d = routing_decision("alice", connected=lambda u: ["bitget"], store=store)
-    assert d["effective"] == ("bitget",)
+    assert d["venues"] == ("bitget",)
     assert d["dropped"] == ("bybit",)
     assert "not connected" in d["reason"]
+    assert d["effective"] == (("bitget",) if vs.ENFORCE_IMPLEMENTED else ())
 
 
 def test_no_failure_path_widens_the_routing_set(store, mode):
@@ -263,3 +274,75 @@ def test_the_flag_ships_off():
     fields = {f.name: f for f in dataclasses.fields(CONFIG)}
     assert fields["multi_venue_trading_enabled"].default is False
     assert fields["multi_venue_trading_mode"].default == "shadow"
+
+
+# ── enforce cannot silently be a no-op ───────────────────────────────────
+
+def test_enforce_refuses_loudly_while_no_caller_routes_on_it(store, mode):
+    """With nothing acting on `effective`, `enforce` would behave EXACTLY like
+    `shadow` while reporting that it routes across venues. An operator who set
+    it would believe the feature was live, read plausible reasons in the logs,
+    and be wrong — a control reporting an action it is not taking.
+
+    So it degrades LOUDLY and says so in the reason, rather than quietly.
+    """
+    import bot.core.venue_selection as vs
+    assert vs.ENFORCE_IMPLEMENTED is False, (
+        "order routing landed — flip this test to assert enforce routes, in "
+        "the same commit")
+    mode(True, "enforce")
+    store.set_selection("alice", ["bitget", "bybit"], connected=_ALL)
+    d = routing_decision("alice", connected=_ALL, store=store)
+    assert d["effective"] == ()
+    assert "NOT AVAILABLE" in d["reason"], (
+        "enforce degraded to shadow without saying so")
+
+
+# ── it is reachable from production, not only from tests ─────────────────
+
+def test_the_engine_observes_the_routing_decision():
+    """#58: a resolver nothing calls is indistinguishable from one that does
+    not work, and its passing tests say nothing about production. The shadow
+    observation in `_executor_for` is what makes this module reachable AND
+    what makes shadow mode mean something."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine._executor_for)
+    assert "routing_decision(" in src, (
+        "nothing in production calls the venue routing resolver")
+    assert "venue_routing" in src, "the shadow decision is computed and not recorded"
+
+
+def test_the_observation_cannot_block_an_order():
+    """Best-effort by construction. An observation that can throw is an
+    observation that can stop a trade that would otherwise have been placed."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine._executor_for)
+    head = src.index("routing_decision(")
+    # The call sits inside a try/except whose handler only logs.
+    assert "try:" in src[:head]
+    tail = src[head:head + 1200]
+    assert "except Exception" in tail and "logger.debug" in tail, (
+        "the routing observation is not guarded — it can raise on the path "
+        "that places an order")
+
+
+def test_a_relative_path_is_anchored_to_the_repo_not_the_cwd(tmp_path, monkeypatch):
+    """`data/venue_selection.json` is baselined as anchored-downstream, so the
+    cwd guard no longer watches it and this is the only thing that does. Every
+    other test here passes an absolute tmp path, which `state_path` returns
+    unchanged — so they all pass against a store with the anchoring removed."""
+    root = tmp_path / "repo"
+    elsewhere = tmp_path / "elsewhere"
+    root.mkdir(); elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr("bot.utils.paths.REPO_ROOT", root, raising=False)
+
+    s = VenueSelectionStore(path="data/sel_relative.json")
+    s.set_selection("alice", ["bitget"], connected=_ALL)
+    assert (root / "data" / "sel_relative.json").exists(), (
+        "the selection was written relative to the working directory")
+    assert not (elsewhere / "data" / "sel_relative.json").exists()
