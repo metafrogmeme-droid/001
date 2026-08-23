@@ -16,6 +16,8 @@ const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
+const { parseSelection, serializeSelection, deserializeSelection } =
+  require('../lib/venue_selection_wire');
 const { postGateway, relay, isConfigured } = require('../lib/gateway');
 const { stepUpBlock } = require('../lib/stepup');
 const { secLog } = require('../lib/seclog');
@@ -38,14 +40,24 @@ router.get('/status', async (req, res) => {
     const [cur] = await pool.execute(
       'SELECT live_enabled, max_margin, paused, allowlisted FROM user_controls WHERE user_id = ?', [uid]);
     const [pend] = await pool.execute(
-      'SELECT live_enabled, max_margin, paused FROM pending_controls WHERE user_id = ?', [uid]);
+      'SELECT live_enabled, max_margin, paused, venues FROM pending_controls WHERE user_id = ?', [uid]);
     const c = cur[0] || {};
+    const p = pend[0] || {};
     res.json({
       linked: !!(u[0] && u[0].telegram_linked),
       live_enabled: !!c.live_enabled,
       max_margin: c.max_margin != null ? Number(c.max_margin) : null,
       paused: !!c.paused,
       allowlisted: !!c.allowlisted,  // operator pre-approval; live needs this too
+      // APPLIED, from the bot's ack — the venues it actually holds.
+      venues: deserializeSelection(c.venues) || [],
+      // PROPOSED but not yet applied, or null when nothing is in flight. These
+      // are two fields and not one on purpose: a user shown their proposal as
+      // though it were live believes their book is spread across venues while
+      // every order still goes to one. This route's own module records that
+      // exact failure for pause-to-paper — the site showed "paused" while
+      // confirmed trades reached the exchange.
+      venues_pending: deserializeSelection(p.venues),
       pending: pend.length > 0,
     });
   } catch (err) {
@@ -125,6 +137,58 @@ router.post('/', ctlLimit, async (req, res) => {
   } catch (err) {
     console.error('Controls submit error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to submit controls' });
+  }
+});
+
+// POST /api/controls/venues  body: { venues: ["bitget","bybit"] } or []
+//
+// SEPARATE from POST /api/controls on purpose. That route's UPSERT writes every
+// column from VALUES, so folding venues into it would mean a user changing their
+// margin cap silently discards a venue proposal they made a moment earlier, and
+// vice versa. This one touches the `venues` column and nothing else.
+router.post('/venues', ctlLimit, async (req, res) => {
+  try {
+    const uid = req.user.user_id;
+    const [u] = await pool.execute(
+      'SELECT telegram_id, telegram_linked FROM users WHERE id = ?', [uid]);
+    if (!u[0] || !u[0].telegram_linked) {
+      return res.status(400).json({ error: 'Link your Telegram account first.' });
+    }
+
+    const parsed = parseSelection(req.body && req.body.venues);
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    // CONNECTING IS NOT CONSENTING, and its converse: you cannot choose to
+    // trade somewhere you have not linked. Checked here as well as in the bot
+    // because a refusal the user sees immediately is worth more than one that
+    // arrives via a sync they cannot observe — but the bot re-verifies against
+    // its OWN credential store, which is the source of truth. This is the web
+    // half of the gate, not the whole of it.
+    const [st] = await pool.execute(
+      'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1', [uid]);
+    const have = new Set(st.map((r) => String(r.exchange || 'bitget').toLowerCase()));
+    const missing = parsed.venues.filter((v) => !have.has(v));
+    if (missing.length) {
+      return res.status(400).json({
+        error: `connect these before selecting them: ${missing.join(', ')}`,
+      });
+    }
+
+    await pool.execute(
+      `INSERT INTO pending_controls (user_id, telegram_id, venues)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE telegram_id = VALUES(telegram_id),
+         venues = VALUES(venues), created_at = CURRENT_TIMESTAMP`,
+      [uid, String(u[0].telegram_id), serializeSelection(parsed.venues)]
+    );
+    secLog('controls_venues', req, `venues=${parsed.venues.join('|') || '(none)'}`);
+    // `pending: true` is the honest answer and the only one available here. The
+    // bot has not applied anything yet, and reporting these venues as live
+    // would be the pause-to-paper failure with a different label.
+    res.json({ ok: true, pending: true, venues: parsed.venues });
+  } catch (err) {
+    console.error('Venue selection error:', err.stack || err.message);
+    res.status(500).json({ error: 'Failed to submit venue selection' });
   }
 });
 

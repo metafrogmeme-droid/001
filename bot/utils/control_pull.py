@@ -104,6 +104,11 @@ def process_pending_controls(rows, store,
                 store.set_max_margin(tg, m if m > 0 else None)  # 0 clears the cap
             applied_margin = store.max_margin(tg)
             stored_pause = bool(store.sim_opt_in(tg))
+            # MULTI-VENUE. `None` means the row proposed no venue change — the
+            # user touched some other control — and must NOT be read as "clear
+            # my venues". '' DOES mean clear. Collapsing the two would drop
+            # somebody's selection every time they moved their margin cap.
+            applied_venues = _apply_venue_selection(tg, r.get("venues"))
             ack = {
                 "user_id": uid,
                 "live_enabled": bool(store.can_trade_live(tg)),
@@ -115,6 +120,12 @@ def process_pending_controls(rows, store,
                 "paper_mode_available": paper_available,
                 "paused_effective": stored_pause and paper_available,
                 "allowlisted": bool(allowlist_check(tg)) if allowlist_check else False,
+                # What the bot ACTUALLY holds, re-read from the store rather
+                # than echoed from the request. Echoing would make the website
+                # show whatever was asked for, which is the pause-to-paper
+                # failure this module's docstring already records: the site said
+                # "paused" while every confirmed trade went to the exchange.
+                "venues": applied_venues,
                 "ok": True,
             }
             if paused_rejected:
@@ -127,6 +138,31 @@ def process_pending_controls(rows, store,
             acks.append({"user_id": uid, "ok": False, "error": "processing error"})
     return acks
 
+
+def _apply_venue_selection(telegram_id, raw) -> str:
+    """Apply a proposed venue selection and return what is now STORED.
+
+    Returns a comma-separated string for the ack — always the store's own
+    answer, never the request's, so a refusal cannot be reported as a success.
+
+    ``raw is None`` → nothing proposed. The selection is left alone and its
+    CURRENT value is returned, because the ack mirrors state and an omitted
+    field would blank the website's copy.
+    """
+    from bot.core.venue_selection import get_venue_selection_store
+
+    store = get_venue_selection_store()
+    uid = str(telegram_id)
+    if raw is not None:
+        wanted = [v.strip().lower() for v in str(raw).split(",") if v.strip()]
+        ok, why = store.set_selection(uid, wanted)
+        if not ok:
+            # The bot is the source of truth for what is connected, so a web
+            # refusal here is the real one. Logged and NOT applied; the ack
+            # below reports the unchanged selection, so the site shows what is
+            # actually in force rather than what was asked for.
+            log.warning("control pull: venue selection refused for %s: %s", uid, why)
+    return ",".join(store.raw_selection(uid))
 
 def pull_and_apply_controls(store=None, allowlist_check=None, on_change=None) -> int:
     """Fetch pending control changes, apply, ack. Returns #acked. No-op when the

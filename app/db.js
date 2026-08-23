@@ -2181,6 +2181,15 @@ async function migrate() {
       await pool.execute(
         "ALTER TABLE trades ADD COLUMN venue VARCHAR(20) NOT NULL DEFAULT 'bitget'");
     } catch (e) { /* column already exists — fine */ }
+    // Multi-venue selection, for deployments whose tables predate it. Nullable
+    // on BOTH: NULL means "nothing proposed" / "the bot has not told us yet",
+    // and neither is the same as "no venues".
+    for (const stmt of [
+      'ALTER TABLE pending_controls ADD COLUMN venues VARCHAR(200) DEFAULT NULL',
+      'ALTER TABLE user_controls ADD COLUMN venues VARCHAR(200) DEFAULT NULL',
+    ]) {
+      try { await pool.execute(stmt); } catch (e) { /* already there — fine */ }
+    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS equity_snapshots (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2455,6 +2464,16 @@ async function migrate() {
         live_enabled TINYINT DEFAULT NULL,
         max_margin DECIMAL(20,2) DEFAULT NULL,
         paused TINYINT DEFAULT NULL,
+        -- Multi-venue: the venues this user PROPOSES to trade on, comma-
+        -- separated. THREE states, and collapsing any two of them is a bug:
+        --   NULL  no venue change proposed (another control may be)
+        --   ''    proposed: clear the selection, back to a single venue
+        --   'a,b' proposed: trade these
+        -- NULL vs '' is the difference between "leave my venues alone" and
+        -- "turn multi-venue off", and a writer that sends '' for both would
+        -- silently drop somebody's selection every time they changed an
+        -- unrelated control.
+        venues VARCHAR(200) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -2467,6 +2486,13 @@ async function migrate() {
         max_margin DECIMAL(20,2) DEFAULT NULL,
         paused BOOLEAN DEFAULT FALSE,
         allowlisted BOOLEAN DEFAULT FALSE,
+        -- The venues the BOT actually holds, written by its ack. Distinct from
+        -- pending_controls.venues on purpose: a user who sets venues on the web
+        -- and is shown a tick before the bot has applied them believes they are
+        -- trading two venues while every order still goes to one. This module's
+        -- own docstring records that exact failure for pause-to-paper — the site
+        -- showed "paused" while confirmed trades went to the exchange.
+        venues VARCHAR(200) DEFAULT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
