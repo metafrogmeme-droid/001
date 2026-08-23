@@ -33,6 +33,18 @@ log = logging.getLogger("runeclaw.readiness")
 # adjustment direction must hold on unseen trades. 0.5 = coin flip; demand
 # clearly better before recommending live application.
 _VW_HOLD_RATE_BAR = 0.6
+
+# ...AND ENOUGH UNSEEN TRADES TO MEAN IT. The bar alone was the whole test, and
+# the only sample requirement beside it was `n_test > 0` — so a single held
+# voter on one unseen trade reported READY with a confident "100%". Observed
+# live at n_test=17: 67% against a 60% bar, which is 2 voters of 3, and the
+# 95% interval on that spans roughly a coin flip to near-certainty. A bar
+# whose own comment says "demand clearly better than a coin flip" cannot be
+# read off a sample that cannot distinguish one.
+_VW_MIN_TEST_TRADES = 40
+# Voters are the unit hold_rate is a fraction OF. Two of three is 67% and is
+# not evidence; the count has to be on the card next to the percentage.
+_VW_MIN_VOTERS = 3
 # Calibration readiness rides on the fitter's own min_samples (30), but for
 # a RECOMMENDATION we want a fuller curve than the bare minimum.
 _CAL_RECOMMEND_SAMPLES = 50
@@ -41,9 +53,16 @@ _CAL_RECOMMEND_SAMPLES = 50
 def assess_readiness(store=None) -> dict:
     """Assess every learner. Never raises — a component that errors reports
     state 'ERROR' with the message, and the others still assess."""
-    out: dict = {"components": {}, "resolved_samples": 0, "recommendations": []}
+    out: dict = {"components": {}, "resolved_samples": 0,
+                 "decisions_on_record": 0, "recommendations": []}
 
-    # Resolved-outcome sample base (shared denominator).
+    # Every learner extracts its OWN samples from these decisions, and they do
+    # not agree: one live card showed 6 / 17 / 61 for calibration, voter
+    # weights and setup expectancy. Calling any one of them "the" resolved
+    # count — as this line used to — invites reading three different
+    # denominators as one number. Each component reports its own `samples`;
+    # `decisions_on_record` is the raw pool they are drawn from, named for
+    # what it is.
     decisions = []
     try:
         from bot.learning.store import LearningStore
@@ -57,7 +76,10 @@ def assess_readiness(store=None) -> dict:
         from bot.config import CONFIG
         from bot.learning.confidence_calibration import ConfidenceCalibrator
         samples = ConfidenceCalibrator.samples_from_decisions(decisions)
+        # Kept for callers that already read it, but it is the CALIBRATOR's
+        # extraction and nothing else's.
         out["resolved_samples"] = len(samples)
+        out["decisions_on_record"] = len(decisions)
         cal = ConfidenceCalibrator.load()
         n = getattr(cal, "_n_samples", 0) if cal else 0
         need = getattr(cal, "min_samples", 30) if cal else 30
@@ -91,15 +113,30 @@ def assess_readiness(store=None) -> dict:
             oos = learner.validate_oos(samples)
             comp["oos_hold_rate"] = oos.get("hold_rate", 0.0)
             comp["oos_n_test"] = oos.get("n_test", 0)
-            if oos.get("n_test", 0) and oos["hold_rate"] >= _VW_HOLD_RATE_BAR:
+            n_test = int(oos.get("n_test", 0) or 0)
+            n_voters = len(oos.get("voters") or {})
+            comp["oos_n_voters"] = n_voters
+            rate = float(oos.get("hold_rate", 0.0) or 0.0)
+            # "67%" alone reads as a trade-level win rate. It is the fraction
+            # of learned VOTERS whose direction held, so the card says which
+            # unit it is and how many there were — 2 of 3 and 27 of 40 are the
+            # same percentage and not the same evidence.
+            evidence = (f"{rate:.0%} of {n_voters} voter(s) held direction on "
+                        f"{n_test} unseen trade(s)")
+            if n_test < _VW_MIN_TEST_TRADES or n_voters < _VW_MIN_VOTERS:
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} — not enough to judge yet "
+                    f"(need >= {_VW_MIN_TEST_TRADES} trades and "
+                    f">= {_VW_MIN_VOTERS} voters before the {_VW_HOLD_RATE_BAR:.0%} "
+                    "bar means anything)")
+            elif rate >= _VW_HOLD_RATE_BAR:
                 comp["state"] = "READY"
-                comp["note"] = (f"OOS hold rate {oos['hold_rate']:.0%} on "
-                                f"{oos['n_test']} unseen trades (bar {_VW_HOLD_RATE_BAR:.0%})")
+                comp["note"] = f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%})"
             else:
                 comp["state"] = "VALIDATING"
-                comp["note"] = (f"OOS hold rate {oos.get('hold_rate', 0.0):.0%} "
-                                f"< bar {_VW_HOLD_RATE_BAR:.0%} — learned directions "
-                                "do not generalize yet")
+                comp["note"] = (f"{evidence} < bar {_VW_HOLD_RATE_BAR:.0%} — "
+                                "learned directions do not generalize yet")
     except Exception as exc:
         comp.update(state="ERROR", note=str(exc)[:160])
     out["components"]["voter_weights"] = comp
