@@ -14,6 +14,13 @@
  */
 
 const { ethers } = require('ethers');
+// The calldata the USER'S WALLET sends is encoded here, not by ethers: the
+// production host resolves `ethers` to a stub whose encodeFunctionData
+// returns '0x', which mints nothing and still costs gas. See app/lib/abi_call.js.
+// The EIP-712 voucher signature genuinely needs ethers and stays on it —
+// a stub that cannot sign fails loudly (no voucher, ready:false), which is
+// the difference between the two.
+const { encodeCall } = require('./abi_call');
 
 const CHAIN_ID = 8453; // Base — where the contract deploys; the EIP-712
                        // domain pins vouchers to exactly that deployment.
@@ -119,7 +126,7 @@ async function buildMintPlan(walletAddress) {
     ready: true,
     chain_id: CHAIN_ID,
     contract,
-    calldata: IFACE.encodeFunctionData('mint', [sig]),
+    calldata: encodeCall('mint(bytes)', [sig]),
     minted_token_id: minted, // 0 = none, null = chain unreadable right now
     ...(image ? { minted_image: image } : {}),
     free: 'The mint function is not payable — the only cost is Base network gas.',
