@@ -93,3 +93,62 @@ def brain_state_of(analyzer) -> str:
         return brain_state(analyzer.llm_health())
     except Exception:
         return UNKNOWN
+
+
+# ── Is the SWEEP asking? A different question from "is the brain answering". ──
+#
+# LLM_BACKGROUND_SCANS=off sends the autonomous sweep to the rule engine. That
+# is a deliberate, correct state — and it is invisible to everything above,
+# because the four states are about the BRAIN and this is about the CALLER.
+#
+# The gap is not hypothetical. proactive_monitor._check_llm_degraded exists to
+# fire "🚨 LLM BRAIN OFFLINE — RUNNING ON RULES … still scanning and trading,
+# but on the rule engine only — no AI thesis, weaker signals" at CRITICAL
+# severity. The valve makes that exact condition permanent and unalertable: it
+# returns before any provider is attempted, so it never touches the streak, and
+# the alert whose whole subject is this state can never fire for it.
+#
+# Worse, the two claims can disagree in the direction that misleads. One user
+# /analyze keeps the streak at 0 and last_ok fresh, so brain_state() reads
+# HEALTHY — truthfully — while every background signal that tick came from the
+# rule engine. An operator reading "✅ healthy" would take the sweep's signals
+# for AI theses. So this is reported as its own sentence, never merged into the
+# brain's.
+
+SWEEP_LLM = "llm"          # background sweeps ask the LLM (historical default)
+SWEEP_RULES = "rules"      # LLM_BACKGROUND_SCANS=off — rule engine, by design
+SWEEP_UNKNOWN = "unknown"  # no snapshot, or a snapshot too old to carry the field
+
+SWEEP_TEXT: dict[str, tuple[str, str]] = {
+    SWEEP_LLM: ("🧠", "background scans use the AI thesis"),
+    SWEEP_RULES: ("🔇", "background scans are rule-engine only (by configuration)"),
+    SWEEP_UNKNOWN: ("❔", "background scan mode unknown"),
+}
+
+
+def sweep_mode(health: Optional[dict]) -> str:
+    """Does the autonomous sweep ask the LLM?
+
+    UNKNOWN when the snapshot cannot say — including a snapshot that predates
+    the field. Absent is not "yes": reading a missing field as the historical
+    default would print a confident 🧠 for a deployment whose sweep is silent.
+    """
+    if not isinstance(health, dict) or "background_scans_llm" not in health:
+        return SWEEP_UNKNOWN
+    value = health.get("background_scans_llm")
+    if value is None:
+        return SWEEP_UNKNOWN
+    return SWEEP_LLM if bool(value) else SWEEP_RULES
+
+
+def sweep_note(health: Optional[dict]) -> str:
+    """One line an operator can read, or '' when there is nothing to add.
+
+    Empty for the historical default so the common case stays quiet — a note
+    on every status line is a note nobody reads.
+    """
+    mode = sweep_mode(health)
+    if mode == SWEEP_LLM:
+        return ""
+    icon, text = SWEEP_TEXT[mode]
+    return f"{icon} {text}"

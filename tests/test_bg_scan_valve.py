@@ -277,3 +277,66 @@ class TestTheFlagIsActuallyReached:
             assert "background = True" not in code.replace("background=True",
                                                            "background = True"), (
                 f"{path} throttles a user-invoked analysis to the rule engine")
+
+
+# ── 4. the throttled state is SAYABLE, not just true ────────────────────
+
+class TestTheSweepModeIsDisclosed:
+    """A permanent "running on rules" that nothing can report is the defect.
+
+    proactive_monitor._check_llm_degraded fires "LLM BRAIN OFFLINE — RUNNING ON
+    RULES … no AI thesis, weaker signals" at CRITICAL. The valve makes that
+    condition permanent and unalertable — it returns before any provider is
+    attempted, so it never touches the streak the alert reads. Correct (a
+    deliberate throttle is not a provider failure) and insufficient: neither
+    guard nor omit is what CLAUDE.md forbids, and a state that is true and
+    invisible is exactly that.
+    """
+
+    def test_the_health_snapshot_carries_the_sweep_mode(self):
+        from bot.core.analyzer import Analyzer
+        a = Analyzer.__new__(Analyzer)
+        a._llm_degraded_streak = 0
+        a._llm_degraded_since_monotonic = 0.0
+        a._llm_last_ok_monotonic = 0.0
+        a._llm_last_error = ""
+        assert "background_scans_llm" in a.llm_health()
+
+    def test_a_healthy_brain_does_not_imply_an_asking_sweep(self):
+        # THE MISLEADING CASE. One user /analyze keeps the streak at 0 and
+        # last_ok fresh, so the brain reads HEALTHY — truthfully — while every
+        # background signal that tick came from the rule engine. Two claims,
+        # and merging them would print a confident ✅ over a silent sweep.
+        from bot.formatters.brain_state import (HEALTHY, SWEEP_RULES,
+                                                brain_state, sweep_mode)
+        health = {"degraded_streak": 0, "last_ok_seconds_ago": 1.0,
+                  "background_scans_llm": False}
+        assert brain_state(health) == HEALTHY
+        assert sweep_mode(health) == SWEEP_RULES
+        assert "rule-engine only" in _note(health)
+
+    def test_an_absent_field_is_unknown_not_the_default(self):
+        # Reading a missing field as the historical default would print a
+        # confident "uses the AI thesis" for a deployment whose sweep is
+        # silent. Absent is never a measurement.
+        from bot.formatters.brain_state import SWEEP_UNKNOWN, sweep_mode
+        assert sweep_mode({"degraded_streak": 0}) == SWEEP_UNKNOWN
+        assert sweep_mode(None) == SWEEP_UNKNOWN
+        assert sweep_mode({"background_scans_llm": None}) == SWEEP_UNKNOWN
+        assert "unknown" in _note({})
+
+    def test_the_default_stays_quiet(self):
+        # A note on every status line is a note nobody reads.
+        assert _note({"background_scans_llm": True}) == ""
+
+    def test_the_sweep_mode_never_licenses_ruling_out_the_llm(self):
+        from bot.formatters.brain_state import may_rule_out_llm
+        for value in (True, False, None):
+            assert may_rule_out_llm({"background_scans_llm": value}) is False, (
+                "a sweep-mode field must not become an entitlement to say "
+                "'not the AI' — that is a claim about the BRAIN")
+
+
+def _note(health):
+    from bot.formatters.brain_state import sweep_note
+    return sweep_note(health)

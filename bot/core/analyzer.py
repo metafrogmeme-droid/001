@@ -4331,6 +4331,19 @@ class Analyzer:
                 (now - self._llm_last_ok_monotonic)
                 if self._llm_last_ok_monotonic > 0 else None),
             "last_error": self._llm_last_error,
+            # A DIFFERENT CLAIM from the four above, deliberately reported
+            # alongside them rather than folded in. The streak answers "is the
+            # brain answering"; this answers "is the autonomous sweep ASKING".
+            # With the valve off the sweep never calls the LLM, so a user
+            # analysis can keep the streak at 0 and last_ok fresh — perfectly
+            # HEALTHY — while every background signal is rule-only. Nothing in
+            # the four fields above can say that, and proactive_monitor's
+            # "RUNNING ON RULES" alert cannot fire for it by design (the valve
+            # returns before any provider is attempted, so it never touches the
+            # streak). Reported here so a surface can say it out loud instead
+            # of the state being true and invisible.
+            "background_scans_llm": bool(
+                getattr(CONFIG.analyzer, "llm_background_scans", True)),
         }
 
     async def _try_llm_fallback(
