@@ -2033,11 +2033,24 @@
     el.setAttribute('data-mini-done', '1');
     const sym = el.getAttribute('data-mini-sym');
     const bias = el.getAttribute('data-mini-bias') || 'neutral';
+    // The failure path used to be `el.style.display = 'none'` on both branches:
+    // an unreadable chart VANISHED, which a reader cannot tell from one that was
+    // never offered. The drawing is unchanged — miniCandleSvg is the right
+    // renderer for a pattern card, with its swing high/low band — but the
+    // outcome vocabulary is now RCSignalChart's, so a failure keeps the slot and
+    // says which failure it was.
+    const SC = window.RCSignalChart;
+    const fail = (reason) => {
+      if (!el.isConnected) return;
+      if (SC) el.innerHTML = SC.placeholderHtml(reason || SC.REASONS.UNREADABLE);
+    };
     _fetchMiniCandles(sym).then((rows) => {
       if (!el.isConnected) return;
-      const svg = rows && rows.length >= 3 ? miniCandleSvg(rows, { bias }) : '';
-      if (svg) el.innerHTML = svg; else el.style.display = 'none';
-    }).catch(() => { el.style.display = 'none'; });
+      if (!rows || !rows.length) return fail(SC && SC.REASONS.NO_CANDLES);
+      const svg = rows.length >= 3 ? miniCandleSvg(rows, { bias }) : '';
+      if (svg) el.innerHTML = svg;
+      else fail(SC && SC.REASONS.TOO_FEW);
+    }).catch(() => fail(SC && SC.REASONS.UNREADABLE));
   }
 
   /* ═══════════════ SIGNALS ═══════════════ */
@@ -2150,15 +2163,15 @@
       mustRead(r);
       const a = r.data;
       if (!a || !(a.by_pattern?.length || a.by_symbol?.length)) return null;
-      const bars = (rows, key) => rows.slice(0, 6).map(g => {
-        // `: 0` then `wr >= 50 ? 'pos' : 'neg'` painted an unmeasured group
-        // RED at 0% — the worst reading there is, for a group with nothing
-        // resolved. Unknown gets a muted dash and no colour.
-        const wr = g.win_rate != null ? Math.round(g.win_rate) : null;
-        const cls = wr === null ? 'muted' : (wr >= 50 ? 'pos' : 'neg');
-        return `<div class="kv-row"><span>${esc(g[key] || '(none)')} <span class="muted small">×${g.n}</span></span>
-          <b class="${cls}">${wr === null ? '—' : wr + '%'}</b></div>`;
-      }).join('');
+      // `: 0` then `wr >= 50 ? 'pos' : 'neg'` painted an unmeasured group RED
+      // at 0% — the worst reading there is, for a group with nothing resolved.
+      // That half was fixed here; the SAMPLE half was not, and `wr >= 50`
+      // painted a single winning trade GREEN at 100%, above a pattern with 47
+      // trades at 61%. RCWinRate carries both rules and a sample floor that is
+      // the learner's own (setup_expectancy's min_samples), so the dashboard
+      // and the learner cannot disagree about what counts as evidence.
+      const WRB = window.RCWinRate;
+      const bars = (rows, key) => (WRB ? WRB.buildRows(rows, key) : '');
       return `<div class="grid grid-2">
         <div><div class="stat mb-2"><div class="k">By pattern</div></div>${bars(a.by_pattern || [], 'pattern') || '<p class="muted small">No data.</p>'}</div>
         <div><div class="stat mb-2"><div class="k">By symbol</div></div>${bars(a.by_symbol || [], 'symbol') || '<p class="muted small">No data.</p>'}</div>
