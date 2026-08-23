@@ -38,7 +38,7 @@ router.get('/status', async (req, res) => {
     const [u] = await pool.execute(
       'SELECT telegram_linked, telegram_id FROM users WHERE id = ?', [uid]);
     const [cur] = await pool.execute(
-      'SELECT live_enabled, max_margin, paused, allowlisted FROM user_controls WHERE user_id = ?', [uid]);
+      'SELECT live_enabled, max_margin, paused, allowlisted, venues, venues_mode FROM user_controls WHERE user_id = ?', [uid]);
     const [pend] = await pool.execute(
       'SELECT live_enabled, max_margin, paused, venues FROM pending_controls WHERE user_id = ?', [uid]);
     const c = cur[0] || {};
@@ -58,6 +58,9 @@ router.get('/status', async (req, res) => {
       // exact failure for pause-to-paper — the site showed "paused" while
       // confirmed trades reached the exchange.
       venues_pending: deserializeSelection(p.venues),
+      // null = the bot has not told us. NOT 'off' — see sync.js. The UI has to
+      // distinguish "multi-venue is off" from "we do not know yet".
+      venues_mode: c.venues_mode || null,
       pending: pend.length > 0,
     });
   } catch (err) {

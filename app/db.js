@@ -2187,6 +2187,7 @@ async function migrate() {
     for (const stmt of [
       'ALTER TABLE pending_controls ADD COLUMN venues VARCHAR(200) DEFAULT NULL',
       'ALTER TABLE user_controls ADD COLUMN venues VARCHAR(200) DEFAULT NULL',
+      'ALTER TABLE user_controls ADD COLUMN venues_mode VARCHAR(16) DEFAULT NULL',
     ]) {
       try { await pool.execute(stmt); } catch (e) { /* already there — fine */ }
     }
@@ -2493,6 +2494,21 @@ async function migrate() {
         -- own docstring records that exact failure for pause-to-paper — the site
         -- showed "paused" while confirmed trades went to the exchange.
         venues VARCHAR(200) DEFAULT NULL,
+        -- off | shadow | enforce, from the bot's ack. Stored NEXT TO the
+        -- selection because a stored selection reads back identically whether
+        -- multi-venue is enforcing or off, so the selection alone cannot answer
+        -- whether the book is actually spread across them. Same shape, same
+        -- reason, as user_controls tracking paused separately from whether
+        -- paper mode is even available.
+        --
+        -- Kept free of backticks and question marks on purpose: this comment
+        -- lives INSIDE a JS template literal, so a backtick ends the string,
+        -- and the injection-boundary test greps for a placeholder character
+        -- within pool.query template literals without stripping comments.
+        -- Prose that asks a question reads as an unprepared query. CLAUDE.md
+        -- records four earlier false failures of that shape; this file just
+        -- produced the fifth and sixth.
+        venues_mode VARCHAR(16) DEFAULT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);

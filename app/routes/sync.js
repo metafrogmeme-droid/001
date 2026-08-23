@@ -1062,12 +1062,12 @@ router.post('/controls/ack', async (req, res) => {
       if (!Number.isInteger(uid)) continue;
       await pool.execute('DELETE FROM pending_controls WHERE user_id = ?', [uid]);
       await pool.execute(
-        `INSERT INTO user_controls (user_id, live_enabled, max_margin, paused, allowlisted, venues)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO user_controls (user_id, live_enabled, max_margin, paused, allowlisted, venues, venues_mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE live_enabled = VALUES(live_enabled),
            max_margin = VALUES(max_margin), paused = VALUES(paused),
            allowlisted = VALUES(allowlisted), venues = VALUES(venues),
-           updated_at = CURRENT_TIMESTAMP`,
+           venues_mode = VALUES(venues_mode), updated_at = CURRENT_TIMESTAMP`,
         [uid, a.live_enabled ? 1 : 0,
          (a.max_margin === null || a.max_margin === undefined) ? null : Number(a.max_margin),
          a.paused ? 1 : 0, a.allowlisted ? 1 : 0,
@@ -1075,7 +1075,12 @@ router.post('/controls/ack', async (req, res) => {
          // does not send the field) writes NULL — "we have not been told" —
          // rather than '' , which would claim the bot had cleared the
          // selection. An ack that omits a field has said nothing about it.
-         (a.venues === null || a.venues === undefined) ? null : String(a.venues)]
+         (a.venues === null || a.venues === undefined) ? null : String(a.venues),
+         // NULL from an older bot means "we have not been told", which the UI
+         // must not render as `off` — that would be a confident claim about a
+         // control nobody reported on.
+         (a.venues_mode === null || a.venues_mode === undefined)
+           ? null : String(a.venues_mode)]
       );
       applied++;
     }
