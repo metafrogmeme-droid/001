@@ -1846,3 +1846,32 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 #doorsTease .feature-grid { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 1180px) { #doorsTease .feature-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 700px)  { #doorsTease .feature-grid { grid-template-columns: 1fr; } }
+
+/* ── Live signal charts ───────────────────────────────────────────────────
+   The price behind a signal, with the signal's own levels on the same axis.
+   Built by RCSignalChart (app/public/js/signal-chart.js), which returns a
+   value for every outcome — so `.sc-none` below is a real, sized, readable
+   state and not a hidden element. The chart it replaced failed by setting
+   display:none, which a reader cannot tell from a chart nobody offered. */
+.sc-slot { margin-top: var(--s2); min-height: 72px; }
+.sc-slot[aria-busy="true"] .skel--sc { height: 72px; margin: 0; }
+.sc { overflow: visible; }
+/* Colour is a claim, so it is spent only on things that were measured: the
+   bar direction (a fact about two closes) and the two levels whose meaning is
+   fixed. The entry line and the live mark stay neutral — neither says
+   "winning". */
+.sc .sc-up   { fill: var(--up);   stroke: var(--up); }
+.sc .sc-down { fill: var(--down); stroke: var(--down); }
+.sc .sc-lvl { stroke-width: 1; stroke-dasharray: 3 3; }
+.sc .sc-lvl--entry  { stroke: var(--text-3); stroke-opacity: .85; }
+.sc .sc-lvl--stop   { stroke: var(--down);   stroke-opacity: .75; }
+.sc .sc-lvl--target { stroke: var(--up);     stroke-opacity: .75; }
+.sc .sc-mark { stroke: var(--info); stroke-width: 1; stroke-dasharray: 2 2; stroke-opacity: .9; }
+/* The honest empty state: it occupies the slot and names the failure. */
+.sc-none {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 72px; padding: var(--s2);
+  border: 1px dashed var(--border); border-radius: var(--r2);
+  color: var(--text-3); font-size: var(--fs-xs); text-align: center;
+}
+@media (prefers-reduced-motion: reduce) { .sc-slot .skel--sc { animation: none; } }

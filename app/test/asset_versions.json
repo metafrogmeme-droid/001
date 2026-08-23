@@ -28,8 +28,8 @@
     "v": 28
   },
   "js/dashboard.js": {
-    "sha": "8237f02acf4f3c8d",
-    "v": 151
+    "sha": "c15df0dbf7b9b644",
+    "v": 152
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -115,6 +115,10 @@
     "sha": "550cc931fed16e08",
     "v": 1
   },
+  "js/signal-chart.js": {
+    "sha": "f8c1ee6212b09d17",
+    "v": 1
+  },
   "js/solana_wallet.js": {
     "sha": "e5e508f502c0b3bb",
     "v": 2
@@ -160,7 +164,7 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "4b537caac5e8a603",
-    "v": 36
+    "sha": "3790a34911372845",
+    "v": 37
   }
 }
