@@ -1,4 +1,8 @@
 {
+  "embed.css": {
+    "sha": "4d5921c628bd300f",
+    "v": 1
+  },
   "js/ambient.js": {
     "sha": "ef071afddd5042f6",
     "v": 3
@@ -28,11 +32,15 @@
     "v": 28
   },
   "js/dashboard.js": {
-    "sha": "c15df0dbf7b9b644",
-    "v": 152
+    "sha": "1987c7be70594b33",
+    "v": 153
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
+    "v": 1
+  },
+  "js/embed-signals.js": {
+    "sha": "dbbf244b34ea3539",
     "v": 1
   },
   "js/engine-card-model.js": {
@@ -163,8 +171,12 @@
     "sha": "89842fe2d768161f",
     "v": 1
   },
+  "js/winrate-bar.js": {
+    "sha": "2e1bfea3c4b402b8",
+    "v": 1
+  },
   "styles.css": {
-    "sha": "3790a34911372845",
-    "v": 37
+    "sha": "fca3b4d78f8c1563",
+    "v": 38
   }
 }
