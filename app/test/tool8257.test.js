@@ -173,3 +173,105 @@ test('registration plan endpoint is public dry-run data', async () => {
   assert.equal(r.data.dry_run, true);
   assert.match(r.data.non_custodial_note, /never holds a key/);
 });
+
+
+// ── registration drift ───────────────────────────────────────────────────────
+//
+// The plan cannot detect drift from a value it was never told, and the old
+// hash_warning fired ONLY when the creator was unset — so an
+// address-to-address change, or an APP_BASE_URL change (endpoint and
+// metadataURI are inside the hashed bytes), moved the hash in complete
+// silence. Both happened in one deployment on 2026-08-23. Nothing was
+// registered yet, so it cost nothing; after a registration the same change
+// breaks verification permanently with `ready: true` throughout.
+
+function withEnv(vars, fn) {
+  const saved = {};
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k];
+    if (v === null) delete process.env[k]; else process.env[k] = v;
+  }
+  try { return fn(); } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+}
+
+const REG_TOOLS = () => require('../routes/mcp').TOOLS;
+
+test('drift: a recorded hash that no longer matches is reported LOUDLY', () => {
+  withEnv({ REGISTERED_MANIFEST_HASH: '0x' + '11'.repeat(32) }, () => {
+    const plan = t8257.buildRegistrationPlan({ tools: REG_TOOLS() });
+    assert.equal(plan.registration_check, 'drifted');
+    assert.match(plan.registration_drift, /NO LONGER HASHES/);
+    assert.match(plan.registration_drift, /0x1111/);
+    // First, ahead of everything — an operator reads the top of a list.
+    assert.match(plan.instructions[0], /REGISTRATION DRIFT/);
+    // Still usable: re-registering is what you DO about drift.
+    assert.equal(plan.ready, true);
+    assert.ok(plan.calldata && plan.calldata !== '0x');
+  });
+});
+
+test('drift: a matching recorded hash is quiet', () => {
+  const known = t8257.manifestHash(t8257.buildManifest({ tools: REG_TOOLS() }));
+  withEnv({ REGISTERED_MANIFEST_HASH: known.toUpperCase() }, () => {
+    const plan = t8257.buildRegistrationPlan({ tools: REG_TOOLS() });
+    assert.equal(plan.registration_check, 'matches',
+      'case must not decide whether a registration verifies');
+    assert.ok(!('registration_drift' in plan));
+    assert.ok(!plan.instructions.some((i) => /DRIFT/.test(i)));
+  });
+});
+
+test('drift: NOT RECORDED is its own state, never silence', () => {
+  // The state that gets dropped. An operator who registered and forgot to
+  // record the hash would otherwise see exactly what a verifying deployment
+  // sees — absent rendered as fine.
+  withEnv({ REGISTERED_MANIFEST_HASH: null }, () => {
+    const plan = t8257.buildRegistrationPlan({ tools: REG_TOOLS() });
+    assert.equal(plan.registration_check, 'not_recorded');
+    assert.match(plan.registration_note, /CANNOT be detected/);
+    assert.ok(!('registered_manifest_hash' in plan));
+  });
+});
+
+test('drift: a malformed recorded hash is not_recorded, not a false match', () => {
+  for (const bad of ['0xnothex', '0x1234', 'deadbeef', '   ']) {
+    withEnv({ REGISTERED_MANIFEST_HASH: bad }, () => {
+      const plan = t8257.buildRegistrationPlan({ tools: REG_TOOLS() });
+      assert.equal(plan.registration_check, 'not_recorded', `for ${bad}`);
+    });
+  }
+});
+
+test('drift: the two changes that silently moved the hash now BOTH trip it', () => {
+  // The real incident, replayed. Register at one config, change either input,
+  // and the endpoint must say verification is broken.
+  const base0 = process.env.APP_BASE_URL;
+  const creator0 = process.env.TOOL_CREATOR_ADDRESS;
+  const at = (env) => withEnv(env, () =>
+    t8257.manifestHash(t8257.buildManifest({ tools: REG_TOOLS() })));
+
+  const registered = at({ APP_BASE_URL: base0, TOOL_CREATOR_ADDRESS: creator0 });
+
+  // (a) APP_BASE_URL moves — endpoint + metadataURI are hashed.
+  withEnv({ REGISTERED_MANIFEST_HASH: registered,
+    APP_BASE_URL: 'https://www.example-moved.test' }, () => {
+    assert.equal(t8257.buildRegistrationPlan({ tools: REG_TOOLS() })
+      .registration_check, 'drifted', 'a base-URL change went undetected');
+  });
+
+  // (b) creatorAddress moves — the case the old hash_warning could never see,
+  // because it only fired when the creator was UNSET.
+  withEnv({ REGISTERED_MANIFEST_HASH: registered,
+    TOOL_CREATOR_ADDRESS: '0x' + 'cd'.repeat(20) }, () => {
+    const plan = t8257.buildRegistrationPlan({ tools: REG_TOOLS() });
+    assert.equal(plan.registration_check, 'drifted',
+      'an address-to-address change went undetected — the exact old gap');
+    assert.ok(!('hash_warning' in plan),
+      'the creator IS set here, so the old warning correctly stays silent — '
+      + 'which is precisely why the drift check had to exist separately');
+  });
+});
