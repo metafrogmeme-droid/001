@@ -852,7 +852,8 @@ class Analyzer:
                        candles_4h=None, candles_1d=None, is_admin: bool = False,
                        as_of: Optional[datetime] = None, user_id=None, user_tier=None,
                        mtf_candles: Optional[dict] = None,
-                       timeframe: str = "1h") -> Optional[TradeIdea]:
+                       timeframe: str = "1h",
+                       background: bool = False) -> Optional[TradeIdea]:
         """
         Full analysis pipeline:
         1. Compute technical indicators from OHLCV candles.
@@ -1260,7 +1261,7 @@ class Analyzer:
         if sma50 is not None:
             indicators["sma50"] = round(sma50, 6)
 
-        thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of)
+        thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background)
 
         if thesis is None:
             self._last_rejection_diag = {
@@ -3801,7 +3802,7 @@ class Analyzer:
 
     # -- LLM Reasoning --
 
-    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None) -> Optional[dict]:
+    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None, background: bool = False) -> Optional[dict]:
         """Ask the LLM for a directional call with reasoning.
 
         Token optimization pipeline:
@@ -3852,6 +3853,36 @@ class Analyzer:
         # Stats tracked by cache internally -- no double-count
 
         # ── Optimization 2: Adaptive Frequency ──
+        # ── The background-sweep valve ──
+        # LLM_BACKGROUND_SCANS=off sends the autonomous sweep to the rule
+        # engine and leaves every user-invoked analysis on the LLM. See
+        # CONFIG.analyzer.llm_background_scans for why (a sweep is 12 analyses
+        # in flight against one serving GPU; the queue blows the 90s per-symbol
+        # budget, the 300s phase cap cancels the rest, and the exhausted-
+        # providers path flaps the brain OFFLINE).
+        #
+        # KEYED ON AN EXPLICIT FLAG, NOT ON `user_id is None`. That was the
+        # first draft and it does not discriminate: four USER-INVOKED paths
+        # reach here with no user_id — scan_skill._scan_single (the Telegram
+        # /scan handler), skill_registry._run_symbol_scan, and two skill
+        # execute() bodies. Keying on the absent id would have downgraded all
+        # four to the rule engine while the comment above it promised it kept
+        # user-invoked analyses on the LLM, and nothing in the reply would have
+        # said so. `background` is set in exactly one place — the tick's
+        # analyze phase — so what it means is checkable rather than inferred.
+        #
+        # This returns BEFORE the LLM is attempted, so it deliberately does not
+        # touch _llm_degraded_streak: rule-engine-by-design is not a provider
+        # failure, and counting it as one would report the brain offline
+        # because we told it to stay quiet.
+        if background and not CONFIG.analyzer.llm_background_scans:
+            self._opt_stats.record_adaptive_skip()
+            result = self._rule_based_thesis(signal, indicators)
+            if result is None:
+                return None
+            result["source"] = "RULE_ENGINE_BG_THROTTLE"
+            return result
+
         if not AdaptiveFrequency.should_use_llm(signal, indicators):
             self._opt_stats.record_adaptive_skip()
             result = self._rule_based_thesis(signal, indicators)

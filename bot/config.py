@@ -245,6 +245,36 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return default
 
 
+def _env_switch(key: str, default: bool = False) -> bool:
+    """An on/off switch, for env vars an operator writes as on/off.
+
+    `_env_bool` exists and is NOT this. Its false-vocabulary is
+    ("", "false", "0", "no"); "off" is not in it and never has been, so
+    `_env_bool("X", True)` reads `X=off` as **True** and logs it as
+    unrecognised. A safety switch that reads "off" as on is the worst kind of
+    flag — the operator sets it, restarts, sees no error, and the thing they
+    turned off keeps running.
+
+    So: a switch whose documented vocabulary is on/off is read here, where
+    both vocabularies are accepted, and an unrecognised value falls back to
+    the default with a warning rather than being guessed at.
+    """
+    raw = _env(key, "").strip().lower()
+    if key not in os.environ or raw == "":
+        return default
+    if raw in ("off", "false", "0", "no", "disabled"):
+        return False
+    if raw in ("on", "true", "1", "yes", "enabled"):
+        return True
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "Unrecognised switch env var %s=%r — using default %s. "
+        "Accepted: on/off, true/false, 1/0, yes/no, enabled/disabled.",
+        key, raw, default,
+    )
+    return default
+
+
 def _env_float(key: str, default: float = 0.0) -> float:
     try:
         val = float(_env(key, str(default)))
@@ -1475,6 +1505,27 @@ class AnalyzerConfig:
     # analysis. LLM-free and side-effect-free; falls back to the heuristic on any
     # error. Set false to restore the old fast heuristic.
     scan_use_analyzer_engine: bool = _env_bool("SCAN_USE_ANALYZER_ENGINE", True)
+
+    # Background-sweep LLM valve (default ON — historical behaviour).
+    #
+    # A full autonomous sweep analyses the scanner's universe with
+    # SCAN_ANALYSIS_CONCURRENCY (12) analyses in flight, each wanting an LLM
+    # thesis. Against a single serving GPU — more so with training sharing the
+    # card — that is more volume than the provider absorbs: requests queue,
+    # each one blows ANALYSIS_TIMEOUT_SEC (90s), the tick's 300s analyze phase
+    # cancels the rest, and the all-providers-exhausted path raises
+    # _llm_degraded_streak and flaps the brain OFFLINE/online. Set off and
+    # background sweeps take the rule engine (milliseconds per symbol) while
+    # every user-invoked analysis keeps the LLM to itself.
+    #
+    # Read with _env_switch, NOT _env_bool, and that is deliberate: _env_bool's
+    # false-vocabulary is ("", "false", "0", "no") — it does NOT include "off".
+    # The operator vocabulary for this valve is on/off, so _env_bool would read
+    # LLM_BACKGROUND_SCANS=off as TRUE and the valve would be silently inert —
+    # the same shape as the multi-venue flag that lived on the wrong dataclass
+    # and could never be turned on. tests/test_bg_scan_valve.py sets the env var
+    # to each spelling and asserts the flag actually moves.
+    llm_background_scans: bool = _env_switch("LLM_BACKGROUND_SCANS", True)
 
     # Direction-aware Fibonacci (default ON; audit fix #4). The legacy fib
     # module force-fit every market into a bullish low->high retracement and

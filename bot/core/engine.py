@@ -4130,8 +4130,14 @@ class RuneClawEngine:
         # gather would fan out hundreds of simultaneous OHLCV/order-flow/MTF
         # fetches and hammer the exchange rate limiter. The semaphore caps
         # in-flight analyses at CONFIG.scan_analysis_concurrency.
+        # background=True is set HERE and nowhere else. This is the autonomous
+        # tick — nobody is waiting on it — so it is the one sweep the
+        # LLM_BACKGROUND_SCANS valve may send to the rule engine. Telegram's
+        # force_scan is a sweep too but a person triggered it and is reading
+        # the answer, so it keeps the LLM; if on-demand sweeps ever need
+        # throttling that is a rate limit, not this valve.
         results = await self._phase(
-            self._analyze_signals_batched(signals), "analyze")
+            self._analyze_signals_batched(signals, background=True), "analyze")
         _synced_ideas = []
         for idea in results:
             if idea:
@@ -4456,6 +4462,7 @@ class RuneClawEngine:
 
     async def _analyze_signals_batched(
         self, signals, *, timeframe: str = "1h", lightweight: bool = False,
+        background: bool = False,
     ) -> list:
         """Analyze a list of scanner signals with BOUNDED concurrency.
 
@@ -4557,7 +4564,7 @@ class RuneClawEngine:
                 try:
                     _coro = self._analyze_signal(
                         sig, timeframe=timeframe, lightweight=lightweight,
-                        is_admin=_as_admin)
+                        is_admin=_as_admin, background=background)
                     if _cap > 0:
                         _out = await asyncio.wait_for(_coro, timeout=_cap)
                     else:
@@ -4777,7 +4784,7 @@ class RuneClawEngine:
                         "cap_s": _cap, "symbols": _timed_out[:20]})
         return _results
 
-    async def _analyze_signal(self, signal: MarketSignal, *, timeframe: str = "1h", is_admin: bool = False, user_id=None, user_tier=None, lightweight: bool = False) -> Optional[TradeIdea]:
+    async def _analyze_signal(self, signal: MarketSignal, *, timeframe: str = "1h", is_admin: bool = False, user_id=None, user_tier=None, lightweight: bool = False, background: bool = False) -> Optional[TradeIdea]:
         """Run full analysis pipeline on a single signal.
 
         Args:
@@ -5014,7 +5021,7 @@ class RuneClawEngine:
 
         _t0 = time.monotonic()
         _stage_enter_guarded(self, signal.symbol, "analyze")
-        idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe)
+        idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe, background=background)
         _an_dt = time.monotonic() - _t0
         self._stage_add("analyze", _an_dt)
         _stage_profile_record(self, "analyze", signal.symbol, _an_dt)
