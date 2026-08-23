@@ -47,6 +47,8 @@ import urllib.parse
 import urllib.request
 from typing import Optional
 
+from bot.token import tier_weight as tier_weight_mod
+
 try:  # logging is best-effort; never fail the gate on a logging import
     from bot.utils.logger import system_log
 except Exception:  # pragma: no cover - fallback for isolated imports
@@ -446,14 +448,27 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
     # of denying everyone on evidence that does not exist.
     if _account_exists(program, "staking program") is False:
         return None
-    # Filter on the Anchor discriminator and owner, and — when a mint is
-    # configured — ALSO on mint, so a stake of some worthless token can never be
-    # counted as $RCLAW tier.
-    #
-    # The discriminator is sent base64-encoded because memcmp's default is
-    # base58 and these are raw bytes, not a pubkey. Verified against a live RPC
-    # rather than assumed: with the correct discriminator the filter returns
-    # every stake account, with a wrong one it returns none.
+    records = _stake_records(wallet, program, _stake_filters(wallet))
+    if records is None:
+        return None
+    scale = 10 ** _decimals()
+    return sum(amount for amount, _lock in records) / scale
+
+
+def _stake_filters(wallet: str) -> list:
+    """``getProgramAccounts`` filters selecting this owner's stake records.
+
+    Shared by ``staked_of`` and ``staked_profile`` so the two cannot drift into
+    reading different sets of accounts — a mint filter present on one path and
+    absent on the other would let a stake of some worthless token confer a tier
+    down whichever path forgot it.
+
+    Filters on the Anchor discriminator and owner, and — when a mint is
+    configured — ALSO on mint. The discriminator is sent base64-encoded because
+    memcmp's default is base58 and these are raw bytes, not a pubkey. Verified
+    against a live RPC rather than assumed: with the correct discriminator the
+    filter returns every stake account, with a wrong one it returns none.
+    """
     filters = [
         {"memcmp": {
             "offset": 0,
@@ -466,6 +481,21 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
     mint = mint_address()
     if mint:
         filters.append({"memcmp": {"offset": STAKE_MINT_OFFSET, "bytes": mint}})
+    return filters
+
+
+def _stake_records(wallet: str, program: str, filters: list) -> Optional[list[tuple[int, int]]]:
+    """Live stake records for ``wallet`` as ``(amount_base_units, lock_seconds_left)``.
+
+    Extracted so the tier weight (:mod:`bot.token.tier_weight`) can read the lock
+    remainders this parse already computes, rather than a second RPC round trip
+    re-deriving them. ``staked_of`` sums the amounts and throws the locks away;
+    ``staked_profile`` keeps both.
+
+    ``None`` on a transient RPC failure or an unreadable response, matching
+    ``staked_of``'s contract — a partial list read as a whole one would
+    under-report a stake and deny a tier the holder actually has.
+    """
     result = _rpc(
         "getProgramAccounts",
         [program, {"encoding": "base64", "commitment": "confirmed", "filters": filters}],
@@ -473,7 +503,7 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
     if result is None:
         return None
     now = int(time.time())
-    total_base = 0
+    out: list[tuple[int, int]] = []
     try:
         # getProgramAccounts returns a list (not a {"value": ...} envelope).
         entries = result if isinstance(result, list) else result.get("value", [])
@@ -494,13 +524,41 @@ def staked_of(wallet: Optional[str]) -> Optional[float]:
             )
             if unlock_at <= now:
                 continue  # lock expired => liquid => not tier-bearing
-            total_base += int.from_bytes(
-                raw[STAKE_AMOUNT_OFFSET:STAKE_AMOUNT_OFFSET + 8], "little"
-            )
+            out.append((
+                int.from_bytes(raw[STAKE_AMOUNT_OFFSET:STAKE_AMOUNT_OFFSET + 8], "little"),
+                unlock_at - now,
+            ))
     except (KeyError, TypeError, ValueError, IndexError) as exc:
         system_log.debug("tier_gate staked parse failed: %s", exc)
         return None
-    return total_base / (10 ** _decimals())
+    return out
+
+
+def staked_profile(wallet: Optional[str]) -> Optional[tuple[float, float]]:
+    """``(staked_whole_tokens, amount_weighted_lock_seconds_remaining)``.
+
+    The inputs :func:`bot.token.tier_weight.tier_weight` needs, read from the
+    same accounts ``staked_of`` already fetches. ``None`` under exactly the same
+    conditions ``staked_of`` returns ``None``, so the two agree about what a
+    failed read is.
+    """
+    program = staking_program()
+    if not wallet or not program:
+        return None
+    if _account_exists(program, "staking program") is False:
+        return None
+    records = _stake_records(wallet, program, _stake_filters(wallet))
+    if records is None:
+        return None
+    scale = 10 ** _decimals()
+    folded = tier_weight_mod.stake_weight_inputs(
+        (amount / scale, lock) for amount, lock in records
+    )
+    if folded is None:
+        # No live records at all. A real, readable zero — distinct from the
+        # `None` above, which is "we could not look".
+        return 0.0, 0.0
+    return folded
 
 
 def tier_for_balance(balance: float) -> str:
@@ -512,6 +570,48 @@ def tier_for_balance(balance: float) -> str:
     if balance >= pro_min:
         return "pro"
     return "basic"
+
+
+def weight_enabled() -> bool:
+    """Whether the tier WEIGHT (docs/TIER_MODEL.md) decides tiers.
+
+    Off by default and separate from ``TOKEN_TIER_GATE_ENABLED`` on purpose.
+    TIER_MODEL.md §11 asks for the weight to be computed and inspected before it
+    is allowed to rank anyone, and a flag that arrived switched on would have
+    skipped exactly that step.
+    """
+    return _env_bool("RCLAW_TIER_WEIGHT_ENABLED")
+
+
+def tier_for_stake(balance: float, *, lock_seconds_remaining: float = 0.0,
+                   standing=None) -> str:
+    """Tier for a stake, honouring the weight model when it is enabled.
+
+    **With a neutral lock and neutral standing this returns exactly what
+    ``tier_for_balance`` returns**, and not by coincidence: the bands are
+    converted with ``√`` too, and ``√`` is monotonic, so ``√x ≥ √t`` is the same
+    predicate as ``x ≥ t``. That identity is what makes ``RCLAW_TIER_WEIGHT_ENABLED``
+    safe to switch on — it is also why ``√`` alone fixes nothing, which
+    TIER_MODEL.md §8 originally got backwards. Only a lock or a standing score
+    moves a verdict, and only relative bands (Phase D) address plutocracy.
+
+    An unreadable weight falls back to the linear tier rather than inventing
+    one. That is the conservative direction here: the fallback is the behaviour
+    the gate has today, not a promotion.
+    """
+    if not weight_enabled():
+        return tier_for_balance(balance)
+    elite_min = _env_float("RCLAW_TIER_ELITE_MIN", 100_000.0)
+    pro_min = _env_float("RCLAW_TIER_PRO_MIN", 10_000.0)
+    tier = tier_weight_mod.tier_for_weight(
+        tier_weight_mod.tier_weight(
+            balance, lock_seconds_remaining=lock_seconds_remaining, standing=standing),
+        tier_weight_mod.weight_of_threshold(pro_min),
+        tier_weight_mod.weight_of_threshold(elite_min),
+    )
+    if tier is None:
+        return tier_for_balance(balance)
+    return tier
 
 
 def _resolve_wallet(users, uid) -> Optional[str]:
@@ -577,6 +677,12 @@ def wallet_verified(users, uid) -> bool:
 # the next successful read, which is the safe direction.
 _BALANCE_CACHE: dict[str, tuple[float, float]] = {}
 
+# The lock remainder that came with the cached reading, so an outage does not
+# silently strip a locked staker's commitment premium and demote them. Written
+# and expired in lockstep with _BALANCE_CACHE; absent means "no lock", which is
+# the un-premiumed direction.
+_LOCK_CACHE: dict[str, float] = {}
+
 
 def _grace_seconds() -> float:
     """How long a successful stake reading stays usable during an outage.
@@ -588,8 +694,9 @@ def _grace_seconds() -> float:
     return _env_float("RCLAW_TIER_GRACE_SECONDS", 900.0)
 
 
-def _remember_balance(wallet: str, bal: float) -> None:
+def _remember_balance(wallet: str, bal: float, lock_seconds_remaining: float = 0.0) -> None:
     _BALANCE_CACHE[wallet] = (float(bal), time.time())
+    _LOCK_CACHE[wallet] = float(lock_seconds_remaining or 0.0)
 
 
 def _cached_balance(wallet: str) -> Optional[float]:
@@ -603,8 +710,19 @@ def _cached_balance(wallet: str) -> Optional[float]:
         # Expire rather than keep serving it: an entitlement nobody has been able
         # to confirm for this long is not one to keep honouring.
         _BALANCE_CACHE.pop(wallet, None)
+        _LOCK_CACHE.pop(wallet, None)
         return None
     return bal
+
+
+def _cached_lock(wallet: str) -> float:
+    """Lock remainder recorded with the cached reading; 0.0 if there is none.
+
+    Read only AFTER ``_cached_balance`` has confirmed freshness — it is that
+    call which expires the pair, so asking here first would serve a lock whose
+    balance has already been dropped.
+    """
+    return _LOCK_CACHE.get(wallet, 0.0)
 
 
 _WARNED_WALLET_FALLBACK = False
@@ -688,9 +806,17 @@ def check_user(users, uid, feature: str) -> tuple[bool, str]:
         return False, "unverified"
     # Prefer on-chain STAKED balance when a staking program is configured;
     # otherwise fall back to raw wallet balance.
+    lock_secs = 0.0
     try:
         if staking_program():
-            bal = staked_of(wallet)
+            if weight_enabled():
+                # One read, both inputs. The lock remainders come off the same
+                # accounts the amount does, so asking for them costs nothing —
+                # and a second RPC round trip could disagree with the first.
+                profile = staked_profile(wallet)
+                bal, lock_secs = profile if profile is not None else (None, 0.0)
+            else:
+                bal = staked_of(wallet)
         else:
             _warn_wallet_balance_fallback()
             bal = balance_of(wallet)
@@ -698,8 +824,8 @@ def check_user(users, uid, feature: str) -> tuple[bool, str]:
         system_log.error("tier_gate: enabled but misconfigured; denying access (%s)", exc)
         return False, "misconfigured"  # fail CLOSED on a permanent configuration fault
     if bal is not None:
-        _remember_balance(wallet, bal)
-        have = tier_for_balance(bal)
+        _remember_balance(wallet, bal, lock_secs)
+        have = tier_for_stake(bal, lock_seconds_remaining=lock_secs)
         ok = _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
         return ok, ("ok" if ok else "insufficient")
 
@@ -729,7 +855,7 @@ def check_user(users, uid, feature: str) -> tuple[bool, str]:
             "tier_gate: DENYING %s — RPC unavailable and no recent stake reading for this wallet", uid
         )
         return False, "unavailable"
-    have = tier_for_balance(cached)
+    have = tier_for_stake(cached, lock_seconds_remaining=_cached_lock(wallet))
     system_log.warning(
         "tier_gate: RPC unavailable — serving %s from cached stake reading (tier %s)", uid, have
     )

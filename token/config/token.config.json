@@ -10,7 +10,8 @@
   "_acknowledgeMutableMetadataUri_comment": "true is correct ONLY for throwaway devnet runs. Set to false — and supply an immutable metadataUri — before any launch.",
   "additionalMetadata": [
     ["project", "RUNECLAW"],
-    ["website", "https://github.com/Humanoid-Traders/RUNECLAW"],
+    ["website", "https://www.humanoid-traders.com/"],
+    ["twitter", "https://x.com/RUNECLAW_AI"],
     ["roadmap", "https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md"]
   ],
   "_authorities_comment": "All four must be true for a launch. The first two fix the SUPPLY; the last two fix the token's IDENTITY — without them the payer keeps permanent power to rewrite name/symbol/uri or redirect where wallets look for metadata. verify_token.mjs refuses to run unless the first two are true, and checks all four on-chain.",

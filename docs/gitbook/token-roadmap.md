@@ -20,7 +20,7 @@ RUNECLAW is moving *"from an autonomous trader to an on-chain agent economy."* `
 coordination, access, and settlement primitive for that economy — **not a fundraise for its
 own sake**. It does three jobs the platform already needs:
 
-- **Access** — stake to unlock premium scan tiers, higher live limits, priority agents.
+- **Access** — stake to unlock premium scan tiers, larger compute allowances, priority agents.
 - **Settlement** — meter agent-to-agent calls to the Shield risk engine; split marketplace
   and copy-trading revenue.
 - **Governance** — vote on risk params, new venues, and promoted strategies.
@@ -41,12 +41,36 @@ The token is the **last** piece, gated behind everything below.
 
 | Utility | Unlocks |
 |---|---|
-| Staking tiers | `/scalp` · `/intraday` · `/swing`, higher limits, priority agents |
+| Staking tiers | `/scalp` · `/intraday` · `/swing`, compute allowances, priority agents |
 | Fee discount + pay-in-token | Discounted fees; **buyback-and-burn** from revenue |
 | MCP tool-call metering | Settle agent-to-agent calls to the risk engine (x402-style) |
 | Governance | Vote on risk params, venues, strategies |
 | Marketplace / copy-trading | Creator revenue split |
 | Reputation staking | Stake behind a verifiable Proof-of-PnL track record |
+
+## How tiers are earned
+
+Flat token thresholds are plutocratic and get ~25× harder to reach as the token appreciates.
+The proposed replacement weighs two axes — capital opens the door, behaviour decides the floor:
+
+```
+tier_weight = √(staked) × lock_multiplier × standing
+```
+
+`√` compresses whale dominance (87.7% → 66.0% of weight) without erasing it.
+`lock_multiplier` (1.0–2.5×) prices commitment. **`standing`** (0.2–2.0) is earned and
+**non-transferable** — risk-discipline, risk-adjusted verified track record, Arena percentile,
+and tenure. Tiers are then assigned by **relative percentile** (Elite top 5%, Pro top 25%), so
+the ladder re-scales with the price instead of locking out later arrivals. The percentile step
+is the one that does the work: `√` under *absolute* bands is mathematically identical to the
+flat thresholds it replaces.
+
+Tiers grant **metered compute** — deep scans, concurrent agents, backtest hours — not feature
+flags. **Live trading limits, position size, and leverage are deliberately never tier-gated**;
+those stay tied to KYC/compliance tiers.
+
+Full spec, worked examples, anti-gaming analysis, and the phased implementation plan:
+[`docs/TIER_MODEL.md`](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TIER_MODEL.md).
 
 ## Allocation (1B, proposed)
 
@@ -72,7 +96,13 @@ then linear over 2 months.
   field, so the cancel-and-refund path is published before the sale rather than assumed.
 - Min **0.25 SOL** / max **25 SOL** per wallet (anti-whale).
 - Whitelist round (48h) → public round (72h or until cap).
-- **60% of raised SOL → DEX liquidity**; LP **permanently locked** (never-claim).
+- **66.67% of raised SOL → DEX liquidity**; LP **permanently locked** (never-claim).
+- The pool's **token** side is deliberately thin — **20,001,000 $RCLAW**, sized for the *soft*
+  cap, not the 100M DEX-liquidity bucket. The token side is frozen when the bucket is created
+  while the SOL side is whatever is raised, so sizing for a full raise would open the pool
+  **below** the presale price on any smaller one, permanently and with no refund. Sized this
+  way it opens at the presale price at 1,000 SOL and above it from there. The remaining
+  79,999,000 is earmarked in reserve for post-TGE depth once the raise is known.
 
 ## Launch venue
 
