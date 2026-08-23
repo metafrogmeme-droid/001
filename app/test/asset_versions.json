@@ -71,6 +71,10 @@
     "sha": "d288c395a7e14720",
     "v": 2
   },
+  "js/keccak256.js": {
+    "sha": "2203a64242fc07d5",
+    "v": 1
+  },
   "js/learn-hall.js": {
     "sha": "35f7ba011c75fae3",
     "v": 1
@@ -93,6 +97,10 @@
   },
   "js/referral-tier-model.js": {
     "sha": "6bd6bb863e2a31b5",
+    "v": 1
+  },
+  "js/register-tool.js": {
+    "sha": "341d60f7ecaf7088",
     "v": 1
   },
   "js/reveal.js": {
