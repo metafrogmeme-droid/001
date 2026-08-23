@@ -112,12 +112,32 @@ class SetupExpectancy:
         return max(-self.max_nudge, min(self.max_nudge, nudge))
 
     def is_ready(self) -> bool:
-        return self._loaded
+        """Has anything actually been LEARNED — not merely loaded.
+
+        This returned `self._loaded`, so the readiness card reported
+        `setup_expectancy: READY — applied and validated` whenever a file
+        opened, directly above its own summary line saying `0 setup(s)
+        at/above 10-trade threshold`. Loaded is not learned, and a green badge
+        over no qualifying evidence is the defect this repo spends most of its
+        guard tests preventing.
+
+        Harmless to trades either way — `expectancy_for` already returns
+        identity below `min_samples`, so nothing was being adjusted. The cost
+        was to the operator, who was told a component was contributing while
+        it was inert, next to a recommendation to switch another one on.
+        """
+        return self._loaded and self.learned_setups() > 0
+
+    def learned_setups(self) -> int:
+        """How many setups clear ``min_samples`` — the number that decides."""
+        if not self._loaded:
+            return 0
+        return sum(1 for c in self._table.values() if c[1] >= self.min_samples)
 
     def summary(self) -> str:
         if not self._loaded:
             return "setup-expectancy: no completed-trade history loaded"
-        ready = sum(1 for c in self._table.values() if c[1] >= self.min_samples)
+        ready = self.learned_setups()
         total = sum(c[1] for c in self._table.values())
         return (f"setup-expectancy: {len(self._table)} setups, {total} trades, "
                 f"{ready} setup(s) at/above {self.min_samples}-trade threshold")
