@@ -383,6 +383,19 @@ RULES: list[Rule] = [
                                    # archetype catalogue (configs only, §4-tested:
                                    # no dollars, no performance claims); nothing
                                    # user-scoped is in reach.
+            "embed",       # /embed/* — the ONLY pages this app allows inside a
+                           # third-party frame, and the reason they can be is
+                           # that there is nothing to authenticate. Public
+                           # signal data already served by /api/signals, GET
+                           # only, no cookie, no session, no Authorization
+                           # header, no action. Authenticating it would be
+                           # incoherent: a framed page cannot ask a stranger's
+                           # visitor to log in, and giving it a session is
+                           # precisely what would make framing it dangerous.
+                           # app/test/embed_frame_policy.test.js enforces every
+                           # clause of that — the GET-only rule, the absent
+                           # credentials, and that the frame carve-out never
+                           # widens the app-wide `frame-ancestors 'none'`.
             "sync",        # bot<->web channel; WEB_GATEWAY_SECRET, not a user session
             "track",       # mounted under /api/public
             "mcp",         # its header enumerates the public-data tools it exposes
