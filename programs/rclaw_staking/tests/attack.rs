@@ -212,6 +212,35 @@ fn vault_ata(mint: &Pubkey) -> Pubkey {
     spl_associated_token_account::get_associated_token_address(&vault_authority(mint), mint)
 }
 
+/// Build a `stake_for` instruction — the caller-chosen-duration entry point.
+///
+/// Deliberately allows an out-of-range `lock_seconds`: rejecting it is the
+/// program's job, and a helper that clamped it would test the helper.
+fn stake_for_ix(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    user_ata: &Pubkey,
+    amount: u64,
+    lock_seconds: i64,
+) -> Instruction {
+    let accounts = rclaw_staking::accounts::Stake {
+        owner: *owner,
+        mint: *mint,
+        stake_account: stake_pda(owner, mint),
+        vault_authority: vault_authority(mint),
+        vault: vault_ata(mint),
+        user_token_account: *user_ata,
+        token_program: spl_token::id(),
+        associated_token_program: spl_associated_token_account::id(),
+        system_program: solana_sdk::system_program::id(),
+    };
+    Instruction {
+        program_id: program_id(),
+        accounts: accounts.to_account_metas(None),
+        data: rclaw_staking::instruction::StakeFor { amount, lock_seconds }.data(),
+    }
+}
+
 fn stake_ix(owner: &Pubkey, mint: &Pubkey, user_ata: &Pubkey, amount: u64) -> Instruction {
     let accounts = rclaw_staking::accounts::Stake {
         owner: *owner,
@@ -886,5 +915,190 @@ async fn unstake_rejects_a_non_canonical_vault_account() {
         token_balance(&mut ctx, &vault_ata(&mint)).await,
         500,
         "the real vault must be untouched"
+    );
+}
+
+// ── stake_for: the caller-chosen lock ────────────────────────────────────────
+//
+// `LOCKUP_SECONDS` was a fixed 30 days, so every record carried the same unlock
+// and the tier model's commitment premium topped out at ~1.06x against a
+// published table advertising 2.5x — a multiplier no depositor could reach.
+// `stake_for` makes the range real, which also makes three new ways to get it
+// wrong real. Each is a test below.
+//
+// The lock is IRREVERSIBLE: `unstake` refuses while `unlock_at` is in the future
+// and nothing in the program can bring it forward. So the bound that matters
+// most is the ceiling — an unchecked `lock_seconds` is a way for a client bug
+// (seconds vs days vs months) to strand a depositor's own principal forever.
+
+/// Below the floor is refused: a short lock would be a way to opt out of the
+/// 30 days that makes a tier cost something to hold.
+#[tokio::test]
+async fn stake_for_refuses_a_lock_shorter_than_the_floor() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_for_ix(&payer, &mint, &ata, 400, rclaw_staking::LOCKUP_SECONDS - 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "a lock below LOCKUP_SECONDS was accepted — the 30-day floor is what \
+         stops a tier being a live spot balance rotated between wallets"
+    );
+    // Asked as "does the vault exist", not "is its balance 0". The first draft
+    // asserted the balance and panicked reading an account that was never
+    // created — a refused stake does not reach the ATA init, so there is
+    // nothing to read. The program was right and the test was wrong, which is
+    // worth leaving a note about: a refusal this early leaves NO account, and a
+    // balance check silently assumes one.
+    assert!(
+        ctx.banks_client
+            .get_account(vault_ata(&mint))
+            .await
+            .unwrap()
+            .is_none(),
+        "the refused stake still created a vault account"
+    );
+}
+
+/// Above the ceiling is refused. This is the expensive one: nothing can lift an
+/// over-long lock, so the depositor's own principal is what a units bug costs.
+#[tokio::test]
+async fn stake_for_refuses_a_lock_beyond_the_ceiling() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    for lock in [
+        rclaw_staking::MAX_LOCK_SECONDS + 1,
+        // The shape of a real client bug: months where seconds were meant.
+        rclaw_staking::MAX_LOCK_SECONDS * 1_000,
+        i64::MAX,
+    ] {
+        let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+        let tx = Transaction::new_signed_with_payer(
+            &[stake_for_ix(&payer, &mint, &ata, 400, lock)],
+            Some(&payer),
+            &[&ctx.payer],
+            bh,
+        );
+        assert!(
+            ctx.banks_client.process_transaction(tx).await.is_err(),
+            "lock_seconds={lock} was accepted; nothing can lift it afterwards"
+        );
+    }
+}
+
+/// A negative lock must not read as "no lock" and unlock the position at once.
+#[tokio::test]
+async fn stake_for_refuses_a_negative_lock() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_for_ix(&payer, &mint, &ata, 400, -1)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "a negative lock was accepted — `now + (-1)` is in the past, which is \
+         an instantly-withdrawable stake wearing a lock"
+    );
+}
+
+/// A long lock survives a later default-duration `stake`.
+///
+/// The monotonic rule already covered top-ups at the SAME duration. With two
+/// entry points there is a new way to attack it: lock for two years to claim the
+/// premium, then call plain `stake` for 1 unit and let `LOCKUP_SECONDS` reset the
+/// unlock to 30 days out. `.max()` is what refuses it, and this drives that path
+/// rather than trusting the comment on it.
+#[tokio::test]
+async fn a_default_stake_cannot_shorten_a_long_stake_for_lock() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_for_ix(&payer, &mint, &ata, 400, rclaw_staking::MAX_LOCK_SECONDS)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_ix(&payer, &mint, &ata, 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+
+    // Well past the 30-day default, nowhere near the 24-month lock.
+    let mut clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
+    clock.unix_timestamp += rclaw_staking::LOCKUP_SECONDS * 2;
+    ctx.set_sysvar(&clock);
+
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[unstake_ix_crossed(&payer, &mint, &mint, &ata, 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "a default-duration stake reset a 24-month lock to 30 days — the \
+         commitment premium would be free to claim and abandon"
+    );
+}
+
+/// The floor case still works end to end, so the tests above are not all
+/// passing because `stake_for` is simply broken.
+#[tokio::test]
+async fn stake_for_at_the_floor_behaves_exactly_like_stake() {
+    let mut ctx = setup().await;
+    let payer = ctx.payer.pubkey();
+    let mint = canonical_mint(&mut ctx, &payer).await;
+    let ata = create_ata_and_mint(&mut ctx, &mint, &payer, 1_000).await;
+
+    let tx = Transaction::new_signed_with_payer(
+        &[stake_for_ix(&payer, &mint, &ata, 400, rclaw_staking::LOCKUP_SECONDS)],
+        Some(&payer),
+        &[&ctx.payer],
+        ctx.last_blockhash,
+    );
+    ctx.banks_client.process_transaction(tx).await.unwrap();
+    assert_eq!(
+        token_balance(&mut ctx, &vault_ata(&mint)).await,
+        400,
+        "a floor-duration stake_for did not escrow"
+    );
+
+    // And it is genuinely locked for the 30 days, not merely accepted.
+    let bh = ctx.banks_client.get_latest_blockhash().await.unwrap();
+    let tx = Transaction::new_signed_with_payer(
+        &[unstake_ix_crossed(&payer, &mint, &mint, &ata, 1)],
+        Some(&payer),
+        &[&ctx.payer],
+        bh,
+    );
+    assert!(
+        ctx.banks_client.process_transaction(tx).await.is_err(),
+        "stake_for at the floor produced an unlocked position"
     );
 }

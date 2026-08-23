@@ -92,6 +92,20 @@ pub const PINNED_MINT: Option<&str> = option_env!("RCLAW_PINNED_MINT");
 /// means a live change silently splits the pool into two cohorts.
 pub const LOCKUP_SECONDS: i64 = 30 * 24 * 60 * 60;
 
+/// Longest lock a depositor may choose, via `stake_for`.
+///
+/// 24 months, matching the ceiling of the tier model's commitment premium
+/// (`docs/TIER_MODEL.md` §2, `bot/token/tier_weight.py::LOCK_CEILING_MONTHS`).
+/// The two must agree, and until `stake_for` existed they could not: every
+/// record carried `LOCKUP_SECONDS`, so the largest reachable multiplier was
+/// ~1.06x against a published table advertising 2.5x.
+///
+/// A ceiling exists at all because the lock is irreversible — `unstake` refuses
+/// while `unlock_at` is in the future and nothing can bring it forward. An
+/// unbounded parameter would let a client bug multiplying by the wrong unit
+/// strand a depositor's own principal behind a lock nobody can lift.
+pub const MAX_LOCK_SECONDS: i64 = 24 * 30 * 24 * 60 * 60;
+
 /// Parse + compare the pin. Kept separate so the logic is unit-testable without
 /// rebuilding under a different environment.
 fn enforce_pinned_mint(pinned: Option<&str>, mint: &Pubkey) -> Result<()> {
@@ -173,92 +187,32 @@ pub mod rclaw_staking {
     /// Stake `amount` base units. Creates the caller's per-mint `StakeAccount`
     /// PDA on first call and escrows tokens in that mint's vault.
     pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
-        require!(amount > 0, StakeError::ZeroAmount);
-        check_pinned_mint(&ctx.accounts.mint.key())?;
-        reject_hazardous_extensions(&ctx.accounts.mint.to_account_info())?;
+        stake_inner(ctx, amount, LOCKUP_SECONDS)
+    }
 
-        {
-            let sa = &ctx.accounts.stake_account;
-            // On re-stake, the record must already belong to this owner+mint.
-            // (`init_if_needed` leaves prior state intact, so assert rather than
-            // blindly overwrite — a mismatch means the PDA was crafted or reused.)
-            if sa.amount > 0 {
-                require_keys_eq!(sa.owner, ctx.accounts.owner.key(), StakeError::WrongOwner);
-                require_keys_eq!(sa.mint, ctx.accounts.mint.key(), StakeError::WrongMint);
-                require!(
-                    sa.version == StakeAccount::CURRENT_VERSION,
-                    StakeError::UnsupportedAccountVersion
-                );
-            }
-        }
-
-        // Balance the vault BEFORE the transfer so the credit can be derived from
-        // what the vault actually received. A Token-2022 transfer-fee mint moves
-        // less than `amount`, and crediting the requested figure would mint stake
-        // out of nothing and leave the vault unable to honour every withdrawal.
-        let before = ctx.accounts.vault.amount;
-
-        token_interface::transfer_checked(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.user_token_account.to_account_info(),
-                    mint: ctx.accounts.mint.to_account_info(),
-                    to: ctx.accounts.vault.to_account_info(),
-                    authority: ctx.accounts.owner.to_account_info(),
-                },
-            ),
-            amount,
-            ctx.accounts.mint.decimals,
-        )?;
-
-        ctx.accounts.vault.reload()?;
-        let credited = ctx
-            .accounts
-            .vault
-            .amount
-            .checked_sub(before)
-            .ok_or(StakeError::Overflow)?;
-        // A mint whose hooks route the whole transfer elsewhere must not yield a
-        // free stake record.
-        require!(credited > 0, StakeError::ZeroAmount);
-
-        let now = Clock::get()?.unix_timestamp;
-        let unlock = now
-            .checked_add(LOCKUP_SECONDS)
-            .ok_or(StakeError::Overflow)?;
-
-        let sa = &mut ctx.accounts.stake_account;
-        sa.version = StakeAccount::CURRENT_VERSION;
-        sa.owner = ctx.accounts.owner.key();
-        sa.mint = ctx.accounts.mint.key();
-        // Amount-weighted stake age. Overwriting `staked_at` with `now` would let
-        // a 1-base-unit top-up erase a large position's entire accrual, which
-        // silently breaks any future duration-weighted reward or governance
-        // weight. Fixed now, while the field has no consumers and no live records
-        // would need migrating.
-        sa.staked_at = if sa.amount == 0 {
-            now
-        } else {
-            let prior = sa.amount as i128;
-            let added = credited as i128;
-            let weighted = ((sa.staked_at as i128) * prior + (now as i128) * added)
-                / (prior + added);
-            weighted as i64
-        };
-        sa.amount = sa.amount.checked_add(credited).ok_or(StakeError::Overflow)?;
-        // Extend, never shorten: taking `unlock` unconditionally would let a
-        // 1-base-unit top-up reset an existing lock and defeat the whole point.
-        sa.unlock_at = sa.unlock_at.max(unlock);
-        sa.bump = ctx.bumps.stake_account;
-        emit!(Staked {
-            owner: sa.owner,
-            mint: sa.mint,
-            amount: credited,
-            total: sa.amount,
-            unlock_at: sa.unlock_at,
-        });
-        Ok(())
+    /// Stake, choosing the lock duration instead of taking the 30-day default.
+    ///
+    /// A SEPARATE instruction rather than a parameter added to `stake`, for the
+    /// same reason the account layout appends rather than reorders: an
+    /// instruction's 8-byte discriminator is derived from its NAME, but its
+    /// argument decoding is not, so adding a parameter to `stake` would leave
+    /// every existing client sending a correctly-discriminated call with a
+    /// short payload. Additive costs one dispatch arm and breaks nothing.
+    ///
+    /// `lock_seconds` is bounded to `[LOCKUP_SECONDS, MAX_LOCK_SECONDS]`. The
+    /// floor because a shorter lock would be a way to opt out of the 30 days
+    /// that makes a tier cost something to hold; the ceiling because no one can
+    /// lift the lock early, including the program.
+    ///
+    /// Like `stake`, the resulting unlock EXTENDS and never shortens: a
+    /// depositor who locked for two years cannot follow it with a 30-day
+    /// `stake` call and walk out next month.
+    pub fn stake_for(ctx: Context<Stake>, amount: u64, lock_seconds: i64) -> Result<()> {
+        require!(
+            (LOCKUP_SECONDS..=MAX_LOCK_SECONDS).contains(&lock_seconds),
+            StakeError::LockOutOfRange
+        );
+        stake_inner(ctx, amount, lock_seconds)
     }
 
     /// Unstake `amount` base units back to the caller's token account.
@@ -330,6 +284,110 @@ pub mod rclaw_staking {
         });
         Ok(())
     }
+}
+/// The body `stake` and `stake_for` share.
+///
+/// Outside `#[program]` deliberately. A `pub fn` inside that module becomes an
+/// instruction; a private one would not, but keeping the shared body out here
+/// makes it impossible for a later edit to expose a third entry point that
+/// skips `stake_for`'s bounds check by accident.
+fn stake_inner(ctx: Context<Stake>, amount: u64, lock_seconds: i64) -> Result<()> {
+        require!(amount > 0, StakeError::ZeroAmount);
+    check_pinned_mint(&ctx.accounts.mint.key())?;
+    reject_hazardous_extensions(&ctx.accounts.mint.to_account_info())?;
+
+    {
+        let sa = &ctx.accounts.stake_account;
+        // On re-stake, the record must already belong to this owner+mint.
+        // (`init_if_needed` leaves prior state intact, so assert rather than
+        // blindly overwrite — a mismatch means the PDA was crafted or reused.)
+        if sa.amount > 0 {
+            require_keys_eq!(sa.owner, ctx.accounts.owner.key(), StakeError::WrongOwner);
+            require_keys_eq!(sa.mint, ctx.accounts.mint.key(), StakeError::WrongMint);
+            require!(
+                sa.version == StakeAccount::CURRENT_VERSION,
+                StakeError::UnsupportedAccountVersion
+            );
+        }
+    }
+
+    // Balance the vault BEFORE the transfer so the credit can be derived from
+    // what the vault actually received. A Token-2022 transfer-fee mint moves
+    // less than `amount`, and crediting the requested figure would mint stake
+    // out of nothing and leave the vault unable to honour every withdrawal.
+    let before = ctx.accounts.vault.amount;
+
+    token_interface::transfer_checked(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            TransferChecked {
+                from: ctx.accounts.user_token_account.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        amount,
+        ctx.accounts.mint.decimals,
+    )?;
+
+    ctx.accounts.vault.reload()?;
+    let credited = ctx
+        .accounts
+        .vault
+        .amount
+        .checked_sub(before)
+        .ok_or(StakeError::Overflow)?;
+    // A mint whose hooks route the whole transfer elsewhere must not yield a
+    // free stake record.
+    require!(credited > 0, StakeError::ZeroAmount);
+
+    let now = Clock::get()?.unix_timestamp;
+    // Bounds are re-asserted HERE, not only at the `stake_for` entry point.
+    // `stake` passes the constant and cannot violate them, but this is the one
+    // place `unlock_at` is computed, and a future third caller that skipped the
+    // check would write an unbounded lock into a record nobody can unlock.
+    // Cheap, and it makes the guarantee a property of the write rather than of
+    // who happened to call.
+    require!(
+        (LOCKUP_SECONDS..=MAX_LOCK_SECONDS).contains(&lock_seconds),
+        StakeError::LockOutOfRange
+    );
+    let unlock = now
+        .checked_add(lock_seconds)
+        .ok_or(StakeError::Overflow)?;
+
+    let sa = &mut ctx.accounts.stake_account;
+    sa.version = StakeAccount::CURRENT_VERSION;
+    sa.owner = ctx.accounts.owner.key();
+    sa.mint = ctx.accounts.mint.key();
+    // Amount-weighted stake age. Overwriting `staked_at` with `now` would let
+    // a 1-base-unit top-up erase a large position's entire accrual, which
+    // silently breaks any future duration-weighted reward or governance
+    // weight. Fixed now, while the field has no consumers and no live records
+    // would need migrating.
+    sa.staked_at = if sa.amount == 0 {
+        now
+    } else {
+        let prior = sa.amount as i128;
+        let added = credited as i128;
+        let weighted = ((sa.staked_at as i128) * prior + (now as i128) * added)
+            / (prior + added);
+        weighted as i64
+    };
+    sa.amount = sa.amount.checked_add(credited).ok_or(StakeError::Overflow)?;
+    // Extend, never shorten: taking `unlock` unconditionally would let a
+    // 1-base-unit top-up reset an existing lock and defeat the whole point.
+    sa.unlock_at = sa.unlock_at.max(unlock);
+    sa.bump = ctx.bumps.stake_account;
+    emit!(Staked {
+        owner: sa.owner,
+        mint: sa.mint,
+        amount: credited,
+        total: sa.amount,
+        unlock_at: sa.unlock_at,
+    });
+    Ok(())
 }
 
 #[derive(Accounts)]
@@ -519,6 +577,8 @@ pub enum StakeError {
     UnsupportedMintExtension,
     #[msg("Stake record still holds a balance; unstake it fully before closing")]
     StakeNotEmpty,
+    #[msg("Requested lock is outside [LOCKUP_SECONDS, MAX_LOCK_SECONDS]")]
+    LockOutOfRange,
 }
 
 /// The byte offsets `bot/token/tier_gate.py` uses to read `StakeAccount` straight
