@@ -1,0 +1,95 @@
+/* Embeddable signal board.
+ *
+ * Its own stylesheet rather than the app's: the embed CSP is `style-src 'self'`
+ * with no `unsafe-inline`, the page runs inside a stranger's document, and
+ * shipping 1800 lines of dashboard CSS into someone else's layout would be
+ * rude as well as slow.
+ *
+ * Colours are declared for both schemes and inherit nothing from the host page,
+ * so the board reads the same whatever it is dropped into. */
+
+:root {
+  --e-bg: #0b0d12;
+  --e-surface: #12151d;
+  --e-line: #232838;
+  --e-text: #e7eaf0;
+  --e-text-2: #9aa4b8;
+  --e-text-3: #6b7488;
+  --e-up: #31c48d;
+  --e-down: #f05252;
+  --e-info: #4db6ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--e-bg);
+  color: var(--e-text);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { padding: 12px; }
+
+.e-list { display: flex; flex-direction: column; gap: 10px; }
+
+.e-row {
+  background: var(--e-surface);
+  border: 1px solid var(--e-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.e-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.e-sym { font-size: 15px; letter-spacing: .01em; }
+.e-conf { margin-left: auto; color: var(--e-text-2); font-size: 12px; }
+
+/* Direction is the one thing on the row that gets colour: it is a fact the
+   signal asserts about itself. Whether the trade is WINNING is not something
+   this board knows, and a green row would say that it does. */
+.e-dir {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: 5px; border: 1px solid currentColor;
+}
+.e-long  { color: var(--e-up); }
+.e-short { color: var(--e-down); }
+.e-flat  { color: var(--e-text-3); }
+
+.e-chart { min-height: 72px; margin-bottom: 8px; }
+
+.e-lv { display: flex; gap: 14px; margin: 0; }
+.e-lv div { display: flex; flex-direction: column; gap: 1px; }
+.e-lv dt { color: var(--e-text-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+.e-lv dd { margin: 0; font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.e-load, .e-state { color: var(--e-text-2); text-align: center; padding: 18px 10px; }
+.e-state p { margin: 0 0 6px; }
+.e-state .e-sub { color: var(--e-text-3); font-size: 12.5px; }
+.e-src { color: var(--e-text-3); font-size: 11.5px; text-align: center; margin: 10px 0 0; }
+.e-src a { color: var(--e-info); }
+
+/* The honest no-chart state, matching the dashboard's: it occupies the slot and
+   names the failure rather than hiding. */
+.sc-none {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 72px; padding: 8px;
+  border: 1px dashed var(--e-line); border-radius: 8px;
+  color: var(--e-text-3); font-size: 11.5px; text-align: center;
+}
+.sc { overflow: visible; display: block; }
+.sc .sc-up   { fill: var(--e-up);   stroke: var(--e-up); }
+.sc .sc-down { fill: var(--e-down); stroke: var(--e-down); }
+.sc .sc-lvl { stroke-width: 1; stroke-dasharray: 3 3; }
+.sc .sc-lvl--entry  { stroke: var(--e-text-3); stroke-opacity: .85; }
+.sc .sc-lvl--stop   { stroke: var(--e-down);   stroke-opacity: .75; }
+.sc .sc-lvl--target { stroke: var(--e-up);     stroke-opacity: .75; }
+.sc .sc-mark { stroke: var(--e-info); stroke-width: 1; stroke-dasharray: 2 2; stroke-opacity: .9; }
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --e-bg: #ffffff; --e-surface: #f7f8fa; --e-line: #e2e6ee;
+    --e-text: #14171f; --e-text-2: #5a6272; --e-text-3: #8a92a4;
+  }
+}

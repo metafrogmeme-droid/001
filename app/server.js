@@ -251,6 +251,13 @@ app.get('/diagz', (req, res) => {
 // parser below skips the already-parsed body; every other route stays at 1mb.
 app.use('/api/chat', express.json({ limit: '7mb' }));
 app.use(express.json({ limit: '1mb' })); // Cap payload size
+// Embeddable surfaces — mounted AHEAD of express.static because they serve
+// their own HTML and, uniquely in this app, their own frame policy. The global
+// middleware above has already set `X-Frame-Options: DENY` and
+// `frame-ancestors 'none'`; the router replaces both, per response, for its
+// own paths only. Nothing under /embed reads a cookie or performs an action —
+// that is what makes framing it safe, and routes/embed.js says so at length.
+app.use('/embed', require('./routes/embed'));
 // Cache policy: HTML must never be cached (deploys ship new markup that
 // references version-tagged assets, e.g. /styles.css?v=2) — a cached HTML +
 // stale-CSS mix renders the dashboard completely unstyled. Assets get a
