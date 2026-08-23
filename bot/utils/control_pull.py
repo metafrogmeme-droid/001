@@ -126,6 +126,13 @@ def process_pending_controls(rows, store,
                 # failure this module's docstring already records: the site said
                 # "paused" while every confirmed trade went to the exchange.
                 "venues": applied_venues,
+                # WHETHER THE SELECTION IS IN FORCE, alongside the selection
+                # itself — the same shape as paper_mode_available above, for
+                # the same reason. A stored selection reads back identically
+                # whether multi-venue is enforcing or off, so the selection
+                # alone cannot answer the only question the user is asking:
+                # "is my book actually spread across these?"
+                "venues_mode": _multi_venue_mode(),
                 "ok": True,
             }
             if paused_rejected:
@@ -138,6 +145,22 @@ def process_pending_controls(rows, store,
             acks.append({"user_id": uid, "ok": False, "error": "processing error"})
     return acks
 
+
+def _multi_venue_mode() -> str:
+    """``off`` | ``shadow`` | ``enforce`` — what the bot will ACTUALLY do.
+
+    Read through ``routing_decision``'s own rules rather than off the config,
+    so the website cannot report ``enforce`` while the bot is quietly running
+    as shadow (an unrecognised mode string, or a build where routing is not
+    wired). One answer, one source.
+    """
+    try:
+        from bot.core.venue_selection import routing_decision
+        return str(routing_decision("", connected=lambda _u: []).get("mode") or "off")
+    except Exception as exc:
+        log.debug("multi-venue mode read failed: %s", exc)
+        # Unknown reads as OFF: the direction that claims LESS is happening.
+        return "off"
 
 def _apply_venue_selection(telegram_id, raw) -> str:
     """Apply a proposed venue selection and return what is now STORED.

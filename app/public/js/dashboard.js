@@ -4966,9 +4966,43 @@
       showView('account');
     });
 
+    // ── Venue picker ────────────────────────────────────────────────
+    // Which of your connected venues actually trade. The decision of WHAT to
+    // say lives in VenuePickerModel so a test can plant state and read it
+    // back; this only turns that into markup.
+    function venuePickerHtml(status, connected) {
+      const m = window.VenuePickerModel;
+      if (!m) return '';           // script missing — render nothing, claim nothing
+      const st = m.pickerState(status, connected);
+      const tone = { warn: 'chip--warn', ok: 'chip--live', pending: 'chip',
+                     unknown: 'chip', info: 'chip--paper' }[st.notice?.tone] || 'chip';
+      const rows = st.rows.map((r) => `
+        <label class="switch"><input type="checkbox" class="venuePick" value="${esc(r.venue)}"
+          ${r.checked ? 'checked' : ''}><span class="track"></span>
+          <code>${esc(r.venue.toUpperCase())}</code>${r.disconnected
+            ? ` <span class="muted small">— ${esc(T('venue.not_connected', 'selected but not connected; nothing is routed there'))}</span>`
+            : ''}</label>`).join('');
+      return `<hr class="sep">
+        <h3 class="panel-title" style="margin-top:var(--s3)">
+          <svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>
+          <span data-i18n="ctl.venues">${esc(T('ctl.venues', 'Venues that trade'))}</span></h3>
+        ${st.notice ? `<p class="section-note"><span class="chip ${tone}">${esc(st.notice.text)}</span></p>` : ''}
+        <div class="stack">${rows || `<p class="muted small">${esc(T('venue.none_connected', 'No exchanges connected yet.'))}</p>`}
+          <div class="row">
+            <button class="btn btn--primary btn--sm" id="venSave" ${st.canSave ? '' : 'disabled'}>${esc(T('ctl.apply', 'Apply'))}</button>
+            <span id="venMsg" class="small muted" aria-live="polite"></span>
+          </div>
+        </div>`;
+    }
+
     renderPanel(C('actl'), async () => {
       const r = await fetchJSON('/api/controls/status');
       mustRead(r);
+      // OMIT, not guard: the venue picker decorates this panel and one dead
+      // source must not blank the live-trading controls beside it. A failed
+      // read leaves `connected` empty, which the model renders as "nothing
+      // connected" rather than as an empty selection.
+      const cs = await fetchJSON('/api/credentials/status').catch(() => null);
       if (r.status === 409) {
         return `<div class="section-note"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>
           ${esc(r.data?.detail || 'Live controls require a linked Telegram account.')}</div>`;
@@ -4992,7 +5026,8 @@
             <span id="ctlMsg" class="small muted" aria-live="polite"></span>
           </div>
           <p class="muted small">${esc(T('ctl.stop_note', 'Emergency stop disables live, pauses, and closes your open positions.'))}</p>
-        </div>`;
+        </div>
+        ${venuePickerHtml(c, (cs && cs.ok && cs.data && cs.data.venues) || [])}`;
     }, { empty: { text: T('ctl.unavailable', 'Controls unavailable.') } });
     onView('click', async (e) => {
       if (e.target.id === 'ctlSave') {
@@ -5007,6 +5042,20 @@
         const r = await RC.postWithStepUp('/api/controls', body);
         msg.textContent = r.ok ? T('venue.queued', 'Queued — the bot applies it within a minute.')
           : (r.data?.detail || r.data?.error || T('venue.failed', 'Failed.'));
+      }
+      if (e.target.id === 'venSave') {
+        const msg = document.getElementById('venMsg');
+        msg.textContent = T('ctl.applying', 'applying…');
+        const venues = [...document.querySelectorAll('.venuePick:checked')]
+          .map((el) => el.value);
+        const r = await fetchJSON('/api/controls/venues', {
+          method: 'POST', body: JSON.stringify({ venues }),
+        });
+        // The route answers `pending`, never `live`, and so does this.
+        msg.textContent = r.ok
+          ? T('venue.queued', 'Queued — the bot applies it within a minute.')
+          : (r.data?.error || T('venue.failed', 'Failed.'));
+        if (r.ok) showView('account');
       }
       if (e.target.id === 'ctlStop') {
         if (!confirm(T('ctl.stop_confirm', 'Emergency stop: disable live, pause, and close your open positions. Continue?'))) return;

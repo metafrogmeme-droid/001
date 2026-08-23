@@ -28,8 +28,8 @@
     "v": 28
   },
   "js/dashboard.js": {
-    "sha": "cad8aac56e5f2722",
-    "v": 150
+    "sha": "8237f02acf4f3c8d",
+    "v": 151
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -141,6 +141,10 @@
   },
   "js/txray-model.js": {
     "sha": "b0690b36b0422b9b",
+    "v": 1
+  },
+  "js/venue-picker-model.js": {
+    "sha": "2618f71df7c91cb3",
     "v": 1
   },
   "js/venue-rows.js": {
