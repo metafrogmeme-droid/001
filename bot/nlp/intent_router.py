@@ -265,6 +265,10 @@ def _extract_symbol(text: str) -> Optional[str]:
     # honest answer to "I think you want a chart and I cannot tell of what".
     _CMD_WORDS = {"analyze", "scan", "check", "trade", "buy", "sell", "long",
                   "short", "signal", "setup", "look", "analyse", "chart", "read",
+                  # The NOUN too, not just the verbs: "HYPE analysis" is the
+                  # widget's own phrasing, and without this an unknown ticker
+                  # in that shape resolved to None while "scan HYPE" worked.
+                  "analysis",
                   # Particles of the multi-word verbs above. Without these,
                   # "check out the news" reads OUT as the asset.
                   "out", "at", "on", "up", "into"}
@@ -546,6 +550,49 @@ _rule(r"\b(show (me )?help|list (of )?commands?|what commands?|how (do i|to) use
 _rule(r"\b(learning (dashboard|stats|status)|self.?improv|what did you learn|adaptation (stats|status))\b",
       "learning", explanation="Learning dashboard request")
 
+# Symbol-FIRST phrasing: "BTC scan", "eth analysis". The rule above only knew
+# verb-first, so the web widget's quick-action button — which sends exactly
+# this shape — matched nothing, fell through to freeform chat, and the model
+# published a complete "BTC/USDT Scan — Full Analysis" around an invented
+# price ($93.06, observed live 2026-08-23). The same fall-through produced the
+# fabricated elliott-wave read on Telegram; both surfaces share classify_rules.
+# The route IS the grounding: a scan that reaches analyze_asset is built from
+# live indicators, and one that reaches the chat model is fiction in the shape
+# of a measurement.
+#
+# THE MATCH DELIBERATELY EXCLUDES THE LEADING WORD. Everything before it is
+# leftover, so `_names_a_non_asset` gets to rule on whether the user named an
+# asset or something else — which is the machinery that already exists for
+# exactly this question, and it settles the cases a pattern cannot:
+#
+#     BTC scan          symbol resolves          -> analyze_asset
+#     portfolio scan    leftover "portfolio"     -> fall through to get_portfolio
+#     wallet scan       leftover "wallet"        -> fall through to chat
+#     technical analysis leftover "technical"    -> fall through to chat
+#     buy BTC after the scan  leftover has verbs -> fall through to trade rules
+#
+# A denylist in the pattern was the first draft and it cannot win this: the
+# excluded set is every English noun, while the admitted set is tickers, and
+# guessing "portfolio"/"wallet"/"technical"/"risk"/"sentiment" are symbols is
+# the SAME defect as the fabricated price one level down. `_extract_symbol`
+# is already the authority — it reads BTC, resolves bitcoin, accepts an
+# all-caps unknown like HYPE, and refuses lowercase prose — so this rule asks
+# it rather than re-deciding.
+#
+# Anchored to the END so it claims only messages that ARE the request, and
+# registered LAST so every more specific intent is tried first. Both are
+# load-bearing and the second was added after a test caught the rule taking
+# "close my BTC position after the scan": the symbol resolves there, so the
+# `if symbol:` branch fires before `_names_a_non_asset` is ever consulted and
+# a close request became an analysis at confidence 1.0. Ordering is the only
+# thing that settles it — a pattern cannot tell which of two real intents a
+# message carrying both is about.
+#
+# Bare "scan", "deep scan" and "market scan" are registered above and never
+# reach here; "how does the scan work" does not end in the word.
+_rule(r"\b(?:scan|analysis)\s*[?!.]*$",
+      "analyze_asset", needs_symbol=True, explanation="Symbol-first scan request")
+
 
 # ── Intent Router ─────────────────────────────────────────────────────
 
@@ -711,3 +758,59 @@ class IntentRouter:
             )
 
         return IntentResult(raw_text=text)
+
+
+# ── Public-surface gate ───────────────────────────────────────────────
+
+#: Skills whose answer IS live market numbers. A visitor with no session
+#: cannot be served any of these honestly, because the public path has no
+#: feed behind it.
+_LIVE_MARKET_SKILLS = frozenset({
+    "analyze_asset", "scan_market", "scan_deep", "scan_full",
+    "scan_swing", "scan_scalp", "scan_intraday",
+})
+
+#: Price asks, which the rules above do NOT route — measured, not assumed:
+#: "current price of bitcoin", "price of ETH" and "btc price" all fall
+#: through classify_rules to chat today. A gate built only on the router
+#: would have let every one of them reach the model.
+_PRICE_PHRASE = re.compile(
+    r"\b(?:current|live|latest|spot|real[\s-]?time)\s+price\b"
+    r"|\bprice\s+(?:of|for)\s"
+    r"|\bhow much is\b",
+    re.IGNORECASE)
+_PRICE_WORD = re.compile(r"\b(?:price|worth|value|quote)\b", re.IGNORECASE)
+
+_public_gate_router: Optional["IntentRouter"] = None
+
+
+def needs_live_market_data(text: str) -> bool:
+    """Would answering this honestly require reading the live market?
+
+    The public (anonymous) chat has no feed, and its system prompt already
+    ORDERED the model never to state a live price. It was watched ignoring
+    that order and publishing a full "BTC/USDT Scan — Full Analysis" around
+    an invented $93.06. An instruction is advisory; a caller that returns
+    before the LLM runs is structural, and this is the predicate for it.
+
+    Deliberately built on `classify_rules` rather than a second regex. The
+    alternative — a pattern in the gateway listing the scan shapes — is two
+    parsers for one question, and the failure mode of two is not a crash: it
+    is the router learning a new phrasing (symbol-first "BTC scan" was added
+    the same day) while the gate silently keeps letting that phrasing through
+    to the model. One source, so a new route is a new refusal for free.
+
+    The price branch is the part the router cannot answer, and it is here
+    because it was CHECKED rather than assumed — see `_PRICE_PHRASE`.
+    """
+    t = text or ""
+    if _PRICE_PHRASE.search(t):
+        return True
+    if _extract_symbol(t) and _PRICE_WORD.search(t):
+        return True
+
+    global _public_gate_router
+    if _public_gate_router is None:
+        _public_gate_router = IntentRouter()
+    result = _public_gate_router.classify_rules(t)
+    return bool(result.matched and result.skill in _LIVE_MARKET_SKILLS)

@@ -577,6 +577,30 @@ async def handle_public_chat(request: web.Request) -> web.Response:
         return web.json_response({"error": "message too long"}, status=400)
 
     reply_lang = str(body.get("lang") or "").strip()[:12]
+
+    # Scan-shaped asks get an honest gate, not an LLM improvisation. The
+    # public prompt already ORDERS the model never to state a live price —
+    # and it was watched ignoring that order, publishing a full "BTC/USDT
+    # Scan — Full Analysis" around an invented $93.06. An instruction is
+    # advisory; this branch is structural: no live feed on this path means no
+    # scan, said plainly, before any model runs.
+    #
+    # The predicate is the ROUTER's, not a second pattern kept here. A regex
+    # in this file would be a copy of routing knowledge that has to be
+    # updated twice — and symbol-first phrasing ("BTC scan") was added to the
+    # router the same day this gate was, which is precisely the update a copy
+    # would have missed while continuing to report itself as closed.
+    from bot.nlp.intent_router import needs_live_market_data
+    if needs_live_market_data(text):
+        return web.json_response({
+            "reply_html": (
+                "\u2694\ufe0f A real scan needs the live data feed, and this "
+                "public chat doesn't have one \u2014 I won't invent prices or "
+                "levels.<br><br><b>Sign in (free)</b> and I'll run the actual "
+                "scanner on current market data.<br><br>"
+                "<a href=\"/dashboard\">Sign in \u2192</a>"),
+            "intent": "public_scan_gate"})
+
     from bot.nlp.sanitize import sanitize_chat_input
     answer = await tg_handler._llm_chat(
         sanitize_chat_input(text), user_id="", user_name="",
