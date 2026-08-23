@@ -295,6 +295,14 @@ class RiskEngine:
         # peak back to 0.0 — the restore ran, audited PEAK_RESTORED, and had
         # no effect. Init-after-load is invisible in review; a test caught it.
         self._live_equity_peak: float = 0.0  # high-water mark for live drawdown
+        # LIVE daily-loss accumulator. Its comment used to read "in-memory
+        # (rebuild after restart is safe — a fresh day starts flat)". A fresh
+        # DAY starts flat; a restart is not a fresh day. Lose 4.5% against a
+        # 5% cap, redeploy, lose 4.5% again, and the gate reads 4.5% while the
+        # day is really 9.0% — the breaker that exists to stop exactly that
+        # never trips, and this deployment redeploys often.
+        self._live_daily_pnl: float = 0.0
+        self._live_daily_day: str = ""      # "YYYY-MM-DD" the accumulator is for
         # F-01: reload persisted safety state so restarts don't clear the breaker
         self._load_state()
         # Feature: Equity curve circuit breaker
@@ -317,8 +325,9 @@ class RiskEngine:
         # close callback) and the LIVE equity high-water mark, so the same
         # breakers protect a live account. UTC-day reset; in-memory (rebuild
         # after restart is safe — a fresh day starts flat).
-        self._live_daily_pnl: float = 0.0
-        self._live_daily_day: str = ""      # "YYYY-MM-DD" the accumulator is for
+        # _live_daily_pnl / _live_daily_day are initialised ABOVE _load_state()
+        # for the same reason _live_equity_peak is — see there. They are
+        # RESTORED from disk now, so an init here would stomp the restore.
         # _live_equity_peak is initialised ABOVE _load_state() — see there.
         # Last live equity seen by evaluate(). Only ever set in LIVE mode, so
         # None means "no live evaluation yet" and the reporter says paper.
@@ -3141,6 +3150,36 @@ class RiskEngine:
 
     # -- Persistence (F-01) --
 
+    def _restore_live_daily(self, data: dict) -> None:
+        """Restore the live daily-loss accumulator, but ONLY for today.
+
+        Three-way, because two of the outcomes are silent:
+          * stored day == today  -> restore; the redeploy keeps the day's loss
+          * stored day is other  -> start flat; carrying it forward would trip
+            the breaker on a day that has lost nothing
+          * unreadable           -> start flat, which is the same as the
+            behaviour before this existed
+
+        A non-numeric total is treated as unreadable rather than coerced:
+        float("lots") raising inside _load_state would be caught by the
+        fail-closed handler and assume a TRIPPED breaker, which is a large
+        consequence for a corrupt field.
+        """
+        try:
+            day = data.get("live_daily_day")
+            if not isinstance(day, str) or not day:
+                return
+            today = time.strftime("%Y-%m-%d", time.gmtime(int(self._now())))
+            if day != today:
+                return
+            pnl = data.get("live_daily_pnl")
+            if not isinstance(pnl, (int, float)) or isinstance(pnl, bool):
+                return
+            self._live_daily_pnl = float(pnl)
+            self._live_daily_day = day
+        except Exception:
+            return
+
     def _load_state(self) -> None:
         """Restore safety state from disk.
         Fix 3 (fail-closed persistence):
@@ -3164,6 +3203,7 @@ class RiskEngine:
             self._circuit_trip_cause = data.get("circuit_trip_cause", "")
             self._circuit_trip_day = data.get("circuit_trip_day", "")
             self._restore_dd_override(data)
+            self._restore_live_daily(data)
             self._restore_live_peak(data)
             if self._circuit_open:
                 audit(risk_log, "Circuit breaker state restored from disk: ACTIVE",
@@ -3284,6 +3324,13 @@ class RiskEngine:
             # restart without a "first restart writes, second restores" lag.
             "live_equity_peak": (float(self._live_equity_peak)
                                  if self._live_equity_peak > 0 else None),
+            # The day's realized LIVE loss, and the UTC day it belongs to. The
+            # day is written alongside deliberately: restoring the number
+            # without it would carry yesterday's loss into today and trip the
+            # breaker on a day that has lost nothing — the opposite error, and
+            # just as wrong.
+            "live_daily_pnl": float(self._live_daily_pnl),
+            "live_daily_day": self._live_daily_day,
             "saved_at": datetime.now(UTC).isoformat(),
         }
 
