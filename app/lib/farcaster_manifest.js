@@ -83,6 +83,76 @@ function accountAssociation() {
   return { header, payload, signature };
 }
 
+/** base64url -> utf8, or null. Never throws — a malformed part is a fact to
+ *  report, not an exception to take down the manifest route. */
+function b64urlJson(s) {
+  try {
+    const norm = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(norm, 'base64').toString('utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * The domain this signature actually authorises, read from its own payload.
+ *
+ * The signature is bound to ONE domain. Serving it from another is not a
+ * weaker proof — it is a false claim that looks configured, which is worse
+ * than an absent one, and it is easy to reach by accident: a staging deploy, a
+ * preview URL, or the apex-versus-`www` mistake that this exact account nearly
+ * made. `www.humanoid-traders.com` and `humanoid-traders.com` are different
+ * domains to Farcaster even though one 301s to the other.
+ *
+ * So the payload is decoded and compared rather than trusted. `null` when it
+ * cannot be read, which `status()` reports as its own reason: a payload we
+ * cannot parse is not a payload for the right domain.
+ */
+function associationDomain() {
+  const a = accountAssociation();
+  if (!a) return null;
+  const parsed = b64urlJson(a.payload);
+  const d = parsed && parsed.domain;
+  return d ? String(d).toLowerCase().replace(/\/+$/, '') : null;
+}
+
+/** The host the manifest is actually being served from, lowercased. */
+function servingHost(req) {
+  const base = baseUrl(req);
+  if (!base) return null;
+  try {
+    return new URL(base).host.toLowerCase();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Does the signature authorise the domain we are serving from?
+ *
+ * Returns `{ ok, reason }`. `ok: true` only when both sides are known AND
+ * equal — an unknown on either side is not a match, because the whole point of
+ * the check is that a mismatch is invisible without it.
+ */
+function domainMatches(req) {
+  const signed = associationDomain();
+  const serving = servingHost(req);
+  if (!signed) {
+    return { ok: false, reason: 'the association payload does not decode to a domain' };
+  }
+  if (!serving) {
+    return { ok: false, reason: 'this deployment does not know its own public origin, '
+      + 'so it cannot check the signature is for the right domain' };
+  }
+  if (signed !== serving) {
+    return { ok: false, reason: `the signature authorises "${signed}" but this is being `
+      + `served from "${serving}". Farcaster treats those as different domains even when `
+      + 'one redirects to the other, so the association is omitted rather than published '
+      + 'as a claim about a domain it does not cover.' };
+  }
+  return { ok: true, reason: null };
+}
+
 /**
  * The public origin, or '' when this deployment does not know it.
  *
@@ -183,7 +253,9 @@ function manifest(req) {
   if (!st.ready) return null;
   const out = {};
   const assoc = accountAssociation();
-  if (assoc) out.accountAssociation = assoc;
+  // Published only when it is a claim about THIS domain. A signature for
+  // another one reads as configured and verifies as nothing.
+  if (assoc && domainMatches(req).ok) out.accountAssociation = assoc;
   out.miniapp = miniapp;
   // `frame` is the legacy key name for the same object. Emitted alongside so
   // clients that predate the rename still resolve the app; it is the same
@@ -207,12 +279,19 @@ function status(req) {
   return {
     ready: missing.length === 0,
     not_ready_reasons: missing.map((k) => `required field \`${k}\` could not be built`),
-    signed: Boolean(accountAssociation()),
-    unsigned_reason: accountAssociation() ? null
-      : 'FARCASTER_ACCOUNT_HEADER / _PAYLOAD / _SIGNATURE are not all set. Only '
+    signed: Boolean(accountAssociation()) && domainMatches(req).ok,
+    // `configured` and `signed` are different questions, and conflating them is
+    // how a domain mismatch hides: the operator set three env vars, sees them
+    // in the process, and cannot tell why Warpcast still refuses the domain.
+    association_configured: Boolean(accountAssociation()),
+    association_domain: associationDomain(),
+    serving_host: servingHost(req),
+    unsigned_reason: !accountAssociation()
+      ? 'FARCASTER_ACCOUNT_HEADER / _PAYLOAD / _SIGNATURE are not all set. Only '
         + 'the Farcaster account owner can produce them — Warpcast → Settings → '
         + 'Developer → Domains, sign this exact origin. Until then the manifest '
-        + 'is served WITHOUT an accountAssociation rather than with a fake one.',
+        + 'is served WITHOUT an accountAssociation rather than with a fake one.'
+      : (domainMatches(req).ok ? null : domainMatches(req).reason),
     problems,
   };
 }
@@ -255,5 +334,6 @@ function embedTags(base, opts) {
 
 module.exports = {
   manifest, status, accountAssociation, buildMiniapp, embedTags,
+  associationDomain, servingHost, domainMatches,
   LIMITS, ICON_PATH, CARD_PATH,
 };

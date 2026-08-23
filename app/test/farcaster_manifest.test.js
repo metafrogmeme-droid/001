@@ -103,14 +103,20 @@ test('a PARTIAL association is treated as no association', () => {
   }
 });
 
-test('a COMPLETE association is published verbatim', () => {
+test('a COMPLETE association FOR THIS DOMAIN is published verbatim', () => {
+  // The payload has to encode the serving domain. The first version of this
+  // test used 'cGF5bG9hZA' — base64 for the word "payload" — which was fine
+  // while "complete" meant "three non-empty strings" and became wrong the
+  // moment the domain started being checked. The fixture was updated, not the
+  // rule: a payload that decodes to nothing is not an association for anything.
+  const PAYLOAD = 'eyJkb21haW4iOiJ3d3cuaHVtYW5vaWQtdHJhZGVycy5jb20ifQ';
   const { manifest, status } = base({
     FARCASTER_ACCOUNT_HEADER: 'aGVhZGVy',
-    FARCASTER_ACCOUNT_PAYLOAD: 'cGF5bG9hZA',
+    FARCASTER_ACCOUNT_PAYLOAD: PAYLOAD,
     FARCASTER_ACCOUNT_SIGNATURE: '0xdeadbeef',
   });
   assert.deepEqual(manifest.accountAssociation, {
-    header: 'aGVhZGVy', payload: 'cGF5bG9hZA', signature: '0xdeadbeef',
+    header: 'aGVhZGVy', payload: PAYLOAD, signature: '0xdeadbeef',
   });
   assert.equal(status.signed, true);
   assert.equal(status.unsigned_reason, null);
@@ -275,4 +281,91 @@ test('the tag content is attribute-escaped', () => {
   assert.ok(!/content="[^"]*"[^>]*"/.test(tags),
     'an unescaped quote inside the JSON would end the attribute early');
   assert.ok(tags.includes('&quot;'), 'the JSON is not attribute-escaped at all');
+});
+
+// ── the signature is bound to ONE domain ─────────────────────────────────
+//
+// Serving it from another is not a weaker proof. It is a false claim that
+// reads as configured, which is worse than an absent one, and it is easy to
+// reach by accident: a staging deploy, a preview URL, or the apex-versus-www
+// mistake — humanoid-traders.com 301s to www.humanoid-traders.com, and
+// Farcaster treats them as different domains regardless.
+//
+// The real signed payload for this account decodes to
+// {"domain":"www.humanoid-traders.com"}, so these use it verbatim rather than
+// a fixture: a check that only ever sees a hand-made payload has never been
+// pointed at the thing it guards.
+
+const REAL = {
+  FARCASTER_ACCOUNT_HEADER:
+    'eyJmaWQiOjMzNDc5NzgsInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHgyNjYyOGEzMTZmZkY1NzI5YjIwMWRhRDczYzk2MDQxRkVjNzM2Njk1In0',
+  FARCASTER_ACCOUNT_PAYLOAD: 'eyJkb21haW4iOiJ3d3cuaHVtYW5vaWQtdHJhZGVycy5jb20ifQ',
+  FARCASTER_ACCOUNT_SIGNATURE:
+    'crNlfLtqS2vr5GrdqCC4dLVstEpZZk97oA/f32pqp5Q0992558WLKJTkxqLHpNn1kMn9nmWz7LROO/THuR7ZFxs=',
+};
+
+const signedAt = (origin) => withEnv(
+  Object.assign({ APP_BASE_URL: origin }, REAL),
+  () => ({ manifest: fc.manifest(null), status: fc.status(null) }));
+
+test('the association payload is decoded, not trusted', () => {
+  withEnv(REAL, () => {
+    assert.equal(fc.associationDomain(), 'www.humanoid-traders.com');
+  });
+});
+
+test('a matching domain publishes the association and reports signed', () => {
+  const { manifest, status } = signedAt('https://www.humanoid-traders.com');
+  assert.ok('accountAssociation' in manifest);
+  assert.equal(status.signed, true);
+  assert.equal(status.unsigned_reason, null);
+});
+
+test('the APEX is a different domain from www, and is refused', () => {
+  // The mistake this account came within one form field of making.
+  const { manifest, status } = signedAt('https://humanoid-traders.com');
+  assert.ok(!('accountAssociation' in manifest),
+    'a signature for www was published from the apex — it verifies as nothing '
+    + 'and reads as configured');
+  assert.equal(status.signed, false);
+  assert.match(status.unsigned_reason, /www\.humanoid-traders\.com/);
+  assert.match(status.unsigned_reason, /humanoid-traders\.com/);
+});
+
+test('a staging or preview host is refused too', () => {
+  const { status } = signedAt('https://staging.humanoid-traders.com');
+  assert.equal(status.signed, false);
+  assert.match(status.unsigned_reason, /staging\.humanoid-traders\.com/);
+});
+
+test('CONFIGURED and SIGNED are reported separately', () => {
+  // The diagnostic that makes a mismatch findable: the operator set three env
+  // vars, can see them in the process, and needs to know why Warpcast still
+  // refuses the domain.
+  const { status } = signedAt('https://humanoid-traders.com');
+  assert.equal(status.association_configured, true, 'the env vars ARE set');
+  assert.equal(status.signed, false, 'and they do not authorise this host');
+  assert.equal(status.association_domain, 'www.humanoid-traders.com');
+  assert.equal(status.serving_host, 'humanoid-traders.com');
+});
+
+test('an undecodable payload is not a match', () => {
+  const { manifest, status } = withEnv(
+    Object.assign({}, REAL, {
+      APP_BASE_URL: 'https://www.humanoid-traders.com',
+      FARCASTER_ACCOUNT_PAYLOAD: 'not-base64-at-all!!',
+    }),
+    () => ({ manifest: fc.manifest(null), status: fc.status(null) }));
+  assert.ok(!('accountAssociation' in manifest));
+  assert.equal(status.signed, false);
+  assert.equal(status.association_domain, null);
+});
+
+test('an unknown serving origin is not a match either', () => {
+  // Both sides must be KNOWN and equal. An unknown on either side is not a
+  // match, because the entire point is that a mismatch is invisible otherwise.
+  const st = withEnv(
+    Object.assign({}, REAL, { APP_BASE_URL: undefined, PUBLIC_ORIGIN: undefined }),
+    () => fc.status(null));
+  assert.equal(st.signed, false);
 });
