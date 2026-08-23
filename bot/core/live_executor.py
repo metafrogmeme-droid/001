@@ -5494,6 +5494,42 @@ class LiveExecutor:
         except Exception:
             return False
 
+    def _mark_stop_absent(self, pos, trade_id: str, *, had_stop: bool,
+                          why: str = "") -> None:
+        """Record that this position has NO exchange stop.
+
+        Called only where an existing stop was cancelled and its replacement
+        did not land. Nulls the id so nothing downstream reads a dead order as
+        protection, sets the `unprotected` marker the alarm surfaces read, and
+        says so at a level an operator sees — the failure used to be a single
+        `logger.debug` line.
+
+        Never raises: this runs inside the position loop and a bookkeeping
+        fault must not cost the rest of the tick.
+        """
+        try:
+            pos.sl_order_id = ""
+            setattr(pos, "unprotected", True)
+            self._save_positions()
+            if not had_stop:
+                # It never had an exchange stop, so nothing was lost here. The
+                # throttled UNPROTECTED escalation below already covers the
+                # standing state; repeating it every tick would bury the one
+                # event that IS news.
+                return
+            audit(trade_log,
+                  f"{pos.symbol} has NO exchange stop: the existing one was "
+                  f"cancelled and the replacement was refused"
+                  + (f" ({why})" if why else "")
+                  + " — local SL monitoring is now the only protection",
+                  action="sltp_retry", result="STOP_ABSENT",
+                  level=logging.WARNING,
+                  data={"trade_id": trade_id, "symbol": pos.symbol,
+                        "had_exchange_stop": had_stop,
+                        "stop_loss": pos.stop_loss})
+        except Exception as exc:
+            trade_log.error("could not mark %s unprotected: %s", pos.symbol, exc)
+
     async def check_positions(self) -> list[str]:
         """Check open positions against current prices. Returns list of close/update messages.
 
@@ -5835,6 +5871,7 @@ class LiveExecutor:
                                 exchange, pos.symbol, direction,
                                 pos.quantity, pos.stop_loss, pos.take_profit
                             )
+                            _had_stop = bool(pos.sl_order_id)
                             if sl_id or tp_id:
                                 # AUDIT-FIX: Only update missing order IDs to avoid
                                 # orphaning existing exchange orders
@@ -5847,8 +5884,33 @@ class LiveExecutor:
                                       f"SL/TP retry succeeded: {pos.symbol} SL={pos.stop_loss:.4f} TP={pos.take_profit:.4f}",
                                       action="sltp_retry", result="PLACED",
                                       data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id})
+                            if not sl_id:
+                                # _place_sl_tp CANCELS every existing plan order
+                                # before it places, so reaching here means the
+                                # working stop is gone and its replacement was
+                                # refused. Leaving sl_order_id naming the
+                                # cancelled order made every downstream signal
+                                # read "protected": the grace skip trusts it
+                                # outright, the stale-ticker skip logs "exchange
+                                # stop still active", and the `unprotected`
+                                # alarm is CLEARED because clearing is gated on
+                                # this id being truthy. A cancelled stop that
+                                # could not be replaced is an ABSENT stop, and
+                                # the field has to say so.
+                                #
+                                # The static SL/TP check still closes on breach
+                                # once past grace, so this is not a naked
+                                # position — it is a position whose protection
+                                # is local-only, and the difference has to be
+                                # visible to the code and to the operator.
+                                self._mark_stop_absent(pos, trade_id,
+                                                       had_stop=_had_stop)
                         except Exception as exc:
-                            logger.debug("SL/TP retry failed for %s: %s", pos.symbol, exc)
+                            # The re-place raised AFTER the cancel, which is the
+                            # same outcome by a different door.
+                            self._mark_stop_absent(pos, trade_id,
+                                                   had_stop=bool(pos.sl_order_id),
+                                                   why=str(exc)[:120])
 
                     # ── Breach-by-rejection: the venue just TOLD us the stop is hit ──
                     # When the retry above still could not place the stop and the
