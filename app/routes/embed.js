@@ -92,12 +92,13 @@ function framable(req, res, next) {
 
 router.use(framable);
 
-function page(title, bodyClass, script) {
+function page(title, bodyClass, script, meta) {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
+${meta || ''}
 <link rel="stylesheet" href="/embed.css?v=1">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
@@ -116,7 +117,21 @@ function page(title, bodyClass, script) {
  * an account's money.
  */
 router.get('/signals', (req, res) => {
-  res.type('html').send(page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=1'));
+  // The fc:miniapp tags make a link to this page render as a launchable card in
+  // a cast. They are emitted only when a public origin resolves: absolute URLs
+  // are mandatory here, and the wallet-QR incident is the precedent — a card
+  // pointing at an internal hostname renders perfectly and is unreachable by
+  // everyone who taps it.
+  let meta = '';
+  try {
+    // `.origin`, not the object: resolve() answers {origin} or {error}, and
+    // stringifying it yields "[object Object]" in every URL of a card that
+    // still renders.
+    const r = require('../lib/public_origin').resolve(req, process.env) || {};
+    meta = r.origin ? require('../lib/farcaster_manifest').embedTags(r.origin) : '';
+  } catch (_) { meta = ''; }
+  res.type('html').send(
+    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=1', meta));
 });
 
 module.exports = router;
