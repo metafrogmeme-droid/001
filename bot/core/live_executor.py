@@ -729,8 +729,21 @@ class LiveExecutor:
                 pass  # risk engine itself is broken — don't recurse
 
     def update_atr(self, symbol: str, atr_pct: float) -> None:
-        """Update ATR ratio for dynamic leverage calculation."""
-        self._last_atr_pct[symbol] = atr_pct
+        """Record an ATR/price RATIO (0.04 = 4%) for dynamic leverage.
+
+        Keyed through `normalize_symbol` because the reader is: it looked up
+        `normalize_symbol(symbol)` while this wrote whatever spelling the
+        caller held, so a reading filed under "BTC/USDT:USDT" could not be
+        found under "BTC". The same mismatch the leverage rest had.
+
+        NOTE: this has no caller outside tests today, so the map is empty in
+        production and `_compute_target_leverage` takes its no-reading branch.
+        Wiring it needs a UNIT decision as well as a call site — `quant_skill`
+        reports `atr_pct` as a percentage (2.5 means 2.5%) and this wants the
+        ratio (0.025) — and DYNAMIC_LEVERAGE_ENABLED is off by operator
+        directive, so nothing here turns it on.
+        """
+        self._last_atr_pct[normalize_symbol(symbol)] = atr_pct
 
     def check_degradation(self) -> str:
         """Check if execution should be degraded. Returns mode: 'normal', 'reduce_only', 'paused'."""
@@ -842,7 +855,34 @@ class LiveExecutor:
             return default_lev
         try:
             sym_base = normalize_symbol(symbol)
-            atr_pct = self._last_atr_pct.get(sym_base, 0.02)
+            atr_pct = self._last_atr_pct.get(sym_base)
+            if atr_pct is None:
+                # NOT 0.02. `.get(sym_base, 0.02)` printed "ATR=2.000%" into
+                # the audit record for a reading that was never taken, and 2%
+                # sits in the calm band — so an unmeasured symbol was granted
+                # the FULL standard leverage and the trail said its volatility
+                # had been checked and found normal.
+                #
+                # It was every symbol, always: `update_atr` is the only writer
+                # of this map and it has no callers outside tests, so with the
+                # flag on the map is empty and every audit line was that
+                # fabricated 2%. `tests/test_dynamic_leverage_dedup.py` plants
+                # a dict whose `.get` ignores the key, which is why neither
+                # half was visible from the suite.
+                #
+                # Behaviour is unchanged — an unscaled symbol still gets the
+                # standard leverage, which is what the disabled flag gives it
+                # too. Only the claim changes, and it changes from a
+                # measurement to the absence of one.
+                audit(trade_log,
+                      f"Dynamic leverage for {symbol}: no ATR reading on "
+                      f"record — left at {default_lev}x, NOT scaled for "
+                      f"volatility",
+                      action="dynamic_leverage", result="NO_ATR",
+                      level=logging.WARNING,
+                      data={"symbol": symbol, "leverage": default_lev,
+                            "atr_readings_held": len(self._last_atr_pct)})
+                return default_lev
             min_lev = int(getattr(cfg, "min_leverage", 1))
             lev = default_lev
             if atr_pct > 0.04:        # high vol (>4% ATR) → halve
@@ -1368,6 +1408,48 @@ class LiveExecutor:
 
     # ── Pre-flight checks ────────────────────────────────────────
 
+    def _rest_key(self, symbol: Any) -> str:
+        """The ONE key a leverage rest is stored and read under.
+
+        It was two keys. `execute` reassigns `symbol` to
+        `self._venue.swap_symbol(idea.asset)` for the futures order path — a
+        correct change made ~1200 lines above, because the perp tick grid is
+        coarser than the spot one and a spot-rounded price is rejected with
+        45115 — and the rest inherited that spelling, storing "APT/USDT:USDT".
+        `_preflight_check` is called with `idea.asset`, so it looked up
+        "APT/USDT". The rest was set, was correct, and could never be found.
+
+        The fill path rests `pos.symbol`, which is `idea.asset` for a position
+        this bot opened and the VENUE's own perp form for one adopted off the
+        exchange, so the same map held both spellings and the reader knew one.
+
+        `normalize_symbol` was already the answer — `_recent_local_opens` and
+        `_last_sltp_error` both key through it for exactly this reason. It
+        reduces to the bare base, so a rest is per ASSET: "APT/USDC" rests too.
+        Deliberate. The sticky setting that caused the incident is the venue's
+        leverage for that asset, a rest lasts an hour, and it follows a
+        CONFIRMED over-levered fill — over-resting costs one entry, and
+        under-resting costs the fee-pump loop the rest exists to stop.
+
+        Blank in, blank out: `normalize_symbol("   ")` is a perfectly good
+        dict key, and a rest stored under whitespace would match every later
+        check made with whitespace.
+        """
+        return normalize_symbol(str(symbol or "").strip())
+
+    def _rest_symbol(self, symbol: Any,
+                     seconds: float = _LEVERAGE_BLOCK_SECONDS) -> None:
+        """Refuse new entries on `symbol` for `seconds`.
+
+        The only writer. Two call sites formed the key themselves and diverged;
+        a third would too, and would look fine, because whoever writes it reads
+        it back with the same string in their own test.
+        """
+        key = self._rest_key(symbol)
+        if not key:
+            return
+        self._leverage_blocked_until[key] = time.monotonic() + seconds
+
     def _preflight_check(self, size_usd: float, symbol: str = "") -> Optional[str]:
         """Run micro-test safety checks. Returns error string or None."""
         # A symbol the overshoot guard just flattened is refused until its block
@@ -1377,9 +1459,11 @@ class LiveExecutor:
         #
         # The message says how long is left and why, because "BLOCKED" with no
         # duration is indistinguishable from a permanently broken symbol — and
-        # an operator who cannot tell those apart disables the guard.
-        if symbol:
-            _blocked_until = self._leverage_blocked_until.get(symbol)
+        # an operator who cannot tell those apart disables the guard. It names
+        # the symbol the CALLER asked about, not the internal key.
+        _rest = self._rest_key(symbol)
+        if _rest:
+            _blocked_until = self._leverage_blocked_until.get(_rest)
             if _blocked_until is not None:
                 _left = _blocked_until - time.monotonic()
                 if _left > 0:
@@ -1389,8 +1473,9 @@ class LiveExecutor:
                         f"Fix the symbol's leverage on the venue, or wait."
                     )
                 # Expired — drop it rather than let the map grow for the process
-                # lifetime and keep re-computing a negative remainder.
-                self._leverage_blocked_until.pop(symbol, None)
+                # lifetime and keep re-computing a negative remainder. Same key
+                # it was stored under, or it never leaves.
+                self._leverage_blocked_until.pop(_rest, None)
 
         # Cap position size
         if size_usd > MICRO_MAX_POSITION_USD:
@@ -1840,8 +1925,9 @@ class LiveExecutor:
                 # Same rest as the market path: Bitget's sticky per-symbol
                 # leverage does not heal because we closed, so without this the
                 # engine re-signals and the cycle repeats at a fee per round.
-                self._leverage_blocked_until[pos.symbol] = (
-                    time.monotonic() + _LEVERAGE_BLOCK_SECONDS)
+                # Through the helper: pos.symbol is idea.asset for a position
+                # this bot opened and the venue's perp form for an adopted one.
+                self._rest_symbol(pos.symbol)
                 return (
                     f"⚠️ <b>POSITION CLOSED — {pos.symbol}</b>\n"
                     f"The venue filled at <b>{got}x</b> against a {want}x target "
@@ -4185,8 +4271,13 @@ class LiveExecutor:
                             # outside, exactly like the bot trading badly. The
                             # cooldown is the difference between a guard and a
                             # fee pump.
-                            self._leverage_blocked_until[symbol] = (
-                                time.monotonic() + _LEVERAGE_BLOCK_SECONDS)
+                            #
+                            # Through the helper, and that is the whole fix:
+                            # `symbol` is the PERP form by here, while the
+                            # check that reads this rest is called with
+                            # `idea.asset`. Keyed raw, the rest was unfindable
+                            # on the futures path — which is every path.
+                            self._rest_symbol(symbol)
                             return (
                                 f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
                                 f"The venue filled at <b>{_lev_got}x</b> against a "
