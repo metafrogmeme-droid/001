@@ -278,24 +278,45 @@ def test_the_flag_ships_off():
 
 # ── enforce cannot silently be a no-op ───────────────────────────────────
 
-def test_enforce_refuses_loudly_while_no_caller_routes_on_it(store, mode):
-    """With nothing acting on `effective`, `enforce` would behave EXACTLY like
-    `shadow` while reporting that it routes across venues. An operator who set
-    it would believe the feature was live, read plausible reasons in the logs,
-    and be wrong — a control reporting an action it is not taking.
+def test_enforce_and_its_caller_cannot_drift_apart():
+    """`ENFORCE_IMPLEMENTED` is a claim about the ENGINE, so it is checked
+    against the engine.
 
-    So it degrades LOUDLY and says so in the reason, rather than quietly.
+    For one commit it was False, and that gap was worth naming: with nothing
+    acting on `effective`, `enforce` behaved exactly like `shadow` while
+    reporting that it routed across venues. An operator who set it would have
+    believed the feature was live and been wrong.
+
+    Keeping the constant keeps the claim checkable in BOTH directions —
+    flipping it without a caller fails here, and deleting the caller while it
+    is True fails here too.
     """
+    import inspect
+
     import bot.core.venue_selection as vs
-    assert vs.ENFORCE_IMPLEMENTED is False, (
-        "order routing landed — flip this test to assert enforce routes, in "
-        "the same commit")
-    mode(True, "enforce")
-    store.set_selection("alice", ["bitget", "bybit"], connected=_ALL)
-    d = routing_decision("alice", connected=_ALL, store=store)
-    assert d["effective"] == ()
-    assert "NOT AVAILABLE" in d["reason"], (
-        "enforce degraded to shadow without saying so")
+    from bot.core.engine import RuneClawEngine
+
+    src = inspect.getsource(RuneClawEngine)
+    routes = "choose_venue(" in src and "_executor_for(user_id, _venue)" in src
+    assert vs.ENFORCE_IMPLEMENTED == routes, (
+        "ENFORCE_IMPLEMENTED says %r but the engine %s route on it"
+        % (vs.ENFORCE_IMPLEMENTED, "does" if routes else "does NOT"))
+
+
+def test_a_refused_route_does_not_fall_back_to_the_default_venue():
+    """The single most dangerous line that could be written here is a fallback.
+    When no selected venue can take the order — margin unreadable, or short —
+    routing to the default venue anyway would place a trade somewhere the
+    person did not select, at exactly the moment least is known."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine)
+    i = src.index("_venue, _why = choose_venue(")
+    window = src[i:i + 1400]
+    assert "if _venue is None:" in window and "return" in window, (
+        "a failed venue choice does not refuse — it falls through to whatever "
+        "executor was resolved before")
 
 
 # ── it is reachable from production, not only from tests ─────────────────
@@ -346,3 +367,152 @@ def test_a_relative_path_is_anchored_to_the_repo_not_the_cwd(tmp_path, monkeypat
     assert (root / "data" / "sel_relative.json").exists(), (
         "the selection was written relative to the working directory")
     assert not (elsewhere / "data" / "sel_relative.json").exists()
+
+
+# ── which venue gets the order ───────────────────────────────────────────
+
+def _c(venue, free):
+    return {"venue": venue, "free_usd": free}
+
+
+def test_one_order_goes_to_one_venue():
+    """Not to all of them. Placing the same idea on two venues doubles the
+    exposure while every per-venue check still passes — §2's "two venues each
+    with their own max-5 is ten positions" in its purest form. Multi-venue
+    spreads the book; it does not duplicate the trade."""
+    from bot.core.venue_selection import choose_venue
+    v, _ = choose_venue([_c("bitget", 1000), _c("bybit", 1000)], 100)
+    assert isinstance(v, str)
+
+
+def test_the_most_free_margin_wins():
+    from bot.core.venue_selection import choose_venue
+    assert choose_venue([_c("bitget", 100), _c("bybit", 500)], 50)[0] == "bybit"
+
+
+def test_an_unreadable_margin_is_never_a_candidate():
+    """§7: an unreadable balance must not read as free margin. Routing there
+    bets the order on a number nobody read."""
+    from bot.core.venue_selection import choose_venue
+    for bad in (None, "abc", float("nan")):
+        v, why = choose_venue([_c("bitget", bad), _c("bybit", 500)], 50)
+        assert v == "bybit", f"{bad!r} was treated as available margin"
+        assert "unreadable" in why
+
+
+def test_everything_unreadable_refuses_rather_than_guessing():
+    from bot.core.venue_selection import choose_venue
+    v, why = choose_venue([_c("bitget", None), _c("bybit", None)], 50)
+    assert v is None
+    assert "unreadable" in why and "bitget" in why and "bybit" in why
+
+
+def test_a_venue_without_room_is_skipped_and_said_so():
+    from bot.core.venue_selection import choose_venue
+    v, why = choose_venue([_c("bitget", 10), _c("bybit", 500)], 100)
+    assert v == "bybit"
+    assert "bitget" in why and "10.00" in why
+
+
+def test_no_venue_with_room_refuses(): 
+    from bot.core.venue_selection import choose_venue
+    v, why = choose_venue([_c("bitget", 10)], 100)
+    assert v is None, "an order was routed to a venue that cannot take it"
+    assert "no venue can take this order" in why
+
+
+def test_the_choice_is_deterministic_on_identical_state():
+    """A router that picks differently on the same inputs is one nobody can
+    reason about after the fact."""
+    from bot.core.venue_selection import choose_venue
+    a = [_c("okx", 500), _c("bybit", 500), _c("bitget", 500)]
+    assert choose_venue(a, 10)[0] == choose_venue(list(reversed(a)), 10)[0] == "bitget"
+
+
+def test_no_candidates_at_all_refuses():
+    from bot.core.venue_selection import choose_venue
+    assert choose_venue([], 10)[0] is None
+    assert choose_venue(None, 10)[0] is None
+
+
+# ── the engine-level safety properties ───────────────────────────────────
+
+def test_flatten_and_the_kill_switch_reach_every_venue_by_construction():
+    """§3's safety core. Per-venue executors go into the SAME dict as the
+    single-venue ones, and `_all_live_executors()` iterates `.values()` — so
+    flatten, the emergency halt, SL/TP monitoring and reconciliation cover
+    every venue without any of them being edited. Structural, because a
+    property that depends on remembering does not survive."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine._all_live_executors)
+    assert "_user_executors.values()" in src, (
+        "executors are enumerated by KEY somewhere — a per-venue executor "
+        "would be missed by flatten and by the kill switch")
+
+    flat = inspect.getsource(RuneClawEngine.flatten_all_positions)
+    assert "_all_live_executors()" in flat
+
+    # The kill switch reaches venues by TWO routes, and both matter. It trips
+    # every RiskEngine by iterating `_user_risk`, which Phase 2 made
+    # venue-keyed, so no venue can still pass risk; and it flattens through
+    # `flatten_all_positions`, which is the executor half above. Asserting it
+    # calls `_all_live_executors` DIRECTLY would have been wrong — the first
+    # draft of this test did, and the chain is what actually holds.
+    halt = inspect.getsource(RuneClawEngine.emergency_halt_all)
+    assert "self._user_risk.items()" in halt, (
+        "the kill switch does not trip every per-(user, venue) risk engine")
+    assert "flatten_all_positions(" in halt, (
+        "the kill switch does not flatten through the all-executors path")
+
+
+def test_disconnect_drops_every_venue_executor_not_just_the_default():
+    """Popping only `user` would leave per-venue executors cached holding
+    credentials the user just revoked — a /disconnect that disconnects
+    nothing, on the path that places orders."""
+    from bot.core.engine import RuneClawEngine
+
+    e = RuneClawEngine.__new__(RuneClawEngine)
+    e._user_executors = {"alice": 1, "bybit/alice": 2, "okx/alice": 3, "bob": 4,
+                         "bybit/bob": 5}
+    e._balance_view_executors = {"alice": 1, "bybit/alice": 2}
+    e.invalidate_user_executor("alice")
+    assert set(e._user_executors) == {"bob", "bybit/bob"}, (
+        "a revoked user kept a live per-venue executor")
+    assert e._balance_view_executors == {}
+
+
+def test_an_error_reading_a_balance_is_unreadable_not_zero():
+    """`fetch_balance` returns {"error": ..., "free": 0} on failure — a
+    measured-looking ZERO for a balance nobody read. Taking `free` straight
+    from it would report "$0.00 < $50.00" about a venue that never answered,
+    and an order of size 0 would find it eligible."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine._venue_margin_candidates)
+    assert 'bal.get("error")' in src, (
+        "the error key is not checked, so a failed balance read becomes a "
+        "measured zero")
+
+
+def test_a_venue_refusal_is_a_readable_message_not_a_dict():
+    """`_confirm_trade_inner` returns the TEXT the user is shown. The first
+    draft of the venue refusal returned {"ok": False, ...}, which would have
+    rendered a raw Python repr into the chat at the exact moment a trade was
+    refused — the worst moment to be unreadable.
+
+    Caught by checking the enclosing method's real signature rather than
+    trusting the name in the commit message, which was also wrong.
+    """
+    import inspect
+    import re
+
+    from bot.core.engine import RuneClawEngine
+    src = inspect.getsource(RuneClawEngine._confirm_trade_inner)
+    assert not [ln for ln in src.split("\n") if re.match(r"\s*return \{", ln)], (
+        "this function is annotated -> str and every sibling refusal is a "
+        '"Trade REJECTED: ..." line; something returns a dict')
+    assert 'Trade REJECTED: {_why}' in src, (
+        "the no-eligible-venue refusal does not use the house refusal format")

@@ -233,18 +233,19 @@ VALID_MODES = ("off", "shadow", "enforce")
 #: Is there a caller that ACTS on `effective` — i.e. does an order actually
 #: reach more than one venue?
 #:
-#: False today. Selection and observation landed first, deliberately, and the
-#: order-routing change is its own step. This constant exists because the
-#: alternative is worse than the gap: with nothing acting on `effective`,
-#: `enforce` would behave EXACTLY like `shadow` while reporting that it is
-#: routing across venues. An operator who set enforce would believe the
-#: feature was live, see plausible reasons in the logs, and be wrong — a
-#: control that reports doing something it is not doing, which is the failure
-#: this repository is mostly built to prevent.
+#: TRUE as of the routing commit: `RuneClawEngine._place_live_order` resolves
+#: the decision, picks a venue with `choose_venue`, and routes the order to
+#: that venue's executor — or REFUSES, rather than falling back to the default
+#: venue, which would place a trade somewhere the person did not select.
 #:
-#: So enforce is refused until this flips, LOUDLY, rather than quietly
-#: degrading. Flip it in the same commit that teaches the executor to route.
-ENFORCE_IMPLEMENTED = False
+#: It exists because for one commit it was False, and that gap was worth
+#: naming: with nothing acting on `effective`, `enforce` behaved EXACTLY like
+#: `shadow` while reporting that it routed across venues. An operator who set
+#: it would have believed the feature was live, read plausible reasons in the
+#: log, and been wrong. Keeping the constant means the same claim stays
+#: checkable — `test_enforce_is_the_only_mode_that_routes` reads it, so
+#: flipping it without a caller fails, and so does removing the caller.
+ENFORCE_IMPLEMENTED = True
 
 
 def routing_decision(user_id: str, *, connected: Optional[Callable] = None,
@@ -319,3 +320,64 @@ def routing_decision(user_id: str, *, connected: Optional[Callable] = None,
         reason += (f" · selected but not connected: {', '.join(dropped)}")
     return {"mode": mode, "venues": tuple(venues), "dropped": tuple(dropped),
             "effective": tuple(effective), "reason": reason}
+
+
+# ── which of the selected venues gets THIS order ─────────────────────────
+
+def choose_venue(candidates, need_usd: float) -> tuple:
+    """``(venue | None, reason)`` — where one order goes.
+
+    ONE ORDER GOES TO ONE VENUE. Not to all of them: placing the same idea on
+    two venues doubles the exposure while every per-venue check still passes,
+    which is §2's "two venues each with their own max-5 is ten positions" in
+    its purest form. Multi-venue means the book is SPREAD across venues, not
+    that each trade is duplicated onto them.
+
+    ``candidates`` is ``[{"venue": str, "free_usd": float | None}, ...]``.
+
+    Three rules, and the first is the one that costs money if it is dropped:
+
+    * A venue whose free margin could NOT BE READ is not a candidate.
+      Unreadable is not "has margin" — routing there is betting the order on a
+      number nobody read, and the failure mode is an order rejected by the
+      exchange at best and a mis-sized one at worst. §7 of the scope says this
+      in as many words: an unreadable balance must not read as free margin.
+    * A venue without room for the order is not a candidate.
+    * Among the rest, the MOST free margin wins — best odds of filling, and it
+      spreads the book rather than concentrating it. Ties break alphabetically
+      so the same inputs always produce the same venue; a router that picks
+      differently on identical state is one nobody can reason about after the
+      fact.
+
+    ``(None, reason)`` when nothing qualifies. The caller must REFUSE the
+    order. It must not fall back to the default venue — that would place a
+    trade somewhere the person did not choose, which is worse than not trading.
+    """
+    eligible, skipped = [], []
+    for c in candidates or []:
+        venue = str((c or {}).get("venue") or "").lower().strip()
+        if not venue:
+            continue
+        free = (c or {}).get("free_usd")
+        if free is None:
+            skipped.append(f"{venue} (margin unreadable)")
+            continue
+        try:
+            f = float(free)
+        except (TypeError, ValueError):
+            skipped.append(f"{venue} (margin unreadable)")
+            continue
+        if f != f:                                   # NaN
+            skipped.append(f"{venue} (margin unreadable)")
+            continue
+        if f < float(need_usd):
+            skipped.append(f"{venue} (${f:,.2f} < ${float(need_usd):,.2f})")
+            continue
+        eligible.append((f, venue))
+    if not eligible:
+        detail = "; ".join(skipped) if skipped else "no venues offered"
+        return None, f"no venue can take this order: {detail}"
+    eligible.sort(key=lambda t: (-t[0], t[1]))
+    best = eligible[0][1]
+    note = f" (skipped {'; '.join(skipped)})" if skipped else ""
+    return best, f"routing to {best}{note}"
