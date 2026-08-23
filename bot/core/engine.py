@@ -34,6 +34,7 @@ from bot.compliance.compliance_engine import ComplianceEngine, Permission, defau
 from bot.learning.orchestrator import LearningOrchestrator
 from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
+from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for  # noqa: F401
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
 from bot.core.dashboard_pusher import (
@@ -4143,7 +4144,13 @@ class RuneClawEngine:
             if idea:
                 # Filter: don't present ideas below min_confidence threshold
                 # Prevents user frustration of confirming a trade that gets rejected
-                if idea.confidence < CONFIG.risk.min_confidence:
+                # The floor is asked of ONE place — bot/risk/confidence_floor.py.
+                # This gate read the flat global unconditionally, which is why
+                # PER_STRATEGY_CONFIDENCE_FLOOR_ENABLED could never help a
+                # scanned idea: it discarded the swing (0.50) and position
+                # (0.45) setups the flag exists to save, three gates before
+                # the flag's only reader ever saw them.
+                if not clears_confidence_floor(idea):
                     audit(scan_log,
                           f"Filtered sub-threshold idea: {idea.asset} conf={idea.confidence:.2f} < {CONFIG.risk.min_confidence}",
                           action="filter_idea", result="BELOW_MIN_CONFIDENCE",
@@ -5870,7 +5877,7 @@ class RuneClawEngine:
                 audit(trade_log, f"Critique adjusted confidence by {critique_result.confidence_adjustment:+.2f} to {idea.confidence:.3f}",
                       action="critique_adjust", result="ADJUSTED",
                       data={"adjustment": critique_result.confidence_adjustment, "new_confidence": idea.confidence})
-                if idea.confidence < CONFIG.risk.min_confidence:
+                if not clears_confidence_floor(idea):
                     # RC-AUD-025: the "user already confirmed, proceed anyway"
                     # rationale only holds when a REAL human pressed Confirm.
                     # Auto-confirm (user_id="auto") and unattended ("") paths
@@ -6449,7 +6456,7 @@ class RuneClawEngine:
 
         ideas_found = 0
         for idea in results:
-            if idea and idea.confidence >= CONFIG.risk.min_confidence:
+            if idea and clears_confidence_floor(idea):
                 idea_key = normalize_symbol(idea.asset)
                 for eid, eidea in list(self._pending_ideas.items()):
                     if normalize_symbol(eidea.asset) == idea_key:

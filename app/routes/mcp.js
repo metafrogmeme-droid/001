@@ -24,6 +24,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { getLatestFlight } = require('./sync');
+const { safeErrorText } = require('../lib/safe_error');
 // The public /track page's own arithmetic. Imported rather than re-derived:
 // M9 was these two surfaces answering the same question differently while a
 // comment here promised they shared one source of truth.
@@ -534,7 +535,14 @@ const TOOLS = {
       const limit = Math.min(parseInt(args?.limit) || 20, 50);
       return {
         chain: {
-          verified: chain.ok !== false,
+          // THREE-VALUED. This was `chain.ok !== false`, so an absent chain
+          // ({} when no flight has synced) gave `undefined !== false` ->
+          // TRUE: the tamper-evident ledger reporting itself verified having
+          // read nothing. The two lines below always did it right — `?? null`
+          // — and only the verdict turned an unknown into a yes, on the one
+          // field that is itself an integrity claim. A broken chain (false)
+          // and an unread one (null) must also stay distinguishable.
+          verified: chain.ok === true ? true : (chain.ok === false ? false : null),
           entries: chain.length ?? null,
           tip_hash: chain.tip_hash ?? null,
         },
@@ -858,8 +866,16 @@ const TOOLS = {
       + 're-derivable), expectancy, payoff ratio, profit factor, max realized '
       + 'drawdown and streaks. Same rows as get_track_record.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    // publicIntel, not getUserIntel: this tool has no requiresKey, so it is
+    // served to anyone through POST /api/tool/invoke — the endpoint the
+    // published ERC-8257 manifest names. Percent, ratio and count only.
+    // routes/portfolio.js keeps the dollars; it serves req.user.user_id.
+    // The comment lives OUTSIDE the arrow function on purpose: inside, it
+    // became part of Function.prototype.toString and made a reachability
+    // assertion pass with the call removed.
     handler: async () =>
-      require('../lib/intel').getUserIntel(parseInt(process.env.BOT_USER_ID) || 1),
+      require('../lib/intel').publicIntel(
+        await require('../lib/intel').getUserIntel(parseInt(process.env.BOT_USER_ID) || 1)),
   },
 };
 
@@ -1096,7 +1112,15 @@ async function handleRpc(msg, ctx) {
       });
     } catch (e) {
       return rpcResult(id, {
-        content: [{ type: 'text', text: `Tool failed: ${String(e.message || e).slice(0, 200)}` }],
+        // safeErrorText, not the raw message. These handlers do pool.execute
+        // and getGateway calls: a database error carries connection and schema
+        // detail, a gateway error carries the internal URL it tried, and this
+        // endpoint is public and unauthenticated. lib/safe_error.js quotes the
+        // expression that used to be here in its own docblock as the bug it
+        // was written for — the sibling /api/tool/invoke was wired to it and
+        // /mcp never was. Scrubbed, not blanked: a real "text is required"
+        // still reaches the caller.
+        content: [{ type: 'text', text: `Tool failed: ${safeErrorText(e)}` }],
         isError: true,
       });
     }
@@ -1164,6 +1188,10 @@ module.exports = router;
 // Shared with the ERC-8257 tool endpoint (routes/tool8257.js) so the on-chain
 // manifest and /mcp can never drift — one read-only tool registry.
 module.exports.TOOLS = TOOLS;
+// Exported for tests: the JSON-RPC error path is only reachable
+// through here, and a source scan of it would pass with the
+// scrubber present and unreached.
+module.exports.handleRpc = handleRpc;
 // NOT exported to routes/tool8257.js, and that is deliberate: its
 // /api/tool/invoke is public and unauthenticated, so it must only ever be able
 // to reach the read-only registry above.

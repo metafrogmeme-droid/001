@@ -7,6 +7,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert');
+const { blockBetween } = require('./helpers/block');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -30,7 +31,24 @@ test('share is percentage-only and recruit-linked', () => {
   assert.match(DASH, /navigator\.share/, 'native share sheet when available');
   assert.match(DASH, /t\.me\/share\/url/, 'Telegram share fallback');
   // Guard: the share text must not embed a dollar sign (no account-size leak).
-  const shareBlock = DASH.slice(DASH.indexOf('.share-trade'), DASH.indexOf('t.me/share/url'));
+  // blockBetween, not slice: `.share-trade` is a CSS class at 266855 and
+  // `t.me/share/url` is the share builder at 164307, so slice() returned ""
+  // and the assertion below asserted nothing. The markers now bracket the
+  // share builder itself, and the helper fails loudly on an empty region.
+  // 'a RUNECLAW decision picture' is unique in the bundle and sits INSIDE the
+  // share-text template, so the block is guaranteed to contain the `text = \``
+  // assignment the regex below looks for. The first attempt at this fix
+  // anchored on 'navigator.share' — non-empty, but it started AFTER the
+  // assignment, so the guard would have been just as dead with a healthier
+  // looking slice. A region that excludes its own subject is the same defect
+  // wearing a longer string.
+  // The unique anchor sits INSIDE the template, so the block reaches back to
+  // pick up the `const text = \`` that opens it. `const text = ` alone appears
+  // six times in the bundle and indexOf would only find the right one by luck.
+  const shareBlock = blockBetween(DASH, 'a RUNECLAW decision picture',
+    't.me/share/url', { before: 120, pad: 400, label: 'share text builder' });
+  assert.match(shareBlock, /text = `/,
+    'the block no longer contains the share-text assignment this guards');
   assert.ok(!/text = `[^`]*\$\{?\s*(usd|dollar|pnl_usd|amount)/i.test(shareBlock),
     'share text carries no dollar amount');
 });
