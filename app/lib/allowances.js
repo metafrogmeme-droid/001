@@ -23,6 +23,7 @@
  */
 
 const { ethers } = require('ethers');
+const { encodeCall } = require('./abi_call');
 const { activeChains } = require('./wallet');
 
 // Deterministic-deploy spenders (same address, same bytecode, cross-chain),
@@ -84,6 +85,17 @@ async function readAllowances(owner, chainKey) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(String(owner || ''))) return { error: 'bad address' };
 
   const spenders = spendersFor(chain.key);
+
+  // Revoke calldata depends only on the spender, so build it ONCE, up here,
+  // OUTSIDE the per-pair try. Inside it, a broken encoder would be swallowed
+  // by `catch { unreadable++ }` and every live approval would vanish from the
+  // findings — a wallet with unlimited grants would read as nothing to see.
+  // Out here the same fault throws, which is the honest outcome: the inputs
+  // are compile-time constants, so a failure means this module is broken, not
+  // that a chain was slow.
+  const revokeData = new Map(spenders.map(
+    (s) => [s.address, encodeCall('approve(address,uint256)', [s.address, 0n])]));
+
   const findings = [];
   let zero = 0, unreadable = 0;
   for (const t of chain.tokens) {
@@ -105,9 +117,19 @@ async function readAllowances(owner, chainKey) {
           unlimited: amount >= UNLIMITED_MIN,
           // The revoke plan: approve(spender, 0) on the TOKEN, sent by the
           // OWNER from their own wallet. The server only writes it down.
+          //
+          // Encoded by ./abi_call, NOT by ethers, and the difference is the
+          // whole safety property. Production resolves `ethers` to a stub
+          // whose encodeFunctionData returns the string '0x'. This field is
+          // the one place in the repo where that is catastrophic rather than
+          // merely broken: the user is told "revoke this approval", their
+          // wallet confirms a real transaction, the explorer shows success,
+          // and the spender's unlimited allowance is untouched. Nothing in
+          // any response would have said otherwise. abi_call has no
+          // dependencies and refuses rather than returning short calldata.
           revoke_plan: {
             to: t.address,
-            data: IFACE.encodeFunctionData('approve', [s.address, 0n]),
+            data: revokeData.get(s.address),
             value: '0x0',
             chain_id: chain.chainId,
           },

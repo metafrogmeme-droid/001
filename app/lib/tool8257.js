@@ -28,9 +28,20 @@
  * - manifestHash = keccak256(utf8(JCS(manifest))) — RFC 8785 canonical JSON.
  * - registerTool(string metadataURI, bytes32 manifestHash, address
  *   accessPredicate) on the canonical ToolRegistry.
+ *
+ * NO `ethers` HERE, DELIBERATELY. Both values a wallet acts on — the hash and
+ * the calldata — are built from `./keccak256` and `./abi_call`, which have no
+ * dependencies at all. This module used to call `ethers.keccak256` and
+ * `ethers.Interface`, and in production the host resolves `ethers` to a stub:
+ * the hash came back as SHA-256 and the calldata came back as the string
+ * `'0x'`. Both are well-formed, both are wrong, and both were about to be
+ * written to Base permanently. See the header of `./keccak256` for the full
+ * post-mortem. `app/test/ethers_stub_calldata.test.js` reproduces the stub and
+ * fails if either path finds its way back to a substitutable module.
  */
 
-const { ethers } = require('ethers');
+const keccak = require('./keccak256');
+const { encodeCall } = require('./abi_call');
 
 // Canonical ToolRegistry deployment (same address cross-chain; Base 8453 is
 // where our ERC-8004 identity root lives, Ethereum 1 is the promotion path).
@@ -40,9 +51,7 @@ const ZERO_ADDRESS = '0x' + '00'.repeat(20);
 const MANIFEST_TYPE = 'https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1';
 const TOOL_SLUG = 'runeclaw-intel';
 
-const REGISTER_ABI = [
-  'function registerTool(string metadataURI, bytes32 manifestHash, address accessPredicate) returns (uint256 toolId)',
-];
+const REGISTER_SIG = 'registerTool(string,bytes32,address)';
 
 /**
  * RFC 8785 (JCS) canonicalization for the manifest we author: recursively
@@ -68,7 +77,7 @@ function jcs(value) {
 }
 
 function manifestHash(manifest) {
-  return ethers.keccak256(ethers.toUtf8Bytes(jcs(manifest)));
+  return keccak.keccak256Utf8(jcs(manifest));
 }
 
 function baseUrl() {
@@ -170,26 +179,58 @@ function buildManifest({ tools }) {
  */
 function buildRegistrationPlan({ tools }) {
   const manifest = buildManifest({ tools });
-  const hash = manifestHash(manifest);
   const metadataURI = `${baseUrl() || 'https://runeclaw.example'}`
     + `/.well-known/ai-tool/${TOOL_SLUG}.json`;
-  const iface = new ethers.Interface(REGISTER_ABI);
-  const calldata = iface.encodeFunctionData('registerTool',
-    [metadataURI, hash, ZERO_ADDRESS]);
   const creator = creatorAddress();
+
+  // The hash and the calldata are the only two fields a wallet acts on, and
+  // each is caught SEPARATELY. Collapsing them into one try would blank a
+  // perfectly good hash because the encoder tripped — the composite-view case
+  // in the CLAUDE.md table. Absent is never a measurement: a field that could
+  // not be computed is missing from the payload, never a plausible-looking
+  // placeholder, because a wrong 0x-string in `manifest_hash` reads exactly
+  // like a right one.
+  let canonical = null, hash = null, calldata = null;
+  const buildFailures = [];
+  try {
+    canonical = jcs(manifest);
+    hash = manifestHash(manifest);
+  } catch (e) {
+    buildFailures.push(`manifest hashing failed (${e.message}) — do NOT register`);
+  }
+  if (hash) {
+    try {
+      calldata = encodeCall(REGISTER_SIG, [metadataURI, hash, ZERO_ADDRESS]);
+    } catch (e) {
+      buildFailures.push(`calldata encoding failed (${e.message}) — the cast `
+        + 'command below still works, but there is no calldata to copy');
+    }
+  }
+
   return {
     dry_run: true,
-    ready: Boolean(creator && baseUrl()),
+    ready: Boolean(creator && baseUrl() && hash && calldata),
     not_ready_reasons: [
       ...(creator ? [] : ['set TOOL_CREATOR_ADDRESS (or PROOFOFPNL_AGENT_ADDRESS)']),
       ...(baseUrl() ? [] : ['set APP_BASE_URL so metadataURI resolves publicly']),
+      ...buildFailures,
     ],
     registry: TOOL_REGISTRY_ADDRESS,
     chains: Object.entries(REGISTRY_CHAINS)
       .map(([id, name]) => ({ chain_id: Number(id), name })),
     recommended_chain_id: 8453,
     metadata_uri: metadataURI,
+    // null, never a placeholder, when hashing could not be done.
     manifest_hash: hash,
+    hash_algorithm: 'keccak256 (Ethereum) over the UTF-8 bytes of RFC 8785 '
+      + 'canonical JSON — NOT SHA3-256 (different padding) and NOT SHA-256.',
+    // The canonical bytes themselves, so the hash above is CHECKABLE without
+    // trusting this server. It is a re-serialization of the public manifest —
+    // sorted keys, no whitespace — and the exact preimage. Publishing it is
+    // the difference between "the server says the hash is X" and a claim the
+    // operator can refute in one command, which is precisely what nobody could
+    // do while a stubbed keccak256 was quietly serving SHA-256 here.
+    manifest_canonical: canonical,
     // creatorAddress lives INSIDE the hashed manifest. While the env var is
     // unset it hashes as the zero address — so a registration sent from this
     // plan stops verifying the moment TOOL_CREATOR_ADDRESS is set. Say so
@@ -207,20 +248,49 @@ function buildRegistrationPlan({ tools }) {
       + 'docs/INTEROP.md §4.',
     calldata,
     instructions: [
+      ...(buildFailures.length ? [
+        'DO NOT REGISTER. ' + buildFailures.join('; ') + '. A registration is '
+          + 'permanent: an unverifiable hash cannot be corrected, only '
+          + 'superseded by a second paid registration.',
+      ] : []),
       ...(creator ? [] : [
         'Do not register this calldata yet: set TOOL_CREATOR_ADDRESS first '
           + '(see hash_warning), then use the refreshed plan.',
       ]),
-      `Send from your own wallet (ideally the creator address ${creator || '<unset>'}) `
-        + `to the ToolRegistry ${TOOL_REGISTRY_ADDRESS} on Base — value 0, `
-        + 'data = the calldata field above.',
-      'Or with foundry: cast send ' + TOOL_REGISTRY_ADDRESS
-        + ` "registerTool(string,bytes32,address)" "${metadataURI}" ${hash} `
-        + `${ZERO_ADDRESS} --rpc-url https://mainnet.base.org `
-        + '--private-key <YOUR_KEY_NEVER_SHARED_WITH_THE_SERVER>',
+      // Named FIRST among the do-this steps because it is the check that was
+      // missing: the hash served here was SHA-256 for a while, it looked
+      // exactly like a keccak256 hash, and nothing on this endpoint could have
+      // told the operator apart from a correct one.
+      ...(hash ? [
+        'Verify the hash before you send it — a second implementation, not '
+          + 'this one. Take manifest_canonical verbatim and keccak256 it: '
+          + '`cast keccak "$(curl -s ' + `${baseUrl() || ''}` + '/api/tool/'
+          + 'registration-plan | jq -r .manifest_canonical)"`, or in Python '
+          + '`from Crypto.Hash import keccak; keccak.new(digest_bits=256, '
+          + 'data=b).hexdigest()`. It must equal manifest_hash. If it does '
+          + 'not, stop: something in the serving path is hashing with a '
+          + 'different algorithm.',
+      ] : []),
+      ...(calldata ? [
+        `Send from your own wallet (ideally the creator address ${creator || '<unset>'}) `
+          + `to the ToolRegistry ${TOOL_REGISTRY_ADDRESS} on Base — value 0, `
+          + 'data = the calldata field above.',
+      ] : [
+        'There is no calldata in this plan — do not send a transaction with an '
+          + 'empty data field. It would succeed, cost gas, and register '
+          + 'nothing.',
+      ]),
+      ...(hash ? [
+        'Or with foundry: cast send ' + TOOL_REGISTRY_ADDRESS
+          + ` "registerTool(string,bytes32,address)" "${metadataURI}" ${hash} `
+          + `${ZERO_ADDRESS} --rpc-url https://mainnet.base.org `
+          + '--private-key <YOUR_KEY_NEVER_SHARED_WITH_THE_SERVER>',
+      ] : []),
       'The manifest served at the metadata URI must stay byte-identical for '
         + 'the on-chain hash to keep verifying — re-register (or '
-        + 'update-metadata) after any manifest change.',
+        + 'update-metadata) after any manifest change. That includes '
+        + 'APP_BASE_URL: the endpoint and metadataURI are inside the hashed '
+        + 'bytes, so switching between the apex and www moves the hash.',
     ],
     non_custodial_note: 'The server never holds a key and never sends a '
       + 'transaction. This is a plan, not an action.',
