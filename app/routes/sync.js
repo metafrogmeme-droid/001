@@ -1036,7 +1036,7 @@ router.post('/credentials/ack', async (req, res) => {
 router.get('/controls/pending', async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT user_id, telegram_id, live_enabled, max_margin, paused, created_at
+      `SELECT user_id, telegram_id, live_enabled, max_margin, paused, venues, created_at
        FROM pending_controls ORDER BY created_at ASC LIMIT 200`
     );
     res.json({ pending: rows });
@@ -1062,14 +1062,20 @@ router.post('/controls/ack', async (req, res) => {
       if (!Number.isInteger(uid)) continue;
       await pool.execute('DELETE FROM pending_controls WHERE user_id = ?', [uid]);
       await pool.execute(
-        `INSERT INTO user_controls (user_id, live_enabled, max_margin, paused, allowlisted)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO user_controls (user_id, live_enabled, max_margin, paused, allowlisted, venues)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE live_enabled = VALUES(live_enabled),
            max_margin = VALUES(max_margin), paused = VALUES(paused),
-           allowlisted = VALUES(allowlisted), updated_at = CURRENT_TIMESTAMP`,
+           allowlisted = VALUES(allowlisted), venues = VALUES(venues),
+           updated_at = CURRENT_TIMESTAMP`,
         [uid, a.live_enabled ? 1 : 0,
          (a.max_margin === null || a.max_margin === undefined) ? null : Number(a.max_margin),
-         a.paused ? 1 : 0, a.allowlisted ? 1 : 0]
+         a.paused ? 1 : 0, a.allowlisted ? 1 : 0,
+         // The venues the bot ACTUALLY holds. `undefined` (an older bot that
+         // does not send the field) writes NULL — "we have not been told" —
+         // rather than '' , which would claim the bot had cleared the
+         // selection. An ack that omits a field has said nothing about it.
+         (a.venues === null || a.venues === undefined) ? null : String(a.venues)]
       );
       applied++;
     }
