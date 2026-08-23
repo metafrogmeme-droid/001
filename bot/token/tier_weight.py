@@ -44,6 +44,9 @@ import math
 from typing import Iterable, Optional
 
 #: Lock duration, in months, at which the multiplier reaches its ceiling.
+#: Must equal ``rclaw_staking::MAX_LOCK_SECONDS`` (24 * 30 days) — pinned by
+#: ``tests/test_tier_weight.py``, because a model ceiling above what the program
+#: will accept advertises a premium nobody can reach.
 LOCK_CEILING_MONTHS = 24.0
 #: Slope of the lock multiplier: 1.0 at no lock, 1.0 + LOCK_SLOPE at the ceiling.
 LOCK_SLOPE = 1.5
@@ -90,11 +93,14 @@ def lock_multiplier(lock_seconds_remaining) -> float:
     one, or an unreadable one all yield ``1.0`` — the *unpremiumed* value, which
     is the safe direction: an unreadable lock must never buy the premium.
 
-    Note the ceiling is currently unreachable in production. The staking program
-    pins ``LOCKUP_SECONDS`` to a fixed 30 days chosen at stake time, so the
-    largest remainder any live record can carry is one month and the largest
-    multiplier is ``1 + 1.5/24 ≈ 1.06``. TIER_MODEL.md §8 Phase B is the
-    caller-chosen duration that makes the rest of this range reachable.
+    :data:`LOCK_CEILING_MONTHS` must equal the staking program's
+    ``MAX_LOCK_SECONDS``. It did not until ``stake_for`` existed: every record
+    carried the fixed 30-day ``LOCKUP_SECONDS``, so the largest reachable
+    multiplier was ``1 + 1.5/24 ≈ 1.06`` and the 2.5× in the published table was
+    a number no depositor could obtain. ``stake_for`` takes a caller-chosen
+    duration bounded by ``[LOCKUP_SECONDS, MAX_LOCK_SECONDS]``, and a plain
+    ``stake`` still writes the 30-day default, so the bottom of this range is
+    what an ordinary position gets.
     """
     secs = _finite(lock_seconds_remaining)
     if secs is None or secs <= 0:

@@ -243,12 +243,28 @@ Already shipped, and not worth rebuilding:
   (`layout_tests::borsh_offsets_match_the_python_gate`, and
   `test_python_offsets_are_read_from_the_rust_source_not_a_fixture`).
 
-**What is genuinely missing** is a *variable* lock. `LOCKUP_SECONDS` is a fixed 30 days
-chosen at stake time, so today every position's remaining lock is ≤ 30 days and the
-multiplier ceiling is `1 + 1.5 × (1/24) ≈ 1.06` — the 2.5× in §2 is unreachable. Phase B is
-therefore: add a caller-chosen duration to `stake()` (bounded, monotonic, defaulting to the
-current 30 days), not a new field. `lock_multiplier()` already reads seconds-remaining, so it
-needs no change when that lands.
+**What was genuinely missing** was a *variable* lock. `LOCKUP_SECONDS` is a fixed 30 days
+chosen at stake time, so every position's remaining lock was ≤ 30 days and the multiplier
+ceiling was `1 + 1.5 × (1/24) ≈ 1.06` — the 2.5× in §2 was a number no depositor could reach.
+
+**Shipped.** `stake_for(amount, lock_seconds)` takes a caller-chosen duration bounded to
+`[LOCKUP_SECONDS, MAX_LOCK_SECONDS]`, where `MAX_LOCK_SECONDS` is 24 months and must equal
+`tier_weight.LOCK_CEILING_MONTHS` — pinned by a test, because a model ceiling above what the
+chain accepts advertises a premium nobody can obtain.
+
+A **separate instruction**, not a parameter on `stake`. An instruction's discriminator comes
+from its name but its argument decoding does not, so adding a parameter would leave every
+existing client sending a correctly-discriminated call with a short payload. `stake` still
+writes the 30-day default, so nothing existing changes. No layout change: `unlock_at` was
+already there.
+
+The bound is checked twice — at the `stake_for` entry point and again where `unlock_at` is
+actually computed — so the guarantee belongs to the write rather than to who called. That
+redundancy showed up in the mutation run: removing *either* check alone leaves all 16 attack
+tests passing, because the other one catches it. Removing **both** fails exactly the three
+bounds tests. The ceiling is the expensive bound: `unstake` refuses while `unlock_at` is in
+the future and nothing can bring it forward, so an unchecked duration is a way for a client
+bug (seconds vs days vs months) to strand a depositor's own principal permanently.
 
 ### Phase C — Standing scorer (off-chain)
 New `bot/token/standing.py`: pure functions over the §4 inputs, returning `0.2–2.0`.

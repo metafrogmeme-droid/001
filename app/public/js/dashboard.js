@@ -1926,16 +1926,87 @@
     return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="${T('aria.recent_band', 'Recent 4h price with pattern high/low band')}" style="display:block">${out}</svg>`;
   }
 
-  const _miniCandles = new Map(); // "SYMUSDT" -> { ts, rows }
+  const _miniCandles = new Map(); // "SYMUSDT|granularity" -> { ts, rows }
   let _miniIO = null;
-  async function _fetchMiniCandles(sym) {
-    const hit = _miniCandles.get(sym);
-    if (hit && Date.now() - hit.ts < 120000) return hit.rows;
-    const r = await fetchJSON(`/api/market/candles/${encodeURIComponent(sym)}?granularity=4h&limit=48`,
+  // Keyed by granularity as well as symbol. It used to key on the symbol alone,
+  // which was correct while one caller existed and becomes a bug the moment a
+  // second asks for a different timeframe: the first 4h answer would be served
+  // to a 1h request forever. The same shape as a cooldown keyed one way and
+  // read another, one file over.
+  async function _fetchMiniCandles(sym, opts) {
+    opts = opts || {};
+    const gran = opts.granularity || '4h';
+    const limit = opts.limit || 48;
+    // Signals refresh on a 30s cycle, so a 120s client cache would show a
+    // "live" chart three refreshes stale. The route caches 15s server-side
+    // anyway, so a shorter TTL here costs little.
+    const ttl = opts.ttlMs != null ? opts.ttlMs : 120000;
+    const key = `${sym}|${gran}|${limit}`;
+    const hit = _miniCandles.get(key);
+    if (hit && Date.now() - hit.ts < ttl) return hit.rows;
+    const r = await fetchJSON(
+      `/api/market/candles/${encodeURIComponent(sym)}?granularity=${encodeURIComponent(gran)}&limit=${limit}`,
       { auth: false, timeoutMs: 10000 });
     const rows = (r && r.data && r.data.data) || [];
-    _miniCandles.set(sym, { ts: Date.now(), rows });
+    _miniCandles.set(key, { ts: Date.now(), rows });
     return rows;
+  }
+
+  /* ── live per-signal charts ──────────────────────────────────────────────
+   *
+   * A signal row published `entry 63,200 · stop 61,900 / target 66,000` and
+   * left the reader to do the geometry. These draw it: recent bars with the
+   * signal's own three levels and the live mark on the same axis.
+   *
+   * Rendering is `RCSignalChart.buildSignalChart`, a pure function with its own
+   * tests, because the chart this replaces could only be exercised by loading
+   * the dashboard and its entire failure path was `el.style.display = 'none'`
+   * — an unreadable chart that VANISHED, which a reader cannot tell from one
+   * that was never offered.
+   */
+  let _scIO = null;
+  function mountSignalCharts() {
+    const nodes = document.querySelectorAll('.sc-slot[data-sc-sym]:not([data-sc-done])');
+    if (!nodes.length) return;
+    if (_scIO) { _scIO.disconnect(); _scIO = null; }
+    if (!('IntersectionObserver' in window)) {
+      nodes.forEach(el => _drawSignalChart(el));
+      return;
+    }
+    _scIO = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        _scIO.unobserve(e.target);
+        _drawSignalChart(e.target);
+      }
+    }, { rootMargin: '160px' });
+    nodes.forEach(el => _scIO.observe(el));
+  }
+
+  async function _drawSignalChart(el) {
+    if (!el || el.getAttribute('data-sc-done')) return;
+    el.setAttribute('data-sc-done', '1');
+    const SC = window.RCSignalChart;
+    // No library is not "no chart": leave the skeleton rather than assert an
+    // empty market. The script tag failing to load is an operator fault and
+    // should look like one.
+    if (!SC) return;
+    const sym = el.getAttribute('data-sc-sym') || '';
+    let geo = {};
+    try { geo = JSON.parse(el.getAttribute('data-sc-geo') || '{}') || {}; } catch (_) { geo = {}; }
+    try {
+      // 1h bars: a signal's stop and target sit within hours of entry, and 4h
+      // context makes both levels crowd the same pixel row.
+      const rows = await _fetchMiniCandles(sym, { granularity: '1h', limit: 60, ttlMs: 25000 });
+      if (!el.isConnected) return;
+      const r = SC.buildSignalChart(rows, geo, { label: sym });
+      el.innerHTML = r.ok ? r.svg : SC.placeholderHtml(r.reason);
+    } catch (_) {
+      if (!el.isConnected) return;
+      // The slot KEEPS its space and says which failure this was. It does not
+      // hide, and it does not paint a flat line at zero.
+      el.innerHTML = SC.placeholderHtml(SC.REASONS.UNREADABLE);
+    }
   }
   // Lazily draw the mini-chart in every un-rendered .ds-mini as it scrolls into
   // view. Idempotent and re-run after each render that emits deep-scan cards;
@@ -2053,7 +2124,10 @@
               <td data-label="Signal" data-sym="${esc(dsBase(s.symbol))}"
                   data-geo='${esc(JSON.stringify({ e: s.entry_price, sl: s.stop_loss, tp: s.take_profit, d: s.direction }))}'
                   role="button" tabindex="0" title="Chart with this signal's levels"
-                  style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div></td>
+                  style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div>
+                  <div class="sc-slot" data-sc-sym="${esc(dsBase(s.symbol))}"
+                       data-sc-geo='${esc(JSON.stringify({ entry: s.entry_price, stop: s.stop_loss, target: s.take_profit, direction: s.direction }))}'
+                       aria-busy="true"><div class="skel skel--sc"></div></div></td>
               <td data-label="Conf." class="r num">${Math.round((s.confidence || 0) * 100)}%</td>
               <td data-label="Entry" class="r num">${fmtPrice(s.entry_price)}</td>
               <td data-label="Stop / Target" class="r num muted">${fmtPrice(s.stop_loss)} / ${fmtPrice(s.take_profit)}</td>
@@ -2063,7 +2137,12 @@
               <td data-label="" class="r">${tradeBtn}${arenaBtn}</td>
             </tr>`;
           }).join('')}</tbody></table></div>`;
-      }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } });
+      }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } })
+        // AFTER the panel resolves, not beside it: renderPanel replaces the
+        // container's contents, so mounting earlier would observe nodes it is
+        // about to discard and the charts would never draw. The same ordering
+        // mistake the deep-scan minis make is avoided here by chaining.
+        .then(mountSignalCharts);
     }
 
     renderPanel(C('sinsights'), async () => {

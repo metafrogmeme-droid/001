@@ -218,8 +218,13 @@ between deploy and transfer is the entire exposure. See `docs/TOKEN_ROADMAP.md` 
 ## Known limitations
 
 - **Unaudited** (above) — the binding constraint.
-- `unstake` enforces a `LOCKUP_SECONDS` lock (**30 days**, ratified 2026-07-26) so a tier
-  costs something to hold. It is a tokenomics parameter, not a security constant.
+- `unstake` enforces the record's `unlock_at` so a tier costs something to hold. `stake`
+  writes `LOCKUP_SECONDS` (**30 days**, ratified 2026-07-26); `stake_for(amount,
+  lock_seconds)` lets a depositor choose a longer one, bounded to
+  `[LOCKUP_SECONDS, MAX_LOCK_SECONDS]` (24 months). Both are tokenomics parameters, not
+  security constants. The lock only ever **extends** — a later `stake` cannot shorten a
+  long `stake_for` lock, and nothing in the program can bring an unlock forward, which is
+  why the ceiling is enforced rather than left open.
 - No reward accrual — this is an access-tier vault, not a yield product.
 - `declare_id!` now carries the real program id
   `6yGc2n7vZyp7nvJJ8uXEdy56P1UT8Ma4En26bTtBrJhW` (`Anchor.toml` synced to match); the

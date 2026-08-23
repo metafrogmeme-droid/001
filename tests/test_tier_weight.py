@@ -137,12 +137,24 @@ class TestLockMultiplier:
         # The safe direction: a lock nobody could read is not a lock.
         assert lock_multiplier(bad) == 1.0
 
-    def test_the_ceiling_is_unreachable_with_the_program_as_it_stands(self):
-        # LOCKUP_SECONDS is a fixed 30 days, so the largest remainder a live
-        # record can carry is one month. Recorded as a test because the 2.5x in
-        # the design table reads as available and is not.
+    def test_the_default_30_day_lock_buys_almost_nothing(self):
+        # A plain `stake` still writes LOCKUP_SECONDS, so the default position
+        # sits at the bottom of the range. This used to be the ONLY reachable
+        # value, and the 2.5x in the design table was decoration.
         assert lock_multiplier(1 * MONTH) < 1.07
-        assert lock_multiplier(1 * MONTH) < LOCK_MAX_MULTIPLIER
+
+    def test_the_ceiling_IS_reachable_now_and_agrees_with_the_program(self):
+        # `stake_for` accepts a caller-chosen duration bounded by
+        # MAX_LOCK_SECONDS. The two constants have to be the same number, or the
+        # model advertises a multiplier the chain refuses to mint — which is the
+        # state this replaced, one level up.
+        from pathlib import Path
+        src = Path("programs/rclaw_staking/src/lib.rs").read_text(encoding="utf-8")
+        assert "pub const MAX_LOCK_SECONDS: i64 = 24 * 30 * 24 * 60 * 60;" in src, (
+            "the program's lock ceiling moved or vanished; LOCK_CEILING_MONTHS "
+            "in tier_weight.py is what it has to match")
+        assert lock_multiplier(24 * MONTH) == LOCK_MAX_MULTIPLIER
+        assert 24 * MONTH == 24 * 30 * 24 * 60 * 60
 
 
 # ── standing ─────────────────────────────────────────────────────────────
