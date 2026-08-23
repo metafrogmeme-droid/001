@@ -25,6 +25,7 @@ if not defined RUNECLAW_PROXY_TOKEN (
     exit /b 1
 )
 set TOKEN=%RUNECLAW_PROXY_TOKEN%
+set MODEL=pbdes2022/humanoid-traders:v10-8b
 cd /d "%~dp0"
 
 echo [1/4] Starting Ollama (KEEP_ALIVE=-1, NUM_PARALLEL=4, FLASH_ATTENTION=1, KV=q8_0, CTX=8192)...
@@ -54,6 +55,29 @@ echo   1of4 OLLAMA:  no 'address already in use' (quit the tray app if so)
 echo   2of4 PROXY:   'RUNECLAW auth gate: http://127.0.0.1:11435'
 echo   3of4 TUNNEL:  the https://....trycloudflare.com URL in the box
 echo   4of4 AWAKE:   'system sleep blocked' heartbeat lines
+echo.
+echo Waiting for the stack to ANSWER (model load + warm-up, up to ~2 min)...
+echo A window being open is not the stack being up - only a completion
+echo coming back through the auth proxy proves ollama AND the token gate.
+set /a _tries=0
+:warmloop
+set /a _tries+=1
+curl -s -m 15 -H "Authorization: Bearer %TOKEN%" -H "Content-Type: application/json" -d "{\"model\":\"%MODEL%\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":8}" http://127.0.0.1:11435/v1/chat/completions | findstr /C:"choices" >nul
+if not errorlevel 1 goto warmok
+if %_tries% geq 40 goto warmfail
+timeout /t 3 /nobreak >nul
+goto warmloop
+:warmfail
+echo.
+echo *** NOT READY: no completion after ~2 minutes. ***
+echo Check window 1of4 (ollama) and 2of4 (proxy) for errors. Do NOT point
+echo the bot at this stack until this script prints READY.
+goto warmend
+:warmok
+echo.
+echo READY: %MODEL% answered through the auth proxy.
+echo The tunnel URL in window 3of4 is now serving a live model.
+:warmend
 echo.
 echo If the tunnel URL differs from the one in the bot's .env, update
 echo RUNECLAW_LLM_BASE_URL on the bot and restart it.
