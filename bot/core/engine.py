@@ -1982,6 +1982,38 @@ class RuneClawEngine:
             return None
         return ex
 
+    def _halt_all_venues_for(self, user_id: str, reason: str) -> int:
+        """Trip the breaker on EVERY venue engine belonging to ``user_id``.
+
+        A person-level drawdown breach is a fact about their money, not about
+        one venue's book. Halting only the venue that happened to notice leaves
+        the same person trading on the other one against a limit already
+        breached — the partial kill switch §3 of the scope calls a worse
+        product than a single-venue bot.
+
+        Keys in ``_user_risk`` are either ``user_id`` or ``venue/user_id``
+        (Phase 2), so both forms are matched. Returns how many were tripped so
+        a caller — or a test — can tell a full halt from a partial one.
+        """
+        tripped = 0
+        uid = str(user_id)
+        for key, eng in list(self._user_risk.items()):
+            owner = key.split("/", 1)[1] if "/" in key else key
+            if owner != uid:
+                continue
+            try:
+                eng._trip_circuit_breaker(reason, cause="drawdown")
+                tripped += 1
+            except Exception as exc:
+                # Named, never swallowed: a halt that reached fewer venues than
+                # intended must not look like one that reached all of them.
+                system_log.error("Could not halt %s for user %s: %s",
+                                 key, uid, exc)
+        audit(system_log, f"Person-level halt for user {uid}: {reason}",
+              action="person_halt", result="TRIPPED",
+              data={"user": uid, "engines": tripped})
+        return tripped
+
     def risk_for(self, user_id: str = "", venue: str = ""):
         """Return the RiskEngine whose stateful safety breakers apply to THIS caller.
 
@@ -2053,6 +2085,12 @@ class RuneClawEngine:
                 from bot.risk.venue_aggregate import aggregate
                 return aggregate(self.user_portfolios.venue_readings(_uid))
             eng.set_person_totals_fn(_totals)
+            # Drawdown is per person and measured off ONE shared peak, so this
+            # engine needs to know whose it is — and a person-level breach has
+            # to reach the person's OTHER venues, not just this one.
+            eng.set_person_identity(str(user_id),
+                                    lambda reason, _uid=str(user_id):
+                                        self._halt_all_venues_for(_uid, reason))
             self._user_risk[key] = eng
             audit(system_log,
                   f"Per-user risk engine bound for user {user_id}"

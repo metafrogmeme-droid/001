@@ -132,6 +132,33 @@ def aggregate(readings) -> PersonTotals:
     )
 
 
+def person_daily_loss_pct(totals: PersonTotals) -> Optional[float]:
+    """Today's loss as a percentage of the person's TOTAL equity, or ``None``.
+
+    BOTH HALVES OR NEITHER. A person-level numerator over a single venue's
+    equity overstates the loss; a single venue's PnL over person-level equity
+    UNDERSTATES it, and that is the direction that spends money. There is no
+    correct way to mix them, so this returns ``None`` unless it has both.
+
+    ``None`` when the reading is incomplete, because — and this is where a
+    daily loss differs from a position count — **an incomplete signed quantity
+    has no bound in either direction.** A position count only rises as venues
+    are added, so a partial count is a floor and a floor above the cap still
+    proves a breach. A P&L can go either way: the venue that did not answer
+    might have made money, which would make the real loss smaller, or lost
+    money, which would make it larger. A partial daily loss is not a floor, not
+    a ceiling, and not usable. The caller must refuse rather than guess, and
+    ``cap_verdict``'s floor language would be a lie here.
+    """
+    if not totals.complete:
+        return None
+    equity = totals.equity_usd
+    daily = totals.daily_pnl_usd
+    if equity is None or daily is None or equity <= 0:
+        return None
+    return abs(daily / equity * 100.0)
+
+
 def cap_verdict(measured: Optional[float], cap: Optional[float],
                 totals: PersonTotals, label: str) -> tuple:
     """``(allowed: bool, reason: str)`` for one person-level cap.
