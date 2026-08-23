@@ -1605,11 +1605,12 @@ class RiskEngine:
                 # analyzer already gated idea generation on this same per-type
                 # floor; this stops it being silently overridden by a flat
                 # global re-gate), else the single global min_confidence.
-                if CONFIG.risk.per_strategy_confidence_floor_enabled:
-                    _conf_strategy = getattr(idea, "strategy_type", "swing")
-                    min_conf = CONFIG.strategy_types.get_min_confidence(_conf_strategy)
-                else:
-                    min_conf = CONFIG.risk.min_confidence
+                # One rule, one place — bot/risk/confidence_floor.py. This
+                # was the flag's ONLY reader while three gates in engine.py
+                # applied the flat global first, so it decided a question that
+                # had already been answered.
+                from bot.risk.confidence_floor import min_confidence_for
+                min_conf = min_confidence_for(idea)
                 if idea.confidence < min_conf:
                     failed.append(f"CONFIDENCE: {idea.confidence} < {min_conf} minimum")
                 else:
