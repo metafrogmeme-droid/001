@@ -53,6 +53,20 @@ def test_autonomous_loop_default_timeframe_unchanged():
 
     sig = inspect.signature(RuneClawEngine._analyze_signals_batched)
     assert sig.parameters["timeframe"].default == "1h"
-    # And the tick calls it without overriding the timeframe.
-    tick_src = inspect.getsource(RuneClawEngine._tick)
-    assert "_analyze_signals_batched(signals)" in tick_src
+
+    # And the tick calls it without overriding the timeframe. Asserted against
+    # the CALL, not against its exact text: this used to require the literal
+    # "_analyze_signals_batched(signals)" and so failed when an unrelated
+    # keyword was added, reporting a timeframe override that had not happened.
+    # The property is "no timeframe argument", so that is what is checked.
+    import ast
+    tree = ast.parse(inspect.getsource(RuneClawEngine._tick).lstrip())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "_analyze_signals_batched"]
+    assert calls, "the tick no longer analyzes the scanned signals at all"
+    for call in calls:
+        assert not any(kw.arg == "timeframe" for kw in call.keywords), \
+            "the always-on loop pins a timeframe — multi-TF is on-demand only"
+        assert len(call.args) == 1, \
+            "a positional argument after `signals` could be the timeframe"
