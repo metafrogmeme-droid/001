@@ -97,7 +97,7 @@ router.use(framable);
  * the share button talks to. A page without it hangs behind a splash screen
  * forever — see farcaster-ready.js.
  */
-const COMMON_JS = ['/js/farcaster-ready.js?v=2'];
+const COMMON_JS = ['/js/farcaster-ready.js?v=3'];
 
 /**
  * `deps` is per-page ON PURPOSE. It used to be one hardcoded list, which was

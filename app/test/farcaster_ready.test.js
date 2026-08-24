@@ -197,6 +197,115 @@ test('ready and composeCast build the same frame with different paths', () => {
     'readyFrame drifted from the general one it is meant to be an alias of');
 });
 
+// ── signIn: the same transport again, and a decline is not a failure ──────
+
+test('a real comlink host returns the signed SIWF message', async () => {
+  const Comlink = require('comlink');
+  let asked = null;
+  const { port1, port2 } = new MessageChannel();
+  Comlink.expose({
+    signIn: async (opts) => {
+      asked = opts;
+      return { result: { message: 'domain wants you to...', signature: '0xsig' } };
+    },
+  }, port1);
+  port2.start();
+  try {
+    const out = await FR.signIn({ nonce: 'server-issued-nonce' }, {
+      window: {
+        parent: { postMessage: (m) => port2.postMessage(m) },
+        addEventListener: (t, f) => port2.addEventListener(t, f),
+        removeEventListener: (t, f) => port2.removeEventListener(t, f),
+        setTimeout: setTimeout,
+      },
+      document: null,
+      waitMs: 2000,
+    });
+    assert.equal(asked && asked.nonce, 'server-issued-nonce',
+      'the server-issued nonce never reached the host — the signature would be bound to nothing');
+    assert.equal(out.status, 'signed');
+    assert.equal(out.signature, '0xsig');
+    assert.ok(out.message);
+  } finally {
+    port1.close();
+    port2.close();
+  }
+});
+
+test('a declined sign-in is "rejected", not an error', async () => {
+  // The person was shown a prompt and said no. Rendering that as a fault would
+  // put an error on a screen where nothing went wrong.
+  const Comlink = require('comlink');
+  const { port1, port2 } = new MessageChannel();
+  Comlink.expose({ signIn: async () => ({ error: { type: 'rejected_by_user' } }) }, port1);
+  port2.start();
+  try {
+    const out = await FR.signIn({ nonce: 'n' }, {
+      window: {
+        parent: { postMessage: (m) => port2.postMessage(m) },
+        addEventListener: (t, f) => port2.addEventListener(t, f),
+        removeEventListener: (t, f) => port2.removeEventListener(t, f),
+        setTimeout: setTimeout,
+      },
+      document: null,
+      waitMs: 2000,
+    });
+    assert.equal(out.status, 'rejected');
+    assert.equal(out.signature, null);
+  } finally {
+    port1.close();
+    port2.close();
+  }
+});
+
+test('a result missing its signature is not reported as signed', async () => {
+  // Half an answer is not an answer: without both halves there is nothing to
+  // POST, and calling it a success would send an empty sign-in to the server.
+  const Comlink = require('comlink');
+  const { port1, port2 } = new MessageChannel();
+  Comlink.expose({ signIn: async () => ({ result: { message: 'm' } }) }, port1);
+  port2.start();
+  try {
+    const out = await FR.signIn({ nonce: 'n' }, {
+      window: {
+        parent: { postMessage: (m) => port2.postMessage(m) },
+        addEventListener: (t, f) => port2.addEventListener(t, f),
+        removeEventListener: (t, f) => port2.removeEventListener(t, f),
+        setTimeout: setTimeout,
+      },
+      document: null,
+      waitMs: 2000,
+    });
+    assert.equal(out.status, 'rejected');
+  } finally {
+    port1.close();
+    port2.close();
+  }
+});
+
+test('signIn outside a Mini App reports no-host', async () => {
+  const win = {};
+  win.parent = win;
+  const out = await FR.signIn({ nonce: 'n' }, { window: win, document: null, waitMs: 10 });
+  assert.equal(out.status, 'no-host');
+});
+
+test('the page never invents its own nonce', () => {
+  // A nonce the client generates is one an attacker can generate too, which
+  // binds the signature to nothing and makes replay free. It must come from
+  // the server. Pinned because the mistake looks like a simplification.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { codeOnly } = require('./helpers/code_only');
+  const src = codeOnly(fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'farcaster-ready.js'), 'utf8'));
+  const fn = src.slice(src.indexOf('function signIn'));
+  const body = fn.slice(0, fn.indexOf('\n  }\n'));
+  assert.doesNotMatch(body, /nonce\s*[:=]\s*(frameId|Math\.random|Date\.now)/,
+    'signIn generates its own nonce — the signature would be bound to a value '
+    + 'the caller chose, which is the same as being bound to nothing');
+});
+
 // ── three states, and none of them is the confident one ───────────────────
 
 test('a plain tab reports no-host rather than pretending it announced itself', async () => {

@@ -895,6 +895,10 @@ const _PROVIDER_ID_COLUMN = {
   discord: 'discord_id',
   x: 'x_id',
   wallet: 'wallet_address',
+  // Farcaster fids arrive from SIWF (lib/siwf.js), verified before they reach
+  // here. Stored as a string like every other provider id so the shared
+  // find-or-create path needs no special case.
+  farcaster: 'farcaster_fid',
 };
 
 async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl }) {

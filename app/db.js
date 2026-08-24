@@ -1885,6 +1885,47 @@ class MemoryDB {
       return [rows.map(p => ({ ...p })), []];
     }
 
+    // ── siwf_nonces: single-use sign-in nonces ────────────────────────────
+    // Implemented rather than left to fall through, because the property under
+    // test is that a nonce is spendable EXACTLY ONCE — and a shim that
+    // answered empty rows would report every nonce as unknown, which passes a
+    // "replay is refused" test for entirely the wrong reason.
+    if (cmd.startsWith('INSERT INTO SIWF_NONCES')) {
+      this.siwfNonces = this.siwfNonces || [];
+      this.siwfNonces.push({
+        nonce: params[0], created_at: params[1], expires_at: params[2], used_at: null,
+      });
+      return [{ affectedRows: 1 }, []];
+    }
+    // Matched on the TABLE, not an exact column list. The shim's job here is
+    // to model the row, and pinning the projection would make it answer one
+    // caller and throw at the next — which reads as "unimplemented" for a
+    // statement that is merely spelled differently.
+    if (cmd.startsWith('SELECT') && cmd.includes('FROM SIWF_NONCES')) {
+      this.siwfNonces = this.siwfNonces || [];
+      const hit = this.siwfNonces.filter(n => n.nonce === params[0]);
+      return [hit.map(n => ({ ...n })), []];
+    }
+    if (cmd.startsWith('UPDATE SIWF_NONCES SET USED_AT')) {
+      // The `AND used_at IS NULL` condition is the whole point: it is what
+      // makes two concurrent consumers of one nonce resolve to one winner.
+      // Dropping it here would make the race test pass against a shim that
+      // does not model the thing being tested.
+      this.siwfNonces = this.siwfNonces || [];
+      // HONOUR THE WHERE CLAUSE WE WERE ACTUALLY GIVEN. The first version
+      // applied `used_at IS NULL` unconditionally, which made the shim MORE
+      // correct than the statement it was handed — so deleting that condition
+      // from the real SQL changed nothing here and the race test went on
+      // passing. A mutation is what said so: the guard was in the double, not
+      // in the code under test.
+      const guarded = cmd.includes('USED_AT IS NULL');
+      const row = this.siwfNonces.find(n =>
+        n.nonce === params[1] && (!guarded || n.used_at == null));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.used_at = params[0];
+      return [{ affectedRows: 1 }, []];
+    }
+
     // NO BRANCH MATCHED. This used to `return [[], []]` — the shim inventing
     // an answer it does not have, in the one shape this repository treats as
     // the founding defect: a failed read rendering as an empty result.
@@ -1961,6 +2002,7 @@ const EXPECTED_TABLES = Object.freeze([
   'user_watchlist',
   'duel_rounds',
   'duel_picks',
+  'siwf_nonces',
 ]);
 
 /**
@@ -2688,6 +2730,30 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // Sign In With Farcaster: server-issued, SINGLE-USE nonces.
+    //
+    // In a table rather than in memory because the web app may run more than
+    // one replica: an in-process Set would issue a nonce on one and fail to
+    // find it on the next, so sign-in would work or not depending on which
+    // container answered. `used_at` is what makes replay impossible — the row
+    // is not deleted on use, so a replayed nonce is DISTINGUISHABLE from one
+    // that never existed, and the logs can tell those apart.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS siwf_nonces (
+        nonce VARCHAR(64) PRIMARY KEY,
+        created_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP NULL
+      )
+    `);
+    // Farcaster identity, joining google_id / telegram_id / discord_id / x_id
+    // on the same find-or-create path (auth.js `_PROVIDER_ID_COLUMN`).
+    try {
+      await pool.query('ALTER TABLE users ADD COLUMN farcaster_fid VARCHAR(32) DEFAULT NULL');
+    } catch (e) { /* column already exists */ }
+    try {
+      await pool.query('CREATE UNIQUE INDEX idx_users_farcaster_fid ON users (farcaster_fid)');
+    } catch (e) { /* index already exists */ }
     // Ceremony flags back-fill for pre-existing deployments.
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_live TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_end TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }

@@ -228,9 +228,79 @@
     });
   }
 
+  /**
+   * Ask the host to sign a SIWF message.
+   *
+   * The nonce is NOT generated here. It comes from our own server, which is
+   * the only thing that makes the resulting signature single-use — a nonce the
+   * page invents is one an attacker can also invent, and binds the signature
+   * to nothing. See lib/siwf.js.
+   *
+   * Four outcomes, and 'rejected' is a DECISION rather than a failure: the
+   * person was shown a sign-in prompt and declined it. Rendering that as an
+   * error would put a fault on a screen where nothing went wrong.
+   *
+   *   'no-host'    not inside a Mini App; there is nobody to ask.
+   *   'signed'     `message` and `signature` are ready to POST to our server.
+   *   'rejected'   the person declined. Not an error.
+   *   'unknown'    no reply inside the window; the prompt may still be open.
+   *
+   * Never rejects, for the same reason the others do not: a page that throws
+   * while asking for a signature has broken itself over an optional step.
+   */
+  function signIn(options, deps) {
+    var d = deps || {};
+    var win = d.window || (typeof window !== 'undefined' ? window : null);
+    var doc = d.document || (typeof document !== 'undefined' ? document : null);
+    // Long, because a human is reading a prompt and deciding.
+    var waitMs = typeof d.waitMs === 'number' ? d.waitMs : 120000;
+
+    var ep = pickEndpoint(win, doc);
+    if (!ep) return Promise.resolve({ status: 'no-host' });
+
+    return new Promise(function (resolve) {
+      var id = frameId();
+      var done = false;
+
+      function finish(status, result) {
+        if (done) return;
+        done = true;
+        try { ep.unlisten(onMessage); } catch (e) { /* already gone */ }
+        resolve({
+          status: status,
+          message: (result && result.message) || null,
+          signature: (result && result.signature) || null,
+        });
+      }
+
+      function onMessage(ev) {
+        var data = ev && ev.data;
+        if (!data || data.id !== id) return;
+        var v = data.value;
+        // The host answers `{result}` or `{error}`. A result without both a
+        // message and a signature is not something we can send anywhere, so it
+        // is not reported as a successful sign-in.
+        var r = v && typeof v === 'object' ? v.result : null;
+        if (r && r.message && r.signature) finish('signed', r);
+        else finish('rejected');
+      }
+
+      try {
+        ep.listen(onMessage);
+        ep.post(actionFrame(id, 'signIn', options));
+      } catch (e) {
+        finish('no-host');
+        return;
+      }
+
+      if (win.setTimeout) win.setTimeout(function () { finish('unknown'); }, waitMs);
+    });
+  }
+
   return {
     signalReady: signalReady,
     composeCast: composeCast,
+    signIn: signIn,
     // Exported for the tests that prove the frames are comlink's, not ours.
     readyFrame: readyFrame,
     actionFrame: actionFrame,

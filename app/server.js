@@ -350,6 +350,10 @@ app.use('/api/authority', require('./routes/authority'));
 app.use('/api/sentry', require('./routes/sentry'));
 app.use('/api/positions', require('./routes/positions'));
 app.use('/api/arena', require('./routes/arena'));
+// Sign In With Farcaster. Unauthenticated by definition — it is how a Mini App
+// GETS a session — and rate-limited inside the router. Mounted beside /api/arena
+// because the session it mints is for the arena's authenticated routes.
+app.use('/api/farcaster', require('./routes/farcaster_auth'));
 app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
