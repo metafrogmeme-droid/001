@@ -44,8 +44,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-signals.js": {
-    "v": 3,
-    "sha": "1790a0a1f125ceea"
+    "v": 5,
+    "sha": "451231dad2dd18a0"
   },
   "js/engine-card-model.js": {
     "sha": "c233fd013d7bde98",
@@ -190,5 +190,9 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
     "v": 1
+  },
+  "js/farcaster-ready.js": {
+    "v": 1,
+    "sha": "11f45084ef9f9146"
   }
 }

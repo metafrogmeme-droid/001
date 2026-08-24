@@ -173,8 +173,37 @@
       });
   }
 
-  load();
-  timer = setInterval(load, REFRESH_MS);
+  /**
+   * Lift the Mini App splash once, whatever the board ended up showing.
+   *
+   * ON EVERY OUTCOME, including the error state, and that is deliberate. The
+   * host holds a splash screen over us until it hears this; withholding it
+   * while our fetch failed would leave a Farcaster user staring at a splash
+   * with nothing behind it, which reads as "this app is broken" rather than
+   * "this app could not reach its own API" — the same substitution of OUR
+   * silence for THEIR failure that the board's error text exists to avoid.
+   * The page has rendered its honest answer; the viewer is entitled to see it.
+   *
+   * Once, not per refresh: `load()` runs every 30s and re-announcing readiness
+   * on a timer is noise the host never asked for.
+   */
+  var announced = false;
+  function announceReady() {
+    if (announced) return;
+    announced = true;
+    var FR = window.RCFarcasterReady;
+    if (!FR) return;                 // module absent; nothing to announce with
+    FR.signalReady({});              // never rejects — see farcaster-ready.js
+  }
+
+  load().then(announceReady, announceReady);
+  // And unconditionally, shortly after. `load()` always settles today — its
+  // .catch() sees to that — but `fetch` carries no timeout, so a connection
+  // that opens and then hangs leaves the promise pending forever and the
+  // splash up with it. That is this exact bug arriving through a different
+  // door, so the announcement does not depend on the fetch finishing at all.
+  // Idempotent via `announced`; whichever path gets there first wins.
+  setTimeout(announceReady, 3000);
   // A framed page can be hidden for a long time; stop polling when it is.
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {

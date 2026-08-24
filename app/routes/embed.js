@@ -103,6 +103,7 @@ ${meta || ''}
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 <script src="/js/embed-read.js?v=2" defer></script>
+<script src="/js/farcaster-ready.js?v=1" defer></script>
 <script src="/js/signal-chart.js?v=1" defer></script>
 <script src="${script}" defer></script>
 </body></html>`;
@@ -132,7 +133,7 @@ router.get('/signals', (req, res) => {
     meta = r.origin ? require('../lib/farcaster_manifest').embedTags(r.origin) : '';
   } catch (_) { meta = ''; }
   res.type('html').send(
-    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=3', meta));
+    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=5', meta));
 });
 
 module.exports = router;
