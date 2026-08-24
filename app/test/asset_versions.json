@@ -39,9 +39,13 @@
     "sha": "5dbbfd3297612824",
     "v": 1
   },
-  "js/embed-signals.js": {
-    "sha": "dbbf244b34ea3539",
+  "js/embed-read.js": {
+    "sha": "c9d3a287a49ba942",
     "v": 1
+  },
+  "js/embed-signals.js": {
+    "sha": "34ee163228b3c5d3",
+    "v": 2
   },
   "js/engine-card-model.js": {
     "sha": "c233fd013d7bde98",
