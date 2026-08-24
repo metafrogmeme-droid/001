@@ -230,6 +230,22 @@ test('NO embed script has a form or write request', () => {
     + bad.join('\n  '));
 });
 
+test('no /embed page loads a script from the AUTHENTICATED Mini App', () => {
+  // The two framable namespaces have opposite contracts. /embed/* is safe to
+  // frame because there is nothing to authenticate; /miniapp/* is safe for a
+  // narrower reason argued in its own router. Pulling a miniapp module into an
+  // embed page would move a session-bearing surface into the namespace whose
+  // whole guarantee is that it has none — and every assertion in this file
+  // would still pass, because they scan `embed-*.js` and the smuggled code
+  // lives in a file named otherwise.
+  assert.doesNotMatch(EMBED_ROUTE, /\/js\/miniapp[-.]/,
+    'routes/embed.js serves a Mini App script; the actionless guarantee is gone');
+  for (const { name, src } of EMBED_SCRIPTS) {
+    assert.doesNotMatch(src, /RCMiniView|miniapp-/,
+      `${name} reaches into the authenticated Mini App code`);
+  }
+});
+
 test('the scan is actually reading the embed scripts', () => {
   // A glob that matches nothing passes every assertion above it in silence —
   // the failure mode this file exists to prevent, one level up. Both known

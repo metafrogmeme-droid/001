@@ -354,6 +354,10 @@ app.use('/api/arena', require('./routes/arena'));
 // GETS a session — and rate-limited inside the router. Mounted beside /api/arena
 // because the session it mints is for the arena's authenticated routes.
 app.use('/api/farcaster', require('./routes/farcaster_auth'));
+// The AUTHENTICATED Mini App surface. Framable like /embed, but it holds a
+// session and can act — so it is its own router with the trade-off argued in
+// one place rather than smuggled into the actionless one.
+app.use('/miniapp', require('./routes/miniapp'));
 app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));

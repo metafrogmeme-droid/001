@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 4,
-    "sha": "1b3b5b074bf7d6fd"
+    "v": 5,
+    "sha": "b5c4767b57d52d2c"
   },
   "js/ambient.js": {
     "sha": "ef071afddd5042f6",
@@ -206,5 +206,13 @@
   "js/embed-arena-view.js": {
     "v": 1,
     "sha": "4aa371eb80b7d6da"
+  },
+  "js/miniapp-arena.js": {
+    "v": 1,
+    "sha": "e03fb9b5a2417f94"
+  },
+  "js/miniapp-view.js": {
+    "v": 1,
+    "sha": "50ebb19d4a1813f7"
   }
 }

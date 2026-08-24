@@ -383,6 +383,28 @@ RULES: list[Rule] = [
                                    # archetype catalogue (configs only, §4-tested:
                                    # no dollars, no performance claims); nothing
                                    # user-scoped is in reach.
+            "miniapp",
+                           # /miniapp/* serves ONE HTML DOCUMENT and nothing
+                           # else — no data, no action, no route that mutates
+                           # anything. Requiring a session to fetch the page
+                           # would be requiring one to reach the sign-in button
+                           # that obtains it.
+                           #
+                           # The distinction from `embed` is worth stating,
+                           # because this page CAN act and that one cannot:
+                           # every action it takes is an authenticated call to
+                           # /api/arena/*, which carries authMiddleware and is
+                           # counted by this rule there. The authority lives
+                           # behind those routes, not behind this document.
+                           #
+                           # Why it is still safe to frame, in full, is argued
+                           # at the top of routes/miniapp.js: the session is a
+                           # bearer token held in memory with no cookie and no
+                           # storage, so a fresh frame on a stranger's site
+                           # starts signed out, and the only way to a token is
+                           # a SIWF signature over a nonce we issued, in a
+                           # message naming our domain — which an attacker
+                           # framing the page cannot produce.
             "farcaster_auth",
                            # /api/farcaster/{nonce,signin} — this is HOW a Mini
                            # App obtains a session, so requiring one would be
