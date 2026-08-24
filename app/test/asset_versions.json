@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 3,
-    "sha": "364a8743bd49a9ec"
+    "v": 4,
+    "sha": "1b3b5b074bf7d6fd"
   },
   "js/ambient.js": {
     "sha": "ef071afddd5042f6",
@@ -198,5 +198,13 @@
   "js/embed-row.js": {
     "v": 2,
     "sha": "747299db4fcd7754"
+  },
+  "js/embed-arena.js": {
+    "v": 1,
+    "sha": "60502da539e07dd4"
+  },
+  "js/embed-arena-view.js": {
+    "v": 1,
+    "sha": "4aa371eb80b7d6da"
   }
 }

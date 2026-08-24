@@ -58,6 +58,28 @@ const EMBED_ROUTE = codeOnly(fs.readFileSync(
 // page RENDERS have to read the file that renders it. Left pointed at the old
 // one they would have gone on passing over a file with no markup in it at all —
 // a scan that finds nothing reads exactly like one that checked and was happy.
+/**
+ * EVERY script the embed router serves, discovered rather than listed.
+ *
+ * The frame-safety rules below were written against embed-signals.js because
+ * it was the only page. Adding /embed/arena would have slipped past all of
+ * them — a new page with a form, a credentialed fetch or a POST would have
+ * been waved through by a suite that still reported full coverage, because
+ * every assertion was reading a file that had not changed.
+ *
+ * That is CLAUDE.md's own warning about the cache-buster ratchet, which for
+ * its whole life matched only `/js/*.js` and therefore never saw styles.css:
+ * "a guard with a blind spot over the biggest asset is not a smaller guard —
+ * it reads as coverage while providing none." Globbed, so page three is
+ * covered on the day it is written and not on the day somebody remembers.
+ */
+const EMBED_SCRIPTS = fs.readdirSync(path.join(__dirname, '..', 'public', 'js'))
+  .filter((f) => /^embed[-.]/.test(f) && f.endsWith('.js'))
+  .map((f) => ({
+    name: f,
+    src: codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', f), 'utf8')),
+  }));
+
 const EMBED_ROW = codeOnly(fs.readFileSync(
   path.join(__dirname, '..', 'public', 'js', 'embed-row.js'), 'utf8'));
 
@@ -192,17 +214,45 @@ test('the client script sends NO credentials with its fetches', () => {
     + 'authenticated request from a page a stranger controls');
 });
 
-test('the client script has no form or write request', () => {
+test('NO embed script has a form or write request', () => {
+  // Across every embed script, not just the first one written.
   const banned = [
     [/method:\s*['"]POST['"]/i, 'a POST'],
     [/<form/i, 'a form'],
     [/localStorage|sessionStorage/, 'browser storage'],
   ];
-  for (const [re, what] of banned) {
-    assert.doesNotMatch(EMBED_JS, re,
-      `the embed page contains ${what}; read-only and actionless is what makes `
-      + 'it safe to frame');
+  const bad = [];
+  for (const { name, src } of EMBED_SCRIPTS) {
+    for (const [re, what] of banned) if (re.test(src)) bad.push(`${name}: ${what}`);
   }
+  assert.deepEqual(bad, [],
+    'read-only and actionless is what makes these pages safe to frame:\n  '
+    + bad.join('\n  '));
+});
+
+test('the scan is actually reading the embed scripts', () => {
+  // A glob that matches nothing passes every assertion above it in silence —
+  // the failure mode this file exists to prevent, one level up. Both known
+  // pages must be in the set, so a rename that empties the glob fails here.
+  const names = EMBED_SCRIPTS.map((s) => s.name);
+  assert.ok(names.length >= 2, `the embed script scan found ${names.length} files`);
+  for (const required of ['embed-signals.js', 'embed-arena.js']) {
+    assert.ok(names.includes(required), `${required} is not being scanned`);
+  }
+});
+
+test('NO embed script sends credentials with a fetch', () => {
+  // Per file, because one page getting this right does not protect the others.
+  // Inside a frame the browser would attach the viewer's cookies for this
+  // origin, making an authenticated request from a page a stranger controls.
+  const bad = [];
+  for (const { name, src } of EMBED_SCRIPTS) {
+    const calls = (src.match(/\bfetch\(/g) || []).length;
+    if (!calls) continue;
+    const omits = (src.match(/credentials:\s*'omit'/g) || []).length;
+    if (omits !== calls) bad.push(`${name}: ${calls} fetch(es), ${omits} omit credentials`);
+  }
+  assert.deepEqual(bad, [], 'a framed page issues a credentialed request:\n  ' + bad.join('\n  '));
 });
 
 /*

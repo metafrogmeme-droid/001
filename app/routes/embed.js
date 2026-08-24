@@ -92,21 +92,34 @@ function framable(req, res, next) {
 
 router.use(framable);
 
-function page(title, bodyClass, script, meta) {
+/**
+ * Every page here loads this: it is what lifts the Mini App splash and what
+ * the share button talks to. A page without it hangs behind a splash screen
+ * forever — see farcaster-ready.js.
+ */
+const COMMON_JS = ['/js/farcaster-ready.js?v=2'];
+
+/**
+ * `deps` is per-page ON PURPOSE. It used to be one hardcoded list, which was
+ * right while there was one page — and the moment a second arrived it would
+ * have shipped the signal-card renderer and the candlestick charter to a
+ * leaderboard that draws neither. This board's whole argument for a 1KB
+ * handshake shim over the 640KB official SDK was that bytes matter on a phone
+ * inside a webview; sending a page code it cannot use would give that back.
+ */
+function page(title, bodyClass, script, meta, deps) {
+  const scripts = COMMON_JS.concat(deps || [], [script])
+    .map((s) => `<script src="${s}" defer></script>`).join('\n');
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 ${meta || ''}
-<link rel="stylesheet" href="/embed.css?v=3">
+<link rel="stylesheet" href="/embed.css?v=4">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
-<script src="/js/embed-read.js?v=2" defer></script>
-<script src="/js/embed-row.js?v=2" defer></script>
-<script src="/js/farcaster-ready.js?v=2" defer></script>
-<script src="/js/signal-chart.js?v=1" defer></script>
-<script src="${script}" defer></script>
+${scripts}
 </body></html>`;
 }
 
@@ -134,7 +147,39 @@ router.get('/signals', (req, res) => {
     meta = r.origin ? require('../lib/farcaster_manifest').embedTags(r.origin) : '';
   } catch (_) { meta = ''; }
   res.type('html').send(
-    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=7', meta));
+    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=7', meta,
+      ['/js/embed-read.js?v=2', '/js/embed-row.js?v=2', '/js/signal-chart.js?v=1']));
+});
+
+/**
+ * GET /embed/arena — the paper-trading competition board, framable.
+ *
+ * Public data only, on the same terms as /signals: `/api/arena/season`,
+ * `/leaderboard` and `/tape` are already served without auth, and §4 is
+ * satisfied at the source — the arena publishes opt-in handles and percent
+ * return against a uniform virtual stake, never a balance. Nothing here can
+ * open a trade; joining happens on /arena behind a login.
+ *
+ * ITS OWN CARD, THE SAME APP. The manifest's `homeUrl` stays /embed/signals —
+ * that is the app's identity in the directory and there is one of it. But
+ * `embedTags` takes a url and a button title, so a link to THIS page renders
+ * as its own launchable card. Two entry points, one Mini App, no second
+ * domain — which is what the alternative would have cost.
+ */
+router.get('/arena', (req, res) => {
+  let meta = '';
+  try {
+    const r = require('../lib/public_origin').resolve(req, process.env) || {};
+    meta = r.origin
+      ? require('../lib/farcaster_manifest').embedTags(r.origin, {
+        url: `${r.origin}/embed/arena`,
+        buttonTitle: 'Open the arena',
+      })
+      : '';
+  } catch (_) { meta = ''; }
+  res.type('html').send(
+    page('RUNECLAW — the arena', 'e-arena', '/js/embed-arena.js?v=1', meta,
+      ['/js/embed-arena-view.js?v=1']));
 });
 
 module.exports = router;

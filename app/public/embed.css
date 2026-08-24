@@ -150,3 +150,76 @@ html, body {
  * This is a branded artifact — a trading board with its own palette, like a
  * video player — and it carries that palette everywhere. */
 
+
+/* ── the arena board ─────────────────────────────────────────────────────
+   Shares the palette and the honesty rules with the signal board above: a
+   value that could not be read is muted, never green. */
+
+.a-season { margin: 2px 0 14px; }
+.a-season h1 {
+  margin: 0; font-size: 19px; font-weight: 680; letter-spacing: -.02em;
+}
+.a-sub { margin: 5px 0 0; display: flex; align-items: center; gap: 8px; }
+
+.a-badge {
+  font-size: 10px; font-weight: 650; letter-spacing: .08em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid currentColor;
+}
+/* Only `live` gets an accent. An upcoming or ended season is a fact, not an
+   event, and colouring all three would make the word carry no information. */
+.a-badge--live { color: var(--e-up); }
+.a-badge--upcoming, .a-badge--ended { color: var(--e-text-3); }
+.a-left { color: var(--e-text-2); font-size: 12px; }
+
+.a-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.a-row {
+  display: flex; align-items: baseline; gap: 10px;
+  background: var(--e-surface);
+  border: 1px solid var(--e-line);
+  padding: 10px 12px;
+}
+.a-row:first-child { border-radius: 10px 10px 0 0; }
+.a-row:last-child { border-radius: 0 0 10px 10px; }
+.a-row:only-child { border-radius: 10px; }
+
+.a-rank {
+  min-width: 20px; color: var(--e-text-3);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.a-handle { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; }
+.a-trades { color: var(--e-text-3); font-size: 11.5px; }
+.a-ret {
+  margin-left: auto; font-size: 14px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colour is a claim, and these four are four different claims. `a-flat` is the
+   unreadable one and is deliberately the same muted tone as body text — a
+   return we could not read has not won. */
+.a-up   { color: var(--e-up); }
+.a-down { color: var(--e-down); }
+.a-even { color: var(--e-text-2); }
+.a-flat { color: var(--e-text-3); }
+
+.a-empty {
+  color: var(--e-text-2); text-align: center; font-size: 13px;
+  padding: 20px 10px; border: 1px dashed var(--e-line); border-radius: 10px;
+}
+
+.a-tape { margin-top: 18px; }
+.a-tape h2 {
+  margin: 0 0 8px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3);
+}
+.a-ticks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.a-tick { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.a-tick-dir {
+  font-size: 9.5px; font-weight: 650; letter-spacing: .06em;
+  padding: 1px 5px; border-radius: 4px; border: 1px solid currentColor;
+}
+.a-long  { color: var(--e-up); }
+.a-short { color: var(--e-down); }
+.a-tick-sym { font-weight: 600; }
+.a-tick-who { color: var(--e-text-3); overflow: hidden; text-overflow: ellipsis; }
+.a-tick-pct { margin-left: auto; font-variant-numeric: tabular-nums; }
