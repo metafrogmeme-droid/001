@@ -214,16 +214,26 @@ test('the browser dialect agrees with the server one it cannot import', () => {
 test('the embed asks with the contract symbol and labels with the display one', () => {
   // Both halves, because swapping them is silent: the chart would fetch fine
   // and be titled ZECUSDT, or be titled ZEC and fetch nothing.
+  //
+  // SCANS embed-row.js, WHICH IS WHERE THE CARD MOVED. It read embed-signals.js
+  // while the card was built there, and the extraction made it pass over a file
+  // that no longer contains a chart slot at all — a scan that finds nothing and
+  // asserts nothing looks identical to one that checked and was satisfied. Both
+  // files are read here so relocating the card again fails loudly rather than
+  // quietly ceasing to be checked.
   const fs = require('node:fs');
   const path = require('node:path');
   const { codeOnly } = require('./helpers/code_only');
-  const src = codeOnly(fs.readFileSync(
-    path.join(__dirname, '..', 'public', 'js', 'embed-signals.js'), 'utf8'));
+  const read = (f) => codeOnly(fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', f), 'utf8'));
+  const row = read('embed-row.js');
+  const both = row + '\n' + read('embed-signals.js');
 
-  assert.match(src, /data-sc-sym="'\s*\+\s*esc\(RD\.contractSym\(/,
+  assert.match(row, /data-sc-sym="'\s*\+\s*esc\(RD\.contractSym\(/,
     'the chart slot is not built from contractSym, so the fetch asks for a display name');
-  assert.match(src, /RD\.displaySym\(/, 'the label no longer uses displaySym');
-  assert.doesNotMatch(src, /function baseSym/,
+  assert.match(row, /data-sc-label="'\s*\+\s*esc\(RD\.displaySym\(/,
+    'the label no longer uses displaySym');
+  assert.doesNotMatch(both, /function baseSym/,
     'baseSym is back — it builds the symbol that does not exist');
 });
 

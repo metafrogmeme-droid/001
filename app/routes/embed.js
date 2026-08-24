@@ -99,11 +99,12 @@ function page(title, bodyClass, script, meta) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 ${meta || ''}
-<link rel="stylesheet" href="/embed.css?v=1">
+<link rel="stylesheet" href="/embed.css?v=3">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 <script src="/js/embed-read.js?v=2" defer></script>
-<script src="/js/farcaster-ready.js?v=1" defer></script>
+<script src="/js/embed-row.js?v=2" defer></script>
+<script src="/js/farcaster-ready.js?v=2" defer></script>
 <script src="/js/signal-chart.js?v=1" defer></script>
 <script src="${script}" defer></script>
 </body></html>`;
@@ -133,7 +134,7 @@ router.get('/signals', (req, res) => {
     meta = r.origin ? require('../lib/farcaster_manifest').embedTags(r.origin) : '';
   } catch (_) { meta = ''; }
   res.type('html').send(
-    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=5', meta));
+    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=7', meta));
 });
 
 module.exports = router;

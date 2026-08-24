@@ -32,26 +32,9 @@
     });
   }
 
-  function num(v) {
-    if (v === null || v === undefined || v === '') return null;
-    var n = Number(v);
-    return isFinite(n) ? n : null;
-  }
-
-  /** A price, or an em dash. Never 0 for absent — 0 is a price nothing trades at
-   *  and printing it would put a real-looking number beside real ones. */
-  function price(v) {
-    var n = num(v);
-    if (n === null) return '—';
-    var abs = Math.abs(n);
-    var dp = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6;
-    return n.toFixed(dp).replace(/\.?0+$/, function (m) { return m.indexOf('.') === 0 ? '' : m; });
-  }
-
-  function pct(v) {
-    var n = num(v);
-    return n === null ? '—' : Math.round(n * 100) + '%';
-  }
+  // `num`, `price` and `pct` moved to embed-row.js with the card that used
+  // them. Left behind here they would be a second copy of the em-dash rule,
+  // free to drift from the one the cards actually render through.
 
   function state(kind, text, detail) {
     return '<div class="e-state e-state--' + kind + '" role="status">'
@@ -61,34 +44,40 @@
       + '</div>';
   }
 
+  // The card lives in embed-row.js as pure functions. It was inline here, and
+  // that was fine while it only printed prices — but the fields added with the
+  // redesign (age, R:R) are the exact shapes CLAUDE.md's table says lie by
+  // default, and inline in a loader "what does a signal with an unreadable
+  // timestamp look like" is answerable only by finding one in production.
+  var ROW = window.RCEmbedRow;
+
+  /**
+   * Is there a Mini App host to share to?
+   *
+   * Asked ONCE at load, not per render: the answer cannot change without the
+   * page being reloaded, and re-deciding it on every 30s refresh would let the
+   * share buttons appear and disappear under the reader.
+   *
+   * This is the same endpoint test `signalReady` uses, so the button appears
+   * exactly when there is something on the other end to receive it. On a plain
+   * website embed there is no composer in existence and no button is drawn —
+   * an affordance that silently does nothing is a claim of a capability that
+   * is not there.
+   */
+  var CAN_SHARE = (function () {
+    var FR = window.RCFarcasterReady;
+    try { return !!(FR && FR.pickEndpoint(window, document)); } catch (e) { return false; }
+  }());
+
   function rowHtml(s) {
-    var dir = String(s.direction || '').toUpperCase();
-    // Direction is a fact the signal asserts about itself, so it is coloured.
-    // Nothing else on the row is: whether the trade is WINNING is not something
-    // this board knows, and a green row would say it does.
-    var dirCls = dir === 'LONG' ? 'e-long' : dir === 'SHORT' ? 'e-short' : 'e-flat';
-    var geo = JSON.stringify({
-      entry: s.entry_price, stop: s.stop_loss, target: s.take_profit, direction: dir,
+    return ROW.rowHtml(s, {
+      canShare: CAN_SHARE,
+      // The link is what makes the cast useful to whoever reads it, and it
+      // must be absolute: a relative path in a post on somebody else's
+      // timeline resolves against THEIR host. Taken from the live location so
+      // it cannot drift from wherever this page is actually served.
+      shareSuffix: window.location.origin + '/embed/signals',
     });
-    return '<article class="e-row">'
-      + '<header class="e-head">'
-      + '<span class="e-dir ' + dirCls + '">' + esc(dir || '—') + '</span>'
-      + '<b class="e-sym">' + esc(s.symbol || '—') + '</b>'
-      + '<span class="e-conf">' + pct(s.confidence) + ' conf</span>'
-      + '</header>'
-      // Two symbols, deliberately. `data-sc-sym` is what Bitget is ASKED about
-      // and must be the contract form; `data-sc-label` is what the viewer
-      // reads. They were one value, the display one, and so the fetch asked
-      // about a market that does not exist — see RCEmbedRead.contractSym.
-      + '<div class="e-chart" data-sc-sym="' + esc(RD.contractSym(s.symbol))
-      + '" data-sc-label="' + esc(RD.displaySym(s.symbol)) + '" data-sc-geo=\''
-      + esc(geo) + '\'><div class="e-load">…</div></div>'
-      + '<dl class="e-lv">'
-      + '<div><dt>entry</dt><dd>' + esc(price(s.entry_price)) + '</dd></div>'
-      + '<div><dt>stop</dt><dd>' + esc(price(s.stop_loss)) + '</dd></div>'
-      + '<div><dt>target</dt><dd>' + esc(price(s.take_profit)) + '</dd></div>'
-      + '</dl>'
-      + '</article>';
   }
 
   var candleCache = new Map();
@@ -195,6 +184,42 @@
     if (!FR) return;                 // module absent; nothing to announce with
     FR.signalReady({});              // never rejects — see farcaster-ready.js
   }
+
+  /**
+   * One delegated listener for every share button, now and after each refresh.
+   *
+   * Delegated deliberately: `load()` replaces the whole list every 30 seconds,
+   * so per-button listeners would be re-bound on a timer and the ones attached
+   * to replaced nodes would leak. This binds once to a node that never goes
+   * away.
+   *
+   * The handler's entire authority is one postMessage to the host. It issues no
+   * fetch, writes no storage, and cannot post a cast: Warpcast opens its own
+   * composer and the person confirms there, in UI we neither see nor control.
+   */
+  function onShareClick(ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest('.e-share');
+    if (!btn) return;
+    var text = btn.getAttribute('data-share-text');
+    if (!text) return;
+    var FR = window.RCFarcasterReady;
+    if (!FR) return;
+
+    // Disabled while the composer is open, so a second tap cannot stack a
+    // second composer on top of the first.
+    btn.disabled = true;
+    FR.composeCast({ text: text }).then(function (res) {
+      btn.disabled = false;
+      // 'cancelled' is a DECISION, not a failure, and gets no error styling.
+      // 'unknown' means the composer is probably still open and we do not know
+      // what happened — so the button says nothing rather than claiming either.
+      if (res && res.status === 'posted') {
+        btn.textContent = 'Shared';
+        if (window.setTimeout) window.setTimeout(function () { btn.textContent = 'Share'; }, 4000);
+      }
+    }, function () { btn.disabled = false; });
+  }
+  root.addEventListener('click', onShareClick);
 
   load().then(announceReady, announceReady);
   // And unconditionally, shortly after. `load()` always settles today — its

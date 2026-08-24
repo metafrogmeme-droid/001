@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "sha": "4d5921c628bd300f",
-    "v": 1
+    "v": 3,
+    "sha": "364a8743bd49a9ec"
   },
   "js/ambient.js": {
     "sha": "ef071afddd5042f6",
@@ -44,8 +44,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-signals.js": {
-    "v": 5,
-    "sha": "451231dad2dd18a0"
+    "v": 7,
+    "sha": "844ddbc9fd3c723c"
   },
   "js/engine-card-model.js": {
     "sha": "c233fd013d7bde98",
@@ -192,7 +192,11 @@
     "v": 1
   },
   "js/farcaster-ready.js": {
-    "v": 1,
-    "sha": "11f45084ef9f9146"
+    "v": 2,
+    "sha": "887aee78897ca543"
+  },
+  "js/embed-row.js": {
+    "v": 2,
+    "sha": "747299db4fcd7754"
   }
 }

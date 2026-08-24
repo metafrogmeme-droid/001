@@ -54,6 +54,12 @@ const EMBED_JS = codeOnly(fs.readFileSync(
 // by someone who had just read the warning.
 const EMBED_ROUTE = codeOnly(fs.readFileSync(
   path.join(__dirname, '..', 'routes', 'embed.js'), 'utf8'));
+// The card markup moved out of embed-signals.js, so the scans that ask what the
+// page RENDERS have to read the file that renders it. Left pointed at the old
+// one they would have gone on passing over a file with no markup in it at all —
+// a scan that finds nothing reads exactly like one that checked and was happy.
+const EMBED_ROW = codeOnly(fs.readFileSync(
+  path.join(__dirname, '..', 'public', 'js', 'embed-row.js'), 'utf8'));
 
 // ── the carve-out does not leak ──────────────────────────────────────────
 
@@ -186,11 +192,10 @@ test('the client script sends NO credentials with its fetches', () => {
     + 'authenticated request from a page a stranger controls');
 });
 
-test('the client script has no form, button, or write request', () => {
+test('the client script has no form or write request', () => {
   const banned = [
     [/method:\s*['"]POST['"]/i, 'a POST'],
     [/<form/i, 'a form'],
-    [/<button/i, 'a button'],
     [/localStorage|sessionStorage/, 'browser storage'],
   ];
   for (const [re, what] of banned) {
@@ -198,6 +203,73 @@ test('the client script has no form, button, or write request', () => {
       `the embed page contains ${what}; read-only and actionless is what makes `
       + 'it safe to frame');
   }
+});
+
+/*
+ * `<button>` USED TO BE ON THAT LIST, AND REMOVING IT WAS A SECURITY DECISION.
+ * Recorded here rather than in a commit message nobody re-reads.
+ *
+ * The rule this file enforces is not "no buttons" — it is that a click landing
+ * on an invisible frame must not exercise the viewer's authority. Every clause
+ * that actually delivers that is untouched: no cookies, no credentialed fetch,
+ * GET-only routes, no storage, `form-action 'none'`.
+ *
+ * The share button exercises no authority. Its whole effect is one postMessage
+ * to `window.parent`. In a clickjacking attack the parent IS the attacker, so
+ * the complete result is that our page tells the attacker's page that somebody
+ * clicked — no cookie, no request to us, nothing changed anywhere. The cast is
+ * composed in Warpcast's own UI, behind a confirmation we neither see nor
+ * control, and it cannot be posted without the person deliberately sending it.
+ *
+ * So the guard is narrowed rather than deleted: the button may exist, and the
+ * tests below pin that it stays the only interactive element and that it still
+ * cannot reach the network, storage, or a mutating route.
+ */
+
+test('the only interactive element is the share button', () => {
+  // A second control appearing would not be caught by the narrowed rule above,
+  // which is exactly the weakness of relaxing a blanket ban. Counted instead:
+  // one button, and it is the share one.
+  const buttons = EMBED_ROW.match(/<button/gi) || [];
+  assert.equal(buttons.length, 1,
+    `the card renders ${buttons.length} buttons; the frame-safety argument was `
+    + 'made about exactly one, and covers no others');
+  assert.match(EMBED_ROW, /class="e-share"/, 'the one button is not the share button');
+});
+
+test('the share handler can only talk to the host — no fetch, no storage', () => {
+  // The click path, isolated. If a future edit makes the share button POST a
+  // "share count" somewhere, the clickjacking argument above stops being true
+  // and this fails.
+  const handler = EMBED_JS.slice(EMBED_JS.indexOf('function onShareClick'));
+  assert.ok(handler.length > 100, 'the handler scan found nothing; it is reading nothing');
+  const body = handler.slice(0, handler.indexOf('\n  }') + 4);
+  for (const [re, what] of [
+    [/\bfetch\(/, 'a fetch'],
+    [/XMLHttpRequest/, 'an XHR'],
+    [/localStorage|sessionStorage|document\.cookie/, 'storage or cookies'],
+    [/location\s*=|location\.href\s*=/, 'a navigation'],
+  ]) {
+    assert.doesNotMatch(body, re,
+      `the share handler performs ${what} — the frame-safety argument for `
+      + 'allowing this button assumed it only posts a message to the host');
+  }
+  assert.match(body, /composeCast\(/, 'the handler no longer opens a composer');
+});
+
+test('no share button is rendered when there is no host to share to', () => {
+  // An affordance that silently does nothing when tapped asserts a capability
+  // that is not there — and on a plain website embed there is no cast composer
+  // in existence. It also keeps the button off every framed copy that is not a
+  // Mini App host.
+  const ROW = require('../public/js/embed-row');
+  const sig = { symbol: 'BTC/USDT', direction: 'LONG', confidence: '0.7' };
+  assert.ok(!ROW.rowHtml(sig, { canShare: false }).includes('<button'),
+    'a share button was drawn with no host to receive it');
+  assert.ok(!ROW.rowHtml(sig, {}).includes('<button'),
+    'the share button defaults to present; it must default to absent');
+  assert.ok(ROW.rowHtml(sig, { canShare: true }).includes('e-share'),
+    'the button never appears even when a host is present');
 });
 
 // ── it stays honest about failure, in someone else's page ────────────────
