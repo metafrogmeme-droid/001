@@ -16,6 +16,12 @@
   'use strict';
 
   var root = document.getElementById('root');
+  // The payload readers. If the module did not load, every read throws a
+  // TypeError that lands in the same `.catch` as a network fault and paints the
+  // error state — which is the right answer: we cannot read the response, so we
+  // must not describe it. Deliberately NOT a `|| {}` fallback; that is the
+  // shape of bug this whole file is a correction for.
+  var RD = window.RCEmbedRead;
   var LIMIT = 8;
   var REFRESH_MS = 30000;
   var timer = null;
@@ -96,7 +102,11 @@
         return r.json();
       })
       .then(function (j) {
-        var rows = (j && j.data && j.data.data) || [];
+        // Same defect as the signal reader: the route relays Bitget verbatim,
+        // so the rows are at `j.data`, and `j.data.data` was undefined every
+        // time — every chart would have drawn "no candles", a claim about the
+        // market, from a payload we simply misread.
+        var rows = RD.readCandles(j);
         candleCache.set(sym, { ts: Date.now(), rows: rows });
         return rows;
       });
@@ -137,7 +147,12 @@
         return r.json();
       })
       .then(function (j) {
-        var sigs = (j && j.data && j.data.signals) || [];
+        // Reads `{signals:[...]}`, the shape the route actually sends, and
+        // THROWS if the key is missing rather than falling back to []. The old
+        // `(j && j.data && j.data.signals) || []` read a `fetchJSON` envelope
+        // this page never uses, so it was empty on every load and the board
+        // announced "No open signals right now." forever. See embed-read.js.
+        var sigs = RD.readSignals(j);
         if (!sigs.length) {
           root.innerHTML = state('empty', 'No open signals right now.',
             'The engine publishes them as it scans; this board refreshes itself.');
