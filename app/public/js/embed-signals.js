@@ -134,6 +134,18 @@
     });
   }
 
+  function signalReady() {
+    // Farcaster Mini App SDK: when loaded inside the Warpcast embed, call
+    // sdk.actions.ready() to dismiss the splash screen. Outside the frame, the
+    // sdk is undefined and this is a safe no-op.
+    try {
+      var sdk = window.farcaster?.sdk;
+      if (sdk?.actions?.ready) { sdk.actions.ready(); }
+    } catch (e) {
+      // Ignore any errors; the SDK may not be available or may not be ready.
+    }
+  }
+
   function load() {
     // `credentials: 'omit'` is not incidental. Inside a frame the browser would
     // otherwise attach whatever cookies the viewer has for this origin, which
@@ -156,16 +168,19 @@
         if (!sigs.length) {
           root.innerHTML = state('empty', 'No open signals right now.',
             'The engine publishes them as it scans; this board refreshes itself.');
+          signalReady();
           return;
         }
         root.innerHTML = '<div class="e-list">' + sigs.map(rowHtml).join('') + '</div>'
           + '<p class="e-src">Live from RUNECLAW · '
           + '<a href="/#signals" target="_blank" rel="noopener">every signal, taken or not</a></p>';
         drawCharts();
+        signalReady();
       })
       .catch(function () {
         root.innerHTML = state('error', 'Signals could not be loaded.',
           'This is a fault on our side, not a statement that there are none.');
+        signalReady();
       });
   }
 
