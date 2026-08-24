@@ -19,7 +19,7 @@
 
 const express = require('express');
 const { authMiddleware } = require('../auth');
-const { rateLimit, userKey } = require('../lib/rate_limit');
+const { rateLimit, userKey, ipKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
 const { getTickers, getTickersWithin, FILL_MAX_AGE_MS } = require('../lib/tickers');
 const arena = require('../lib/arena');
@@ -64,6 +64,52 @@ function sealedOpen(handle, { symbol, direction, entry, leverage, tp, sl, opened
 }
 
 const tradeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
+
+/**
+ * The five PUBLIC arena routes had no limiter of any kind.
+ *
+ * That was survivable while their only caller was a logged-in dashboard tab.
+ * It stops being survivable the moment a Mini App points at them: /embed
+ * refreshes itself every 30 seconds, and a board people leave open on a phone
+ * is a poller, not a visitor. `routes/embed.js` has capped its own traffic at
+ * 120/min per IP since it was written; these are the endpoints that board would
+ * be reading, and they were the uncapped half of the same path.
+ *
+ * Bucketed by IP rather than user because there is no user here — that is the
+ * whole point of these routes. Generous, because a legitimate board polling
+ * every 30s uses four of these per minute and a shared NAT holds many phones.
+ */
+const publicBoardLimit = rateLimit({ windowMs: 60000, max: 120, key: ipKey });
+
+/*
+ * THE QUERY COST HERE IS KNOWN AND DELIBERATELY NOT CACHED. Recorded because
+ * the obvious two fixes are both wrong, and the second one was written, tested
+ * and reverted rather than guessed at.
+ *
+ * `computeLeaderboard` runs five unbounded queries per request: every arena
+ * account, every open position, every opted-in handle, and two GROUP BYs over
+ * the whole trade table.
+ *
+ * A `LIMIT` is the wrong fix. A leaderboard ranks by comparing everybody, so
+ * capping the input silently drops traders and returns a ranking that is
+ * confidently incorrect — nobody reading rank 3 would know it came from a
+ * truncated field.
+ *
+ * A TTL CACHE IS ALSO THE WRONG FIX, which is less obvious. It was implemented
+ * with a 20s window and `test/arena.test.js` failed immediately, on the one
+ * sequence that matters most: opt in with a handle, then look at the board.
+ * The cached copy predates the opt-in, so a person who has just joined is told
+ * they are not on the leaderboard — at the exact moment a competition is
+ * trying to recruit them. Twenty seconds of that is not a stale read, it is a
+ * wrong answer to "did it work". Invalidating properly needs the opt-in path in
+ * routes/leaderboard.js to reach into this module, which is real coupling
+ * bought for a load problem nothing has demonstrated: the table has two rows.
+ *
+ * The rate limiter above is the fix that was actually needed — it bounds the
+ * abuse case, which is the one a public Mini App creates. If aggregate load
+ * ever becomes real, the answer is a materialised board updated on write, not
+ * a memo that lies to whoever just joined.
+ */
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -780,7 +826,7 @@ async function computeLeaderboard() {
   return { rows, ranked_total: rows.length, virtual: true };
 }
 
-router.get('/leaderboard', async (req, res) => {
+router.get('/leaderboard', publicBoardLimit, async (req, res) => {
   try {
     res.json(await computeLeaderboard());
   } catch (err) {
@@ -793,7 +839,7 @@ router.get('/leaderboard', async (req, res) => {
 // closed paper trades from opted-in handles, newest first. §4: percent return
 // on margin only — no dollar amounts (not even virtual ones), no balances, no
 // user ids. Traders without a leaderboard handle never appear.
-router.get('/tape', async (req, res) => {
+router.get('/tape', publicBoardLimit, async (req, res) => {
   try {
     const [trades] = await pool.execute(
       'SELECT id, user_id, symbol, direction, margin, pnl, reason, trade_key, seal, closed_at FROM arena_trades ORDER BY id DESC LIMIT 40');
@@ -876,7 +922,7 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
 // GET /api/arena/trader/:handle — PUBLIC trader card for an opted-in handle.
 // §4: percent / count / badges only — never an amount, not even virtual.
 const traderLib = require('../lib/arena_trader');
-router.get('/trader/:handle', async (req, res) => {
+router.get('/trader/:handle', publicBoardLimit, async (req, res) => {
   try {
     const handle = String(req.params.handle || '').trim();
     if (!traderLib.HANDLE_RE.test(handle)) return res.status(400).json({ error: 'Invalid handle' });
@@ -903,10 +949,31 @@ const seasons = require('../lib/arena_seasons');
 // GET /api/arena/season — PUBLIC. The most recently authored season with its
 // live status and (once it has started) the in-window standings. A season is
 // a time window, never a reset — the all-time board keeps running.
-router.get('/season', async (req, res) => {
+/**
+ * Which row is "the" season.
+ *
+ * This was `SELECT ... FROM arena_seasons LIMIT 1` with NO ORDER BY, which is
+ * only correct while exactly one season has ever existed. MySQL is free to
+ * return any row for an unordered LIMIT 1, and the in-memory shim used in tests
+ * sorts newest-first — so the two disagree by construction and the bug is
+ * invisible until a second season is authored. Genesis ends 2026-09-24; the
+ * second season is not hypothetical, it is scheduled.
+ *
+ * A public board naming the WRONG season, with the wrong standings under it,
+ * is not a degraded read — it is a confident answer to a question nobody asked.
+ * Live wins; otherwise the most recent by start, so an ended season keeps
+ * showing until its successor begins rather than blinking to null.
+ */
+function pickCurrentSeason(rows, now) {
+  if (!rows || !rows.length) return null;
+  const byNewest = rows.slice().sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+  return byNewest.find((s) => seasons.seasonStatus(s, now) === 'live') || byNewest[0];
+}
+
+router.get('/season', publicBoardLimit, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-    const season = rows[0];
+    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+    const season = pickCurrentSeason(rows, new Date());
     if (!season) return res.json({ season: null });
     const status = seasons.seasonStatus(season, new Date());
     let rules = season.rules;
@@ -935,7 +1002,7 @@ router.get('/season', async (req, res) => {
 // its final podium (top 3). §4: opt-in handles + percent only, same as every
 // arena board. Ended standings are immutable (the window is closed), so this
 // is the permanent record.
-router.get('/seasons', async (req, res) => {
+router.get('/seasons', publicBoardLimit, async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at FROM arena_seasons');
     const now = new Date();
@@ -1056,6 +1123,7 @@ router.post('/keys/revoke', authMiddleware, tradeLimit, async (req, res) => {
 
 module.exports = router;
 module.exports.computeLeaderboard = computeLeaderboard;
+module.exports.pickCurrentSeason = pickCurrentSeason;
 // Exported so the MCP Arena tools ride the SAME open/close path the
 // browser does, rather than growing a second, weaker door.
 module.exports.openForUser = openForUser;
