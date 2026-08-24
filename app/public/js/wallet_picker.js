@@ -9,6 +9,14 @@
  * window.ethereum. No SDK, no external requests, CSP-clean (wallet icons are
  * data: URIs supplied by the wallets themselves).
  *
+ * NO WALLETCONNECT, on purpose — `docs/WALLETCONNECT_DECISION.md` has the
+ * measured numbers. The short version, because this is where somebody stands
+ * when they wonder: 6963 already covers mobile wallets' in-app browsers (they
+ * inject a provider), and `/wallet-link?code=` in `app/auth.js` already covers
+ * desktop→phone. What is left is signing from a phone while driving a desktop
+ * session, and it costs a bundler — `app/public/` has no build step and the CSP
+ * script hashes depend on it not having one.
+ *
  * Usage:  const provider = await RCWalletPicker.pick();   // null = cancelled
  * Fast path: exactly one wallet installed → returned immediately, no modal.
  */

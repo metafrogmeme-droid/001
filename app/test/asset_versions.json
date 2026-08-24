@@ -171,6 +171,10 @@
     "sha": "89842fe2d768161f",
     "v": 1
   },
+  "js/wallet_picker.js": {
+    "sha": "6f0104bc8dc01e88",
+    "v": 1
+  },
   "js/winrate-bar.js": {
     "sha": "2e1bfea3c4b402b8",
     "v": 1
@@ -178,5 +182,9 @@
   "styles.css": {
     "sha": "fca3b4d78f8c1563",
     "v": 38
+  },
+  "vendor/lightweight-charts.standalone.production.js": {
+    "sha": "c7dda807d662a95b",
+    "v": 1
   }
 }

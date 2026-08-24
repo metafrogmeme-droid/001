@@ -16,7 +16,11 @@ const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard.html'), 'utf8');
 
 test('wallet_picker is no longer render-blocking (deferred)', () => {
-  assert.match(html, /<script src="\/js\/wallet_picker\.js" defer><\/script>/);
+  // `defer` is the property; the cache-buster is not. This pinned the literal
+  // tag INCLUDING the absence of a `?v=`, so adding one — which the ratchet in
+  // cache_buster_ratchet.test.js requires — failed a test about load order.
+  // An assertion wider than its subject fails on changes it does not police.
+  assert.match(html, /<script src="\/js\/wallet_picker\.js(\?v=\d+)?" defer><\/script>/);
 });
 
 test('the 3D agent is not a static eager module script anymore', () => {
