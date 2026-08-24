@@ -35,7 +35,30 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-const MODEL_URL = '/mascot/agent.glb?v=2';
+/**
+ * WHICH MODEL, AND WHY THIS ONE.
+ *
+ * This pointed at `agent.glb`, which is byte-identical to the `_Luminous`
+ * variant — and Luminous is the one built to glow twice as hard as every other
+ * cut of the same model:
+ *
+ *     variant    emissive materials   max emissive strength   size
+ *     base                        3                       5   703 KB
+ *     Premium                     3                       5   963 KB
+ *     Hero                        4                       5   1.3 MB
+ *     Luminous                    4                      10   1.5 MB   <- was live
+ *
+ * On a landing page for a trading product, the loudest and heaviest cut was
+ * shipping to every visitor. "It looks like too much" was not a matter of
+ * taste; it was the one asset with double the glow, and it was also the one
+ * costing the most to download. Premium is the same calm lighting as base with
+ * the better texture work, and 523 KB lighter than what it replaces.
+ *
+ * The alternates stay committed. Swapping is this one line plus its entry in
+ * `mascot_assets.test.js`, which pins the glow budget so a future edit cannot
+ * quietly point back at Luminous.
+ */
+const MODEL_URL = '/mascot/RUNECLAW_Command_Core_Mascot_Premium.glb?v=1';
 const RUNE = 0x3fb6ff;
 const _instances = new Set();   // every live viewer, for global react()/disposeAll()
 
@@ -56,7 +79,11 @@ export function mountAgent(host, opts = {}) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  // 1.15 pushed an already-emissive model into bloom. The showcase viewer sits
+  // beside a headline it must not outshine, so it is exposed at neutral; the
+  // avatar keeps the lift because it is small, dark-framed, and read at a
+  // glance rather than looked past.
+  renderer.toneMappingExposure = avatar ? 1.15 : 1.0;
   renderer.domElement.style.width = '100%';
   renderer.domElement.style.height = '100%';
   renderer.domElement.style.display = 'block';
@@ -81,7 +108,12 @@ export function mountAgent(host, opts = {}) {
   controls.enableZoom = false; controls.enablePan = false;
   controls.enableRotate = !avatar;          // the avatar faces you; only the showcase orbits
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.autoRotate = !reduce && !avatar; controls.autoRotateSpeed = 1.0;
+  // A CONSTANT 1.0 SPIN IS THE PART THAT READS AS "TOO MUCH". Motion is the
+  // strongest signal on a page, and spending it on decoration takes it from
+  // the headline. Slow enough to look alive, slow enough to ignore — and it
+  // still stops entirely for prefers-reduced-motion, off-screen, and hidden
+  // tabs, which was already true and stays true.
+  controls.autoRotate = !reduce && !avatar; controls.autoRotateSpeed = 0.35;
   controls.minPolarAngle = Math.PI * 0.30; controls.maxPolarAngle = Math.PI * 0.62;
 
   let mixer = null, model = null;
@@ -255,15 +287,64 @@ export function mountAgent(host, opts = {}) {
 let _modelOk = null;
 async function modelReady() { if (_modelOk === null) _modelOk = await modelExists(); return _modelOk; }
 
+/**
+ * Should this device get a WebGL mascot at all?
+ *
+ * IT DOWNLOADED 2.15 MB TO EVERY PHONE — three.js at 671 KB plus the model —
+ * to render decoration above the fold. On the landing page the mobile rule
+ * turns the viewer into a static block ABOVE the headline, so the product's
+ * actual claim was the thing pushed off screen. The most expensive asset on
+ * the page was displacing the reason anyone is on it.
+ *
+ * Gated on width rather than a user-agent string: the question is how much
+ * room there is beside the headline, and that is what a viewport measures. A
+ * narrow desktop window gets the same treatment as a phone, which is right —
+ * the layout is the same there.
+ *
+ * `save-data` and the coarse network hints are honoured where the browser
+ * offers them. A visitor who has asked for less data has asked for exactly
+ * this.
+ *
+ * AVATARS ARE EXEMPT. The dashboard bust is small, inside an authenticated app
+ * the visitor chose to open, and it carries state — it reacts while the agent
+ * is thinking. That is content, not decoration, and the reasoning above does
+ * not reach it.
+ */
+function deviceWantsWebGL(host) {
+  try {
+    if (host && host.getAttribute('data-rc-agent3d') === 'avatar') return true;
+    const w = window.innerWidth || document.documentElement.clientWidth || 0;
+    // 900px is the same breakpoint the hero CSS uses to restack. Below it the
+    // viewer is not beside the headline, it is on top of it.
+    if (w && w < 900) return false;
+    const c = navigator.connection || {};
+    if (c.saveData) return false;
+    if (typeof c.effectiveType === 'string' && /(^|-)2g$/.test(c.effectiveType)) return false;
+    return true;
+  } catch (e) {
+    // Unreadable hints are not a reason to refuse a capable desktop.
+    return true;
+  }
+}
+
 export async function autoMount() {
   const hosts = Array.prototype.slice.call(document.querySelectorAll('[data-rc-agent3d]'));
   if (!hosts.length) return;
+
+  // Decided BEFORE modelReady(), because that probe is itself a network
+  // request. Asking a phone to HEAD an asset it will never render is a small
+  // cost with no upside.
+  const wanted = hosts.filter(deviceWantsWebGL);
+  hosts.filter(h => !wanted.includes(h))
+    .forEach(h => h.setAttribute('data-rc3d-state', 'skipped'));
+  if (!wanted.length) return;
+
   // Non-breaking: with no model committed yet, leave the page exactly as-is.
   if (!(await modelReady())) {
-    hosts.forEach(h => h.setAttribute('data-rc3d-state', 'absent'));
+    wanted.forEach(h => h.setAttribute('data-rc3d-state', 'absent'));
     return;
   }
-  hosts.forEach(h => mountAgent(h, h.getAttribute('data-rc-agent3d') === 'avatar' ? { mode: 'avatar' } : {}));
+  wanted.forEach(h => mountAgent(h, h.getAttribute('data-rc-agent3d') === 'avatar' ? { mode: 'avatar' } : {}));
 }
 
 // Mount into a dynamically-created host (SPA views) only when the model is
