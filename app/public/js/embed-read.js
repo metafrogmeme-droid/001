@@ -82,5 +82,53 @@
     return body.data;
   }
 
-  return { readSignals: readSignals, readCandles: readCandles };
+  /**
+   * The Bitget contract symbol to ASK for candles about.
+   *
+   * The board shipped asking for the wrong thing, and the honesty layer above
+   * did its job so well that the fault read as a market condition:
+   *
+   *     .replace('/USDT','').replace(':USDT','').replace(/USDT$/,'')
+   *
+   * That builds a DISPLAY name — `ZEC` — and `/api/market/candles/:symbol`
+   * relays the symbol to Bitget's v2 mix API verbatim, which knows only
+   * contract symbols. `symbol=ZEC` answers HTTP 200 with
+   * `{"code":"40034","msg":"Parameter ZEC does not exist","data":null}`; the
+   * relay turns that into a 502, `readCandles` refuses the body, and every
+   * card on the public Mini App painted **"Price history could not be read."**
+   * Which was TRUE — and pointed at the network instead of at this line.
+   *
+   * `dashboard.js` builds `${base}USDT` for the same route and its charts have
+   * always drawn, so the contract form is not a guess; it is the shape the one
+   * caller that works already sends.
+   *
+   * Both directions have to be handled, because both forms reach here:
+   *   `NATGAS/USDT:USDT` -> `NATGASUSDT`   (what /api/signals stores)
+   *   `BTCUSDT`          -> `BTCUSDT`      NOT `BTCUSDTUSDT`
+   *
+   * Returns '' when nothing usable survives. The caller must treat that as
+   * "no history obtainable" and say so — never fetch `/candles/` and render
+   * whatever comes back.
+   */
+  function contractSym(sym) {
+    var s = String(sym == null ? '' : sym).toUpperCase();
+    // The base leg only: everything before the quote and settlement legs.
+    var base = s.split('/')[0].split(':')[0].replace(/[^A-Z0-9]/g, '');
+    // Already-contract input must not gain a second quote leg.
+    base = base.replace(/USDT$/, '');
+    return base ? base + 'USDT' : '';
+  }
+
+  /** The human-readable leg, for labelling a chart. `ZEC/USDT:USDT` -> `ZEC`. */
+  function displaySym(sym) {
+    return String(sym == null ? '' : sym).toUpperCase()
+      .split('/')[0].split(':')[0].replace(/[^A-Z0-9]/g, '').replace(/USDT$/, '');
+  }
+
+  return {
+    readSignals: readSignals,
+    readCandles: readCandles,
+    contractSym: contractSym,
+    displaySym: displaySym,
+  };
 }));
