@@ -82,19 +82,28 @@
   }
 
   /**
-   * One comlink APPLY frame calling `ready` on the exposed host object.
+   * One comlink APPLY frame calling `path` on the exposed host object.
    *
    * `{type:'RAW', value}` is what comlink's `toWireValue` produces for a plain
-   * object with nothing transferable in it — which is all this argument ever is.
+   * object with nothing transferable in it — which is all these arguments ever
+   * are.
+   *
+   * Generalised from a hardcoded `ready` when the share button arrived: the SDK
+   * routes EVERY action through the same `wrap()` proxy, so `composeCast` is
+   * this frame with a different path and nothing else. Writing a second
+   * transport beside the first would have been two things to get wrong.
    */
-  function readyFrame(id, options) {
+  function actionFrame(id, path, options) {
     return {
       id: id,
       type: 'APPLY',
-      path: ['ready'],
+      path: [path],
       argumentList: [{ type: 'RAW', value: options || {} }],
     };
   }
+
+  /** Kept for the ready-specific tests that pin the exact published frame. */
+  function readyFrame(id, options) { return actionFrame(id, 'ready', options); }
 
   /**
    * Tell the host we are ready.
@@ -151,10 +160,80 @@
     });
   }
 
+  /**
+   * Open the host's cast composer, pre-filled.
+   *
+   * FOUR OUTCOMES, and the difference between the last three is the whole
+   * point of not writing this as a boolean:
+   *
+   *   'no-host'   not inside a Mini App. There is no composer to open.
+   *   'posted'    the host returned a cast. It exists; `hash` identifies it.
+   *   'cancelled' the host returned `{cast: null}` — the composer opened and
+   *               the person chose not to send. A DELIBERATE DECISION, and
+   *               reporting it as failure would put an error on a screen where
+   *               nothing went wrong.
+   *   'unknown'   posted the request, no reply inside the window. The composer
+   *               is very likely open and being typed into; we simply do not
+   *               know the outcome and must not claim one.
+   *
+   * The window is long because a human is writing a cast, not because the
+   * network is slow. `ready` waits a second; asking someone to finish typing in
+   * a second and calling their silence a result would manufacture 'unknown' on
+   * almost every real share.
+   *
+   * Never rejects, for the same reason signalReady does not.
+   */
+  function composeCast(options, deps) {
+    var d = deps || {};
+    var win = d.window || (typeof window !== 'undefined' ? window : null);
+    var doc = d.document || (typeof document !== 'undefined' ? document : null);
+    var waitMs = typeof d.waitMs === 'number' ? d.waitMs : 120000;
+
+    var ep = pickEndpoint(win, doc);
+    if (!ep) return Promise.resolve({ status: 'no-host', transport: null });
+
+    return new Promise(function (resolve) {
+      var id = frameId();
+      var done = false;
+
+      function finish(status, hash) {
+        if (done) return;
+        done = true;
+        try { ep.unlisten(onMessage); } catch (e) { /* listener already gone */ }
+        resolve({ status: status, transport: ep.kind, hash: hash || null });
+      }
+
+      function onMessage(ev) {
+        var data = ev && ev.data;
+        if (!data || data.id !== id) return;
+        // comlink's reply carries the return value at `.value` for a RAW
+        // result, and composeCast resolves to `{cast: <cast>|null}`.
+        var v = data.value;
+        var cast = v && typeof v === 'object' ? v.cast : null;
+        // `cast == null` is the host telling us the person cancelled. It is
+        // NOT a read failure and must not be reported as one.
+        if (cast && cast.hash) finish('posted', cast.hash);
+        else finish('cancelled');
+      }
+
+      try {
+        ep.listen(onMessage);
+        ep.post(actionFrame(id, 'composeCast', options));
+      } catch (e) {
+        finish('no-host');
+        return;
+      }
+
+      if (win.setTimeout) win.setTimeout(function () { finish('unknown'); }, waitMs);
+    });
+  }
+
   return {
     signalReady: signalReady,
-    // Exported for the test that proves the frame is comlink's, not ours.
+    composeCast: composeCast,
+    // Exported for the tests that prove the frames are comlink's, not ours.
     readyFrame: readyFrame,
+    actionFrame: actionFrame,
     pickEndpoint: pickEndpoint,
   };
 }));

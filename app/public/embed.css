@@ -38,13 +38,28 @@ html, body {
 .e-row {
   background: var(--e-surface);
   border: 1px solid var(--e-line);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 12px 13px 11px;
 }
 
-.e-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.e-sym { font-size: 15px; letter-spacing: .01em; }
-.e-conf { margin-left: auto; color: var(--e-text-2); font-size: 12px; }
+.e-head { display: flex; align-items: baseline; gap: 8px; }
+.e-sym { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+
+/* Confidence is a measurement, so it is set in the same tabular figures as the
+   price levels and given no colour: a green 76% would read as "this one is
+   winning", which is not something a confidence score says. */
+.e-conf {
+  margin-left: auto; color: var(--e-text-2);
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+
+/* Quote leg, regime and age — context, deliberately quiet. Every part of this
+   line is omitted when unreadable, so an empty line means we knew none of it
+   and the card simply closes up rather than printing placeholders. */
+.e-meta {
+  margin: 3px 0 9px; color: var(--e-text-3);
+  font-size: 11.5px; letter-spacing: .01em;
+}
 
 /* Direction is the one thing on the row that gets colour: it is a fact the
    signal asserts about itself. Whether the trade is WINNING is not something
@@ -59,10 +74,43 @@ html, body {
 
 .e-chart { min-height: 72px; margin-bottom: 8px; }
 
-.e-lv { display: flex; gap: 14px; margin: 0; }
-.e-lv div { display: flex; flex-direction: column; gap: 1px; }
-.e-lv dt { color: var(--e-text-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
-.e-lv dd { margin: 0; font-variant-numeric: tabular-nums; font-size: 13px; }
+/* The levels sit on one row and share the width, so entry/stop/target line up
+   across cards even when the numbers differ in length — the eye compares them
+   down the column. R:R is present only when it could be read, so the row has
+   three or four cells and must not reserve a gap for a cell that never comes. */
+.e-lv { display: flex; gap: 0; margin: 0; }
+.e-lv div { display: flex; flex-direction: column; gap: 2px; flex: 1 1 0; min-width: 0; }
+.e-lv dt {
+  color: var(--e-text-3); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.e-lv dd {
+  margin: 0; font-variant-numeric: tabular-nums;
+  font-size: 13.5px; letter-spacing: -.01em;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* The share button sits quiet by default. It is an offer, not the point of the
+   card — the signal is — so it carries no accent colour until touched. */
+.e-act { display: flex; justify-content: flex-end; margin-top: 10px; }
+.e-share {
+  font: inherit; font-size: 12px; font-weight: 550;
+  color: var(--e-text-2);
+  background: transparent;
+  border: 1px solid var(--e-line);
+  border-radius: 7px;
+  padding: 5px 12px;
+  cursor: pointer;
+  /* 32px of touch target on a phone without 32px of visual weight. */
+  min-height: 30px;
+  transition: color .12s ease, border-color .12s ease;
+}
+.e-share:hover, .e-share:focus-visible { color: var(--e-text); border-color: var(--e-text-3); }
+.e-share:focus-visible { outline: 2px solid var(--e-info); outline-offset: 2px; }
+/* Disabled while the composer is open — the tap registered and a second one
+   would stack a second composer. Dimmed rather than hidden so the button does
+   not vanish under the thumb that just pressed it. */
+.e-share[disabled] { opacity: .5; cursor: default; }
 
 .e-load, .e-state { color: var(--e-text-2); text-align: center; padding: 18px 10px; }
 .e-state p { margin: 0 0 6px; }
@@ -87,9 +135,18 @@ html, body {
 .sc .sc-lvl--target { stroke: var(--e-up);     stroke-opacity: .75; }
 .sc .sc-mark { stroke: var(--e-info); stroke-width: 1; stroke-dasharray: 2 2; stroke-opacity: .9; }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --e-bg: #ffffff; --e-surface: #f7f8fa; --e-line: #e2e6ee;
-    --e-text: #14171f; --e-text-2: #5a6272; --e-text-3: #8a92a4;
-  }
-}
+/* NO `prefers-color-scheme` OVERRIDE, AND THAT IS THE POINT.
+ *
+ * There was one here, flipping the board to a white palette. It made the header
+ * comment above a lie — the board did NOT read the same wherever it was dropped,
+ * it read however the VIEWER'S PHONE was set — and the place that broke was the
+ * one this page now exists for. A Farcaster Mini App renders inside Warpcast,
+ * whose chrome is dark always; a phone set to light mode put a white board in a
+ * black frame, which looks like a page that failed to load its own styling
+ * rather than a product.
+ *
+ * The host's scheme is not knowable from in here (the webview reports the OS
+ * preference, not Warpcast's), so following it is guessing with extra steps.
+ * This is a branded artifact — a trading board with its own palette, like a
+ * video player — and it carries that palette everywhere. */
+

@@ -103,6 +103,100 @@ test('the argument really does cross the wire, not just the call', async () => {
   assert.deepEqual(seen, { marker: 'carried-through', n: 42 });
 });
 
+// ── composeCast: the same transport, and a cancel is not a failure ────────
+
+/** As above, but exposing whatever `composeCast` the case needs. */
+async function withComposeHost(composeCast, run) {
+  const Comlink = require('comlink');
+  const { port1, port2 } = new MessageChannel();
+  Comlink.expose({ composeCast }, port1);
+  port2.start();
+  try {
+    return await run({
+      parent: { postMessage: (msg) => port2.postMessage(msg) },
+      addEventListener: (t, fn) => port2.addEventListener(t, fn),
+      removeEventListener: (t, fn) => port2.removeEventListener(t, fn),
+      setTimeout: setTimeout,
+    });
+  } finally {
+    port1.close();
+    port2.close();
+  }
+}
+
+test('a real comlink host receives the cast we asked it to compose', async () => {
+  let seen = null;
+  const out = await withComposeHost(
+    async (opts) => { seen = opts; return { cast: { hash: '0xabc', text: opts.text } }; },
+    (win) => FR.composeCast(
+      { text: 'SHORT GME · 76% conf', embeds: ['https://example.test/embed/signals'] },
+      { window: win, document: null, waitMs: 2000 }));
+
+  assert.equal(seen && seen.text, 'SHORT GME · 76% conf',
+    'the composer text never reached the host');
+  assert.deepEqual(seen.embeds, ['https://example.test/embed/signals']);
+  assert.equal(out.status, 'posted');
+  assert.equal(out.hash, '0xabc');
+});
+
+test('a cancelled composer is "cancelled", not an error', async () => {
+  // `{cast: null}` is the host reporting a DECISION: the composer opened and
+  // the person chose not to send. Rendering that as a failure would put an
+  // error on a screen where nothing went wrong.
+  const out = await withComposeHost(
+    async () => ({ cast: null }),
+    (win) => FR.composeCast({ text: 'x' },
+      { window: win, document: null, waitMs: 2000 }));
+
+  assert.equal(out.status, 'cancelled');
+  assert.equal(out.hash, null);
+});
+
+test('a host that answers without a hash is not reported as posted', async () => {
+  // A cast we cannot identify is not one we can claim was published.
+  const out = await withComposeHost(
+    async () => ({ cast: {} }),
+    (win) => FR.composeCast({}, { window: win, document: null, waitMs: 2000 }));
+  assert.equal(out.status, 'cancelled');
+});
+
+test('no reply inside the window is "unknown", never "posted" or "cancelled"', async () => {
+  // The composer is probably open and being typed into. We do not know the
+  // outcome, and both other words would state one.
+  const out = await FR.composeCast({}, {
+    window: {
+      parent: { postMessage: () => {} },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      setTimeout: setTimeout,
+    },
+    document: null,
+    waitMs: 20,
+  });
+  assert.equal(out.status, 'unknown');
+});
+
+test('composeCast outside a Mini App reports no-host', async () => {
+  const win = {};
+  win.parent = win;
+  const out = await FR.composeCast({}, { window: win, document: null, waitMs: 10 });
+  assert.equal(out.status, 'no-host');
+});
+
+test('ready and composeCast build the same frame with different paths', () => {
+  // The generalisation is the point: one transport, proven once. A second
+  // hand-written frame would be a second thing to get wrong.
+  const r = FR.actionFrame('id-1', 'ready', { a: 1 });
+  const c = FR.actionFrame('id-1', 'composeCast', { a: 1 });
+  assert.equal(r.type, 'APPLY');
+  assert.equal(c.type, 'APPLY');
+  assert.deepEqual(r.path, ['ready']);
+  assert.deepEqual(c.path, ['composeCast']);
+  assert.deepEqual(r.argumentList, c.argumentList);
+  assert.deepEqual(FR.readyFrame('id-1', { a: 1 }), r,
+    'readyFrame drifted from the general one it is meant to be an alias of');
+});
+
 // ── three states, and none of them is the confident one ───────────────────
 
 test('a plain tab reports no-host rather than pretending it announced itself', async () => {
