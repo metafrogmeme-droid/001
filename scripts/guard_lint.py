@@ -383,6 +383,21 @@ RULES: list[Rule] = [
                                    # archetype catalogue (configs only, §4-tested:
                                    # no dollars, no performance claims); nothing
                                    # user-scoped is in reach.
+            "farcaster_auth",
+                           # /api/farcaster/{nonce,signin} — this is HOW a Mini
+                           # App obtains a session, so requiring one would be
+                           # circular. It is not unguarded: the two endpoints
+                           # are rate limited by IP inside the router, and the
+                           # sign-in itself is three checks in lib/siwf.js that
+                           # a caller cannot satisfy without a signature from
+                           # the Farcaster account it claims — a server-issued
+                           # SINGLE-USE nonce (so a captured message cannot be
+                           # replayed), an exact domain match (so a signature
+                           # obtained in someone else's Mini App cannot be
+                           # spent here), and an fid the verifier confirms
+                           # rather than one the message merely asserts.
+                           # app/test/siwf.test.js drives all three, and the
+                           # mutations that remove any one of them fail it.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public
