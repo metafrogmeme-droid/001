@@ -223,3 +223,87 @@ html, body {
 .a-tick-sym { font-weight: 600; }
 .a-tick-who { color: var(--e-text-3); overflow: hidden; text-overflow: ellipsis; }
 .a-tick-pct { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ── the authenticated Mini App ──────────────────────────────────────────
+   Same palette and the same honesty rules. The one thing this surface may do
+   that no public board can is show an AMOUNT — it is a private per-user view
+   of a virtual stake (§4 permits it there and only there). */
+
+.m-gate { text-align: center; padding: 22px 8px 8px; }
+.m-gate-lead { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.m-gate-sub { margin: 0 0 18px; color: var(--e-text-2); font-size: 12.5px; line-height: 1.55; }
+.m-signin {
+  font: inherit; font-size: 14px; font-weight: 600;
+  color: var(--e-bg); background: var(--e-info);
+  border: 0; border-radius: 9px; padding: 11px 20px; cursor: pointer;
+  min-height: 44px;      /* a real touch target on a phone */
+}
+.m-signin:focus-visible { outline: 2px solid var(--e-text); outline-offset: 2px; }
+
+.m-acct { margin: 4px 0 12px; }
+.m-eq { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.m-eq-label {
+  color: var(--e-text-3); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.m-eq-val { font-size: 24px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.m-eq-unit { color: var(--e-text-3); font-size: 11.5px; }
+.m-eq-ret { margin-left: auto; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.m-free { margin: 3px 0 0; color: var(--e-text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+.m-pos-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.m-pos {
+  background: var(--e-surface); border: 1px solid var(--e-line);
+  border-radius: 10px; padding: 10px 11px;
+}
+.m-pos-head { display: flex; align-items: baseline; gap: 8px; }
+.m-pos-sym { font-size: 14px; font-weight: 650; }
+.m-pos-lev { color: var(--e-text-3); font-size: 11px; }
+.m-pos-pnl { margin-left: auto; font-size: 14px; font-weight: 620; font-variant-numeric: tabular-nums; }
+.m-pos-foot {
+  display: flex; align-items: center; gap: 10px; margin-top: 7px;
+  color: var(--e-text-3); font-size: 11px; font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+.m-close {
+  margin-left: auto; font: inherit; font-size: 11.5px; font-weight: 550;
+  color: var(--e-text-2); background: transparent;
+  border: 1px solid var(--e-line); border-radius: 6px;
+  padding: 5px 12px; min-height: 30px; cursor: pointer;
+}
+.m-close:hover, .m-close:focus-visible { color: var(--e-down); border-color: var(--e-down); }
+.m-none {
+  color: var(--e-text-3); text-align: center; font-size: 12.5px;
+  padding: 16px 10px; border: 1px dashed var(--e-line); border-radius: 10px;
+  margin: 0 0 14px;
+}
+
+.m-open { border-top: 1px solid var(--e-line); padding-top: 14px; }
+.m-open h2 {
+  margin: 0 0 9px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3);
+}
+.m-row { display: flex; gap: 7px; margin-bottom: 8px; }
+.m-row input {
+  font: inherit; font-size: 13.5px; min-width: 0; flex: 1 1 0;
+  color: var(--e-text); background: var(--e-bg);
+  border: 1px solid var(--e-line); border-radius: 7px;
+  padding: 10px; min-height: 42px;
+}
+.m-sym { flex: 2 1 0 !important; text-transform: uppercase; }
+.m-row input:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+.m-row--go button {
+  font: inherit; font-size: 14px; font-weight: 620; flex: 1 1 0;
+  border-radius: 8px; padding: 11px; min-height: 44px; cursor: pointer;
+  background: transparent; border: 1px solid currentColor;
+}
+.m-long { color: var(--e-up); }
+.m-short { color: var(--e-down); }
+.m-open-note { margin: 6px 0 0; color: var(--e-text-3); font-size: 11px; text-align: center; }
+
+/* A cancelled sign-in gets the muted tone: nothing went wrong. Only a real
+   fault is coloured, and neither is ever green. */
+.m-problem { margin: 0 0 12px; font-size: 12.5px; text-align: center; padding: 9px 10px; border-radius: 8px; }
+.m-problem--note { color: var(--e-text-3); border: 1px dashed var(--e-line); }
+.m-problem--warn { color: var(--e-down); border: 1px solid var(--e-line); }
+.m-problem--ok   { color: var(--e-text-2); border: 1px dashed var(--e-line); }
