@@ -76,7 +76,12 @@
       + '<b class="e-sym">' + esc(s.symbol || '—') + '</b>'
       + '<span class="e-conf">' + pct(s.confidence) + ' conf</span>'
       + '</header>'
-      + '<div class="e-chart" data-sc-sym="' + esc(baseSym(s.symbol)) + '" data-sc-geo=\''
+      // Two symbols, deliberately. `data-sc-sym` is what Bitget is ASKED about
+      // and must be the contract form; `data-sc-label` is what the viewer
+      // reads. They were one value, the display one, and so the fetch asked
+      // about a market that does not exist — see RCEmbedRead.contractSym.
+      + '<div class="e-chart" data-sc-sym="' + esc(RD.contractSym(s.symbol))
+      + '" data-sc-label="' + esc(RD.displaySym(s.symbol)) + '" data-sc-geo=\''
       + esc(geo) + '\'><div class="e-load">…</div></div>'
       + '<dl class="e-lv">'
       + '<div><dt>entry</dt><dd>' + esc(price(s.entry_price)) + '</dd></div>'
@@ -84,11 +89,6 @@
       + '<div><dt>target</dt><dd>' + esc(price(s.take_profit)) + '</dd></div>'
       + '</dl>'
       + '</article>';
-  }
-
-  function baseSym(sym) {
-    return String(sym || '').toUpperCase()
-      .replace('/USDT', '').replace(':USDT', '').replace(/USDT$/, '').replace(/[^A-Z0-9]/g, '');
   }
 
   var candleCache = new Map();
@@ -119,11 +119,15 @@
     Array.prototype.forEach.call(slots, function (el) {
       el.setAttribute('data-done', '1');
       var sym = el.getAttribute('data-sc-sym');
+      var label = el.getAttribute('data-sc-label') || sym;
       var geo = {};
       try { geo = JSON.parse(el.getAttribute('data-sc-geo') || '{}') || {}; } catch (e) { geo = {}; }
+      // No contract symbol means there is no market to ask about. Say that,
+      // rather than fetching `/candles/` and describing whatever answers.
+      if (!sym) { el.innerHTML = SC.placeholderHtml(SC.REASONS.UNREADABLE); return; }
       fetchCandles(sym).then(function (rows) {
         if (!el.isConnected) return;
-        var out = SC.buildSignalChart(rows, geo, { label: sym });
+        var out = SC.buildSignalChart(rows, geo, { label: label });
         el.innerHTML = out.ok ? out.svg : SC.placeholderHtml(out.reason);
       }).catch(function () {
         if (!el.isConnected) return;

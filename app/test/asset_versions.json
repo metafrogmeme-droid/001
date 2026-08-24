@@ -40,12 +40,12 @@
     "v": 1
   },
   "js/embed-read.js": {
-    "sha": "c9d3a287a49ba942",
-    "v": 1
+    "v": 2,
+    "sha": "3d66a71d40da7fd8"
   },
   "js/embed-signals.js": {
-    "sha": "34ee163228b3c5d3",
-    "v": 2
+    "v": 3,
+    "sha": "1790a0a1f125ceea"
   },
   "js/engine-card-model.js": {
     "sha": "c233fd013d7bde98",

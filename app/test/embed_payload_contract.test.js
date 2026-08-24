@@ -131,6 +131,102 @@ test('an empty candle set is still a measurement', () => {
   assert.deepEqual(RD.readCandles({ code: '00000', data: [] }), []);
 });
 
+// ── the symbol we ASK with, which is half of reading a payload ───────────
+//
+// The readers above were fixed and the board still drew nothing, because a
+// correct reader pointed at the wrong market reads a correct "no". The old
+// `baseSym` built a DISPLAY name and handed it to a route that relays to
+// Bitget verbatim; `symbol=ZEC` is answered `40034 Parameter ZEC does not
+// exist` inside an HTTP 200. Every card said "Price history could not be
+// read." — true, and about the wrong thing.
+
+test('the contract symbol keeps the quote leg the mix API requires', () => {
+  // `/api/signals` stores ccxt-style symbols; these three are copied from a
+  // live board screenshot, not invented.
+  assert.equal(RD.contractSym('NATGAS/USDT:USDT'), 'NATGASUSDT');
+  assert.equal(RD.contractSym('ARM/USDT:USDT'), 'ARMUSDT');
+  assert.equal(RD.contractSym('ZEC/USDT'), 'ZECUSDT');
+});
+
+test('a symbol already in contract form does not gain a second USDT', () => {
+  // The obvious "just append USDT" fix, which breaks the other caller shape.
+  assert.equal(RD.contractSym('BTCUSDT'), 'BTCUSDT');
+  assert.equal(RD.contractSym('btcusdt'), 'BTCUSDT');
+});
+
+test('an unusable symbol yields empty, not a plausible-looking market', () => {
+  // '' is the signal to the caller that there is nothing to ask about. The
+  // dangerous alternative is 'USDT', which is a real string that would be
+  // fetched and would fail somewhere less legible.
+  assert.equal(RD.contractSym(''), '');
+  assert.equal(RD.contractSym(null), '');
+  assert.equal(RD.contractSym('///'), '');
+});
+
+test('the OLD symbol builder is proven wrong on the same inputs', () => {
+  // Pinned the way the old payload reader is pinned above: a refactor that
+  // reintroduces the display form fails here, with the reason attached.
+  var asItUsedToBuild = function (sym) {
+    return String(sym || '').toUpperCase()
+      .replace('/USDT', '').replace(':USDT', '').replace(/USDT$/, '').replace(/[^A-Z0-9]/g, '');
+  };
+  assert.equal(asItUsedToBuild('ZEC/USDT:USDT'), 'ZEC');
+  assert.notEqual(asItUsedToBuild('ZEC/USDT:USDT'), RD.contractSym('ZEC/USDT:USDT'),
+    'the builder now agrees with the display form again — that is the defect');
+});
+
+test('what we build is what the ROUTE accepts, per its own validator', () => {
+  // routes/market.js gates on /^[A-Z0-9]{1,20}$/ before it ever calls out, so
+  // a symbol that fails this never reaches Bitget and 400s instead. Read from
+  // the route rather than restated, so the two cannot drift apart.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'market.js'), 'utf8');
+  const m = src.match(/function validateSymbol\(sym\)\s*\{\s*return (\/.+?\/)\.test\(sym\)/);
+  assert.ok(m, 'validateSymbol no longer has the shape this test reads it with');
+  const routeAccepts = new RegExp(m[1].slice(1, -1));
+
+  for (const s of ['NATGAS/USDT:USDT', 'ARM/USDT:USDT', 'ZEC/USDT', 'BTCUSDT']) {
+    const built = RD.contractSym(s);
+    assert.ok(routeAccepts.test(built),
+      `${s} -> ${built}, which /api/market/candles/:symbol rejects with 400`);
+    assert.match(built, /USDT$/,
+      `${s} -> ${built}, which Bitget answers 40034 "does not exist"`);
+  }
+});
+
+test('the browser dialect agrees with the server one it cannot import', () => {
+  // routes/arena.js already normalises signal symbols at its door with
+  // `agent_match.baseOf(sym) + 'USDT'`, and its comment names the exact hazard:
+  // "a dialect difference can never turn into a phantom 'no live mark'". That
+  // helper is a node module, so the embed page cannot call it — which makes a
+  // SECOND implementation unavoidable and a silent divergence between them the
+  // thing to guard. Pinned on the shapes the bot actually emits, so the two
+  // translations cannot drift apart without this failing.
+  const { baseOf } = require('../lib/agent_match');
+  for (const s of ['BTC/USDT:USDT', 'BTC/USDT', 'BTCUSDT',
+    'NATGAS/USDT:USDT', 'ARM/USDT:USDT', 'ZEC/USDT']) {
+    assert.equal(RD.contractSym(s), baseOf(s) + 'USDT',
+      `the embed and the arena would ask about different markets for ${s}`);
+  }
+});
+
+test('the embed asks with the contract symbol and labels with the display one', () => {
+  // Both halves, because swapping them is silent: the chart would fetch fine
+  // and be titled ZECUSDT, or be titled ZEC and fetch nothing.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { codeOnly } = require('./helpers/code_only');
+  const src = codeOnly(fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'embed-signals.js'), 'utf8'));
+
+  assert.match(src, /data-sc-sym="'\s*\+\s*esc\(RD\.contractSym\(/,
+    'the chart slot is not built from contractSym, so the fetch asks for a display name');
+  assert.match(src, /RD\.displaySym\(/, 'the label no longer uses displaySym');
+  assert.doesNotMatch(src, /function baseSym/,
+    'baseSym is back — it builds the symbol that does not exist');
+});
+
 // ── the wiring, since a correct reader nobody calls is still broken ──────
 
 test('embed-signals.js calls the readers and keeps no || [] fallback', () => {
