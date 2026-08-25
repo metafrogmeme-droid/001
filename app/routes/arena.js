@@ -1031,12 +1031,122 @@ router.get('/seasons', publicBoardLimit, async (req, res) => {
 });
 
 // POST /api/arena/season { name, starts_at, ends_at } — operator only.
+/**
+ * Is this caller the operator? Answers the row or null; never throws.
+ *
+ * Lifted out of POST /season because three admin routes now need it and three
+ * copies of an authorisation check is three chances to relax one.
+ */
+async function adminOnly(req, res) {
+  const [u] = await pool.execute('SELECT plan FROM users WHERE id = ?', [req.user.user_id]);
+  if (!u[0] || String(u[0].plan) !== 'admin') {
+    res.status(403).json({ error: 'admin_required', detail: 'Only the operator can manage seasons.' });
+    return null;
+  }
+  return u[0];
+}
+
+/**
+ * GET /api/arena/seasons/all — every season, with its status. ADMIN.
+ *
+ * THE OPERATOR AUTHORED A SEASON AND HAD NO WAY TO SEE IT. `/season` returns
+ * only the current pick and `/seasons` lists only ENDED ones, so a season that
+ * is upcoming — or one whose dates came out wrong — is invisible on every
+ * surface including to the person who created it. The report was "I made a new
+ * one and started today, I don't see it", and nothing in the API could have
+ * answered whether it existed, when it runs, or why it was not winning.
+ *
+ * A create endpoint with no read is a write into the dark. This is the read.
+ *
+ * Admin-only because it exposes upcoming seasons, which are an unannounced
+ * product decision until they start; the public surfaces stay as they were.
+ */
+router.get('/seasons/all', authMiddleware, async (req, res) => {
+  try {
+    if (!await adminOnly(req, res)) return;
+    const [rows] = await pool.execute(
+      'SELECT id, name, starts_at, ends_at, rules, created_at FROM arena_seasons');
+    const now = new Date();
+    const current = pickCurrentSeason(rows, now);
+    const out = rows
+      .slice()
+      .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+      .map((r) => {
+        let rules = r.rules;
+        if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch (e) { rules = null; } }
+        return {
+          id: r.id,
+          name: r.name,
+          starts_at: r.starts_at,
+          ends_at: r.ends_at,
+          status: seasons.seasonStatus(r, now),
+          // Which one the board and the trade gate are actually using. Without
+          // it an operator looking at two live seasons cannot tell which is in
+          // force, which is the question that brought them here.
+          is_current: !!(current && Number(current.id) === Number(r.id)),
+          rules: rules || null,
+          created_at: r.created_at,
+        };
+      });
+    res.json({ seasons: out, count: out.length });
+  } catch (err) {
+    console.error('Arena seasons/all error:', err.stack || err.message);
+    // 503, not an empty list. "No seasons exist" and "we could not read them"
+    // are different answers, and the empty one would send the operator to
+    // create a duplicate of a season that is already there.
+    res.status(503).json({ error: 'seasons_unavailable' });
+  }
+});
+
+/**
+ * DELETE /api/arena/seasons/:id — remove a season. ADMIN.
+ *
+ * Deletes the SEASON ROW ONLY. Trades are not touched and are not season-owned:
+ * `arena_trades` carries no season id, and every ranking is computed by
+ * matching `closed_at` against a season's window. So removing a mis-authored
+ * season removes a WINDOW, and the trades that fell inside it keep existing and
+ * keep counting toward whichever season's window still contains them.
+ *
+ * That is the honest behaviour and worth stating, because "delete season" reads
+ * like it might discard results. It does not, and it cannot: there is nothing
+ * on a trade that says which season it belonged to.
+ *
+ * Refuses to delete the LIVE season. Doing so would silently change which rules
+ * gate every open — the exact confusion this pair of endpoints exists to end —
+ * and the operator can end it deliberately by editing its window instead.
+ */
+router.delete('/seasons/:id', authMiddleware, async (req, res) => {
+  try {
+    if (!await adminOnly(req, res)) return;
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'bad_id' });
+    }
+    const [rows] = await pool.execute(
+      'SELECT id, name, starts_at, ends_at FROM arena_seasons WHERE id = ? LIMIT 1', [id]);
+    const row = rows[0];
+    // 404 over a silent success: reporting "deleted" for a row that was never
+    // there tells the operator their mistake is cleaned up when it is not.
+    if (!row) return res.status(404).json({ error: 'no_such_season' });
+
+    const status = seasons.seasonStatus(row, new Date());
+    if (status === 'live') {
+      return res.status(409).json({
+        error: 'season_is_live',
+        detail: 'This season is running and gates every open. Change its window instead.',
+      });
+    }
+    await pool.execute('DELETE FROM arena_seasons WHERE id = ?', [id]);
+    res.json({ deleted: { id: row.id, name: row.name, status } });
+  } catch (err) {
+    console.error('Arena season delete error:', err.stack || err.message);
+    res.status(503).json({ error: 'delete_failed' });
+  }
+});
+
 router.post('/season', authMiddleware, async (req, res) => {
   try {
-    const [u] = await pool.execute('SELECT plan FROM users WHERE id = ?', [req.user.user_id]);
-    if (!u[0] || String(u[0].plan) !== 'admin') {
-      return res.status(403).json({ error: 'admin_required', detail: 'Only the operator can author a season.' });
-    }
+    if (!await adminOnly(req, res)) return;
     const v = seasons.validateSeason(req.body);
     if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
     await pool.execute(
