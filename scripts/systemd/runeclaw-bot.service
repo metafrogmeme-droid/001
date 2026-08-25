@@ -1,0 +1,104 @@
+# systemd unit for the RUNECLAW bot (Telegram + engine + gateway on :8080).
+#
+# WHY THIS EXISTS: NOTHING WAS SUPERVISING THE BOT.
+#
+# Across the week of 2026-08-25 the bot died repeatedly and every single
+# recovery began with a human noticing. A quickfix that restarts the box's
+# system services killed it; nothing brought it back. The launcher
+# (scripts/launch_all.sh.template) is a DEPLOY-time gate — it proves the
+# processes came up and refuses to print DEPLOY_DONE otherwise — and it has
+# nothing to say about 03:00 on a Tuesday. Those are two different jobs and
+# only one of them was being done.
+#
+# This is the other half, and it is the same argument the gateway tunnel unit
+# already makes in scripts/cloudflared/runeclaw-gateway.service: a process
+# that died at 03:00 and was never restarted is just as unreachable as one
+# that was never deployed.
+#
+# Install:
+#   sudo cp runeclaw-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now runeclaw-bot
+#   scripts/systemd/runeclaw-status.sh      # NOT `systemctl status` alone — see README
+#
+# Adjust User=, WorkingDirectory= and the ExecStart interpreter if the bot does
+# not run as `mulerun` out of ~/runeclaw. If a virtualenv is in use, point
+# ExecStart at <venv>/bin/python — a wrong path fails loudly at start, which is
+# the good failure.
+
+[Unit]
+Description=RUNECLAW bot (Telegram + engine + gateway :8080)
+After=network-online.target
+Wants=network-online.target
+
+# Never give up. systemd's default is to fail the unit after 5 starts in 10s
+# and leave it alone — a supervisor that stops supervising during exactly the
+# incident it was installed for.
+#
+# IT MUST BE IN [Unit]. Placed in [Service] — where runeclaw-gateway.service
+# had it until this commit — systemd 255 says:
+#
+#   Unknown key name 'StartLimitIntervalSec' in section 'Service', ignoring.
+#
+# and the tunnel that documented "an unattended tunnel that gives up after five
+# attempts is the failure this unit exists to prevent" gave up after five
+# attempts. Verified with `systemd-analyze verify`, which is what
+# tests/test_systemd_units_supervise.py runs.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=mulerun
+WorkingDirectory=/home/mulerun/runeclaw
+
+# Restore the .env / data / logs symlinks before starting. deploy.sh is
+# idempotent and non-destructive by design, so running it on every start is
+# safe, and it closes the 2026-07-14 failure where a redeploy wiped the secrets
+# and the position state. Deliberately NOT prefixed with `-`: if the symlinks
+# cannot be restored, the correct outcome is that the bot does not start at
+# all. Starting it against a missing .env is how keys got hand-re-entered with
+# quotes and a live position sat unprotected.
+ExecStartPre=/home/mulerun/runeclaw/deploy.sh
+
+# python3, NOT python — the box has no `python`, as scripts/verify_bot_alive.sh
+# records. `--mode telegram` is explicit: the default was once `cli`, which
+# finds no TTY and EXITS ZERO, and a supervisor faithfully restarting a process
+# that exits zero forever is a crashloop wearing a green light.
+ExecStart=/usr/bin/python3 -m bot.main --mode telegram
+
+# Alive is not the same as serving. A process bound to the wrong interface or
+# stuck importing satisfies `kill -0` and answers nothing — the website then
+# sees a dead gateway while systemd reports the unit active. 120s is generous
+# on purpose: this must never fire on a merely slow boot, because a health
+# check that is too tight converts a healthy start into a restart loop, which
+# is worse than not checking at all.
+ExecStartPost=/home/mulerun/runeclaw/scripts/systemd/wait_for_port.sh http://127.0.0.1:8080/gateway/health 120
+
+# Come back, and keep coming back. See StartLimitIntervalSec=0 in [Unit] above,
+# which is what stops systemd giving up: an unattended bot that stops retrying
+# at 03:05 has reproduced the exact outage this unit exists to end.
+#
+# THE COST IS REAL AND IT IS PAID IN VISIBILITY. A unit that never gives up
+# shows `active (running)` seconds after every restart, so a crashloop and a
+# healthy bot look identical to `systemctl status`. That is precisely the shape
+# CLAUDE.md warns about — a green check that rules one cause out and names
+# none. runeclaw-status.sh reads NRestarts so the loop cannot hide; use it.
+Restart=always
+RestartSec=15
+
+# stdout/stderr to journald rather than to a file in the repo. The launcher
+# template appends to ./bot.log, which lives in the repo root — NOT in the
+# persistent store — so `git reset --hard` discards it, and a redeploy takes
+# the log of the failure that prompted the redeploy with it. The engine's own
+# audit trail (logs/*.jsonl, symlinked to the persistent store) is unaffected
+# either way; this is the console noise and the tracebacks.
+#   journalctl -u runeclaw-bot -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=runeclaw-bot
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
