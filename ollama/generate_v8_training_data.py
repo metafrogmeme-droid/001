@@ -114,6 +114,15 @@ def trade_numbers(price, decimals, direction, rr_target):
 
 def approve_block(sym, tf, direction, price, sl, tp, rr, conf, extra=""):
     decimals = next(s[2] for s in SYMBOLS if s[0] == sym)
+    # The ratio is DERIVED here, not asserted. gen_rr_reject always showed
+    # its arithmetic and this block never did, so the corpus taught
+    # derivation for "no" and assertion for "yes" — and v10 duly shipped an
+    # approval reading `Entry 60,000 / Stop 58,500 / Target 61,500` (a 1:1)
+    # labelled `R:R: 1.5:1`, then justified the approval with "well above
+    # the 1.2:1 minimum". Every level was right; the ratio was a claim
+    # nothing in the sample had ever had to earn.
+    risk = abs(price - sl)
+    reward = abs(tp - price)
     return (f"TRADE IDEA\n"
             f"Direction: {direction}\n"
             f"Asset: {sym}\n"
@@ -125,7 +134,10 @@ def approve_block(sym, tf, direction, price, sl, tp, rr, conf, extra=""):
             f"Confidence: {conf:.2f}\n"
             f"{extra}"
             f"Risk Check: APPROVED\n"
-            f"- RISK_REWARD: {rr:.2f} >= 1.2 minimum\n"
+            f"- RISK_REWARD: risk = {fmt(risk, decimals)}, "
+            f"reward = {fmt(reward, decimals)}, "
+            f"R:R = {fmt(reward, decimals)} / {fmt(risk, decimals)} = {rr:.2f} "
+            f">= 1.2 minimum\n"
             f"- CONFIDENCE: {conf:.2f} >= 0.55 threshold\n")
 
 
@@ -258,6 +270,70 @@ def gen_rr_approve():
     return instruction, payload, output
 
 
+def gen_rr_arithmetic_authority():
+    """A proposal whose STATED ratio contradicts its own levels.
+
+    v10 read `Entry 60,000 / Stop 58,500 / Target 61,500` — risk 1,500,
+    reward 1,500, a 1:1 — printed `R:R: 1.5:1`, and approved on the
+    strength of that label: "well above the 1.2:1 minimum". Every level
+    was correct. The ratio was the only wrong number in the report, and it
+    was the one the verdict rested on.
+
+    The claim always lands on the OTHER side of the 1.2 floor here, so
+    believing it and computing it give opposite verdicts — a discrepancy
+    that changed nothing would teach nothing.
+
+    Both directions are planted deliberately. A corpus that only ever
+    corrected FLATTERING claims would teach "a stated ratio means reject",
+    which is the same defect pointed the other way; half these rows carry a
+    claim that understates geometry the levels actually clear, where
+    recomputing means approving what the label would have refused.
+    """
+    sym, price0, decimals, _ = pick_symbol(meme=False)
+    price = round(price0 * rng.uniform(0.85, 1.15), decimals)
+    tf = rng.choice(TIMEFRAMES)
+    direction = rng.choice(["LONG", "SHORT"])
+    # Draw the SIDE first, then a target within it. A flat uniform over the
+    # whole range is not a balanced corpus: uniform(0.80, 3.20) lands 83% of
+    # rows above the 1.2 floor, which would have taught "recompute, then
+    # approve" — the approve-bias this builder exists to correct.
+    _passes = rng.random() < 0.5
+    sl, tp, true_rr = trade_numbers(
+        price, decimals, direction,
+        rng.uniform(1.25, 3.20) if _passes else rng.uniform(0.80, 1.15))
+    if true_rr >= 1.2:
+        claimed = round(rng.uniform(0.70, 1.15), 2)
+        verdict, marker, rel, action = "APPROVED", ">=", "clears", "PROCEED"
+    else:
+        claimed = round(rng.uniform(1.30, 2.60), 2)
+        verdict, marker, rel, action = "REJECTED", "<", "misses", "NO TRADE"
+    risk = abs(price - sl)
+    reward = abs(tp - price)
+    instruction = (f"Check this proposed {sym} {direction.lower()} on the {tf}. "
+                   f"The stated risk:reward may or may not match the levels.")
+    inp = (f"Proposed: entry {fmt(price, decimals)}, stop loss {fmt(sl, decimals)}, "
+           f"take profit {fmt(tp, decimals)}. Stated R:R {claimed:.2f}. "
+           f"Minimum risk:reward is 1.2.")
+    output = (f"Trade Scan: {sym}\n"
+              f"Direction considered: {direction}\n"
+              f"Risk Check: {verdict}\n\n"
+              f"Recomputed from the levels:\n"
+              f"- risk = |{fmt(price, decimals)} - {fmt(sl, decimals)}| "
+              f"= {fmt(risk, decimals)}\n"
+              f"- reward = |{fmt(tp, decimals)} - {fmt(price, decimals)}| "
+              f"= {fmt(reward, decimals)}\n"
+              f"- R:R = {fmt(reward, decimals)} / {fmt(risk, decimals)} "
+              f"= {true_rr:.2f} {marker} 1.2 minimum\n\n"
+              f"Reasoning: the proposal states {claimed:.2f}; the levels give "
+              f"{true_rr:.2f}. The levels are the authority — a ratio is a "
+              f"consequence of entry, stop and target, never a separate claim, "
+              f"and a stated ratio that disagrees with them is simply wrong. "
+              f"This geometry {rel} the 1.2 floor, so the verdict follows the "
+              f"computed {true_rr:.2f} and not the stated {claimed:.2f}.\n\n"
+              f"Action: {action}.")
+    return instruction, inp, output
+
+
 def gen_regime_sizing():
     regimes = {
         "CHOPPY": (0.5, "reduce"), "RANGING": (0.7, "slightly reduce"),
@@ -336,7 +412,9 @@ def gen_meme_atr_reject():
                   f"Risk Check: APPROVED\n"
                   f"- MEME_ATR_GUARD: ATR {atr:.1f}% <= 4.0% limit -> PASS "
                   f"(below the limit passes; above it fails)\n"
-                  f"- RISK_REWARD: {rr:.2f} >= 1.2 minimum\n")
+                  f"- RISK_REWARD: risk = {fmt(abs(price - sl), decimals)}, "
+                  f"reward = {fmt(abs(tp - price), decimals)}, "
+                  f"R:R = {rr:.2f} >= 1.2 minimum\n")
     else:
         atr = rng.uniform(4.1, 7.5)
         inp = (f"RSI {rng.randint(25, 33)}, MACD positive, volume {rng.uniform(2.2, 3.4):.1f}x — a clean-looking "
@@ -448,7 +526,9 @@ def gen_full_report():
         for i, (name, w, v) in enumerate(votes))
     verdict_block = (
         f"Risk Check: APPROVED\n- CONFIDENCE: {conf:.2f} >= 0.55\n"
-        f"- RISK_REWARD: {rr:.2f} >= 1.2\n"
+        f"- RISK_REWARD: risk = {fmt(abs(price - sl), decimals)}, "
+        f"reward = {fmt(abs(tp - price), decimals)}, "
+        f"R:R = {rr:.2f} >= 1.2\n"
         f"\nStatus: PENDING — type CONFIRM to execute" if approved else
         f"Risk Check: REJECTED\n\nFailed Checks:\n"
         f"- CONFIDENCE: {conf:.2f} < 0.55 minimum\n\nAction: NO TRADE.")
@@ -773,9 +853,14 @@ def gen_casual_chat():
 BUILDERS = [
     (gen_state_gate_reject,     0.22),
     (gen_healthy_state_approve, 0.16),
-    (gen_rr_reject,             0.10),
-    (gen_rr_approve,            0.11),
-    (gen_regime_sizing,         0.12),
+    (gen_rr_reject,             0.09),
+    (gen_rr_approve,            0.10),
+    # The ratio-vs-levels contradiction v10 shipped. Weighted with the two
+    # R:R builders it corrects, not above them: the lesson is that a ratio
+    # is computed, and most rows should show that in the ordinary case
+    # rather than as a caught error.
+    (gen_rr_arithmetic_authority, 0.06),
+    (gen_regime_sizing,         0.11),
     (gen_meme_atr_reject,       0.06),
     (gen_no_data_refusal,       0.06),
     (gen_full_report,           0.08),
