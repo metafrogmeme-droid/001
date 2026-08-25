@@ -344,8 +344,12 @@ class RiskLimits:
     # Self-scaling: on a funded account the % cap dominates (5% of $10k = $500),
     # so any small floor is a no-op and protection is unchanged.
     daily_loss_breaker_min_usd: float = _env_float_bounded("DAILY_LOSS_BREAKER_MIN_USD", 0.0, 0.0, 1_000_000)
-    # Auto-reset a DAILY-LOSS circuit-breaker trip at UTC day rollover (opt-in,
-    # default OFF; deep-audit medium). The daily-loss limit is a per-day guard,
+    # Auto-reset a DAILY-LOSS circuit-breaker trip at UTC day rollover.
+    # DEFAULT ON. This comment used to open with a stale audit annotation
+    # asserting the reverse, while its last line already said "Default ON" —
+    # boilerplate nobody updated when the default flipped. On a CIRCUIT
+    # BREAKER, the half an operator reads first is the half that matters.
+    # The daily-loss limit is a per-day guard,
     # but the breaker is a single latch with no record of why it tripped, so a
     # single bad day halts trading until a human runs /reset — even after
     # daily_pnl rolls back to ~0. When ON, ONLY a daily-loss-caused trip is
@@ -1124,8 +1128,11 @@ class LLMConfig:
     max_rpm: int = int(_env_float("LLM_MAX_RPM", 40))
     daily_budget_usd: float = _env_float("LLM_DAILY_BUDGET_USD", 1.0)  # fail to rules if exceeded
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection
-    # Account cascading-fallback LLM calls against the daily budgets (opt-in,
-    # default OFF; deep-audit medium). The primary-provider path increments the
+    # Account cascading-fallback LLM calls against the daily budgets.
+    # DEFAULT ON. This opened with a stale audit annotation asserting the
+    # reverse, while its closing line said the budgets actually bind on live
+    # money. Both cannot be true, and the wrong one came first.
+    # The primary-provider path increments the
     # daily call counter and records token/dollar cost, but the cascading
     # fallback (_try_llm_fallback) makes real billable calls — including the
     # priciest provider, Anthropic Sonnet — without touching either counter. So
@@ -1195,7 +1202,9 @@ class AnalyzerConfig:
     # (per_user_llm_enabled / BYOK) takes precedence over their tier. Fail-open to
     # default routing. Default OFF → byte-identical until enabled.
     per_user_llm_tiers_enabled: bool = _env_bool("PER_USER_LLM_TIERS_ENABLED", False)
-    # Scoped semantic-LLM-cache key (opt-in, default OFF; deep-audit medium). The
+    # Scoped semantic-LLM-cache key. DEFAULT ON. This opened with the same
+    # stale audit annotation as three of its neighbours, asserting the reverse
+    # of its own closing line. The
     # semantic cache keys on bucketed market conditions only, NOT on which model
     # answers — but the answering model depends on the pipeline tier (rule vs
     # scan vs thesis), the admin/basic boundary, a user's BYOK key, and their
@@ -1602,15 +1611,35 @@ class LearningConfig:
 
     The orchestrator already LOGS every decision + outcome; this controls whether
     that accumulated experience is read back to nudge new-trade confidence.
-    Default OFF: it changes live entry behavior, so it is opt-in. The nudge is
-    small, capped, asymmetric (penalize historically-losing setups more than it
-    rewards winners), additive only, and never overrides the 23 risk checks.
+
+    ADAPTIVE_CONFIDENCE_ENABLED DEFAULTS **ON**. This docstring said "Default
+    OFF: it changes live entry behavior, so it is opt-in" until 2026-08-25, and
+    the code beneath it has read `True` for as long as anyone can trace. The
+    sentence was the more dangerous half of the pair: an operator reading it
+    would believe the nudge was inert until they switched it on, while it was
+    adjusting live entry confidence on every trade. A number in prose is the
+    part that rots first, and this one rotted on the flag that moves money.
+
+    What makes that survivable rather than alarming is the nudge's own shape,
+    which the old sentence described accurately: small, capped, asymmetric
+    (penalize historically-losing setups more than it rewards winners),
+    additive only, and never able to override the 23 risk checks. It also does
+    nothing at all below ADAPTIVE_CONFIDENCE_MIN_SAMPLES similar closed setups,
+    so on thin history it is identity.
+
+    Set ADAPTIVE_CONFIDENCE_ENABLED=false to turn it off.
     """
     adaptive_confidence_enabled: bool = _env_bool("ADAPTIVE_CONFIDENCE_ENABLED", True)
-    # Feed PAPER/sim closes into the learning loop's write side (opt-in, default
-    # OFF; deep-audit medium). Today record_closed_outcome fires only on LIVE
-    # closes, so in simulation-first operation the learners (calibration / voter
-    # weights / setup expectancy) see almost no data. When ON, each paper close
+    # Feed PAPER/sim closes into the learning loop's write side.
+    # DEFAULT ON. Fourth instance of the same stale audit annotation asserting
+    # the reverse of its own closing line — and the one that cost the most
+    # time: while chasing why calibration had 0 samples, this comment pointed
+    # at the wrong flag entirely. The real gate is
+    # LEARN_CALIBRATION_FROM_PAPER, immediately below.
+    #
+    # Without it record_closed_outcome fires only on LIVE closes, so in
+    # simulation-first operation the learners (calibration / voter weights /
+    # setup expectancy) see almost no data. When ON, each paper close
     # also records an outcome tagged source="paper_outcome" (live stays
     # "live_outcome"), so similar-setup lookups and calibration accumulate from
     # the abundant paper history. The records are LABELLED so live vs paper can

@@ -35,6 +35,12 @@
 #   scripts/anchor_roots.sh --verify 2026-08-24     ask the chain, live
 #   scripts/anchor_roots.sh --broadcast 2026-08-24  sign + send + record (opt-in)
 #
+# The ERC-8257 tool registration is a different chain object with the same
+# three legs, so it lives here too rather than in a second script nobody finds:
+#
+#   scripts/anchor_roots.sh --tool-plan             the registerTool tx to send
+#   scripts/anchor_roots.sh --tool-verify           ask the chain, live
+#
 #   SITE           default https://humanoid-traders.com
 #   RUNECLAW_TOKEN bearer JWT — required for --record and --broadcast.
 #                  NEVER printed by this script.
@@ -207,12 +213,95 @@ cmd_broadcast() {
   cmd_record "$day" "$tx"
 }
 
+# ── the ERC-8257 tool registration, same three legs ─────────────────────────
+#
+# Separate from the roots because it is a different chain object, but the
+# discipline is identical: a plan the operator signs, and a verdict that comes
+# from the chain rather than from an environment variable we set ourselves.
+cmd_tool_plan() {
+  local body
+  body="$(curl -fsSL --max-time 25 "$SITE/api/tool/registration-plan" 2>/dev/null)" \
+    || die "could not read the registration plan — the site may be down, or the network is."
+  printf '%s' "$body" | json '
+import json,sys
+p=json.load(sys.stdin)
+if not p.get("ready"):
+    print("NOT READY — do not register:")
+    for r in (p.get("not_ready_reasons") or []): print("  - %s" % r)
+    sys.exit(1)
+print("registry       %s" % p.get("registry"))
+print("chain          %s (recommended)" % p.get("recommended_chain_id"))
+print("metadata_uri   %s" % p.get("metadata_uri"))
+print("manifest_hash  %s" % p.get("manifest_hash"))
+print()
+print("calldata (send this to the registry, value 0):")
+print("  %s" % p.get("calldata"))
+print()
+print(p.get("non_custodial_note",""))
+print()
+print("After it is mined, set BOTH on the web container and redeploy:")
+print("  REGISTERED_MANIFEST_HASH=%s" % p.get("manifest_hash"))
+print("  REGISTERED_TOOL_TX=<the transaction hash>")
+print("Then: scripts/anchor_roots.sh --tool-verify")
+'
+}
+
+cmd_tool_verify() {
+  local body code
+  # The HTTP code is read separately so a 404 is not reported as "the site is
+  # down". Right after this ships and before the web container is redeployed,
+  # 404 is the EXPECTED answer, and telling an operator their site is
+  # unreachable would send them to debug an outage that is not happening.
+  body="$(curl -sSL --max-time 30 -w $'\n%{http_code}' "$SITE/api/tool/registration" 2>/dev/null)" \
+    || die "could not reach $SITE at all — NOTHING is claimed about the registration."
+  code="$(printf '%s' "$body" | tail -n1)"
+  body="$(printf '%s' "$body" | sed '$d')"
+  case "$code" in
+    200) ;;
+    404) die "$SITE has no /api/tool/registration — the web container is running
+  code older than this endpoint. Republish it, then re-run. This is NOT a
+  statement about the registration." ;;
+    503) die "the server could not determine the registration status (503).
+  That is 'could not check', not 'not registered'. Try again shortly." ;;
+    *)   die "unexpected HTTP $code from $SITE/api/tool/registration." ;;
+  esac
+  printf '%s' "$body" | json '
+import json,sys
+v=json.load(sys.stdin)
+s=v.get("status")
+print("registry      %s" % v.get("registry"))
+print("manifest_hash %s" % v.get("manifest_hash"))
+hc=v.get("hash_check") or {}
+if hc: print("hash check    %s (recorded %s)" % (hc.get("state"), hc.get("recorded")))
+if s=="not_submitted":
+    print("status NOT SUBMITTED — the plan is ready and nothing has been sent.")
+    print("  %s" % v.get("detail"))
+elif s=="verified":
+    print("status VERIFIED on chain %s" % v.get("chain_id"))
+    print("  tx         %s" % v.get("tx"))
+    print("  block time %s" % v.get("block_time"))
+    print("  from       %s" % v.get("from"))
+    print("  note       %s" % v.get("reason"))
+elif s=="unknown":
+    # Not a verdict. Re-registering over this would spend gas to fix nothing.
+    print("status COULD NOT READ THE CHAIN — this is not a verdict either way.")
+    print("  reason %s" % v.get("reason"))
+    sys.exit(3)
+else:
+    print("status %s — the recorded transaction does NOT match this registration." % str(s).upper())
+    print("  reason %s" % v.get("reason"))
+    sys.exit(1)
+'
+}
+
 case "${1:-}" in
   --list)      cmd_list ;;
   --plan)      [ $# -eq 2 ] || die "usage: --plan <YYYY-MM-DD>"; cmd_plan "$2" ;;
   --record)    [ $# -eq 3 ] || die "usage: --record <YYYY-MM-DD> <0x…>"; cmd_record "$2" "$3" ;;
   --verify)    [ $# -eq 2 ] || die "usage: --verify <YYYY-MM-DD>"; cmd_verify "$2" ;;
   --broadcast) [ $# -eq 2 ] || die "usage: --broadcast <YYYY-MM-DD>"; cmd_broadcast "$2" ;;
+  --tool-plan)   cmd_tool_plan ;;
+  --tool-verify) cmd_tool_verify ;;
   -h|--help|"") sed -n '2,48p' "$0"; exit 0 ;;
   *) die "unknown argument '$1'. Nothing was done." ;;
 esac
