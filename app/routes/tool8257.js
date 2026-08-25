@@ -14,6 +14,7 @@
 const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const t8257 = require('../lib/tool8257');
+const chain = require('../lib/tool8257_chain');
 
 const { safeErrorText } = require('../lib/safe_error');
 
@@ -35,6 +36,61 @@ router.get('/.well-known/ai-tool/:slug.json', limited, (req, res) => {
 
 router.get('/api/tool/registration-plan', limited, (req, res) => {
   res.json(t8257.buildRegistrationPlan({ tools: mcpTools() }));
+});
+
+/**
+ * GET /api/tool/registration — is the registration REAL? Ask the chain.
+ *
+ * `registrationCheck` compares our computed manifest hash against
+ * REGISTERED_MANIFEST_HASH, an environment variable we set ourselves. Both
+ * sides of that comparison are ours: it proves the operator typed the hash
+ * they meant to, and nothing about whether a transaction was ever sent.
+ *
+ * This is the public self-audit — the sibling of /api/roots/verify/:day, and
+ * deliberately the same shape: anyone can ask the server to re-check its own
+ * claim, and the server reports exactly what the chain said, `unknown`
+ * included. Nothing here is cached, because a cached `unknown` freezes a
+ * transient RPC failure into a fact.
+ */
+router.get('/api/tool/registration', limited, async (req, res) => {
+  try {
+    const plan = t8257.buildRegistrationPlan({ tools: mcpTools() });
+    const tx = chain.registeredTx();
+    const chain_id = chain.registeredChainId();
+
+    // No transaction recorded is its own answer, and NOT a failure. It is the
+    // honest state of a registration that has been planned and not yet sent —
+    // which is where this has sat since the plan was written.
+    if (!tx) {
+      return res.json({
+        status: 'not_submitted',
+        detail: 'No registration transaction is recorded. The plan is ready; nothing has been sent.',
+        manifest_hash: plan.manifest_hash || null,
+        registry: plan.registry,
+        recommended_chain_id: plan.recommended_chain_id,
+        hash_check: plan.registration_check || null,
+      });
+    }
+
+    const v = await chain.verifyRegistration(
+      tx, { registry: plan.registry, calldata: plan.calldata }, chain_id);
+
+    res.json({
+      status: v.status,           // verified | mismatch | unknown
+      tx, chain_id,
+      registry: plan.registry,
+      manifest_hash: plan.manifest_hash || null,
+      block_time: v.block_time || null,
+      from: v.from || null,
+      reason: v.reason || null,
+      hash_check: plan.registration_check || null,
+    });
+  } catch (err) {
+    console.error('Tool registration status error:', err.stack || err.message);
+    // 503, not a verdict shaped like one: an error here means we could not
+    // ask, and answering "not registered" would be a claim from no evidence.
+    res.status(503).json({ error: 'registration_status_unavailable' });
+  }
 });
 
 router.post('/api/tool/invoke', limited, express.json({ limit: '64kb' }), async (req, res) => {
