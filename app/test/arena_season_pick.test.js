@@ -49,17 +49,26 @@ test('nothing reads arena_seasons with an unordered LIMIT 1', () => {
     + 'admitted against the wrong season\'s rules.');
 });
 
-test('every season read goes through the one picker', () => {
+test('every season read that needs the CURRENT season uses the picker', () => {
   // Counted rather than eyeballed: a new reader added later with its own
   // ad-hoc ordering would pass the test above and still disagree with the rest.
-  const reads = (CODE.match(/FROM arena_seasons/g) || []).length;
+  //
+  // Two kinds of read legitimately do NOT pick, and they are excluded by what
+  // they are rather than by a magic number — a count with slack in it stops
+  // failing the moment somebody adds the reader it was meant to catch:
+  //
+  //   WHERE id = ?   addressing one named season (the admin delete). The
+  //                  caller already knows which row it means.
+  //   the ENDED list  /seasons ranks finished seasons; there is no current one
+  //                  to pick.
+  const reads = (CODE.match(/FROM arena_seasons[^']*/g) || []);
+  assert.ok(reads.length >= 5, `only ${reads.length} season reads found; the scan is reading nothing`);
+  const needPick = reads.filter((r) => !/WHERE id = \?/.test(r));
   const picks = (CODE.match(/pickCurrentSeason\(/g) || []).length;
-  assert.ok(reads >= 4, `only ${reads} season reads found; the scan is reading nothing`);
-  // `/seasons` lists ENDED seasons and legitimately does not pick a current
-  // one, so it is the single expected reader without a pick.
-  assert.ok(picks >= reads - 1,
-    `${reads} reads but only ${picks} calls to pickCurrentSeason — at least one `
-    + 'reader is choosing a season by itself');
+  // -1 for the ended-seasons list, which is the one remaining non-picker.
+  assert.ok(picks >= needPick.length - 1,
+    `${needPick.length} reads want the current season but only ${picks} calls to `
+    + 'pickCurrentSeason — at least one reader is choosing a season by itself');
 });
 
 test('the three write-path readers each call the picker', () => {

@@ -1992,6 +1992,12 @@
     // should look like one.
     if (!SC) return;
     const sym = el.getAttribute('data-sc-sym') || '';
+    // The readable leg, for the chart's title. `data-sc-sym` is the CONTRACT
+    // symbol the route is asked about and reads as `LABUSDT`; labelling the
+    // chart with it would put venue notation in front of the reader. Falls
+    // back to the fetch symbol so an older slot without the attribute still
+    // titles itself rather than rendering blank.
+    const label = el.getAttribute('data-sc-label') || sym;
     let geo = {};
     try { geo = JSON.parse(el.getAttribute('data-sc-geo') || '{}') || {}; } catch (_) { geo = {}; }
     try {
@@ -1999,7 +2005,7 @@
       // context makes both levels crowd the same pixel row.
       const rows = await _fetchMiniCandles(sym, { granularity: '1h', limit: 60, ttlMs: 25000 });
       if (!el.isConnected) return;
-      const r = SC.buildSignalChart(rows, geo, { label: sym });
+      const r = SC.buildSignalChart(rows, geo, { label: label });
       el.innerHTML = r.ok ? r.svg : SC.placeholderHtml(r.reason);
     } catch (_) {
       if (!el.isConnected) return;
@@ -2138,7 +2144,7 @@
                   data-geo='${esc(JSON.stringify({ e: s.entry_price, sl: s.stop_loss, tp: s.take_profit, d: s.direction }))}'
                   role="button" tabindex="0" title="Chart with this signal's levels"
                   style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div>
-                  <div class="sc-slot" data-sc-sym="${esc(dsBase(s.symbol))}"
+                  <div class="sc-slot" data-sc-sym="${esc(dsContract(s.symbol))}" data-sc-label="${esc(dsBase(s.symbol))}"
                        data-sc-geo='${esc(JSON.stringify({ entry: s.entry_price, stop: s.stop_loss, target: s.take_profit, direction: s.direction }))}'
                        aria-busy="true"><div class="skel skel--sc"></div></div></td>
               <td data-label="Conf." class="r num">${Math.round((s.confidence || 0) * 100)}%</td>
@@ -2200,6 +2206,28 @@
   // to universe rows and signal symbols so the pattern read follows the symbol.
   function dsBase(sym) {
     return String(sym || '').toUpperCase().replace('/USDT', '').replace(':USDT', '').replace(/USDT$/, '').replace(/[^A-Z0-9]/g, '');
+  }
+  /**
+   * The CONTRACT symbol — what /api/market/candles is asked about.
+   *
+   * dsBase produces a DISPLAY name (`LAB`) and doubles as the deep-scan index
+   * key, so it is right for both of those and wrong for a fetch: the route
+   * relays Bitget, which knows `LABUSDT` and answers 502 for `LAB`. The signal
+   * stream handed it the display name and every row rendered "No price history
+   * returned for this symbol" — a claim about the MARKET, manufactured from a
+   * request that could never have succeeded.
+   *
+   * The identical defect shipped on /embed/signals and was fixed there first.
+   * This is the surface that made the same claim and was not checked — the
+   * corollary in CLAUDE.md, arriving exactly as advertised.
+   *
+   * Defined in terms of dsBase so the two cannot drift; the `base + 'USDT'`
+   * spelled inline at the deep-scan and pattern cards is this, and they were
+   * already correct.
+   */
+  function dsContract(sym) {
+    const b = dsBase(sym);
+    return b ? b + 'USDT' : '';
   }
   // The synced deep-scan hits indexed by base ticker (empty until a deep scan
   // has synced). Shared by the Deep Scan, Markets, and Signals views.
