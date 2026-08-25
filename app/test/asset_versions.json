@@ -7,6 +7,10 @@
     "sha": "ef071afddd5042f6",
     "v": 3
   },
+  "js/anchor_cell.js": {
+    "sha": "4c0941f188bddaa5",
+    "v": 1
+  },
   "js/app.js": {
     "sha": "6630b1e4b8e76fed",
     "v": 13
@@ -39,9 +43,21 @@
     "sha": "5dbbfd3297612824",
     "v": 1
   },
+  "js/embed-arena-view.js": {
+    "v": 1,
+    "sha": "4aa371eb80b7d6da"
+  },
+  "js/embed-arena.js": {
+    "v": 1,
+    "sha": "60502da539e07dd4"
+  },
   "js/embed-read.js": {
     "v": 2,
     "sha": "3d66a71d40da7fd8"
+  },
+  "js/embed-row.js": {
+    "v": 2,
+    "sha": "747299db4fcd7754"
   },
   "js/embed-signals.js": {
     "v": 7,
@@ -59,6 +75,10 @@
     "sha": "5de9d612a36e126a",
     "v": 2
   },
+  "js/farcaster-ready.js": {
+    "v": 3,
+    "sha": "698644e78976a6da"
+  },
   "js/firewall-model.js": {
     "sha": "be8d68160630f13d",
     "v": 1
@@ -72,8 +92,8 @@
     "v": 1
   },
   "js/i18n.js": {
-    "sha": "11c56ec98d99c169",
-    "v": 131
+    "sha": "9ec0a33235396f7a",
+    "v": 132
   },
   "js/icons.js": {
     "sha": "45185741065c21cc",
@@ -94,6 +114,14 @@
   "js/mascot3d.js": {
     "v": 5,
     "sha": "913fea490b4eec25"
+  },
+  "js/miniapp-arena.js": {
+    "v": 1,
+    "sha": "e03fb9b5a2417f94"
+  },
+  "js/miniapp-view.js": {
+    "v": 1,
+    "sha": "50ebb19d4a1813f7"
   },
   "js/palette.js": {
     "sha": "09bd8620572d17f3",
@@ -190,29 +218,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
     "v": 1
-  },
-  "js/farcaster-ready.js": {
-    "v": 3,
-    "sha": "698644e78976a6da"
-  },
-  "js/embed-row.js": {
-    "v": 2,
-    "sha": "747299db4fcd7754"
-  },
-  "js/embed-arena.js": {
-    "v": 1,
-    "sha": "60502da539e07dd4"
-  },
-  "js/embed-arena-view.js": {
-    "v": 1,
-    "sha": "4aa371eb80b7d6da"
-  },
-  "js/miniapp-arena.js": {
-    "v": 1,
-    "sha": "e03fb9b5a2417f94"
-  },
-  "js/miniapp-view.js": {
-    "v": 1,
-    "sha": "50ebb19d4a1813f7"
   }
 }
