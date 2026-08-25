@@ -138,36 +138,83 @@ async function verifyWithService({ domain, message, signature }, deps) {
   const origin = d.authOrigin || AUTH_ORIGIN;
   if (typeof fetchImpl !== 'function') throw new Error('siwf_no_fetch');
 
-  const res = await fetchImpl(`${origin}/siwf/parse`, {
+  // `/verify-siwf`. THE FIRST VERSION POSTED TO `/siwf/parse`, WHICH IS NOT A
+  // ROUTE — I inferred the path instead of reading the client that calls it.
+  // Every real sign-in 404'd, the 404 became `siwf_verifier_404`, the route
+  // turned that into a 503, and the page said "Sign-in is unavailable right
+  // now — this is on our side." It was: entirely, and only at the one step no
+  // test could reach, because every test injects its own verifier.
+  //
+  // Read out of @farcaster/quick-auth's own `verifySiwf` now, along with the
+  // response shape, which was the second half of the same mistake.
+  const res = await fetchImpl(`${origin}/verify-siwf`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ domain, message, signature, acceptAuthAddress: true }),
   });
 
-  // A non-2xx from the verifier is ambiguous by design: 400 means it read the
-  // request and rejected the signature; anything else means we could not get
-  // an answer. They are different outcomes and the caller renders them
-  // differently, so they are not collapsed here.
-  if (res.status === 400) {
-    let reason = 'invalid_signature';
-    try {
-      const body = await res.json();
-      if (body && body.message) reason = String(body.message).slice(0, 120);
-    } catch (e) { /* keep the generic reason */ }
-    return { ok: false, reason };
-  }
+  // Non-2xx is ambiguous by design and must not collapse: the service refusing
+  // a signature and the service being unreachable are different answers, and
+  // only the first is about the caller. A throw here surfaces as 503; a
+  // returned {ok:false} surfaces as 401 with a reason.
   if (!res.ok) throw new Error(`siwf_verifier_${res.status}`);
 
   let body;
   try { body = await res.json(); } catch (e) { throw new Error('siwf_verifier_bad_json'); }
 
-  // A 200 with no fid is not a pass. Reading a missing field as success is the
-  // shape this whole repo is a correction for, and here it would authenticate
-  // a session with no identity behind it.
-  const fid = body && (body.fid != null ? Number(body.fid)
-    : (body.data && body.data.fid != null ? Number(body.data.fid) : null));
+  // The service's own refusal shape.
+  if (body && body.valid === false) {
+    return { ok: false, reason: String(body.message || 'invalid_signature').slice(0, 120) };
+  }
+
+  // Success carries a JWT, not an fid: `sub` is the Farcaster ID and `aud` is
+  // the domain it was issued to.
+  const token = body && typeof body.token === 'string' ? body.token : null;
+  // A 200 with no token is not a pass. Reading a missing field as success is
+  // the shape this repo is a correction for, and here it would authenticate a
+  // session with no identity behind it.
+  if (!token) throw new Error('siwf_verifier_no_token');
+
+  const claims = decodeJwtPayload(token);
+  if (!claims) throw new Error('siwf_verifier_bad_token');
+
+  // THE TOKEN IS NOT SIGNATURE-CHECKED HERE, and that is a deliberate, bounded
+  // decision: we received it over TLS in the response to a request WE made to
+  // a known origin, so the transport already authenticates the issuer. This
+  // would NOT be safe for a token handed to us by a caller — that is what
+  // @farcaster/quick-auth's JWKS `verifyJwt` is for, and the day this accepts
+  // a token from anywhere else is the day it needs that.
+  //
+  // `aud` IS checked, because it is cheap and it is the claim that binds this
+  // token to us. A token minted for another domain is not evidence about a
+  // visitor to ours.
+  if (claims.aud && !domainMatches(String(claims.aud), [domain])) {
+    return { ok: false, reason: 'audience_mismatch' };
+  }
+
+  const fid = Number(claims.sub);
   if (!Number.isInteger(fid) || fid <= 0) throw new Error('siwf_verifier_no_fid');
   return { ok: true, fid };
+}
+
+/**
+ * The claims out of a JWT, without verifying its signature.
+ *
+ * Returns null for anything that is not three base64url segments with a JSON
+ * object in the middle — an unreadable token must not resolve to `{}`, which
+ * would then read as "no aud to check, no sub to find" and produce a confusing
+ * `no_fid` instead of an honest `bad_token`.
+ */
+function decodeJwtPayload(token) {
+  try {
+    const parts = String(token).split('.');
+    if (parts.length !== 3) return null;
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
+    const claims = JSON.parse(json);
+    return claims && typeof claims === 'object' ? claims : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -226,6 +273,7 @@ async function verifySignIn({ message, signature }, opts) {
 
 module.exports = {
   newNonce,
+  decodeJwtPayload,
   parseSiwe,
   domainMatches,
   verifyWithService,
