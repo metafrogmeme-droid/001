@@ -110,10 +110,19 @@ test('the call page states the on-chain leg — present or honestly absent', () 
   const page = read('public', 'call.html');
   assert.match(page, /d\.anchor\.anchor_tx/);
   assert.match(page, /basescan\.org\/tx\//);
-  assert.match(page, /RCROOT1:' \+ esc\(d\.anchor\.day\) \+ ':' \+ esc\(d\.anchor\.root\)/,
+  // The leg moved into `anchorLeg(a, verdict)` so the receipt can re-check the
+  // chain instead of asserting "This root is anchored on Base" from our own
+  // column — hence `a.day` rather than `d.anchor.day`. The requirement is
+  // unchanged and is now covered BEHAVIOURALLY in test/anchor_cell.test.js,
+  // which drives anchorLeg in all four states and requires the payload in
+  // every one; this line only keeps the string from vanishing entirely.
+  assert.match(page, /RCROOT1:' \+ esc\(a\.day\) \+ ':' \+ esc\(a\.root\)/,
     'the exact payload must be shown so a human can compare calldata themselves');
   assert.match(page, /not yet anchored on-chain/,
     'an unanchored day must say so plainly on the receipt');
+  assert.match(page, /RCAnchorCell\.anchorState\(/,
+    'the receipt decides the anchor state some other way than the tested decider, '
+    + 'so it can disagree with /roots about the same day');
   // The old "planned and will be stated here when live" promise is retired.
   assert.ok(!page.includes('is planned and will be stated here when live'),
     'anchoring is live — the page must state what IS, not what was planned');
@@ -128,12 +137,28 @@ test('anchorFor carries the anchor leg to the receipt payload', () => {
 
 test('the roots feed and page carry the anchor honestly', () => {
   assert.match(read('lib', 'seal_roots.js'), /anchor_tx, anchored_at FROM seal_roots/);
+
+  // The cell moved OUT of roots.html into a pure, unit-tested renderer — see
+  // public/js/anchor_cell.js and test/anchor_cell.test.js. It moved because
+  // the page was painting the profit green straight from our own anchor_tx
+  // column, asserting a fact about Base that nothing had re-checked. So this
+  // now follows the seam rather than asserting the strings are still inline:
+  // pointing it back at the page would either fail on the fix or, worse, pass
+  // on a page that had reverted to the database claim.
   const page = read('public', 'roots.html');
-  assert.match(page, /rt\.anchored/);
-  assert.match(page, /rt\.unanchored/, 'an unanchored root must say so plainly, never imply');
-  assert.match(page, /basescan\.org\/tx\//);
+  assert.match(page, /RCAnchorCell\.anchorCell\(/, 'the page no longer uses the tested renderer');
+  assert.match(page, /api\/roots\/verify\//, 'the page never asks the chain');
+
+  const cell = read('public', 'js', 'anchor_cell.js');
+  assert.match(cell, /rt\.anchored/);
+  assert.match(cell, /rt\.unanchored/, 'an unanchored root must say so plainly, never imply');
+  assert.match(cell, /basescan\.org\/tx\//);
+
   const i18n = require('../public/js/i18n.js');
-  for (const k of ['rt.anchored', 'rt.unanchored']) {
+  // The two new states are translated too: an operator reading a non-English
+  // page must be told "could not confirm" and "does NOT match" in their own
+  // language, on the page whose entire job is not being taken on trust.
+  for (const k of ['rt.anchored', 'rt.unanchored', 'rt.anchor_mismatch', 'rt.anchor_unverified']) {
     for (const l of i18n.LANGS) {
       assert.ok(String(i18n.STRINGS[k][l.code] || '').trim().length, `${k} missing ${l.code}`);
     }
