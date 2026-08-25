@@ -202,23 +202,54 @@ test('an unreachable verifier REJECTS rather than reporting a bad signature', as
     /ECONNRESET/);
 });
 
-test('a 200 from the verifier with no fid is not a pass', async () => {
-  // Reading a missing field as success would authenticate a session with no
-  // identity behind it.
-  const calls = [];
-  const fakeFetch = async () => ({
-    ok: true, status: 200, json: async () => { calls.push(1); return { success: true }; },
-  });
-  await assert.rejects(
-    () => S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
-      { fetch: fakeFetch }),
-    /no_fid/);
-  assert.equal(calls.length, 1);
+/** A JWT with the given claims, unsigned — only the payload is ever read. */
+function jwt(claims) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  return `${b64({ alg: 'none', typ: 'JWT' })}.${b64(claims)}.sig`;
+}
+
+/**
+ * THE ENDPOINT AND THE RESPONSE SHAPE, WHICH WERE BOTH WRONG.
+ *
+ * The first version POSTed to `/siwf/parse` and read `{fid}` off the body.
+ * The real service is `POST /verify-siwf` returning `{token}` — a JWT whose
+ * `sub` is the fid. I inferred both instead of reading the client that calls
+ * it, so every real sign-in 404'd and surfaced to the operator as
+ * "Sign-in is unavailable right now — this is on our side."
+ *
+ * Nothing caught it because every other test in this file injects its own
+ * verifier: the contract with the outside world was the one thing the suite
+ * could not see. These pin it.
+ */
+test('it posts to /verify-siwf, not a path somebody guessed', async () => {
+  let calledUrl = null;
+  const fakeFetch = async (url) => {
+    calledUrl = url;
+    return { ok: true, status: 200, json: async () => ({ token: jwt({ sub: FID, aud: DOMAIN }) }) };
+  };
+  await S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
+    { fetch: fakeFetch, authOrigin: 'https://auth.example' });
+  assert.equal(calledUrl, 'https://auth.example/verify-siwf',
+    'the verifier path is wrong — every real sign-in will 404 and render as an '
+    + 'outage on our side');
 });
 
-test('a 400 from the verifier is a rejection, not an outage', async () => {
+test('the fid comes out of the token, not a top-level field', async () => {
   const fakeFetch = async () => ({
-    ok: false, status: 400, json: async () => ({ message: 'Invalid signature' }),
+    ok: true, status: 200, json: async () => ({ token: jwt({ sub: FID, aud: DOMAIN }) }),
+  });
+  const r = await S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
+    { fetch: fakeFetch });
+  assert.equal(r.ok, true);
+  assert.equal(r.fid, FID);
+});
+
+test('the service refusing a signature is a rejection, not an outage', async () => {
+  // Its own shape: {valid:false, message}. A rejection must reach the caller
+  // as 401-with-a-reason, never as 503 — telling someone our service is down
+  // when their signature was refused sends them to wait instead of retry.
+  const fakeFetch = async () => ({
+    ok: true, status: 200, json: async () => ({ valid: false, message: 'Invalid signature' }),
   });
   const r = await S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
     { fetch: fakeFetch });
@@ -226,12 +257,71 @@ test('a 400 from the verifier is a rejection, not an outage', async () => {
   assert.match(r.reason, /Invalid signature/);
 });
 
-test('a 503 from the verifier throws rather than resolving false', async () => {
-  const fakeFetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+test('a token minted for another domain is refused', async () => {
+  // `aud` binds the token to the domain it was issued for. A token for
+  // someone else's app is not evidence about a visitor to ours, and this is
+  // the cheap check that says so.
+  const fakeFetch = async () => ({
+    ok: true, status: 200,
+    json: async () => ({ token: jwt({ sub: FID, aud: 'someone-elses-app.xyz' }) }),
+  });
+  const r = await S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
+    { fetch: fakeFetch });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'audience_mismatch');
+});
+
+test('a 200 with no token is not a pass', async () => {
+  // Reading a missing field as success would authenticate a session with no
+  // identity behind it.
+  const fakeFetch = async () => ({ ok: true, status: 200, json: async () => ({ success: true }) });
   await assert.rejects(
     () => S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
       { fetch: fakeFetch }),
-    /siwf_verifier_503/);
+    /no_token/);
+});
+
+test('an unreadable token is bad_token, not a confusing no_fid', async () => {
+  for (const bad of ['not-a-jwt', 'a.b', 'a.!!!.c', '']) {
+    const fakeFetch = async () => ({ ok: true, status: 200, json: async () => ({ token: bad }) });
+    await assert.rejects(
+      () => S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
+        { fetch: fakeFetch }),
+      /bad_token|no_token/, `token ${JSON.stringify(bad)} was accepted`);
+  }
+});
+
+test('a token with no sub is refused', async () => {
+  const fakeFetch = async () => ({
+    ok: true, status: 200, json: async () => ({ token: jwt({ aud: DOMAIN }) }),
+  });
+  await assert.rejects(
+    () => S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
+      { fetch: fakeFetch }),
+    /no_fid/);
+});
+
+test('a non-2xx from the verifier throws rather than resolving false', async () => {
+  // "We could not check" is not "it is invalid". This is the path that turned
+  // a wrong URL into a 503 — correctly, which is how the outage was legible
+  // at all once somebody looked.
+  for (const status of [404, 500, 503]) {
+    const fakeFetch = async () => ({ ok: false, status, json: async () => ({}) });
+    await assert.rejects(
+      () => S.verifyWithService({ domain: DOMAIN, message: siwe(), signature: '0xsig' },
+        { fetch: fakeFetch }),
+      new RegExp(`siwf_verifier_${status}`));
+  }
+});
+
+test('decodeJwtPayload refuses anything that is not a real payload', () => {
+  assert.equal(S.decodeJwtPayload('a.b'), null);
+  assert.equal(S.decodeJwtPayload(''), null);
+  assert.equal(S.decodeJwtPayload(null), null);
+  // A JSON scalar in the payload position is not a claims object.
+  const b64 = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
+  assert.equal(S.decodeJwtPayload(`x.${b64(42)}.y`), null);
+  assert.deepEqual(S.decodeJwtPayload(`x.${b64({ sub: 7 })}.y`), { sub: 7 });
 });
 
 // ── the nonce itself ──────────────────────────────────────────────────────
