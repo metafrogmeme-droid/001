@@ -1,0 +1,70 @@
+# systemd unit for the RUNECLAW API bridge (uvicorn on :8000).
+#
+# THIS IS THE PROCESS THAT NOBODY EVER STARTED.
+#
+# On 2026-08-25 the bridge was down for hours. Nothing had crashed — nothing
+# had ever started it. The bot restarted fine, the gateway recovered, the
+# status page called the system healthy, and the insight / patterns / lab
+# panels returned 502 until an operator noticed broken pages.
+#
+# There are TWO processes and the second one is easy to forget precisely
+# because its absence is quiet: no alert, no crash, three panels that fail
+# individually while everything else reports green. That is why it gets its own
+# unit rather than being started as a child of the bot's — a supervised process
+# that only runs when somebody remembers it is not supervised.
+#
+# Install:
+#   sudo cp runeclaw-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now runeclaw-bridge
+#   scripts/systemd/runeclaw-status.sh
+#
+# Adjust User=, WorkingDirectory= and the ExecStart interpreter to match the
+# box. If a virtualenv is in use, point ExecStart at <venv>/bin/python.
+
+[Unit]
+Description=RUNECLAW API bridge (uvicorn :8000 — insight, patterns, lab)
+After=network-online.target
+Wants=network-online.target
+
+# In [Unit], NOT [Service] — systemd 255 discards it from [Service] with
+# "Unknown key name ... ignoring", which is how runeclaw-gateway.service came
+# to give up after five attempts while documenting that it never would. See
+# the longer note in runeclaw-bot.service.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=mulerun
+WorkingDirectory=/home/mulerun/runeclaw
+
+# Same reasoning as the bot unit: idempotent, and a bridge started against a
+# missing .env is worse than a bridge that refuses to start.
+ExecStartPre=/home/mulerun/runeclaw/deploy.sh
+
+# python3, NOT python — the box has no `python`.
+ExecStart=/usr/bin/python3 api_bridge.py
+
+# uvicorn imports the whole application before it binds, so the window is wider
+# than the bot's — a bridge that is merely slow must not be called dead. The
+# launcher template makes the same allowance (BRIDGE_WAIT defaults to 20s for
+# the liveness check); this is the port check, which has to outlast the import.
+ExecStartPost=/home/mulerun/runeclaw/scripts/systemd/wait_for_port.sh http://127.0.0.1:8000/health 150
+
+# Never give up — see StartLimitIntervalSec=0 in [Unit] above and the long note
+# in runeclaw-bot.service. The visibility cost is paid here too: use
+# runeclaw-status.sh, which reads NRestarts, rather than trusting
+# `active (running)`.
+Restart=always
+RestartSec=15
+
+#   journalctl -u runeclaw-bridge -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=runeclaw-bridge
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
