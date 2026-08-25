@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+#
+# RUNECLAW launcher — starts BOTH processes and refuses to lie about either.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# THIS IS A TEMPLATE. COPY IT OUTSIDE THE REPO BEFORE USING IT.
+#
+#     cp scripts/launch_all.sh.template ~/launch_all.sh
+#     chmod +x ~/launch_all.sh
+#
+# It ships as `.template` on purpose. CLAUDE.md: "Keep the launcher outside the
+# repo. Anything inside it is one `git reset --hard` away from reverting." On
+# 2026-08-01 that exact reversion happened on ~15 consecutive redeploys — the
+# deploy restored a flagless launcher every time, printed DEPLOY_DONE, and left
+# nothing running. A launcher tracked by the thing it deploys is not a launcher.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# WHY THIS EXISTS: THERE ARE TWO PROCESSES, AND ONLY ONE WAS BEING STARTED.
+#
+#   python -m bot.main    the Telegram bot + engine. Also serves the GATEWAY
+#                         on :8080 — chat, proof, cards. This is what every
+#                         deploy started.
+#   python api_bridge.py  a SEPARATE uvicorn app on :8000. Three dashboard
+#                         panels read it: insight, patterns, lab.
+#
+# On 2026-08-25 the bridge was down for hours. Nothing had crashed — nothing
+# had ever started it. The bot restarted fine, the gateway recovered, the
+# status page said the system was healthy, and two panels returned 502 until an
+# operator noticed broken pages. A deploy that starts one of two processes and
+# reports success is the same defect as a test suite that runs a subset and
+# reports it as the whole.
+#
+# So: both start, both are smoke-tested, and DEPLOY_DONE is gated on both still
+# being alive — not on both having been launched. Those differ by exactly the
+# interval in which a misconfigured process gives up.
+
+set -euo pipefail
+
+REPO="${RUNECLAW_REPO:-$HOME/runeclaw}"
+cd "$REPO"
+
+log() { printf '%s  %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+die() { log "DEPLOY FAILED — $*"; exit 1; }
+
+# ── the code must be the code you think it is, before anything starts ───────
+#
+# On 2026-08-20 a deploy reported success while landing on a commit 255 commits
+# stale: `origin` on that box is a mirror. Every other check passed, because
+# each was true of the stale tree. The only thing wrong was WHICH CODE.
+if [ -x scripts/verify_deploy_source.sh ]; then
+  scripts/verify_deploy_source.sh || die "wrong code — not starting"
+fi
+
+# ── persistent state symlinked back in ──────────────────────────────────────
+[ -x ./deploy.sh ] && ./deploy.sh
+
+# ── 1. the bot (Telegram + engine + gateway on :8080) ───────────────────────
+#
+# `--mode telegram` is EXPLICIT. The default was once `cli`, which finds no TTY
+# and exits ZERO — so a launcher that omitted it printed success and left
+# nothing running. It defaults to telegram now; passing it anyway costs nothing
+# and survives the default changing back.
+log "starting bot.main"
+nohup python -m bot.main --mode telegram >> bot.log 2>&1 &
+BOT_PID=$!
+# On its own line: `&` binds looser than `&&`, so chaining this onto the launch
+# puts the cd in a background subshell and the gate runs somewhere else. That
+# was observed on 2026-08-08 and the gate never executed.
+scripts/verify_bot_alive.sh --pid "$BOT_PID" || die "bot.main did not stay up"
+
+# ── 2. the API bridge (uvicorn on :8000) ────────────────────────────────────
+log "starting api_bridge"
+nohup python api_bridge.py >> api_bridge.log 2>&1 &
+BRIDGE_PID=$!
+# Longer window: uvicorn imports the whole app before it binds, and a bridge
+# that is merely slow must not be called dead.
+WAIT_SECONDS="${BRIDGE_WAIT:-20}" scripts/verify_bot_alive.sh --pid "$BRIDGE_PID" \
+  || die "api_bridge did not stay up (insight/patterns/lab will 502)"
+
+# ── 3. both must actually ANSWER, not merely exist ──────────────────────────
+#
+# A process can be alive and not serving: bound to the wrong interface, stuck
+# importing, or listening on a port nobody configured. `kill -0` cannot tell.
+# The ports are what the web app talks to, so the ports are what get checked.
+check_port() {
+  local name="$1" url="$2"
+  for _ in $(seq 1 15); do
+    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+      log "  $name answering"
+      return 0
+    fi
+    sleep 2
+  done
+  # Not fatal for the bridge — see below — so the caller decides.
+  log "  $name NOT answering at $url"
+  return 1
+}
+
+check_port "gateway :8080" "http://127.0.0.1:8080/gateway/health" \
+  || die "bot is alive but its gateway is not answering — the website cannot reach it"
+
+check_port "bridge  :8000" "http://127.0.0.1:8000/health" \
+  || die "api_bridge is alive but not answering — insight/patterns/lab will 502"
+
+log "DEPLOY_DONE  bot=$BOT_PID bridge=$BRIDGE_PID"
