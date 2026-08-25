@@ -78,26 +78,87 @@ def _leveraged_pnl_usd(entry: float, last: float, direction: str,
 
 def _background_scan_is_fresh(
     last_scan_time: float, interval: float, grace: float, now: float,
+    sweep_s: float | None = None,
 ) -> tuple[bool, int]:
     """Decide whether the continuous background sweep is recent enough that an
     interactive "Latest Signal" tap should serve its result instantly instead
     of triggering a slow, throttle-exposed re-scan.
 
-    Fresh when a sweep has run (``last_scan_time > 0``), the grace is enabled
-    (``grace > 0``), and its age is within one scan interval plus the grace.
     Returns ``(is_fresh, seconds_until_next_sweep)``. Pure — no I/O — so the
     responsiveness gate is unit-testable without the engine or Telegram.
+
+    THE WINDOW IS THE CADENCE, NOT THE INTERVAL, and getting that wrong made
+    this gate useless even once its input was finally being written.
+
+    Consecutive answers arrive ``sweep_s + interval`` apart: the loop runs a
+    sweep, then sleeps. So a result older than that means a sweep was MISSED —
+    the loop stalled or is throttled — which is the genuine staleness this gate
+    was built to detect. Sizing the window on ``interval`` alone asserts that a
+    sweep is instantaneous.
+
+    It is not. The repo's own recorded rate is ~3.3s per symbol against a
+    universe of ~200, so a sweep is minutes; ``interval`` comes from
+    ``_compute_smart_scan_interval``, which is derived from ATR volatility and
+    clamped to 60-90s and has no relationship to how long a sweep takes. The
+    old window of ``interval + grace`` was therefore 90-120s against a sweep of
+    280-660s: every tap fell through to a live re-scan, which is exactly the
+    slowness the gate was added to remove.
+
+    ``sweep_s`` is None until one sweep has finished. That falls back to the
+    old arithmetic rather than inventing a duration — a guessed rate on this
+    path is a fabricated freshness claim, and the fallback is wrong only for
+    the first tap after a restart.
     """
     if grace <= 0 or last_scan_time <= 0:
         return False, 0
     age = now - last_scan_time
-    if age <= (interval + grace):
+    # `is not None` rather than `or`. Here the two happen to coincide, because
+    # the fallback is 0.0 and a discarded 0.0 lands on 0.0 anyway — so this is
+    # stated intent, not a load-bearing distinction, and saying otherwise would
+    # be inventing a defect to look careful about. It stays spelled this way
+    # because "absent" and "measured zero" stop coinciding the moment the
+    # fallback becomes anything but zero, and a sweep really can measure ~0.
+    cadence = interval + (sweep_s if sweep_s is not None else 0.0)
+    if age <= (cadence + grace):
+        # Time until the next sweep STARTS — the loop is sleeping `interval`
+        # from the moment the last one finished.
         return True, max(0, int(interval - age))
     return False, 0
 
 
 #: How long an analysis-timeout record stays relevant to a slow scan (s).
 ANALYSIS_TIMEOUT_HINT_WINDOW_S = 900.0
+
+
+def _skipped_symbols_note(record: dict | None, now: float) -> str:
+    """" (N of M symbols were skipped)" for a sweep that did not cover them all.
+
+    The all-clear this decorates — "no setups above the confidence line" —
+    means "we looked and there is nothing" to whoever reads it. A sweep that
+    gave up on some symbols has not looked at those, so the same sentence
+    quietly widens from a measurement into a claim about markets nobody read.
+    That is the partial-total shape: a number computed over a subset and
+    printed as though it covered the whole.
+
+    Silent on a clean sweep. A caveat printed every time is a caveat nobody
+    reads, which is how the real one gets skipped.
+
+    Pure, and returns "" for anything it cannot read: absent record, wrong
+    shape, unusable counts, or a record too old to describe this sweep.
+    """
+    if not isinstance(record, dict):
+        return ""
+    try:
+        skipped = int(record.get("skipped") or 0)
+        of = int(record.get("of") or 0)
+        at = float(record.get("at") or 0.0)
+    except (TypeError, ValueError):
+        return ""
+    if skipped <= 0 or of <= 0 or at <= 0:
+        return ""
+    if (now - at) > ANALYSIS_TIMEOUT_HINT_WINDOW_S:
+        return ""
+    return f" <i>({skipped} of {of} symbols were skipped)</i>"
 
 
 
@@ -11093,16 +11154,30 @@ class TelegramHandler:
             _last = float(getattr(self.engine, "_last_scan_time", 0.0) or 0.0)
             _interval = float(getattr(self.engine, "_current_scan_interval", 0.0)
                               or CONFIG.scan_interval_seconds)
+            # How long a sweep actually takes, measured. None until one
+            # finishes. Without it the window is sized as if a sweep were
+            # instantaneous, which is the bug — see _background_scan_is_fresh.
+            _sweep = getattr(self.engine, "_last_sweep_duration_s", None)
+            _sweep = float(_sweep) if _sweep is not None else None
             _fresh, _next_in = _background_scan_is_fresh(
-                _last, _interval, _grace, time.monotonic())
+                _last, _interval, _grace, time.monotonic(), _sweep)
             _age = (time.monotonic() - _last) if _last > 0 else 0
+            _skipped_note = _skipped_symbols_note(
+                getattr(self.engine, "_last_analysis_timeout", None),
+                time.monotonic())
             if _fresh:
                 await self._send(update,
                     f"✅ <b>No setups above {_display_min:.0%} confidence "
                     f"right now.</b>\n\n"
-                    f"\U0001f4e1 Full sweep ran {int(_age)}s ago — next in "
-                    f"~{_next_in}s. The agent watches ~200 pairs continuously; "
-                    f"a quiet tape means no high-conviction edge, not a stall.\n\n"
+                    # NOT "Full sweep". A sweep that skipped symbols on a
+                    # per-symbol analysis timeout still lands here, and calling
+                    # it full asserts coverage nobody measured — the same
+                    # overclaim as printing a partial total as a whole one. The
+                    # skipped count is appended below when there is one.
+                    f"\U0001f4e1 Sweep ran {int(_age)}s ago — next in "
+                    f"~{_next_in}s. The agent watches ~{CONFIG.top_movers_count} "
+                    f"pairs continuously; a quiet tape means no high-conviction "
+                    f"edge, not a stall.{_skipped_note}\n\n"
                     f"Try <code>/fullscan</code> for a deep multi-symbol pass now.")
                 return
             await self._send(update,
