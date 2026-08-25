@@ -608,6 +608,35 @@ apparent trading outage. The vocabulary:
 `ENGINE STATUS UNKNOWN` is a **website** symptom. Check `/readyz` — not the
 bot.
 
+## There are TWO processes, and one of them was never being started
+
+    python -m bot.main    Telegram + engine. Also serves the GATEWAY on :8080
+                          (chat, proof, cards) — this is what every deploy ran.
+    python api_bridge.py  a SEPARATE uvicorn app on :8000. Three dashboard
+                          panels read it: insight, patterns, lab.
+
+On 2026-08-25 the bridge was down for hours. **Nothing crashed — nothing had
+ever started it.** The deploy sequence started the bot, the bot restarted fine,
+the gateway recovered, `/api/public/status` reported the system healthy, and
+`/api/insight/*` and `/api/patterns/*` returned 502 the whole time. It surfaced
+because an operator noticed broken pages.
+
+Two separate defects made that possible, and both are closed:
+
+- **The launcher started one process.** `scripts/launch_all.sh.template` starts
+  both, smoke-tests both, and probes both PORTS — a process can be alive and
+  not serving, and `kill -0` cannot tell those apart. Copy it OUTSIDE the repo
+  before use; `tests/test_launch_all_starts_both.py` pins every guarantee.
+
+- **The status page probed one link.** It reported `bot_gateway: reachable` and
+  called that healthy while half the system was unreachable. A status page that
+  probes one of two links reads as coverage while providing none. `api_bridge`
+  is its own component now and counts toward the overall verdict.
+
+`BOT_API_URL` addresses the bridge; unset reports `not_configured`, not
+`unreachable`. Those are different faults with different fixes — "unreachable"
+sends you hunting a dead process that was never addressed.
+
 ## Standing hazards
 
 **An ephemeral Cloudflare quick tunnel is a single point of failure.** The

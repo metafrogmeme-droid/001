@@ -19,6 +19,23 @@ const FRESH_LETTER_MS = 9 * 86_400_000;   // weekly letter: last completed ISO w
 
 let _probes = null;
 
+/**
+ * A GET with a hard deadline.
+ *
+ * The status page must answer even when something it probes does not. Without
+ * an abort, one hung dependency holds the whole response open and the page
+ * that exists to report trouble becomes another thing that is down.
+ */
+async function fetchWithTimeout(url, timeoutMs) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: ctl.signal, redirect: 'manual' });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 function defaultProbes() {
   const sync = require('../routes/sync');
   const { pool } = require('../db');
@@ -30,6 +47,36 @@ function defaultProbes() {
       if (!gw.isConfigured()) return { state: 'not_configured' };
       try {
         const r = await gw.getGateway('/public/proofofpnl', 3500);
+        return { state: r.status >= 200 && r.status < 500 ? 'reachable' : 'error' };
+      } catch (e) {
+        return { state: 'unreachable' };
+      }
+    },
+    /**
+     * The API BRIDGE, which is a DIFFERENT PROCESS from the bot gateway.
+     *
+     * `bot/main.py` serves the gateway on :8080; `api_bridge.py` is a separate
+     * uvicorn app on :8000, and three dashboard panels read it — insight,
+     * patterns and lab. On 2026-08-25 it was not running for hours while this
+     * endpoint reported the system healthy: `bot_gateway: reachable` was true,
+     * and it was the only link being probed. Two panels answered 502 and the
+     * only thing that surfaced it was an operator noticing broken pages.
+     *
+     * A status page that probes one of two links is not a smaller status page.
+     * It reads as coverage while providing none — the shape CLAUDE.md keeps
+     * cataloguing — so the second process gets its own line.
+     *
+     * `/health` because it is the bridge's own liveness route and needs no
+     * secret; any 2xx-4xx means a server answered, which is the question.
+     */
+    pingBridge: async () => {
+      const base = String(process.env.BOT_API_URL || '').trim().replace(/\/+$/, '');
+      // Unset is NOT reachable and NOT broken: nobody has said where the
+      // bridge is. Reporting that as 'unreachable' would send an operator
+      // hunting a dead process that was never addressed.
+      if (!base) return { state: 'not_configured' };
+      try {
+        const r = await fetchWithTimeout(`${base}/health`, 3500);
         return { state: r.status >= 200 && r.status < 500 ? 'reachable' : 'error' };
       } catch (e) {
         return { state: 'unreachable' };
@@ -85,6 +132,13 @@ async function buildStatus(now = Date.now()) {
     note: 'server-to-server link to the bot (chat, proof, cards)',
   };
 
+  let brState = { state: 'unreachable' };
+  try { brState = await p.pingBridge(); } catch (e) { /* keep unreachable */ }
+  components.api_bridge = {
+    ...brState,
+    note: 'separate uvicorn process — powers insight, patterns and lab',
+  };
+
   let letter = null;
   try { letter = await p.latestLetter(); } catch (e) { /* honest no_data below */ }
   components.weekly_letter = {
@@ -93,7 +147,7 @@ async function buildStatus(now = Date.now()) {
     note: 'generated on demand from recorded data — quiet weeks are normal',
   };
 
-  const worrying = ['engine_scan', 'intelligence_reports', 'bot_gateway']
+  const worrying = ['engine_scan', 'intelligence_reports', 'bot_gateway', 'api_bridge']
     .filter((k) => !['fresh', 'ok', 'reachable', 'not_configured'].includes(components[k].state));
   return {
     status: worrying.length === 0 ? 'ok'
@@ -109,4 +163,8 @@ async function buildStatus(now = Date.now()) {
   };
 }
 
-module.exports = { buildStatus, setProbes, FRESH_SCAN_MS, FRESH_REPORTS_MS };
+// `defaultProbes` is exported for tests. Every status test injects fixtures,
+// which means the probe that ACTUALLY RUNS IN PRODUCTION was the one thing not
+// exercised — a mutation removing its not_configured guard passed the whole
+// suite. A test double cannot vouch for the implementation it replaces.
+module.exports = { buildStatus, setProbes, defaultProbes, FRESH_SCAN_MS, FRESH_REPORTS_MS };
