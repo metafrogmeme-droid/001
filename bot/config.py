@@ -2457,12 +2457,23 @@ class AppConfig:
     # can never hang unbounded; on timeout we show whatever pending ideas exist.
     interactive_scan_timeout_sec: int = int(_env_float("INTERACTIVE_SCAN_TIMEOUT_SEC", 45))
     # Responsiveness: when a "Latest Signal" tap finds nothing queued, DON'T
-    # re-scan if the continuous background sweep ran within (scan_interval +
-    # this grace) seconds — its emptiness IS the current answer, so re-scanning
-    # only re-confirms "nothing" after another slow, throttle-exposed pass.
-    # Serve an instant honest status instead; only fall back to a live re-scan
-    # when the background data is genuinely stale (loop stalled/throttled).
-    # 0 restores the always-rescan behavior.
+    # re-scan if the continuous background sweep is still current — its
+    # emptiness IS the current answer, so re-scanning only re-confirms
+    # "nothing" after another slow, throttle-exposed pass. Serve an instant
+    # honest status instead; only fall back to a live re-scan when the data is
+    # genuinely stale (loop stalled/throttled). 0 restores always-rescan.
+    #
+    # The window is (MEASURED SWEEP DURATION + scan_interval + this grace),
+    # not scan_interval + grace as this comment said until 2026-08-25. That
+    # older arithmetic asserted a sweep is instantaneous: consecutive answers
+    # arrive one sweep plus one sleep apart, and a sweep of ~200 symbols at the
+    # recorded ~3.3s/symbol is minutes, against a scan_interval clamped to
+    # 60-90s by ATR. So the window was 90-120s for an event that could not
+    # happen more often than every ~5 minutes, and the gate never once opened.
+    #
+    # It also never had an input: engine._last_scan_time was initialised to 0.0
+    # and assigned nowhere, and the gate refuses `last_scan_time <= 0`. Both
+    # halves are fixed together because either alone leaves it shut.
     interactive_scan_fresh_grace_sec: int = int(_env_float("INTERACTIVE_SCAN_FRESH_GRACE_SEC", 30))
     # All-markets slot allocation for the non-Crypto (TradFi) categories.
     # When full-coverage is ON (default), EVERY present TradFi perp (metals,

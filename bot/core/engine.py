@@ -655,7 +655,21 @@ class RuneClawEngine:
         self._last_vwap: dict[str, float] = {}
 
         # Smart scan scheduling
+        #
+        # _last_scan_time IS READ BY TELEGRAM and was, until now, NEVER WRITTEN.
+        # It is the sole input to the interactive freshness gate — the thing
+        # that lets a "Latest Signal" tap answer instantly from the background
+        # sweep instead of running a 45s re-scan. `_background_scan_is_fresh`
+        # returns False for `last_scan_time <= 0`, so the gate took its
+        # never-scanned branch on every tap, on every deploy, since it shipped.
+        # The feature's own test file calls that case
+        # `test_never_scanned_is_not_fresh`; it was the only branch production
+        # ever reached. See _record_sweep_complete.
         self._last_scan_time: float = 0.0
+        # How long the last COMPLETED sweep took, wall-clock. None until one
+        # finishes — the window that reads it must size itself off measurement
+        # or fall back honestly, never off a guessed rate.
+        self._last_sweep_duration_s: float | None = None
         self._current_scan_interval: float = CONFIG.scan_interval_seconds
         self._recent_atr_values: dict[str, float] = {}  # symbol -> latest ATR
 
@@ -3042,6 +3056,35 @@ class RuneClawEngine:
                   action="analyze_capacity", result="SHORT", data=rec)
         return rec
 
+    def _record_sweep_complete(self, started: float) -> None:
+        """A background sweep FINISHED. Stamp when, and how long it took.
+
+        Read by the Telegram freshness gate, which decides whether a "Latest
+        Signal" tap can be answered from this sweep or has to run a live
+        re-scan. Both numbers matter and they answer different questions:
+
+          _last_scan_time        when the answer on file was taken
+          _last_sweep_duration_s how far apart consecutive answers are, which
+                                 is what makes "is it stale" answerable at all
+
+        CALLED ON TWO PATHS, because a sweep that found nothing is still a
+        sweep and is in fact the case the gate exists for — an operator taps,
+        nothing is queued, and "we looked 40s ago and the tape is quiet" is the
+        honest instant answer. Recording only after the analyze phase would
+        have missed it entirely.
+
+        NOT CALLED WHEN THE SCAN FAILED. `_phase(..., fatal=False)` returns
+        None on a timeout, and `if not signals:` cannot tell that from an empty
+        list. Stamping a failed scan would make the gate report "the sweep ran
+        and found nothing" when the truth is that nothing was read — a failed
+        read rendered as an empty result, which is the one thing this codebase
+        refuses to do. The caller tests `is None`, not falsiness.
+        """
+        now = time.monotonic()
+        self._last_scan_time = now
+        if started > 0:
+            self._last_sweep_duration_s = max(0.0, now - started)
+
     def _record_analyze_throughput(self, done: int, of: int, elapsed: float) -> None:
         """Remember effective throughput so the NEXT batch can forecast.
 
@@ -4061,6 +4104,12 @@ class RuneClawEngine:
             return
 
         self._transition(AgentState.SCANNING, "beginning scan cycle")
+        # When THIS sweep started. The freshness gate needs the duration, and
+        # the duration is the only honest way to size its window: the smart
+        # interval is derived from ATR volatility and clamped to 60-90s, which
+        # has no relationship to how long a sweep of ~200 symbols actually
+        # takes. See _record_sweep_complete.
+        _sweep_started = time.monotonic()
         # Non-fatal by default: a slow exchange must not take the tick loop
         # down with it. Positions were checked earlier in this same tick, so a
         # skipped scan costs only the chance of a new entry. The timeout is
@@ -4121,6 +4170,14 @@ class RuneClawEngine:
             logger.debug("Autonomous scan summary push skipped: %s", _scan_push_exc)
 
         if not signals:
+            # `is None`, NOT falsiness. A scan that TIMED OUT returns None here
+            # (_phase, fatal=False) and an empty list means the market was read
+            # and nothing passed the filter. Those are opposite facts and only
+            # the second one is a sweep. Stamping the first would let the
+            # freshness gate answer a tap with "swept 30s ago, nothing found"
+            # on the strength of a read that never happened.
+            if signals is not None:
+                self._record_sweep_complete(_sweep_started)
             self._transition(AgentState.IDLE, "no signals found")
             return
 
@@ -4139,6 +4196,12 @@ class RuneClawEngine:
         # throttling that is a rate limit, not this valve.
         results = await self._phase(
             self._analyze_signals_batched(signals, background=True), "analyze")
+        # The sweep is done. Stamped here rather than at the end of the tick so
+        # the post-analyze work (position checks, publishing) cannot delay or
+        # skip it — and NOT reached at all when the analyze phase blows its cap,
+        # because _phase re-raises there and a sweep that was cancelled midway
+        # did not produce the answer the gate would be serving.
+        self._record_sweep_complete(_sweep_started)
         _synced_ideas = []
         for idea in results:
             if idea:
