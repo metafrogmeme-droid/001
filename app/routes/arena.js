@@ -165,8 +165,8 @@ async function sweepFollows(userId, positions, marks) {
   // already advanced, so a non-compliant signal is skipped, never replayed.
   let seasonRow = null;
   try {
-    const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-    seasonRow = srows[0] || null;
+    const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+    seasonRow = pickCurrentSeason(srows, new Date());
   } catch (e) { /* no season read → no constraint */ }
   const followHandle = plan.opens.length ? await handleFor(userId) : null;
   for (const o of plan.opens) {
@@ -434,8 +434,9 @@ async function openForUser(userId, body) {
     // Season rule variants: a LIVE season may constrain opens (e.g. "max 5×,
     // majors only"). Enforced server-side; the refusal names the season.
     try {
-      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-      const sr = require('../lib/arena_seasons').checkSeasonRules(srows[0], v.data);
+      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+      const sr = require('../lib/arena_seasons').checkSeasonRules(
+        pickCurrentSeason(srows, new Date()), v.data);
       if (!sr.ok) return { status: 400, body: { error: sr.error } };
     } catch (e) { /* season read failure never blocks an open */ }
     // The armed Authority Envelope, enforced deterministically. Unlike the
@@ -568,8 +569,9 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     // A live season constrains a signal open exactly as it constrains a manual
     // one — the engine's name on the call does not exempt it from the rules.
     try {
-      const [seasons] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-      const sr = require('../lib/arena_seasons').checkSeasonRules(seasons[0], d);
+      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+      const sr = require('../lib/arena_seasons').checkSeasonRules(
+        pickCurrentSeason(srows, new Date()), d);
       if (!sr.ok) return res.status(400).json({ error: sr.error });
     } catch (e) { /* season read failure never blocks an open */ }
 
