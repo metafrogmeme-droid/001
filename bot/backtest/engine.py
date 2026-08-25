@@ -16,6 +16,7 @@ import numpy as np
 from bot.backtest.models import (
     BacktestBar, BacktestConfig, BacktestResult, BacktestTrade, EquityPoint,
 )
+from bot.backtest.metrics import PF_UNDEFINED
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.risk.risk_engine import RiskEngine
@@ -1309,8 +1310,25 @@ class BacktestEngine:
             if dd_usd > max_dd_usd:
                 max_dd_usd = dd_usd
 
-        # Profit factor
-        profit_factor = (net_profit / net_loss) if net_loss > 0 else (999.99 if net_profit > 0 else 0)
+        # Profit factor.
+        #
+        # PF_UNDEFINED (999.99) IS A SENTINEL, NOT A SCORE. It means "this run
+        # had no losing trades", so gross-loss is zero and the ratio does not
+        # exist. It is emphatically NOT "an outstanding profit factor of 999".
+        #
+        # That distinction was lost the moment anyone averaged it. In
+        # backtest_deep_results.json (2026-08-07), 9 of 485 runs — 1.9% — sat at
+        # the sentinel, and a plain mean reported `avg_profit_factor: 19.17`
+        # while the median run scored 0.45 and only 23% of runs were profitable
+        # at all. The headline number a reader checks first said "spectacular
+        # edge"; every other figure in the same summary said the strategy loses
+        # money. A 30x distortion out of 2% of rows.
+        #
+        # Aggregate with backtest.metrics.profit_factor_summary, which excludes
+        # the sentinel from the mean, reports the MEDIAN as the headline (this
+        # is a ratio — means of ratios mislead even without sentinels), and
+        # states the undefined count separately rather than folding it in.
+        profit_factor = (net_profit / net_loss) if net_loss > 0 else (PF_UNDEFINED if net_profit > 0 else 0)
 
         # Sharpe, Sortino, Calmar from equity curve returns
         sharpe = self._compute_sharpe()
