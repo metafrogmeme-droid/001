@@ -194,9 +194,19 @@ test('the position is recorded as coming from a signal, not as manual', () => {
 });
 
 test('a live season constrains signal opens exactly as it constrains manual ones', () => {
-  const openSig = routeSrc.slice(routeSrc.indexOf("router.post('/open-signal'"));
-  assert.match(openSig.slice(0, 4000), /checkSeasonRules\(seasons\[0\], d\)/,
+  const openSig = routeSrc.slice(routeSrc.indexOf("router.post('/open-signal'")).slice(0, 4000);
+  assert.match(openSig, /checkSeasonRules\(/,
     'the engine’s name on a call does not exempt it from the season rules');
+  // AND it must be handed the CURRENT season, not whatever row the database
+  // returned first. This asserted `checkSeasonRules(seasons[0], d)` literally,
+  // which pinned the season rules to an unordered `LIMIT 1` — correct only
+  // while exactly one season had ever existed. The moment a second was
+  // authored, `seasons[0]` became an arbitrary row and a position could be
+  // admitted under a season the board was not even showing. Same intent, one
+  // spelling looser and one guarantee stronger.
+  assert.match(openSig, /checkSeasonRules\(\s*pickCurrentSeason\(/,
+    'the season rules are being applied from an arbitrary row rather than the '
+    + 'current season');
 });
 
 test('the in-memory shim resolves WHERE id = ? instead of treating it as a LIMIT', () => {
