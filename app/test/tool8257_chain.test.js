@@ -220,3 +220,56 @@ test('an unreadable status is 503, never a confident "not registered"', () => {
   assert.ok(!/status: 'not_submitted'[\s\S]{0,200}catch/.test(body),
     'a failure path answers with a verdict shaped like a measurement');
 });
+
+// ── the sender is the creator, or the record misattributes itself ─────────
+
+const CREATOR = '0x6649e7eadd90113c26a97f2cbadb2c6c1a7e0924';
+
+test('a registration from the WRONG wallet is a mismatch, not verified', async () => {
+  // The manifest declares creatorAddress; the registry records msg.sender as
+  // the creator. Send from another wallet and the on-chain record and the
+  // document it points at disagree about who made it.
+  //
+  // The first version of verifyRegistration checked the destination and the
+  // calldata and never looked at the sender — it would have answered
+  // `verified` for exactly this. Same asymmetry this file's commit pointed out
+  // in bot/proofofpnl/anchor.py, reproduced here in the opposite direction
+  // within the hour.
+  const v = await verifyRegistration(TX,
+    { ...PLAN, creator: CREATOR },
+    8453,
+    rpc(mined({ from: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' }), { timestamp: '0x1' }));
+  assert.equal(v.status, 'mismatch');
+  assert.match(v.reason, /not the manifest's creatorAddress/);
+});
+
+test('the creator check is case-insensitive', async () => {
+  // Checksummed vs lower-case is the same address, and refusing one would
+  // reject a perfectly good registration over presentation.
+  const v = await verifyRegistration(TX,
+    { ...PLAN, creator: CREATOR.toUpperCase().replace('0X', '0x') },
+    8453, rpc(mined({ from: CREATOR }), { timestamp: '0x1' }));
+  assert.equal(v.status, 'verified');
+});
+
+test('an unresolvable creator does not block a good registration', async () => {
+  // `creator` is unset in some configurations. Refusing to verify because we
+  // could not resolve our OWN expectation would blame the chain for a gap on
+  // this side — the same reason a malformed plan answers `unknown` rather than
+  // `mismatch`. Absent expectation = that check is simply not made.
+  for (const c of [null, undefined, '']) {
+    const v = await verifyRegistration(TX, { ...PLAN, creator: c }, 8453,
+      rpc(mined({ from: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' }), { timestamp: '0x1' }));
+    assert.equal(v.status, 'verified', `creator ${JSON.stringify(c)} blocked verification`);
+  }
+});
+
+test('the route passes the manifest creator to the verifier', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tool8257.js'), 'utf8');
+  assert.match(src, /creatorAddress/,
+    'the route never resolves the creator, so the sender is never checked');
+  assert.match(src, /creator\s*\}?,?\s*chain_id\)|creator \}/,
+    'the creator is resolved and then not passed to verifyRegistration');
+});

@@ -71,9 +71,24 @@ async function rpcCall(fetchImpl, url, method, params) {
 
 /**
  * @param txHash    the registerTool transaction
- * @param expected  { registry, calldata } — from buildRegistrationPlan
+ * @param expected  { registry, calldata, creator } — from buildRegistrationPlan
  * @param chainId   8453 (Base) or 1 (Ethereum)
  * @param fetchImpl injectable for tests; defaults to global fetch
+ *
+ * `creator` MATTERS AND WAS MISSING FROM THE FIRST VERSION. The manifest
+ * declares `creatorAddress`, and the registry records `msg.sender` as the
+ * creator of the record. Send the registration from a different wallet and
+ * those two disagree: the on-chain record says one address created the tool
+ * while the manifest it points at claims another. The first version of this
+ * function checked the destination and the calldata and never looked at the
+ * sender — so it would have answered `verified` for exactly that.
+ *
+ * That is the same asymmetry this file's own commit message pointed out in
+ * `bot/proofofpnl/anchor.py` (which checks the sender and not the
+ * destination), reproduced here within the hour, in the opposite direction.
+ * Optional rather than required: `creator` is unset in some configurations,
+ * and refusing to verify a good registration because we could not resolve our
+ * OWN expectation would be blaming the chain for a gap on this side.
  */
 async function verifyRegistration(txHash, expected, chainId, fetchImpl) {
   const f = fetchImpl || (typeof fetch === 'function' ? fetch : null);
@@ -109,6 +124,17 @@ async function verifyRegistration(txHash, expected, chainId, fetchImpl) {
       // ours — the same distinction root_anchor.js draws for the anchor.
       if (!eq(tx.input, calldata)) {
         return { status: 'mismatch', reason: 'calldata does not equal this registration' };
+      }
+      // The registry records msg.sender as the creator. If that is not the
+      // address the manifest names, the on-chain record and the document it
+      // points at disagree about who made it — a registration that verifies
+      // byte-for-byte and still misattributes itself.
+      const creator = expected.creator;
+      if (creator && !eq(tx.from, creator)) {
+        return {
+          status: 'mismatch',
+          reason: `sent from ${tx.from || 'unknown'}, not the manifest's creatorAddress`,
+        };
       }
       const block = await rpcCall(f, url, 'eth_getBlockByHash', [tx.blockHash, false]);
       if (!block || !block.timestamp) return { status: 'unknown', reason: 'block unreadable' };

@@ -72,8 +72,14 @@ router.get('/api/tool/registration', limited, async (req, res) => {
       });
     }
 
+    // The creator comes from the manifest we serve, so a registration sent
+    // from some other wallet is caught rather than verified — see the note on
+    // verifyRegistration.
+    let creator = null;
+    try { creator = JSON.parse(plan.manifest_canonical || '{}').creatorAddress || null; }
+    catch (e) { creator = null; }
     const v = await chain.verifyRegistration(
-      tx, { registry: plan.registry, calldata: plan.calldata }, chain_id);
+      tx, { registry: plan.registry, calldata: plan.calldata, creator }, chain_id);
 
     res.json({
       status: v.status,           // verified | mismatch | unknown
