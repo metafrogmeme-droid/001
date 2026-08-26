@@ -29,6 +29,29 @@ router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
 const CACHE_MS = 60 * 1000;
 const cache = new Map();   // slug -> { at, data }
 
+/**
+ * GET /api/public/agent-identity — every claimed agent, newest first.
+ *
+ * The index `/a/:slug` shipped without. A page reachable only by already
+ * knowing its URL is present-but-not-reached, and from the outside that is
+ * indistinguishable from broken.
+ *
+ * `count` is sent beside `agents` deliberately: an empty list is a MEASUREMENT
+ * — nobody has claimed an identity yet — and the page has to be able to say
+ * that rather than render blank, which reads as a failed load.
+ */
+router.get('/', async (req, res) => {
+  try {
+    const agentList = await agents.listClaimed(100);
+    res.json({ agents: agentList, count: agentList.length });
+  } catch (err) {
+    console.error('Agent index error:', err.stack || err.message);
+    // 503, never `{agents: []}`. An unreadable table rendered as an empty
+    // directory is the exact defect this whole surface is built against.
+    res.status(503).json({ error: 'The agent directory could not be read' });
+  }
+});
+
 router.get('/:slug', async (req, res) => {
   const slug = String(req.params.slug || '').toLowerCase();
   try {

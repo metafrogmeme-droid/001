@@ -35,6 +35,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { codeOnly } = require('./helpers/code_only');
 
 const V = require('../public/js/agent-page.js');
 const PAGE = fs.readFileSync(
@@ -196,4 +197,74 @@ test('/a/:slug is served, and is NOT under the address-keyed /agent/', () => {
   // /agent/:address serves the ERC-8004 card. A slug routed there would be
   // handed the card page and die on its address regex.
   assert.match(srv, /app\.get\('\/agent\/:address'[\s\S]{0,200}agent-card\.html/);
+});
+
+// ── the index, and the route ordering that actually matters ─────────────────
+
+test('/a is served, and its order against /a/:slug is irrelevant', async () => {
+  const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(srv, /app\.get\('\/a',/, 'the claimed-agent index has no route');
+  assert.match(srv, /agents-claimed\.html/);
+
+  // Driven, not asserted from a comment. A previous version of this file's
+  // sibling comment claimed bare /a had to be registered first; it does not,
+  // because /a/:slug requires a second segment. The claim was copied from an
+  // equally false one above /agents and only found by running it.
+  const express = require('express');
+  const app = express();
+  app.get('/a/:slug', (q, r) => r.json({ hit: 'slug' }));
+  app.get('/a', (q, r) => r.json({ hit: 'index' }));
+  const s = app.listen(0, '127.0.0.1');
+  await new Promise((ok) => s.once('listening', ok));
+  const base = 'http://127.0.0.1:' + s.address().port;
+  try {
+    assert.equal((await (await fetch(base + '/a')).json()).hit, 'index',
+      'the param route captured the bare index');
+    assert.equal((await (await fetch(base + '/a/wolf')).json()).hit, 'slug');
+  } finally { s.close(); }
+});
+
+test('THE ordering constraint that is real: /agents/compare before /agents/:slug', async () => {
+  // Both are two-segment, so the param route WILL swallow the literal if it is
+  // registered first — /agents/compare becomes a slug lookup that 404s. This
+  // is the constraint the false comment next to it was drawing attention away
+  // from, and nothing tested it.
+  const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const compareAt = srv.indexOf("app.get('/agents/compare'");
+  const slugAt = srv.indexOf("app.get('/agents/:slug'");
+  assert.ok(compareAt > -1, '/agents/compare is not registered');
+  if (slugAt > -1) {
+    assert.ok(compareAt < slugAt,
+      '/agents/compare moved below /agents/:slug — it is now a slug lookup that 404s');
+  }
+
+  // And the mechanism, demonstrated rather than described.
+  const express = require('express');
+  const app = express();
+  app.get('/agents/:slug', (q, r) => r.json({ hit: 'slug' }));
+  app.get('/agents/compare', (q, r) => r.json({ hit: 'compare' }));
+  const s = app.listen(0, '127.0.0.1');
+  await new Promise((ok) => s.once('listening', ok));
+  try {
+    const r = await (await fetch('http://127.0.0.1:' + s.address().port + '/agents/compare')).json();
+    assert.equal(r.hit, 'slug',
+      'the param route no longer shadows the literal — this test encodes why order matters');
+  } finally { s.close(); }
+});
+
+test('the index endpoint refuses to render an unreadable table as empty', () => {
+  // COMMENTS BLANKED FIRST. Without it this failed on the route's own comment
+  // — which says "503, never `{agents: []}`" — the exact trap CLAUDE.md names:
+  // a comment that quotes the string it forbids is indistinguishable from the
+  // code doing it. Written, hit, and fixed with the repo's own helper rather
+  // than by softening the assertion.
+  const src = codeOnly(fs.readFileSync(
+    path.join(__dirname, '..', 'routes', 'public_agent_identity.js'), 'utf8'));
+  assert.match(src, /503/, 'an unreadable directory must not answer 200 with an empty list');
+  assert.ok(!/agents: \[\]/.test(src), 'an empty list is manufactured somewhere');
+  const page = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'agents-claimed.html'), 'utf8');
+  assert.match(page, /if \(!r\.ok\) throw/, 'the single-source page must GUARD, not omit');
+  assert.match(page, /That is a count, not a failed load/);
+  assert.match(page, /does not mean no agents exist/);
 });
