@@ -141,6 +141,31 @@ def _levels_in(out):
     return entry, sl, tp, direction, decimals
 
 
+def is_underivable_assertion(row):
+    """True when the row states a risk:reward it was never given.
+
+    Found on 2026-08-25 in 25,003 rows of the curated corpus. The shape:
+
+        INPUT :  Trade ID / Symbol / Position Size / Daily Loss / Drawdown
+        OUTPUT:  ... PASS: RISK_REWARD: 3.0 OK
+
+    No entry, no stop, no target, and no risk:reward anywhere in the prompt
+    - so the 3.0 is not an underived number, it is an UNSOURCED one. The row
+    teaches the model to emit a confident, specific value for a quantity it
+    was never handed, which is the fabrication defect itself, in the
+    training data, at scale.
+
+    That is worse than the assertion asymmetry this file was written for. An
+    asserted-but-correct ratio at least stands in a row where the operands
+    exist; these rows are where "absent is never a measurement" is being
+    unlearned.
+    """
+    out = row.get("output", "")
+    if not RE_ASSERTED.search(out):
+        return False
+    return levels_of(out, row.get("input", ""), row.get("instruction", "")) is None
+
+
 def derive_output(out, stats, *extra_texts):
     """Rewrite every asserted RISK_REWARD line in `out`. Returns the new text.
 
@@ -241,6 +266,11 @@ def main():
                                          "(omit with --dry-run)")
     parser.add_argument("--dry-run", action="store_true",
                         help="count what would change, write nothing")
+    parser.add_argument("--drop-unsourced", action="store_true",
+                        help="drop rows that state a risk:reward found "
+                             "nowhere in their own prompt (see "
+                             "is_underivable_assertion) instead of keeping "
+                             "them; they cannot be repaired, only removed")
     parser.add_argument("--survey", action="store_true",
                         help="print the distinct shapes of every risk:reward "
                              "line and whether the repair pass reaches each; "
@@ -257,7 +287,7 @@ def main():
 
     stats = {"derived": 0, "ratio_mismatch_left_alone": 0,
              "unreadable_levels": 0, "degenerate_geometry": 0}
-    rows_total = rows_changed = 0
+    rows_total = rows_changed = rows_dropped = 0
     out_fh = open(args.output, "w", encoding="utf-8") if not args.dry_run else None
 
     with open(args.input, encoding="utf-8") as fh:
@@ -267,6 +297,9 @@ def main():
                 continue
             rows_total += 1
             row = json.loads(line)
+            if args.drop_unsourced and is_underivable_assertion(row):
+                rows_dropped += 1
+                continue
             before = row.get("output", "")
             after = derive_output(before, stats,
                                   row.get("input", ""), row.get("instruction", ""))
@@ -282,6 +315,9 @@ def main():
     print()
     print(f"  rows read                 : {rows_total:,}")
     print(f"  rows rewritten            : {rows_changed:,}")
+    if args.drop_unsourced:
+        print(f"  rows DROPPED (unsourced)  : {rows_dropped:,}"
+              "   <- stated a ratio their prompt never gave them")
     print(f"  RISK_REWARD lines derived : {stats['derived']:,}")
     print()
     print("  Left alone (reported, never guessed at):")
