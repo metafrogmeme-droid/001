@@ -205,6 +205,37 @@ async function bySlug(slug) {
   };
 }
 
+/**
+ * Every claimed agent, newest first — the public index.
+ *
+ * It exists because `/a/:slug` shipped with nothing linking to it. A page
+ * reachable only by already knowing its URL is the shape CLAUDE.md names: code
+ * that is present and code that is reached are different things, and from the
+ * outside they are indistinguishable.
+ *
+ * It cannot be linked from `/agents/:slug` instead, and the reason is
+ * structural rather than an oversight: `slugTaken` REFUSES a claim on any slug
+ * that already names a community strategy or a catalogue agent, so the two
+ * namespaces are disjoint by construction. No marketplace page can ever have a
+ * `/a/` counterpart.
+ *
+ * Never selects the owner column — same rule as `bySlug`.
+ */
+async function listClaimed(limit = 100) {
+  const n = Math.max(1, Math.min(500, Number(limit) || 100));
+  // Interpolated, not bound: mysql2's execute() sends JS numbers as DOUBLE and
+  // MySQL rejects a DOUBLE as a prepared LIMIT argument. Clamped to an integer
+  // immediately above, so there is nothing here a caller can influence.
+  const [rows] = await pool.execute(
+    'SELECT slug, display_name, seal, sealed_at FROM agents ORDER BY id DESC LIMIT ' + n);
+  return (rows || []).map((r) => ({
+    slug: r.slug,
+    display_name: r.display_name || null,
+    seal: r.seal,
+    claimed_at: r.sealed_at ? new Date(r.sealed_at).toISOString() : null,
+  }));
+}
+
 /** Agents this user owns. */
 async function forUser(userId) {
   const [rows] = await pool.execute(
@@ -241,5 +272,5 @@ async function ownedBy(userId, slug) {
 module.exports = {
   SLUG_RE, MAX_AGENTS_PER_USER, RESERVED,
   canonicalClaim, sealOf, validateSlug, slugTaken,
-  claim, bySlug, forUser, ownedBy,
+  claim, bySlug, listClaimed, forUser, ownedBy,
 };

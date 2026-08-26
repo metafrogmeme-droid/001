@@ -612,10 +612,24 @@ app.get('/agent/:address', (req, res) => { res.setHeader('Cache-Control', 'no-ca
 // Short on purpose. NOT under /agent/, which is already the ERC-8004 identity
 // card keyed by 0x-address; a slug there would be served the card page and die
 // on its address regex.
+// The index. Order against /a/:slug does NOT matter and this comment used to
+// say it did — `/a/:slug` requires a second segment, so it cannot capture bare
+// `/a` from any position. Checked by registering the param route first and
+// watching /a still reach the index.
+//
+// The distinction is worth stating because a REAL ordering constraint lives
+// twelve lines below (/agents/compare vs /agents/:slug, both two-segment) and
+// the two look identical in a diff.
+app.get('/a', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agents-claimed.html')); });
 app.get('/a/:slug', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent-profile.html')); });
 // Public, shareable Strategy-Agent directory + per-agent profile (marketplace
-// slugs, e.g. /agents and /agents/dip-sniper). Bare /agents must precede the
-// parametised route so it isn't captured as a slug.
+// slugs, e.g. /agents and /agents/dip-sniper).
+//
+// This said bare /agents "must precede the parametised route so it isn't
+// captured as a slug". It does not: `/agents/:slug` requires a second segment
+// and cannot match `/agents` from any position — verified by registering them
+// the other way round. The line below it, about /agents/compare, IS true and
+// the two claims read the same, which is how the wrong model spreads.
 app.get('/agents', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agents.html')); });
 // Literal path registered BEFORE /agents/:slug below — Express matches in
 // order, so this line moving under the param route would turn /agents/compare
