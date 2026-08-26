@@ -379,6 +379,13 @@ RULES: list[Rule] = [
             "agent_record",        # mounted under /api/public — cross-user aggregate
                                    # of already-sealed paper receipts, §4-tested:
                                    # percent/count only, no identity, no vUSDT.
+            "public_agent_identity",
+                                   # mounted under /api/public — one agent claim:
+                                   # a slug, a date and a hash, plus the Merkle
+                                   # proof and anchor tx that let a stranger check
+                                   # it. `lib/agents.bySlug` never selects the
+                                   # owner column, so there is no identity to
+                                   # leak, and a claim carries no amount.
             "strategy_templates",  # mounted under /api/public — a static, curated
                                    # archetype catalogue (configs only, §4-tested:
                                    # no dollars, no performance claims); nothing

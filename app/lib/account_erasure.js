@@ -65,6 +65,11 @@ const USER_SCOPED_TABLES = [
   'user_strategies',
   'user_watchlist',
   'arena_follows',
+  // Agent claims. The slug is released and the row goes; the SEAL already
+  // minted into a published daily root is a hash and cannot be unmade — but
+  // nothing is lost by that, because seal_roots stores each day's leaf set
+  // alongside the root, so verification never reads this table.
+  'agents',
   'duel_picks',
   'learn_diary',
   'learn_progress',
