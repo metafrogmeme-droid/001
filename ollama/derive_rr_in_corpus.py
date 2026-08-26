@@ -98,8 +98,29 @@ def _fmt(value, decimals):
     return f"{value:,.{decimals}f}" if decimals else f"{value:,.0f}"
 
 
-def levels_of(out):
-    """(entry, sl, tp, direction, decimals) or None if the row cannot be read."""
+def levels_of(*texts):
+    """(entry, sl, tp, direction, decimals) or None if the row cannot be read.
+
+    Takes SEVERAL texts because a training row is not just its output. The
+    terse risk-check dialect states its verdicts without restating the
+    levels — those live in the prompt that asked for the check. A first
+    version read `output` alone, called 25,007 such rows "levels
+    unreadable", and would have left them asserting: the operands were in
+    the sample all along, one field over.
+
+    Output is searched first so a row's own report wins over its prompt
+    where both carry levels; the prompt is a fallback, not an override.
+    """
+    for out in texts:
+        if not out:
+            continue
+        found = _levels_in(out)
+        if found is not None:
+            return found
+    return None
+
+
+def _levels_in(out):
     m_e, m_s, m_t = RE_ENTRY.search(out), RE_SL.search(out), RE_TP.search(out)
     if not (m_e and m_s and m_t):
         return None
@@ -120,12 +141,16 @@ def levels_of(out):
     return entry, sl, tp, direction, decimals
 
 
-def derive_output(out, stats):
-    """Rewrite every asserted RISK_REWARD line in `out`. Returns the new text."""
+def derive_output(out, stats, *extra_texts):
+    """Rewrite every asserted RISK_REWARD line in `out`. Returns the new text.
+
+    `extra_texts` are the row's other fields (input, instruction), consulted
+    for levels only when the output does not carry them.
+    """
     if not RE_ASSERTED.search(out):
         return out
 
-    parsed = levels_of(out)
+    parsed = levels_of(out, *extra_texts)
     if parsed is None:
         stats["unreadable_levels"] += 1
         return out
@@ -243,7 +268,8 @@ def main():
             rows_total += 1
             row = json.loads(line)
             before = row.get("output", "")
-            after = derive_output(before, stats)
+            after = derive_output(before, stats,
+                                  row.get("input", ""), row.get("instruction", ""))
             if after != before:
                 rows_changed += 1
                 row["output"] = after
