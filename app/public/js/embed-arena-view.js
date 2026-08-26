@@ -208,15 +208,43 @@
   /**
    * The standings list, or an honest statement about why there isn't one.
    *
-   * `rows` EMPTY is a measurement and says so. The caller never reaches this
-   * with a failed read — the readers throw first — which is the only reason
-   * "no one has joined" can be printed with a straight face.
+   * `rows` EMPTY is a measurement — the readers throw on an unreadable payload,
+   * so nothing here is standing in for a failed read. What it is NOT is a count
+   * of participants, and this function used to print "No one has joined this
+   * season yet" on it.
+   *
+   * Nothing joins a season. The board is derived from trades CLOSED inside the
+   * window, and seasonRanking then drops every user with no opt-in handle. So
+   * an empty board has two unrelated causes:
+   *
+   *   closes_in_window 0    nobody has closed a trade since the season opened
+   *   ranked_total     0    people have, and none of them shows a public handle
+   *
+   * Printing "no one has joined" over the second one tells a member who joined,
+   * traded and closed that their account did not register. Printing it over the
+   * first tells someone who joined an hour ago the same thing. The distinction
+   * is the one this module's header is about, and the leaderboard endpoint has
+   * carried `ranked_total` for it all along.
+   *
+   * @param meta optional `{ closes_in_window, ranked_total }`. ABSENT is its own
+   *             case: the board is empty and we were not told why, so the copy
+   *             states the board is empty and claims nothing about people.
    */
-  function standingsHtml(rows) {
-    if (!rows || !rows.length) {
-      return '<p class="a-empty">No one has joined this season yet.</p>';
+  function standingsHtml(rows, meta) {
+    if (rows && rows.length) {
+      return '<ol class="a-list">' + rows.map(standingRow).join('') + '</ol>';
     }
-    return '<ol class="a-list">' + rows.map(standingRow).join('') + '</ol>';
+    var closes = meta ? num(meta.closes_in_window) : null;
+    var ranked = meta ? num(meta.ranked_total) : null;
+    if (closes === 0) {
+      return '<p class="a-empty">No trades have closed in this season yet.</p>';
+    }
+    if (closes > 0 && ranked === 0) {
+      return '<p class="a-empty">' + esc(count(closes)) + ' trade'
+        + (closes === 1 ? '' : 's') + ' closed this season, but nobody has '
+        + 'chosen a public handle yet — the board only shows opted-in names.</p>';
+    }
+    return '<p class="a-empty">Nobody is on the board yet.</p>';
   }
 
   /** One line of the live tape. */

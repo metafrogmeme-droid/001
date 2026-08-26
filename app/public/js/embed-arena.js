@@ -96,7 +96,7 @@
         var rows = Array.isArray(j.rows) ? j.rows : [];
         return loadTape().then(function (tape) {
           root.innerHTML = V.seasonHtml(season)
-            + V.standingsHtml(rows)
+            + V.standingsHtml(rows, j)
             + tape
             + shareHtml(season, rows, j.ranked_total)
             + '<p class="e-src">Paper trading · virtual stakes · '

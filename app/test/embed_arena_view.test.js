@@ -139,11 +139,41 @@ test('no season at all says so without implying an empty competition', () => {
   assert.ok(!/live/.test(html), 'a page with no season claimed one was live');
 });
 
-test('an empty board states nobody has joined — because the read succeeded', () => {
-  // Only reachable when readBoard returned an EMPTY array, which it does only
-  // for a payload it understood. A failed read never gets here.
+test('an empty board never claims nobody JOINED — nothing joins a season', () => {
+  // The board is derived from trades CLOSED in the window and then filtered to
+  // opted-in handles, so "no one has joined" was a claim about a quantity this
+  // surface never measures. A member who joined, traded and closed read it as
+  // their account having failed to register.
+  for (const meta of [undefined, { closes_in_window: 0 }, { closes_in_window: 4, ranked_total: 0 }]) {
+    assert.ok(!/joined/i.test(V.standingsHtml([], meta)),
+      `still claims people did not join, for meta=${JSON.stringify(meta)}`);
+  }
+});
+
+test('nobody has closed a trade yet, and that is what it says', () => {
+  const html = V.standingsHtml([], { closes_in_window: 0, ranked_total: 0 });
+  assert.match(html, /No trades have closed/);
+});
+
+test('closes with no opted-in handle name the REAL reason the board is empty', () => {
+  const html = V.standingsHtml([], { closes_in_window: 4, ranked_total: 0 });
+  assert.match(html, /4 trades closed/);
+  assert.match(html, /public handle/,
+    'a member who traded must be told the board filters on opt-in, not that nobody played');
+  assert.ok(!/No trades have closed/.test(html),
+    'four closed trades reported as zero closed trades');
+});
+
+test('one close reads "1 trade", not "1 trades"', () => {
+  assert.match(V.standingsHtml([], { closes_in_window: 1, ranked_total: 0 }), /1 trade closed/);
+});
+
+test('an empty board with NO counts claims nothing about people', () => {
+  // Absent is not a measurement: without the counts we know the board is empty
+  // and not why, so the copy says exactly that and no more.
   const html = V.standingsHtml([]);
-  assert.match(html, /No one has joined/);
+  assert.match(html, /Nobody is on the board yet/);
+  assert.ok(!/No trades have closed/.test(html), 'invented a zero it was never given');
 });
 
 test('a standings row shows rank, handle, trades and a coloured return', () => {
