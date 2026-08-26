@@ -131,30 +131,87 @@ def reconcile_posture(envelope: Optional[dict], observed: Optional[dict]) -> dic
 
 async def probe_posture(venue: str, fields: dict, *,
                         sandbox: bool = False,
-                        withdraw: str = "unknown") -> dict:
+                        withdraw: str = "unknown",
+                        ip_allowlist: Optional[list] = None,
+                        expected_sandbox: Optional[bool] = None) -> dict:
     """Observe a key's posture SAFELY (read-only). Returns an ``observed`` dict for
     ``reconcile_posture``. Never places an order or moves funds.
 
-    ``read``/``environment`` come from the existing read-only balance validators.
-    ``withdraw`` is passed through (default ``"unknown"``) — this probe does NOT
-    attempt a withdrawal, so it cannot prove withdraw scope on its own; a caller
-    that has queried a privileged key-info endpoint may supply ``"on"``/``"off"``.
+    ``ENVIRONMENT IS ONLY OBSERVED IF THE KEY ACTUALLY AUTHENTICATED.``
+
+    This function used to open with::
+
+        "environment":          "demo" if sandbox else "live",
+        "expected_environment": "demo" if sandbox else "live",
+
+    — both sides of the comparison derived from the same argument, set before the
+    probe ran. The environment dimension could therefore never report VIOLATION,
+    and reported CONFIRMED ("key is a live key, matching the bot") even when the
+    probe below failed outright. That is a measurement manufactured from a value
+    compared against itself, on the dimension whose own comment calls a live key
+    under a demo bot "a real hazard". ``tests/test_guardian_authority_preflight``
+    proved the VIOLATION branch worked while no producer could reach it.
+
+    So: we authenticate first, and only a SUCCESSFUL authentication is evidence
+    that the key belongs to the environment we reached. A failed probe leaves
+    ``environment`` unset, which renders UNVERIFIED.
+
+    ``expected_sandbox`` is what the BOT is configured to run, and must come from
+    the caller's own config rather than from ``sandbox`` — passing neither leaves
+    the dimension informational instead of inventing agreement.
+
+    ``withdraw`` and ``ip_allowlist`` are passed through from a scope probe (see
+    ``exchange_credentials.probe_bitget_key_scope``); this function never attempts
+    a withdrawal, so it cannot establish withdraw scope on its own.
     """
     venue = str(venue).lower().strip()
-    observed: dict[str, Any] = {
-        "environment": "demo" if sandbox else "live",
-        "expected_environment": "demo" if sandbox else "live",
-        "withdraw": withdraw,
-    }
+    observed: dict[str, Any] = {"withdraw": withdraw}
+    if ip_allowlist is not None:
+        observed["ip_allowlist"] = ip_allowlist
+    if expected_sandbox is not None:
+        observed["expected_environment"] = "demo" if expected_sandbox else "live"
     try:
         from bot.core.exchange_credentials import validate_venue_credentials
         ok, detail = await validate_venue_credentials(venue, fields, sandbox=sandbox)
         observed["read"] = bool(ok)
         observed["read_detail"] = detail
+        if ok:
+            # Earned, not assumed: the key authenticated against THIS environment.
+            observed["environment"] = "demo" if sandbox else "live"
     except Exception as exc:   # import or probe failure → read unverified, honest
         observed["read"] = None
         observed["read_detail"] = f"probe unavailable: {exc}"
     return observed
+
+
+def withdraw_notice(withdraw: Optional[str]) -> str:
+    """One line telling a user whether the key they just linked can move funds out.
+
+    THREE-VALUED AND NEVER SILENT. Saying nothing when the scope is unreadable
+    would leave the most consequential fact about a key to be inferred from the
+    absence of a warning, on the one screen where somebody has just handed over
+    an API key to a product whose promise is that it cannot take their money.
+    "We could not check" is a different sentence from "it cannot withdraw", and
+    both are different from saying nothing at all.
+
+    Pure, so a test can plant each scope and assert what the user is told.
+    """
+    wd = str(withdraw or "unknown").strip().lower()
+    if wd == "on":
+        return ("🔴 <b>This key can WITHDRAW funds.</b> RUNECLAW never withdraws, "
+                "but a key that can is a key that could — if it leaks, your funds "
+                "leave. Revoke it and mint a trade-only key "
+                "(futures read + trade, withdrawal OFF).")
+    if wd == "off":
+        return ("🟢 Withdraw permission: <b>off</b> — this key can trade but "
+                "cannot move funds out.")
+    # Venue-neutral on purpose: /connect links eight venues and only Bitget
+    # exposes key scope on a read-only endpoint, so the other seven reach this
+    # line. Naming Bitget here would tell a Hyperliquid user to go and check a
+    # venue they never linked.
+    return ("⚪ Withdraw permission: <b>not readable</b> — this venue does not "
+            "tell us, and we do not test it by attempting a withdrawal. Check it "
+            "yourself in the exchange's API settings.")
 
 
 def human_readable(report: Optional[dict]) -> str:

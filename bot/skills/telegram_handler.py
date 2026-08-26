@@ -6299,6 +6299,22 @@ class TelegramHandler:
                 "Check the credentials and their trading permissions.")
             return
 
+        # The balance probe above proves the key can READ. It says nothing about
+        # whether the key can move the money OUT, which is the fact this product's
+        # non-custodial promise actually rests on — and until now nothing in the
+        # codebase asked. Bitget answers it on a read-only endpoint; other venues
+        # have no equivalent yet, so they render the honest "not readable" line
+        # rather than a silence that reads as reassurance.
+        scope: dict = {"withdraw": "unknown", "ip_allowlist": None}
+        if venue == "bitget":
+            try:
+                from bot.core.exchange_credentials import probe_bitget_key_scope
+                scope = await probe_bitget_key_scope(
+                    fields["api_key"], fields["api_secret"], fields["passphrase"],
+                    sandbox=CONFIG.exchange.sandbox)
+            except Exception:
+                pass   # stays "unknown" — the line below says so out loud
+
         tg_id = self._get_tg_id(update)
         store = get_credential_store()
         store.set_venue(tg_id, venue, fields)
@@ -6310,10 +6326,12 @@ class TelegramHandler:
         audit(system_log, f"User linked own {label} account via /connect",
               action="connect", result="OK",
               data={"user": tg_id, "venue": venue, "fingerprint": store.fingerprint(tg_id)})
+        from bot.guardian.authority_preflight import withdraw_notice
         await self._send(update,
             f"🟢 <b>{label} account linked</b>\n\n"
             f"Key: <code>{store.fingerprint(tg_id)}</code>\n"
             f"Balance: {html.escape(detail)}\n\n"
+            f"{withdraw_notice(scope.get('withdraw'))}\n\n"
             "Your keys are encrypted at rest. Per-user live trading is not yet "
             "enabled — you'll be notified when it goes live. Use "
             "<code>/exchange</code> to review or <code>/disconnect</code> to remove.")
