@@ -940,7 +940,7 @@ const WRITE_TOOLS = {
         leverage: args.leverage, tp: args.tp, sl: args.sl,
       };
       intent.margin = Math.round((pct / 100) * START * 100) / 100;
-      const r = await openForUser(ctx.userId, intent);
+      const r = await openForUser(ctx.userId, intent, { agentSlug: ctx.agentSlug });
       if (r.status !== 200) {
         // The refusal reason is carried through verbatim. An agent that is told
         // only "failed" retries the same rejected trade; one told "ENVELOPE:
@@ -1171,8 +1171,15 @@ router.post('/', express.json({ limit: '64kb' }), async (req, res) => {
     // from "never existed".
     const arenaKeys = require('../lib/arena_keys');
     const raw = arenaKeys.bearerFrom(req);
-    const userId = raw ? await arenaKeys.verify(raw) : null;
-    const out = await handleRpc(req.body, { userId });
+    // `{ userId, agentSlug }` or null. The slug rides in the CONTEXT, never in
+    // a tool's arguments — an agent must not be able to name itself on a
+    // trade, or it could write into any record it can spell. What identity a
+    // call trades under is decided by the binding on the key it presented.
+    const ident = raw ? await arenaKeys.verify(raw) : null;
+    const out = await handleRpc(req.body, {
+      userId: ident ? ident.userId : null,
+      agentSlug: ident ? ident.agentSlug : null,
+    });
     if (out === null) return res.status(202).end();  // notification accepted
     res.json(out);
   } catch (err) {

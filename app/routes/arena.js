@@ -221,11 +221,17 @@ async function settleLiquidations(userId, positions, marks) {
     if (!exit) { alive.push(p); continue; }
     const pnl = exit.reason === 'liquidated' ? -p.margin : arena.posPnl(p, exit.price);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, round2(exit.price),
         p.margin, p.leverage, round2(pnl), exit.reason,
         p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
-        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null]);
+        // Provenance rides from the position onto the closed row. Both close
+        // paths carry it — this sweep and the manual close below — because
+        // otherwise which record a trade lands in would depend on HOW it
+        // closed, and a stopped-out agent trade would file itself under its
+        // copiers.
+        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null,
+        p.source || 'manual']);
     await pool.execute(
       'DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     if (exit.reason !== 'liquidated') credit += p.margin + pnl;
@@ -420,7 +426,7 @@ router.delete('/envelope', authMiddleware, async (req, res) => {
  * Returns `{ status, body }` instead of touching `res`, because a caller that
  * is not an HTTP request still needs the status to know what happened.
  */
-async function openForUser(userId, body) {
+async function openForUser(userId, body, opts = {}) {
   try {
     const acct = await loadAccount(userId);
     let marks;
@@ -471,10 +477,18 @@ async function openForUser(userId, body) {
     const rc = sealedOpen(await handleFor(userId), {
       symbol: v.data.symbol, direction: v.data.direction, entry: price,
       leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, opened_at: openedAt });
+    // The agent identity this open is made under, when the caller's Arena key
+    // is bound to a claimed slug. It is NOT taken from the request: an agent
+    // cannot name itself on a trade, the binding on its key does. `openForUser`
+    // wrote no `agent_slug` at all before this and stamped every row 'manual',
+    // which is why an autonomous agent's trades were invisible to
+    // /api/public/agent-record/:slug — the record selects on that column.
+    const agentSlug = (opts && opts.agentSlug) || null;
     await pool.execute(
-      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [userId, v.data.symbol, v.data.direction, price, v.data.margin, v.data.leverage, 'manual', ts.data.tp, ts.data.sl,
-        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
+      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, v.data.symbol, v.data.direction, price, v.data.margin, v.data.leverage,
+        agentSlug ? 'agent' : 'manual', ts.data.tp, ts.data.sl,
+        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt, null, agentSlug]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance - v.data.margin), userId]);
     return { status: 200, body: { ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } } };
@@ -752,11 +766,12 @@ async function closeForUser(userId, positionId) {
     const pnl = liquidated ? -p.margin : arena.posPnl(p, mark);
     const acct = await loadAccount(userId);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, exitPrice, p.margin, p.leverage,
         round2(pnl), liquidated ? 'liquidated' : 'manual',
         p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
-        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null]);
+        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null,
+        p.source || 'manual']);
     await pool.execute('DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance + p.margin + pnl), userId]);
@@ -1244,6 +1259,28 @@ router.post('/keys/revoke', authMiddleware, tradeLimit, async (req, res) => {
   } catch (err) {
     console.error('Arena key revoke error:', err.stack || err.message);
     res.status(503).json({ error: 'Could not revoke that key' });
+  }
+});
+
+// POST /api/arena/keys/agent  { id, agent_slug }  — bind a key to a claimed
+// agent identity, or send agent_slug: null to unbind.
+//
+// This is what makes an autonomous agent's trades appear under its OWN public
+// record instead of under its owner's account. The slug lives on the KEY and
+// never in a tool's arguments: an agent that could name itself per-trade could
+// write into any record whose slug it can spell.
+router.post('/keys/agent', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const slug = body.agent_slug == null ? null : String(body.agent_slug);
+    const r = await arenaKeys.bindAgent(req.user.user_id, body.id, slug);
+    if (!r.ok) {
+      return res.status(r.code === 'no_key' ? 404 : 403).json({ error: r.error, code: r.code });
+    }
+    res.json({ ok: true, agent_slug: r.agent_slug });
+  } catch (err) {
+    console.error('Arena key bind error:', err.stack || err.message);
+    res.status(503).json({ error: 'Could not bind that key' });
   }
 });
 
