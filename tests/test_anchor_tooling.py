@@ -88,7 +88,10 @@ def _fake_rpc(tx=None, rcpt=None):
 
 
 def _good_chain(commitment):
-    tx = {"from": _AGENT, "input": anchor.anchor_calldata(commitment)}
+    # `to` used to be absent from this fixture and every test still passed,
+    # because confirm_anchor never read it. A transaction with no destination
+    # at all is a contract creation; the fixture was describing one.
+    tx = {"from": _AGENT, "to": _AGENT, "input": anchor.anchor_calldata(commitment)}
     rcpt = {"status": "0x1", "blockNumber": "0x1a2b3c"}
     return tx, rcpt
 
@@ -113,8 +116,12 @@ def test_confirm_records_only_after_all_checks_pass(state_path, monkeypatch):
 
 @pytest.mark.parametrize("mutate,needle", [
     (lambda tx, rcpt: rcpt.update(status="0x0"), "FAILED"),
-    (lambda tx, rcpt: tx.update(input="0xdeadbeef"), "does not contain"),
+    (lambda tx, rcpt: tx.update(input="0xdeadbeef"), "not exactly the anchor payload"),
     (lambda tx, rcpt: tx.update({"from": "0x" + "77" * 20}), "not the agent address"),
+    # The destination decides the mode the card publishes, so a destination
+    # with no honest name is not recordable.
+    (lambda tx, rcpt: tx.update({"to": "0x" + "77" * 20}), "neither the agent address"),
+    (lambda tx, rcpt: tx.update({"to": None}), "contract creation"),
 ])
 def test_confirm_rejects_bad_chain_state(state_path, monkeypatch, mutate, needle):
     tx, rcpt = _good_chain(anchor.identity_commitment(_AGENT, _PUBKEY))
@@ -133,6 +140,97 @@ def test_confirm_unmined_and_missing(state_path, monkeypatch):
     monkeypatch.setattr(anchor, "_rpc", _fake_rpc(tx, None))
     ok, problems = anchor.confirm_anchor(_TX, _AGENT, _PUBKEY)
     assert not ok and "not yet mined" in problems[0]
+
+
+# ── the recorder must never be looser than the auditor ───────────────────────
+
+def _reverify(tx, rcpt, pubkey=_PUBKEY, monkeypatch=None):
+    """Run verify.py's public check over the same fake chain."""
+    import verify as verifier
+
+    def rpc(url, method, params):
+        return tx if method == "eth_getTransactionByHash" else rcpt
+    monkeypatch.setattr(verifier, "_eth_rpc", rpc)
+    return verifier._reverify_anchor(
+        {"anchors": [{"tx_hash": _TX, "chain_id": 8453}]}, pubkey, "http://rpc")[0]
+
+
+@pytest.mark.parametrize("label,calldata_for", [
+    ("the real payload", lambda c: anchor.anchor_calldata(c)),
+    ("commitment with no RUNECLAW prefix", lambda c: "0xdeadbeef" + c),
+    ("payload buried in other arguments", lambda c: anchor.anchor_calldata(c) + "cafe"),
+    ("a different commitment entirely", lambda c: anchor.anchor_calldata("9" * 64)),
+])
+def test_the_recorder_never_accepts_what_the_public_verifier_refuses(
+        state_path, monkeypatch, label, calldata_for):
+    """`/anchor confirm` writes the state file that `anchor_for_card` publishes
+    as VERIFIED. `verify.py --require-identity` is what a skeptic runs against
+    that published statement. If the recorder accepts a transaction the
+    verifier refuses, the product's own two surfaces disagree about a public
+    claim — and the operator only ever sees the permissive one.
+
+    That was live: the recorder asked only whether the commitment appeared
+    SOMEWHERE in the calldata, while the verifier has always additionally
+    required the RUNECLAW prefix. A transaction with the commitment loose in
+    some unrelated call's arguments was recorded and published VERIFIED, and
+    verify.py refused the very same transaction hash.
+
+    The property is one-directional on purpose — the recorder is allowed to be
+    STRICTER (it now demands exact equality where the verifier still uses
+    containment), never looser.
+    """
+    c = anchor.identity_commitment(_AGENT, _PUBKEY)
+    tx = {"from": _AGENT, "to": _AGENT, "input": calldata_for(c)}
+    rcpt = {"status": "0x1", "blockNumber": "0x1a2b3c"}
+    monkeypatch.setattr(anchor, "_rpc", _fake_rpc(tx, rcpt))
+
+    recorded = anchor.confirm_anchor(_TX, _AGENT, _PUBKEY)[0]
+    audited = _reverify(tx, rcpt, monkeypatch=monkeypatch)
+    assert not (recorded and not audited), (
+        f"{label}: recorded and published VERIFIED, but verify.py refuses it")
+
+
+# ── mode is a claim about the destination, so read it off the destination ────
+
+def test_recorded_mode_comes_from_the_transaction_not_the_environment(
+        state_path, monkeypatch):
+    """A plain self-send, confirmed while ANCHOR_REGISTRY_ADDRESS happens to be
+    set — as it would be if the operator configured a registry at any point
+    after sending. `mode` was written from that variable, so the identity card
+    asserted a third-party contract holds the registration on evidence that
+    never left the operator's own wallet."""
+    c = anchor.identity_commitment(_AGENT, _PUBKEY)
+    monkeypatch.setattr(anchor, "_rpc", _fake_rpc(*_good_chain(c)))  # to == _AGENT
+    monkeypatch.setenv("ANCHOR_REGISTRY_ADDRESS", "0x" + "99" * 20)
+
+    assert anchor.confirm_anchor(_TX, _AGENT, _PUBKEY)[0]
+    rec = json.loads(state_path.read_text())[str(anchor.BASE_CHAIN_ID)]
+    assert rec["mode"] == "calldata-commitment", \
+        "a self-send published as a registry registration"
+
+
+def test_a_send_to_the_registry_records_registry_mode(state_path, monkeypatch):
+    registry = "0x" + "99" * 20
+    monkeypatch.setenv("ANCHOR_REGISTRY_ADDRESS", registry)
+    c = anchor.identity_commitment(_AGENT, _PUBKEY)
+    tx, rcpt = _good_chain(c)
+    tx["to"] = registry
+    monkeypatch.setattr(anchor, "_rpc", _fake_rpc(tx, rcpt))
+
+    assert anchor.confirm_anchor(_TX, _AGENT, _PUBKEY)[0]
+    rec = json.loads(state_path.read_text())[str(anchor.BASE_CHAIN_ID)]
+    assert rec["mode"] == "registry"
+
+
+def test_destination_mode_is_case_insensitive_both_sides(monkeypatch):
+    """Wallets and explorers hand back EIP-55 mixed case; the plan lowercases.
+    A checksummed destination is the same destination."""
+    monkeypatch.setenv("ANCHOR_REGISTRY_ADDRESS", "0x" + "AB" * 20)
+    assert anchor.destination_mode("0x" + "ab" * 20, "0x" + "cd" * 20) == "registry"
+    assert anchor.destination_mode("0x" + "CD" * 20, "0x" + "cd" * 20) \
+        == "calldata-commitment"
+    assert anchor.destination_mode("", "0x" + "cd" * 20) is None
+    assert anchor.destination_mode(None, "0x" + "cd" * 20) is None
 
 
 # ── card upgrade: UNVERIFIED → VERIFIED / STALE ──────────────────────────────

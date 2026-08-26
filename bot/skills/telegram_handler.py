@@ -5018,9 +5018,10 @@ class TelegramHandler:
                 await self._send(update,
                     "✅ <b>ANCHOR VERIFIED &amp; RECORDED</b>\n"
                     "The identity card now reads VERIFIED — the on-chain tx "
-                    "was checked (confirmed, correct calldata, sent from the "
-                    "agent wallet). /proof and /agent surfaces update on the "
-                    "next publication tick.")
+                    "was checked (confirmed, calldata exactly the anchor "
+                    "payload, sent from the agent wallet, and to the "
+                    "destination its recorded mode names). /proof and /agent "
+                    "surfaces update on the next publication tick.")
             else:
                 await self._send(update,
                     "🔴 <b>NOT RECORDED</b>\n"
