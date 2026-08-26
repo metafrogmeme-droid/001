@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.models import BacktestConfig, BacktestBar
 from bot.backtest.data_loader import DataLoader
+from bot.backtest.metrics import profit_factor_summary, share_profitable
 
 
 # Top 20 symbols with realistic starting prices and volatility profiles
@@ -221,7 +222,7 @@ async def main():
     print("\n" + "=" * 100)
     print("PER-SYMBOL AGGREGATE (across all regimes and seeds)")
     print("=" * 100)
-    print(f"{'Symbol':12s} {'Runs':>5s} {'Trades':>7s} {'Avg Ret%':>9s} {'Avg DD%':>8s} {'Avg WR%':>8s} {'Avg Sharpe':>11s} {'Avg PF':>8s} {'Worst DD%':>10s} {'Avg Sortino':>12s}")
+    print(f"{'Symbol':12s} {'Runs':>5s} {'Trades':>7s} {'Avg Ret%':>9s} {'Avg DD%':>8s} {'Avg WR%':>8s} {'Avg Sharpe':>11s} {'Med PF':>8s} {'Worst DD%':>10s} {'Avg Sortino':>12s}")
     print("-" * 100)
 
     sym_agg = {}
@@ -241,16 +242,19 @@ async def main():
         avg_dd = sum(r["max_drawdown_pct"] for r in runs) / n
         avg_wr = sum(r["win_rate"] for r in runs) / n
         avg_sharpe = sum(r["sharpe_ratio"] for r in runs) / n
-        avg_pf = sum(r["profit_factor"] for r in runs) / n
+        # MEDIAN: profit factor is an unbounded ratio carrying an "undefined"
+        # sentinel, so its mean flatters twice over. See backtest/metrics.py.
+        pf = profit_factor_summary(r["profit_factor"] for r in runs)
+        med_pf = pf.median if pf.median is not None else float("nan")
         avg_sortino = sum(r["sortino_ratio"] for r in runs) / n
         worst_dd = max(r["max_drawdown_pct"] for r in runs)
-        print(f"{s:12s} {n:5d} {avg_trades:7.0f} {avg_ret:+9.2f} {avg_dd:8.2f} {avg_wr * 100:8.1f} {avg_sharpe:+11.2f} {avg_pf:8.2f} {worst_dd:10.2f} {avg_sortino:+12.2f}")
+        print(f"{s:12s} {n:5d} {avg_trades:7.0f} {avg_ret:+9.2f} {avg_dd:8.2f} {avg_wr * 100:8.1f} {avg_sharpe:+11.2f} {med_pf:8.2f} {worst_dd:10.2f} {avg_sortino:+12.2f}")
 
     # Per-regime aggregates
     print("\n" + "=" * 100)
     print("PER-REGIME AGGREGATE (across all symbols and seeds)")
     print("=" * 100)
-    print(f"{'Regime':16s} {'Runs':>5s} {'Trades':>7s} {'Avg Ret%':>9s} {'Avg DD%':>8s} {'Avg WR%':>8s} {'Avg Sharpe':>11s} {'Avg PF':>8s} {'Avg Sortino':>12s}")
+    print(f"{'Regime':16s} {'Runs':>5s} {'Trades':>7s} {'Avg Ret%':>9s} {'Avg DD%':>8s} {'Avg WR%':>8s} {'Avg Sharpe':>11s} {'Med PF':>8s} {'Avg Sortino':>12s}")
     print("-" * 100)
 
     for regime in REGIMES:
@@ -263,9 +267,10 @@ async def main():
         avg_dd = sum(r["max_drawdown_pct"] for r in runs) / n
         avg_wr = sum(r["win_rate"] for r in runs) / n
         avg_sharpe = sum(r["sharpe_ratio"] for r in runs) / n
-        avg_pf = sum(r["profit_factor"] for r in runs) / n
+        pf = profit_factor_summary(r["profit_factor"] for r in runs)
+        med_pf = pf.median if pf.median is not None else float("nan")
         avg_sortino = sum(r["sortino_ratio"] for r in runs) / n
-        print(f"{regime['label']:16s} {n:5d} {avg_trades:7.0f} {avg_ret:+9.2f} {avg_dd:8.2f} {avg_wr * 100:8.1f} {avg_sharpe:+11.2f} {avg_pf:8.2f} {avg_sortino:+12.2f}")
+        print(f"{regime['label']:16s} {n:5d} {avg_trades:7.0f} {avg_ret:+9.2f} {avg_dd:8.2f} {avg_wr * 100:8.1f} {avg_sharpe:+11.2f} {med_pf:8.2f} {avg_sortino:+12.2f}")
 
     # Global summary
     total_trades = sum(r["total_trades"] for r in valid)
@@ -274,7 +279,9 @@ async def main():
     avg_wr = sum(r["win_rate"] for r in valid) / len(valid)
     avg_sharpe = sum(r["sharpe_ratio"] for r in valid) / len(valid)
     avg_sortino = sum(r["sortino_ratio"] for r in valid) / len(valid)
-    avg_pf = sum(r["profit_factor"] for r in valid) / len(valid)
+    # THE LINE THAT REPORTED 19.17 WHILE THE MEDIAN RUN SCORED 0.45.
+    pf = profit_factor_summary(r["profit_factor"] for r in valid)
+    n_profit, n_runs = share_profitable(r["total_return_pct"] for r in valid)
     worst_dd = max(r["max_drawdown_pct"] for r in valid)
     best_ret = max(r["total_return_pct"] for r in valid)
     worst_ret = min(r["total_return_pct"] for r in valid)
@@ -295,7 +302,10 @@ async def main():
     print(f"  Avg win rate:          {avg_wr * 100:.1f}%")
     print(f"  Avg Sharpe:            {avg_sharpe:+.2f}")
     print(f"  Avg Sortino:           {avg_sortino:+.2f}")
-    print(f"  Avg profit factor:     {avg_pf:.2f}")
+    print(f"  Profit factor:         {pf.render()}")
+    # The number that settles the argument fastest. "Avg return -0.46%"
+    # invites "so it is roughly flat"; "113 of 485 profitable" does not.
+    print(f"  Profitable runs:       {n_profit} of {n_runs} ({100.0 * n_profit / n_runs:.0f}%)" if n_runs else "  Profitable runs:       no runs")
     print(f"  Crashed runs (DD>20%): {crashed}")
     print(f"  Total commission:      ${total_commission:,.2f}")
     print(f"  Total slippage:        ${total_slippage:,.2f}")
@@ -324,7 +334,16 @@ async def main():
                 "avg_win_rate": round(avg_wr, 1),
                 "avg_sharpe": round(avg_sharpe, 2),
                 "avg_sortino": round(avg_sortino, 2),
-                "avg_profit_factor": round(avg_pf, 2),
+                # Was `avg_profit_factor` — a mean poisoned by the undefined
+                # sentinel. Renamed as well as fixed: a consumer reading the
+                # old key would get a different number under the same name,
+                # and silently changing what a key means is worse than
+                # breaking it.
+                "median_profit_factor": (round(pf.median, 2) if pf.median is not None else None),
+                "mean_profit_factor_defined": (round(pf.mean, 2) if pf.mean is not None else None),
+                "runs_profit_factor_undefined": pf.n_undefined,
+                "profitable_runs": n_profit,
+                "profitable_runs_total": n_runs,
                 "crashed_runs": crashed,
                 "total_commission": round(total_commission, 2),
                 "total_slippage": round(total_slippage, 2),
