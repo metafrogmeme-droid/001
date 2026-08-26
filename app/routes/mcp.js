@@ -87,24 +87,43 @@ const TOOLS = {
       + 'attack patterns with reasons: prompt-injection instructions, '
       + 'seed-phrase lures, drain and unlimited-approval language, hidden or '
       + 'look-alike characters, phishing URLs and address poisoning. Runs '
-      + 'locally on the text you send; nothing is stored. A clean result is '
-      + 'NOT a guarantee and a flag is not a verdict — always verify the '
-      + 'destination address, amount and approval scope yourself.',
+      + 'locally on the text you send, which is never stored. Call it with an '
+      + 'Arena key and the VERDICT is sealed against a sha256 of your input '
+      + 'and folded into that day\'s Merkle root, so you can prove afterwards '
+      + 'what you were told before you signed — the receipt shows what we '
+      + 'SAID, not that it was right. A clean result is NOT a guarantee and a '
+      + 'flag is not a verdict — always verify the destination address, amount '
+      + 'and approval scope yourself.',
     inputSchema: {
       type: 'object',
       properties: { text: { type: 'string', description: 'The message, metadata, URL, address or signing request to scan.' } },
       required: ['text'],
       additionalProperties: false,
     },
-    handler: async ({ text }) => {
+    handler: async ({ text }, ctx) => {
       const t = String(text == null ? '' : text).slice(0, 20000);
       if (!t.trim()) throw new Error('text is required');
       const r = firewall.scanText(t);
+      // `deterministic: false` — this is a HEURISTIC. Its receipt proves what
+      // we said, not that we were right, and the sealed payload states that
+      // rather than leaving a reader to infer it from the tool name.
+      const rc = await require('../lib/scan_seal')
+        .sealIfKeyed({ tool: 'scan_transaction', input: t, result: r,
+                       deterministic: false, ctx });
       return {
         level: r.level, score: r.score, flags: r.flags,
         heuristic: true,
+        receipt: rc.sealed
+          ? { scan_key: rc.scan_key, seal: rc.seal, sealed_at: rc.sealed_at,
+              verify: '/call/' + rc.scan_key }
+          : null,
         note: 'Heuristic pre-sign scan. A clean result is not a guarantee and '
-          + 'a flag is not a verdict. Nothing was stored.',
+          + 'a flag is not a verdict. '
+          + (rc.sealed
+            ? 'Your text was NOT stored; this verdict was sealed against a '
+              + 'sha256 of it. The receipt proves what you were TOLD, not that '
+              + 'it was right.'
+            : 'Nothing was stored.'),
       };
     },
   },
@@ -123,8 +142,11 @@ const TOOLS = {
       + 'with heuristic flags, never verdicts. Amounts are RAW token units '
       + '(decimals are a chain read this tool deliberately does not do). '
       + 'Anything outside the known set answers UNKNOWN — unknown is not the '
-      + 'same as safe. Pure decode: nothing sent here is stored, no chain is '
-      + 'read, no account is seen.',
+      + 'same as safe. Pure decode: your calldata is never stored, no chain is '
+      + 'read, no account is seen. Call it with an Arena key and the decode is '
+      + 'sealed against a sha256 of that calldata and anchored on Base with '
+      + 'the day\'s root — a decode is reproducible, so the receipt proves '
+      + 'what the transaction MEANT, not merely what we thought.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -135,12 +157,32 @@ const TOOLS = {
       required: ['data'],
       additionalProperties: false,
     },
-    handler: async ({ data, to, value }) => {
+    handler: async ({ data, to, value }, ctx) => {
+      const input = String(data || '');
       const r = require('../public/js/txray-model.js')
-        .decodeTx({ data: String(data || ''), value: value == null ? '0' : String(value) });
+        .decodeTx({ data: input, value: value == null ? '0' : String(value) });
+      // A DECODE is reproducible — anyone can re-run it on the same calldata
+      // and get the same actions — so `deterministic: true`. Sealing is
+      // opt-in by having a key: `ctx` is absent entirely on the public
+      // /api/tool/invoke path, which lands on `sealed: false` by construction.
+      const rc = await require('../lib/scan_seal')
+        .sealIfKeyed({ tool: 'xray_transaction', input, result: r,
+                       deterministic: true, ctx });
       return { ...(to ? { to: String(to).slice(0, 64) } : {}), ...r,
+        receipt: rc.sealed
+          ? { scan_key: rc.scan_key, seal: rc.seal, sealed_at: rc.sealed_at,
+              verify: '/call/' + rc.scan_key }
+          : null,
         note: 'Heuristic decode of the known selector set. A flag is not a '
-          + 'verdict and unknown is not safe. Nothing sent here is stored.' };
+          + 'verdict and unknown is not safe. '
+          // The old text said "nothing sent here is stored" unconditionally,
+          // and for a keyed caller that is now false. What is kept is a HASH
+          // of the calldata, never the calldata — say which.
+          + (rc.sealed
+            ? 'Your calldata was NOT stored; this verdict was sealed against a '
+              + 'sha256 of it, so you can prove later what you were told before '
+              + 'signing.'
+            : 'Nothing sent here is stored.') };
     },
   },
   compile_intent: {

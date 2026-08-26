@@ -35,6 +35,11 @@ async function sealsForDay(day) {
     // immutably the first time it is asked for, and no agent row can carry a
     // `sealed_at` earlier than this table.
     'SELECT seal FROM agents WHERE sealed_at >= ? AND sealed_at < ?',
+    // A pre-signature scan is the one seal whose whole value is its TIME: the
+    // claim is "this agent was told this before it signed", and without the
+    // day's root anchored on Base that ordering rests on our own clock —
+    // exactly the thing it is being offered as evidence against.
+    'SELECT seal FROM scan_seals WHERE sealed_at >= ? AND sealed_at < ?',
   ];
   for (const q of QUERIES) {
     try {
