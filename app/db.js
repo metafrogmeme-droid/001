@@ -311,6 +311,8 @@ class MemoryDB {
     this._nextArenaKeyId = 1;
     this.agents = [];         // { id, slug, user_id, display_name, seal, seal_payload, sealed_at }
     this._nextAgentId = 1;
+    this.scanSeals = [];      // { id, scan_key, user_id, agent_slug, tool, seal, seal_payload, sealed_at }
+    this._nextScanSealId = 1;
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
@@ -1081,6 +1083,47 @@ class MemoryDB {
           .sort((a, b) => b.id - a.id).map((k) => ({ ...k })), []];
       }
       return [live.map((k) => ({ ...k })), []];
+    }
+
+    // -- SCAN SEALS (pre-signature receipts; UNIQUE on scan_key) --
+    if (cmd.includes('INSERT INTO SCAN_SEALS')) {
+      // params: scan_key, user_id, agent_slug, tool, seal, seal_payload, sealed_at
+      if (this.scanSeals.some((s) => s.scan_key === params[0])) {
+        const err = new Error("Duplicate entry for key 'uniq_scan_key'");
+        err.code = 'ER_DUP_ENTRY';
+        throw err;
+      }
+      this.scanSeals.push({
+        id: this._nextScanSealId++, scan_key: params[0],
+        user_id: params[1] == null ? null : params[1],
+        agent_slug: params[2] == null ? null : params[2],
+        tool: params[3], seal: params[4], seal_payload: params[5],
+        sealed_at: params[6],
+      });
+      return [{ affectedRows: 1, insertId: this._nextScanSealId - 1 }, []];
+    }
+    if (cmd.includes('FROM SCAN_SEALS')) {
+      if (cmd.includes('WHERE SCAN_KEY')) {
+        return [this.scanSeals.filter((s) => s.scan_key === params[0])
+          .map((s) => ({ ...s })), []];
+      }
+      // The daily sweep: SELECT seal ... WHERE sealed_at >= ? AND < ?
+      if (cmd.includes('WHERE SEALED_AT')) {
+        const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+        return [this.scanSeals
+          .filter((s) => s.sealed_at && new Date(s.sealed_at).getTime() >= lo
+                      && new Date(s.sealed_at).getTime() < hi)
+          .map((s) => ({ seal: s.seal })), []];
+      }
+      if (cmd.includes('WHERE AGENT_SLUG')) {
+        return [this.scanSeals.filter((s) => s.agent_slug === params[0])
+          .sort((a, b) => b.id - a.id).map((s) => ({ ...s })), []];
+      }
+      if (cmd.includes('WHERE USER_ID')) {
+        return [this.scanSeals.filter((s) => s.user_id === params[0])
+          .sort((a, b) => b.id - a.id).map((s) => ({ ...s })), []];
+      }
+      return [this.scanSeals.map((s) => ({ ...s })), []];
     }
 
     // -- AGENTS (claimed slugs; UNIQUE on slug) --
@@ -2117,6 +2160,7 @@ const EXPECTED_TABLES = Object.freeze([
   'arena_api_keys',
   'arena_envelopes',
   'agents',
+  'scan_seals',
   'learn_diary',
   'learn_progress',
   'seal_roots',
@@ -2795,6 +2839,27 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE arena_api_keys ADD COLUMN agent_slug VARCHAR(64) NULL');
     } catch (e) { /* already present */ }
+    // Pre-signature scan receipts. The INPUT IS NEVER STORED — only its
+    // sha256, inside `seal_payload`. Both scanners promise callers that
+    // nothing they send is kept, and sealing must not quietly break that
+    // promise: what is retained is a commitment to the bytes, which is
+    // checkable by whoever holds them and inert to everyone else.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scan_seals (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        scan_key VARCHAR(40) NOT NULL,
+        user_id INT NULL,
+        agent_slug VARCHAR(64) NULL,
+        tool VARCHAR(32) NOT NULL,
+        seal CHAR(64) NOT NULL,
+        seal_payload TEXT NOT NULL,
+        sealed_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_scan_key (scan_key),
+        KEY idx_scan_seals_user (user_id),
+        KEY idx_scan_seals_agent (agent_slug),
+        KEY idx_scan_seals_sealed (sealed_at)
+      )
+    `);
     // Agent identity — a slug that belongs to someone. `seal`/`sealed_at`
     // are not decoration: lib/seal_roots.js selects seals by `sealed_at`
     // across every sealed surface, so a claim rides into that day's Merkle

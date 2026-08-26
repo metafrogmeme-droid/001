@@ -194,8 +194,78 @@ function sealDuelPick(p) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v5 — a PRE-SIGNATURE scan, sealed before the transaction was signed.
+ *
+ * `xray_transaction` and `scan_transaction` both end their own descriptions
+ * with "nothing is stored". That is a privacy promise and it is also why no
+ * agent can ever show what it was told before it acted: the verdict evaporates.
+ * Sealing it turns "we warned you" into something a third party can check.
+ *
+ * THE INPUT IS COMMITTED TO BY HASH, NEVER CARRIED
+ *
+ * Calldata holds destination addresses and amounts, and this payload is served
+ * on a PUBLIC verify page and hashed into a PUBLIC daily root. So the seal
+ * commits to `input_sha256` and the byte length — enough for anyone holding
+ * the original calldata to prove this receipt is about THAT transaction, and
+ * useless to anyone who does not. Same reasoning that kept `owner_user_id` out
+ * of the agent claim.
+ *
+ * `deterministic` IS THE MOST IMPORTANT FIELD HERE
+ *
+ * An xray decode is reproducible: anyone can re-run it on the same calldata
+ * and get the same actions, forever, so the receipt proves what the
+ * transaction MEANT. A firewall text scan is a heuristic, so its receipt
+ * proves only what we SAID. Those are different claims and a reader must never
+ * have to guess which one they are holding — so the payload states it rather
+ * than leaving it to be inferred from `tool`.
+ *
+ * `unknown` IS CARRIED THROUGH FOR THE SAME REASON THE DECODER HAS IT
+ *
+ * The decoder answers UNKNOWN outside its known selector set and says in its
+ * own words that "unknown is not the same as safe". A sealed, anchored,
+ * official-looking receipt reading "nothing flagged" over calldata nobody
+ * decoded is the worst thing this feature could produce, so the flag rides
+ * INSIDE the hashed bytes where no renderer can drop it.
+ */
+function canonicalScanPayload(s) {
+  return JSON.stringify({
+    v: 5,
+    kind: 'presign_scan',
+    scan_key: String(s.scan_key),
+    tool: String(s.tool),
+    deterministic: !!s.deterministic,
+    input_sha256: String(s.input_sha256),
+    input_bytes: Number(s.input_bytes) || 0,
+    // The decoded actions (xray) or matched patterns (firewall), as ids only —
+    // the prose is a rendering concern and would drift between versions.
+    actions: Array.isArray(s.actions) ? s.actions.map(String) : [],
+    flags: Array.isArray(s.flags) ? s.flags.map(String) : [],
+    // Three-valued and hashed: true = the decoder did not recognise it,
+    // false = it did, null = the tool does not answer this question at all.
+    unknown: s.unknown == null ? null : !!s.unknown,
+    // The agent this scan was run for, when a bound key presented one.
+    agent_slug: s.agent_slug ? String(s.agent_slug) : null,
+    scanned_at: new Date(s.scanned_at || Date.now()).toISOString(),
+  });
+}
+
+/** `{ seal_payload, seal }` for one pre-signature scan. */
+function sealScan(s) {
+  const seal_payload = canonicalScanPayload(s);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
+/** sha256 of the exact bytes a caller sent, for `input_sha256`. */
+function inputDigest(text) {
+  const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
+  return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+           bytes: buf.length };
+}
+
 module.exports = {
   canonicalPayload, canonicalSignalPayload, numOrNull, sealOf, sealCall,
   canonicalArenaPayload, sealArenaTrade, newTradeKey,
   canonicalDuelPayload, sealDuelPick,
+  canonicalScanPayload, sealScan, inputDigest,
 };
