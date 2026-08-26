@@ -991,7 +991,21 @@ router.get('/season', publicBoardLimit, async (req, res) => {
         [season.starts_at, season.ends_at]);
       const [handles] = await pool.execute(
         'SELECT id, leaderboard_handle FROM users WHERE leaderboard_handle IS NOT NULL');
-      out.rows = seasons.seasonRanking(trades, new Map(handles.map((h) => [h.id, h.leaderboard_handle])));
+      const handleMap = new Map(handles.map((h) => [h.id, h.leaderboard_handle]));
+      out.rows = seasons.seasonRanking(trades, handleMap);
+      // Two counts, because an empty board has two unrelated causes and the
+      // renderer was announcing a third thing that is never measured here:
+      // "no one has joined this season". Nothing joins a season — the board is
+      // derived from trades CLOSED inside the window, and `seasonRanking` then
+      // drops every user without an opt-in handle (§4). So a board can be
+      // empty because nobody has closed a trade yet, OR because several people
+      // have and none of them shows a public handle. The leaderboard endpoint
+      // has sent `ranked_total` for exactly this reason all along, and
+      // embed-arena-view.js documents what it means at the top of the file;
+      // this endpoint simply never sent it.
+      out.closes_in_window = trades.length;
+      out.ranked_total = new Set(
+        trades.filter((t) => handleMap.get(t.user_id)).map((t) => t.user_id)).size;
     }
     res.json(out);
   } catch (err) {

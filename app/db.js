@@ -309,6 +309,8 @@ class MemoryDB {
     // rather than fall through to the unimplemented throw, and so that key
     // storage, if it is ever added here, is already covered by erasure.
     this.arenaApiKeys = [];
+    this.agents = [];         // { id, slug, user_id, display_name, seal, seal_payload, sealed_at }
+    this._nextAgentId = 1;
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
@@ -1007,6 +1009,54 @@ class MemoryDB {
       }
       const rows = this.sealRoots.slice().sort((a, b) => (a.day < b.day ? 1 : -1));
       return [rows.map(r => ({ ...r })), []];
+    }
+
+    // -- AGENTS (claimed slugs; UNIQUE on slug) --
+    //
+    // The UNIQUE index is modelled rather than assumed. lib/agents.js checks
+    // availability and then inserts, and relies on the index to arbitrate two
+    // concurrent claims — a shim that accepted the second write would let a
+    // test pass against a race that production refuses, which is exactly the
+    // blindfold the LIMIT branch above exists to prevent.
+    if (cmd.includes('INSERT INTO AGENTS')) {
+      // params: slug, user_id, display_name, seal, seal_payload, sealed_at, created_at
+      if (this.agents.some((a) => a.slug === params[0])) {
+        const err = new Error("Duplicate entry for key 'uniq_agent_slug'");
+        err.code = 'ER_DUP_ENTRY';
+        throw err;
+      }
+      this.agents.push({
+        id: this._nextAgentId++, slug: params[0], user_id: params[1],
+        display_name: params[2] == null ? null : params[2], seal: params[3],
+        seal_payload: params[4], sealed_at: params[5], created_at: params[6],
+      });
+      return [{ affectedRows: 1, insertId: this._nextAgentId - 1 }, []];
+    }
+    if (cmd.includes('FROM AGENTS')) {
+      if (cmd.includes('COUNT(*)')) {
+        return [[{ n: this.agents.filter((a) => a.user_id === params[0]).length }], []];
+      }
+      // The ownership question — slug AND user together, never either alone.
+      if (cmd.includes('WHERE SLUG = ? AND USER_ID')) {
+        return [this.agents.filter((a) => a.slug === params[0] && a.user_id === params[1])
+          .map((a) => ({ ...a })), []];
+      }
+      if (cmd.includes('WHERE SLUG')) {
+        return [this.agents.filter((a) => a.slug === params[0]).map((a) => ({ ...a })), []];
+      }
+      if (cmd.includes('WHERE USER_ID')) {
+        return [this.agents.filter((a) => a.user_id === params[0])
+          .sort((a, b) => b.id - a.id).map((a) => ({ ...a })), []];
+      }
+      // seal_roots' daily sweep: SELECT seal FROM agents WHERE sealed_at >= ? AND < ?
+      if (cmd.includes('WHERE SEALED_AT')) {
+        const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+        return [this.agents
+          .filter((a) => a.sealed_at && new Date(a.sealed_at).getTime() >= lo
+                      && new Date(a.sealed_at).getTime() < hi)
+          .map((a) => ({ seal: a.seal })), []];
+      }
+      return [this.agents.map((a) => ({ ...a })), []];
     }
 
     // -- PUSH SUBSCRIPTIONS (web push; UPSERT by endpoint) --
@@ -1994,6 +2044,7 @@ const EXPECTED_TABLES = Object.freeze([
   'arena_trades',
   'arena_api_keys',
   'arena_envelopes',
+  'agents',
   'learn_diary',
   'learn_progress',
   'seal_roots',
@@ -2654,6 +2705,26 @@ async function migrate() {
         revoked_at TIMESTAMP NULL,
         UNIQUE KEY uniq_arena_key_hash (key_hash),
         KEY idx_arena_keys_user (user_id)
+      )
+    `);
+    // Agent identity — a slug that belongs to someone. `seal`/`sealed_at`
+    // are not decoration: lib/seal_roots.js selects seals by `sealed_at`
+    // across every sealed surface, so a claim rides into that day's Merkle
+    // root and is anchored on Base with the trades. "This agent existed on
+    // this date" then rests on a block timestamp rather than on this column.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agents (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        slug VARCHAR(64) NOT NULL,
+        user_id INT NOT NULL,
+        display_name VARCHAR(80) NULL,
+        seal CHAR(64) NOT NULL,
+        seal_payload TEXT NOT NULL,
+        sealed_at TIMESTAMP NULL,
+        created_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_agent_slug (slug),
+        KEY idx_agents_user (user_id),
+        KEY idx_agents_sealed (sealed_at)
       )
     `);
     await pool.query(`

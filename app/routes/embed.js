@@ -178,8 +178,8 @@ router.get('/arena', (req, res) => {
       : '';
   } catch (_) { meta = ''; }
   res.type('html').send(
-    page('RUNECLAW — the arena', 'e-arena', '/js/embed-arena.js?v=1', meta,
-      ['/js/embed-arena-view.js?v=1']));
+    page('RUNECLAW — the arena', 'e-arena', '/js/embed-arena.js?v=2', meta,
+      ['/js/embed-arena-view.js?v=2']));
 });
 
 module.exports = router;

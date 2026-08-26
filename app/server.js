@@ -321,6 +321,14 @@ app.use('/api/public/flight', require('./routes/public_flight'));
 app.use('/api/public/user-strategies', require('./routes/public_user_strategies'));
 app.use('/api/public/strategy-templates', require('./routes/strategy_templates'));
 app.use('/api/public/agent-record', require('./routes/agent_record'));
+// '/api/public/agent' below is a string prefix of this path, which looks like a
+// shadowing hazard and is not one: Express matches a mount at SEGMENT
+// boundaries, so '/api/public/agent' only claims '/api/public/agent' and
+// '/api/public/agent/...'. Checked on express 4.22 by mounting them in the
+// dangerous order and confirming this route still answers — recorded here
+// because the next person will wonder too, and the intuition is wrong.
+app.use('/api/public/agent-identity', require('./routes/public_agent_identity'));
+app.use('/api/agents', require('./routes/agents'));
 app.use('/api/bot-strategy', require('./routes/botstrategy'));
 app.use('/api/public/leaderboard', require('./routes/public_leaderboard'));
 app.use('/api/public/strategies', require('./routes/public_strategies'));
