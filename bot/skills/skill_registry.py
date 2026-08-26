@@ -1071,11 +1071,28 @@ class RunBacktestSkill(BaseSkill):
 
         ret_icon = _status(r.total_return_pct)
 
-        # Performance factor bars
-        wr_bar = _bar(r.win_rate, 1.0, 8)
-        pf_bar = _bar(min(r.profit_factor, 3.0), 3.0, 8)
-        dd_bar = _bar(r.max_drawdown_pct, 20.0, 8)
-        sharpe_bar = _bar(min(max(r.sharpe_ratio, 0), 3.0), 3.0, 8)
+        # Performance factor bars. `scorecard` is pure and unit-tested — it is
+        # a module because this function runs a live engine, so nothing could
+        # plant a result and read what the operator would actually see.
+        from bot.backtest import scorecard as _sc
+
+        wr_bar = _sc.bar(r.win_rate, 1.0, 8)
+        pf_bar = _sc.bar(min(r.profit_factor, 3.0), 3.0, 8)
+        # More filled = better, like the three rows around it. Passing the raw
+        # percentage in drew the BEST outcome as the emptiest bar.
+        dd_bar = _sc.drawdown_bar(r.max_drawdown_pct, 20.0, 8)
+        sharpe_bar = _sc.bar(min(max(r.sharpe_ratio, 0), 3.0), 3.0, 8)
+        # A bar cannot show 3.0 apart from 3.76 apart from 30.0, and on
+        # synthetic data an absurd Sharpe is the signal worth seeing.
+        pf_cap = _sc.capped(r.profit_factor, 3.0)
+        sharpe_cap = _sc.capped(r.sharpe_ratio, 3.0)
+        low_sample = _sc.sample_note(r.total_trades)
+        # Top-level stages get the bullet; indented sub-rows carry their own
+        # tree glyph, and printing both reads as two markers on one line.
+        pipeline = "\n".join(
+            (f"- {label}: <code>{_esc(value)}</code>" if not label.startswith(" ")
+             else f"{label}: <code>{_esc(value)}</code>")
+            for label, value in _sc.pipeline_rows(r))
 
         return (
             f"{_CHART} <b>BACKTEST</b>\n{SEP}\n"
@@ -1093,17 +1110,20 @@ class RunBacktestSkill(BaseSkill):
             f"\U0001f4ca <b>Quality Factors</b>\n"
             f"<pre>"
             f"  Win Rate  \u2502{wr_bar}\u2502 {r.win_rate:.0%}   ({r.total_trades}t)\n"
-            f"  Profit F  \u2502{pf_bar}\u2502 {r.profit_factor:.2f}\n"
+            f"  Profit F  \u2502{pf_bar}\u2502 {r.profit_factor:.2f}{pf_cap}\n"
             f"  Max DD    \u2502{dd_bar}\u2502 {r.max_drawdown_pct:.2f}%\n"
-            f"  Sharpe    \u2502{sharpe_bar}\u2502 {r.sharpe_ratio:.2f}\n"
+            f"  Sharpe    \u2502{sharpe_bar}\u2502 {r.sharpe_ratio:.2f}{sharpe_cap}\n"
             f"  Sortino                {r.sortino_ratio:>6.2f}"
-            f"</pre>\n\n"
+            f"</pre>\n"
+            # Said out loud because the drawdown row reads BACKWARDS without it,
+            # and because a saturated bar silently hides the value past its end.
+            f"<i>Fuller is better on every bar — drawdown included. "
+            f"“+” means the value ran past the end of its bar.</i>\n"
+            + (f"<i>⚠ {_esc(low_sample)}</i>\n" if low_sample else "")
+            + "\n"
             # ── Pipeline ──
             f"\U0001f504 <b>Pipeline</b>\n"
-            f"- Signals: <code>{r.total_signals_generated}</code>\n"
-            f"- Ideas: <code>{r.total_ideas_generated}</code>\n"
-            f"- Risk Reject: <code>{r.total_ideas_rejected_risk}</code>\n"
-            f"- Conf Reject: <code>{r.total_ideas_rejected_confidence}</code>\n\n"
+            f"{pipeline}\n\n"
             f"<i>\u23f1 {r.bars_processed} bars \u2022 {r.duration_seconds:.1f}s \u2022 "
             f"{r.start_date} \u2192 {r.end_date}</i>"
         )
