@@ -173,11 +173,6 @@ class BacktestEngine:
         # closed-bar window (the run TF doubles as the trigger series here)
         # + audit counters for the A/B report.
         self._armed_setups: list[dict] = []
-        # Initialised HERE as well as in run(). The result builder reports
-        # whether an entry was still queued when the run ended, and two tests
-        # construct an engine and reach that builder without calling run() —
-        # so a run()-only attribute made the card's own honesty field raise.
-        self._pending_entry: tuple | None = None
         self._et_bar_win: list[tuple[float, float, float, float]] = []
         self._et_armed = 0
         self._et_fired = 0
@@ -1398,17 +1393,6 @@ class BacktestEngine:
             total_ideas_generated=self._ideas_generated,
             total_ideas_rejected_risk=self._ideas_rejected_risk,
             total_ideas_rejected_confidence=self._ideas_rejected_confidence,
-            total_ideas_rejected_preset=self._ideas_rejected_preset,
-            # The three ways an ARMED setup ends without a fill. `_et_armed`
-            # itself is deliberately NOT reported: an arming that later FIRED
-            # became a trade, so publishing the arming count beside the trade
-            # count would double-count it. What a reader needs is the number of
-            # ideas that left the pipeline here, which is exactly these three.
-            total_ideas_timing_unfilled=(
-                self._et_disarmed_invalidated
-                + self._et_disarmed_expired
-                + len(self._armed_setups)),
-            total_entries_pending_at_end=(1 if self._pending_entry is not None else 0),
             rejections_by_gate=dict(self._rejections_by_gate),
             stateful_rejections=sum(
                 c for g, c in self._rejections_by_gate.items()
