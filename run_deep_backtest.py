@@ -244,7 +244,7 @@ async def main():
         avg_sharpe = sum(r["sharpe_ratio"] for r in runs) / n
         # MEDIAN: profit factor is an unbounded ratio carrying an "undefined"
         # sentinel, so its mean flatters twice over. See backtest/metrics.py.
-        pf = profit_factor_summary(r["profit_factor"] for r in runs)
+        pf = profit_factor_summary((r["profit_factor"], r["total_trades"]) for r in runs)
         med_pf = pf.median if pf.median is not None else float("nan")
         avg_sortino = sum(r["sortino_ratio"] for r in runs) / n
         worst_dd = max(r["max_drawdown_pct"] for r in runs)
@@ -267,7 +267,7 @@ async def main():
         avg_dd = sum(r["max_drawdown_pct"] for r in runs) / n
         avg_wr = sum(r["win_rate"] for r in runs) / n
         avg_sharpe = sum(r["sharpe_ratio"] for r in runs) / n
-        pf = profit_factor_summary(r["profit_factor"] for r in runs)
+        pf = profit_factor_summary((r["profit_factor"], r["total_trades"]) for r in runs)
         med_pf = pf.median if pf.median is not None else float("nan")
         avg_sortino = sum(r["sortino_ratio"] for r in runs) / n
         print(f"{regime['label']:16s} {n:5d} {avg_trades:7.0f} {avg_ret:+9.2f} {avg_dd:8.2f} {avg_wr * 100:8.1f} {avg_sharpe:+11.2f} {med_pf:8.2f} {avg_sortino:+12.2f}")
@@ -280,8 +280,8 @@ async def main():
     avg_sharpe = sum(r["sharpe_ratio"] for r in valid) / len(valid)
     avg_sortino = sum(r["sortino_ratio"] for r in valid) / len(valid)
     # THE LINE THAT REPORTED 19.17 WHILE THE MEDIAN RUN SCORED 0.45.
-    pf = profit_factor_summary(r["profit_factor"] for r in valid)
-    n_profit, n_runs = share_profitable(r["total_return_pct"] for r in valid)
+    pf = profit_factor_summary((r["profit_factor"], r["total_trades"]) for r in valid)
+    shr = share_profitable((r["total_return_pct"], r["total_trades"]) for r in valid)
     worst_dd = max(r["max_drawdown_pct"] for r in valid)
     best_ret = max(r["total_return_pct"] for r in valid)
     worst_ret = min(r["total_return_pct"] for r in valid)
@@ -305,7 +305,7 @@ async def main():
     print(f"  Profit factor:         {pf.render()}")
     # The number that settles the argument fastest. "Avg return -0.46%"
     # invites "so it is roughly flat"; "113 of 485 profitable" does not.
-    print(f"  Profitable runs:       {n_profit} of {n_runs} ({100.0 * n_profit / n_runs:.0f}%)" if n_runs else "  Profitable runs:       no runs")
+    print(f"  Profitable runs:       {shr.render()}")
     print(f"  Crashed runs (DD>20%): {crashed}")
     print(f"  Total commission:      ${total_commission:,.2f}")
     print(f"  Total slippage:        ${total_slippage:,.2f}")
@@ -342,8 +342,14 @@ async def main():
                 "median_profit_factor": (round(pf.median, 2) if pf.median is not None else None),
                 "mean_profit_factor_defined": (round(pf.mean, 2) if pf.mean is not None else None),
                 "runs_profit_factor_undefined": pf.n_undefined,
-                "profitable_runs": n_profit,
-                "profitable_runs_total": n_runs,
+                "runs_no_trades": pf.n_no_trades,
+                "profitable_runs": shr.profitable,
+                "profitable_runs_total": shr.total,
+                # Both denominators: an idle run returns 0% and so is "not
+                # profitable", but it declined to trade rather than losing.
+                # Publishing one alone would be choosing the framing.
+                "runs_that_traded": shr.traded,
+                "runs_idle": shr.idle,
                 "crashed_runs": crashed,
                 "total_commission": round(total_commission, 2),
                 "total_slippage": round(total_slippage, 2),
