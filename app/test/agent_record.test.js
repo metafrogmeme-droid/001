@@ -179,10 +179,22 @@ test('an unrecorded agent serves an EMPTY record, never an invented one', async 
   assert.strictEqual(bad.status, 400);
 });
 
-test('both close paths carry attribution (source pins)', () => {
+test('both close paths carry attribution AND provenance (source pins)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'arena.js'), 'utf8');
-  const carries = src.match(/closed_at, signal_key, agent_slug\)/g) || [];
+  const carries = src.match(/closed_at, signal_key, agent_slug, source\)/g) || [];
   assert.strictEqual(carries.length, 2, 'sweep close AND manual close both carry the tag');
+  // `source` joined the column list when an agent gained the ability to trade
+  // as itself: the per-agent record is built from CLOSED rows, so a close path
+  // that dropped it would file the agent's own trade under its copiers — and
+  // WHICH record a trade lands in would depend on how it happened to close.
+  // Anchored on `]);` — the LAST argument of the insert's params array. The
+  // unanchored version counted 3, because the positions listing also carries a
+  // `source: p.source || 'manual'` response field that is not a close path at
+  // all. A scan that matches the right string in the wrong place reports a
+  // number, and the number was wrong in the safe direction here; next time it
+  // would be wrong in the other one.
+  const provenance = src.match(/p\.source \|\| 'manual'\]\);/g) || [];
+  assert.strictEqual(provenance.length, 2, 'both close paths must carry p.source');
   assert.match(src, /p\.signal_key \|\| null, p\.agent_slug \|\| null/);
   assert.match(src, /agentWouldTake/, 'verification uses the same matcher the picks feed runs');
 });
