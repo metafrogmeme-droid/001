@@ -28,12 +28,36 @@
 # 213 lines nothing could reach. It was 12/12 the first time it was ever run —
 # a regression guard, not a bug report, exactly as its sibling was.
 #
-# authority_preflight is the remaining uncomfortable one and is NOT the same
-# case. It reconciles a granted envelope against what a key can observably do,
-# which needs a live venue and a real key: there is nothing to gate in CI, and
-# a runner that reported CONFIRMED from no probe would be worse than no runner.
-# Wiring it is a product decision about where posture gets checked, not a
-# cleanup this file can make.
+# authority_preflight LEFT this list, and the note that used to sit here was
+# right in a way it did not know. It said "a runner that reported CONFIRMED from
+# no probe would be worse than no runner". That was not a hypothetical about
+# some future wiring — it was a description of the code as written.
+# probe_posture opened with
+#
+#     "environment":          "demo" if sandbox else "live",
+#     "expected_environment": "demo" if sandbox else "live",
+#
+# both sides of the comparison from the same argument, both set BEFORE the probe
+# ran. The environment dimension could never report VIOLATION and reported
+# CONFIRMED ("key is a live key, matching the bot") off a probe that had failed
+# outright. test_environment_mismatch_is_violation proved the VIOLATION branch
+# worked the whole time; no PRODUCER could reach it. Green test, unreachable
+# branch — the #999 shape one level in, and invisible to any source scan,
+# because the code was not just present, it was correct.
+#
+# The product decision the old note deferred: posture is checked at
+# CREDENTIAL-LINK time, in /connect. That is the moment a user hands over a key,
+# and the question worth asking then is the one nothing in this repo asked —
+# not "can this key read" (three probes already answer that) and not "is it the
+# right environment" (validate_bitget_credentials already diagnoses 40099 with
+# far better messages), but CAN THIS KEY MOVE THE MONEY OUT. Bitget answers it
+# on a read-only endpoint; no withdrawal is ever attempted.
+#
+# The vocabulary that decides it was transcribed from docs and never confirmed
+# against a live key, so bitget_withdraw_scope only answers "off" when it
+# recognises EVERY authority in the response. A wrong or stale vocabulary then
+# degrades to "unknown" — the status quo — instead of reading a response it
+# cannot parse as proof of non-custody.
 #
 # validation_gate LEFT this list. Its own docstring carried the accusation —
 # "the engine does not consult this gate before executing trades" — and it
@@ -45,7 +69,6 @@
 # SYNTHETIC data), the verdict is three-valued, and the risk gate consults it
 # as a tighten-only fail-open hook beside intent_policy and the authority
 # envelope — default OFF, and shadow before enforce.
-bot/guardian/authority_preflight.py
 
 # ── execution paths built and not connected ─────────────────────────────────
 # meme_executor LEFT this list: /memeplan reaches its PLANNER. There was never
