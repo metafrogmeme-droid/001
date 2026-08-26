@@ -42,14 +42,33 @@ RE_SL = re.compile(r"(?:stop[_\s]?loss|Stop Loss|SL)\s*[:\s]\s*" + _NUM, re.IGNO
 RE_TP = re.compile(r"(?:take[_\s]?profit|Take Profit|TP1?)\s*[:\s]\s*" + _NUM, re.IGNORECASE)
 RE_DIR = re.compile(r"(?:direction|Direction)\s*[:\s]\s*(LONG|SHORT)", re.IGNORECASE)
 
-#: An ASSERTED risk:reward check line — a bare ratio against the floor, with
-#: no operands. The negative lookahead is what keeps this pass idempotent:
-#: a line that already reads "risk = ..." is left alone, so running the
-#: script twice cannot double-derive.
+#: An ASSERTED risk:reward check line — a bare ratio where operands belong.
+#:
+#: DELIBERATELY PERMISSIVE about everything except the bare number. The first
+#: draft demanded a leading bullet AND a comparison operator, matched 98 rows
+#: of 114,229, and reported "0 derived" — which read as "nothing to fix"
+#: while 16,818 asserted lines sat in the corpus untouched. A pattern that
+#: is too strict does not fail; it reports a zero, and a zero from a tool is
+#: not the same measurement as a zero in the data. Hence --survey below: the
+#: shapes are now discoverable instead of assumed.
+#:
+#: The leading lookahead is the idempotence guard, and it is line-wide on
+#: purpose: a line already carrying "risk =" or a " / " division has been
+#: derived, and matching the "R:R = 1,500 / 1,500 = 1.00" half of one would
+#: re-derive it into nonsense. The prefix group is unconstrained because the
+#: real corpus puts a checklist verdict there ("PASS: RISK_REWARD: 3.0 OK");
+#: assuming a bullet is what made the first draft miss 16,818 rows.
 RE_ASSERTED = re.compile(
-    r"^(?P<indent>\s*[-*]\s*)(?P<label>RISK[_ ]REWARD)\s*:\s*"
-    r"(?!risk\s*=)(?P<ratio>\d+\.?\d*)\s*(?P<op>>=|<=|<|>)\s*(?P<floor>\d+\.?\d*)"
-    r"(?P<tail>.*)$",
+    r"^(?![^\n]*(?:risk\s*=|\s/\s))"
+    r"(?P<prefix>[^\n]*?)(?P<label>RISK[_ ]?REWARD|R:R)\s*[:=]\s*"
+    r"(?:1\s*:\s*)?(?P<ratio>\d+\.?\d*)(?P<tail>[^\n]*)$",
+    re.IGNORECASE | re.MULTILINE)
+
+#: Any line mentioning a risk:reward at all — the survey net. Wider than the
+#: repair pattern on purpose: what it catches and the repair does not is
+#: exactly the blind spot worth seeing.
+RE_ANY_RR = re.compile(
+    r"^[^\n]*(?:RISK[_ ]?REWARD|R:R|Risk:Reward)[^\n]*$",
     re.IGNORECASE | re.MULTILINE)
 
 
@@ -129,14 +148,56 @@ def derive_output(out, stats):
             stats["ratio_mismatch_left_alone"] += 1
             return m.group(0)
         stats["derived"] += 1
-        return (f"{m.group('indent')}{m.group('label')}: "
+        return (f"{m.group('prefix')}{m.group('label')}: "
                 f"risk = {_fmt(risk, decimals)}, "
                 f"reward = {_fmt(reward, decimals)}, "
                 f"R:R = {_fmt(reward, decimals)} / {_fmt(risk, decimals)} "
-                f"= {stated:.2f} {m.group('op')} {m.group('floor')}"
-                f"{m.group('tail')}")
+                f"= {stated:.2f}{m.group('tail')}")
 
     return RE_ASSERTED.sub(_repl, out)
+
+
+def survey(path, limit=25):
+    """Print the distinct SHAPES of every risk:reward line in the corpus.
+
+    This exists because the first version of this tool reported "0 derived"
+    and that was read as "nothing to fix". A count of what a pattern matched
+    says nothing about what it missed; only the shapes do. Numbers are
+    replaced by N so that thousands of rows collapse into the handful of
+    dialects actually present.
+    """
+    shapes = {}
+    examples = {}
+    matched_by_repair = {}
+    total_lines = 0
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            out = json.loads(line).get("output", "")
+            for m in RE_ANY_RR.finditer(out):
+                text = m.group(0).strip()
+                total_lines += 1
+                key = re.sub(r"[\d][\d,]*\.?\d*", "N", text)
+                shapes[key] = shapes.get(key, 0) + 1
+                examples.setdefault(key, text)
+                if key not in matched_by_repair:
+                    matched_by_repair[key] = bool(RE_ASSERTED.search(text))
+
+    print()
+    print(f"  risk:reward lines seen : {total_lines:,}")
+    print(f"  distinct shapes        : {len(shapes):,}")
+    print()
+    print("  shape (numbers -> N), count, and whether the repair pass reaches it:")
+    for key, count in sorted(shapes.items(), key=lambda kv: -kv[1])[:limit]:
+        reach = "REPAIRS" if matched_by_repair[key] else "skips  "
+        print(f"    {count:>8,}  [{reach}]  {key[:96]}")
+        print(f"              {'':>9}  e.g. {examples[key][:96]}")
+    if len(shapes) > limit:
+        print(f"    ... {len(shapes) - limit:,} more shapes not shown "
+              f"(raise --survey-limit to see them)")
+    print()
 
 
 def sha256_file(path):
@@ -155,7 +216,16 @@ def main():
                                          "(omit with --dry-run)")
     parser.add_argument("--dry-run", action="store_true",
                         help="count what would change, write nothing")
+    parser.add_argument("--survey", action="store_true",
+                        help="print the distinct shapes of every risk:reward "
+                             "line and whether the repair pass reaches each; "
+                             "run this BEFORE trusting a zero")
+    parser.add_argument("--survey-limit", type=int, default=25)
     args = parser.parse_args()
+
+    if args.survey:
+        survey(args.input, args.survey_limit)
+        return
 
     if not args.dry_run and not args.output:
         parser.error("--output is required unless --dry-run is given")
