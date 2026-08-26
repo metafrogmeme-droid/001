@@ -608,6 +608,11 @@ app.get('/reset', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); re
 app.get('/verify', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'verify.html')); });
 app.get('/agent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent.html')); });
 app.get('/agent/:address', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent-card.html')); });
+// One claimed agent's public page — the link an agent puts in its own README.
+// Short on purpose. NOT under /agent/, which is already the ERC-8004 identity
+// card keyed by 0x-address; a slug there would be served the card page and die
+// on its address regex.
+app.get('/a/:slug', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent-profile.html')); });
 // Public, shareable Strategy-Agent directory + per-agent profile (marketplace
 // slugs, e.g. /agents and /agents/dip-sniper). Bare /agents must precede the
 // parametised route so it isn't captured as a slug.

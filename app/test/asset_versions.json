@@ -3,6 +3,10 @@
     "v": 5,
     "sha": "b5c4767b57d52d2c"
   },
+  "js/agent-page.js": {
+    "v": 1,
+    "sha": "d368ad38000f60e0"
+  },
   "js/ambient.js": {
     "v": 3,
     "sha": "ef071afddd5042f6"
