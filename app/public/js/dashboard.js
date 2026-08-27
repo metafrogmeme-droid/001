@@ -4491,7 +4491,10 @@
                       + 'Free — the only cost is Base gas (well under a cent). Soulbound: a badge, not an investment.'))}</p>
                     <button class="btn btn--primary btn--sm" id="runeMint" type="button"
                       data-linked="${esc(d.address)}" data-contract="${esc(p.contract)}"
-                      data-calldata="${esc(p.calldata)}" data-chain="${esc(String(p.chain_id))}">⚔ ${esc(
+                      data-calldata="${esc(p.calldata)}" data-chain="${esc(String(p.chain_id))}"
+                      data-chain-name="${esc(p.chain_name || '')}"
+                      data-rpcs="${esc(JSON.stringify(p.rpc_urls || []))}"
+                      data-explorer="${esc(p.explorer || '')}">⚔ ${esc(
                         T('dd.r_btn', 'Mint your Rune — free, gas only'))}</button>
                     <p class="small muted" id="runeStep" hidden></p></div>`;
             }
@@ -4682,15 +4685,33 @@
             return;
           }
           const chainHex = '0x' + Number(btn.getAttribute('data-chain')).toString(16);
-          rstep(T('dd.r_chain', 'Switching your wallet to Base…'));
+          // Network details come from the mint plan, which reads them from the
+          // same config that signed the voucher. They were literals here —
+          // chainName 'Base' and the mainnet RPC — beside a chainId taken from
+          // the payload, so a deployment on any other chain would ask the
+          // wallet to ADD that chain id under Base's name and Base's RPC.
+          const chainName = btn.getAttribute('data-chain-name') || '';
+          const explorer = btn.getAttribute('data-explorer') || '';
+          let rpcUrls = [];
+          // A malformed attribute must not throw out of the click handler: an
+          // exception here would surface as a generic mint failure, blaming the
+          // mint for a problem in the network hint beside it.
+          try { rpcUrls = JSON.parse(btn.getAttribute('data-rpcs') || '[]') || []; }
+          catch (e) { rpcUrls = []; }
+          rstep(TF('dd.r_chain', 'Switching your wallet to {chain}…',
+            { chain: chainName || chainHex }));
           try {
             await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainHex }] });
           } catch (sw) {
             if (sw && sw.code === 4902) {
+              // Only offer to ADD a network we can actually describe. Without
+              // a name and an RPC the wallet would be handed a half-built
+              // entry; failing here says so instead.
+              if (!chainName || !rpcUrls.length) throw sw;
               await eth.request({ method: 'wallet_addEthereumChain', params: [{
-                chainId: chainHex, chainName: 'Base',
+                chainId: chainHex, chainName,
                 nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-                rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'],
+                rpcUrls, ...(explorer ? { blockExplorerUrls: [explorer] } : {}),
               }] });
             } else { throw sw; }
           }
