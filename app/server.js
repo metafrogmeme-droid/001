@@ -762,6 +762,23 @@ app.get('/agents/:slug', async (req, res) => {
   res.type('html').send(agentSeo.injectAgentMeta(strategyHtml(), agent, originFrom(req), slug));
 });
 
+// Terminal 404 — MUST stay last, directly above the error handler.
+//
+// Without it, anything unmatched fell through to the hosting layer, which
+// answered with its own 12,628-byte branded page. `GET /api/market/overview`
+// came back as `content-type: text/html`: a JSON client got twelve kilobytes
+// of somebody else's HTML and a parse error instead of a 404 it could read.
+//
+// PLACEMENT IS THE WHOLE RISK. Registered anywhere above the routes this
+// swallows the entire site — every page, every endpoint, one line, total, and
+// invisible in review. `app/test/not_found.test.js` asserts it sits after the
+// last route registration rather than trusting the diff to keep it here.
+//
+// Route-level 404s are untouched. `/api/public/agent` still answers
+// `{"error":"unknown_agent"}` for an address it does not know — a measured
+// absence, not an unmatched path.
+app.use(require('./lib/not_found').handler);
+
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err.stack || err.message);
