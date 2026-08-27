@@ -264,6 +264,44 @@ jobs:
             echo "::warning::Anchor placeholder program id is still present. Run 'anchor keys sync' before any deployment (docs/TOKEN_ROADMAP.md, 'Before any deployment holding value')."
           fi
 
+  anchor-workspace:
+    name: Anchor workspace (node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # The ROOT package.json — the Anchor TS workspace — was installed by no
+      # job at all. Every other workspace (app/, token/, site/, contracts/rune/)
+      # gets an `npm ci`; this 2,277-line lockfile got none, so nothing here was
+      # ever compiled or advisory-checked. It carries 6 high advisories today
+      # (bigint-buffer buffer overflow, serialize-javascript RCE, js-yaml
+      # quadratic CPU, brace-expansion DoS ×2) and nothing would have said so.
+      - name: Install (locked)
+        run: npm ci --no-audit --no-fund
+
+      # NOT `npm test`. programs/rclaw_staking/tests/rclaw_staking.ts says in
+      # its own header that it is "not run in CI (no validator/toolchain
+      # there)" — that is a deliberate choice, not an oversight, and `anchor
+      # test` needs a local validator this job has no business installing (the
+      # same reason token tooling is excluded from preflight: its installer
+      # curl-pipes a Solana validator).
+      #
+      # `tsc` needs none of that. The spec file is written to typecheck BEFORE
+      # `anchor build` has generated an IDL, precisely so this is possible — so
+      # a spec that stops compiling is caught here rather than by the next
+      # person who tries to run it.
+      - name: Types — the Anchor spec still compiles
+        run: npm run typecheck
+
+      - name: SCA — npm advisory ratchet
+        run: node token/scripts/audit_gate.mjs .
+
   site:
     name: Marketing site (vite)
     runs-on: ubuntu-latest
@@ -279,6 +317,16 @@ jobs:
       - name: Install (locked)
         working-directory: site
         run: npm ci --no-audit --no-fund
+
+      # site/ was installed and built but never advisory-checked — only token/
+      # and app/ ran the ratchet, so two of the five workspaces could take on a
+      # vulnerable dependency in silence. This tree is clean today (0
+      # advisories, recorded in site/.audit-baseline.json), which is exactly
+      # when a ratchet is cheapest to add: the baseline is empty, so anything
+      # it ever reports is new.
+      - name: SCA — npm advisory ratchet
+        working-directory: site
+        run: node ../token/scripts/audit_gate.mjs .
 
       # The build is the gate. `site/` compiles React 19 + TanStack Router +
       # Tailwind v4 into static HTML in `website/`, which api_bridge.py serves
@@ -563,6 +611,16 @@ jobs:
       - name: Contract tests (compile + EVM execution)
         working-directory: contracts/rune
         run: npm test
+
+      # This tree was installed and tested but never advisory-checked. It
+      # carries 1 high and 1 low today, recorded in
+      # contracts/rune/.audit-baseline.json — numbers nothing in CI had ever
+      # printed. The toolchain here compiles a contract that mints a token, so
+      # a compromised build dependency is not a theoretical supply-chain
+      # concern.
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/rune
+        run: node ../../token/scripts/audit_gate.mjs .
 
   web-app:
     name: Web app (express)

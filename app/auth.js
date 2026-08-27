@@ -50,6 +50,15 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 // want shorter-lived tokens can set JWT_EXPIRY (e.g. '12h', '7d') in the env.
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '30d';
 
+// Pin the algorithm on VERIFY, not just on sign.
+//
+// jsonwebtoken v9 already rejects `alg: none` when a key is supplied, and the
+// secret here is symmetric, so the classic RS256->HS256 confusion does not
+// apply — this is not a live hole. It is one line of defence-in-depth on the
+// session boundary, and it stops the question having to be re-derived by the
+// next reader: the token is HS256 or it is not a token.
+const JWT_VERIFY_OPTS = { algorithms: ['HS256'] };
+
 // OAuth providers (optional; each endpoint 503s cleanly when its secret is
 // unset, so the site runs fine with only email/password until configured).
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || '';
@@ -220,7 +229,7 @@ async function authMiddleware(req, res, next) {
   }
   let payload;
   try {
-    payload = jwt.verify(raw, JWT_SECRET);
+    payload = jwt.verify(raw, JWT_SECRET, JWT_VERIFY_OPTS);
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
@@ -254,7 +263,7 @@ async function optionalAuth(req, _res, next) {
   const raw = tokenFromRequest(req);
   if (raw) {
     try {
-      const payload = jwt.verify(raw, JWT_SECRET);
+      const payload = jwt.verify(raw, JWT_SECRET, JWT_VERIFY_OPTS);
       // A revoked token identifies nobody. Degrading to anonymous rather than
       // refusing is this function's whole contract — but it must degrade, not
       // sail through: `req.user` only ever ADDS to a response, and a logged-out
