@@ -156,8 +156,13 @@ Every single proposal from any of the 8 modules must pass a strict safety policy
 | Suggest safer filters | Increase leverage |
 | Detect recurring mistakes | Remove stop-losses |
 | Rank strategies for review | Bypass risk engine |
-| Auto-apply docs & tests | Delete audit logs |
+| Approve docs & tests without human review | Delete audit logs |
 | Produce improvement proposals | Claim guaranteed profit |
+
+> **Approved is not applied.** Nothing in `bot/learning` writes a file or edits
+> code. The system produces proposals, classifies them, and marks the safe ones
+> as needing no human review — a human still has to act on every one. This row
+> read "Auto-apply docs & tests" until the code was checked against it.
 
 ### Proposal Classification
 
@@ -165,8 +170,8 @@ Every proposal is classified before action:
 
 | Classification | Action |
 |----------------|--------|
-| `SAFE_AUTO_DOCS` | Auto-apply documentation updates |
-| `SAFE_AUTO_TEST` | Auto-apply test improvements |
+| `SAFE_AUTO_DOCS` | Approved without review — a human still applies it |
+| `SAFE_AUTO_TEST` | Approved without review — a human still applies it |
 | `HUMAN_REVIEW_REQUIRED` | Queued for admin approval |
 | `BLOCKED_RISK_INCREASE` | Automatically rejected |
 | `BLOCKED_COMPLIANCE_RISK` | Automatically rejected |
@@ -197,9 +202,14 @@ def must_not_override_risk(cls, v):
  6. SCORE      Update strategy scorecard (S/A/B/C/D)
  7. LEARN      Create lessons + pattern detection
  8. VALIDATE   Check if proposal improves safety
- 9. APPROVE    Auto-apply docs/tests; human review for logic
+ 9. APPROVE    Auto-approve docs/tests; human review for logic
 10. VERSION    Save with changelog and rollback plan
 ```
+
+The workflow ends at step 9. Nothing applies a proposal — no file is written
+and no code is edited anywhere in `bot/learning`, so step 10 records a decision
+rather than a change. An approved proposal is one a human may act on without
+further review, not one that has been acted on.
 
 ---
 

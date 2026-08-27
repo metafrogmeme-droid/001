@@ -45,8 +45,13 @@ class LearningOrchestrator:
     6. Score — update strategy scorecard
     7. Learn — create lessons + proposals
     8. Validate — check if proposal improves safety
-    9. Approve — auto-apply docs/tests; human review for trading logic
+    9. Approve — auto-APPROVE docs/tests; human review for trading logic
     10. Version — save with changelog and rollback plan
+
+    Steps 9 and 10 stop at approval. Nothing here applies a proposal, writes a
+    file or edits code — see ``process_proposals``, which said "auto-apply"
+    until it was checked. The workflow above is the DESIGN; the applier is the
+    part that does not exist.
 
     The orchestrator NEVER bypasses the risk engine.
     The orchestrator NEVER enables live trading.
@@ -181,14 +186,34 @@ class LearningOrchestrator:
     # ── Step 8-9: Validate & Approve Proposals ────────────────────
 
     def process_proposals(self) -> dict:
-        """Process pending improvement proposals.
+        """Triage pending improvement proposals. APPLIES NOTHING.
 
-        Auto-apply: SAFE_AUTO_DOCS, SAFE_AUTO_TEST
+        Auto-APPROVE (no human review needed): SAFE_AUTO_DOCS, SAFE_AUTO_TEST
         Queue for human: HUMAN_REVIEW_REQUIRED
         Block: BLOCKED_RISK_INCREASE, BLOCKED_COMPLIANCE_RISK
+
+        NOTHING IN bot/learning APPLIES A PROPOSAL, and this method is where
+        that used to stop being obvious. It said "Auto-apply", set
+        ``status = "applied"``, counted into ``auto_applied`` and logged
+        "Auto-applied docs proposal: <id>" — four assertions that a change had
+        been made. No file is written and no code is altered anywhere on this
+        path; ``grep -rn "def apply\\|apply_proposal" bot/learning/`` finds
+        nothing. A reader of the backlog, or of the logs, was told work had
+        happened that had not.
+
+        The classification is real and worth keeping: it decides which
+        proposals a human must see. So the verdict is APPROVAL, which is what
+        this method actually produces, and the status says
+        ``auto_approved`` — safe enough to skip review, still waiting for
+        somebody to act on it.
+
+        Nothing reads ``proposal.status`` in production, so renaming it costs
+        nothing today. The point is what it costs LATER: whoever wires an
+        applier would otherwise inherit a backlog already marked applied and a
+        counter already claiming the work was done.
         """
         pending = self.store.get_proposals(status="pending")
-        results = {"auto_applied": 0, "queued": 0, "blocked": 0}
+        results = {"auto_approved": 0, "queued": 0, "blocked": 0}
 
         for proposal in pending:
             # Re-classify (idempotent safety check)
@@ -203,14 +228,16 @@ class LearningOrchestrator:
                 logger.warning("BLOCKED proposal: %s", proposal.audit_id)
 
             elif proposal.classification == ChangeClassification.SAFE_AUTO_DOCS.value:
-                proposal.status = "applied"
-                results["auto_applied"] += 1
-                logger.info("Auto-applied docs proposal: %s", proposal.audit_id)
+                proposal.status = "auto_approved"
+                results["auto_approved"] += 1
+                logger.info("Auto-approved docs proposal (NOT applied — nothing "
+                            "in bot/learning applies one): %s", proposal.audit_id)
 
             elif proposal.classification == ChangeClassification.SAFE_AUTO_TEST.value:
-                proposal.status = "applied"
-                results["auto_applied"] += 1
-                logger.info("Auto-applied test proposal: %s", proposal.audit_id)
+                proposal.status = "auto_approved"
+                results["auto_approved"] += 1
+                logger.info("Auto-approved test proposal (NOT applied — nothing "
+                            "in bot/learning applies one): %s", proposal.audit_id)
 
             else:
                 proposal.status = "queued"
