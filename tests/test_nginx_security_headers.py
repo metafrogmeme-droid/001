@@ -254,6 +254,18 @@ def test_nginx_accepts_the_config(tmp_path):
     rendered = rendered.replace("http://api_bridge:8000", "http://127.0.0.1:8000")
     rendered = rendered.replace("http://runeclaw-bot:8080", "http://127.0.0.1:8080")
 
+    # `nginx -t` BINDS the listen sockets, and 80/443 are privileged. CI runs
+    # unprivileged, so the real ports fail with "bind() to 0.0.0.0:80 failed
+    # (13: Permission denied)". Move them above 1024; the port number is not
+    # something this test is about.
+    ports = re.subn(r"listen\s+80;", "listen 18080;", rendered)
+    rendered, n80 = ports
+    rendered, n443 = re.subn(r"listen\s+443\s+ssl", "listen 18443 ssl", rendered)
+    assert n80 and n443, (
+        f"expected to rewrite both listen ports for an unprivileged nginx -t, "
+        f"rewrote {n80} x 80 and {n443} x 443 — the listen lines changed shape "
+        f"and this test is about to bind something it did not mean to")
+
     # A throwaway self-signed pair. Empty files are not enough: nginx -t
     # actually LOADS the certificate and fails with "PEM routines::no start
     # line", so a placeholder would leave this test red for a reason that has
@@ -274,9 +286,33 @@ def test_nginx_accepts_the_config(tmp_path):
         "/etc/nginx/snippets/security-headers.conf", str(SNIPPET))
     (conf_d / "default.conf").write_text(rendered, encoding="utf-8")
 
+    # Every runtime path redirected into tmp_path. `nginx -t` does not just
+    # parse — it OPENS the pid file, the logs and the scratch directories, so
+    # under a non-root user the defaults fail with
+    #
+    #   [emerg] open() "/run/nginx.pid" failed (13: Permission denied)
+    #
+    # *after* reporting "syntax is ok". CI runs unprivileged; the first version
+    # of this was written and verified as root, so it passed here and failed
+    # there on a config nginx had already accepted.
     main = tmp_path / "nginx.conf"
     main.write_text(
-        f"events {{}}\nhttp {{\n  include {conf_d}/*.conf;\n}}\n", encoding="utf-8")
+        f"pid {tmp_path}/nginx.pid;\n"
+        f"error_log {tmp_path}/error.log;\n"
+        f"events {{}}\n"
+        f"http {{\n"
+        f"  access_log {tmp_path}/access.log;\n"
+        f"  client_body_temp_path {tmp_path}/client_body;\n"
+        f"  proxy_temp_path {tmp_path}/proxy;\n"
+        f"  fastcgi_temp_path {tmp_path}/fastcgi;\n"
+        f"  uwsgi_temp_path {tmp_path}/uwsgi;\n"
+        f"  scgi_temp_path {tmp_path}/scgi;\n"
+        f"  include {conf_d}/*.conf;\n"
+        f"}}\n", encoding="utf-8")
     r = subprocess.run(["nginx", "-t", "-c", str(main), "-p", str(tmp_path)],
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, f"nginx rejected the config:\n{r.stderr}"
+    # "syntax is ok" alone is not success — it is printed before the paths are
+    # opened, and the run above failed in exactly that gap.
+    assert "test is successful" in r.stderr, (
+        f"nginx did not confirm the config: {r.stderr}")
