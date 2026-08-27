@@ -154,6 +154,32 @@ The pair is the diagnosis:
 node -e "const v=require('./app/lib/version').buildInfo(); console.log(v.build, v.assets)"
 ```
 
+That prints what *should* be live. `scripts/verify_deploy.sh` compares it to
+what *is* live, on **both** deploy targets:
+
+```bash
+scripts/verify_deploy.sh              # web container + bot box
+scripts/verify_deploy.sh --web-only   # after a web republish
+WEB_URL=https://host scripts/verify_deploy.sh --web-only
+```
+
+The two-target part is the point. On 2026-08-25 a deploy pulled the right
+commit onto the bot box, passed `verify_deploy_source.sh`, restarted cleanly,
+and reported success — while sign-in stayed broken all day, because the fix was
+in `app/lib/siwf.js` and **the bot box never serves `app/`**. A checker that
+asks about one half cannot report the other.
+
+Three outcomes, not two: `0` verified, `1` a real mismatch, **`3` could not be
+checked**. The header says why — "reporting an unreachable endpoint as a failed
+deploy sends an operator to roll back a deploy that landed perfectly."
+
+`3` also covers a hash the server did not *send*. `version.js` **omits**
+`build`/`assets` rather than nulling them, so the sed that parses them yields
+`""`, and `""` is never equal to the expected hash — which for a while printed
+`FAIL: serving DIFFERENT code` with `live=` in the detail line, a verdict
+manufactured from an absence. A proxy error page landed on the same false FAIL.
+Unreadable is not a measurement, here as everywhere else.
+
 A moved `assets` still is not a *fetched* file — browsers cache on the `?v=`
 in the script tag. **Bump it in every page that references a changed bundle.**
 

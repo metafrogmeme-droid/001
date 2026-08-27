@@ -90,7 +90,28 @@ if [ "$CHECK_WEB" -eq 1 ]; then
     live_build="$(printf '%s' "$live"  | sed -n 's/.*"build":"\([^"]*\)".*/\1/p')"
     live_assets="$(printf '%s' "$live" | sed -n 's/.*"assets":"\([^"]*\)".*/\1/p')"
 
-    if ! command -v node >/dev/null 2>&1; then
+    # A FIELD NOBODY SENT IS NOT A FIELD THAT DIFFERED.
+    #
+    # buildInfo() OMITS `build`/`assets` rather than sending null, and its own
+    # comment says why: "an absent field reads as not available here, where a
+    # null invites being mistaken for a value". These seds then yield "", "" is
+    # never equal to the expected hash, and the comparison below reported
+    # FAIL — "serving DIFFERENT code" — about a hash the server never claimed.
+    #
+    # That is a verdict manufactured from an absence, and the expensive kind: it
+    # sends an operator to roll back a deploy that may have landed perfectly.
+    # A proxy error page reaches here too — an HTML 502 parses to empty for both
+    # fields and produced the same confident FAIL.
+    #
+    # `unk` already exists for exactly this and simply was not reached on this
+    # path. Same rule as everywhere else here: unreadable is not a measurement.
+    if [ -z "$live_build" ] || [ -z "$live_assets" ]; then
+      unk "$WEB_URL/api/version did not report both hashes — not verified."
+      [ -z "$live_build" ]  && note "build:  the server did not send this field"
+      [ -z "$live_assets" ] && note "assets: the server did not send this field"
+      note "An error page or an older build stamp reaches here. This is NOT a"
+      note "mismatch — nothing was compared."
+    elif ! command -v node >/dev/null 2>&1; then
       unk "node is not available here, so the expected hashes cannot be computed."
       note "live build=$live_build assets=$live_assets"
     else
