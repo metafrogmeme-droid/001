@@ -107,3 +107,38 @@ bot/token/solana_verify.py:nonce_matches
 bot/utils/candles.py:is_supported_timeframe
 bot/utils/website_sync.py:sync_event_in_background
 bot/utils/win_rate.py:realized_total
+
+# ── TWELVE THE DETECTOR COULD NOT SEE UNTIL IT STOPPED READING PROSE ────────
+# This baseline was recorded while _production_identifier_counts() scanned RAW
+# file text, so a name mentioned in any comment or docstring counted as a call.
+# Every entry below was masked that way: alive on paper because something
+# described it. Adding _code_only() (tokenize, comments and docstrings dropped)
+# made them visible in one commit, which is why twelve appear at once rather
+# than one per author.
+#
+# THE TWO CUSTODY ONES ARE THE UNCOMFORTABLE PART, and they are mine.
+# PR #199 said it "wired authority_preflight", and the MODULE ratchet agreed —
+# telegram_handler imports it. But /connect calls probe_bitget_key_scope and
+# then withdraw_notice, which is a RENDERER. reconcile_posture is the four-
+# dimension reconciliation engine and probe_posture is the read-only observer,
+# and nothing on any live path reaches either. The environment defect fixed in
+# that PR — CONFIRMED manufactured from sandbox compared against itself — was
+# real, the fix is correct, seven mutations killed it, and it runs in no
+# production code path. Module-reachable is not function-reachable, and this
+# baseline exists precisely because those are different claims.
+bot/guardian/authority_preflight.py:probe_posture
+bot/guardian/authority_preflight.py:reconcile_posture
+#
+# The rest, unaudited individually — recorded rather than guessed at, per the
+# rule at the top of this file. warroom_bot's four are one surface and likely
+# stand or fall together.
+bot/backtest/snapshot.py:load_dataset
+bot/core/stock_trading.py:get_stock_risk_params
+bot/formatters/escape_card.py:risk_word
+bot/proofofpnl/ingest_cex.py:fills_from_proof_file
+bot/risk/venue_aggregate.py:cap_verdict
+bot/skills/quant_skill.py:register_quant_skill
+bot/warroom/warroom_bot.py:handle_callback
+bot/warroom/warroom_bot.py:render_positions
+bot/warroom/warroom_bot.py:render_signal
+bot/warroom/warroom_bot.py:render_status

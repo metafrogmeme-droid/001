@@ -168,7 +168,21 @@ def validate_learning_action(action: str) -> bool:
 
 
 def audit_proposal(proposal: ImprovementProposal) -> dict[str, Any]:
-    """Generate audit record for a proposal. Always called before apply."""
+    """Build the audit record for a proposal.
+
+    NOT CALLED ANYWHERE. This sentence read "Always called before apply" until
+    the function-reachability ratchet catalogued it, and that was false in the
+    strongest available sense: zero callers, zero tests, so the audit record
+    described here has never been produced for any proposal that ever existed.
+
+    It is recorded in ``tests/unreachable_functions_baseline.txt`` beside
+    ``validate_learning_action`` — together the entire safety surface of
+    ``bot/learning``, neither of them reachable. Whether that path should be
+    gated is a product decision, and a docstring is the wrong place to pre-empt
+    it. What a docstring can do is stop asserting a guarantee nothing keeps: a
+    reader auditing this module was previously told, in prose, that an audit
+    trail existed for every applied change.
+    """
     return {
         "audit_id": proposal.audit_id,
         "timestamp_utc": proposal.timestamp_utc.isoformat(),
