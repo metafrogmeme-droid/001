@@ -23,10 +23,18 @@ Five of the findings sit in safety controls, which is the uncomfortable half:
     bot/guardian/flight_recorder.py:509 verify_entries()          0 callers
     bot/token/tier_gate.py:866         allows_user()              0 callers
 
-`audit_proposal`'s own docstring says "Always called before apply." It is called
+`audit_proposal`'s own docstring SAID "Always called before apply." It is called
 by nothing and tested by nothing — a guarantee asserted in prose and nowhere
-else. `validate_learning_action` fails closed correctly on unknown actions, and
-protects nothing, because no caller reaches it.
+else. That sentence has been corrected, so this paragraph is now the historical
+record rather than a description of the file: the reachability finding stands,
+the false claim about it does not. `validate_learning_action` fails closed
+correctly on unknown actions, and protects nothing, because no caller reaches
+it.
+
+Correcting the prose is NOT the fix and must not be mistaken for one. Both
+functions are still unreachable and `bot/learning` still has no safety control
+anything can reach; all that changed is that the module no longer tells a
+reader otherwise.
 
 RATCHET, NOT BAN — for the same reasons the module one is
 
@@ -112,6 +120,53 @@ def _candidate_defs() -> dict:
     return {n: sites[0] for n, sites in seen.items() if len(sites) == 1}
 
 
+def _code_only(text: str) -> str:
+    """Source with comments and docstrings stripped.
+
+    WITHOUT THIS, PROSE SILENCES THE RATCHET.
+
+    This function counted identifiers in RAW file text, so any mention of a
+    name in a comment or docstring read as a call. Writing
+
+        ``validate_learning_action`` — together the entire safety surface
+
+    into a docstring took that function from 1 occurrence (its own ``def``) to
+    2, and the gate promptly reported it as no longer unreachable. A dead
+    safety control declared alive by a sentence describing it as dead.
+
+    That direction is the dangerous one. The module ratchet's own note records
+    a checker whose blind spot "manufactures exactly the accusation it exists
+    to prevent"; this was the inverse — manufactured innocence — and it is
+    worse, because a false accusation gets argued with and a false all-clear
+    gets filed. Anyone documenting one of these functions would silently
+    retire the gate that watches it.
+
+    Copied from `tests/test_preflight_matches_ci.py`, which CLAUDE.md names as
+    the version worth copying, after this became the fifth time the trap has
+    been hit here.
+    """
+    import io
+    import tokenize
+    out, prev_type = [], None
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                continue
+            if tok.type == tokenize.STRING and prev_type in (
+                    None, tokenize.NEWLINE, tokenize.NL, tokenize.INDENT,
+                    tokenize.DEDENT):
+                continue                      # a docstring, not a value
+            out.append(tok.string)
+            prev_type = tok.type
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        # Unparseable source: fall back to raw text. That direction over-counts
+        # (prose may read as a call), which leaves a dead function looking
+        # alive — but the alternative, returning nothing, would accuse every
+        # function in the file at once.
+        return text
+    return " ".join(out)
+
+
 def _production_identifier_counts() -> Counter:
     counts: Counter = Counter()
     files = set()
@@ -119,7 +174,8 @@ def _production_identifier_counts() -> Counter:
         files.update(_py_files(REPO / root))
     files.update(p for p in REPO.iterdir() if p.suffix == ".py")
     for path in files:
-        counts.update(_IDENT.findall(path.read_text(encoding="utf-8", errors="replace")))
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        counts.update(_IDENT.findall(_code_only(raw)))
     return counts
 
 
