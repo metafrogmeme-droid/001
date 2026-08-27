@@ -48,8 +48,16 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 #: Token tooling is excluded on purpose despite being node: one of its steps
 #: curl-pipes a Solana validator installer, and a preflight that installs a
 #: toolchain behind your back is not a preflight.
+#:
+#: "Anchor workspace (node)" IS here, and the distinction is the same one: it
+#: runs `tsc` and the advisory ratchet, neither of which installs anything
+#: beyond the lockfile. It deliberately does NOT run `anchor test` — that needs
+#: a local validator, which is the thing that keeps token tooling out. Adding
+#: this line is the price CLAUDE.md names for a new JOB: a job added to ci.yml
+#: and not to this tuple runs in CI while `--list` reports it under "NOT
+#: covered locally", which is the honest half of the design.
 LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)",
-              "Marketing site (vite)")
+              "Marketing site (vite)", "Anchor workspace (node)")
 PYTHON_JOBS = LOCAL_JOBS          # back-compat alias
 
 #: Steps to skip: setup, and anything whose name matches. Substring match on

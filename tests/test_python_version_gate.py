@@ -20,12 +20,62 @@ These tests keep the three declarations agreeing with each other, and keep the
 gate able to refuse.
 """
 
+import contextlib
+import os
 import re
+import shutil
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# A 3.x interpreter shim: answers version_info with whatever it was built for,
+# and forwards everything else to the real python3.
+_SHIM = ('#!/bin/sh\ncase "$*" in *version_info*) echo "%s"; exit 0;; esac\n'
+         'exec /usr/bin/python3 "$@"\n')
+
+
+@contextlib.contextmanager
+def _deploy_sandbox(venv_version=None):
+    """A scratch tree to run `deploy.sh` in. NEVER run it against ROOT.
+
+    deploy.sh's job is to MOVE `.env`, `data/` and `logs/` out of the repo and
+    into PERSIST_DIR (`link_persistent`, deploy.sh:136-139). Two tests here
+    used to invoke it with `cwd=ROOT` and then `rmtree` the store in their
+    `finally:` — which on any machine with a populated `.env` deleted the
+    operator's Bitget keys, Telegram token, encrypted secrets vault, shadow
+    book, position state and `logs/audit_chain.jsonl`, plus `<repo>/.venv`.
+    That is the 2026-07-14 incident described at the top of deploy.sh, caused
+    by the tests written to prove it had been fixed. CI never saw it because CI
+    checks out a fresh tree with no `.env` to lose.
+
+    deploy.sh reads exactly two things from its repo root — `.python-version`
+    and `.venv/bin/python` — and derives that root from BASH_SOURCE. So a copy
+    of the script beside a copy of those two files exercises the gate
+    identically, with nothing outside the sandbox reachable.
+
+    Yields (sandbox_path, env_overrides).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        sandbox = Path(tmp)
+        shutil.copy(ROOT / "deploy.sh", sandbox / "deploy.sh")
+        shutil.copy(ROOT / ".python-version", sandbox / ".python-version")
+        if venv_version is not None:
+            vbin = sandbox / ".venv" / "bin"
+            vbin.mkdir(parents=True)
+            (vbin / "python").write_text(_SHIM % venv_version, encoding="utf-8")
+            (vbin / "python").chmod(0o755)
+        yield sandbox, {"PERSIST_DIR": str(sandbox / "_persist")}
+
+
+def _stale_python(sandbox, version="3.10"):
+    """A directory to put on PATH whose `python3` reports `version`."""
+    stale = sandbox / "_stalepath"
+    stale.mkdir(parents=True, exist_ok=True)
+    (stale / "python3").write_text(_SHIM % version, encoding="utf-8")
+    (stale / "python3").chmod(0o755)
+    return stale
 
 
 def _declared():
@@ -54,18 +104,12 @@ def test_the_three_declarations_agree():
 
 def test_the_deploy_refuses_an_older_interpreter():
     """The behaviour, driven — not the presence of the code that implements it."""
-    fake = ROOT / "build" / "_fakepy"
-    fake.mkdir(parents=True, exist_ok=True)
-    shim = fake / "python3"
-    shim.write_text(
-        '#!/bin/sh\ncase "$*" in *version_info*) echo "3.10"; exit 0;; esac\n'
-        'exec /usr/bin/python3 "$@"\n', encoding="utf-8")
-    shim.chmod(0o755)
-    try:
-        import os
-        env = {**os.environ, "PATH": f"{fake}:{os.environ['PATH']}",
-               "PERSIST_DIR": str(ROOT / "build" / "_pdtest")}
-        r = subprocess.run(["bash", str(ROOT / "deploy.sh")], cwd=ROOT,
+    # No `.venv` in the sandbox, so the gate falls through to PATH's python3,
+    # which the stale shim answers as 3.10.
+    with _deploy_sandbox() as (sandbox, overrides):
+        stale = _stale_python(sandbox, "3.10")
+        env = {**os.environ, "PATH": f"{stale}:{os.environ['PATH']}", **overrides}
+        r = subprocess.run(["bash", str(sandbox / "deploy.sh")], cwd=sandbox,
                            capture_output=True, text=True, env=env, timeout=60)
         assert r.returncode == 1, (
             f"deploy.sh continued on Python 3.10 (exit {r.returncode}) — it would "
@@ -77,10 +121,6 @@ def test_the_deploy_refuses_an_older_interpreter():
         assert "Do NOT edit requirements.lock" in out, (
             "the refusal must say not to change the pin, or the next person "
             "will change the pin")
-    finally:
-        import shutil
-        shutil.rmtree(fake, ignore_errors=True)
-        shutil.rmtree(ROOT / "build" / "_pdtest", ignore_errors=True)
 
 
 def test_the_gate_runs_before_pip_is_ever_reached():
@@ -105,6 +145,7 @@ def test_numpy_is_not_quietly_downgraded():
         f"already requires. Dropping below it to satisfy an older interpreter "
         f"fixes the machine by changing everyone else's dependency.")
 
+
 def test_the_gate_prefers_the_project_venv_over_path():
     """The box runs 3.11 inside `.venv` while its system python3 is still 3.10.
 
@@ -112,22 +153,10 @@ def test_the_gate_prefers_the_project_venv_over_path():
     gate that cries wolf gets commented out — at which point it is not a gate.
     So the venv interpreter wins when there is one.
     """
-    import os
-    import shutil
-    venv = ROOT / ".venv" / "bin"
-    stale = ROOT / "build" / "_stalepy"
-    venv.mkdir(parents=True, exist_ok=True)
-    stale.mkdir(parents=True, exist_ok=True)
-    shim = ('#!/bin/sh\ncase "$*" in *version_info*) echo "%s"; exit 0;; esac\n'
-            'exec /usr/bin/python3 "$@"\n')
-    (venv / "python").write_text(shim % "3.11", encoding="utf-8")
-    (venv / "python").chmod(0o755)
-    (stale / "python3").write_text(shim % "3.10", encoding="utf-8")
-    (stale / "python3").chmod(0o755)
-    try:
-        env = {**os.environ, "PATH": f"{stale}:{os.environ['PATH']}",
-               "PERSIST_DIR": str(ROOT / "build" / "_pdvenv")}
-        r = subprocess.run(["bash", str(ROOT / "deploy.sh")], cwd=ROOT,
+    with _deploy_sandbox(venv_version="3.11") as (sandbox, overrides):
+        stale = _stale_python(sandbox, "3.10")
+        env = {**os.environ, "PATH": f"{stale}:{os.environ['PATH']}", **overrides}
+        r = subprocess.run(["bash", str(sandbox / "deploy.sh")], cwd=sandbox,
                            capture_output=True, text=True, env=env, timeout=60)
         assert r.returncode == 0, (
             "the gate refused a correct venv deploy because PATH's python3 is "
@@ -135,11 +164,52 @@ def test_the_gate_prefers_the_project_venv_over_path():
         assert ".venv/bin/python" in r.stdout, (
             "the gate must name WHICH interpreter it checked; otherwise a "
             "passing line is unattributable to a machine with two of them")
-    finally:
-        shutil.rmtree(ROOT / ".venv", ignore_errors=True)
-        shutil.rmtree(stale, ignore_errors=True)
-        shutil.rmtree(ROOT / "build" / "_pdvenv", ignore_errors=True)
-        for leftover in ("data", "logs"):
-            pth = ROOT / leftover
-            if pth.is_symlink():
-                pth.unlink()
+
+
+def test_the_gate_tests_never_run_deploy_against_the_repo():
+    """The guard on the two tests above, because they cost real secrets once.
+
+    `deploy.sh` MOVES `.env`, `data/` and `logs/` into PERSIST_DIR and symlinks
+    them back — that is the whole point of it. Both tests here used to invoke it
+    with `cwd=ROOT` and then `rmtree` the store, so on a developer machine the
+    suite deleted the operator's Bitget keys, Telegram token, secrets vault,
+    position state and audit chain, and `<repo>/.venv` with them. Nothing
+    noticed, because CI's tree has none of those to lose.
+
+    Source-scanned rather than driven, deliberately: the property is that no
+    call site passes ROOT, and a behavioural test for "did this delete your
+    .env" can only be written by having something to delete.
+    """
+    from tests.test_preflight_matches_ci import code_only
+    src = (ROOT / "tests" / "test_python_version_gate.py").read_text(encoding="utf-8")
+    # Strip comments and docstrings first: the docstring above QUOTES what this
+    # forbids, and a raw-text scan cannot tell a warning about a pattern from
+    # the pattern.
+    code = code_only(src)
+    # ...and the needles are ASSEMBLED, never written whole, because they are
+    # VALUES — code_only keeps them, so a literal list would match itself and
+    # fail on the file that is already correct. Same trap one level in.
+    needles = ["cwd" + "=ROOT", 'str(ROOT / "deploy' + '.sh")']
+    for bad in needles:
+        assert bad not in code, (
+            f"{bad!r} is back in this file. deploy.sh MOVES .env, data/ and "
+            f"logs/ out of whatever directory it is pointed at; pointing it at "
+            f"the repo root and cleaning up afterwards deletes the developer's "
+            f"Bitget keys, Telegram token, secrets vault and audit chain. Use "
+            f"_deploy_sandbox() instead.")
+
+
+def test_the_suite_leaves_the_repo_dotenv_alone():
+    """A dangling `.env` symlink is the fingerprint of the bug above.
+
+    The old cleanup removed the `data` and `logs` symlinks and forgot `.env`,
+    so even when the store was empty the repo was left with `.env` pointing at
+    a directory that had just been deleted — every later `load_dotenv()` in the
+    run reading a broken link.
+    """
+    env_path = ROOT / ".env"
+    if env_path.is_symlink():
+        assert env_path.exists(), (
+            f"{env_path} is a symlink to {os.readlink(env_path)}, which does not "
+            f"exist. Something in this suite ran deploy.sh against the repo root "
+            f"and deleted the store it moved .env into.")

@@ -138,11 +138,34 @@ process.on('uncaughtException', (err) => {
 const app = express();
 
 // Behind the deployment's reverse proxy, req.ip is the proxy's address unless
-// Express is told to trust the X-Forwarded-For hop. Without this, every
-// per-IP rate limiter (public market data, /mcp, login attempts) collapses
-// into ONE shared bucket for all visitors — a single client can exhaust the
-// global budget, and abuse can't be attributed to a source address.
-app.set('trust proxy', 1);
+// Express is told to trust the X-Forwarded-For hop. Without that, every per-IP
+// rate limiter (public market data, /mcp, login attempts) collapses into ONE
+// shared bucket for all visitors — a single client can exhaust the global
+// budget, and abuse can't be attributed to a source address.
+//
+// This was `app.set('trust proxy', 1)`, and the 1 is the problem: it is a hop
+// COUNT, so express takes the entry one place from the right of
+// X-Forwarded-For no matter WHO connected. Reach this server off-proxy and
+// req.ip is whatever the caller typed — including on the failed-login limiter
+// at auth.js:589, where rotating one header per request buys a fresh bucket
+// every time. bot/utils/client_ip.py already restored the missing premise on
+// the Python side and states the rule: headers describing the caller are
+// evidence only when the connection arrived from a hop we trust to have
+// written them.
+//
+// Same TRUSTED_PROXY variable, so one setting configures both halves.
+// docker-compose.yml pins the bridge subnet for exactly this
+// (TRUSTED_PROXY=172.28.0.0/16). Unset means trust nothing: coarse limiting,
+// never forgeable limiting.
+const { trustProxyFrom } = require('./lib/trusted_proxy');
+const _trustProxy = trustProxyFrom(process.env.TRUSTED_PROXY);
+app.set('trust proxy', _trustProxy);
+if (_trustProxy === false) {
+  console.log(
+    'TRUSTED_PROXY not set — X-Forwarded-For is ignored and req.ip is the '
+    + 'peer address. Behind a proxy, set it (e.g. TRUSTED_PROXY=172.28.0.0/16) '
+    + 'or every visitor shares one rate-limit bucket.');
+}
 
 // Security headers — BEFORE the static handler so every response (including
 // static-served HTML) carries them.

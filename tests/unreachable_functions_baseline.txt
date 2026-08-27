@@ -1,0 +1,109 @@
+# Public module-level functions in bot/ with no caller outside tests.
+#
+# Generated and enforced by tests/test_no_new_unreachable_functions.py. The
+# MODULE ratchet (unreachable_baseline.txt) cannot see these: their modules are
+# imported by production code and pass it cleanly. This is that same check one
+# level down.
+#
+# A RATCHET, BOTH DIRECTIONS. A new entry means somebody just wrote a function
+# nobody calls. An entry that leaves — because you wired it — must be deleted in
+# the same commit, or test_the_baseline_has_no_stale_entries fails. Same rule as
+# known_failures.txt, for the same reason.
+#
+# Decorated functions are excluded from the scan entirely: a decorator is a
+# registration, and reporting `@lab_router.get`-mounted handlers as dead is the
+# false accusation the module checker's docstring warns about. This list is also
+# a LOWER BOUND — a name defined in two modules is skipped rather than guessed at.
+#
+# Sorted by how uncomfortable each group is to find here.
+
+# ── SAFETY CONTROLS, UNCALLED ───────────────────────────────────────────────
+# The group that should be read first, and NOT quietly wired by whoever is
+# passing through. Whether a veto runs is a product decision — CLAUDE.md's rule
+# for the module list applies here verbatim: "Deciding each one is a judgement
+# call per module, and guessing would be worse than recording."
+#
+# audit_proposal's own docstring reads "Always called before apply." Nothing
+# calls it and nothing tests it, so that sentence is a guarantee asserted in
+# prose and nowhere else — the #999 shape exactly. validate_learning_action
+# fails closed correctly on unknown actions and protects nothing, because no
+# caller reaches it. Between them they are the entire safety surface of
+# bot/learning.
+bot/learning/safety_policy.py:audit_proposal
+bot/learning/safety_policy.py:validate_learning_action
+# The guardian's prompt-injection defang, and the flight recorder's own
+# tamper-evidence verification. Both tested, neither run.
+bot/guardian/firewall.py:defang
+bot/guardian/flight_recorder.py:verify_entries
+# The feature-entitlement gate.
+bot/token/tier_gate.py:allows_user
+# Distance validation for limit entries.
+bot/core/limit_entry.py:validate_entry_distance
+
+# ── A LIVE MODULE'S DEAD RENDERERS ──────────────────────────────────────────
+# rich_cards.py is imported by scan_skill, skill_registry and telegram_handler,
+# so the module ratchet passes it — and these three have no caller at all. This
+# group is why this file exists.
+#
+# render_pnl_report is not merely dead, it is dead AND defective:
+# `pnl = trade.get("pnl", 0)`, `fees = trade.get("fees", 0)`, then
+# `session_pnl += net_pnl` and `win = net_pnl > 0` — "absent field is zero",
+# "a partial total printed as whole" and "unreadable lost", three rows of
+# CLAUDE.md's table in eight lines. Fix it when wiring it, or delete it; do not
+# wire it as-is.
+bot/formatters/rich_cards.py:render_pnl_report
+bot/formatters/rich_cards.py:render_pending_orders
+bot/formatters/rich_cards.py:render_multi_analysis
+
+# ── TEST-SUPPORT RESET HOOKS ────────────────────────────────────────────────
+# Least uncomfortable group: these exist to let tests clear a module-level
+# singleton between cases. Having no production caller is what they are FOR.
+# Recorded rather than special-cased, because a rule that silently exempts a
+# naming convention is a rule somebody will name a real function to slip past.
+bot/core/onchain.py:reset_flow_radar_cache
+bot/proofofpnl/leaderboard.py:reset_leaderboard_registry
+bot/proofofpnl/scheduler.py:reset_operator_publisher
+bot/proofofpnl/seasons.py:reset_season_store
+
+# ── UNBUILT FEATURES ────────────────────────────────────────────────────────
+# Finished, coherent code for signals nobody wired. Deleting them destroys work
+# rather than removing rot, and "do we want this signal?" is not a question a
+# cleanup gets to answer.
+bot/core/seasonality.py:analyze_seasonality
+bot/core/session_aware.py:session_size_adjustment
+bot/core/session_aware.py:session_sl_adjustment
+bot/core/smart_exits.py:funding_cost_warning
+bot/core/smart_exits.py:risk_parity_size
+bot/core/monte_carlo.py:monte_carlo_size_adjustment
+bot/core/strategy_router.py:get_strategy_adjustments
+bot/core/strategy_router.py:strategy_summary
+bot/core/stock_trading.py:is_stock_symbol
+bot/core/divergence.py:divergence_to_confluence_votes
+bot/core/meme_swap.py:terms_expired
+bot/core/strategy_catalog.py:get_agent
+
+# ── HELPERS AND ACCESSORS WITH NO REMAINING CALLER ──────────────────────────
+# Small, pure, and orphaned — most likely left behind when their call site was
+# refactored. Cheapest group to clear: check git log for the caller that went
+# away, then delete.
+bot/backtest/snapshot.py:load_dataset_multi
+bot/core/leverage.py:describe_user_leverage
+bot/core/market_scanner.py:has_futures_market
+bot/core/partial_tp.py:partial_tp_summary
+bot/core/position_telemetry.py:current_stage
+bot/core/position_telemetry.py:next_stage_threshold
+bot/core/position_telemetry.py:threshold_gap
+bot/core/position_telemetry.py:sl_trail_fired
+bot/core/position_telemetry.py:trail_engine_read
+bot/core/symbol_rest.py:coverage_sentence
+bot/db/models.py:consume_link_token
+bot/formatters/brain_state.py:brain_state_of
+bot/formatters/brain_state.py:may_rule_out_llm
+bot/formatters/brain_state.py:sweep_note
+bot/llm/provider.py:model_supports_web_search
+bot/skills/quant_skill.py:analyze_live
+bot/skills/quant_skill.py:format_quant_for_telegram
+bot/token/solana_verify.py:nonce_matches
+bot/utils/candles.py:is_supported_timeframe
+bot/utils/website_sync.py:sync_event_in_background
+bot/utils/win_rate.py:realized_total

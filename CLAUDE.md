@@ -8,19 +8,21 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Fifteen gates: two ruff passes, mypy, bandit, pip-audit, the
+step for free. Eighteen gates: two ruff passes, mypy, bandit, pip-audit, the
 baseline test gate, the red team, the custody red team, the web app's parse
 check, its npm advisory ratchet, its suite, the marketing site's build, its
-published-output honesty tests, the check that the committed site is the built
-site, and guard reachability. ~14 minutes.
+npm advisory ratchet, its published-output honesty tests, the check that the
+committed site is the built site, the Anchor workspace's typecheck, its npm
+advisory ratchet, and guard reachability. ~14 minutes.
 
-That "for free" is literal and has now been collected four times: the app parse
+That "for free" is literal and has now been collected five times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
-plan with no change to `preflight.py`, and the two red-team gates each did the
-same. This paragraph's own gate count is pinned by
-`tests/test_claude_md_accuracy.py`, which failed the moment each of them landed
-— including on the sentence you are reading, which said "Ten" until the risk
-red team made it eleven and the custody one made it fifteen.
+plan with no change to `preflight.py`, the two red-team gates each did the
+same, and the marketing site's advisory ratchet did it again. This paragraph's
+own gate count is pinned by `tests/test_claude_md_accuracy.py`, which failed the
+moment each of them landed — including on the sentence you are reading, which
+said "Ten" until the risk red team made it eleven, the custody one made it
+fifteen, and the audit's npm-coverage fix made it eighteen.
 
 **"For free" covers a new STEP, not a new JOB.** `LOCAL_JOBS` is a deliberate
 allow-list — token tooling is excluded because one of its steps curl-pipes a
@@ -29,6 +31,16 @@ your back is not a preflight. So `Marketing site (vite)` needed one line added
 there, and a job that is added to `ci.yml` and not to that tuple runs in CI
 while `--list` reports it under "NOT covered locally". That line is the honest
 half of the design and worth reading before trusting a green preflight.
+
+`Anchor workspace (node)` is the second job to need that line, and it is worth
+saying why it qualifies where token tooling does not: it runs `tsc` and the
+advisory ratchet, and neither installs anything beyond the lockfile. It
+deliberately does **not** run `anchor test` — that needs a local validator,
+which is the exact thing keeping token tooling out. The root `package.json` had
+been installed by no job at all: five workspaces, four `npm ci`s, and a
+2,277-line lockfile carrying six high advisories that nothing had ever printed.
+`contracts/rune` and `site` were installed but never advisory-checked for the
+same reason — only `token/` and `app/` ran the ratchet. All five do now.
 
 ```bash
 python3 scripts/preflight.py --fast   # tight loop; drops only the network gates

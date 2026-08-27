@@ -48,6 +48,14 @@ test.before(async () => {
       JWT_SECRET: 'j'.repeat(64),
       BOT_SYNC_SECRET: 's'.repeat(48),
       DATABASE_URL: '',
+      // The per-IP test below needs X-Forwarded-For to be BELIEVED, which now
+      // requires declaring the hop it came from. This harness connects over
+      // loopback, so loopback is the proxy here — the same shape as nginx in
+      // front of the container in production. Without this, req.ip is the peer
+      // for every request and all clients share one bucket, which is exactly
+      // what `trust proxy: 1` used to hide: it believed the header from
+      // anybody. See app/lib/trusted_proxy.js and app/test/trusted_proxy.test.js.
+      TRUSTED_PROXY: '127.0.0.0/8',
     },
     stdio: 'ignore',
   });
@@ -69,6 +77,14 @@ test('security headers on static-served HTML and on API responses', async () => 
 });
 
 test('trust proxy: per-IP limiting buckets by X-Forwarded-For client, not the proxy hop', async () => {
+  // Requires TRUSTED_PROXY to name the hop (set in the harness env above).
+  // This used to pass with `app.set('trust proxy', 1)`, which believed the
+  // header from ANY peer — so the same assertion held for an attacker
+  // reaching the server directly, and rotating the header bought a fresh
+  // login-lockout bucket per request. What is asserted here is unchanged; what
+  // changed is that it now only holds when the connection came from a declared
+  // proxy. The refusal case is driven in app/test/trusted_proxy.test.js.
+  //
   // Exhaust client A's /mcp budget (60/min)…
   const ping = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' });
   let lastA = null;
