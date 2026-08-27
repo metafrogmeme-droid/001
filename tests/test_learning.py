@@ -681,14 +681,28 @@ class TestOrchestrator:
         results = orchestrator.process_proposals()
         assert results["blocked"] >= 1
 
-    def test_process_proposals_auto_applies_docs(self, orchestrator):
+    def test_process_proposals_auto_approves_docs_without_applying(self, orchestrator):
+        """APPROVED, not applied — the distinction this method used to blur.
+
+        It set status="applied", counted into auto_applied and logged
+        "Auto-applied docs proposal". Nothing in bot/learning applies a
+        proposal, so all three asserted work that had not happened.
+        """
         p = ImprovementProposal(
             proposed_change="Update documentation for the risk engine",
             status="pending",
         )
         orchestrator.store.record_proposal(p)
         results = orchestrator.process_proposals()
-        assert results["auto_applied"] >= 1
+        assert results["auto_approved"] >= 1
+        assert "auto_applied" not in results
+
+        stored = [q for q in orchestrator.store.get_proposals()
+                  if q.audit_id == p.audit_id]
+        assert stored and stored[0].status == "auto_approved", (
+            "a triaged proposal must not be recorded as applied — no applier "
+            "exists, and whoever writes one should not inherit a backlog that "
+            "already claims the work is done")
 
     def test_submit_feedback(self, orchestrator):
         fb = orchestrator.submit_feedback(
