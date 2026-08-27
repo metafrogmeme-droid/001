@@ -181,20 +181,93 @@ def test_the_reverse_proxy_actually_rate_limits():
         "per-worker, and its comment says the budget belongs at the proxy.")
 
 
+def _local_nginx_version():
+    """(major, minor, patch) of the nginx on PATH, or None. `nginx -v` -> stderr."""
+    if shutil.which("nginx") is None:
+        return None
+    r = subprocess.run(["nginx", "-v"], capture_output=True, text=True, timeout=30)
+    m = re.search(r"nginx/(\d+)\.(\d+)\.(\d+)", (r.stderr or "") + (r.stdout or ""))
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def test_the_pinned_nginx_image_supports_the_directives_used():
+    """The config targets the version docker-compose pins, not the one on PATH.
+
+    `http2 on;` is nginx >= 1.25.1. Compose pins nginx:1.27-alpine, so it is
+    the correct modern spelling there — but a downgrade of that pin would make
+    this config fail to parse in production, and nothing else would say so.
+    """
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    m = re.search(r"image:\s*nginx:(\d+)\.(\d+)(?:\.(\d+))?", compose)
+    assert m, "docker-compose no longer pins an nginx image version"
+    pinned = (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+    if "http2 on;" in _strip_comments(_conf()):
+        assert pinned >= (1, 25, 1), (
+            f"nginx.conf uses `http2 on;` (nginx >= 1.25.1) but docker-compose "
+            f"pins nginx:{'.'.join(str(p) for p in pinned)}. The deployed "
+            f"container would fail to start with 'unknown directive \"http2\"'.")
+
+
 @pytest.mark.skipif(shutil.which("nginx") is None,
                     reason="nginx not installed — structural checks still ran")
 def test_nginx_accepts_the_config(tmp_path):
     """Parse it with the real thing where we can. A config that satisfies every
-    assertion above and does not parse is still a stack that will not start."""
+    assertion above and does not parse is still a stack that will not start.
+
+    THE VERSION SKEW THIS HAS TO BRIDGE, AND WHY IT IS NOT A FUDGE
+
+    The config targets nginx:1.27-alpine, which is what docker-compose runs.
+    This test invokes whatever `nginx` is on PATH, which on ubuntu-latest
+    runners (and most dev boxes) is 1.24 — and 1.24 does not know the
+    `http2 on;` directive introduced in 1.25.1. So the first version of this
+    test failed CI on a config that is correct for the nginx that will actually
+    serve it.
+
+    Downgrading the config to the legacy `listen 443 ssl http2;` to satisfy an
+    nginx nobody deploys would be the wrong way round. Instead the ONE
+    version-specific pair is rewritten to its legacy equivalent when the local
+    nginx is too old. Everything this test exists to check — the per-location
+    includes, the map, the limit_req zones, the location structure — is
+    version-independent and is still parsed for real. The pin itself is
+    asserted separately, in test_the_pinned_nginx_image_supports_the_directives_used.
+    """
     conf_d = tmp_path / "conf.d"
     conf_d.mkdir()
     rendered = _conf().replace("${RUNECLAW_DOMAIN}", "example.test")
-    # Certificate files nginx must be able to stat; contents are never read at
-    # config-test time.
+
+    version = _local_nginx_version()
+    if version is not None and version < (1, 25, 1):
+        legacy = re.sub(r"listen\s+443\s+ssl;\s*\n\s*http2\s+on;",
+                        "listen 443 ssl http2;", rendered)
+        assert legacy != rendered, (
+            f"local nginx {version} predates `http2 on;` and the legacy "
+            f"substitution matched nothing — the listen block changed shape, so "
+            f"this test is about to validate something other than what it thinks")
+        rendered = legacy
+
+    # nginx resolves upstream hostnames at CONFIG-TEST time, and `api_bridge`
+    # and `runeclaw-bot` are docker-compose service names that exist only on
+    # the compose network. Point them at loopback so the parse can proceed:
+    # like the http2 substitution above this is environmental, not structural,
+    # and adding a `resolver` to defer lookup would change how the real
+    # deployment behaves purely to satisfy a test.
+    rendered = rendered.replace("http://api_bridge:8000", "http://127.0.0.1:8000")
+    rendered = rendered.replace("http://runeclaw-bot:8080", "http://127.0.0.1:8080")
+
+    # A throwaway self-signed pair. Empty files are not enough: nginx -t
+    # actually LOADS the certificate and fails with "PEM routines::no start
+    # line", so a placeholder would leave this test red for a reason that has
+    # nothing to do with the config.
     certs = tmp_path / "certs"
     certs.mkdir()
-    for name in ("fullchain.pem", "privkey.pem"):
-        (certs / name).write_text("", encoding="utf-8")
+    gen = subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+         "-keyout", str(certs / "privkey.pem"),
+         "-out", str(certs / "fullchain.pem"),
+         "-days", "1", "-subj", "/CN=example.test"],
+        capture_output=True, text=True, timeout=120)
+    if gen.returncode != 0:
+        pytest.skip(f"could not generate a test certificate: {gen.stderr[:200]}")
     rendered = rendered.replace(
         "/etc/letsencrypt/live/example.test", str(certs))
     rendered = rendered.replace(
