@@ -7,7 +7,6 @@ Records everything to live_trade_proof.json.
 import asyncio
 import json
 import os
-import time
 from datetime import datetime, timezone
 
 import ccxt.async_support as ccxt

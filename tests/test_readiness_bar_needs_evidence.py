@@ -35,7 +35,6 @@ measurement is worse here than anywhere else in the repo, because it is
 pointed at the risk settings.
 """
 
-import pytest
 
 from bot.learning.readiness import (_VW_HOLD_RATE_BAR, _VW_MIN_TEST_TRADES,
                                     _VW_MIN_VOTERS, assess_readiness)

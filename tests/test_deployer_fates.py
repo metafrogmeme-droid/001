@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 
 from bot.core import deployer_fates as df
 from bot.core.deployer_history import assess_deployer

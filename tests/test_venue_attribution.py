@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from bot.core.trade_journal import JournalEntry, TradeJournal
 from bot.risk.portfolio import PortfolioTracker

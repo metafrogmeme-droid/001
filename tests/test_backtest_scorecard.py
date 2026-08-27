@@ -27,7 +27,6 @@ double-counted and that is not better news.
 
 from types import SimpleNamespace
 
-import pytest
 
 from bot.backtest import scorecard as sc
 

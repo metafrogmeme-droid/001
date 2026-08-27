@@ -89,7 +89,7 @@ def test_every_ci_gate_is_in_the_plan():
     # bytes preflight must preserve to run correctly.
     planned = {" ".join(cmd.split()) for _, cmd, _ in preflight.steps(fast=False)}
     missing = [c for c in _ci_local_commands() if c not in planned]
-    assert missing == [], f"CI runs these and preflight does not:\n  " + "\n  ".join(missing)
+    assert missing == [], "CI runs these and preflight does not:\n  " + "\n  ".join(missing)
 
 
 def test_the_plan_is_not_a_second_copy_of_the_commands():

@@ -2051,7 +2051,8 @@ class TestAuditV3Fixes:
 
     def test_circuit_breaker_persists_to_disk(self):
         """Tripping the breaker should write state to disk."""
-        import tempfile, json
+        import tempfile
+        import json
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
             state_path = f.name
         try:
@@ -4500,7 +4501,8 @@ class TestPublicDataLoader:
 
     def test_csv_roundtrip(self):
         """Generate synthetic, save CSV, reload, compare."""
-        import tempfile, os
+        import tempfile
+        import os
         bars = DataLoader.generate_synthetic(bars=50, seed=99)
         path = tempfile.mktemp(suffix=".csv")
         try:

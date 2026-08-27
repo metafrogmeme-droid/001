@@ -5,7 +5,8 @@ loss-only cooldown (check #13), this fires after ANY close and curbs fee churn.
 Gated, default OFF; the stamp happens at the real fill (note_symbol_entry), the
 check is read-only in evaluate(); skips manual trades. Byte-identical when OFF.
 """
-import os, tempfile
+import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 

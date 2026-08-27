@@ -32,7 +32,7 @@ TWO THINGS CAN GO WRONG AND BOTH ARE SILENT, so both are pinned here.
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

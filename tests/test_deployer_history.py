@@ -32,7 +32,6 @@ TWO BUGS THIS FILE EXISTS BECAUSE OF, both found on the module's first run:
 """
 from __future__ import annotations
 
-import pytest
 
 from bot.core.deployer_history import (CLEAN, KNOWN_BAD, SUSPECT, UNPROVEN,
                                        assess_deployer, human_readable,

@@ -33,7 +33,6 @@ from __future__ import annotations
 import pathlib
 import re
 
-import pytest
 
 from bot.core.proactive_monitor import ProactiveMonitor, _host_of
 

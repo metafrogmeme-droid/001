@@ -35,8 +35,6 @@ that would be invented simply are not there.
 """
 from __future__ import annotations
 
-import importlib
-import os
 
 import pytest
 

@@ -42,6 +42,36 @@ jobs:
         # needing manual triage.)
         run: ruff check --select F401,F541 bot/
 
+      # The two steps above are strict FLOORS over a narrow scope: those rules,
+      # those directories, zero tolerance. The two ratchets below cover the
+      # scope they leave out.
+      #
+      # pyproject.toml declares `select = ["E", "F", "W", "I"]`, and until this
+      # landed nothing ran it: both strict steps passed while the DECLARED
+      # config reported 1,361 findings on the same tree. A config in
+      # pyproject.toml reads as a statement about the codebase — anyone running
+      # plain `ruff check` gets that set — and a statement nothing checks is one
+      # that drifts. 113 were safe auto-fixes and are gone; the rest are
+      # recorded per-rule and may only go DOWN.
+      #
+      # Not swept, deliberately: I001 (614) is an UNSAFE fix in a repo whose
+      # imports have side effects — bot/config.py runs load_dotenv and the
+      # secrets-vault restore at import — and F841 (99) is ruled out in words by
+      # CLAUDE.md, because a hot-path unused variable is as likely to be dropped
+      # logic as a dead store.
+      - name: Lint — the declared ruff config (whole-tree ratchet)
+        run: python3 scripts/ruff_gate.py
+
+      # Same split for types. The strict step below fails on a single error in
+      # the money modules; this one measures the other 272, where 390 errors sat
+      # unmeasured — a module could take on fifty more and nothing would say so.
+      # Sampled during the audit: `operator` and `union-attr`, the classes that
+      # read as None arithmetic, were mypy NARROWING false positives in every
+      # case checked. Rewriting correct code to satisfy an analyser buries real
+      # defects in cosmetic diff, so it is measured rather than swept.
+      - name: Types — whole bot/ tree (ratchet)
+        run: python3 scripts/mypy_gate.py
+
       - name: Types — mypy on the money modules (ratchet)
         # Gated on the modules that are fully clean today. The list grows as more
         # of bot/core is cleaned, so the type-safety floor only ever ratchets up,

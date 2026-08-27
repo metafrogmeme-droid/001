@@ -26,7 +26,6 @@ commitment would then be computed over the real sender and would not match the
 calldata.
 """
 
-import json
 
 import pytest
 

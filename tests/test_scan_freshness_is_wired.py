@@ -39,7 +39,6 @@ import asyncio
 import time
 import types
 
-import pytest
 
 from bot.core.engine import AgentState, RuneClawEngine
 from bot.skills.telegram_handler import (

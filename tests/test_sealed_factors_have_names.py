@@ -34,7 +34,6 @@ from __future__ import annotations
 import pathlib
 import re
 
-import pytest
 
 from bot.core.explainability import (ExplainabilityEngine, ExplainabilityReport,
                                      FactorAttribution)

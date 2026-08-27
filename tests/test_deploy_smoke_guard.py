@@ -160,6 +160,47 @@ class TestAnInterruptedCheckIsNotAVerdict:
     bot that is running fine. Three false alarms are enough to retire a gate.
     """
 
+    @staticmethod
+    def _await_trap_installed(gate, timeout=30.0):
+        """Block until the gate is provably past its `trap` lines.
+
+        THIS REPLACED `time.sleep(2.0)`, WHICH WAS THE 1-IN-8760 FLAKE.
+
+        The traps are installed early in the script -- but "early" is a
+        position in the file, not a promise about wall-clock. A fixed sleep
+        assumes bash has started, parsed ~125 lines and reached its wait within
+        2s, and under full-suite load on a shared runner that is a race rather
+        than a fact. Lose it and the signal lands on a process with the DEFAULT
+        disposition: SIGINT and SIGTERM terminate, giving 128+n -- exactly the
+        number this test exists to prove the script never returns. So the
+        failure looked like the defect had come back, on a run where the only
+        thing that changed was how busy the machine was.
+
+        `sleep` is an external binary, so the moment bash reaches line 220 it
+        forks a child. A child under the gate's pid is therefore proof that
+        parsing got past the traps -- observable from outside, and independent
+        of how slow the box is.
+
+        That inference holds ONLY while the traps precede the first `sleep` in
+        the script, which nothing in the script itself guarantees. Reverse them
+        and this readiness check starts firing early and silently restores the
+        race it was written to remove, so the ordering is asserted rather than
+        assumed -- see test_the_readiness_signal_still_means_what_it_says.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if gate.poll() is not None:
+                raise AssertionError(
+                    f"the gate exited (code {gate.returncode}) before it ever "
+                    f"reached its wait; nothing was interrupted")
+            children = subprocess.run(["pgrep", "-P", str(gate.pid)],
+                                      capture_output=True, text=True)
+            if children.stdout.strip():
+                return
+            time.sleep(0.05)
+        raise AssertionError(
+            f"gate {gate.pid} never forked its `sleep` child within {timeout}s")
+
     def _interrupt_with(self, signum):
         """Launch a live target, start the check, signal the CHECK mid-wait."""
         target = subprocess.Popen(["sleep", "30"],
@@ -169,9 +210,9 @@ class TestAnInterruptedCheckIsNotAVerdict:
                 [str(SCRIPT), "--pid", str(target.pid)],
                 env={**os.environ, "WAIT_SECONDS": "8"},
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            time.sleep(2.0)
+            self._await_trap_installed(gate)
             gate.send_signal(signum)
-            out, err = gate.communicate(timeout=25)
+            out, err = gate.communicate(timeout=60)
             return gate.returncode, err
         finally:
             target.kill()
@@ -187,6 +228,33 @@ class TestAnInterruptedCheckIsNotAVerdict:
         assert "NOT 'the bot died'" in err, (
             "the operator must be told this is not a claim about the bot -- "
             "the number alone is what got the gate abandoned")
+
+    def test_the_readiness_signal_still_means_what_it_says(self):
+        """The premise _await_trap_installed rests on, pinned.
+
+        It treats "the gate has forked a child" as "the gate is past its
+        traps". That is only true while every `trap` line comes BEFORE the
+        first `sleep`. If a future edit puts a sleep earlier -- a retry, a
+        settle, a backoff -- the readiness check would return while the traps
+        are still uninstalled, the signal would hit the default disposition,
+        and the suite would go back to failing once every few thousand runs
+        with a number that looks like the original defect.
+        """
+        # `trap` is not at the start of its line -- it sits inside an
+        # `if trap ... || trap ...`. Anchoring to ^ found nothing and the
+        # assertion below then failed on the CORRECT script, which is the same
+        # class of mistake as the thing being guarded: a check that cannot see
+        # what it is checking.
+        code = [ln.split("#", 1)[0] for ln in SCRIPT.read_text(encoding="utf-8").splitlines()]
+        traps = [i for i, ln in enumerate(code) if re.search(r"(^|\s|\|\|)\s*trap\s", ln)]
+        sleeps = [i for i, ln in enumerate(code) if re.search(r"(^|;|\s)sleep\s", ln)]
+        assert traps, "no `trap` lines found -- the script stopped trapping signals"
+        assert sleeps, "no `sleep` lines found -- the script shape changed"
+        assert max(traps) < min(sleeps), (
+            f"a `sleep` at line {min(sleeps) + 1} now precedes a `trap` at line "
+            f"{max(traps) + 1}. _await_trap_installed infers 'traps installed' "
+            f"from 'a child was forked', and that inference is now wrong -- it "
+            f"would signal too early and reintroduce the flake.")
 
     def test_the_four_codes_are_distinct(self):
         """0/1/2/3 must not collapse: each names a different thing, and the

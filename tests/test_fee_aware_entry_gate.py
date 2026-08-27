@@ -3,7 +3,8 @@ Fee-aware entry gate: reject trades whose TP reward doesn't clear round-trip
 cost (fees + slippage) by a safety multiple. Complements min-RR (a ratio) by
 enforcing an ABSOLUTE fee-clearing edge. Gated, default OFF, skips manual trades.
 """
-import os, tempfile
+import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime
 

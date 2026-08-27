@@ -25,7 +25,6 @@ needs to know which they are looking at.
 """
 from __future__ import annotations
 
-import pytest
 
 from bot.core.presale_claims import (CONFIRMED, MISREPRESENTED,
                                      PARTLY_SUBSTANTIATED, REFUTED, UNCHECKED,

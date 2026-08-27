@@ -29,9 +29,8 @@ import os
 import subprocess
 from pathlib import Path
 
-import pytest
 
-from bot.backtest.snapshot import (BENCHMARK_DIR_NAMES, benchmark_root,
+from bot.backtest.snapshot import (benchmark_root,
                                    default_benchmark_dir)
 
 REPO = Path(__file__).resolve().parent.parent
