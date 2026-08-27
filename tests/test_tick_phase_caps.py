@@ -189,7 +189,6 @@ async def test_zero_disables_the_cap_entirely():
 def test_the_phase_cap_fires_before_the_whole_tick_cap():
     """Ordering is the whole point: the phase names the hang, the whole-tick
     cap remains the last-resort recovery."""
-    from bot.config import CONFIG
     # Re-read defaults from the dataclass rather than a mutated instance.
     import bot.config as cfg_mod
     mon = cfg_mod.MonitoringConfig()

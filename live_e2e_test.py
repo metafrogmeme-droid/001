@@ -7,7 +7,6 @@ import asyncio
 import json
 import sys
 import os
-import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -68,7 +67,7 @@ async def run_all():
 
     # 2a. Intent Router
     try:
-        from bot.nlp.intent_router import IntentRouter, IntentResult
+        from bot.nlp.intent_router import IntentRouter
         router = IntentRouter()
 
         social_tests = [
@@ -143,7 +142,7 @@ async def run_all():
                "TestUser" in prompt, f"prompt contains name: {'TestUser' in prompt}")
         record("conversation", "context prompt has mood",
                "excited" in prompt.lower() or "mood" in prompt.lower(),
-               f"prompt mentions mood")
+               "prompt mentions mood")
 
         msg_count = store.message_count(test_uid)
         record("conversation", "context has history",
@@ -482,7 +481,7 @@ async def run_all():
     print(f"RESULTS: {passed}/{total} passed, {failed} failed")
 
     if failed:
-        print(f"\nFAILED TESTS:")
+        print("\nFAILED TESTS:")
         for r in results:
             if not r["passed"]:
                 print(f"  \u274c [{r['category']}] {r['test']}: {r['detail']}")
@@ -495,7 +494,7 @@ async def run_all():
             cats[c] = {"passed": 0, "failed": 0}
         cats[c]["passed" if r["passed"] else "failed"] += 1
 
-    print(f"\nBREAKDOWN:")
+    print("\nBREAKDOWN:")
     for c, v in cats.items():
         total_c = v["passed"] + v["failed"]
         print(f"  {c}: {v['passed']}/{total_c}")

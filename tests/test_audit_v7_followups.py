@@ -110,7 +110,8 @@ class TestNotionalVisibility:
     def test_risk_audit_logs_leverage_and_notional(self):
         """Every evaluation logs the margin->notional relationship explicitly."""
         import logging
-        import os, tempfile
+        import os
+        import tempfile
         from bot.risk.risk_engine import RiskEngine
         from bot.risk.portfolio import PortfolioTracker
         from bot.config import CONFIG

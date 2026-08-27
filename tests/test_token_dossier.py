@@ -28,7 +28,6 @@ the composition was not. Caught on this module's first run, pinned below.
 """
 from __future__ import annotations
 
-import pytest
 
 from bot.core import deployer_history as dh
 from bot.core import token_safety as ts

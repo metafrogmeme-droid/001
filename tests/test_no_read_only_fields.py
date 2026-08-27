@@ -46,7 +46,6 @@ import ast
 import collections
 import pathlib
 
-import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 

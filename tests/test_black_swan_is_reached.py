@@ -47,7 +47,6 @@ worse off than one who was told nothing.
 import ast
 import pathlib
 
-import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 

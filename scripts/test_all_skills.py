@@ -2,7 +2,11 @@
 RUNECLAW Full Skill Test Harness — exercises every skill against live Bitget data.
 Reports: PASS / FAIL / ERROR for each skill with output excerpts.
 """
-import asyncio, sys, os, time, traceback
+import asyncio
+import sys
+import os
+import time
+import traceback
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from bot.core.engine import RuneClawEngine
@@ -50,7 +54,7 @@ async def main():
             skill = registry.get(name)
             if skill is None:
                 results["ERROR"].append((name, "Skill not found in registry"))
-                print(f" ERROR (not found)")
+                print(" ERROR (not found)")
                 continue
 
             output = await asyncio.wait_for(
@@ -63,7 +67,7 @@ async def main():
                 # Check for error indicators in output
                 if "error" in out_str.lower() and "no error" not in out_str.lower():
                     results["FAIL"].append((name, out_str[:200]))
-                    print(f" FAIL")
+                    print(" FAIL")
                     print(f"    >>> {out_str[:150]}")
                 else:
                     results["PASS"].append((name, len(out_str)))
@@ -74,11 +78,11 @@ async def main():
                         print(f"    >>> {l[:120]}")
             else:
                 results["FAIL"].append((name, "Empty output"))
-                print(f" FAIL (empty output)")
+                print(" FAIL (empty output)")
 
         except asyncio.TimeoutError:
             results["ERROR"].append((name, "TIMEOUT (60s)"))
-            print(f" ERROR (timeout)")
+            print(" ERROR (timeout)")
         except Exception as exc:
             tb = traceback.format_exc()
             results["ERROR"].append((name, f"{exc}\n{tb[-300:]}"))
@@ -95,22 +99,22 @@ async def main():
     print(f"  TOTAL : {len(skills)}")
 
     if results["PASS"]:
-        print(f"\n  PASSED SKILLS:")
+        print("\n  PASSED SKILLS:")
         for name, size in results["PASS"]:
             print(f"    ✓ {name} ({size} chars)")
 
     if results["FAIL"]:
-        print(f"\n  FAILED SKILLS:")
+        print("\n  FAILED SKILLS:")
         for name, reason in results["FAIL"]:
             print(f"    ✗ {name}: {reason[:120]}")
 
     if results["ERROR"]:
-        print(f"\n  ERRORED SKILLS:")
+        print("\n  ERRORED SKILLS:")
         for name, reason in results["ERROR"]:
             print(f"    ✗ {name}: {str(reason)[:120]}")
 
     if results["SKIP"]:
-        print(f"\n  SKIPPED SKILLS:")
+        print("\n  SKIPPED SKILLS:")
         for name in results["SKIP"]:
             print(f"    - {name}")
 

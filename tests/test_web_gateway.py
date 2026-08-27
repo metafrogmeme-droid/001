@@ -537,7 +537,8 @@ def test_real_can_trade_live_blocks_web_ids():
     UserStore.can_trade_live) must refuse web ids even with a live flag set
     and no allowlist configured."""
     from bot.utils.user_store import UserStore
-    import tempfile, os
+    import tempfile
+    import os
     with tempfile.TemporaryDirectory() as d:
         store = UserStore(path=os.path.join(d, "users.json"))
         store.register("web:1")

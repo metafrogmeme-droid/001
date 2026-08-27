@@ -195,7 +195,7 @@ def _print_backtest(report: dict) -> None:
               f"sharpe {r['legacy_sharpe']:5.2f}->{r['new_sharpe']:5.2f}  "
               f"notional {r['legacy_notional']:.0f}->{r['new_notional']:.0f}  "
               f"trades {r['legacy_trades']}->{r['new_trades']}")
-    print(f"\n=== aggregate (mean legacy -> mean new, delta, #seeds new>=legacy) ===")
+    print("\n=== aggregate (mean legacy -> mean new, delta, #seeds new>=legacy) ===")
     print(f"{'metric':<20}{'legacy':>10}{'new':>10}{'delta':>10}{'new>=leg':>10}")
     for m in METRICS:
         a = report["aggregate"][m]
@@ -212,7 +212,7 @@ def _print_walk_forward(report: dict) -> None:
         print(f"seed {r['seed']:>2}: OOS mean ret {lo['mean_oos_return']:+5.2f}%->{nw['mean_oos_return']:+5.2f}%  "
               f"prof {lo['pct_profitable_folds']:.0%}->{nw['pct_profitable_folds']:.0%}  "
               f"[{lo['robustness']}->{nw['robustness']}]")
-    print(f"\n=== aggregate (mean legacy -> mean new, delta) ===")
+    print("\n=== aggregate (mean legacy -> mean new, delta) ===")
     print(f"{'OOS metric':<22}{'legacy':>10}{'new':>10}{'delta':>10}")
     for k, a in report["aggregate"].items():
         print(f"{k:<22}{a['legacy_mean']:>10.4g}{a['new_mean']:>10.4g}{a['delta']:>+10.4g}")

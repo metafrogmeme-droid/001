@@ -8,21 +8,38 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Eighteen gates: two ruff passes, mypy, bandit, pip-audit, the
-baseline test gate, the red team, the custody red team, the web app's parse
-check, its npm advisory ratchet, its suite, the marketing site's build, its
-npm advisory ratchet, its published-output honesty tests, the check that the
-committed site is the built site, the Anchor workspace's typecheck, its npm
-advisory ratchet, and guard reachability. ~14 minutes.
+step for free. Twenty gates: two strict ruff passes, the whole-tree ruff
+ratchet, mypy on the money modules, the whole-tree mypy ratchet, bandit,
+pip-audit, the baseline test gate, the red team, the custody red team, the web
+app's parse check, its npm advisory ratchet, its suite, the marketing site's
+build, its npm advisory ratchet, its published-output honesty tests, the check
+that the committed site is the built site, the Anchor workspace's typecheck, its
+npm advisory ratchet, and guard reachability. ~14 minutes.
 
-That "for free" is literal and has now been collected five times: the app parse
+That "for free" is literal and has now been collected six times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
 plan with no change to `preflight.py`, the two red-team gates each did the
-same, and the marketing site's advisory ratchet did it again. This paragraph's
-own gate count is pinned by `tests/test_claude_md_accuracy.py`, which failed the
-moment each of them landed — including on the sentence you are reading, which
-said "Ten" until the risk red team made it eleven, the custody one made it
-fifteen, and the audit's npm-coverage fix made it eighteen.
+same, the marketing site's advisory ratchet did it again, and the two lint/type
+ratchets did it a sixth time. This paragraph's own gate count is pinned by
+`tests/test_claude_md_accuracy.py`, which failed the moment each of them landed
+— including on the sentence you are reading, which said "Ten" until the risk
+red team made it eleven, the custody one made it fifteen, the audit's
+npm-coverage fix made it eighteen, and its lint/type ratchets made it twenty.
+
+**Two gates per tool, and the pairing is the point.** The strict steps are
+FLOORS over a narrow scope — those rules, those directories, zero tolerance —
+and they say nothing about anything outside it. `pyproject.toml` declared
+`select = ["E","F","W","I"]` while CI ran a subset, so both strict steps passed
+green against a tree the declared config scored at 1,361; `mypy` gated six
+modules while the other 272 carried 390 unmeasured errors. `scripts/ruff_gate.py`
+and `scripts/mypy_gate.py` cover the remainder as ratchets against
+`tests/ruff_baseline.json` and `tests/mypy_baseline.json`: a rule may only go
+DOWN, and a class that improves must be re-recorded in the same commit, same
+rule as `known_failures.txt`. Neither backlog is swept, and both refusals are
+deliberate — `I001` is an UNSAFE fix in a repo whose imports run `load_dotenv`
+and the vault restore, and the `operator`/`union-attr` errors were sampled and
+found to be mypy NARROWING false positives, where rewriting correct code to
+satisfy the analyser buries real defects in cosmetic diff.
 
 **"For free" covers a new STEP, not a new JOB.** `LOCAL_JOBS` is a deliberate
 allow-list — token tooling is excluded because one of its steps curl-pipes a

@@ -209,7 +209,7 @@ async def test_full_analysis(symbol="BTC/USDT", ohlcv=None):
         results["analysis_confidence"] = idea.confidence
         results["analysis_rr"] = idea.risk_reward_ratio
     else:
-        warn(f"No trade idea generated (confidence too low or filtered)")
+        warn("No trade idea generated (confidence too low or filtered)")
         results["analysis_direction"] = "FILTERED"
         results["analysis_confidence"] = 0
 
@@ -250,7 +250,7 @@ async def test_order_flow(symbol="BTC/USDT"):
             if liq_reason:
                 warn(f"Liquidity guard: {liq_reason}")
             else:
-                ok(f"Liquidity guard: PASS")
+                ok("Liquidity guard: PASS")
 
             # Confluence votes
             votes = signal.to_confluence_votes()

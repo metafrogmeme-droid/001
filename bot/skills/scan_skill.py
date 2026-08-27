@@ -1,6 +1,8 @@
 """RUNECLAW Deep Scan Skill — Telegram /scan command module."""
 from __future__ import annotations
-import asyncio, logging, time
+import asyncio
+import logging
+import time
 from datetime import datetime
 from typing import Optional
 import numpy as np
@@ -57,7 +59,8 @@ def _fetch_live_exchange_data() -> Optional[dict]:
     `net_pnl` and `win_rate` are TRI-STATE: None means the record could not be
     priced, and is not the same statement as 0.
     """
-    import json, os
+    import json
+    import os
     from bot.config import CONFIG
     from bot.utils.win_rate import pnl_stats, trade_pnl, win_stats
 

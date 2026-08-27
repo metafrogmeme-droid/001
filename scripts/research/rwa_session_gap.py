@@ -12,7 +12,11 @@ Test: correlation/OLS of open_ret on closed_ret (thesis: negative), and a
 fade-the-gap rule: position = -sign(closed_ret) when |closed_ret| >= filter,
 earning position * open_ret, minus Bitget taker fees (0.06% x2).
 """
-import json, time, subprocess, statistics, math
+import json
+import time
+import subprocess
+import statistics
+import math
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -23,7 +27,8 @@ LIST_MS = 1769994062288           # Feb 2 2026 listing (from contract metadata)
 FEE_RT = 0.0012                   # taker 0.06% in + out
 HOLIDAYS_2026 = {'2026-02-16', '2026-04-03', '2026-05-25', '2026-06-19', '2026-07-03'}
 
-import os, tempfile
+import os
+import tempfile
 CACHE_DIR = os.environ.get('RWA_CACHE_DIR', tempfile.gettempdir())
 def fetch(sym):
     """Page history-candles (200/req) from now back to listing, disk-cached."""

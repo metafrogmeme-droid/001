@@ -107,7 +107,7 @@ def test_no_verify_call_shares_a_line_with_an_ampersand(src: str) -> None:
     """
     code = _code_only(src)
     bad = [ln for ln in code.splitlines() if re.search(r"&\s+\S*verify_bot_alive", ln)]
-    assert bad == [], f"a smoke test shares a line with a background `&`:\n  " + "\n  ".join(bad)
+    assert bad == [], "a smoke test shares a line with a background `&`:\n  " + "\n  ".join(bad)
 
 
 def test_it_fails_loudly_rather_than_continuing(src: str) -> None:

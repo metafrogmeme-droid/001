@@ -414,7 +414,7 @@ def test_a_venue_without_room_is_skipped_and_said_so():
     assert "bitget" in why and "10.00" in why
 
 
-def test_no_venue_with_room_refuses(): 
+def test_no_venue_with_room_refuses():
     from bot.core.venue_selection import choose_venue
     v, why = choose_venue([_c("bitget", 10)], 100)
     assert v is None, "an order was routed to a venue that cannot take it"

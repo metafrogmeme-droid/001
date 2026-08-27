@@ -48,7 +48,6 @@ import json
 import pathlib
 import re
 
-import pytest
 
 from bot.skills.command_catalog import GROUPS
 from bot.utils.user_store import ROLE_PERMISSIONS
