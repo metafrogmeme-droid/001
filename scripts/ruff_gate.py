@@ -67,6 +67,58 @@ BASELINE = ROOT / "tests" / "ruff_baseline.json"
 _CODE = re.compile(r"^[^:]+:\d+:\d+:\s+([A-Z]+[0-9]+)\s")
 
 
+
+def _pinned(tool: str) -> str | None:
+    """The version CI installs, read from requirements-ci.txt."""
+    req = ROOT / "requirements-ci.txt"
+    if not req.exists():
+        return None
+    m = re.search(rf"^{tool}==([0-9][^\s#]*)", req.read_text(encoding="utf-8"), re.M)
+    return m.group(1) if m else None
+
+
+def _running(tool: str) -> str | None:
+    proc = subprocess.run([tool, "--version"], capture_output=True, text=True, cwd=ROOT)
+    m = re.search(r"([0-9]+\.[0-9]+\.[0-9]+)", (proc.stdout or "") + (proc.stderr or ""))
+    return m.group(1) if m else None
+
+
+def check_version(tool: str) -> None:
+    """Refuse to compare counts produced by a different analyser.
+
+    THE FIRST CI RUN OF THIS GATE FAILED HERE, AND THE FAILURE WAS A LIE.
+
+    The baseline was recorded with mypy 1.19.1; CI pins 1.15.0. It reported
+    654 errors against a baseline of 390 and named eleven classes as having
+    grown -- union-attr 44 -> 195, no-any-return 58 -> 105, plus a `list-item`
+    class that does not exist in the other version at all. Not one of those was
+    a code change. Every number came from a different analyser looking at an
+    identical tree.
+
+    A count is only comparable to a count from the same tool version, so a
+    mismatch is NOT a verdict -- it is the absence of one, and this repo has a
+    rule about reporting those as verdicts. Exit 2, distinct from the 1 that
+    means "something really did grow", so a launcher reading truthiness still
+    fails closed while a human reading the message learns which of the two
+    happened.
+    """
+    pinned, running = _pinned(tool), _running(tool)
+    if pinned is None or running is None:
+        print(f"WARNING: could not determine the {tool} version to compare "
+              f"(pinned={pinned}, running={running}); counts may not be comparable")
+        return
+    if pinned != running:
+        print(f"CANNOT CHECK: baseline counts were recorded with {tool} {pinned} "
+              f"(the version requirements-ci.txt installs) and this is {tool} "
+              f"{running}.", file=sys.stderr)
+        print(f"  Different {tool} versions report different counts on identical "
+              f"code, so any growth or shrinkage reported here would be an "
+              f"artefact of the toolchain rather than a fact about the tree.",
+              file=sys.stderr)
+        print(f"  Install the pinned version, or re-record deliberately with "
+              f"--update once requirements-ci.txt moves.", file=sys.stderr)
+        raise SystemExit(2)
+
 def current_counts() -> Counter:
     """Per-rule counts from the DECLARED config -- no --select override."""
     proc = subprocess.run(
@@ -94,6 +146,7 @@ def _load_baseline() -> dict:
 
 
 def main() -> int:
+    check_version("ruff")
     counts = current_counts()
     total = sum(counts.values())
 
