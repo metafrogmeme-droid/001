@@ -52,6 +52,16 @@ bot/learning/safety_policy.py:validate_learning_action
 # a control. `defang_if_flagged` is the seam; the LLM call in _handle_message
 # uses it, and only for the prompt — never for the text the router reads.
 bot/guardian/flight_recorder.py:verify_entries
+# cap_verdict is NOT here, and that is a decision rather than an oversight.
+# `aggregate` and `person_daily_loss_pct` beside it ARE reached, so only the
+# allow/refuse step is dark — which looks alarming and is not. risk_engine.py
+# makes that comparison inline and MORE carefully than this helper would: it
+# refuses on an incomplete read, and its comment explains why the helper's
+# framing does not fit — "unlike the position count, a partial daily loss is
+# NOT a floor... a P&L can go either way". Wiring cap_verdict would replace a
+# correct check with a looser one. Recorded so the next audit does not
+# rediscover it as a gap.
+#
 # The feature-entitlement gate.
 bot/token/tier_gate.py:allows_user
 # Distance validation for limit entries.
@@ -86,7 +96,6 @@ bot/proofofpnl/seasons.py:reset_season_store
 # Finished, coherent code for signals nobody wired. Deleting them destroys work
 # rather than removing rot, and "do we want this signal?" is not a question a
 # cleanup gets to answer.
-bot/core/seasonality.py:analyze_seasonality
 bot/core/session_aware.py:session_size_adjustment
 bot/core/session_aware.py:session_sl_adjustment
 bot/core/smart_exits.py:funding_cost_warning

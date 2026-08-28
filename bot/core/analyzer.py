@@ -1256,6 +1256,28 @@ class Analyzer:
         indicators["regime"] = regime.value
         indicators["confluence"] = confluence
 
+        # Seasonality CONTEXT — observation only, never a vote.
+        #
+        # Deliberately NOT gated behind a flag, unlike the cross-asset block
+        # above. That one is gated because it feeds a voter, and its own
+        # comment records the cost: "the dark voter's data source", inert and
+        # therefore unexercised. Gating an observation that decides nothing
+        # would recreate exactly the darkness this wiring exists to end —
+        # bot/core/seasonality.py had no caller and no test at all.
+        #
+        # It changes no score: `confluence` is already computed above and is
+        # not revisited. The candles are the ones analyse already holds, so
+        # this adds no fetch, and `as_of` keeps it deterministic under test.
+        # Fails open to absent — a context that cannot be computed is left out
+        # rather than filled in.
+        try:
+            from bot.core.seasonality import analyze_seasonality
+            _seas = analyze_seasonality(candles, as_of)
+            if _seas is not None:
+                indicators["seasonality"] = _seas
+        except Exception as _seas_exc:
+            system_log.debug("Seasonality context skipped: %s", _seas_exc)
+
         # SIGNAL QUALITY: multi-timeframe SMA50 trend alignment
         sma50 = float(np.mean(closes[-CONFIG.analyzer.sma_period:])) if len(closes) >= CONFIG.analyzer.sma_period else None
         if sma50 is not None:

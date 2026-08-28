@@ -113,8 +113,17 @@ bot/core/presale_claims.py
 #                    liquidation-cascade tell. Would feed the analyzer.
 #   market_cap.py    CoinGecko mcap/FDV/supply — large-cap vs small-cap
 #                    context for sizing. Free tier, no auth.
-#   seasonality.py   time-of-day and day-of-week edges from candles already
-#                    fetched.
+#
+# seasonality.py LEFT this list, and what it was hiding is the argument for
+# reading this file rather than trusting it. It was not merely unwired: nothing
+# imported it AT ALL, not even a test, and it carried a defect of exactly the
+# shape CLAUDE.md tabulates. Every empty hour/weekday bucket was seeded with
+# 0.0, so with the minimum accepted input — 48 hourly candles, two calendar
+# days — it named WEDNESDAY the best day to trade, from data that had never
+# seen a Wednesday, and scored the verdict NEUTRAL off the same invented zeros.
+# A fabricated 0.0 beats a real negative return. Fixed (absent buckets are
+# None, best/worst range over observed buckets only, a thin bucket is UNKNOWN
+# rather than neutral) and wired into the analyzer as CONTEXT — never a vote.
 #
 # The two RWA research scripts LEFT this list, and the note that put them here
 # was wrong in a way worth keeping. It said they have no `__main__` guard "so
@@ -129,4 +138,3 @@ bot/core/presale_claims.py
 # reading the file. Pinned by tests/test_research_scripts_are_importable.py.
 bot/core/basis.py
 bot/core/market_cap.py
-bot/core/seasonality.py
