@@ -289,7 +289,7 @@ def test_no_status_surface_still_derives_live_from_simulation_mode_alone():
     src = Path(__file__).resolve().parents[1] / "bot" / "skills" / "telegram_handler.py"
     # Strip comments and docstrings: this file's own comments quote the old
     # expressions to explain them, and a scan cannot tell those from code.
-    out, prev_end, prev_type = [], (1, 0), tokenize.INDENT
+    out, prev_type = [], tokenize.INDENT
     for tok in tokenize.generate_tokens(io.StringIO(src.read_text()).readline):
         if tok.type == tokenize.COMMENT:
             continue
