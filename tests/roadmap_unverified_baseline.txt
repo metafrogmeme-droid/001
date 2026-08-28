@@ -1,0 +1,46 @@
+# 🟢 roadmap rows that cite no path this repo can check.
+#
+# Generated and enforced by tests/test_roadmap_claims_are_reachable.py.
+#
+# The roadmap's own rule, printed above its legend, is that a row goes green
+# "only when the described capability is reachable by a user today". Nothing
+# checked that. Nine rows carried 🟢; five cited a path, four cited prose —
+# `live today`, `the venue adapter + router` — and prose is not evidence a
+# test can weigh. Two of those four were curable and were cured in the same
+# commit: **Invite friends** cites `/api/auth/referrals` (the endpoint that
+# actually returns the code and the joined count) and **Guardian suite** cites
+# the six pages it already names in its own description.
+#
+# The two below are NOT accusations. Each is a real, shipped capability whose
+# evidence is Python, not an HTTP path — so this file records that the CLAIM
+# is unverified here, which is a different statement from "the claim is false".
+# Absent is never a measurement, including when what is absent is the check.
+#
+# This is a RATCHET, in both directions, same rule as known_failures.txt:
+#   * a NEW entry means somebody just painted a row green with nothing behind
+#     it that a machine can read — write the citation instead of the entry;
+#   * an entry that gains a citation must be DELETED in the same commit, or
+#     test_the_baseline_has_no_stale_entries fails.
+#
+# Key is the row's bolded capability name, exactly as it appears.
+
+# ── extension-of-live rows: the horizon is Next, so there is no path yet ────
+# "More CEX venues + smart routing" is green under the legend's second clause,
+# "a direct extension of a live system" — four venues are live, the extension
+# is more of them. The live half is already covered: `test_venue_*` exercises
+# the adapters, and the roadmap's own "What's live" section names the four.
+# What cannot be checked from a path is the ROUTING, which is the part that is
+# not shipped. Do not cite bot/risk/order_router.py here to clear this entry —
+# it is in tests/unreachable_baseline.txt, i.e. nothing calls it, so citing it
+# would turn an honest gap into a false green.
+More CEX venues + smart routing
+
+# ── shipped, but the surface is Telegram and the engine, not a web route ────
+# "Hard risk engine" — the 23-check gate, the breakers, the caps, the kill
+# switch and the vault. Reachable, heavily tested (scripts/red_team.py drives
+# 30 adversarial scenarios at it on every CI run) and consulted on every entry.
+# It has no HTTP path because it is not a page. A repo-relative link to
+# bot/risk/risk_engine.py would satisfy a file-exists check while proving
+# nothing about reachability, which is the weaker claim wearing the stronger
+# one's clothes — so this stays recorded until something can ask the engine.
+Hard risk engine

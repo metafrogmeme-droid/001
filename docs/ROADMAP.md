@@ -99,7 +99,7 @@ just shipped.
 
 | Capability | Horizon | Status | Builds on |
 | --- | --- | --- | --- |
-| **Invite friends** — unique links, signup attribution, live "friends joined" count | Now | 🟢 | live today |
+| **Invite friends** — unique links, signup attribution, live "friends joined" count | Now | 🟢 | live: the code and the joined count both come from `/api/auth/referrals` |
 | **Referral rewards &amp; tiers** — turn invites into perks (fee credits, higher limits, post-token rewards) with milestone tiers | Next | 🟡 | the invite system. **The tiers are live** — five milestones on `/api/auth/referrals`, shown on the Account panel. The **rewards are not**, and the card now says which is which: each perk declares whether it is in force, and a planned one prints what it waits on. Two of the five ride on the token and say so. The one perk that is real is the squad — [Daily Duel](../app/lib/duel_squads.js) squads are built from this same referral graph |
 | **Leaderboards &amp; shareable cards** — opt-in performance leaderboards and one-tap shareable trade cards for Telegram/X | Now | 🟢 | live: `/leaderboard` (percent + ratios, anonymous handles), `/trader` cards, Arena board + seasons |
 | **Copy-trading marketplace** — follow top agents/users; creators earn a share of follower fees | Later | 🔵 | verifiable track record |
@@ -114,7 +114,7 @@ leads, it doesn't follow.
 | Capability | Horizon | Status | Notes |
 | --- | --- | --- | --- |
 | **Hard risk engine** — 23-check gate, circuit breakers, per-user loss breakers, margin caps, kill switch, encrypted secrets vault | Now | 🟢 | live today |
-| **Guardian suite** — Flight Recorder (sealed decision ledger), Stress Lab (digital-twin liquidation modelling), Risk Sentinel (market-wide crowding radar), Transaction Firewall (pre-sign prompt-injection scan, local-only), Escape Agent (dependency-aware unwind planner), Intent Compiler (plain words → revocable Authority Envelope) | Now | 🟢 | live today. All six **warn, explain, simulate and prove — none of them move funds** |
+| **Guardian suite** — Flight Recorder (sealed decision ledger), Stress Lab (digital-twin liquidation modelling), Risk Sentinel (market-wide crowding radar), Transaction Firewall (pre-sign prompt-injection scan, local-only), Escape Agent (dependency-aware unwind planner), Intent Compiler (plain words → revocable Authority Envelope) | Now | 🟢 | live: `/flight`, `/stress`, `/sentinel`, `/firewall`, `/escape`, `/intent`. All six **warn, explain, simulate and prove — none of them move funds** |
 | **Provable Calls** — decisions hashed before the market moves; outcomes attach to the sealed record and cannot change it. Daily Merkle roots make a whole day independently timestampable | Now | 🟢 | live today; full verification contract at `/provable` |
 | **Independent security audit** — third-party review of money endpoints, credential store, gateway | Next | 🟡 | precedes wider live rollout |
 | **Contract audits &amp; proof-of-reserves** — every vault/staking contract audited; reserves provable on-chain before any deposit | Later | 🔵 | blocks vault launch |
