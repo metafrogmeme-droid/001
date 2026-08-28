@@ -1780,14 +1780,23 @@ class TelegramHandler:
                     f"win rate {state.win_rate:.0%}, "
                     f"total trades {state.total_trades}"
                 )
-            cb = self.engine.risk.circuit_breaker_active
-            # This string is handed to the LLM as engine state, so a wrong
-            # mode here is repeated to the user in prose. Three-valued now.
+            # This string is handed to the LLM as engine state, so a wrong mode
+            # here is repeated to the user in prose. Three-valued now — it read
+            # `"LIVE" if not CONFIG.simulation_mode else "PAPER"`, which says
+            # LIVE on a bot with simulation off and live never armed.
+            #
+            # Computed BEFORE `cb` on purpose: test_trade_gate_parity pins the
+            # `cb` assignment within 400 characters of the f-string below, so
+            # that nobody can quietly redefine `cb` to something broader than
+            # circuit_breaker_active. Inserting these lines between the two is
+            # what broke it, and the fix is to keep the pair adjacent rather
+            # than to widen the window the test looks in.
             from bot.core.live_readiness import mode_label
             mode = mode_label()
             # CB= keeps its exact old meaning: a dozen readers drive alerts and
             # resume logic off `circuit_breaker_active`, and widening the field
             # under them would trade one wrong answer for another.
+            cb = self.engine.risk.circuit_breaker_active
             engine_state = f"{mode} mode, CB={'ON' if cb else 'OFF'}"
             # The claim the LLM actually makes to a user is "you can trade", and
             # CB= answers a narrower question than that. Twice now a gate
