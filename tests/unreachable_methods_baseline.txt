@@ -1,0 +1,135 @@
+# Public METHODS in bot/ with no caller outside tests.
+#
+# Generated and enforced by tests/test_no_new_unreachable_functions.py
+# (test_no_new_unreachable_methods). This is the THIRD granularity:
+#
+#   unreachable_baseline.txt            a module nobody imports
+#   unreachable_functions_baseline.txt  a module-level def nobody calls
+#   this file                           a METHOD nobody calls
+#
+# The gap was real and had already been paid for. LearningOrchestrator.
+# process_proposals fell through both older checks — bot/learning/orchestrator.py
+# IS imported so the module ratchet passed it, and a method is not a
+# module-level def so the function ratchet never looked. It was public, on a
+# class the engine constructs every run, with no caller, while four surfaces
+# claimed proposals had been 'applied'. A human found it; no gate did.
+#
+# A RATCHET, BOTH DIRECTIONS, same rule as known_failures.txt: a new entry
+# means somebody just wrote a method nobody calls, and an entry that leaves
+# must be deleted in the same commit that wires it.
+#
+# THESE ARE RECORDED, NOT TRIAGED. A fan-out that classified all 75 was lost
+# when the container re-provisioned mid-run, and inventing the categories
+# afterwards would be exactly the kind of confident claim from absent
+# evidence this repo has a table about. What follows is grouped by what can
+# be established mechanically — a name shaped like a control, a body
+# carrying a known defect shape — and nothing else is asserted.
+
+# ── DEAD *AND* DEFECTIVE — do not wire as-is ────────────────────────────────
+# Each body carries a shape from CLAUDE.md's table, so wiring it would ship
+# the defect along with the feature. This is the render_pnl_report case, and
+# the seasonality case: bot/core/seasonality.py was in this same state until
+# it was fixed and wired, where an empty bucket seeded with 0.0 made it name
+# a 'best day to trade' from a day it had never observed.
+#
+# basis.py and market_cap.py are the two remaining unwired signal sources on
+# the roadmap's 'real-time signal fusion' line. Fix when wiring, or delete.
+bot/core/basis.py:BasisAnalyzer.get_basis
+bot/core/live_executor.py:LiveExecutor.status_summary
+bot/core/market_cap.py:MarketCapProvider.get_market_cap
+
+# ── CONTROL-SHAPED NAMES — read these first ─────────────────────────────────
+# Grouped on the NAME, which is an observation and not a verdict: a method
+# called should_reject / check_all / is_validated / verify_batch is shaped
+# like something that refuses, checks or proves. Whether being uncalled has a
+# consequence is a judgement each one needs, and guessing would be worse than
+# recording — CLAUDE.md's rule for the module list, verbatim.
+#
+# is_validated is the pointed one: BacktestValidationGate is the control whose
+# master switch (VALIDATION_GATE_ENABLED) defaults OFF, so this is a gate that
+# is both disabled AND whose verdict method has no caller.
+bot/core/black_swan.py:BlackSwanDetector.check_all
+bot/core/metrics.py:MetricsEngine.should_skip_symbol
+bot/core/slippage.py:SlippageTracker.should_reject
+bot/core/validation_gate.py:BacktestValidationGate.is_validated
+bot/learning/orchestrator.py:LearningOrchestrator.process_proposals
+bot/risk/risk_engine.py:RiskEngine.get_authority_envelope
+bot/risk/risk_engine.py:RiskEngine.set_authority_envelope
+bot/risk/risk_engine.py:RiskEngine.set_authority_ledger
+bot/utils/attestation.py:AttestationEngine.verify_batch
+
+# ── THE REST, BY SUBSYSTEM ──────────────────────────────────────────────────
+# Untriaged. bot/learning dominates because that subsystem's own documented
+# state is that the loop ends at 'approved' and nothing applies a proposal.
+#
+# One WAS triaged before the classification run was lost, and it is recorded
+# because it found a defect elsewhere: ComplianceEngine.get_consent_ledger is
+# a read-only accessor whose absence gates nothing (authorize() is reached and
+# its denials are written to the audit chain). But the /compliance skill at
+# bot/skills/macro_skills.py:248 looks up the attribute 'consent_ledger'
+# WITHOUT the get_ prefix, which resolves to nothing — so that card prints
+# 'No consent ledger available' over a populated ledger. That is a live
+# absent-rendered-as-empty defect in macro_skills.py, not in this method.
+bot/compliance/compliance_engine.py:ComplianceEngine.get_consent_ledger
+bot/core/alert_manager.py:AlertManager.acknowledge
+bot/core/alert_manager.py:AlertManager.create_alert
+bot/core/alert_manager.py:AlertManager.get_pending
+bot/core/analyzer.py:Analyzer.get_no_trade_reason
+bot/core/black_swan.py:BlackSwanDetector.clear_alerts
+bot/core/cost.py:CostTracker.record_infra
+bot/core/cost.py:CostTracker.snapshot_lifetime
+bot/core/engine.py:RuneClawEngine.get_futures_exchange
+bot/core/engine.py:RuneClawEngine.get_rebalance_signals
+bot/core/engine.py:RuneClawEngine.set_confirmation_callback
+bot/core/exchange_credentials.py:ExchangeCredentialStore.set_active
+bot/core/live_executor.py:LiveExecutor.update_atr
+bot/core/llm_cache.py:SemanticLLMCache.purge_expired
+bot/core/metrics.py:MetricsEngine.record_circuit_breaker_trip
+bot/core/metrics.py:MetricsEngine.record_risk_check
+bot/core/news.py:NewsRadar.for_symbol
+bot/core/performance_tracker.py:PerformanceTracker.start_periodic_push
+bot/core/signal_tracker.py:SignalTracker.get_pair_stats
+bot/core/signal_tracker.py:SignalTracker.record_signal
+bot/core/smart_exits.py:AdaptiveLimitDistance.optimal_offset
+bot/core/smart_exits.py:TimeOfDayEdge.get_best_hours
+bot/core/smart_exits.py:TimeOfDayEdge.get_edge
+bot/core/swarm.py:SwarmCoordinator.inject_anomaly
+bot/core/swarm.py:SwarmCoordinator.process_signal
+bot/core/system_health.py:SystemHealthMonitor.record_api_call
+bot/core/system_health.py:SystemHealthMonitor.record_scan
+bot/core/system_health.py:SystemHealthMonitor.set_exchange_status
+bot/core/token_optimizer.py:OptimizationStats.record_batch
+bot/core/validation_gate.py:BacktestValidationGate.format_badge
+bot/core/validation_gate.py:BacktestValidationGate.get_all_validations
+bot/core/ws_feed.py:BitgetWSFeed.get_all_ticks
+bot/core/ws_feed.py:BitgetWSFeed.get_tick
+bot/learning/experience.py:ExperienceMemory.get_rejection_patterns
+bot/learning/feedback.py:FeedbackCollector.get_actionable_feedback
+bot/learning/macro_learner.py:MacroLearner.get_risk_context
+bot/learning/macro_learner.py:MacroLearner.record_event
+bot/learning/orchestrator.py:LearningOrchestrator.review_trade
+bot/learning/orchestrator.py:LearningOrchestrator.score_strategy
+bot/learning/prompt_opt.py:PromptOptimizer.get_best_version
+bot/learning/prompt_opt.py:PromptOptimizer.propose_prompt_improvement
+bot/learning/prompt_opt.py:PromptOptimizer.record_human_feedback
+bot/learning/prompt_opt.py:PromptOptimizer.record_usage
+bot/learning/prompt_opt.py:PromptOptimizer.register_version
+bot/learning/store.py:LearningStore.get_reflections
+bot/macro/calendar.py:MacroCalendar.add_events
+bot/mcp/server.py:MCPResponse.to_json
+bot/mcp/server.py:RuneClawMCPServer.call_tool
+bot/mcp/server.py:RuneClawMCPServer.list_tools
+bot/nlp/conversation_store.py:ConversationStore.clear_all
+bot/risk/multi_portfolio.py:MultiUserPortfolio.all_user_ids
+bot/risk/multi_portfolio.py:MultiUserPortfolio.snapshot_all
+bot/risk/multi_portfolio.py:MultiUserPortfolio.venue_portfolios
+bot/risk/order_router.py:SmartOrderRouter.estimate_slippage
+bot/risk/order_router.py:SmartOrderRouter.optimal_order_type
+bot/risk/person_peak.py:PersonPeakStore.reseed
+bot/risk/risk_engine.py:RiskEngine.warning_rate_summary
+bot/skills/getclaw_wrapper.py:GetClawAdapter.evaluate_signal
+bot/skills/getclaw_wrapper.py:GetClawAdapter.to_getclaw_format
+bot/skills/user_middleware.py:UserContext.save_portfolio
+bot/utils/user_store.py:UserStore.count_by_tier
+bot/utils/user_store.py:UserStore.get_lang
+bot/utils/user_store.py:UserStore.has_feature

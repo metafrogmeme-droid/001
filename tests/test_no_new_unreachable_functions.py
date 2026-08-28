@@ -263,3 +263,156 @@ def test_the_detector_finds_a_planted_dead_function(tmp_path, monkeypatch):
         f"the detector missed a planted dead function; it found {found}")
     assert "bot/planted.py:a_function_that_is_called" not in found, (
         "the detector reported a function that IS called")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# METHODS — the same gap, one level further in
+# ══════════════════════════════════════════════════════════════════════════
+#
+# The function ratchet above walks `tree.body` and so sees module-level defs
+# only. `LearningOrchestrator.process_proposals` fell straight through both
+# checks: bot/learning/orchestrator.py IS imported (module ratchet passes) and
+# the method is not a module-level def (function ratchet never looks). It was a
+# public method on a class the engine constructs on every run, with no caller,
+# whose four surfaces claimed proposals had been "applied" — found by hand in
+# the 2026-08-27 audit, not by any gate.
+#
+# WHY A CLASS WITH A BASE IS SKIPPED ENTIRELY
+#
+# `AuthIn.model_post_init` in bot/api/auth_routes.py has zero Python callers
+# and runs on every unauthenticated POST to /auth/register and /auth/login: it
+# is pydantic v2's documented BaseModel lifecycle hook, invoked by
+# pydantic-core (compiled Rust) after each successful validation. There is no
+# identifier anywhere in the tree for an identifier-counting detector to find,
+# so it is not merely missed — it is structurally invisible, and the detector
+# would confidently report a live auth guard as dead.
+#
+# That is the failure this repo already has on record: the module checker's own
+# note says "a reachability checker with a blind spot manufactures exactly the
+# accusation it exists to prevent" — the `.experience` relative-import bug that
+# condemned ten bot/learning modules at once. Believing this one would mean
+# deleting the only length cap on `password` before it reaches the hash path.
+#
+# So an override cannot be told from dead code by counting names, and the
+# honest move is to decline the whole class. It costs almost nothing: of the 76
+# methods this sweep first surfaced, exactly ONE sat on a subclass. Declining a
+# whole category to avoid one false accusation is the same trade the function
+# ratchet already makes for decorated defs and duplicated names.
+
+METHOD_BASELINE = Path(__file__).parent / "unreachable_methods_baseline.txt"
+
+
+def _candidate_methods() -> dict:
+    """name -> (relpath, class, lineno) for unambiguous public methods.
+
+    Conservative on every axis, and each exclusion is a LOWER BOUND rather
+    than a guess:
+
+    * a leading underscore is already private;
+    * a decorator is a registration this detector cannot follow;
+    * a class with ANY base may be overriding a framework contract (see above);
+    * a name defined more than once — as a method OR as a module-level
+      function — is ambiguous, and the identifier count cannot tell which
+      definition a call site meant.
+    """
+    methods = defaultdict(list)
+    module_level = set()
+    for root in CANDIDATE_ROOTS:
+        for path in _py_files(REPO / root):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    module_level.add(node.name)
+                elif isinstance(node, ast.ClassDef):
+                    if node.bases or node.keywords:
+                        continue          # possible override — decline the class
+                    for sub in node.body:
+                        if not isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            continue
+                        if sub.name.startswith("_") or sub.decorator_list:
+                            continue
+                        methods[sub.name].append(
+                            (_rel(path), node.name, sub.lineno))
+    return {n: sites[0] for n, sites in methods.items()
+            if len(sites) == 1 and n not in module_level}
+
+
+def unreachable_methods() -> set:
+    """Public methods whose only mention in production code is their own def."""
+    counts = _production_identifier_counts()
+    return {f"{rel}:{cls}.{name}"
+            for name, (rel, cls, _ln) in _candidate_methods().items()
+            if counts[name] <= 1}
+
+
+def _method_baseline() -> set:
+    if not METHOD_BASELINE.exists():
+        return set()
+    return {ln.strip() for ln in
+            METHOD_BASELINE.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.startswith("#")}
+
+
+def test_no_new_unreachable_methods():
+    """A NEW entry means somebody just wrote a method nobody calls."""
+    new = sorted(unreachable_methods() - _method_baseline())
+    assert not new, (
+        "these public methods have no caller anywhere outside tests:\n  "
+        + "\n  ".join(new)
+        + "\n\nNeither the module ratchet nor the function ratchet can see "
+          "them — the module IS imported and the method is not a module-level "
+          "def. Wire each one up, delete it, or add it to "
+          "tests/unreachable_methods_baseline.txt with a line saying why.")
+
+
+def test_the_method_baseline_has_no_stale_entries():
+    """An entry that LEAVES must be deleted in the same commit."""
+    gone = sorted(_method_baseline() - unreachable_methods())
+    assert not gone, (
+        "these are no longer unreachable — wired up, renamed or deleted — but "
+        "are still baselined:\n  " + "\n  ".join(gone)
+        + "\n\nRemove them from tests/unreachable_methods_baseline.txt.")
+
+
+def test_a_framework_override_is_never_reported_dead(tmp_path, monkeypatch):
+    """The blind spot must not come back.
+
+    `AuthIn.model_post_init` is the live case: a pydantic hook with zero Python
+    callers, running on every unauthenticated login. Planted here rather than
+    asserted against the real file so the guard survives that file being
+    renamed — and so it fails for the RIGHT reason if the base-class exclusion
+    is ever removed.
+
+    In the spirit of test_relative_imports_count_as_reachability, which pins
+    the module checker's equivalent repaired blind spot.
+    """
+    pkg = tmp_path / "bot"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "planted.py").write_text(
+        "class Hooked(BaseModel):\n"
+        "    def model_post_init(self, _ctx):\n"
+        "        return None\n\n"
+        "class Plain:\n"
+        "    def a_method_nobody_calls(self):\n"
+        "        return 1\n\n"
+        "    def a_method_that_is_called(self):\n"
+        "        return 2\n", encoding="utf-8")
+    (pkg / "caller.py").write_text(
+        "from bot.planted import Plain\n"
+        "Plain().a_method_that_is_called()\n", encoding="utf-8")
+
+    import sys
+    mod = sys.modules[__name__]
+    monkeypatch.setattr(mod, "REPO", tmp_path)
+    found = mod.unreachable_methods()
+    assert "bot/planted.py:Hooked.model_post_init" not in found, (
+        "a framework override on a subclass was reported dead — this is the "
+        "blind spot that would condemn a running auth guard")
+    assert "bot/planted.py:Plain.a_method_nobody_calls" in found, (
+        f"the detector missed a planted dead method; it found {found}")
+    assert "bot/planted.py:Plain.a_method_that_is_called" not in found, (
+        "the detector reported a method that IS called")
