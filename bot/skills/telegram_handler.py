@@ -2471,6 +2471,10 @@ class TelegramHandler:
         # FIREWALL verdict to the tamper-evident chain and returns it; a message is
         # only refused when the operator has additionally opted into blocking HIGH
         # verdicts. Default OFF (no scan) \u2014 this can never break a chat.
+        # Initialised before the try so the LLM call below can always ask. If
+        # the scan itself failed, the verdict is None and hardening is skipped —
+        # which is the honest reading: nobody looked, so nothing was flagged.
+        fw_verdict = None
         try:
             fw_verdict = self.engine.firewall_scan(text, source="telegram", user_id=str(uid))
             if fw_verdict and fw_verdict.get("risk") == "high" and \
@@ -2811,8 +2815,14 @@ class TelegramHandler:
         _tel_code = getattr(getattr(update, "effective_user", None),
                             "language_code", "") or ""
         _reply_lang = get_user_lang_raw(self.users, tg_id) or _tel_code
+        # Hardened only for the PROMPT, never for `text` itself: the same
+        # variable drives intent parsing and command routing above, and
+        # rewriting it there would change what the bot thinks you asked for.
+        # Ordinary messages come back byte-identical (see defang_if_flagged).
+        from bot.guardian.firewall import defang_if_flagged
+        _prompt_text, _ = defang_if_flagged(text, fw_verdict)
         answer = await self._llm_chat(
-            _sanitize_chat_input(text), user_id=tg_id, user_name=user_name,
+            _sanitize_chat_input(_prompt_text), user_id=tg_id, user_name=user_name,
             is_admin=self._is_admin(update), reply_lang=_reply_lang)
 
         # Store assistant response in conversation memory
