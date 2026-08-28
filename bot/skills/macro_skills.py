@@ -7,7 +7,6 @@ into the Telegram skill system.
 from __future__ import annotations
 
 import datetime as _dt
-import uuid as _uuid
 from typing import TYPE_CHECKING, List
 
 # Lazy import — skill_registry lives in the same package tree.
@@ -46,6 +45,146 @@ def _safe_getattr(obj, attr, fallback=None):
         return fallback
 
 
+# A read that nobody could answer. NOT an empty result, and that distinction is
+# the whole reason this sentinel exists rather than `None` or `[]`.
+#
+# Every skill in this module was written against an imagined "v2" API and probed
+# attribute names that do not exist on the real objects — `upcoming_events` when
+# the method is `get_upcoming_events`, `consent_ledger` when it is
+# `get_consent_ledger`, `current_window` when the field lives on the context
+# object. Seven probes, seven misses, and each miss rendered as a confident
+# negative: "No upcoming events loaded" printed over a calendar holding 40
+# events with Nonfarm Payrolls a week out, and "No consent ledger available"
+# printed over a populated authorization ledger.
+#
+# On a fail-closed macro subsystem those sentences are worse than blank. "No
+# upcoming events loaded" is the phrasing that means THE CALENDAR IS MISSING,
+# which is the one condition an operator is told to treat as a reason to stop —
+# so the card manufactured the alarm it exists to report, out of a typo.
+#
+# Nothing caught it because nothing could run it: all five skills are registered
+# and dispatched by no transport (see tests/unreachable_skills_baseline.txt).
+_UNREADABLE = object()
+
+
+def _read(obj, names, **kwargs):
+    """First attribute among *names* that answers, or `_UNREADABLE`.
+
+    Accepts a plain attribute or a method, and retries a method without
+    keywords when it does not take them — the sources here are duck-typed
+    (`MacroEventProvider.get_upcoming_events(hours=...)` vs
+    `MacroCalendar.upcoming()`), which is exactly how the names drifted apart
+    in the first place.
+
+    A name that resolves to nothing keeps looking; only exhausting the list, or
+    an accessor that raises, is `_UNREADABLE`. An accessor that answers `None`
+    is also `_UNREADABLE` — a source that declines to say is not a source
+    saying "none".
+    """
+    for name in names:
+        fn = _safe_getattr(obj, name)
+        if fn is None:
+            continue
+        if not callable(fn):
+            return fn
+        try:
+            out = fn(**kwargs) if kwargs else fn()
+        except TypeError:
+            try:
+                out = fn()
+            except Exception:
+                return _UNREADABLE
+        except Exception:
+            return _UNREADABLE
+        return _UNREADABLE if out is None else out
+    return _UNREADABLE
+
+
+def _field(item, name, default=None):
+    """Read *name* off a dict OR an object — the event sources return dicts."""
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return _safe_getattr(item, name, default)
+
+
+def _event_line(ev) -> str:
+    """One calendar event, rendered.
+
+    `get_upcoming_events` yields DICTS. The old code read them with
+    `getattr(ev, "label", str(ev))`, so had its accessor ever resolved it would
+    have printed the raw dict repr into the card.
+
+    `date_confidence` is carried through because the seed calendar marks some
+    dates `estimated`, and an estimated NFP time shown in the same typeface as
+    a confirmed one is a heuristic wearing a verdict's clothes.
+    """
+    # Two shapes reach here and they disagree on names: MacroEventProvider
+    # yields dicts keyed `type`/`severity`, MacroCalendar yields MacroEvent
+    # dataclasses with `event_type`/`impact`. Reading only the first pair
+    # printed "[severity unknown]" beside a HIGH-impact FOMC decision.
+    label = (_field(ev, "label") or _field(ev, "type")
+             or _field(ev, "event_type") or "unnamed event")
+    when = _field(ev, "scheduled_utc")
+    sev = _field(ev, "severity") or _field(ev, "impact")
+    conf = str(_field(ev, "date_confidence") or "").lower()
+
+    out = str(label)
+    out += f"  ({when})" if when else "  (time unknown)"
+    out += f"  [{sev}]" if sev else "  [severity unknown]"
+    if conf and conf != "confirmed":
+        out += f"  ~{conf}"
+    return out
+
+
+def _present(obj, name) -> str:
+    """Render one optional field with its three states kept apart.
+
+    `unknown`  the attribute is not there — nobody answered.
+    `none`     it is there and holds None — a real, measured absence.
+    the value  otherwise.
+
+    The distinction matters most on `size_multiplier`, where the old default
+    of `1.0` meant an unreadable macro multiplier displayed as FULL SIZE.
+    """
+    if not hasattr(obj, name):
+        return "unknown"
+    value = _safe_getattr(obj, name)
+    return "none" if value is None else str(value)
+
+
+def _decision_line(entry) -> str:
+    """One AuthorizationDecision, rendered — outcome first.
+
+    The old code read `entry.action`, a field AuthorizationDecision does not
+    have, and fell back to `str(entry)`: a raw dataclass repr per line. What it
+    never printed, under any branch, was `granted` — whether the trade was
+    ALLOWED OR DENIED, which is the only thing a consent ledger is for.
+
+    `granted` is read with `is None`, not falsiness, because False is a real
+    and highly consequential reading here and must not share a branch with
+    "the field was not there".
+    """
+    granted = _field(entry, "granted")
+    if granted is None:
+        outcome = "UNKNOWN"
+    else:
+        outcome = "GRANTED" if granted else "DENIED"
+
+    ts = _field(entry, "timestamp")
+    out = f"[{ts if ts else 'time unknown'}] <b>{outcome}</b>"
+
+    trade_id = _field(entry, "trade_id")
+    if trade_id:
+        out += f" trade <code>{trade_id}</code>"
+    failed = _field(entry, "locks_failed") or []
+    if failed:
+        out += f" — failed: <code>{', '.join(str(f) for f in failed)}</code>"
+    reasons = _field(entry, "reasons") or []
+    if reasons:
+        out += f" ({'; '.join(str(r) for r in reasons)})"
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 1. MacroBriefSkill
 # ---------------------------------------------------------------------------
@@ -67,6 +206,7 @@ class MacroBriefSkill(BaseSkill):
 
         source = provider or calendar
         lines: list[str] = [_html_bold("Macro Brief")]
+        ctx = None  # the context object, when one could be read at all
 
         # -- risk state (use get_context on v2 provider) --
         ctx_fn = _safe_getattr(source, "get_context")
@@ -90,6 +230,7 @@ class MacroBriefSkill(BaseSkill):
                 if explanation:
                     lines.append(f"<i>{explanation}</i>")
             except Exception:
+                ctx = None
                 risk_state = _safe_getattr(source, "risk_state", "UNKNOWN")
                 lines.append(f"Risk state: <code>{risk_state}</code>")
         else:
@@ -97,29 +238,73 @@ class MacroBriefSkill(BaseSkill):
             lines.append(f"Risk state: <code>{risk_state}</code>")
 
         # -- current window --
-        window = _safe_getattr(source, "current_window")
-        if window:
-            lines.append(f"Active window: {window}")
+        # The window lives on the CONTEXT (`MacroContext.window`); the source
+        # has no `current_window` attribute and never had one, so the old probe
+        # resolved to nothing on every call and "No active macro window" was
+        # unfalsifiable — it printed identically whether a CPI blackout was
+        # active or the provider had fallen over.
+        if ctx is None:
+            lines.append("Active window: <code>unknown</code> — "
+                         "no readable macro context.")
         else:
-            lines.append("No active macro window.")
+            window = getattr(ctx, "window", None)
+            lines.append(f"Active window: {window}" if window
+                         else "No active macro window.")
 
         # -- next events --
-        upcoming = _safe_getattr(source, "upcoming_events")
-        if callable(upcoming):
-            try:
-                upcoming = upcoming(limit=5)
-            except TypeError:
-                upcoming = upcoming()
-        if upcoming:
-            lines.append("")
+        # `get_upcoming_events(hours)` on MacroEventProvider, `upcoming()` on
+        # MacroCalendar. The old probe asked for `upcoming_events`, which is
+        # neither, so this section could never render an event.
+        # A week, not the 24h the accessor defaults to: this card exists to
+        # warn about macro blackouts before they arrive, and the events that
+        # matter (CPI, FOMC, NFP) are scheduled well over a day out.
+        horizon_h = 24 * 7
+        upcoming = _read(source, ("get_upcoming_events", "upcoming_events",
+                                  "upcoming"), hours=horizon_h)
+        # A BLIND provider answers `[]` to every event query — not because the
+        # week is clear but because it holds no calendar to look in. Reporting
+        # that as "no events scheduled" is this module's original defect
+        # reappearing one level down, so blindness is checked before the empty
+        # list is believed.
+        blind = ctx is not None and getattr(ctx, "is_blind", False)
+        lines.append("")
+        if blind:
+            lines.append("Upcoming events: <code>unknown</code> — no calendar "
+                         "is loaded, so an empty week and an unread one are "
+                         "indistinguishable.")
+        elif upcoming is _UNREADABLE:
+            # Distinct from "the calendar is empty", and deliberately so: an
+            # operator acts on those two very differently.
+            lines.append("Upcoming events: <code>unknown</code> — this macro "
+                         "source exposes no readable event list.")
+        elif upcoming:
+            # The heading does NOT claim the horizon. `hours` is a hint, and
+            # not every source honours it — MacroCalendar.upcoming() takes a
+            # `limit` and returns the next N whatever their distance, so a
+            # "next 7d" heading over its output was a false claim about timing
+            # made by this card, not by the data. Each line carries its own
+            # date, which is the fact either way.
             lines.append(_html_bold("Next events:"))
-            for ev in upcoming[:5]:
-                label = getattr(ev, "label", str(ev))
-                scheduled = getattr(ev, "scheduled_utc", "")
-                severity = getattr(ev, "severity", "")
-                lines.append(f"  - {label}  ({scheduled})  [{severity}]")
+            for ev in list(upcoming)[:5]:
+                lines.append(f"  - {_event_line(ev)}")
         else:
-            lines.append("No upcoming events loaded.")
+            # Nothing inside the horizon is not nothing at all. The provider
+            # tracks the next event whatever its distance, so name it rather
+            # than leaving the operator to read an empty week as an empty
+            # calendar — the two look identical and mean opposite things.
+            nxt = getattr(ctx, "next_event", None) if ctx is not None else None
+            if nxt:
+                lines.append(f"No macro events in the next {horizon_h // 24}d. "
+                             f"After that: {_event_line(nxt)}")
+            elif ctx is None:
+                # The horizon is empty and there is no context to ask about
+                # what lies past it. Saying "none scheduled beyond it" here
+                # would be a claim made from a source that was never consulted.
+                lines.append(f"No macro events in the next {horizon_h // 24}d; "
+                             "beyond that, <code>unknown</code>.")
+            else:
+                lines.append(f"No macro events in the next {horizon_h // 24}d, "
+                             "and none scheduled beyond it.")
 
         return "\n".join(lines)
 
@@ -160,9 +345,15 @@ class CheckEventRiskSkill(BaseSkill):
                 return f"Error checking risk for {symbol}: {exc}"
 
             risk_state = getattr(result, "risk_state", "UNKNOWN")
-            severity = getattr(result, "severity", "N/A")
-            window = getattr(result, "window", "none")
-            multiplier = getattr(result, "size_multiplier", 1.0)
+            # `severity` and `window` are Optional on MacroContext and are None
+            # whenever the state is CLEAR — a real reading, not a missing one.
+            # They printed as the bare literal `None`, which reads as a failure
+            # rather than as the all-clear it actually is. `unknown` stays
+            # reserved for the attribute genuinely not being there.
+            severity = _present(result, "severity")
+            window = _present(result, "window")
+            # No 1.0 default: an unreadable size multiplier is not "full size".
+            multiplier = _present(result, "size_multiplier")
             explanation = getattr(result, "explanation", "")
             is_stale = getattr(result, "is_stale", False)
             is_blind = getattr(result, "is_blind", False)
@@ -216,7 +407,9 @@ class CheckEventRiskSkill(BaseSkill):
 
 class ComplianceStatusSkill(BaseSkill):
     name = "compliance_status"
-    description = "Current compliance profile and consent ledger summary."
+    # Not "compliance profile": the engine holds none, and a description that
+    # promises one is how the card came to report its absence as a fault.
+    description = "Restricted jurisdictions and consent ledger summary."
     command = "/compliance"
 
     async def execute(self, engine, **kwargs) -> str:
@@ -229,45 +422,67 @@ class ComplianceStatusSkill(BaseSkill):
 
         lines = [_html_bold("Compliance Status")]
 
-        # -- profile permissions --
-        profile = _safe_getattr(compliance, "profile")
-        if profile:
-            permissions = _safe_getattr(profile, "permissions", {})
-            lines.append("")
-            lines.append(_html_bold("Permissions:"))
-            if isinstance(permissions, dict):
-                for perm, allowed in permissions.items():
-                    flag = "YES" if allowed else "NO"
-                    lines.append(f"  {perm}: <code>{flag}</code>")
-            else:
-                lines.append(f"  {permissions}")
+        # -- what the engine actually holds --
+        # It holds no profile. `ComplianceEngine.authorize()` takes a
+        # SubjectProfile as an ARGUMENT on every call, so there is nothing to
+        # load and nothing to fail to load. The old probe therefore printed
+        # "No compliance profile loaded." unconditionally — a fault report on a
+        # permissions panel, describing a design.
+        #
+        # The restricted-jurisdiction set IS held, and IS the standing policy
+        # this card should be showing, so it is what gets shown.
+        restricted = _read(compliance, ("restricted_jurisdictions",
+                                        "_restricted"))
+        lines.append("")
+        if restricted is _UNREADABLE:
+            lines.append("Restricted jurisdictions: <code>unknown</code>")
         else:
-            lines.append("No compliance profile loaded.")
+            # `_read` returns whatever the attribute holds, so the shape is not
+            # guaranteed. A card that raises renders nothing at all, which is
+            # the least honest outcome available.
+            try:
+                codes = sorted(str(j) for j in restricted)
+            except TypeError:
+                codes = None
+            if codes is None:
+                lines.append("Restricted jurisdictions: <code>unreadable</code>")
+            else:
+                lines.append("Restricted jurisdictions: <code>"
+                             + (", ".join(codes) or "none") + "</code>")
+        lines.append("<i>Per-trade permissions are evaluated at authorization "
+                     "time from the caller's profile — none is held here.</i>")
 
         # -- consent ledger --
-        ledger = _safe_getattr(compliance, "consent_ledger")
-        if ledger:
-            entries_fn = _safe_getattr(ledger, "recent")
-            entries = []
-            if callable(entries_fn):
-                try:
-                    entries = entries_fn(limit=5)
-                except TypeError:
-                    entries = entries_fn()
-            elif isinstance(ledger, (list, tuple)):
-                entries = ledger[-5:]
-
-            if entries:
-                lines.append("")
-                lines.append(_html_bold("Consent Ledger (last 5):"))
-                for entry in entries:
-                    ts = getattr(entry, "timestamp", "")
-                    action = getattr(entry, "action", str(entry))
-                    lines.append(f"  [{ts}] {action}")
-            else:
-                lines.append("Consent ledger is empty.")
+        # The accessor is `get_consent_ledger()`. The old probe asked for
+        # `consent_ledger` — no such attribute — so this card announced "No
+        # consent ledger available" over a ledger holding up to 5,000 real
+        # authorization decisions. On the surface whose only job is to show
+        # that record.
+        ledger = _read(compliance, ("get_consent_ledger", "consent_ledger"))
+        lines.append("")
+        if ledger is _UNREADABLE:
+            lines.append("Consent ledger: <code>could not read</code> — the "
+                         "decisions may exist; this card cannot see them.")
+        elif not ledger:
+            lines.append("Consent ledger: no decisions recorded yet.")
         else:
-            lines.append("No consent ledger available.")
+            entries = list(ledger)
+            # Tallied with `is None`, and unreadable outcomes counted as their
+            # own class rather than folded into either side. A ledger summary
+            # that silently sorts unscorable rows into "granted" or "denied" is
+            # the `losses = len(all) - wins` shape from CLAUDE.md's table, on
+            # the record of who was allowed to trade.
+            granted = sum(1 for e in entries if _field(e, "granted") is True)
+            denied = sum(1 for e in entries if _field(e, "granted") is False)
+            unknown = len(entries) - granted - denied
+            tally = f"{granted} granted, {denied} denied"
+            if unknown:
+                tally += f", {unknown} unreadable"
+            lines.append(_html_bold(
+                f"Consent ledger — {len(entries)} decision(s): {tally}"))
+            lines.append("<i>Last 5:</i>")
+            for entry in entries[-5:]:
+                lines.append(f"  {_decision_line(entry)}")
 
         return "\n".join(lines)
 
@@ -305,16 +520,35 @@ class RequestLiveApprovalSkill(BaseSkill):
         except Exception as exc:
             return f"Failed to issue approval token: {exc}"
 
-        token_id = getattr(token, "token_id", _safe_getattr(token, "get", lambda k, d=None: d)("token_id", str(_uuid.uuid4())[:8]))
-        expiry = getattr(token, "expires_utc", _safe_getattr(token, "get", lambda k, d=None: d)("expires_utc", "N/A"))
-        one_time = getattr(token, "one_time", True)
+        # An unreadable token id used to be replaced by `str(uuid4())[:8]` —
+        # a freshly INVENTED identifier, printed to the operator as the token
+        # they must quote to authorize a live trade. It would never match
+        # anything. If the id cannot be read the honest move is to say so and
+        # let the operator re-issue, not to hand them a plausible-looking
+        # string that silently authorizes nothing.
+        token_id = _field(token, "token_id")
+        expiry = _field(token, "expires_at", _field(token, "expires_utc"))
+        # `one_time` defaulted to True: an unreadable single-use flag asserted
+        # the safest-sounding answer on a security control. Absent is unknown.
+        one_time = _field(token, "one_time")
+
+        if not token_id:
+            return (
+                f"{_html_bold('Live Approval')}\n"
+                f"The approval manager returned a token for trade "
+                f"<code>{trade_id}</code> with no readable id. Nothing was "
+                "printed because a made-up id authorizes nothing — re-issue, "
+                "or check the approval manager."
+            )
 
         lines = [
             f"{_html_bold('Approval Token Issued')}",
             f"Trade ID:  <code>{trade_id}</code>",
             f"Token:     <code>{token_id}</code>",
-            f"Expires:   <code>{expiry}</code>",
-            f"One-time:  <code>{'yes' if one_time else 'no'}</code>",
+            f"Expires:   <code>{expiry if expiry else 'unknown'}</code>",
+            "One-time:  <code>"
+            + ("unknown" if one_time is None else ("yes" if one_time else "no"))
+            + "</code>",
         ]
         return "\n".join(lines)
 
@@ -329,44 +563,77 @@ class KillSwitchSkill(BaseSkill):
     command = "/kill"
 
     async def execute(self, engine, **kwargs) -> str:
-        breaker = _safe_getattr(engine, "circuit_breaker")
-        if breaker is None:
-            return (
-                f"{_html_bold('KILL SWITCH')}\n"
-                "v2 circuit breaker not wired."
-            )
-
-        trip_fn = _safe_getattr(breaker, "trip")
-        if trip_fn is None or not callable(trip_fn):
-            return (
-                f"{_html_bold('KILL SWITCH')}\n"
-                "Circuit breaker has no <code>trip()</code> method."
-            )
-
         reason = kwargs.get("reason", "Manual kill via /kill command")
-        try:
-            trip_fn(reason=reason)
-        except Exception as exc:
-            return f"KILL SWITCH FAILED: {exc}"
-
-        # Seal event to audit chain if available.
-        audit = _safe_getattr(engine, "audit_chain")
         seal_ts = _now_utc().isoformat()
-        if audit:
-            seal_fn = _safe_getattr(audit, "seal")
-            if seal_fn and callable(seal_fn):
-                try:
-                    seal_fn(event="KILL_SWITCH", reason=reason, timestamp=seal_ts)
-                except Exception:
-                    pass  # best-effort audit
 
-        lines = [
-            f"{_html_bold('KILL SWITCH ACTIVATED')}",
-            f"Time:   <code>{seal_ts}</code>",
-            f"Reason: {reason}",
-            "All positions frozen. Circuit breaker is OPEN.",
-        ]
-        return "\n".join(lines)
+        # `engine.circuit_breaker` does not exist and never did, so this
+        # command — the KILL SWITCH — answered "v2 circuit breaker not wired"
+        # every time it was called, while a complete, tested emergency halt sat
+        # one attribute away.
+        #
+        # It DELEGATES to that halt rather than re-implementing it.
+        # `engine.risk.emergency_halt()` alone is a strictly weaker stop than
+        # `/halt`: it does not cancel pending ideas, does not halt the per-user
+        # risk engines, and does not transition the engine to HALTED. Calling
+        # just that and then printing "All positions frozen" — which is what
+        # the old card said unconditionally — would be a false all-clear in the
+        # opposite direction, claiming a stop stronger than the one performed.
+        #
+        # NOTE: this command remains dispatched by no transport (it is in
+        # tests/unreachable_skills_baseline.txt). Arming a SECOND emergency
+        # halt beside the working `/halt` is a product decision, not a bug fix,
+        # so this change makes it correct-if-wired and nothing more.
+        halted_via = None
+        breaker = _safe_getattr(engine, "circuit_breaker")
+        trip_fn = _safe_getattr(breaker, "trip") if breaker is not None else None
+        try:
+            if trip_fn is not None and callable(trip_fn):
+                trip_fn(reason=reason)
+                halted_via = "circuit breaker"
+                body = [
+                    f"{_html_bold('KILL SWITCH ACTIVATED')}",
+                    f"Time:   <code>{seal_ts}</code>",
+                    f"Reason: {reason}",
+                    "Circuit breaker is OPEN.",
+                ]
+            elif _safe_getattr(engine, "risk") is not None:
+                from bot.skills.skill_registry import HaltSkill
+                halted_via = "emergency halt"
+                body = [await HaltSkill().execute(engine, **kwargs)]
+            else:
+                return (
+                    f"{_html_bold('KILL SWITCH')}\n"
+                    "<b>NOTHING WAS STOPPED.</b> This engine exposes neither a "
+                    "circuit breaker nor a risk engine, so there is no halt to "
+                    "call. Stop the process directly."
+                )
+        except Exception as exc:
+            # Never report a kill that did not happen.
+            return (f"{_html_bold('KILL SWITCH FAILED')}\n"
+                    f"<b>NOTHING WAS STOPPED.</b> {exc}")
+
+        # Seal to the audit chain. The old probe looked for `seal()`, which
+        # AuditChain does not have (`append`/`seal_decision` are the real
+        # methods), so this was a permanent silent no-op under a card that
+        # announced the kill as sealed. Whether it sealed is now REPORTED —
+        # an unrecorded emergency stop is a fact the operator needs.
+        audit = _safe_getattr(engine, "audit_chain")
+        sealed = False
+        if audit is not None:
+            append_fn = _safe_getattr(audit, "append")
+            if callable(append_fn):
+                try:
+                    append_fn("KILL_SWITCH", {"reason": reason,
+                                              "timestamp": seal_ts,
+                                              "via": halted_via})
+                    sealed = True
+                except Exception:
+                    sealed = False
+        body.append("")
+        body.append("Audit chain: <code>sealed</code>" if sealed else
+                    "Audit chain: <code>NOT sealed</code> — the halt happened; "
+                    "the record of it did not.")
+        return "\n".join(body)
 
 
 # ---------------------------------------------------------------------------
