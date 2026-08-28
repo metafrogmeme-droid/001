@@ -48,9 +48,7 @@
 #
 # basis.py and market_cap.py are the two remaining unwired signal sources on
 # the roadmap's 'real-time signal fusion' line. Fix when wiring, or delete.
-bot/core/basis.py:BasisAnalyzer.get_basis
 bot/core/live_executor.py:LiveExecutor.status_summary
-bot/core/market_cap.py:MarketCapProvider.get_market_cap
 
 # ── CONTROL-SHAPED NAMES — read these first ─────────────────────────────────
 # Grouped on the NAME, which is an observation and not a verdict: a method

@@ -853,7 +853,8 @@ class Analyzer:
                        as_of: Optional[datetime] = None, user_id=None, user_tier=None,
                        mtf_candles: Optional[dict] = None,
                        timeframe: str = "1h",
-                       background: bool = False) -> Optional[TradeIdea]:
+                       background: bool = False,
+                       basis=None, market_cap=None) -> Optional[TradeIdea]:
         """
         Full analysis pipeline:
         1. Compute technical indicators from OHLCV candles.
@@ -1277,6 +1278,51 @@ class Analyzer:
                 indicators["seasonality"] = _seas
         except Exception as _seas_exc:
             system_log.debug("Seasonality context skipped: %s", _seas_exc)
+
+        # Spot-perp BASIS and VALUATION context — observation only, no vote.
+        #
+        # Same contract as seasonality above: computed, attached, and never
+        # revisited by `confluence`, which is already decided. Unlike
+        # seasonality these cost network calls, so the ENGINE fetches them —
+        # concurrently, in the same gather as OHLCV and order flow, behind
+        # their own TTL caches — and injects the result. That is the
+        # `order_flow` pattern, and it keeps the analyzer free of I/O.
+        #
+        # Absent stays absent. `None` reaches here whenever the venue could not
+        # be read, the symbol has no perp listed, or CoinGecko does not map the
+        # asset (28 symbols do), and the block is simply left out rather than
+        # filled with a zero — which is precisely how both of these modules
+        # came to be defective while nothing called them.
+        if basis is not None:
+            try:
+                indicators["basis"] = {
+                    "basis_pct": basis.basis_pct,
+                    "sentiment": basis.sentiment,
+                    "extreme": basis.extreme,
+                    "stale": basis.stale,
+                }
+            except Exception as _b_exc:
+                system_log.debug("Basis context skipped: %s", _b_exc)
+
+        if market_cap is not None:
+            try:
+                # Only the fields that were actually read. A None here means
+                # CoinGecko did not report it — an unreadable FDV used to
+                # arrive as fdv_mcap_ratio 0.0, the safest possible number on
+                # a field documented ">2.0 = high inflation risk".
+                _mc = {
+                    k: v for k, v in (
+                        ("cap_tier", market_cap.cap_tier),
+                        ("market_cap_usd", market_cap.market_cap_usd),
+                        ("fdv_mcap_ratio", market_cap.fdv_mcap_ratio),
+                        ("supply_ratio", market_cap.supply_ratio),
+                        ("stale", market_cap.stale),
+                    ) if v is not None
+                }
+                if _mc:
+                    indicators["market_cap"] = _mc
+            except Exception as _mc_exc:
+                system_log.debug("Market cap context skipped: %s", _mc_exc)
 
         # SIGNAL QUALITY: multi-timeframe SMA50 trend alignment
         sma50 = float(np.mean(closes[-CONFIG.analyzer.sma_period:])) if len(closes) >= CONFIG.analyzer.sma_period else None
