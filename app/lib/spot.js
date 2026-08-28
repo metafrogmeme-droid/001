@@ -12,6 +12,28 @@
 const TTL_MS = 30_000;
 const MAX_PAIRS = 120;
 
+/**
+ * A finite number, or null. Absent, empty, non-numeric and NaN are all
+ * unknown — never zero.
+ *
+ * The venue parsers below read `parseFloat(x) || 0`, and on a percentage that
+ * is the whole of CLAUDE.md's table in one operator. `strengthmap.js` renders
+ * these through `pct()` and `moveClass()`, BOTH of which already handle null
+ * correctly and carry comments saying why ("Colour is a claim, so an
+ * unreadable value gets no colour class at all"). They never saw a null:
+ * `NaN || 0` is 0, `moveClass(0)` returns 'up', and an unfetchable 24h move
+ * rendered as a GREEN +0.00% — a flat day nobody measured. The renderer was
+ * fixed and then defeated one layer upstream.
+ *
+ * The two sibling fields in those same object literals — `high_24h`,
+ * `low_24h` — already used `|| null`, which is what the author meant
+ * throughout.
+ */
+function num(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // Per-venue public spot-ticker endpoints + normalizers → {symbol(BASEUSDT),
 // price, change_pct, volume_usdt, high_24h, low_24h}.
 const VENUES = {
@@ -22,8 +44,8 @@ const VENUES = {
       return ((raw && raw.data) || []).map(t => ({
         symbol: String(t.symbol || ''),
         price: parseFloat(t.lastPr),
-        change_pct: (parseFloat(t.change24h) || 0) * 100,
-        volume_usdt: parseFloat(t.usdtVolume ?? t.quoteVolume) || 0,
+        change_pct: num(t.change24h) === null ? null : num(t.change24h) * 100,
+        volume_usdt: num(t.usdtVolume ?? t.quoteVolume),
         high_24h: parseFloat(t.high24h) || null,
         low_24h: parseFloat(t.low24h) || null,
       }));
@@ -35,8 +57,8 @@ const VENUES = {
       return (((raw || {}).result || {}).list || []).map(t => ({
         symbol: String(t.symbol || ''),
         price: parseFloat(t.lastPrice),
-        change_pct: (parseFloat(t.price24hPcnt) || 0) * 100,
-        volume_usdt: parseFloat(t.turnover24h) || 0,
+        change_pct: num(t.price24hPcnt) === null ? null : num(t.price24hPcnt) * 100,
+        volume_usdt: num(t.turnover24h),
         high_24h: parseFloat(t.highPrice24h) || null,
         low_24h: parseFloat(t.lowPrice24h) || null,
       }));
@@ -48,8 +70,8 @@ const VENUES = {
       return ((raw && raw.data) || []).map(t => ({
         symbol: String(t.symbol || '').replace('-', ''),
         price: parseFloat(t.lastPrice),
-        change_pct: parseFloat(t.priceChangePercent) || 0,
-        volume_usdt: parseFloat(t.quoteVolume) || 0,
+        change_pct: num(t.priceChangePercent),
+        volume_usdt: num(t.quoteVolume),
         high_24h: parseFloat(t.highPrice) || null,
         low_24h: parseFloat(t.lowPrice) || null,
       }));
@@ -103,10 +125,14 @@ async function getSpotMarket() {
       const row = bySymbol.get(t.symbol) || {
         symbol: t.symbol, base: t.symbol.slice(0, -4), venues: {},
       };
+      // Rounding is where a restored null would die again:
+      // `Math.round(null * 100) / 100` is 0, and `Math.round(null)` is 0.
       row.venues[id] = {
         price: t.price,
-        change_pct: Math.round(t.change_pct * 100) / 100,
-        volume_usdt: Math.round(t.volume_usdt),
+        change_pct: t.change_pct === null
+          ? null : Math.round(t.change_pct * 100) / 100,
+        volume_usdt: t.volume_usdt === null
+          ? null : Math.round(t.volume_usdt),
         high_24h: t.high_24h, low_24h: t.low_24h,
       };
       bySymbol.set(t.symbol, row);
@@ -122,9 +148,17 @@ async function getSpotMarket() {
   // full per-venue map + the cross-venue spread where 2+ venues list it.
   const pairs = [...bySymbol.values()].map(row => {
     const entries = Object.entries(row.venues);
-    entries.sort((a, b) => b[1].volume_usdt - a[1].volume_usdt);
+    // Sorting on a null volume: `null - 5` is NaN and every comparison with
+    // NaN is false, so a null would land wherever the sort happened to leave
+    // it and could become the PRIMARY venue by accident. Unknown sorts last
+    // deliberately — it is not a claim that the venue traded nothing, only
+    // that this cannot rank it.
+    const vol = (e) => (e[1].volume_usdt === null ? -1 : e[1].volume_usdt);
+    entries.sort((a, b) => vol(b) - vol(a));
     const [primaryVenue, p] = entries[0];
     const prices = entries.map(e => e[1].price);
+    const readableVols = entries
+      .map(e => e[1].volume_usdt).filter(v => v !== null);
     const spreadBps = entries.length > 1
       ? Math.round((Math.max(...prices) - Math.min(...prices))
           / Math.min(...prices) * 10000 * 10) / 10
@@ -132,18 +166,30 @@ async function getSpotMarket() {
     return {
       symbol: row.symbol, base: row.base,
       price: p.price, change_pct: p.change_pct,
-      volume_usdt: entries.reduce((s, e) => s + e[1].volume_usdt, 0),
+      // A sum over a set containing unreadable rows is a PARTIAL total, and
+      // printing it as the whole is its own row in CLAUDE.md's table. The
+      // readable venues are summed and the shortfall is declared, so a reader
+      // ranking on this knows whether they are seeing all of it.
+      volume_usdt: readableVols.length ? readableVols.reduce((a, b) => a + b, 0) : null,
+      volume_is_partial: readableVols.length > 0 && readableVols.length < entries.length,
+      volume_venues_unreadable: entries.length - readableVols.length,
       high_24h: p.high_24h, low_24h: p.low_24h,
       venue: primaryVenue, listed_on: entries.map(e => e[0]),
       venue_spread_bps: spreadBps,
       per_venue: row.venues,
     };
   });
-  pairs.sort((a, b) => b.volume_usdt - a.volume_usdt);
+  // Same NaN hazard as the per-venue sort: a pair whose every venue volume
+  // was unreadable ranks last rather than at an arbitrary position.
+  pairs.sort((a, b) => (b.volume_usdt === null ? -1 : b.volume_usdt)
+                     - (a.volume_usdt === null ? -1 : a.volume_usdt));
 
   const out = {
     available: true,
-    ranked_by: '24h quote volume (real traded volume), summed across venues',
+    ranked_by: '24h quote volume (real traded volume), summed across the '
+      + 'venues that reported one; a pair with volume_is_partial true is '
+      + 'ranked on a lower bound, and one with volume_usdt null could not be '
+      + 'ranked at all and sorts last',
     venues,
     count: pairs.length,
     pairs: pairs.slice(0, MAX_PAIRS),
@@ -197,8 +243,14 @@ async function maybeHandleSpotChat(userId, text) {
     return { reply_html: '🪙 <b>Spot market</b> — no spot venue reachable right now, try again shortly.' };
   }
   const up = Object.entries(mkt.venues).filter(([, v]) => v.ok).map(([id]) => id);
+  // `p.change_pct >= 0` is TRUE for null — null coerces to 0 — so an
+  // unreadable move printed "+0%" before the parsers stopped inventing that
+  // zero, and would print "+null%" after. Same guard the browser renderers
+  // already use, and for the same reason: an em dash claims nothing.
+  const move = (v) => (v === null || !Number.isFinite(v)
+    ? '—' : `${v >= 0 ? '+' : ''}${v}%`);
   const top = mkt.pairs.slice(0, 8).map(p =>
-    `• <b>${p.base}</b> $${fmt(p.price)} (${p.change_pct >= 0 ? '+' : ''}${p.change_pct}%)`
+    `• <b>${p.base}</b> $${fmt(p.price)} (${move(p.change_pct)})`
     + (p.venue_spread_bps ? ` <i>${p.listed_on.length} venues, spread ${p.venue_spread_bps} bps</i>` : ''));
   const lines = [
     `🪙 <b>Spot market</b> — ${mkt.count} USDT pairs across ${up.join(' + ')}, top by real volume:`,
