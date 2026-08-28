@@ -18,7 +18,21 @@
 # means somebody just wrote a method nobody calls, and an entry that leaves
 # must be deleted in the same commit that wires it.
 #
-# THESE ARE RECORDED, NOT TRIAGED. A fan-out that classified all 75 was lost
+# KNOWN BLIND SPOT — THIS LIST IS AN UNDERCOUNT, AND BY AN UNKNOWN AMOUNT.
+# The sweep counts IDENTIFIERS, so it cannot tell whose method a name refers
+# to. When two classes define a method of the same name and either one is
+# called, BOTH are acquitted. ComplianceEngine.format_for_telegram is the
+# worked example: it has no caller anywhere, but seven other classes define
+# `format_for_telegram` and telegram_handler.py calls it on `signal_tracker`,
+# so this file has never listed it. The false direction matters — a missing
+# accusation is silent, where a wrong one is loud and gets fixed.
+#
+# Recorded rather than repaired because narrowing it needs type inference the
+# sweep does not have, and a gate whose coverage is overstated in prose is the
+# failure this repo spends most of its guard tests preventing. Read the count
+# below as a floor, not a total.
+#
+# THESE ARE RECORDED, NOT TRIAGED. A fan-out that classified all of them was lost
 # when the container re-provisioned mid-run, and inventing the categories
 # afterwards would be exactly the kind of confident claim from absent
 # evidence this repo has a table about. What follows is grouped by what can
@@ -62,15 +76,14 @@ bot/utils/attestation.py:AttestationEngine.verify_batch
 # Untriaged. bot/learning dominates because that subsystem's own documented
 # state is that the loop ends at 'approved' and nothing applies a proposal.
 #
-# One WAS triaged before the classification run was lost, and it is recorded
-# because it found a defect elsewhere: ComplianceEngine.get_consent_ledger is
-# a read-only accessor whose absence gates nothing (authorize() is reached and
-# its denials are written to the audit chain). But the /compliance skill at
-# bot/skills/macro_skills.py:248 looks up the attribute 'consent_ledger'
-# WITHOUT the get_ prefix, which resolves to nothing — so that card prints
-# 'No consent ledger available' over a populated ledger. That is a live
-# absent-rendered-as-empty defect in macro_skills.py, not in this method.
-bot/compliance/compliance_engine.py:ComplianceEngine.get_consent_ledger
+# ComplianceEngine.get_consent_ledger was the one entry here that had been
+# triaged, and it LEFT — deleted in the commit that gave it a caller, per the
+# rule above. Triaging it is what found the defect: the accessor was dead
+# because the /compliance card asked for the attribute `consent_ledger`, no
+# get_ prefix, which resolved to nothing and printed "No consent ledger
+# available" over a populated ledger. Six more probes in that file were wrong
+# the same way. An unreachable method is worth reading precisely because the
+# reason it has no caller is sometimes a defect in the caller.
 bot/core/alert_manager.py:AlertManager.acknowledge
 bot/core/alert_manager.py:AlertManager.create_alert
 bot/core/alert_manager.py:AlertManager.get_pending

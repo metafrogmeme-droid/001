@@ -403,6 +403,34 @@ DISPLAY, and the two were the same function until something finally called it;
 > the sweep now reads every `.py` in the tree and entry points are excluded by
 > their `__main__` guard.
 
+**Registration is not reachability, and it is a fourth granularity.** Module,
+module-level def, method — and then the thing that dispatches. `permission_for()`
+is fail-closed and says so: "a skill added later is unreachable from chat until
+somebody decides what it needs". Correct, and *silent* — nothing ever reported
+the pending decision, so the backlog reached **9** of 30 registered skills
+(`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
+are in `bot/skills/macro_skills.py` and advertise slash commands — `/macro`,
+`/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport reaches.
+
+Neither older ratchet could see them: the module *is* imported and its
+`build_v2_skills()` *is* called, and every skill body is an `execute` override
+on a subclass, which the method sweep declines by design. And unrunnable is
+precisely *why* all seven of that module's attribute probes named fields that
+never existed — `upcoming_events` for `get_upcoming_events`, `consent_ledger`
+for `get_consent_ledger`, a `circuit_breaker` for a halt that lives on
+`engine.risk`. Every miss rendered as a confident negative: **"No upcoming
+events loaded"** over a calendar holding 40 events with NFP a week out, on a
+fail-closed macro system where that exact sentence means *the calendar is
+gone*. Tests were never the only caller here — there was no caller at all.
+
+> The methods ratchet has a blind spot in the *other* direction, and the other
+> direction is the dangerous one because it is quiet. It counts identifiers, so
+> when two classes share a method name and either is called, **both** are
+> acquitted: `ComplianceEngine.format_for_telegram` has no caller anywhere and
+> has never appeared in its baseline, because seven other classes define that
+> name and one of them is called. A false accusation is loud and gets fixed; a
+> false acquittal just sits there. That baseline's count is a floor.
+
 **Plant the state, assert what the card says.** `tests/test_surface_scenarios.py`
 and `app/test/engine_status_scenarios.test.js` hold the pattern: MUST_SAY,
 MUST_NOT_SAY, and a planted **red herring** — a true-but-misleading signal.

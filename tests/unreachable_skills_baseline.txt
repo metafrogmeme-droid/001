@@ -1,0 +1,54 @@
+# Skills registered in build_default_registry() that no transport dispatches.
+#
+# Reachability is decided by bot/skills/skill_permissions.py (both chat
+# transports read that one table; permission_for() REFUSES on a miss) and by
+# dispatch-by-name from bot/ or a repo-root module (how MCP reaches
+# explain_trade). A skill in neither is in here.
+#
+# tests/test_registered_skills_are_reachable.py enforces this file as a
+# RATCHET IN BOTH DIRECTIONS: a new dark skill fails, and an entry that becomes
+# reachable must be deleted in the same commit. Same rule as
+# known_failures.txt, for the same reason.
+#
+# Nine entries today.
+
+# ── TRIAGED: bot/skills/macro_skills.py ────────────────────────────────────
+# Five skills that each advertise a slash command — /macro, /eventrisk,
+# /compliance, /approve, /kill — dispatched by NOTHING. Confirmed dark on
+# every transport: no @guard command handler exists for any of them, they are
+# absent from SKILL_PERMISSION (so Telegram free text refuses and web chat's
+# derived set excludes them), and bot/mcp/server.py uses an explicit tool
+# allow-list that omits all five.
+#
+# Being unrunnable is why nobody noticed that all seven of the module's
+# attribute probes named fields that do not exist on the real objects. Those
+# are fixed (tests/test_macro_skills_read_real_state.py), so these are now
+# correct-if-wired. WIRING THEM IS A PRODUCT DECISION, NOT A BUG FIX, and two
+# of the five argue against it on their own merits:
+#
+#   kill_switch  — /halt already works and is the complete stop (it cancels
+#                  pending ideas, halts per-user risk engines and transitions
+#                  the engine to HALTED). A SECOND emergency-halt command
+#                  beside it is a hazard in an emergency, not a feature.
+#   request_live_approval
+#                — needs an `engine.approval_manager` that does not exist.
+#                  ComplianceEngine.issue_approval_token() is close but takes
+#                  a subject_id this skill has no way to supply.
+#
+# The other three (macro_brief, check_event_risk, compliance_status) are
+# read-only cards and would be reachable the moment somebody adds a permission.
+check_event_risk
+compliance_status
+kill_switch
+macro_brief
+request_live_approval
+
+# ── RECORDED, NOT TRIAGED ──────────────────────────────────────────────────
+# Registered, dispatched by nothing in bot/. Each needs someone to decide
+# whether it wants a permission or should stop being registered. Listed here
+# so the decision is visible rather than silent — which is the entire point of
+# this file.
+execute_paper_trade
+feedback
+getclaw
+quant_analyze
