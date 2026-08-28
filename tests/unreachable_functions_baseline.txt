@@ -31,9 +31,26 @@
 # bot/learning.
 bot/learning/safety_policy.py:audit_proposal
 bot/learning/safety_policy.py:validate_learning_action
-# The guardian's prompt-injection defang, and the flight recorder's own
-# tamper-evidence verification. Both tested, neither run.
-bot/guardian/firewall.py:defang
+# The flight recorder's own tamper-evidence verification.
+#
+# `defang` LEFT this list. The note above used to cover it too, and the pairing
+# it implied was wrong in a way worth keeping: the two are NOT the same case.
+#
+# verify_entries is a genuine test utility and its docstring always said so —
+# "available to any caller holding entries rather than the file". The real
+# control is AuditChain.verify(), which reads the file, and bot/core/engine.py
+# DOES call it before any chain is surfaced. Nothing is unguarded here; wiring
+# the in-memory twin would add a second path to the same answer.
+#
+# defang was the opposite. `scan()` was wired and `defang()` was not, so on the
+# path that matters — free text becoming LLM context — the firewall's own
+# finding changed nothing. Measured: a message the scan had already marked
+# `hidden_chars: True` reached the model with the zero-width character intact
+# and an `Assistant:` role turn beside it, because the only sanitiser there
+# (bot/nlp/sanitize) is a regex denylist with no hidden-character rule and a
+# `system:`-only role pattern. Detection that alters nothing is telemetry, not
+# a control. `defang_if_flagged` is the seam; the LLM call in _handle_message
+# uses it, and only for the prompt — never for the text the router reads.
 bot/guardian/flight_recorder.py:verify_entries
 # The feature-entitlement gate.
 bot/token/tier_gate.py:allows_user

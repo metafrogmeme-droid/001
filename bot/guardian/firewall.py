@@ -187,6 +187,58 @@ def defang(text: Any, verdict: dict | None = None) -> str:
             return ""
 
 
+def defang_if_flagged(text: Any, verdict: dict | None = None) -> tuple[str, bool]:
+    """``(hardened_text, applied)`` — defang ONLY what the scan actually flagged.
+
+    THE GAP THIS CLOSES. ``scan()`` was reached and ``defang()`` was not, so the
+    firewall's own finding changed nothing on the path that matters. The only
+    sanitiser between free text and the model is
+    ``bot/nlp/sanitize.sanitize_chat_input``, a regex denylist with no
+    hidden-character rule — so a message the firewall had already marked
+    ``hidden_chars: True`` reached the LLM with those characters intact, and an
+    ``Assistant:`` role turn with it (the denylist covers ``system:`` only).
+    Detection that alters nothing is telemetry, not a control.
+
+    APPLIED ONLY WHEN FLAGGED, on purpose. ``sanitize.py``'s own header asks to
+    "keep it light so it never blocks legitimate trading commands", and
+    rewriting every message would eventually mangle a real one — "System: my
+    bot is down" is a sentence somebody types. A verdict is already computed at
+    the call site, so the narrow rule is available for free: text the scan
+    cleared comes back byte-identical, and `applied` says which happened rather
+    than leaving the caller to guess.
+
+    NOT A BOUNDARY, and the module it defends says so first: LLM chat output has
+    no execution authority, and trades still pass confirm_trade → compliance →
+    executor. This is defence in depth — it stops the firewall's finding from
+    being discarded, and claims nothing more.
+
+    Fail-open on a FAULT, harden on an UNKNOWN — they are different cases and
+    conflating them would be the error this repo names most often. A verdict
+    that cannot be read at all (not a dict) means the caller handed us
+    something broken: return the text untouched, because hardening must never
+    be the reason a chat breaks. A verdict we CAN read whose risk level is
+    unparseable is not the same thing — the scan ran and said something we do
+    not understand, and "we could not read the level" is not evidence of
+    safety. That hardens, which costs an unflagged message nothing but hidden
+    characters it should not have had.
+    """
+    try:
+        as_text = text if isinstance(text, str) else str(text or "")
+    except Exception:
+        return "", False
+    try:
+        v = verdict or {}
+        risk = str(v.get("risk") or "none").strip().lower()
+        # `hidden_chars` is checked beside `risk` rather than trusted to raise
+        # it: they are separate fields, and a scan that reports hidden
+        # characters at risk "none" must still have them stripped.
+        if risk == "none" and not v.get("hidden_chars"):
+            return as_text, False
+        return defang(as_text, v), True
+    except Exception:
+        return as_text, False
+
+
 def verdict_payload(text: Any, source: str = "chat", user_id: str = "") -> dict:
     """A compact, JSON-serialisable firewall record for the Flight Recorder /
     telemetry: the scan verdict plus provenance (where the text came from, who
