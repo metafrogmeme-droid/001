@@ -1395,7 +1395,10 @@ class TelegramHandler:
         combined = self.engine.user_portfolios.combined_snapshot() if self.engine.user_portfolios.all_portfolios() else None
         open_pos = self.engine.user_portfolios.total_open_positions() if self.engine.user_portfolios.all_portfolios() else 0
         macro = self.engine.macro_calendar.evaluate()
-        mode = "SIM" if CONFIG.simulation_mode else "LIVE"
+        # Was `"SIM" if simulation_mode else "LIVE"` — which announced LIVE
+        # on a bot with sim off and live never armed. IDLE is that state.
+        from bot.core.live_readiness import mode_label
+        mode = mode_label()
         cb_s = "paused" if cb else ("unknown" if _g["unknown"] else "running")
         macro_s = macro.state.value.replace("_", " ").lower()
         return f"{mode} | {open_pos} open | {cb_s} | macro: {macro_s}"
@@ -1778,7 +1781,10 @@ class TelegramHandler:
                     f"total trades {state.total_trades}"
                 )
             cb = self.engine.risk.circuit_breaker_active
-            mode = "LIVE" if not CONFIG.simulation_mode else "PAPER"
+            # This string is handed to the LLM as engine state, so a wrong
+            # mode here is repeated to the user in prose. Three-valued now.
+            from bot.core.live_readiness import mode_label
+            mode = mode_label()
             # CB= keeps its exact old meaning: a dozen readers drive alerts and
             # resume logic off `circuit_breaker_active`, and widening the field
             # under them would trade one wrong answer for another.
@@ -3395,7 +3401,8 @@ class TelegramHandler:
 
         # Authorized user — GetClaw ready
         role = record.get("role", "trader")
-        mode_str = "PAPER" if CONFIG.simulation_mode else "LIVE"
+        from bot.core.live_readiness import mode_label
+        mode_str = mode_label()
         user_portfolio = self.engine.user_portfolios.get(tg_id)
         state = user_portfolio.snapshot()
         # The headline answers "would a new entry be accepted", not "is one
@@ -6183,16 +6190,45 @@ class TelegramHandler:
                 "Use <code>/golive CONFIRM</code> to re-enable.")
             return
 
+        # Readiness is read BEFORE anything is armed, and shown on the preview
+        # as well as the confirm. The preview used to advertise "real order
+        # execution on Bitget" and list leverage limits without checking one
+        # precondition.
+        from bot.core.live_readiness import from_engine as _live_readiness
+        from bot.core.live_readiness import render as _render_readiness
+        readiness = _live_readiness(self.engine)
+
         if not args or args[0].upper() != "CONFIRM":
-            await self._send(update,
-                "\u26a0\ufe0f <b>LIVE TRADING ACTIVATION</b>\n\n"
-                "This will enable <b>real order execution</b> on Bitget.\n\n"
-                f"Safety limits:\n"
+            _limits = (
+                f"\nIf armed, the limits are:\n"
                 f"\u2022 Max {CONFIG.risk.max_open_positions} concurrent positions\n"
                 f"\u2022 Max {CONFIG.risk.max_symbol_exposure_pct:.0f}% per symbol\n"
                 f"\u2022 USDT-M perpetual futures\n"
-                f"\u2022 Default {CONFIG.exchange.default_leverage}x leverage\n\n"
-                "To confirm, type:\n<code>/golive CONFIRM</code>")
+                f"\u2022 Default {CONFIG.exchange.default_leverage}x leverage\n")
+            await self._send(update,
+                "\u26a0\ufe0f <b>LIVE TRADING ACTIVATION</b>\n\n"
+                + _render_readiness(readiness) + "\n"
+                + _limits
+                + ("\nTo confirm, type:\n<code>/golive CONFIRM</code>"
+                   if readiness["can_execute"] else
+                   "\n<i>Clear the blockers above first \u2014 "
+                   "<code>/golive CONFIRM</code> will refuse until they are "
+                   "gone.</i>"))
+            return
+
+        # REFUSE to arm when no order could execute anyway. The old code set
+        # RUNTIME.live_mode, granted Permission.LIVE_TRADE and replied "Real
+        # orders will execute on Bitget" \u2014 on a default install SIMULATION_MODE,
+        # the empty chat allow-list and the absent credentials each made that
+        # false on their own. Granting a real authorization on a false premise
+        # is worse than the wrong message.
+        if not readiness["can_execute"]:
+            audit(system_log, "LIVE TRADING REFUSED via /golive \u2014 preconditions",
+                  action="golive", result="REFUSED",
+                  data={"user": self._get_tg_id(update),
+                        "blockers": [b["code"] for b in readiness["blockers"]]})
+            await self._send(update, _render_readiness(readiness)
+                + "\n\n<i>Nothing was armed and no permission was granted.</i>")
             return
 
         # Enable live mode via RuntimeState (CONFIG is frozen)
@@ -6206,10 +6242,10 @@ class TelegramHandler:
 
         audit(system_log, "LIVE TRADING ENABLED via /golive",
               action="golive", result="ENABLED",
-              data={"user": self._get_tg_id(update)})
+              data={"user": self._get_tg_id(update),
+                    "unverified": [u["code"] for u in readiness["unverified"]]})
         await self._send(update,
-            "\U0001f7e2 <b>LIVE TRADING ENABLED</b>\n\n"
-            "Real orders will execute on Bitget (USDT-M futures).\n"
+            _render_readiness(readiness) + "\n\n"
             f"Limits: {CONFIG.risk.max_open_positions} positions, "
             f"{CONFIG.exchange.default_leverage}x leverage.\n\n"
             "\u2022 <code>/livebalance</code> — check USDT balance\n"
@@ -10138,11 +10174,22 @@ class TelegramHandler:
         blocked_by = "; ".join(_g["reasons"])
         cb = bool(_g["blocked"])
         macro = self.engine.macro_calendar.evaluate()
-        mode = "PAPER" if CONFIG.simulation_mode else "LIVE"
+        # Two different questions, and one expression was answering both.
+        #
+        # WHICH BOOK TO READ is "is this a real exchange account?" — true
+        # whenever simulation is off, including when live is not armed, because
+        # the account can still hold positions from an earlier session.
+        #
+        # WHAT THE CARD SAYS is a different question: `is_live()` also needs the
+        # arm flag and the chat allow-list, so a bot with SIMULATION_MODE=false
+        # and live never armed places nothing while this card announced LIVE.
+        real_account = not CONFIG.simulation_mode
+        from bot.core.live_readiness import mode_label as _mode_label
+        mode = _mode_label()
         # LIVE FIX: show real exchange equity and live position count.
         # Truthful equity: None in LIVE mode means the balance is unreadable —
         # the status card renders "unavailable" rather than the paper baseline.
-        if mode == "LIVE":
+        if real_account:
             equity, _eq_source = await self.engine.resolve_display_equity(user_id)
             executor = self.engine.live_executor
             open_count = len(executor.open_positions)
@@ -10266,7 +10313,9 @@ class TelegramHandler:
             pass
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).
-        if mode == "LIVE":
+        # Keyed on the ACCOUNT, not the armed state — an idle real account
+        # still routes to a venue, and that is worth seeing before arming.
+        if real_account:
             try:
                 _v = self.engine.live_executor._venue
                 msg += (f"\n🏦 Venue: <b>{_v.display_name}</b> "
