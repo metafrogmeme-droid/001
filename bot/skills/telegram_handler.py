@@ -764,8 +764,14 @@ def guard(command: str = ""):
     return _decorate
 
 
+#: Prompt budget for each half of the user-context line. Bounded separately so
+#: one long section cannot delete another — see resolve_profile_note.
+PROFILE_NOTE_MAX = 300
+MEMORY_NOTE_MAX = 220
+
+
 def resolve_profile_note(profile_note: str, user_id) -> str:
-    """The agent-profile line to attach, preferring what the caller supplied.
+    """The user-context line to attach: what they DECLARED, plus what we SAW.
 
     A SEAM, not a convenience. This was six inline lines inside `_llm_chat`,
     which is async and needs a whole TelegramHandler to reach — so nothing
@@ -774,27 +780,56 @@ def resolve_profile_note(profile_note: str, user_id) -> str:
     rendered ZERO times in production because the code was present and never
     reached. A scan cannot tell those apart; a callable can be called.
 
-    The web supplies `profile_note` on its own requests, so that wins. Telegram
-    supplies nothing, which is the whole gap: `profile_note` defaults to "" and
-    the only callers that ever passed it were three lines in user_gateway.py,
-    so the same person was personalised in the browser and anonymous on
-    Telegram.
+    For the DECLARED half the web supplies `profile_note` on its own requests,
+    so that wins; Telegram supplies nothing, which was the original gap —
+    `profile_note` defaults to "" and the only callers that ever passed it were
+    three lines in user_gateway.py, so the same person was personalised in the
+    browser and anonymous on Telegram.
+
+    The OBSERVED half is added for both surfaces, always. It is what the agent
+    has actually been asked to look at (`user_memory_store`), and it is kept
+    separate from the declared half on purpose: "they say they watch SOL" and
+    "they have asked about SOL eleven times" are different claims, and only one
+    of them is evidence.
 
     Returns "" — never a sentence — when there is nothing to say. An unreadable
-    store and a user who saved nothing are different facts, but the ACTION is
-    the same for both: tell the model nothing. Rendering either as "this user
-    has no watchlist" would be a claim about the user built from no evidence.
+    store, a user who saved nothing, and a user with no history are different
+    facts, but the ACTION is the same for all of them: tell the model nothing.
+    Rendering any of them as "this user has no watchlist" or "they have never
+    asked about anything" would be a claim about the user built from no
+    evidence.
     """
+    # Each part is bounded HERE, not by one cap at the call site. A single
+    # `[:300]` over the joined string cuts whichever section happens to be last
+    # — so a long watchlist would silently delete the entire history sentence,
+    # and the agent would look like it had no memory for exactly the users who
+    # had told it the most. A truncated section is a partial printed as a
+    # whole; a bisected one is worse.
+    parts = []
     if profile_note:
-        return profile_note
-    if not user_id:
-        return ""
-    try:
-        from bot.core import user_profile_store as _ups
-        return _ups.note_for(user_id) or ""
-    except Exception:
-        # A preferences lookup must never take a chat down.
-        return ""
+        parts.append(profile_note[:PROFILE_NOTE_MAX])
+    elif user_id:
+        try:
+            from bot.core import user_profile_store as _ups
+            parts.append((_ups.note_for(user_id) or "")[:PROFILE_NOTE_MAX])
+        except Exception:
+            # A preferences lookup must never take a chat down.
+            pass
+    # OBSERVED history, appended to whichever declared note we ended up with.
+    # It is a SECOND source, not a fallback: the web supplies `profile_note` on
+    # its own requests, and an early `return profile_note` here — which is what
+    # this function used to do — meant the browser got the declared half and
+    # never the observed one. The same person, two doors, two different agents,
+    # which is the exact defect this function was extracted to fix one layer up.
+    if user_id:
+        try:
+            from bot.core import user_memory_store as _ums
+            parts.append((_ums.note_for(user_id) or "")[:MEMORY_NOTE_MAX])
+        except Exception:
+            # Recall is context, never a dependency. A memory fault must not
+            # cost the user the profile line, let alone the conversation.
+            pass
+    return " ".join(p for p in parts if p)
 
 
 class TelegramHandler:
@@ -2057,8 +2092,12 @@ class TelegramHandler:
             # we cannot support.
             profile_note = resolve_profile_note(profile_note, user_id)
             if profile_note:
+                # No `[:300]` here any more. resolve_profile_note bounds each
+                # section itself, and re-cutting the join would put back the
+                # exact failure that bound is for: the last section deleted
+                # whenever the first one runs long.
                 system_prompt += (
-                    "\n\nThis user's saved agent profile: " + profile_note[:300])
+                    "\n\nWhat we know about this user: " + profile_note)
 
             # Get conversation history for multi-turn context
             history = []
@@ -2700,6 +2739,25 @@ class TelegramHandler:
                 audit(system_log, f"NL intent routed: '{text[:50]}' -> {intent.skill}",
                       action="intent_dispatch", result=intent.skill,
                       data={"confidence": intent.confidence, "source": intent.source})
+                # Per-user recall (bot/core/user_memory_store): remember the ASSET the
+                # router resolved, not the sentence the user typed. Recorded here rather
+                # than at the chat entry point because this is where the bot itself
+                # decided what the message was about — a symbol scraped from prose would
+                # be a guess written into a store that feeds a system prompt.
+                #
+                # This is one of TWO dispatch sites — user_gateway.py has
+                # the web's. Both call observe(); a memory that only remembers
+                # the surface somebody thought of makes the agent inconsistent
+                # about the same person depending on which door they used, which
+                # is how the auth classifier came to be fixed on one path and
+                # left broken on the other.
+                try:
+                    from bot.core import user_memory_store as _user_memory
+                    _user_memory.observe(tg_id, intent.skill, intent.kwargs)
+                except Exception:
+                    # Recall is context, never a dependency. Instrumentation on
+                    # the dispatch path must not be the reason a dispatch fails.
+                    pass
                 # Store intent-routed message in conversation memory
                 self.conversations.append(tg_id, "user", text,
                                            metadata={"intent": intent.skill})

@@ -123,6 +123,11 @@ function Privacy() {
         <><strong>Your referral code</strong>, and who referred you.</>,
         <><strong>Preferences you save</strong> — risk appetite, watchlist,
           interface defaults.</>,
+        <><strong>Which assets you ask the agent about</strong> — not the words
+          you typed, but the ticker the bot itself resolved when it ran a tool
+          for you, kept as a count per symbol over a rolling window of your
+          twelve most recent. It is how the agent remembers you between
+          conversations. Deleting your account deletes it.</>,
         <><strong>Your trading activity on the platform</strong> — paper and
           live orders, decisions, and the audit record attached to them.</>,
         <><strong>Your IP address, briefly</strong> — held in server memory for
@@ -152,9 +157,10 @@ function Privacy() {
         <strong>AI providers.</strong> When you chat with the agent or ask for
         analysis, your message is sent to a large-language-model provider. So is
         context the agent needs to answer usefully — which can include your open
-        positions and your saved profile, meaning your stated risk appetite and
-        watchlist. The previous policy said no user data reached these
-        providers. That was not correct.
+        positions, your saved profile (your stated risk appetite and watchlist),
+        and a one-line summary of which assets you have recently asked the agent
+        about. The previous policy said no user data reached these providers.
+        That was not correct.
       </P>
       <P>
         Which provider handles a given request is set by the operator&rsquo;s

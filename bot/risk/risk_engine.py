@@ -1164,6 +1164,34 @@ class RiskEngine:
                 passed.append(f"EQUITY_THROTTLE: size×{_thr_mult:.2f} "
                               "(rolling PF below full-size band)")
 
+        # Per-user declared risk appetite. TIGHTEN-ONLY, like every multiplier
+        # above it: `conservative` shrinks, and nothing a user can type into a
+        # web form is ever allowed to make a position larger.
+        #
+        # Only the PER-USER engines carry an identity — the shared operator
+        # engine's `_person_user_id` is "", which resolves to 1.0 — so an
+        # operator or auto-trade path is byte-identical to before.
+        #
+        # Resolved HERE and applied in two places: this pre-cap multiply, and
+        # the notional cap further down. See the cap site for why one without
+        # the other is a no-op.
+        _pref_mult, _pref_why = 1.0, "not evaluated"
+        try:
+            from bot.core.user_sizing import multiplier_for_user
+            _pref_mult, _pref_why = multiplier_for_user(
+                getattr(self, "_person_user_id", ""))
+            if _pref_mult < 1.0 and CONFIG.risk.user_risk_pref_sizing_enabled:
+                position_usd *= _pref_mult
+                passed.append(f"USER_RISK_PREF: size x{_pref_mult:.2f} ({_pref_why})")
+        except Exception as _pref_exc:
+            # A preferences lookup must never affect a trade. Unlike the
+            # session sizer above it, this one does NOT fall back to a
+            # conservative reduction: that guard exists because a missing
+            # session read leaves a real liquidity risk unmeasured, whereas a
+            # missing preference leaves nothing unmeasured at all.
+            _pref_mult = 1.0
+            passed.append(f"USER_RISK_PREF: skipped (error: {_pref_exc})")
+
         # Drawdown recovery mode: require higher confidence, reduce size
         if self._in_drawdown_recovery:
             if idea.confidence < CONFIG.risk.drawdown_recovery_conf_min:
@@ -1253,8 +1281,32 @@ class RiskEngine:
             _thr_cap_mult = self.equity_throttle_multiplier
             if _thr_cap_mult < 1.0:
                 max_notional_usd *= _thr_cap_mult
+        # Per-user risk preference tightens the CAP as well as the pre-cap
+        # size, for the reason spelled out for regime_mult and the equity
+        # throttle immediately above: the cap binds on ~every crypto trade, so
+        # a pre-cap multiplication alone is clamped straight back to the same
+        # number. The first version of this feature did only the pre-cap half
+        # and its own behavioural test caught it — a conservative user came out
+        # at 1300.0, byte-identical to an aggressive one, with the reduction
+        # sitting right there in checks_passed saying it had been applied.
+        # A tighten-only rule that tightens nothing is the original defect
+        # wearing a flag.
+        if CONFIG.risk.user_risk_pref_sizing_enabled and _pref_mult < 1.0:
+            max_notional_usd *= _pref_mult
         if max_notional_usd > 0 and position_usd > max_notional_usd:
             position_usd = max_notional_usd
+        # SHADOW, audited here rather than at the resolve site because the
+        # would-be number is only knowable after the cap. #36 is the precedent
+        # for the CHANNEL: two shadow deltas went to logger.debug, which has no
+        # handler, so shadow mode was indistinguishable from not being built.
+        if _pref_mult < 1.0 and not CONFIG.risk.user_risk_pref_sizing_enabled:
+            audit(risk_log,
+                  f"User risk-preference sizing shadow: would apply "
+                  f"x{_pref_mult:.2f} ({_pref_why})",
+                  action="user_risk_pref_sizing", result="SHADOW",
+                  data={"multiplier": _pref_mult, "reason": _pref_why,
+                        "current_usd": round(position_usd, 2),
+                        "would_be_usd": round(position_usd * _pref_mult, 2)})
 
         # Auto-reset a DAILY-LOSS breaker trip once the UTC day has rolled over
         # (opt-in, default OFF). Without it a single bad day latches the breaker

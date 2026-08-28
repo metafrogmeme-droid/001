@@ -778,6 +778,22 @@ defaults:
       re-seeds the peak). Opt-in because it changes when a live safety gate
       fires.
 
+  user_risk_pref_sizing_enabled:
+    value: false
+    env_var: USER_RISK_PREF_SIZING_ENABLED
+    description: >
+      Default OFF. A per-user engine scales its own size by the user's
+      self-declared risk appetite (bot/core/user_sizing.py): conservative
+      0.70x, balanced and aggressive 1.0x. TIGHTEN-ONLY — nothing writable
+      from a web form may enlarge a position. Applies to the notional CAP as
+      well as the pre-cap size, because the cap binds on ~every crypto trade
+      and a pre-cap multiply alone is clamped straight back (the same no-op
+      that silently neutered every regime reduction). An unreadable profile
+      changes nothing: a size nobody chose, decided by a failed file read, is
+      worse than no adjustment. Only PER-USER engines carry an identity, so
+      the operator and auto-trade paths are byte-identical either way. While
+      OFF the engine still audits the would-be delta with result="SHADOW".
+
   regime_sizing_enabled:
     value: true
     env_var: REGIME_SIZING_ENABLED

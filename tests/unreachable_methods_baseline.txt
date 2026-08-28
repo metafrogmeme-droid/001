@@ -30,9 +30,19 @@
 # receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
 # call site resolves to. It is SOUND rather than complete: one unresolvable
 # receiver makes the whole name ambiguous, because the alternative is guessing.
-# **34** method names remain ambiguous and are not checked by anything — the
+# **33** method names remain ambiguous and are not checked by anything — the
 # number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
 # so it cannot rot into a claim.
+#
+# It was 34 until `observe` left the list, and how it left is worth recording
+# because it looks like the ratchet loosening and is the opposite. Two classes
+# define `observe` — PersonPeak and CatalogWatch — and both are genuinely
+# called (person_peak.py:158, market_scanner.py:295); the name was ambiguous,
+# not unreachable, so nothing was ever being checked about either. Adding
+# bot/core/user_memory_store.observe as a MODULE-level function gave the sweep
+# a receiver it can resolve without guessing, and the name resolved to
+# reachable in every definition. Verified by hand before re-recording: neither
+# method became "called" by accident, because neither was ever uncalled.
 #
 # Two drafts of that pass manufactured false accusations before this one held,
 # which is the whole argument for the soundness rule. The first collected only

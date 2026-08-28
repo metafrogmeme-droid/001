@@ -758,6 +758,16 @@ class RiskLimits:
     equity_throttle_min_samples: int = int(_env_float_bounded("EQUITY_THROTTLE_MIN_SAMPLES", 10, 2, 100000))
     equity_throttle_pf_full: float = _env_float_bounded("EQUITY_THROTTLE_PF_FULL", 1.2, 0.1, 10.0)
     equity_throttle_pf_floor: float = _env_float_bounded("EQUITY_THROTTLE_PF_FLOOR", 0.8, 0.0, 10.0)
+
+    # Per-user declared risk appetite -> position size (bot/core/user_sizing.py).
+    # TIGHTEN-ONLY: `conservative` shrinks, `balanced`/`aggressive` change
+    # nothing, and an unreadable profile changes nothing either — a size nobody
+    # chose, from a file read that failed, is worse than no adjustment.
+    # Default OFF, and SHADOW when off: the engine still computes the would-be
+    # multiplier and audits the delta with result="SHADOW", so the effect is
+    # measurable before it is enabled. Shadow that only reaches logger.debug is
+    # shadow nobody can see — see tests/test_shadow_deltas_observable.py.
+    user_risk_pref_sizing_enabled: bool = _env_bool("USER_RISK_PREF_SIZING_ENABLED", False)
     equity_throttle_floor_mult: float = _env_float_bounded("EQUITY_THROTTLE_FLOOR_MULT", 0.25, 0.05, 1.0)
     # Fable-5 round 5 — funding-clock gate (default ON). Blocks an entry
     # ONLY when it would enter on the PAYING side of an extreme funding
