@@ -204,17 +204,24 @@ def mode_label(config: Optional[Any] = None) -> str:
     `_status_line` at telegram_handler.py:1238 already had all three values;
     the other sites are why this is a shared helper rather than a fourth copy.
     """
-    if config is None:
-        from bot.config import CONFIG as config  # noqa: N813
+    # Bound to a separate `Any` name rather than rebinding the parameter with
+    # `import CONFIG as config`: mypy cannot narrow `Optional[Any]` through an
+    # import rebind, so that form left every attribute access below reading as
+    # `Item "None" of "Any | None" has no attribute ...`. Two union-attr
+    # errors on the whole-tree ratchet, avoidable by saying what is meant.
+    cfg: Any = config
+    if cfg is None:
+        from bot.config import CONFIG
+        cfg = CONFIG
     try:
-        if config.is_live():
+        if cfg.is_live():
             return "LIVE"
     except Exception:
         # Unreadable is not live. Claiming LIVE off a failed read is the
         # expensive direction of this exact mistake.
         return "UNKNOWN"
     try:
-        return "PAPER" if config.simulation_mode else "IDLE"
+        return "PAPER" if cfg.simulation_mode else "IDLE"
     except Exception:
         return "UNKNOWN"
 
