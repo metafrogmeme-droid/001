@@ -142,9 +142,18 @@ class TestBothPathsAgree:
 
         Three sites halt auth, and only two of them should classify:
 
-          "no API key configured" -- halts on LOCAL, certain evidence. The
-              key is empty; no venue was asked, so there is nothing to
+          "missing credentials: ..." -- halts on LOCAL, certain evidence. A
+              credential is empty; no venue was asked, so there is nothing to
               misread and nothing to classify. Correct as-is.
+
+              It was "no API key configured" and tested only key and secret,
+              so an empty BITGET_PASSPHRASE fell through to the venue call and
+              came back classified as a passphrase MISMATCH -- sending the
+              operator to compare a value against Bitget when the value was
+              gone. That is the shape a wiped .env produces, and the shape a
+              vault that cannot decrypt with a stale master key produces (it
+              omits the key, so the config reads empty). It now names which
+              ones are missing.
 
           the operator preflight and the per-user one -- halt on a VENUE
               RESPONSE, which is exactly the thing that can be a transport
@@ -162,7 +171,11 @@ class TestBothPathsAgree:
             f"response (must classify)"
         )
         # The local-evidence one, named so its exemption is deliberate.
-        assert 'set_live_auth_status(False, "no API key configured")' in src
+        assert 'set_live_auth_status(False, f"missing credentials: {_names}")' in src
+        # ...and it must actually cover all three credentials, which is the
+        # reason it stopped being "no API key configured".
+        for cred in ("BITGET_API_KEY", "BITGET_API_SECRET", "BITGET_PASSPHRASE"):
+            assert cred in src, f"{cred} is not checked before the venue call"
         # Both venue-response ones sit downstream of a classification.
         for anchor in ("if _is_transport_failure(_e):",
                        "if _is_transport_failure(str(_err)):"):

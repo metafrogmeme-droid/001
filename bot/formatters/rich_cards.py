@@ -1000,7 +1000,23 @@ def render_status_card(
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
-    mode_label = f"\U0001f534 {t('val_live', lang)}" if mode == "LIVE" else f"\U0001f7e1 {t('val_paper', lang)}"
+    # `"LIVE" if ... else "PAPER"` was two-valued, and the mode is not.
+    # `live_readiness.mode_label()` also answers IDLE (SIMULATION_MODE off but
+    # live never armed — a REAL account placing nothing) and UNKNOWN (the
+    # config could not be read). Both used to land on the else branch and print
+    # a yellow 🟡 PAPER badge: colour is a claim, and telling the operator of a
+    # real-money account that it is on paper is the reassuring direction of a
+    # wrong one. `val_idle`/`val_unknown` are deliberately NOT looked up — t()
+    # returns the key itself on a miss, so an untranslated key would render as
+    # the literal string "val_idle" in all fourteen locales.
+    if mode == "LIVE":
+        mode_label = f"\U0001f534 {t('val_live', lang)}"
+    elif mode == "PAPER":
+        mode_label = f"\U0001f7e1 {t('val_paper', lang)}"
+    elif mode == "IDLE":
+        mode_label = "⚪ IDLE (not armed)"
+    else:
+        mode_label = "⚪ UNKNOWN"
     # Three outcomes, the same shape this card already uses for `equity`.
     # `daily_pnl` is None when today's closes exist but none could be priced —
     # "⚪ 0.0%" beside a "/ +5.0% limit" reads as a measured flat day, which is

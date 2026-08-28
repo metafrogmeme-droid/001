@@ -1939,6 +1939,21 @@ class RuneClawEngine:
         fail-closed only on a confirmed failure."""
         return self._live_auth_ok.get(str(user_id or ""), True)
 
+    def live_auth_probed(self, user_id: str = "") -> bool:
+        """Whether ACCOUNT ``user_id`` has ever had its venue auth CHECKED.
+
+        ``live_auth_healthy`` answers True for an account nobody has probed,
+        which is the right default for a DETECTOR (block only on a confirmed
+        failure) and the wrong answer for a READINESS question. The boot
+        credential preflight returns early when SIMULATION_MODE is set, so on a
+        sim-booted bot no key has ever been tried — and 'never tested' read as
+        'healthy' is what let /golive announce live trading over credentials
+        that had never been near the venue.
+
+        Separating the two is the whole fix: see bot/core/live_readiness.py.
+        """
+        return str(user_id or "") in self._live_auth_ok
+
     def invalidate_user_executor(self, user_id: str) -> None:
         """Drop any cached per-user executor (e.g. after /connect or /disconnect)
         so the next trade — and the next balance view — rebuilds it from the
