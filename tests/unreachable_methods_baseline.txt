@@ -18,19 +18,30 @@
 # means somebody just wrote a method nobody calls, and an entry that leaves
 # must be deleted in the same commit that wires it.
 #
-# KNOWN BLIND SPOT — THIS LIST IS AN UNDERCOUNT, AND BY AN UNKNOWN AMOUNT.
-# The sweep counts IDENTIFIERS, so it cannot tell whose method a name refers
-# to. When two classes define a method of the same name and either one is
-# called, BOTH are acquitted. ComplianceEngine.format_for_telegram is the
-# worked example: it has no caller anywhere, but seven other classes define
-# `format_for_telegram` and telegram_handler.py calls it on `signal_tracker`,
-# so this file has never listed it. The false direction matters — a missing
-# accusation is silent, where a wrong one is loud and gets fixed.
+# THE SHARED-NAME BLIND SPOT, NOW MEASURED AND PARTLY CLOSED.
+# The identifier sweep cannot tell whose method a name refers to, so
+# `_candidate_methods` drops any name two classes both define. That was an
+# honest lower bound and a far looser one than it read: 60 public method names
+# in bot/ are multiply defined, covering 274 methods nothing checked.
+# ComplianceEngine.format_for_telegram is the worked example — no caller
+# anywhere, never listed here, because seven classes define that name.
 #
-# Recorded rather than repaired because narrowing it needs type inference the
-# sweep does not have, and a gate whose coverage is overstated in prose is the
-# failure this repo spends most of its guard tests preventing. Read the count
-# below as a floor, not a total.
+# A second pass now attributes a call `<recv>.<name>()` by resolving the
+# receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
+# call site resolves to. It is SOUND rather than complete: one unresolvable
+# receiver makes the whole name ambiguous, because the alternative is guessing.
+# **34** method names remain ambiguous and are not checked by anything — the
+# number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
+# so it cannot rot into a claim.
+#
+# Two drafts of that pass manufactured false accusations before this one held,
+# which is the whole argument for the soundness rule. The first collected only
+# `self.x.run()` receivers and reported RuneClawEngine.run dead — bot/main.py
+# calls it as `engine.run()` on a local. The second treated `x = make_thing()`
+# as typing `x`, so a factory bound the name to a function that matches no
+# class, the receiver looked resolved, and CatalogWatch.recent was accused
+# while scan_skill.py calls it. Names assigned from anything that is not a
+# known class are poisoned now.
 #
 # THESE ARE RECORDED, NOT TRIAGED. A fan-out that classified all of them was lost
 # when the container re-provisioned mid-run, and inventing the categories
@@ -82,6 +93,18 @@ bot/utils/attestation.py:AttestationEngine.verify_batch
 # available" over a populated ledger. Six more probes in that file were wrong
 # the same way. An unreachable method is worth reading precisely because the
 # reason it has no caller is sometimes a defect in the caller.
+# ── FOUND BY RECEIVER RESOLUTION, not the identifier count ─────────────────
+# Five of the seven classes defining `format_for_telegram`. The only call is
+# telegram_handler.py on `self.signal_tracker`, so every other definition is
+# dead; the seventh (SentimentAnalyzer) is a @staticmethod and stays excluded
+# by the decorator rule. These are renderers with no reader — cheap to wire to
+# a command, and cheaper to delete, but that is a product call either way.
+bot/compliance/compliance_engine.py:ComplianceEngine.format_for_telegram
+bot/core/exchange_flow.py:ExchangeFlowProvider.format_for_telegram
+bot/core/macro_events.py:MacroEventProvider.format_for_telegram
+bot/core/validation_gate.py:BacktestValidationGate.format_for_telegram
+bot/core/ws_feed.py:BitgetWSFeed.format_for_telegram
+
 bot/core/alert_manager.py:AlertManager.acknowledge
 bot/core/alert_manager.py:AlertManager.create_alert
 bot/core/alert_manager.py:AlertManager.get_pending

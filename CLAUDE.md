@@ -443,13 +443,34 @@ events loaded"** over a calendar holding 40 events with NFP a week out, on a
 fail-closed macro system where that exact sentence means *the calendar is
 gone*. Tests were never the only caller here — there was no caller at all.
 
-> The methods ratchet has a blind spot in the *other* direction, and the other
+> The methods ratchet had a blind spot in the *other* direction, and the other
 > direction is the dangerous one because it is quiet. It counts identifiers, so
-> when two classes share a method name and either is called, **both** are
-> acquitted: `ComplianceEngine.format_for_telegram` has no caller anywhere and
-> has never appeared in its baseline, because seven other classes define that
-> name and one of them is called. A false accusation is loud and gets fixed; a
-> false acquittal just sits there. That baseline's count is a floor.
+> it cannot tell whose method a name means and drops any name two classes both
+> define — 60 names covering **274** methods nothing checked.
+> `ComplianceEngine.format_for_telegram` has no caller anywhere and never
+> appeared in the baseline, because seven classes define that name. A false
+> accusation is loud and gets fixed; a false acquittal just sits there.
+>
+> A second pass now attributes `<recv>.<name>()` by resolving the receiver
+> through `self.x = Foo()` and `x = Foo()`. **Sound, not complete**: one
+> unresolvable receiver makes the whole name ambiguous, and the 34 names that
+> stay ambiguous are stated in the baseline and pinned by a test, because a
+> gate whose coverage is overstated is the failure this file exists to prevent.
+>
+> **Two drafts of it accused live code, which is the argument for that rule.**
+> The first collected only `self.x.run()` receivers, concluded every receiver
+> had resolved, and reported `RuneClawEngine.run` dead — `bot/main.py:434`
+> calls it as `engine.run()` on a local. The second treated `x = make_thing()`
+> as typing `x`, so a factory bound the name to a function matching no class,
+> the receiver *looked* resolved, and `CatalogWatch.recent` was accused while
+> `scan_skill.py` calls it. Names assigned from anything that is not a known
+> class are poisoned now.
+>
+> And the guard against those two was itself worthless at first: asserting
+> `CatalogWatch.recent` is not accused PASSED under both mutations, because a
+> different receiver of `recent` poisons the name anyway. A real-tree assertion
+> can pass for a reason unrelated to the rule. The guards are planted trees
+> where the rule is the only thing in play.
 
 **Plant the state, assert what the card says.** `tests/test_surface_scenarios.py`
 and `app/test/engine_status_scenarios.test.js` hold the pattern: MUST_SAY,
