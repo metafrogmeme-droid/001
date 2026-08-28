@@ -132,3 +132,4 @@ test-ledger/
 # replaced the real state links with dead ones.
 /data
 /logs
+.preflight_result.txt
