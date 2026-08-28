@@ -867,6 +867,7 @@ class TelegramHandler:
             ("portfolio", self._cmd_portfolio), ("trade", self._cmd_trade),
             ("paper", self._cmd_paper),
             ("risk", self._cmd_risk), ("status", self._cmd_status),
+            ("enforcing", self._cmd_enforcing),
             ("rejected", self._cmd_rejected), ("halt", self._cmd_halt),
             ("reset", self._cmd_reset), ("macro", self._cmd_macro),
             ("whynot", self._cmd_whynot),
@@ -10079,6 +10080,36 @@ class TelegramHandler:
         except Exception as exc:
             system_log.debug("risk card render failed: %s", exc)
         await self._send(update, rendered["text"], reply_markup=kb)
+
+    @guard("enforcing")
+    async def _cmd_enforcing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Which controls would refuse a bad trade right now.
+
+        `/risk` shows the drawdown backstop; `/guardian` shows the guardian
+        suite. Neither shows the SET, and the set is the question worth asking
+        before real money: 27 flags live in RiskLimits and no surface listed
+        them together, so "what is enforcing?" was an investigation rather than
+        a glance.
+
+        Read fresh on every call, never cached. A cached enforcement posture is
+        a claim about the past presented as the present, and the whole card is
+        an answer to "right now".
+        """
+        from bot.formatters.gate_card import render_gate_card
+        from bot.guardian.gate_inventory import inventory, refusal_summary
+        try:
+            rows = inventory(getattr(CONFIG, "risk", None))
+            text = render_gate_card(rows, refusal_summary(rows))
+        except Exception as exc:
+            # Never swallow into an empty card. A heading with nothing under it
+            # reads as "nothing to report", which on THIS screen means "nothing
+            # is wrong" — the third thing the guard/omit table warns about.
+            system_log.debug("gate card render failed: %s", exc)
+            text = ("🛡 <b>Enforcement inventory</b>\n\n"
+                    "⚪ Could not read the control configuration, so the "
+                    "posture is unknown. This is NOT the same as 'no controls "
+                    "are active' — it means nobody looked successfully.")
+        await self._send(update, text)
 
     @guard("status")
     async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

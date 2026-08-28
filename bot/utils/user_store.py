@@ -115,7 +115,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "trader": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
-        "trade", "risk", "status", "rejected", "halt", "reset", "macro",
+        "trade", "risk", "status", "enforcing", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
@@ -139,7 +139,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "paper": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
-        "trade", "risk", "status", "rejected", "macro",
+        "trade", "risk", "status", "enforcing", "rejected", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
@@ -147,7 +147,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "viewer": {
         "lang",
-        "start", "help", "dashboard", "scan", "deepscan", "status", "risk",
+        "start", "help", "dashboard", "scan", "deepscan", "status", "risk", "enforcing",
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
     },
