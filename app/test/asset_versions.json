@@ -27,6 +27,10 @@
     "v": 1,
     "sha": "f1fbdbc88b0fbf26"
   },
+  "js/basis-note.js": {
+    "v": 1,
+    "sha": "b5e9e3bec0ac5f5c"
+  },
   "js/chartread.js": {
     "v": 5,
     "sha": "8129accecb2bbfaf"
@@ -40,8 +44,8 @@
     "sha": "117ece7399c950ac"
   },
   "js/dashboard.js": {
-    "v": 156,
-    "sha": "31c3aff1a31b7c00"
+    "v": 157,
+    "sha": "58629e0395fffb59"
   },
   "js/duel.js": {
     "v": 1,

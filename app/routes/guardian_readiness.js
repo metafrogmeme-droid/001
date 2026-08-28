@@ -26,6 +26,7 @@ const { withDeadline } = require('../lib/deadline');
 const AXIS_MS = 2000;
 const { pool } = require('../db');
 const { scoreReadiness } = require('../lib/guardian_readiness');
+const { deriveStartEquity } = require('../lib/equity_basis');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -62,6 +63,7 @@ router.get('/', async (req, res) => {
 
   // 3. Drawdown headroom (max drawdown % of peak, from the user's closed trades).
   let drawdownPct = null;
+  let drawdownBasis = null;
   try {
     const [rows] = await pool.execute(
       `SELECT symbol, direction, pnl, size_usd, closed_at
@@ -69,13 +71,17 @@ router.get('/', async (req, res) => {
          ORDER BY closed_at DESC LIMIT 2000`, [uid]);
     if (rows.length) {
       const { computePerformance } = require('../lib/trade_performance');
-      const net = rows.reduce((a, r) => a + (parseFloat(r.pnl) || 0), 0);
       const [snap] = await pool.execute(
         'SELECT equity FROM equity_snapshots WHERE user_id = ? ORDER BY snapshot_at DESC LIMIT 1',
         [uid]);
-      const startEquity = snap.length
-        ? Math.max(parseFloat(snap[0].equity) - net, 1) : 10000;
-      const perf = computePerformance(rows, { startEquity });
+      // The basis was summed over ALL rows while computePerformance scores
+      // only the priced ones — see deriveStartEquity. The drawdown this
+      // produces feeds a READINESS SCORE, so the coverage travels with it:
+      // a score resting on an estimated basis is not the same claim as one
+      // resting on a measured one, and the reader gets to see which.
+      const basis = deriveStartEquity(rows, snap.length ? snap[0].equity : null);
+      drawdownBasis = basis;
+      const perf = computePerformance(rows, { startEquity: basis.start_equity });
       if (perf && perf.drawdown && isFinite(perf.drawdown.max_pct)) {
         drawdownPct = perf.drawdown.max_pct;
       }
@@ -126,6 +132,7 @@ router.get('/', async (req, res) => {
     const out = scoreReadiness({
       envelope, recorderOk, drawdownPct, concentrationPct, counterpartyTier, liveState,
     });
+    out.drawdown_basis = drawdownBasis;
     out.generated_at = new Date().toISOString();
     return res.json(out);
   } catch (err) {

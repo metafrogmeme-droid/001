@@ -85,4 +85,52 @@ function segmentedMaxDrawdownPct(curve, trades) {
   return round2(maxDd);
 }
 
-module.exports = { maxDrawdownPct, segmentByCapitalEvents, segmentedMaxDrawdownPct };
+/**
+ * The starting-equity basis, and an honest account of what it rests on.
+ *
+ * Three routes derived this inline and identically:
+ *
+ *     const net = rows.reduce((a, r) => a + (parseFloat(r.pnl) || 0), 0);
+ *     const startEquity = Math.max(parseFloat(snap[0].equity) - net, 1);
+ *
+ * The basis was computed over ALL rows while `computeReputation` and
+ * `computePerformance` both filter to rows with a readable pnl. So the
+ * denominator and the numerator disagreed about which trades exist: the
+ * account's real equity already includes whatever an unpriced close did, but
+ * `net` counted it as zero, leaving `startEquity` wrong by exactly that
+ * amount and every percentage derived from it quietly biased.
+ *
+ * That part is NOT fixable — the unpriced pnl is genuinely unknown, and no
+ * arithmetic recovers it. It is declarable, which is the difference between a
+ * number a reader can weigh and one they cannot. `sync.js` already carries
+ * `scored_trades`/`unpriced_trades` for the same reason; this reports the
+ * same pair plus what it means for the basis.
+ *
+ * The `10000` fallback is declared too. A book with no equity snapshot has no
+ * measured basis at all, and a default presented as one is the same defect a
+ * layer up — every percentage computed against it is a ratio to a number
+ * nobody observed.
+ */
+function deriveStartEquity(rows, snapshotEquity) {
+  let net = 0, scored = 0, unpriced = 0;
+  for (const r of rows || []) {
+    const p = num(r && r.pnl);
+    if (p === null) { unpriced += 1; continue; }
+    scored += 1;
+    net += p;
+  }
+  const snap = num(snapshotEquity);
+  const measured = snap !== null;
+  return {
+    start_equity: measured ? Math.max(snap - net, 1) : 10000,
+    // Whether the basis came from a real snapshot or the neutral default.
+    basis_source: measured ? 'equity_snapshot' : 'default',
+    scored_trades: scored,
+    unpriced_trades: unpriced,
+    // An estimate whenever something it needed could not be read: an unpriced
+    // close whose effect on equity is unknown, or no snapshot at all.
+    basis_is_estimate: !measured || unpriced > 0,
+  };
+}
+
+module.exports = { maxDrawdownPct, segmentByCapitalEvents, segmentedMaxDrawdownPct, deriveStartEquity };

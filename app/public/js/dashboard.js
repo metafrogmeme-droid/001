@@ -5553,6 +5553,20 @@
     };
     function clamp01(v) { return Math.max(0, Math.min(100, v)); }
 
+    // Max drawdown above is a ratio to a STARTING BALANCE this account did not
+    // hand us — it is reconstructed by subtracting summed P&L from the latest
+    // equity snapshot. A close with no recorded P&L subtracts as zero while the
+    // real equity already contains it, and with no snapshot at all the basis is
+    // a flat default. Both leave the percentage biased by an amount nobody can
+    // recover, so the card says which of its numbers are estimates rather than
+    // printing them at the same confidence as the ratios (win rate, profit
+    // factor) that need no basis. Empty string on a clean, fully-priced window.
+    const basisNote = (d) => {
+      const note = window.BasisNote ? BasisNote.coverageNote(d && d.coverage) : '';
+      return note
+        ? `<p class="small muted" style="margin-top:var(--s2)">${esc(note)}</p>` : '';
+    };
+
     let data = null;
     const r = await fetchJSON('/api/reputation');
     data = r.ok ? r.data : null;
@@ -5610,7 +5624,7 @@
             <tr><td class="muted">Max drawdown</td><td class="r num">${m.max_drawdown_pct == null ? '—' : m.max_drawdown_pct + '%'}</td></tr>
             <tr><td class="muted">Fee drag</td><td class="r num">${m.fee_drag_pct == null ? '—' : m.fee_drag_pct + '%'}</td></tr>
             <tr><td class="muted">Positive months</td><td class="r num">${m.positive_months}/${m.total_months}</td></tr>
-          </tbody></table></div>`;
+          </tbody></table></div>${basisNote(data)}`;
       }
     }
 
