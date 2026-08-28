@@ -104,15 +104,34 @@ bot/core/presale_claims.py
 # working", which nothing had imported for a long time. Deleted; zero
 # information lost.
 #
-# The five below are a different thing and deleting them would destroy work
+# The entries below are a different thing and deleting them would destroy work
 # rather than remove rot. Each is finished, coherent code for a feature nobody
 # wired, so the question is "do we want this signal?" and that is not a
-# question a cleanup gets to answer:
+# question a cleanup gets to answer.
 #
-#   basis.py         spot-vs-perp premium; extreme basis + high OI is a
-#                    liquidation-cascade tell. Would feed the analyzer.
-#   market_cap.py    CoinGecko mcap/FDV/supply — large-cap vs small-cap
-#                    context for sizing. Free tier, no auth.
+# basis.py and market_cap.py LEFT this list — the last two names on the
+# roadmap's "real-time signal fusion" line — and they went the way seasonality
+# did: fixed first, then wired as CONTEXT that votes on nothing.
+#
+# Both carried the defect that comes with never being read. market_cap.py built
+# every number with `.get(k, 0)`, so an unreadable FDV produced
+# `fdv_mcap_ratio = 0.0` on a field documented ">2.0 = high inflation risk" —
+# the SAFEST reading it can carry, and CoinGecko returns a null FDV for every
+# token with no max supply, so that was the normal response for a whole class
+# of asset rendered as an all-clear. An unknown total supply produced
+# `supply_ratio = 0`, which claims none of the supply circulates. basis.py read
+# `ticker.get("last", 0)`, and a ticker whose `last` is NULL answers None, so
+# `None <= 0` raised and a successful fetch of an unpriced ticker was logged as
+# a network failure; its `get_cached()` ignored the TTL that `get_basis()`
+# enforced; and `basis_pct * 365` fabricated an "annualized" yield from an
+# instantaneous premium.
+#
+# Wiring also needed a guard neither had: the engine's exchange factory is a
+# COROUTINE function, and basis.py called it synchronously. bot/core/
+# exchange_flow.py already carries that guard, with a docstring recording the
+# same bug shipping once — "the provider never returned live funding/OI data at
+# all". Wired without it, this module would have been dead in a way no
+# reachability checker can see, because it would have had a caller.
 #
 # seasonality.py LEFT this list, and what it was hiding is the argument for
 # reading this file rather than trusting it. It was not merely unwired: nothing
@@ -136,5 +155,3 @@ bot/core/presale_claims.py
 # nobody asked". Both have a main() and a guard now, which is what makes them
 # entry points to the checker and what stops the study being a side effect of
 # reading the file. Pinned by tests/test_research_scripts_are_importable.py.
-bot/core/basis.py
-bot/core/market_cap.py

@@ -22,7 +22,9 @@ from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.system_health import SystemHealthMonitor
+from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
+from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.live_executor import LiveExecutor, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
@@ -326,6 +328,13 @@ class RuneClawEngine:
         self.exchange_flow = ExchangeFlowProvider(
             exchange_factory=self.scanner._get_exchange,
         )
+        # Valuation and spot-perp basis CONTEXT. Both were built, tested by
+        # nothing, and imported by nothing — the two remaining unwired signal
+        # sources on the roadmap's "real-time signal fusion" line. Each carries
+        # its own TTL cache (60s basis, 5min market cap), which is what makes
+        # them affordable on the scan path; see the fetch gather below.
+        self.basis = BasisAnalyzer(exchange_factory=self.scanner._get_exchange)
+        self.market_cap = MarketCapProvider()
         self.macro_calendar = MacroCalendar(
             events=build_2026_calendar(),
             fail_closed_when_stale=CONFIG.risk.macro_calendar_fail_closed_when_stale,
@@ -4962,7 +4971,8 @@ class RuneClawEngine:
             ohlcv_task = self._cached_ohlcv(exchange, signal.symbol, timeframe, limit=100)
             if lightweight:
                 # Interactive fast path: only the primary OHLCV; skip the 4
-                # order-flow fetches (funding/OI/book/trades).
+                # order-flow fetches (funding/OI/book/trades) — and the two
+                # context fetches below, for the same latency reason.
                 _t0 = time.monotonic()
                 _stage_enter_guarded(self, signal.symbol, "fetch")
                 results = list(await asyncio.gather(ohlcv_task, return_exceptions=True))
@@ -4973,14 +4983,36 @@ class RuneClawEngine:
             else:
                 of_task = self.order_flow.analyze(exchange, signal.symbol,
                                                   derivatives_symbol=of_deriv)
+                # Basis + valuation CONTEXT, in the SAME gather so they add no
+                # serial latency — the stage is bounded by its slowest call,
+                # and these two sit behind 60s/5min TTL caches so most passes
+                # never touch the network at all. Appended LAST so results[0]
+                # and results[1] keep meaning ohlcv and order flow.
+                _ctx_tasks = [
+                    self.basis.get_basis(signal.symbol),
+                    self.market_cap.get_market_cap(signal.symbol),
+                ]
                 _t0 = time.monotonic()
                 _stage_enter_guarded(self, signal.symbol, "fetch")
-                results = list(await asyncio.gather(ohlcv_task, of_task, return_exceptions=True))
+                results = list(await asyncio.gather(
+                    ohlcv_task, of_task, *_ctx_tasks, return_exceptions=True))
                 _fetch_dt = time.monotonic() - _t0
                 self._stage_add("fetch", _fetch_dt)
                 _stage_profile_record(self, "fetch", signal.symbol, _fetch_dt)
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
             of_signal = results[1] if not isinstance(results[1], Exception) else None
+            # Context is best-effort by construction: an exception here is left
+            # as None and the analyzer omits the block. It decides nothing, so
+            # failing it open costs an observation and never a trade.
+            _extra = results[2:]
+
+            def _ctx(idx: int):
+                if len(_extra) <= idx or isinstance(_extra[idx], BaseException):
+                    return None
+                return _extra[idx]
+
+            basis_ctx = _ctx(0)
+            mcap_ctx = _ctx(1)
 
             # Per-CALL attribution for the fetch stage. `_stage_add("fetch")`
             # records ONE duration for five concurrent venue calls, so a
@@ -5106,7 +5138,7 @@ class RuneClawEngine:
 
         _t0 = time.monotonic()
         _stage_enter_guarded(self, signal.symbol, "analyze")
-        idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe, background=background)
+        idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe, background=background, basis=basis_ctx, market_cap=mcap_ctx)
         _an_dt = time.monotonic() - _t0
         self._stage_add("analyze", _an_dt)
         _stage_profile_record(self, "analyze", signal.symbol, _an_dt)

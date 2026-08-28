@@ -375,11 +375,31 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**8** modules today). It is a ratchet in
+`tests/unreachable_baseline.txt` (**6** modules today). It is a ratchet in
 both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same
 reason.
+
+**Fix before you wire, and the fixing is most of the work.** `basis.py` and
+`market_cap.py` were the last two names on the roadmap's signal-fusion line,
+and each was defective in exactly the way a module nothing reads becomes
+defective. `market_cap` built every number with `.get(k, 0)`, so an unreadable
+FDV produced `fdv_mcap_ratio = 0.0` on a field documented ">2.0 = high
+inflation risk" — the *safest* value it can carry, arrived at from no data, and
+CoinGecko returns a null FDV for every token with no max supply, so that was
+the ordinary response for a whole class of asset rendered as an all-clear.
+`basis` read `ticker.get("last", 0)`, and a null `last` answers `None`, so
+`None <= 0` raised and a successful fetch of an unpriced ticker was logged as a
+network failure.
+
+The trap was in the wiring rather than the code: the engine's exchange factory
+is a **coroutine function**, and `basis.py` called it synchronously. That fails
+into the broad handler as an `AttributeError`, so the provider would have
+returned `None` forever — wired, called, and dead, which no reachability
+checker can see because it *has* a caller. `exchange_flow.py` already carries
+the `inspect.isawaitable` guard, and its docstring records the same bug
+shipping once before.
 
 Both halves fired on their first real use, one commit later. `integrity_veto`
 — veto-only, `off/shadow/enforce`, described in `docs/token_safety.md` as the
