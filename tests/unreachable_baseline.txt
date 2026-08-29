@@ -93,22 +93,21 @@
 #                          voter_weights.py learns, auto_refit.py refits and
 #                          readiness.py gates. Three wired modules to its zero.
 #
-# order_router.py STAYS, and is the one entry here that is not waiting on a
-# product decision. It is the ONLY pre-trade slippage estimate in the codebase
-# — live_executor's wired guard is post-FILL, so it can complain about a bad
-# fill and cannot prevent one. What stopped it being wired in this pass is
-# cost, not doubt: walking the book before an entry means a fresh
-# fetch_order_book on the live order path, which is a latency and rate-limit
-# decision rather than a wiring job.
+# order_router.py LEFT this list, and the reason it could is worth keeping.
+# The note here used to say the blocker was cost, not doubt: "walking the book
+# before an entry means a fresh fetch_order_book on the live order path, which
+# is a latency and rate-limit decision rather than a wiring job."
 #
-# Its honesty defects are fixed either way, because they were wrong whether or
-# not anything called it: three exits returned a NUMBER for a book they could
-# not read (0.0%, or a 0.02% "paper default", each with order_type "MARKET"),
-# and 0.0 is the best slippage there is. optimal_order_type() consumed exactly
-# that number, so "we could not see the book" and "the book is deep and calm"
-# recommended the same market order. slippage_pct is None now, `readable` says
-# which happened, and the consumer answers UNKNOWN rather than guessing.
-bot/risk/order_router.py
+# That was true when it was written and had since gone STALE. The QC-2b
+# order-book wall gate (ENTRY_BOOK_WALL_GATE, default warn) already fetches
+# the book on that exact path, so the call the note was protecting against is
+# one the entry path had been making all along. The slippage estimate now
+# reads that same book — no second call, no added latency, no rate-limit cost
+# — and the fetch is driven by EITHER gate being enabled so neither silently
+# depends on the other's flag.
+#
+# A note explaining why something is unreachable is itself a claim, and it
+# ages against code that keeps moving. Re-read it before trusting it.
 bot/core/swarm.py
 
 # ── the detective's remaining scorer ────────────────────────────────────────
