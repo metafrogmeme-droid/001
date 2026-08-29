@@ -50,6 +50,7 @@ bot/utils/backup.py :: "data/anchor_state.json" :: _CRITICAL member / _ENV_OVERR
 bot/utils/backup.py :: "data/proofofpnl_publication.json" :: _CRITICAL member / _ENV_OVERRIDES key
 bot/utils/backup.py :: "data/runeclaw.db" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/secrets_vault.enc" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/exchange_creds.enc" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/shadow_book.json" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/proactive_watch.json" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/venue_override.json" :: _CRITICAL member, joined to rootp_of()
