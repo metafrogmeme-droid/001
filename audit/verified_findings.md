@@ -360,3 +360,37 @@ policy, but it is called out here explicitly because the brief forbids silently
 altering compliance behaviour. Operators should also consider whether records
 that survived past erasure requests need a one-off sweep; the fix is not
 retroactive.
+
+---
+
+## RC-2026-001 — corroborating evidence added after the dimension agent's run
+
+Two further facts, both read directly and both making the CRITICAL worse:
+
+**The repo's own structural auth guard was told to look away from this route.**
+`scripts/guard_lint.py:536` exempts it from `express-route-auth`:
+
+```python
+"auth.js:POST /validate-token",   # answers "is this token valid" — the
+                                  # token IS the credential being checked
+```
+
+That rationale is true of the SELECT at `app/auth.js:874-876` and false of the
+UPDATE at `:886-889`. The route does not answer a question; it performs an
+identity binding from an unauthenticated field. `guard_lint` reports
+`express-route-auth (55 site(s) of 349 candidate(s), all guarded)` — green,
+because the one route that needed it is on the exemption list.
+
+**Nothing stops two rows sharing a telegram id.** `app/db.js:2230` declares
+`telegram_id VARCHAR(32) DEFAULT NULL` with no unique index, while
+`wallet_address` (`:2309`), `referral_code` (`:2340`) and `leaderboard_handle`
+(`:2347`) each get an explicit `CREATE UNIQUE INDEX`. So the write succeeds and
+the victim's row is left intact — the attacker gains the identity without the
+victim losing anything that would make it noticeable.
+
+Remediation therefore has three parts, not one: gate the route on
+`X-Bot-Secret` (bot side first — see above), reject a `chat_id` already bound
+to another `id` (mirroring the check `auth.js` already performs for
+`wallet_address`), and add the missing unique index. The exemption at
+`guard_lint.py:536` should be removed in the same change, or the guard will
+keep reporting the route as covered.
