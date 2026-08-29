@@ -905,6 +905,8 @@ class TelegramHandler:
             ("enforcing", self._cmd_enforcing),
             ("rejected", self._cmd_rejected), ("halt", self._cmd_halt),
             ("reset", self._cmd_reset), ("macro", self._cmd_macro),
+            ("eventrisk", self._cmd_eventrisk),
+            ("compliance", self._cmd_compliance),
             ("whynot", self._cmd_whynot),
             ("news", self._cmd_news),
             ("share", self._cmd_share),
@@ -10532,6 +10534,52 @@ class TelegramHandler:
     @guard("macro")
     async def _cmd_macro(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         result = await self.registry.dispatch("macro_calendar", self.engine)
+        await self._send(update, result)
+
+    @guard("macro")
+    async def _cmd_eventrisk(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Macro-event risk for one symbol.
+
+        `check_event_risk` was a REGISTERED SKILL NO TRANSPORT DISPATCHED — it
+        advertised `/eventrisk` in its own class body and no handler existed,
+        so the string was documentation of a command that did not run. Being
+        unrunnable is why nobody noticed that every one of macro_skills.py's
+        attribute probes named fields the real objects do not have; those were
+        fixed in #213 against tests, which left the module correct-if-wired.
+
+        `@guard("macro")` rather than a new permission: this is the same
+        read-only macro data /macro already serves, scoped to a symbol, and
+        `macro` is a permission trader and paper already hold. Inventing
+        `eventrisk` here would repeat the exposure/networth/research/rwa
+        mistake recorded in ROLE_PERMISSIONS — a permission string no role
+        holds makes a "user" command admin-only in fact.
+        """
+        args = ctx.args or []
+        if not args:
+            await self._send(update, "Usage: <code>/eventrisk BTC</code>")
+            return
+        result = await self.registry.dispatch(
+            "check_event_risk", self.engine, symbol=str(args[0]))
+        await self._send(update, result)
+
+    @guard("compliance")
+    async def _cmd_compliance(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Restricted jurisdictions and the consent ledger. OPERATOR-ONLY.
+
+        Deliberately not a trader permission. The card summarises the GLOBAL
+        consent ledger — up to 5,000 authorization decisions across every user,
+        with trade ids and the locks each one failed. No subject id is
+        rendered, but a stream of other people's grant/deny outcomes is still
+        operator information, and "read-only" is not the same as "shared".
+
+        `compliance` is therefore held by no role but admin (which holds "*").
+        That is the exposure/networth shape on purpose rather than by accident,
+        and tests/test_command_audience_matches_permission.py is what keeps the
+        catalogue honest about it: the entry is filed under an "admin" group,
+        and that test fails if the permission ever becomes reachable by a
+        normal role without the documentation moving too.
+        """
+        result = await self.registry.dispatch("compliance_status", self.engine)
         await self._send(update, result)
 
     @guard("backtest")

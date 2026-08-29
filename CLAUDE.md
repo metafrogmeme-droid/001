@@ -427,10 +427,19 @@ DISPLAY, and the two were the same function until something finally called it;
 module-level def, method — and then the thing that dispatches. `permission_for()`
 is fail-closed and says so: "a skill added later is unreachable from chat until
 somebody decides what it needs". Correct, and *silent* — nothing ever reported
-the pending decision, so the backlog reached **9** of 30 registered skills
+the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
-are in `bot/skills/macro_skills.py` and advertise slash commands — `/macro`,
-`/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport reaches.
+were in `bot/skills/macro_skills.py`, each advertising a slash command —
+`/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
+reached. The backlog is **7** of 30 registered skills now: `/eventrisk` and
+`/compliance` are wired, and the deciding question was never "can it run" but
+*who should be able to run it*. `/eventrisk` reuses `macro`, a permission
+trader and paper already hold;
+`/compliance` summarises the GLOBAL consent ledger, so it took a permission no
+role but admin holds. The three left are a product call and two are arguments
+against themselves — `kill_switch` would be a SECOND emergency halt beside
+`/halt`, which is a hazard in an emergency, and `request_live_approval` needs
+an `approval_manager` that does not exist.
 
 Neither older ratchet could see them: the module *is* imported and its
 `build_v2_skills()` *is* called, and every skill body is an `execute` override

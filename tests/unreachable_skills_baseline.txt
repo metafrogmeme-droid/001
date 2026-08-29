@@ -10,7 +10,7 @@
 # reachable must be deleted in the same commit. Same rule as
 # known_failures.txt, for the same reason.
 #
-# Nine entries today.
+# Seven entries today.
 
 # ── TRIAGED: bot/skills/macro_skills.py ────────────────────────────────────
 # Five skills that each advertise a slash command — /macro, /eventrisk,
@@ -37,8 +37,6 @@
 #
 # The other three (macro_brief, check_event_risk, compliance_status) are
 # read-only cards and would be reachable the moment somebody adds a permission.
-check_event_risk
-compliance_status
 kill_switch
 macro_brief
 request_live_approval
