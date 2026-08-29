@@ -41,6 +41,7 @@ from bot.core.order_rules import (
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
+from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
 from bot.utils.atomic_write import atomic_write_json
 
@@ -2933,47 +2934,78 @@ class LiveExecutor:
         # ── GETCLAW: Funding rate awareness ──────────────────────────
         # Negative funding = longs get paid (favorable for longs)
         # Positive funding = longs pay (unfavorable, factor into R:R)
-        # 0% funding on metals/stocks = market likely closed
+        # 0% funding on metals/stocks = market likely closed — which is why
+        # this used to be wrong. It read
+        #     funding_rate = float(funding_info.get("fundingRate", 0) or 0)
+        #     if funding_rate != 0:
+        # so an absent field, a null, an empty string and a REAL 0.0 all
+        # collapsed to 0.0 and skipped the check. In this domain 0 is not a
+        # neutral filler: the line above says what it means. An unreadable rate
+        # was impersonating "the market is closed", silently.
+        #
+        # `read_funding_rate` is null-preserving, so the three cases separate,
+        # and a fetch that failed is AUDITED rather than swallowed — WARN-only
+        # either way; funding has never blocked an entry here.
+        _funding_rate = None
         try:
             exchange_pre = await self._get_exchange()
             funding_info = await exchange_pre.fetch_funding_rate(idea.asset)
-            funding_rate = float(funding_info.get("fundingRate", 0) or 0)
-            if funding_rate != 0:
+            _funding_rate = read_funding_rate(funding_info)
+            if _funding_rate is None:
+                audit(trade_log,
+                      f"Funding rate unreadable for {idea.asset} — the venue "
+                      "answered without a usable rate",
+                      action="funding_check", result="UNREADABLE",
+                      data={"asset": idea.asset})
+            elif _funding_rate != 0:
                 direction_favored = (
-                    (idea.direction == Direction.LONG and funding_rate < 0) or
-                    (idea.direction == Direction.SHORT and funding_rate > 0)
+                    (idea.direction == Direction.LONG and _funding_rate < 0) or
+                    (idea.direction == Direction.SHORT and _funding_rate > 0)
                 )
-                if not direction_favored and abs(funding_rate) > 0.001:
+                if not direction_favored and abs(_funding_rate) > 0.001:
                     # Funding > 0.1% against us — log warning but don't block
                     audit(trade_log,
-                          f"Funding rate {funding_rate*100:.3f}% unfavorable for "
+                          f"Funding rate {_funding_rate*100:.3f}% unfavorable for "
                           f"{idea.direction.value} {idea.asset}",
                           action="funding_check", result="WARN",
-                          data={"funding_rate": funding_rate, "direction": idea.direction.value})
-        except Exception:
-            pass  # Non-critical — don't block trade on funding fetch failure
+                          data={"funding_rate": _funding_rate,
+                                "direction": idea.direction.value})
+        except Exception as _fund_exc:
+            # Still non-critical — but `pass` made a failed fetch and a neutral
+            # market the same event in the record, which is the reason nobody
+            # could tell how often this check actually ran.
+            audit(trade_log,
+                  f"Funding rate fetch failed for {idea.asset}: {_fund_exc}",
+                  action="funding_check", result="FETCH_FAILED",
+                  data={"asset": idea.asset})
 
         # ── GETCLAW: Funding settlement clock guard ──────────────────
-        # Funding settles at 00:00 / 08:00 / 16:00 UTC.
-        # Opening a position within 5 minutes BEFORE settlement means
-        # you pay funding almost immediately. Warn and log.
+        # Opening a position minutes BEFORE settlement means paying funding
+        # almost immediately. Warn and log; never block.
+        #
+        # THROUGH THE SHARED CLOCK, not a second copy of the calendar. This
+        # hand-rolled `settlement_times = [0, 480, 960]` while
+        # bot/risk/funding_clock.seconds_to_settlement() computes the same
+        # thing — and the risk engine, scan_skill and the analyzer all already
+        # call it. Four users, one of them with its own arithmetic, is how the
+        # 8h assumption drifts in exactly one place; this audit event is even
+        # named `funding_clock` after the module it was not using.
         try:
-            now_utc = datetime.now(UTC)
-            minutes_in_day = now_utc.hour * 60 + now_utc.minute
-            # Settlement times in minutes: 0, 480, 960
-            settlement_times = [0, 480, 960]
-            for st in settlement_times:
-                mins_until = (st - minutes_in_day) % 1440
-                if 0 < mins_until <= 5:  # within 5 minutes before settlement (exclude exact moment)
-                    audit(trade_log,
-                          f"Funding settlement in {mins_until}m — entry will incur "
-                          f"immediate funding charge on {idea.asset}",
-                          action="funding_clock", result="WARN",
-                          data={"mins_until_settlement": mins_until,
-                                "direction": idea.direction.value})
-                    break
-        except Exception:
-            pass  # Non-critical timing check
+            _secs_to_settle = seconds_to_settlement(datetime.now(UTC).timestamp())
+            _mins_until = _secs_to_settle / 60.0
+            if 0 < _mins_until <= 5:
+                audit(trade_log,
+                      f"Funding settlement in {_mins_until:.0f}m — entry will "
+                      f"incur immediate funding charge on {idea.asset}",
+                      action="funding_clock", result="WARN",
+                      data={"mins_until_settlement": round(_mins_until, 1),
+                            "direction": idea.direction.value})
+        except Exception as _clock_exc:
+            audit(trade_log,
+                  f"Funding settlement clock unreadable for {idea.asset}: "
+                  f"{_clock_exc}",
+                  action="funding_clock", result="UNREADABLE",
+                  data={"asset": idea.asset})
 
         # Pre-flight
         preflight_err = self._preflight_check(size_usd, symbol=idea.asset)

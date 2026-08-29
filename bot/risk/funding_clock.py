@@ -33,6 +33,34 @@ def seconds_to_settlement(now_ts: float) -> float:
     return SETTLEMENT_INTERVAL_SEC - (float(now_ts) % SETTLEMENT_INTERVAL_SEC)
 
 
+def read_funding_rate(info) -> Optional[float]:
+    """A venue funding-rate payload -> the rate, or None when unreadable.
+
+    NULL-PRESERVING, and that is the whole point. `live_executor` read it as
+
+        funding_rate = float(info.get("fundingRate", 0) or 0)
+        if funding_rate != 0:
+
+    so an absent field, a null, an empty string and a genuine 0.0 all became
+    0.0 — and the check then skipped. In this domain 0 is not a neutral
+    filler: the executor's own comment says "0% funding on metals/stocks =
+    market likely closed", so an unreadable rate was impersonating a real and
+    quite specific signal. `funding_clock_verdict` already takes
+    `Optional[float]` and treats None as "no funding data (skip)"; this is the
+    reader that can actually produce that None.
+    """
+    if not isinstance(info, dict):
+        return None
+    raw = info.get("fundingRate")
+    if raw is None or raw == "":
+        return None
+    try:
+        rate = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return rate if rate == rate else None      # NaN is not a reading
+
+
 def pays_funding(direction: str, funding_rate: float) -> bool:
     """Whether this side PAYS the current funding rate.
     Positive rate: longs pay shorts. Negative: shorts pay longs."""
