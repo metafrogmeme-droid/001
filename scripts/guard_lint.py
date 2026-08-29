@@ -161,8 +161,10 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -733,6 +735,61 @@ def _aiohttp_routes(src: str) -> list[tuple[str, str]]:
 
 
 @lru_cache(maxsize=None)
+def _strip_py_comments(src: str) -> str:
+    """Python source with comments and docstrings blanked, LENGTHS PRESERVED.
+
+    The JS half of this file has had `_strip_js_comments` since a commented-out
+    `router.use(...)` satisfied a rule. The Python half never got it, so
+    `_route_module_coverage` regex-scanned docstrings and `#` lines as code.
+
+    It caught this module itself: the comment explaining WHY the aiohttp
+    signature misfires had to name `ax.add_patch(` to explain it, and that made
+    `guard_lint.py` an unguarded HTTP surface registering two routes. CLAUDE.md
+    names this exact trap — "a comment that quotes the string it forbids is
+    indistinguishable from the code doing it".
+
+    Blanked with spaces rather than deleted, for the reason
+    `_strip_js_comments` gives: the fastapi pattern is `^`-anchored under
+    `re.M`, so a decorator must stay on its own line and at its own column.
+    Only COMMENT tokens and docstrings go — a route path is a string in an
+    argument position and must survive.
+    """
+    import io
+    import tokenize
+
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        # Unparseable is not a licence to invent: hand back the original and
+        # let the raw scan decide, exactly as before this function existed.
+        return src
+
+    doomed, prev = [], None
+    for tok in toks:
+        if tok.type == tokenize.COMMENT:
+            doomed.append((tok.start, tok.end))
+            continue
+        if tok.type == tokenize.STRING and prev in (
+                None, tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT):
+            doomed.append((tok.start, tok.end))   # a docstring, not a value
+            continue
+        prev = tok.type
+
+    grid = [list(line) for line in src.splitlines(keepends=True)]
+    for (srow, scol), (erow, ecol) in doomed:
+        for row in range(srow, erow + 1):
+            if not 1 <= row <= len(grid):
+                continue
+            line = grid[row - 1]
+            lo = scol if row == srow else 0
+            hi = ecol if row == erow else len(line)
+            for i in range(lo, min(hi, len(line))):
+                if line[i] != "\n":
+                    line[i] = " "
+    return "".join("".join(row) for row in grid)
+
+
+@lru_cache(maxsize=None)
 def _strip_js_comments(src: str) -> str:
     """JS source with `//` and `/* */` comments blanked, LENGTHS PRESERVED.
 
@@ -1050,6 +1107,52 @@ _COVERAGE_SKIP = ("node_modules", "/.git/", "/tests/", "/test/", ".test.",
                   "_test.", "/dist/", "/build/", "/.venv/", "/venv/")
 _ROUTE_SELECTORS = ("aiohttp-route", "express-router", "express-route", "fastapi-route")
 
+# Directory names that never contain code this repo can fix. `site-packages`
+# and `dist-packages` are here because a `pip install --target` tree carries no
+# `pyvenv.cfg` to find it by.
+_PRUNE_DIRS = frozenset({
+    ".git", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", "site-packages", "dist-packages",
+})
+
+
+def _is_vendored_root(d: Path) -> bool:
+    """A virtualenv is whatever holds a `pyvenv.cfg`, whatever it is named.
+
+    `_COVERAGE_SKIP` tested the NAME — `/.venv/` and `/venv/` — and a venv
+    built as `.venv-audit/` was therefore walked in full. matplotlib's
+    `ax.add_patch(...)` matches the aiohttp signature `\\.add_(get|post|…)\\(`
+    as readily as `router.add_get("/path", …)` does, so the coverage rule
+    reported nine third-party modules as unchecked HTTP surfaces.
+
+    That is this script's own stated failure, inverted. Its docstring warns
+    that a guard nothing reaches is not a guard; a guard that fires on library
+    code is worse, because the cheapest way to make it stop is to stop
+    believing it. `pyvenv.cfg` is written by `venv`/`virtualenv` itself, so it
+    cannot drift the way a list of favoured directory names does.
+    """
+    return (d / "pyvenv.cfg").is_file()
+
+
+def _walk_first_party() -> Iterator[Path]:
+    """Yield files under REPO, pruning vendored trees during the descent.
+
+    Pruning rather than post-filtering matters twice: a virtualenv holds tens
+    of thousands of files that would otherwise each be read and regex-scanned,
+    and a pruned directory cannot contribute an accusation by accident.
+    """
+    for dirpath, dirnames, filenames in os.walk(REPO):
+        d = Path(dirpath)
+        if _is_vendored_root(d):
+            dirnames[:] = []
+            continue
+        dirnames[:] = sorted(
+            n for n in dirnames
+            if n not in _PRUNE_DIRS and not _is_vendored_root(d / n)
+        )
+        for name in sorted(filenames):
+            yield d / name
+
 
 def _route_module_coverage() -> list[str]:
     """Every module that registers HTTP routes must be named by some rule.
@@ -1068,7 +1171,7 @@ def _route_module_coverage() -> list[str]:
     watched = {p.resolve() for r in RULES if r.selector in _ROUTE_SELECTORS
                for pat in r.files for p in REPO.glob(pat)}
     problems = []
-    for path in sorted(REPO.rglob("*")):
+    for path in _walk_first_party():
         if path.suffix not in (".py", ".js", ".mjs") or not path.is_file():
             continue
         rel = str(path)
@@ -1083,6 +1186,11 @@ def _route_module_coverage() -> list[str]:
             # its usage with `router.post('/', rateLimit(…))` in a docblock, and
             # an unstripped scan reported a rate-limiter as an HTTP surface.
             src = _strip_js_comments(src)
+        else:
+            # ...and the Python half, which went without for longer and made
+            # this very file an "unchecked HTTP surface" the moment a comment
+            # had to name the method the aiohttp pattern over-matches.
+            src = _strip_py_comments(src)
         hits = {fw: len(rx.findall(src))
                 for fw, rx in _ROUTE_SIGNATURES.get(path.suffix, {}).items()}
         total = sum(hits.values())
