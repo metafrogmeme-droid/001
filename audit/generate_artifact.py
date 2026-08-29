@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -120,27 +119,59 @@ REFUTED = [
 ]
 
 VALIDATION = [
-    dict(check="ruff strict (E9,F821,F811)", cmd="ruff check --select E9,F821,F811 bot/ tests/", result="PASS"),
-    dict(check="ruff strict (F401,F541)", cmd="ruff check --select F401,F541 bot/", result="PASS"),
-    dict(check="ruff whole-tree ratchet", cmd="python3 scripts/ruff_gate.py", result="PASS", detail="1258 findings / 11 rules == baseline"),
-    dict(check="mypy whole-tree ratchet", cmd="python3 scripts/mypy_gate.py", result="PASS", detail="648 errors / 77 files == baseline"),
-    dict(check="mypy money modules", cmd="mypy bot/risk bot/compliance bot/utils/trailing.py bot/core/bitget_v3_client.py bot/core/position_telemetry.py bot/core/live_executor.py", result="PASS", detail="16 files, no issues"),
-    dict(check="bandit high/high", cmd="bandit -r bot/ api_bridge.py dashboard_api.py scripts/ --severity-level high --confidence-level high", result="PASS", detail="0 findings"),
-    dict(check="risk red team", cmd="python3 scripts/red_team.py", result="PASS", detail="30/30 scenarios refused"),
-    dict(check="custody red team", cmd="python3 scripts/authority_red_team.py", result="PASS", detail="12/12 attacks denied"),
-    dict(check="pip-audit", cmd="pip-audit -r requirements.lock", result="PASS", detail="no known vulnerabilities"),
-    dict(check="npm advisory ratchet x4", cmd="node token/scripts/audit_gate.mjs .", result="PASS", detail="root 6 high + 8 moderate; token/ 9 high + 15 moderate + 11 low; app/ 1 low; site/ 0 - all == baseline"),
+    dict(check="ruff strict (E9,F821,F811)",
+         cmd="ruff check --select E9,F821,F811 bot/ tests/",
+         result="PASS"),
+    dict(check="ruff strict (F401,F541)",
+         cmd="ruff check --select F401,F541 bot/",
+         result="PASS"),
+    dict(check="ruff whole-tree ratchet",
+         cmd="python3 scripts/ruff_gate.py",
+         result="PASS", detail="1258 findings / 11 rules == baseline"),
+    dict(check="mypy whole-tree ratchet",
+         cmd="python3 scripts/mypy_gate.py",
+         result="PASS", detail="648 errors / 77 files == baseline"),
+    dict(check="mypy money modules",
+         cmd="mypy bot/risk bot/compliance bot/utils/trailing.py "
+             "bot/core/bitget_v3_client.py bot/core/position_telemetry.py "
+             "bot/core/live_executor.py",
+         result="PASS", detail="16 files, no issues"),
+    dict(check="bandit high/high",
+         cmd="bandit -r bot/ api_bridge.py dashboard_api.py scripts/ "
+             "--severity-level high --confidence-level high",
+         result="PASS", detail="0 findings"),
+    dict(check="risk red team",
+         cmd="python3 scripts/red_team.py",
+         result="PASS", detail="30/30 scenarios refused"),
+    dict(check="custody red team",
+         cmd="python3 scripts/authority_red_team.py",
+         result="PASS", detail="12/12 attacks denied"),
+    dict(check="pip-audit",
+         cmd="pip-audit -r requirements.lock",
+         result="PASS", detail="no known vulnerabilities"),
+    dict(check="npm advisory ratchet x4",
+         cmd="node token/scripts/audit_gate.mjs .",
+         result="PASS",
+         detail="root 6 high + 8 moderate; token/ 9 high + 15 moderate + 11 low; "
+                "app/ 1 low; site/ 0 - all == baseline"),
     dict(check="Anchor typecheck", cmd="npm run typecheck", result="PASS"),
     dict(check="site build", cmd="site: npm run build", result="PASS"),
     dict(check="site tests", cmd="site: npm test", result="PASS", detail="59/59"),
-    dict(check="committed site == built site", cmd="git status --porcelain -- website/", result="PASS", detail="clean"),
-    dict(check="app parse", cmd="app: node --check over *.js lib/ routes/ public/js/", result="PASS"),
+    dict(check="committed site == built site",
+         cmd="git status --porcelain -- website/", result="PASS", detail="clean"),
+    dict(check="app parse",
+         cmd="app: node --check over *.js lib/ routes/ public/js/", result="PASS"),
     dict(check="app tests", cmd="app: npm test", result="PASS", detail="3593/3593"),
-    dict(check="guard reachability", cmd="python3 scripts/guard_lint.py", result="PASS", detail="12/12 rules, after RC-2026-002/003"),
-    dict(check="python suite (baseline gate)", cmd="python3 scripts/ci_test_gate.py", result="INCONCLUSIVE",
-         detail="9076 passed, 3 failed - but the gate DISABLED its own flake filter because source "
-                "changed mid-run. One failure was RC-2026-004 (now fixed); the other two passed in "
-                "isolation. Needs a clean re-run on a quiescent tree before any number is reported."),
+    dict(check="guard reachability",
+         cmd="python3 scripts/guard_lint.py",
+         result="PASS", detail="12/12 rules, after RC-2026-002/003"),
+    dict(check="python suite (baseline gate)",
+         cmd="python3 scripts/ci_test_gate.py",
+         result="INCONCLUSIVE",
+         detail="9076 passed, 3 failed - but the gate DISABLED its own flake filter "
+                "because source changed mid-run. One failure was RC-2026-004 (now "
+                "fixed); the other two passed in isolation. Needs a clean re-run on a "
+                "quiescent tree before any number is reported."),
 ]
 
 COVERAGE = dict(
