@@ -574,3 +574,113 @@ reports success while missing the thing it exists to protect.
 `tests/test_backup_covers_the_credential_stores.py` 4 passed (2 failed before
 the change). Existing `-k "backup or durability"` suites: **43 passed**. ruff
 and mypy ratchets unchanged; `guard_lint` exit 0.
+
+---
+
+## RC-2026-009 — `/performance` paper branch publishes a hardcoded "Week PnL" of $0.00 in green
+
+- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED
+- **Category**: Honesty of displayed measurement (CLAUDE.md's own top rule)
+- **File**: `bot/skills/telegram_handler.py:12555` (value), `:12571-12572` (render)
+- **Fix class**: REVIEW_REQUIRED (what an unmeasured tile should say is a product call)
+
+The live branch of this handler is careful and visibly so — `win_rate` is
+`None` rather than `0` when nothing could be scored (`:12461`), `realized_totals`
+separates net-unknown from net-zero, `best_and_worst` refuses to rank unpriced
+closes under a comment explaining that a sort key becomes a claim once the
+order is published as "Best 🏆".
+
+The paper branch beneath it (`:12539-12560`) has none of that:
+
+```python
+data = {
+    "today_pnl": round(state.daily_pnl, 2) if hasattr(state, "daily_pnl") else 0.0,
+    "week_pnl": 0.0,
+    ...
+```
+
+`week_pnl` is a literal. Nothing computes it. It is then rendered as a
+first-class tile beside real numbers:
+
+```python
+{"label": "Week PnL", "value": f"${data.get('week_pnl', 0.0):+,.2f}",
+ "color": "green" if data.get("week_pnl", 0.0) >= 0 else "red"},
+```
+
+so the card always shows **Week PnL $+0.00 in green**. Not "unreadable rendered
+as zero" — never measured, rendered as a measurement, in the colour that means
+profit. CLAUDE.md: *"Colour is a claim. A green accent says 'in profit' as
+loudly as the number does."* And `(x or 0) >= 0` is listed there as the shape
+that silently asserts **unreadable won**, because `0 >= 0` is true.
+
+`today_pnl` has the same shape one step weaker: an engine state without
+`daily_pnl` renders `$+0.00` green rather than saying it could not be read.
+
+Remediation: give the tile the three-valued treatment the live branch already
+uses — a muted colour and an em dash when the figure was not computed — or
+drop the tile in paper mode. Either is a display-policy choice, hence
+REVIEW_REQUIRED. The renderer is built inline in a 14k-line handler, so the
+repo's own guidance applies: extract the tile builder before fixing it, or the
+fix cannot be tested.
+
+---
+
+## RC-2026-010 — the honest "unscored" win rate makes the whole stats card disappear
+
+- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED
+- **Category**: `is None` vs falsiness, one layer out
+- **File**: `bot/skills/telegram_handler.py:12567` and `:12574`
+- **Fix class**: SAFE_AUTO_FIX (proposed, not applied — same seam problem as above)
+
+`:12461` deliberately makes the rate `None` when nothing could be scored:
+
+```python
+win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
+```
+
+with a comment saying `... if rate is not None else 0` had converted "nothing
+to measure" into a measured zero. Correct. The value then reaches:
+
+```python
+_wr = data.get("win_rate", 0.0)          # :12567
+...
+"value": f"{_wr:.0f}%",                   # :12574
+```
+
+`.get(key, default)` returns the **stored** `None`, because the key is present.
+The default never fires. Verified directly:
+
+```
+>>> d = {'win_rate': None}; wr = d.get('win_rate', 0.0); f"{wr:.0f}%"
+TypeError: unsupported format string passed to NoneType.__format__
+```
+
+The block sits inside `try:` at `:12563` ("guarded — falls back to the text
+readout"), so it does not crash. It silently drops the entire PNG stats card —
+every tile, PnL and trade count included — in exactly the case the upstream fix
+exists to communicate.
+
+Two defects in one line: the `.get` default is dead code that reads as
+protection, and the guard converts a specific, fixable formatting bug into a
+whole missing card. Fix: `_wr = data.get("win_rate")` then
+`"—" if _wr is None else f"{_wr:.0f}%"`, with the tile's colour muted in that
+case. Not applied because the card is assembled inline; per CLAUDE.md the
+builder wants extracting first so the fix can be tested at all.
+
+---
+
+## Method note — my own sweep produced a false positive too
+
+The regex `len\(\s*\w+\s*\)\s*-\s*\w*wins?\w*`, written to catch the
+`losses = len(all) - wins` shape, matched
+`bot/formatters/rich_cards.py:75`:
+
+```python
+for i in range(window, len(closes) - window):
+```
+
+because **win**dow contains "win". A reminder that the scan tells you where you
+looked, not what is there — the same trap CLAUDE.md records for short-string
+assertions, arriving in the search rather than the assertion. 75 raw shape hits
+were found across the rendering and decision modules; the two above are the
+ones that survived reading the surrounding code.
