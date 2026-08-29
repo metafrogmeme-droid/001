@@ -1,0 +1,68 @@
+venue:
+  name: BITGET
+  account_type: MARGIN
+  oms_type: NETTING
+  starting_balances:
+    - amount: 10000
+      currency: USDT
+
+strategy:
+  module: strategy
+  class: RuneclawConfluenceStrategy
+  config_class: RuneclawConfluenceStrategyConfig
+  config:
+    order_id_tag: "001"
+    leverage: 10
+    margin_budget: "100"
+    max_loss_usdt: "15"
+    min_score: 70
+    allow_short: true
+    sl_min_pct: "1.2"
+    atr_limit_mult: "0.5"
+    tp1_pct: "3.5"
+    mr_stretch_atr: "1.5"
+    mr_stop_atr: "1.2"
+    bo_vol_ratio: "2.5"
+    bo_stop_atr: "1.0"
+    bo_tp_atr: "2.0"
+    breakeven_pct: "2.0"
+    momentum_ttl_bars: 16
+    momentum_time_stop_bars: 32
+    mr_ttl_bars: 3
+    mr_time_stop_bars: 8
+    bo_ttl_bars: 2
+    bo_time_stop_bars: 6
+    circuit_pause_usdt: "30"
+    circuit_stop_usdt: "40"
+    circuit_pause_bars: 24
+    min_notional_usdt: "5"
+
+instruments:
+  - id: BNBUSDT.BITGET
+    kind: perpetual
+    raw_symbol: BNBUSDT
+    base_currency: BNB
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 2
+    size_precision: 2
+    price_increment: "0.01"
+    size_increment: "0.01"
+    lot_size: "0.01"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: BNBUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: BTCUSDT.BITGET
+    kind: perpetual
+    raw_symbol: BTCUSDT
+    base_currency: BTC
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 1
+    size_precision: 4
+    price_increment: "0.1"
+    size_increment: "0.0001"
+    lot_size: "0.0001"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: BTCUSDT.BITGET-15-MINUTE-LAST-EXTERNAL

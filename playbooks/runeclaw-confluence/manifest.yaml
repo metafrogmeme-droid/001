@@ -1,0 +1,132 @@
+name: runeclaw-confluence
+display_name: "RUNECLAW Confluence"
+version: "0.1.0"
+display_name_i18n:
+  en: "RUNECLAW Confluence"
+  zh: "RUNECLAW 共振策略"
+  zh-tw: "RUNECLAW 共振策略"
+  es: "RUNECLAW Confluencia"
+  ja: "RUNECLAW コンフルエンス"
+  vi: "RUNECLAW Hợp Lưu"
+description: "Regime-adaptive BNB perpetual strategy that routes between momentum, mean-reversion, and volume-breakout entries behind a market-leader gate and a hard confluence score, with risk-first exits and a daily circuit breaker"
+description_i18n:
+  en: "Regime-adaptive BNB perpetual strategy that routes between momentum, mean-reversion, and volume-breakout entries behind a market-leader gate and a hard confluence score, with risk-first exits and a daily circuit breaker"
+  zh: "自适应市场状态的 BNB 永续合约策略:通过市场领导者门控与多指标共振评分,在动量、均值回归与放量突破之间切换,风险优先离场并配备当日熔断"
+  zh-tw: "自適應市場狀態的 BNB 永續合約策略:通過市場領導者門控與多指標共振評分,在動量、均值回歸與放量突破之間切換,風險優先離場並配備當日熔斷"
+  es: "Estrategia adaptativa al régimen en perpetuos de BNB: enruta entre momentum, reversión a la media y rupturas por volumen tras un filtro del líder del mercado y una puntuación de confluencia estricta, con salidas centradas en el riesgo y un cortacircuitos diario"
+  ja: "市場リーダーのゲートと厳格なコンフルエンススコアを通過した後、モメンタム・平均回帰・出来高ブレイクアウトを切り替えるレジーム適応型BNB無期限先物戦略。リスク優先の決済と日次サーキットブレーカーを装備"
+  vi: "Chiến lược hợp đồng vĩnh viễn BNB thích ứng theo chế độ thị trường: định tuyến giữa động lượng, hồi quy trung bình và đột phá khối lượng sau cổng dẫn dắt thị trường và điểm hợp lưu nghiêm ngặt, thoát lệnh ưu tiên rủi ro với cầu dao ngắt mạch hằng ngày"
+long_description: |
+  RUNECLAW Confluence is a regime-adaptive system on BNB perpetual futures that
+  aims to capture whatever behavior the market is actually offering rather than
+  forcing one style onto every session. It reads the market leader's backdrop
+  first and routes to a matching playstyle: riding momentum pullbacks when the
+  backdrop trends, fading stretched moves back toward the session's average
+  traded price when it ranges, and an opportunistic breakout overlay when
+  unusual volume arrives. Flat is the default state — when the backdrop is
+  mixed or unreadable the strategy opens nothing and waits.
+
+  Entries are gated by a blended confluence reading built from independent
+  technical voters: trend alignment across timeframes, momentum oscillators,
+  position against the session's average traded price, location within the
+  recent range, volume behavior, and volatility bands. Only when the
+  electorate agrees strongly enough does it act — entering long with a
+  constructive leader, short against a weak one, usually on a resting limit
+  order placed where a normal retracement should fill rather than chasing.
+
+  Exits are risk-first. A protective stop rests at the venue from the moment a
+  position opens, and every position is sized backward from a fixed worst-case
+  dollar loss so a single trade cannot take more than its allowance. Profit is
+  taken at a defined target, the stop lifts toward the entry once a trade has
+  moved favourably, stale unfilled entries expire on their own, positions
+  carry an intraday time stop, and a daily circuit breaker first pauses and
+  then stops trading entirely after a losing day.
+
+  Subscribers can tune the leverage applied, the margin budget that anchors
+  sizing and the displayed return, the dollar risk allowed per trade, the
+  confluence bar required to act, and whether short entries are allowed.
+  Higher leverage or a larger risk allowance enlarges gains and drawdowns
+  alike; a higher confluence bar trades less often but more selectively;
+  disabling shorts limits the system to supportive backdrops only.
+
+  The strategy underperforms when the leader chops without committing to a
+  direction, when a quiet range resolves into a sudden trend against a
+  reversion entry, or when fast moves gap through protective stops. By design
+  it can sit idle for long stretches. Historical results come from replaying
+  real bars with fees applied, but past performance is not a promise: live
+  trading pays slippage that erodes edge, so size every position to a drawdown
+  you can tolerate.
+market_type: contract
+trading_symbols: ["BNBUSDT", "BTCUSDT"]
+tags: ["confluence", "regime-adaptive", "momentum", "mean-reversion", "breakout", "multi-timeframe", "risk-managed", "bnb", "contract", "runeclaw"]
+
+schedule:
+  cron: "*/15 * * * *"
+  tz: "Asia/Shanghai"
+
+decision_mode: deterministic
+backtest_support: full
+runtime_profile: deterministic
+execution_mode: follow_trade
+follow_trade_supported: true
+
+strategy_config:
+  trading_symbols: ["BNBUSDT", "BTCUSDT"]
+  leverage: 10
+  margin_budget: "100"
+  max_loss_usdt: "15"
+  min_score: 70
+  allow_short: true
+  interval: "15m"
+  backtest_days: 60
+  data_exchange: "bitget"
+  sl_min_pct: "1.2"
+  atr_limit_mult: "0.5"
+  tp1_pct: "3.5"
+  mr_stretch_atr: "1.5"
+  mr_stop_atr: "1.2"
+  bo_vol_ratio: "2.5"
+  bo_stop_atr: "1.0"
+  bo_tp_atr: "2.0"
+  breakeven_pct: "2.0"
+  momentum_ttl_bars: 16
+  momentum_time_stop_bars: 32
+  mr_ttl_bars: 3
+  mr_time_stop_bars: 8
+  bo_ttl_bars: 2
+  bo_time_stop_bars: 6
+  circuit_pause_usdt: "30"
+  circuit_stop_usdt: "40"
+  circuit_pause_bars: 24
+  min_notional_usdt: "5"
+
+user_config_schema:
+  leverage:
+    type: integer
+    default: 10
+    min: 1
+    max: 25
+    aliases:
+      10x: 10
+      20x: 20
+    label: "Leverage"
+  margin_budget:
+    type: string
+    default: "100"
+    pattern: '^[0-9]+(\.[0-9]+)?$'
+    label: "Margin budget USDT (sizing + return % denominator)"
+  max_loss_usdt:
+    type: string
+    default: "15"
+    pattern: '^[0-9]+(\.[0-9]+)?$'
+    label: "Max loss per trade USDT (drives position size from the stop)"
+  min_score:
+    type: integer
+    default: 70
+    min: 50
+    max: 95
+    label: "Confluence score required to enter"
+  allow_short:
+    type: boolean
+    default: true
+    label: "Enable short-side setups"
