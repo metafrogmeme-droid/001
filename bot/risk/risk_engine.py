@@ -1951,13 +1951,18 @@ class RiskEngine:
         except Exception as exc:
             failed.append(f"MTF_ALIGNMENT: evaluation error ({exc})")
 
-        # 20. Portfolio concentration / PCA (Feature #4) — graceful skip if no data
+        # 20. Portfolio concentration / PCA (Feature #4)
+        # "OK or skipped (no data)" was one string for two opposite facts: a
+        # measured pass and a check that never ran. On the line that decides
+        # whether a book is dangerously correlated, that is the defect CLAUDE.md
+        # names most often — absent rendered as a measurement. _check_concentration
+        # now returns its own detail and the three outcomes stay distinct.
         try:
-            conc_result = self._check_concentration()
+            conc_result, conc_detail = self._check_concentration()
             if conc_result is not None:
                 failed.append(conc_result)
             else:
-                passed.append("CONCENTRATION_PCA: OK or skipped (no data)")
+                passed.append(f"CONCENTRATION_PCA: {conc_detail}")
         except Exception as exc:
             failed.append(f"CONCENTRATION_PCA: evaluation error ({exc})")
 
@@ -2645,21 +2650,67 @@ class RiskEngine:
             )
         return True, f"PC1 explains {pc1_explained:.1%} — diversification OK"
 
-    def _check_concentration(self) -> Optional[str]:
-        """Internal check for portfolio concentration in risk flow.
+    def _check_concentration(self) -> tuple[Optional[str], str]:
+        """Is the book we are HOLDING concentrated? Returns (failure, detail).
 
-        Builds a returns matrix from trade history. Gracefully skips when
-        insufficient data is available.
+        THE MATRIX DESCRIBED A DIFFERENT PORTFOLIO THAN THE ONE BEING CHECKED.
+        This gated on `len(open_positions) < 2` and then built its returns
+        matrix out of CLOSED-TRADE history — so it could score PC1 over last
+        month's BTC and ETH round-trips while the open book was five correlated
+        alt-longs, and report the diversification of a portfolio nobody holds.
+        The two sets need not share a single asset.
+
+        It also required five closed trades and two assets with three closes
+        each, so it returned "no data" for the whole early life of an account —
+        exactly when concentration is most likely and least survivable. A fresh
+        book is not a diversified one.
+
+        LIVE HOLDINGS FIRST, and from the same aligned price series the
+        covariance VaR uses (`_aligned_returns`, #49): a common timestamp grid,
+        so a symbol that missed ticks is not paired positionally against a
+        fresher one. Price returns also mean the check works on a book that has
+        closed nothing at all.
+
+        FALL BACK, NEVER SILENTLY DOWNGRADE — the rule
+        `_compute_portfolio_var_covariance` already follows. When the open book
+        has no usable price history the closed-trade matrix is still better than
+        nothing, but the caller is TOLD which one answered, because "PC1 over
+        what you hold" and "PC1 over what you used to hold" are different
+        claims and only one of them is about current risk.
+
+        The second element is that detail string. `None` as the first element
+        means "no failure", which is not the same as "checked and fine" — the
+        caller renders those differently now.
         """
         positions = self._portfolio.open_positions
         if len(positions) < 2:
-            return None  # Not enough positions to check
+            return None, "fewer than 2 open positions — not applicable"
 
+        # ── the book actually held ──────────────────────────────────────
+        held: dict[str, float] = {}
+        for pos in positions:
+            notional = pos.entry_price * pos.quantity
+            if notional > 0:
+                held[pos.asset] = held.get(pos.asset, 0.0) + notional
+        assets = sorted(held)
+        if len(assets) >= 2:
+            min_points = CONFIG.risk.var_covariance_min_points
+            try:
+                aligned = self._aligned_returns(assets, min_points)
+            except Exception:
+                aligned = None
+            if aligned:
+                ok, reason = self.check_portfolio_concentration(
+                    [aligned[a] for a in assets])
+                detail = f"{reason} (live book, {len(assets)} assets)"
+                return (None if ok else f"CONCENTRATION_PCA: {detail}"), detail
+
+        # ── fallback: closed-trade history, named as such ───────────────
         history = self._portfolio.trade_history
         if len(history) < 5:
-            return None  # Not enough history
+            return None, ("could not measure — no aligned price history for the "
+                          "open book and fewer than 5 closed trades")
 
-        # Group closed trades by asset to build return series
         asset_returns: dict[str, list[float]] = {}
         for t in history:
             if t.exit_price is not None and t.entry_price > 0:
@@ -2668,16 +2719,16 @@ class RiskEngine:
                     ret = -ret
                 asset_returns.setdefault(t.asset, []).append(ret)
 
-        # Need at least 2 assets with 3+ returns each
         valid = {a: rets for a, rets in asset_returns.items() if len(rets) >= 3}
         if len(valid) < 2:
-            return None  # Graceful skip
+            return None, ("could not measure — no aligned price history for the "
+                          "open book and too few closed trades per asset")
 
-        returns_matrix = list(valid.values())
-        ok, reason = self.check_portfolio_concentration(returns_matrix)
-        if not ok:
-            return f"CONCENTRATION_PCA: {reason}"
-        return None
+        ok, reason = self.check_portfolio_concentration(list(valid.values()))
+        # Named, because this matrix is about assets the book may no longer
+        # hold. An operator reading a pass here should know what passed.
+        detail = f"{reason} (CLOSED-TRADE history, not the open book)"
+        return (None if ok else f"CONCENTRATION_PCA: {detail}"), detail
 
     def _compute_portfolio_var(self, position_usd: float, confidence_level: float = 0.95,
                                idea: Optional[TradeIdea] = None) -> VarResult:

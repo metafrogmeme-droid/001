@@ -51,12 +51,31 @@ class TestSmartOrderRouter:
 
     # -- Slippage estimation --
 
-    def test_no_order_book_returns_paper_defaults(self):
-        """No book data -> paper mode defaults."""
+    def test_no_order_book_reports_UNMEASURED_not_a_paper_default(self):
+        """This test used to assert the defect.
+
+        It required `slippage_pct == DEFAULT_PAPER_SLIPPAGE_PCT`, `order_type
+        == "MARKET"` and `warning is None` for a book that was never read — a
+        fabricated number, the least cautious recommendation, and nothing
+        marking either as invented. The EXPECTATION was wrong, not the code
+        under it, which is why it is rewritten rather than deleted.
+        """
         result = self.router.estimate_slippage("BTCUSDT", 10000)
+        assert result["slippage_pct"] is None, (
+            "an unread book reported a measured slippage")
+        assert result["order_type"] is None, (
+            "a market order was recommended off a slippage nobody measured")
+        assert result["readable"] is False
+        assert "No order book" in result["warning"]
+
+    def test_a_paper_stand_in_is_available_but_has_to_be_ASKED_for(self):
+        # The paper default did not disappear — it stopped being automatic, and
+        # it labels itself when used.
+        result = self.router.estimate_slippage(
+            "BTCUSDT", 10000, assume_pct=self.router.DEFAULT_PAPER_SLIPPAGE_PCT)
         assert result["slippage_pct"] == self.router.DEFAULT_PAPER_SLIPPAGE_PCT
-        assert result["order_type"] == "MARKET"
-        assert result["warning"] is None
+        assert result["readable"] is False, "an assumption is not a reading"
+        assert "assumed" in result["warning"]
 
     def test_shallow_book_low_slippage(self):
         """Small order fills entirely at best price -> ~0% slippage."""
@@ -112,10 +131,20 @@ class TestSmartOrderRouter:
         assert result["warning"] is not None
         assert "unfilled" in result["warning"].lower()
 
-    def test_invalid_size_returns_zero(self):
+    def test_invalid_size_is_unmeasurable_not_zero_slippage(self):
+        # 0.0 is the BEST slippage there is. Returning it for an order size
+        # that makes no sense hands the caller the most reassuring possible
+        # number about a question that was never asked.
         result = self.router.estimate_slippage("BTCUSDT", 0)
-        assert result["slippage_pct"] == 0.0
+        assert result["slippage_pct"] is None
+        assert result["readable"] is False
         assert result["warning"] == "Invalid order size"
+
+    def test_an_unmeasured_slippage_never_becomes_a_MARKET_recommendation(self):
+        # optimal_order_type compares against thresholds; a fabricated 0.0
+        # walks past every branch to the least cautious answer.
+        assert self.router.optimal_order_type(None) == "UNKNOWN"
+        assert self.router.optimal_order_type(None, "high") == "UNKNOWN"
 
     # -- Optimal order type --
 

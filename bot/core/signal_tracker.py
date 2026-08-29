@@ -83,26 +83,35 @@ class SignalTracker:
         if not records:
             return {
                 "total_signals": 0,
+                "closed_signals": 0,
                 "wins": 0,
                 "losses": 0,
-                "win_rate": 0.0,
-                "avg_pnl": 0.0,
-                "best_pnl": 0.0,
-                "worst_pnl": 0.0,
+                "win_rate": None,
+                "avg_pnl": None,
+                "best_pnl": None,
+                "worst_pnl": None,
                 "last_signal_time": None,
             }
         closed = [r for r in records if r.closed]
         wins = [r for r in closed if r.pnl is not None and r.pnl > 0]
         losses = [r for r in closed if r.pnl is not None and r.pnl <= 0]
         pnls = [r.pnl for r in closed if r.pnl is not None]
+        # None, not 0.0, over an empty closed set. `record_outcome` has NO
+        # production caller (see tests/unreachable_methods_baseline.txt), so in
+        # the running bot `closed` is always empty — and `len(wins)/len(closed)
+        # if closed else 0.0` therefore reported every pair as 0 wins, 0 losses
+        # and a 0.0% win rate. That reads as a measured record of failure and
+        # it is the absence of a record. The renderer prints an em dash for
+        # None; a real 0.0 (signals closed, none of them won) still prints 0%.
         return {
             "total_signals": len(records),
+            "closed_signals": len(closed),
             "wins": len(wins),
             "losses": len(losses),
-            "win_rate": len(wins) / len(closed) if closed else 0.0,
-            "avg_pnl": sum(pnls) / len(pnls) if pnls else 0.0,
-            "best_pnl": max(pnls) if pnls else 0.0,
-            "worst_pnl": min(pnls) if pnls else 0.0,
+            "win_rate": (len(wins) / len(closed)) if closed else None,
+            "avg_pnl": (sum(pnls) / len(pnls)) if pnls else None,
+            "best_pnl": max(pnls) if pnls else None,
+            "worst_pnl": min(pnls) if pnls else None,
             "last_signal_time": records[-1].timestamp,
         }
 
@@ -157,14 +166,27 @@ class SignalTracker:
             for sym, stats in cat_entries:
                 short = sym.replace("/USDT", "").replace("/", "")
                 wr = stats["win_rate"]
+                if wr is None:
+                    # An empty bar is a CLAIM — five hollow blocks read as
+                    # "lost everything", not "nothing has closed". Dashes in
+                    # the W/L/bar/avg columns say the outcome is unknown, and
+                    # SIG still shows how many signals were fired.
+                    lines.append(
+                        f" {short:<12}{stats['total_signals']:>4}"
+                        f"{'—':>4}{'—':>4}"
+                        f"  {'  —  '}"
+                        f" {'—':>8}"
+                    )
+                    continue
                 # Win rate bar: 5 chars
                 filled = round(wr * 5)
                 bar = "█" * filled + "░" * (5 - filled)
+                avg = stats["avg_pnl"]
                 lines.append(
                     f" {short:<12}{stats['total_signals']:>4}"
                     f"{stats['wins']:>4}{stats['losses']:>4}"
                     f"  {bar}"
-                    f" ${stats['avg_pnl']:>+7.2f}"
+                    + (f" ${avg:>+7.2f}" if avg is not None else f" {'—':>8}")
                 )
             lines.append("</pre>")
 

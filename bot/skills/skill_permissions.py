@@ -40,6 +40,16 @@ SKILL_PERMISSION: dict[str, str] = {
     "scan_market": "scan",
     "walk_forward": "walkforward",
     "whynot": "rejected",
+    # /eventrisk is @guard("macro") — the same read-only macro data /macro
+    # serves, scoped to a symbol. Derived from the decorator, like every entry
+    # above; test_free_text_obeys_the_role_gate re-derives it and fails on
+    # disagreement.
+    "check_event_risk": "macro",
+    # /compliance is @guard("compliance"), a permission NO role but admin
+    # holds. The card summarises the global consent ledger — other users'
+    # grant/deny outcomes — so free text reaching it is fine and the role gate
+    # is what refuses. Present here because this table is the FACT.
+    "compliance_status": "compliance",
     # Reachable from Telegram free text ("my journal", "trade log") and not
     # from web chat. Present here because this table is the FACT — /journal and
     # /daily_report are both @guard("journal") — and absent from
