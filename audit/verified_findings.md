@@ -782,3 +782,182 @@ I had applied the fix before they ran. Both independently confirmed the finding
 was accurate at `fcbb632` and that the current code is correct. A remediation
 race, not a substantive refutation; the severity correction above came out of
 the same reading.
+
+---
+
+# Money-path batch — independently verified by the lead auditor
+
+The `ai-to-money`, `order-exec`, `risk-engine` and `market-data` dimensions
+returned 27 findings; two adversarial verifiers confirmed **25** and refuted 2.
+Two are CRITICAL. I read both myself rather than accept them, and both hold —
+with one reachability qualification the finder did not state.
+
+---
+
+## RC-2026-011 — Stop-loss orders for a per-user account are signed with the OPERATOR's credentials
+
+- **Status**: OPEN · **Severity**: CRITICAL *(conditional — see reachability)*
+- **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **Category**: Cross-account money path (CWE-522, CWE-863)
+- **File**: `bot/core/live_executor.py:5109-5116` and `:5228`, via `bot/core/bitget_v3_client.py:46-55`
+
+`LiveExecutor.__init__` is explicitly built for per-user trading
+(`live_executor.py:618-630`): it takes `user_id` and a `credentials` dict, and
+its own comment says "credentials, when set, {api_key, api_secret,
+passphrase}".
+
+The v3 channel ignores them. `_v3_post`, nested inside
+`async def _place_sl_tp_v3(self, …)`, builds its client like this:
+
+```python
+return cast(dict, BitgetV3Client.from_config().request("POST", path, body_dict))
+```
+
+and `from_config()` (`bitget_v3_client.py:46-55`) reads the global
+`CONFIG.exchange`:
+
+```python
+cfg = CONFIG.exchange
+return cls(cfg.api_key, cfg.api_secret, cfg.passphrase)
+```
+
+Line `:5228` is the write that matters:
+
+```python
+result = await _asyncio.to_thread(_v3_post, "/api/v3/trade/place-strategy-order", payload)
+```
+
+`place-strategy-order` is the **stop-loss and take-profit**. So a per-user
+executor holding that user's keys places their protective stop, signed with the
+operator's keys, on the **operator's** account. Two failures at once: the user's
+live position carries no stop on their own account, and the operator's account
+acquires a strategy order for a position it does not hold.
+
+`/api/v3/trade/close-positions` is on the same channel.
+
+### Reachability — the qualification the finder did not state
+
+`PER_USER_LIVE_ENABLED` defaults to **False** (`bot/config.py:2261`, and
+`.env.example:22` ships it `false`). With per-user live off, every executor IS
+the operator executor, `from_config()` is the correct source, and no harm
+occurs. **This is latent in a default deployment.**
+
+It becomes real the moment an operator turns on a documented, supported feature
+the repo has built substantial machinery for — per-user credential storage, the
+`web_live_gate` preconditions, per-user eligibility. Nothing warns that stops
+will land on the wrong account when they do. That is why it stays CRITICAL
+rather than being downgraded: the trigger is a normal product operation, not an
+exotic misconfiguration.
+
+### Remediation (proposed, not applied)
+
+`_v3_post` is inside an **instance** method, so `self._credentials` is already
+in scope. Build the client from it when set and fall back to `from_config()`
+only for the operator executor. `BitgetV3Client.__init__` already takes explicit
+credentials, so no new plumbing is needed.
+
+Not applied here because it changes which account a live order reaches — the
+brief forbids altering financial behaviour silently, and this wants an operator
+to confirm the intended semantics and to check whether any per-user account
+currently carries a stop the operator's book is holding.
+
+---
+
+## RC-2026-012 — Unreadable live equity silently reroutes the DAILY-LOSS and DRAWDOWN breakers to the paper book
+
+- **Status**: OPEN · **Severity**: CRITICAL · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED
+- **Category**: The repo's own top rule, on the control that decides how much real money is lost before it halts
+- **File**: `bot/risk/risk_engine.py:1413-1418` (daily loss), `:1475-1486` (drawdown)
+
+```python
+if live_equity is not None and live_equity > 0:
+    _daily_pnl = self._live_daily_pnl
+    loss_base  = live_equity
+else:
+    _daily_pnl = state.daily_pnl
+    loss_base  = min(sizing_equity, state.equity_usd) if ... else ...
+```
+
+and, for drawdown:
+
+```python
+if live_equity is not None and live_equity > 0:
+    ...
+    _cur_dd = (100.0 * (self._live_equity_peak - live_equity) / self._live_equity_peak) ...
+else:
+    _cur_dd = getattr(state, "current_drawdown_pct", state.max_drawdown_pct)
+```
+
+The `else` branch is correct for genuine paper mode. It is also what runs when
+the bot **is live and the equity read failed** — `None` or `0` from a timeout,
+a venue error, a rate limit. There is no third case.
+
+What it then measures is the paper book. The comment four lines above states
+exactly why that is worthless here:
+
+> the paper snapshot's `daily_pnl` is ~0 because live fills never touch the
+> paper portfolio
+
+So on a live account with an unreadable equity read, `daily_loss_pct` is
+computed from a PnL that is ~0 by construction, and `_cur_dd` from the paper
+drawdown. Both breakers see ~0% and **do not trip**. The bot keeps trading
+through the loss the breaker exists to stop.
+
+The authors were demonstrably alert to this axis — the same block carries
+"Without this the daily-loss breaker could never trip on real losses (audit
+CRITICAL, 2026-07-14)". They fixed the direction where live equity IS
+available. The unreadable case still falls through to paper.
+
+This is CLAUDE.md's own rule — *unreadable is never zero, and absent is never a
+measurement* — reaching the one control the file itself describes as deciding
+"how much real money is lost before the bot halts".
+
+### Why it is worse than the 2026-07-14 fix it sits beside
+
+Unlike RC-2026-011 this needs **no feature flag**. It applies to the default
+operator live path, and it fails in the direction that spends money.
+
+### Remediation (proposed, not applied)
+
+The call site knows whether the bot is live. Make the three cases distinct
+rather than two: live-with-equity gates normally; live-without-equity must
+**refuse to trade** (or halt), because an unmeasurable drawdown is not a
+passing one; paper mode uses the paper book. Refusing is the tighter direction,
+which is the right default for a control of this kind — and it is the shape
+`clears_confidence_floor` already uses elsewhere in this codebase.
+
+Not applied: this changes when the bot stops trading. That is a financial
+control decision for the operator, not an audit fix.
+
+---
+
+## The other 23 confirmed findings
+
+Recorded in full, with evidence, reachability and proposed remediation, in
+`audit/workflow_raw_findings.md` as **M-01 … M-25**. Highlights by class:
+
+**Money-path isolation** — a paper-only user's proposed trade can be
+auto-confirmed LIVE on the operator's account as `user_id="auto"`, because
+`_pending_ideas` is one engine-wide book and the auto-confirm loop has no
+notion of who wrote an entry (`engine.py:4330-4334`; HIGH, race-bounded and
+the finder says so).
+
+**Sandbox separation** — `BitgetV3Client` ignores `CONFIG.exchange.sandbox`, so
+a demo-configured bot sends live-account stop orders over the v3 channel (HIGH).
+
+**Risk gates measuring the wrong book** — correlation, portfolio exposure,
+symbol exposure, PCA concentration and VaR all measure the paper book
+(`risk_engine.py:1853,1865,3115-3118`); the LIVE daily-loss accumulator is
+dropped by the combined-state restore (`:3478-3491`); a halt never cancels
+resting limit ENTRY orders, so new exposure can still arrive after the breaker
+trips (`live_executor.py:576-579`).
+
+**Time and market data** — `is_market_open('Stock')` is **11 hours wrong**,
+reporting OPEN outside US cash hours (`order_rules.py:56-65`; HIGH); the market
+scanner renders an unreported 24h move as a measured `0.00%`
+(`market_scanner.py:645`); open-interest reads answer `oi_change_pct: 0.0` —
+"OI unchanged" — on a failed fetch (`exchange_flow.py:206-236`).
+
+**Two were refuted** by both verifiers and are recorded as such: the WS-ticker
+local-clock stamping and the repaint-guard bar-timestamp comparison.
