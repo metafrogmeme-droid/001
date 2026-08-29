@@ -394,3 +394,115 @@ to another `id` (mirroring the check `auth.js` already performs for
 `wallet_address`), and add the missing unique index. The exemption at
 `guard_lint.py:536` should be removed in the same change, or the guard will
 keep reporting the route as covered.
+
+---
+
+## RC-2026-007 — `setlimit:` callback ownership guard is fail-OPEN on a missing owner tag
+
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Category**: Broken access control / IDOR (OWASP A01; CWE-639, CWE-863)
+- **Component**: Telegram bot — trade callback handling
+- **File**: `bot/skills/telegram_handler.py:14007` (before fix)
+- **Fix class**: SAFE_AUTO_FIX — applied
+- **Credit**: surfaced by the `telegram-authz` dimension agent (W-20); independently re-derived and verified here.
+
+### Evidence (before)
+
+`_uid_matches` is documented allow-all on an empty expectation
+(`telegram_handler.py:2989-2992`):
+
+```python
+if not expected_uid:
+    return True
+```
+
+Three trade-callback branches consume it. Two are fail-closed:
+
+```python
+# :14066 (confirm), :14199 (reject)
+if not expected_uid or not self._uid_matches(caller_uid, expected_uid):
+```
+
+under a comment at `:14060-14063` stating the rule — *"Every legitimate confirm
+button is built as `confirm:<id>:<uid>` … so a missing owner tag means a
+crafted/replayed callback — deny rather than allow."*
+
+The third is not:
+
+```python
+# :14007 (setlimit)
+if expected_uid and not self._uid_matches(caller_uid, expected_uid):
+```
+
+The `and` short-circuits on precisely the payload the guard exists to catch.
+
+### Why there is no second layer
+
+`pos_close_` (`:13677`) has the same fail-open shape **deliberately** — its
+comment calls the tag "defense-in-depth" and the real isolation is the
+caller-keyed `user_portfolios.get(user_id)` (`:13686`) and
+`_caller_executor(update)` (`:13692`).
+
+`setlimit:` has nothing equivalent. It reads
+`self.engine._pending_ideas.get(trade_id)` (`:14013`), and that store is
+declared at `bot/core/engine.py:508` as:
+
+```python
+self._pending_ideas: dict[str, TradeIdea] = {}
+```
+
+— one global dict keyed by trade id, no owner field, no caller filter on the
+read. `engine.confirm_trade` (`engine.py:5631-5633`) performs no ownership
+check either.
+
+### Reachable consequence
+
+An authorized bot user sending a crafted `setlimit:<other-user-trade-id>` with
+no third field: (1) passes the guard, (2) is shown that trade's asset,
+direction, entry, stop-loss and take-profit (`:14035-14038`), and (3) has
+`_pending_limit_input[attacker_uid]` armed against the victim's trade id, so the
+next price they type retargets it.
+
+Requires an authorized Telegram user and a known or guessed trade id, which is
+why this is HIGH rather than CRITICAL.
+
+### Verified not to break anything
+
+All four `setlimit:` construction sites emit the uid —
+`telegram_handler.py:2797`, `:8440`, `:9578`, `:11483` — so the untagged form is
+reachable only as a crafted payload. A repo-wide sweep for the fail-open shape
+(`if expected_uid and not self._uid_matches`) returns exactly one site, the one
+fixed.
+
+### Fix
+
+Added `_callback_owner_ok(caller_uid, expected_uid)` — `bool(expected_uid) and
+_uid_matches(...)` — and routed all three branches through it. For confirm and
+reject this is provably identical (`not a or not b` ≡ `not (a and b)`); for
+setlimit it is the fix. One predicate rather than three hand-written copies,
+because the defect was drift between copies of the same rule. `pos_close_` is
+left alone on purpose.
+
+### Validation
+
+New `tests/test_callback_owner_guard_is_fail_closed.py`: 9 passed. It tests the
+predicate by behaviour, and adds two source scans for the property no unit test
+can see — that no branch re-hand-rolls the fail-open condition, and that all
+three still consult the shared predicate. Both scans strip comments and
+docstrings first, because the branches are explained in prose that quotes the
+forbidden expression.
+
+**Mutation-checked**: dropping the `bool(expected_uid) and` clause fails 2 tests;
+restoring it passes 9. `__pycache__` cleared between mutations per CLAUDE.md.
+
+Related suites (`-k "callback or telegram or isolation or idor or confirm or
+reject or uid"`): **581 passed**. ruff and mypy ratchets unchanged. `guard_lint`
+exit 0.
+
+### Residual risk
+
+The deeper issue W-19 raises stands and is **not** fixed here: ownership is
+carried in the callback round-trip rather than recorded beside the idea, so a
+caller who supplies `setlimit:<victim_trade>:<own_uid>` still satisfies a tag
+they authored. Closing that needs an `owner_uid` on `TradeIdea` and is a
+schema-touching change — REVIEW_REQUIRED, raised for the maintainers.
