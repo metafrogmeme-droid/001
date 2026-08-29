@@ -684,3 +684,101 @@ looked, not what is there — the same trap CLAUDE.md records for short-string
 assertions, arriving in the search rather than the assertion. 75 raw shape hits
 were found across the rendering and decision modules; the two above are the
 ones that survived reading the surrounding code.
+
+---
+
+# CORRECTION — RC-2026-007 severity was inflated (HIGH → LOW)
+
+I rated the `setlimit:` fail-open guard **HIGH** on the reasoning that it let a
+caller "rewrite the entry price of another user's pending trade". An
+adversarial verifier challenged the impact, and it is right.
+
+`engine._pending_ideas` is populated by the engine's own scan
+(`bot/core/engine.py:4258`, `:6576`) and read as one book — `/latest_signal`
+reads `self.engine.pending_ideas` wholesale. It is **shared**, not per-user.
+Every user holding the `scan` permission is already handed a legitimate
+`setlimit:<id>:<own_uid>` button for ideas in that book. So the untagged
+payload did not let anyone reach a trade they could not otherwise reach; it let
+them skip a tag check on a resource they already had access to.
+
+There is no "another user's pending trade" in a shared book. The phrase was
+mine and it was wrong.
+
+**What does not change**: the fix is still correct. An untagged payload cannot
+come from any of the four construction sites, so honouring it is honouring a
+crafted callback; and the branch now matches its two siblings, which were
+deliberately made fail-closed with a comment saying why. It is defence-in-depth
+hardening of a guard that was not guarding — worth doing, not worth paging
+anyone.
+
+**Corrected**: severity LOW, category defence-in-depth rather than broken
+access control. The register, the JSON artifact and PR #227 are updated.
+Recorded rather than quietly edited, because a severity that moves is exactly
+what a later audit diffing these ids needs to see.
+
+The same reasoning downgrades the related SUSPECTED finding (ownership carried
+in the callback round-trip): on a shared idea book, a caller authoring their own
+tag is not crossing a boundary either. Recording an `owner_uid` on `TradeIdea`
+remains the right design if the book ever becomes per-user — which is the
+condition that would make it matter.
+
+---
+
+# Adversarial verification results — 4 dimensions, 22 raw findings
+
+Each finding was judged by two independent verifiers with distinct lenses
+(evidence/correctness, and reachability/prior-art), both instructed to default
+to refuting. Refuted by both → REFUTED; by one → SUSPECTED; by neither →
+CONFIRMED.
+
+**15 CONFIRMED · 6 SUSPECTED · 1 REFUTED · 0 unverified**
+
+## CONFIRMED (15)
+
+| severity | dimension | finding |
+|---|---|---|
+| CRITICAL | web-authz | `/api/auth/validate-token` identity binding (RC-2026-001) |
+| HIGH | web-authz | `/api/auth/2fa/disable` has no throttle, lockout or attempt counter |
+| HIGH | py-api-authz | `/risk/halt` swallows the halt failure and returns hardcoded success |
+| HIGH | py-api-authz | account purge never deletes the user record (RC-2026-006, fixed) |
+| HIGH | py-api-authz | Redis unreachable at boot silently downgrades JWT revocation to in-process |
+| HIGH | telegram-authz | `/risk` "Safe Mode" button changes no state but replies "Safe mode is on" |
+| HIGH | secrets | backups omit the master key and the credential store (RC-2026-008) |
+| MEDIUM | py-api-authz | `dashboard_api.py` authenticates the snapshot WRITE but not the READ |
+| MEDIUM | py-api-authz | unauthenticated `/api/lab/run` allows unbounded subprocess/job growth |
+| MEDIUM | telegram-authz | confirm/reject double-tap guard consumes the trade before the ownership check |
+| MEDIUM | secrets | gitleaks path allowlist disables the Solana keypair rules under `tests/` and `app/` |
+| MEDIUM | secrets | an undecryptable LLM key is returned as ciphertext and reported as present |
+| LOW | py-api-authz | `/lab/status` returns subprocess stderr to unauthenticated callers |
+| LOW | py-api-authz | `handle_policy_clear` swallows the failure and answers `ok: true` |
+| LOW | secrets | `/connect` and `/setexchange` echo a raw ccxt exception to the user |
+
+Three of these are already fixed on this branch (RC-2026-006, RC-2026-007,
+RC-2026-008a). **The remaining twelve are open and none has been remediated** —
+they are reported, not resolved.
+
+Two deserve immediate attention alongside the CRITICAL, both because they are
+the honesty defect this repo's own CLAUDE.md exists to prevent, on controls
+that stop losses:
+
+- **`/risk/halt` returns a hardcoded success** while never performing the halt
+  its docstring promises. An operator hitting the emergency stop is told it
+  worked.
+- **The `/risk` "Safe Mode" button changes no state** and replies "Safe mode is
+  on". Same shape, same panel.
+
+## SUSPECTED (6) — one verifier refuted, so treat as unproven
+
+`/api/push/subscribe` row re-assignment · `/api/lab/status/:id` has no owner
+check · `/ready` echoes a raw exception · `/news`, `/funding`, `/duel`,
+`/approvals` registered with no authorization gate · callback ownership carried
+in the round-trip · the master-key warning's claim about pinning
+`RUNECLAW_SECRETS_KEY`.
+
+## REFUTED (1)
+
+The `setlimit:` finding — refuted by both verifiers as **already fixed**, since
+I had applied the fix before they ran. Both independently confirmed the finding
+was accurate at `fcbb632` and that the current code is correct. A remediation
+race, not a substantive refutation; the severity correction above came out of
+the same reading.

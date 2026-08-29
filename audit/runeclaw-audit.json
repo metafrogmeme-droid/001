@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "bf45a77f14d7e45039670e4619265009c1918d0a",
+    "commit": "48c51d1db4bcc7bf98a5daa292ce96e07cec7f27",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -148,21 +148,26 @@
       "id": "RC-2026-007",
       "title": "setlimit: callback ownership guard is fail-open on a missing owner tag",
       "status": "FIXED",
-      "severity": "HIGH",
+      "severity": "LOW",
       "confidence": "CONFIRMED",
-      "category": "broken-access-control",
+      "severity_history": [
+        {
+          "was": "HIGH",
+          "now": "LOW",
+          "why": "I rated it on 'rewrite another user's pending trade'. An adversarial verifier challenged the impact and was right: engine._pending_ideas is a SHARED book (bot/core/engine.py:4258,6576), and every scan-role user already gets a legitimate setlimit button for ideas in it. The untagged payload skipped a tag check on a resource the caller already had. The fix stands; the impact claim was mine and was wrong."
+        }
+      ],
+      "category": "defence-in-depth",
       "component": "telegram-bot",
       "file": "bot/skills/telegram_handler.py",
       "line": "14007",
       "fix_class": "SAFE_AUTO_FIX",
       "standard": [
-        "OWASP-A01:2021",
-        "CWE-639",
-        "CWE-863"
+        "CWE-639"
       ],
       "verified_by": "lead-auditor+dimension-agent",
       "test": "tests/test_callback_owner_guard_is_fail_closed.py",
-      "note": "Residual: ownership still rides in the callback round-trip, so setlimit:<victim_trade>:<own_uid> satisfies a tag the caller authored. Needs owner_uid on TradeIdea - REVIEW_REQUIRED."
+      "note": "Fix is still correct: an untagged payload matches none of the four construction sites, and the branch now matches its two fail-closed siblings. Residual (also LOW for the same shared-book reason): ownership rides in the callback round-trip; an owner_uid on TradeIdea would matter if the book ever became per-user."
     },
     {
       "id": "RC-2026-008",
@@ -216,6 +221,35 @@
       "note": "Proposed, not applied: the card is assembled inline; the builder wants extracting first so the fix can be tested."
     }
   ],
+  "verification": {
+    "method": "two independent adversarial verifiers per finding, distinct lenses (evidence/correctness; reachability/prior-art), both defaulting to refute. Refuted by both -> REFUTED, by one -> SUSPECTED, by neither -> CONFIRMED.",
+    "dimensions_verified": [
+      "web-authz",
+      "py-api-authz",
+      "telegram-authz",
+      "secrets"
+    ],
+    "raw": 22,
+    "confirmed": 15,
+    "suspected": 6,
+    "refuted": 1,
+    "unverified": 0,
+    "confirmed_and_still_open": [
+      "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt counter (HIGH)",
+      "py-api-authz: /risk/halt swallows the halt failure and returns hardcoded success (HIGH)",
+      "py-api-authz: Redis unreachable at boot silently downgrades JWT revocation (HIGH)",
+      "telegram-authz: /risk 'Safe Mode' button changes no state but says it is on (HIGH)",
+      "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but not the READ (MEDIUM)",
+      "py-api-authz: unauthenticated /api/lab/run allows unbounded subprocess/job growth (MEDIUM)",
+      "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
+      "secrets: gitleaks allowlist disables Solana keypair rules under tests/ and app/ (MEDIUM)",
+      "secrets: an undecryptable LLM key is returned as ciphertext, reported present (MEDIUM)",
+      "py-api-authz: /lab/status returns subprocess stderr to unauthenticated callers (LOW)",
+      "py-api-authz: handle_policy_clear swallows the failure and answers ok:true (LOW)",
+      "secrets: /connect and /setexchange echo a raw ccxt exception to the user (LOW)"
+    ],
+    "note": "These twelve are REPORTED, NOT REMEDIATED. Full detail with evidence in audit/workflow_raw_findings.md; classification in audit/verified_findings.md."
+  },
   "refuted": [
     {
       "id": "RC-2026-F01",
