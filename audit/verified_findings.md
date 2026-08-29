@@ -506,3 +506,71 @@ carried in the callback round-trip rather than recorded beside the idea, so a
 caller who supplies `setlimit:<victim_trade>:<own_uid>` still satisfies a tag
 they authored. Closing that needs an `owner_uid` on `TradeIdea` and is a
 schema-touching change — REVIEW_REQUIRED, raised for the maintainers.
+
+---
+
+## RC-2026-008 — Backups omit the per-user credential store, and the master key that opens what they do archive
+
+- **Status**: PARTIALLY FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Category**: Credential durability / disaster recovery (CWE-522)
+- **File**: `bot/utils/backup.py:35-47`
+- **Credit**: surfaced by the `secrets` dimension agent (W-13); re-derived and verified here.
+
+Two separable defects behind one omission.
+
+### (a) `data/exchange_creds.enc` was not archived at all — **FIXED**
+
+`_CRITICAL` listed `data/secrets_vault.enc` (the operator's encrypted secrets)
+but not `data/exchange_creds.enc` (`bot/core/exchange_credentials.py:40`),
+which holds every linked user's `api_key`/`api_secret`/`passphrase` and their
+Hyperliquid/Paradex agent private keys. `_CRITICAL_GLOBS` is
+`data/learning/*`, `data/portfolio_*`, `data/risk_state_*` — none matches it.
+
+The file is written on every `/connect` and every website credential pull
+(`bot/utils/credential_pull.py`), so it is populated in normal operation. Any
+restore returned the operator's keys and none of the users'.
+
+Two ciphertext files of identical shape, one archived and one not: an
+oversight, not a policy. Added, with a test asserting the critical set's
+**contents** — `tests/test_backup_durability.py` covers round-trip, tamper
+detection, rotation and throttling, all of which pass over whatever `_CRITICAL`
+happens to list, so none of them could see a missing entry.
+
+### (b) The Fernet master key is still not archived — **OPEN, REVIEW_REQUIRED**
+
+`data/.exchange_secret.key` opens **both** stores —
+`exchange_credentials.py:41` `_KEY_FILE` and `secrets_vault.py:44`
+`_MASTER_KEY_BASENAME` are the same file. It is in neither `_CRITICAL` nor the
+globs. An off-host restore — which `docs/DURABILITY.md` states is the point
+("a backup on the same disk protects against bad deploys, not dead disks") —
+therefore yields a vault whose every entry fails to decrypt, and the bot boots
+with none of its exchange credentials.
+
+Archiving a key alongside the data it opens is a security trade-off, so it is
+**not** applied here. Note for whoever decides: `data/attestation_key.bin` is
+already in `_CRITICAL`, so key material in the archive is established practice
+in this repo rather than a new precedent. The alternative is to keep them
+separate and have `create_backup()` record in the manifest that the key is
+externally managed — which at least makes the dependency visible instead of
+silent.
+
+`docs/DURABILITY.md`'s "what is irreplaceable" table repeats the same omission,
+and its restore verification (check `/anchor` still VERIFIED) probes the
+attestation key — which IS archived — and nothing needing the Fernet key. So
+the runbook cannot catch it either. Both want updating with whatever is decided.
+
+### (c) Noted, not fixed — `RUNECLAW_STATE_DIR` silently drops the vault
+
+`_ENV_OVERRIDES` (`backup.py:49-52`) maps only `ANCHOR_STATE_PATH` and
+`PROOFOFPNL_PUBLICATION_PATH`. Every other entry is a literal `data/...`, while
+`secrets_vault.py` and `exchange_credentials.py` both resolve their paths
+through `RUNECLAW_STATE_DIR`. On a deployment that sets it, `critical_paths`
+looks for `data/secrets_vault.enc`, finds nothing, and — because it filters on
+`is_file()` — skips it without complaint. Same class as (a): a backup that
+reports success while missing the thing it exists to protect.
+
+### Validation
+
+`tests/test_backup_covers_the_credential_stores.py` 4 passed (2 failed before
+the change). Existing `-k "backup or durability"` suites: **43 passed**. ruff
+and mypy ratchets unchanged; `guard_lint` exit 0.
