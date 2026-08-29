@@ -372,3 +372,113 @@ def test_round_trip_through_disk_preserves_every_verdict(tmp_path, verdict_name,
     g = BacktestValidationGate(p)
     _good(g, "swing"); _bad(g, "scalp")
     assert BacktestValidationGate(p).verdict(verdict_name) == expected
+
+
+# ── "records what it would reject" had to become true ─────────────────────
+#
+# `test_shadow_records_what_it_would_reject_and_blocks_nothing` above asserts
+# a line in `check.checks_passed`, and its own failure message calls the
+# alternative "indistinguishable from the gate being off". But `checks_passed`
+# is a per-evaluation list that is read for one card and dropped — so the
+# thing it called a record was prose with a lifetime of one call.
+#
+# Meanwhile the engine built the structured verdict and threw it away:
+#
+#     validation_result = {"strategy": ..., "verdict": ..., "mode": ...,
+#                          "store_populated": ...}
+#
+# assigned, never used (ruff F841). Two consequences, and the second is the
+# expensive one. /gates renders a shadow gate as one that "records what it
+# would reject, refuses nothing" — untrue for this gate. And a gate ships
+# off -> shadow -> enforce ON EVIDENCE; with the count of trades it would
+# have stopped never written down, shadow was not a stage on the way to
+# enforce, it was where the gate stayed.
+
+def _audits(monkeypatch, strategy_type, gate, tmp_path, gate_flags, **kw):
+    """Drive the real evaluate() and return the audit calls it emitted."""
+    import bot.risk.risk_engine as re_mod
+    seen = []
+    real = re_mod.audit
+    monkeypatch.setattr(re_mod, "audit",
+                        lambda *a, **k: (seen.append((a, k)), real(*a, **k))[0])
+    _evaluate(strategy_type, gate, monkeypatch, tmp_path, gate_flags, **kw)
+    return [k for _a, k in seen if k.get("action") == "validation_gate"]
+
+
+def test_shadow_writes_a_durable_record_not_just_a_transient_string(
+        monkeypatch, tmp_path, gate_flags):
+    gate = BacktestValidationGate(tmp_path / "v.json")
+    _bad(gate, "scalp")
+    events = _audits(monkeypatch, "scalp", gate, tmp_path, gate_flags,
+                     mode="shadow")
+    assert events, ("shadow mode emitted no audit event — the counterfactual "
+                    "the gate exists to collect was discarded, and /gates "
+                    "says this gate 'records what it would reject'")
+    ev = events[-1]
+    assert ev["result"] == "WOULD_REJECT"
+    assert ev["data"]["strategy"] == "scalp"
+    assert ev["data"]["mode"] == "shadow"
+    assert ev["data"]["verdict"] == FAILED
+    assert ev["data"]["store_populated"] is True
+
+
+def test_the_record_distinguishes_would_reject_from_allow(
+        monkeypatch, tmp_path, gate_flags):
+    # A count of would-rejects is only evidence if the allows are counted too.
+    # One number with no denominator cannot promote a gate.
+    gate = BacktestValidationGate(tmp_path / "v.json")
+    _good(gate, "swing")
+    events = _audits(monkeypatch, "swing", gate, tmp_path, gate_flags,
+                     mode="shadow")
+    assert events and events[-1]["result"] == "ALLOW"
+    assert events[-1]["data"]["verdict"] == PASSED
+
+
+def test_enforce_mode_records_the_refusal_it_actually_made(
+        monkeypatch, tmp_path, gate_flags):
+    # Enforce must not report WOULD_REJECT for a trade it really did refuse —
+    # that is the shadow word, and reading a real refusal as a counterfactual
+    # would understate what the gate did.
+    gate = BacktestValidationGate(tmp_path / "v.json")
+    _bad(gate, "scalp")
+    events = _audits(monkeypatch, "scalp", gate, tmp_path, gate_flags,
+                     mode="enforce")
+    assert events and events[-1]["result"] == "REJECTED"
+
+
+def test_an_empty_store_is_recorded_as_such(monkeypatch, tmp_path, gate_flags):
+    # `store_populated` is the field that tells "this strategy lost" from
+    # "nothing has ever been measured". Promoting the gate on a count taken
+    # against an empty store would enforce on no evidence at all.
+    gate = BacktestValidationGate(tmp_path / "v.json")
+    events = _audits(monkeypatch, "position", gate, tmp_path, gate_flags,
+                     mode="shadow", allow_untested=False)
+    assert events
+    assert events[-1]["data"]["store_populated"] is False
+    assert events[-1]["data"]["verdict"] == NEVER_TESTED
+    assert events[-1]["result"] == "WOULD_REJECT"
+
+
+def test_the_recording_cannot_change_the_verdict(monkeypatch, tmp_path, gate_flags):
+    # Recording-only. If the audit call raises, the trade must be untouched —
+    # same fail-open contract as the rest of this block.
+    import bot.risk.risk_engine as re_mod
+    gate = BacktestValidationGate(tmp_path / "v.json")
+    _good(gate, "swing")
+
+    # Raise for THIS block's audit only. A blanket patch breaks the eight
+    # unrelated audit calls elsewhere in evaluate(), which fails the test for
+    # a reason that has nothing to do with the rule being checked — the first
+    # draft of this test did exactly that.
+    real = re_mod.audit
+
+    def _boom(*a, **k):
+        if k.get("action") == "validation_gate":
+            raise RuntimeError("audit sink down")
+        return real(*a, **k)
+
+    monkeypatch.setattr(re_mod, "audit", _boom)
+    check = _evaluate("swing", gate, monkeypatch, tmp_path, gate_flags,
+                      mode="shadow")
+    assert not [r for r in check.checks_failed if "VALIDATION" in r], (
+        "a failing audit sink rejected a trade")
