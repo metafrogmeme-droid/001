@@ -2995,6 +2995,32 @@ class TelegramHandler:
             return False
         return caller_uid in {s.strip() for s in expected_uid.split(",") if s.strip()}
 
+    @staticmethod
+    def _callback_owner_ok(caller_uid: str | None, expected_uid: str | None) -> bool:
+        """May `caller_uid` act on a trade callback tagged for `expected_uid`?
+
+        `_uid_matches` allows an EMPTY expectation, which is correct for the
+        auto-scan broadcast it was written for: one button, several chat ids,
+        no single owner. It is wrong for a per-user trade button, where every
+        construction site emits the uid — so an untagged payload cannot have
+        come from a real button, and is the crafted/replayed callback the check
+        exists to stop.
+
+        `confirm:` and `reject:` spelled that out inline; `setlimit:` wrote
+        `if expected_uid and not _uid_matches(...)` and the `and` short-circuited
+        on exactly that payload. Behind it sits `engine._pending_ideas`
+        (bot/core/engine.py:508), one global dict keyed by trade id with no
+        owner and no caller filter on the read, so the untagged form disclosed
+        another user's entry, stop and target and armed `_pending_limit_input`
+        against their trade.
+
+        One predicate rather than three hand-written conditions, because the
+        defect was drift between copies of the same rule. `pos_close_` keeps its
+        own fail-open tag check on purpose — there the caller-keyed executor and
+        portfolio lookups are the real isolation, and its comment says so.
+        """
+        return bool(expected_uid) and TelegramHandler._uid_matches(caller_uid, expected_uid)
+
     def _allowlist_ids(self) -> set[str]:
         """Telegram IDs permitted to use the bot (audit F-2).
 
@@ -14004,7 +14030,7 @@ class TelegramHandler:
             trade_id = parts[1]
             expected_uid = parts[2] if len(parts) > 2 else None
             caller_uid = str(update.effective_user.id) if update.effective_user else None
-            if expected_uid and not self._uid_matches(caller_uid, expected_uid):
+            if not self._callback_owner_ok(caller_uid, expected_uid):
                 await self._send(update,
                     "\U0001f512 <b>Access denied</b>", edit=True)
                 return
@@ -14063,7 +14089,7 @@ class TelegramHandler:
             # owner tag means a crafted/replayed callback — deny rather than allow.
             expected_uid = parts[2] if len(parts) > 2 else None
             caller_uid = str(update.effective_user.id) if update.effective_user else None
-            if not expected_uid or not self._uid_matches(caller_uid, expected_uid):
+            if not self._callback_owner_ok(caller_uid, expected_uid):
                 await self._send(update,
                     "\U0001f512 <b>Access denied</b>\n\n"
                     "Only the user who requested this trade can approve it.",
@@ -14196,7 +14222,7 @@ class TelegramHandler:
             # callback (legitimate buttons are always "reject:<id>:<uid>").
             expected_uid = parts[2] if len(parts) > 2 else None
             caller_uid = str(update.effective_user.id) if update.effective_user else None
-            if not expected_uid or not self._uid_matches(caller_uid, expected_uid):
+            if not self._callback_owner_ok(caller_uid, expected_uid):
                 await self._send(update,
                     "\U0001f512 <b>Access denied</b>\n\n"
                     "Only the user who requested this trade can reject it.",

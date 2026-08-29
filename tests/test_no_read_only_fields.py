@@ -63,10 +63,31 @@ SENTINELS = frozenset({"0.0", "0", "None", "''", '""', "False"})
 ALLOWED: frozenset[str] = frozenset()
 
 
+#: Third-party trees. A virtualenv is identified by the `pyvenv.cfg` its own
+#: tooling writes, not by being called `.venv` — an audit venv built as
+#: `.venv-audit/` put 107 `site-packages` symbols into this comparison and
+#: failed it on `_pytest.ReprTracebackNative.extraline`, a field in pytest.
+#: `site-packages`/`dist-packages` are named separately because a
+#: `pip install --target` tree carries no `pyvenv.cfg` to find it by.
+_VENDORED_DIRS = frozenset({"node_modules", "site-packages", "dist-packages"})
+
+
+def _is_vendored(path: pathlib.Path, root: pathlib.Path) -> bool:
+    if _VENDORED_DIRS & set(path.parts):
+        return True
+    for parent in path.parents:
+        if (parent / "pyvenv.cfg").is_file():
+            return True
+        if parent == root:
+            break
+    return False
+
+
 def _py_files(root: pathlib.Path) -> list[pathlib.Path]:
     return [
         p for p in root.rglob("*.py")
         if "__pycache__" not in str(p) and "/.git/" not in str(p)
+        and not _is_vendored(p, root)
     ]
 
 

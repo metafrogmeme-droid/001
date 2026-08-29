@@ -1,0 +1,143 @@
+# Endpoint inventory
+
+## Express (app/) — mounted paths from server.js
+
+- `/api/chat` -> express
+- `/embed` -> embed
+- `/api/auth` -> authRouter
+- `/api/trades` -> tradesRouter
+- `/api/bot/sync` -> syncRouter
+- `/api/market` -> marketRouter
+- `/api/insight` -> insightRouter
+- `/api/patterns` -> patterns
+- `/api/macro` -> macro
+- `/api/guardian/readiness` -> guardian_readiness
+- `/api/guardian/review` -> guardian_review
+- `/api/guardian` -> guardian
+- `/api/signals` -> signalsRouter
+- `/api/credentials` -> credentialsRouter
+- `/api/controls` -> controlsRouter
+- `/api/chat` -> chatRouter
+- `/api/llm` -> llm
+- `/api/staking` -> staking
+- `/api/public/chat` -> publicChatRouter
+- `/api/contract` -> contract
+- `/api/trade` -> webtradeRouter
+- `/api/meme` -> memeRouter
+- `/api/portfolio` -> portfolioRouter
+- `/api/leaderboard` -> leaderboardRouter
+- `/api/public/proofofpnl` -> public_proofofpnl
+- `/api/public/flight` -> public_flight
+- `/api/public/user-strategies` -> public_user_strategies
+- `/api/public/strategy-templates` -> strategy_templates
+- `/api/public/agent-record` -> agent_record
+- `/api/public/agent-identity` -> public_agent_identity
+- `/api/agents` -> agents
+- `/api/bot-strategy` -> botstrategy
+- `/api/public/leaderboard` -> public_leaderboard
+- `/api/public/strategies` -> public_strategies
+- `/api/public/letter` -> public_letter
+- `/api/public/agent` -> public_agent
+- `/api/public/invite` -> public_invite
+- `/api/public/duel` -> public_duel
+- `/api/public` -> trackRouter
+- `/api/lab` -> labRouter
+- `/api/feed` -> feedRouter
+- `/api/reports` -> reportsRouter
+- `/api/profile` -> profileRouter
+- `/api/push` -> push
+- `/api/copy` -> copy
+- `/api/alerts` -> alerts
+- `/api/strategies` -> user_strategies
+- `/api/replay` -> replay
+- `/api/letter` -> letter
+- `/api/wallet` -> wallet
+- `/api/gas` -> gas
+- `/api/defi` -> defi
+- `/api/networth` -> networth
+- `/api/holdings` -> holdings
+- `/api/idleyield` -> idleyield
+- `/api/crossyield` -> cross_yield
+- `/api/authority` -> authority
+- `/api/sentry` -> sentry
+- `/api/positions` -> positions
+- `/api/arena` -> arena
+- `/api/farcaster` -> farcaster_auth
+- `/miniapp` -> miniapp
+- `/api/duel` -> duel
+- `/api/since` -> since
+- `/api/watchlist` -> watchlist
+- `/api/today` -> today
+- `/api/call` -> call
+- `/api/roots` -> roots
+- `/api/allowances` -> allowances
+- `/api/news` -> news
+- `/api/proofofpnl` -> proofofpnl
+- `/api/share` -> share
+- `/api/airdrops` -> airdrops
+- `/api/exposure` -> exposure
+- `/api/research` -> research
+- `/api/ingest` -> ingest
+- `/mcp` -> mcp
+- `/api/public/status` -> public_status
+- `/api/nft` -> nft
+- `/api/learn` -> learn
+- `/api/command` -> command
+- `/api/frame` -> frame
+- `/api/spot` -> spot
+- `/api/tax` -> tax
+- `/api/reputation` -> reputation
+- `/api/counterparty` -> counterparty
+- `/api/web3` -> web3_execute
+- `/api/web3` -> web3
+- `/api/dapps` -> dapps
+- `/api/stream` -> streamRouter
+
+### Direct handlers on app (46)
+
+- `GET /healthz`
+- `GET /readyz`
+- `GET /diagz`
+- `GET /api/version`
+- `GET /`
+- `GET /dashboard`
+- `GET /track`
+- `GET /proof`
+- `GET /flight`
+- `GET /stress`
+- `GET /sentinel`
+- `GET /guardian`
+- `GET /firewall`
+- `GET /escape`
+- `GET /intent`
+- `GET /learn`
+- `GET /rune`
+- `GET /gas`
+- `GET /approvals`
+- `GET /command`
+- `GET /duel`
+- `GET /call/:key`
+- `GET /roots`
+- `GET /explore`
+- `GET /provable`
+- `GET /leaderboard`
+- `GET /arena`
+- `GET /trader/:handle`
+- `GET /.well-known/security.txt`
+- `GET /.well-known/assetlinks.json`
+- `GET /letter/:week?`
+- `GET /wallet-link`
+- `GET /reset`
+- `GET /verify`
+- `GET /agent`
+- `GET /agent/:address`
+- `GET /a`
+- `GET /a/:slug`
+- `GET /agents`
+- `GET /agents/compare`
+- `GET /developers`
+- `GET /status`
+- `GET /strengthmap`
+- `GET /robots.txt`
+- `GET /sitemap.xml`
+- `GET /agents/:slug`
