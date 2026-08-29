@@ -427,6 +427,23 @@ async def handle_chat(request: web.Request) -> web.Response:
             audit(system_log, f"Web NL intent routed: '{text[:50]}' -> {intent.skill}",
                   action="web_intent_dispatch", result=intent.skill,
                   data={"confidence": intent.confidence, "source": intent.source})
+            # Per-user recall (bot/core/user_memory_store): remember the ASSET the
+            # router resolved, not the sentence the user typed. Recorded here rather
+            # than at the chat entry point because this is where the bot itself
+            # decided what the message was about — a symbol scraped from prose would
+            # be a guess written into a store that feeds a system prompt.
+            #
+            # The Telegram half is in telegram_handler.py; both call this,
+            # so the same person is remembered whichever door they came
+            # through. That was the whole point of user_profile_store one
+            # layer down, and it is just as easy to half-wire.
+            try:
+                from bot.core import user_memory_store as _user_memory
+                _user_memory.observe(tg_id, intent.skill, intent.kwargs)
+            except Exception:
+                # Recall is context, never a dependency. Instrumentation on
+                # the dispatch path must not be the reason a dispatch fails.
+                pass
             tg_handler.conversations.append(tg_id, "user", text,
                                             metadata={"intent": intent.skill,
                                                       "surface": "web"})
@@ -2827,6 +2844,42 @@ async def handle_account_purge(request: web.Request) -> web.Response:
     except Exception as exc:                      # pragma: no cover - defensive
         system_log.warning("purge: profile failed for %s: %s", tg_id, exc)
         result["agent_profile"] = "error"
+
+    # The OBSERVED half. `agent_profile` above is what the user typed; this is
+    # what the agent watched them do, and a purge that deletes the first and
+    # keeps the second has not forgotten them — it has kept the record they
+    # never wrote. Added in the same commit that started recording it, because
+    # a store that outlives its delete path for even one release is a store
+    # somebody's deletion silently missed.
+    try:
+        from bot.core import user_memory_store as _memory_store
+        result["agent_memory"] = (
+            "deleted" if _memory_store.clear(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        system_log.warning("purge: memory failed for %s: %s", tg_id, exc)
+        result["agent_memory"] = "error"
+
+    # Two more per-user preference stores, found by the enumeration in
+    # tests/test_account_purge.py rather than by anybody remembering them. The
+    # purge named three stores and five existed: a pinned leverage and a pinned
+    # strategy are settings a person chose, and a deletion that leaves them
+    # behind is a deletion that did not happen. Neither holds a secret, which
+    # is exactly why neither was near the credential path that gets audited.
+    try:
+        from bot.core import user_leverage_store as _leverage_store
+        result["leverage_preference"] = (
+            "deleted" if _leverage_store.clear(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        system_log.warning("purge: leverage failed for %s: %s", tg_id, exc)
+        result["leverage_preference"] = "error"
+
+    try:
+        from bot.core import user_strategy_store as _strategy_store
+        result["strategy_preference"] = (
+            "deleted" if _strategy_store.clear(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        system_log.warning("purge: strategy failed for %s: %s", tg_id, exc)
+        result["strategy_preference"] = "error"
 
     try:
         store = getattr(tg_handler, "user_store", None)

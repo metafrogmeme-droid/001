@@ -126,6 +126,11 @@ GATES: dict[str, tuple[str, str, str]] = {
         "correlated positions are not shrunk, only counted"),
     "regime_sizing_enabled": (
         "Regime sizing", KIND_SIZE, "size does not adapt to the regime"),
+    "user_risk_pref_sizing_enabled": (
+        "User risk preference", KIND_SIZE,
+        "a user's self-declared risk appetite changes what the agent SAYS and "
+        "not what it sizes — their positions are the same size as everybody "
+        "else's"),
     "live_performance_governor_enabled": (
         "Live performance governor", KIND_SIZE,
         "no closed-loop de-risking when realized outcomes are losing"),

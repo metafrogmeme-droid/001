@@ -37,6 +37,17 @@ deployment host on purpose — it also routes the bot's sync POSTs, and
 www.humanoid-traders.com" is a product call, not a broken link, and it is not
 this file's business. Both hosts serve the same app; a path served on one is
 served on the other. This asserts the PATH resolves.
+
+ROUTE RESOLUTION MOVED OUT
+--------------------------
+`tests/express_routes.py` answers "does this app serve that path", and both
+this file and `test_roadmap_claims_are_reachable.py` now ask it there. The
+version that used to live here read `app.get(...)` from `server.js` and
+nothing else, so every path inside the forty-odd MOUNTED routers was invisible
+— and an invisible route does not report "I did not look", it reports 404.
+Two callers reimplementing one lookup is how a rule diverges from itself; this
+repo has the scar already, in `_is_transport_failure`: the operator's auth path
+was fixed and the users' path one function below it was not.
 """
 from __future__ import annotations
 
@@ -44,48 +55,16 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+from tests.express_routes import is_served as _is_served
+from tests.express_routes import registered_patterns as _registered_patterns
+
 REPO = Path(__file__).resolve().parents[1]
-PUBLIC = REPO / "app" / "public"
-SERVER = REPO / "app" / "server.js"
 
 HOSTS = ("pmvc58g2.mule.page", "www.humanoid-traders.com")
 
-_ROUTE = re.compile(r"""app\.get\(\s*['"]([^'"]+)['"]""")
 # `[text](url)` and `<a href="url">` — link targets only, see the docstring.
 _MD_LINK = re.compile(r"\]\(\s*(https?://[^\s)]+?)\s*\)")
 _HREF = re.compile(r"""<a\s[^>]*href=["'](https?://[^"']+)["']""", re.I)
-
-
-def _code_only(js: str) -> str:
-    """Drop whole-line `//` comments, as the canonical guard does — a comment
-    naming a path must not count as a route serving it."""
-    return "\n".join(ln for ln in js.splitlines()
-                     if not ln.lstrip().startswith("//"))
-
-
-def _pattern_to_regex(pat: str) -> re.Pattern:
-    """Express route pattern -> regex. `:name?` is an optional segment."""
-    out = ["^"]
-    for seg in pat.strip("/").split("/") if pat.strip("/") else []:
-        if seg.startswith(":"):
-            out.append("(?:/[^/]+)?" if seg.endswith("?") else "/[^/]+")
-        else:
-            out.append("/" + re.escape(seg))
-    out.append("/?$")
-    return re.compile("".join(out) or "^/$")
-
-
-def _registered_patterns() -> list:
-    return _ROUTE.findall(_code_only(SERVER.read_text(encoding="utf-8")))
-
-
-def _is_served(path: str) -> bool:
-    static = {f"/{f.name}" for f in PUBLIC.glob("*.html")}
-    if path in static:
-        return True
-    if path == "/":
-        return "/" in _registered_patterns()
-    return any(_pattern_to_regex(p).match(path) for p in _registered_patterns())
 
 
 def _doc_files() -> list:

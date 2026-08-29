@@ -72,7 +72,11 @@ def normalize(profile) -> Optional[dict]:
     """
     if not isinstance(profile, dict):
         return None
-    out = {}
+    # Annotated because this module is now in the STRICT mypy gate's import
+    # closure — bot/risk/risk_engine.py reads a user's declared appetite
+    # through bot/core/user_sizing.py. Without it the first assignment infers
+    # dict[str, str] and the watchlist list[str] below is an error.
+    out: dict = {}
     risk = str(profile.get("risk_pref") or "").strip().lower()
     if risk in RISK_PREFS:
         out["risk_pref"] = risk

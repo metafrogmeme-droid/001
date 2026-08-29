@@ -59,7 +59,7 @@ existing analyzer, learning loop, and shadow book.
 | Capability | Horizon | Status | Builds on |
 | --- | --- | --- | --- |
 | **Real-time signal fusion** — news, funding/liquidation feeds, and social alpha (X, Telegram) folded into the vote ensemble | Next | 🟡 | the analyzer's voter model |
-| **Per-user agent memory** — remembers risk appetite, watchlist, past decisions; sizes to your calibrated confidence | Next | 🟡 | chat + confidence calibration |
+| **Per-user agent memory** — remembers risk appetite, watchlist, past decisions; sizes to your calibrated confidence | Next | 🟡 | **The remembering is live** — what you declared *and* what the agent has actually looked at for you, on Telegram and the web alike, kept as separate claims because only one of them is evidence. **Sizing to it is built and staged**: tighten-only, `USER_RISK_PREF_SIZING_ENABLED`, default OFF and shadow-audited until the delta has been read. Sizing to a per-user *calibrated* confidence is **not** built — the calibrator is bot-wide and one person's closed trades sit far under its 30-sample floor |
 | **Multi-agent ensemble** — specialist sub-agents (scalp/swing/macro/market-maker) under a portfolio coordinator that allocates risk by live expectancy | Later | 🔵 | the strategy engine |
 | **Talk-to-build strategies** — describe a strategy in plain language; it compiles to gated, backtested config (never unchecked live orders) | Later | 🔵 | the *policy* half shipped: the [Intent Compiler](https://pmvc58g2.mule.page/intent) turns plain words into a deterministic, revocable Authority Envelope. Compiling a full **strategy** is still ahead |
 | **On-chain intelligence** — smart-money/whale tracking, DEX flow, liquidity-pool reads as first-class signals | Later | 🔵 | on-chain execution path |
@@ -99,7 +99,7 @@ just shipped.
 
 | Capability | Horizon | Status | Builds on |
 | --- | --- | --- | --- |
-| **Invite friends** — unique links, signup attribution, live "friends joined" count | Now | 🟢 | live today |
+| **Invite friends** — unique links, signup attribution, live "friends joined" count | Now | 🟢 | live: the code and the joined count both come from `/api/auth/referrals` |
 | **Referral rewards &amp; tiers** — turn invites into perks (fee credits, higher limits, post-token rewards) with milestone tiers | Next | 🟡 | the invite system. **The tiers are live** — five milestones on `/api/auth/referrals`, shown on the Account panel. The **rewards are not**, and the card now says which is which: each perk declares whether it is in force, and a planned one prints what it waits on. Two of the five ride on the token and say so. The one perk that is real is the squad — [Daily Duel](../app/lib/duel_squads.js) squads are built from this same referral graph |
 | **Leaderboards &amp; shareable cards** — opt-in performance leaderboards and one-tap shareable trade cards for Telegram/X | Now | 🟢 | live: `/leaderboard` (percent + ratios, anonymous handles), `/trader` cards, Arena board + seasons |
 | **Copy-trading marketplace** — follow top agents/users; creators earn a share of follower fees | Later | 🔵 | verifiable track record |
@@ -114,7 +114,7 @@ leads, it doesn't follow.
 | Capability | Horizon | Status | Notes |
 | --- | --- | --- | --- |
 | **Hard risk engine** — 23-check gate, circuit breakers, per-user loss breakers, margin caps, kill switch, encrypted secrets vault | Now | 🟢 | live today |
-| **Guardian suite** — Flight Recorder (sealed decision ledger), Stress Lab (digital-twin liquidation modelling), Risk Sentinel (market-wide crowding radar), Transaction Firewall (pre-sign prompt-injection scan, local-only), Escape Agent (dependency-aware unwind planner), Intent Compiler (plain words → revocable Authority Envelope) | Now | 🟢 | live today. All six **warn, explain, simulate and prove — none of them move funds** |
+| **Guardian suite** — Flight Recorder (sealed decision ledger), Stress Lab (digital-twin liquidation modelling), Risk Sentinel (market-wide crowding radar), Transaction Firewall (pre-sign prompt-injection scan, local-only), Escape Agent (dependency-aware unwind planner), Intent Compiler (plain words → revocable Authority Envelope) | Now | 🟢 | live: `/flight`, `/stress`, `/sentinel`, `/firewall`, `/escape`, `/intent`. All six **warn, explain, simulate and prove — none of them move funds** |
 | **Provable Calls** — decisions hashed before the market moves; outcomes attach to the sealed record and cannot change it. Daily Merkle roots make a whole day independently timestampable | Now | 🟢 | live today; full verification contract at `/provable` |
 | **Independent security audit** — third-party review of money endpoints, credential store, gateway | Next | 🟡 | precedes wider live rollout |
 | **Contract audits &amp; proof-of-reserves** — every vault/staking contract audited; reserves provable on-chain before any deposit | Later | 🔵 | blocks vault launch |
