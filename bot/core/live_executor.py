@@ -3105,69 +3105,91 @@ class LiveExecutor:
                 return f"EXECUTION FAILED: exchange returned no price for {symbol}"
             current_price = float(_last_raw)
 
-            # ── QC-2 SAFEGUARD 0a: stale-ticker guard ──
-            # Thin TradFi perps have gone 40+ minutes without a tick (the
-            # position-monitor path already special-cases that) — but ENTERING
-            # on a stale price sizes and gates the trade against a market that
-            # may no longer exist. One refetch, then abort.
-            # ENTRY_TICKER_MAX_AGE_SEC (default 120; 0 disables).
-            _max_age = float(os.environ.get("ENTRY_TICKER_MAX_AGE_SEC", "120"))
-            _tk_ts = ticker.get("timestamp") if isinstance(ticker, dict) else None
-            if _max_age > 0 and _tk_ts:
-                try:
-                    _age = time.time() - float(_tk_ts) / 1000.0
-                except (TypeError, ValueError):
-                    _age = 0.0
-                if _age > _max_age:
-                    try:
-                        ticker = await active_exchange.fetch_ticker(symbol)
-                        _tk_ts2 = ticker.get("timestamp")
-                        if _tk_ts2:
-                            _age = time.time() - float(_tk_ts2) / 1000.0
-                        _last2 = ticker.get("last")
-                        if _last2 is not None:
-                            current_price = float(_last2)
-                    except Exception:
-                        pass
-                    if _age > _max_age:
-                        audit(trade_log,
-                              f"BLOCKED: {symbol} ticker is {_age:.0f}s old — "
-                              "not entering on a stale price",
-                              action="live_execute", result="BLOCKED_STALE_TICKER",
-                              data={"asset": symbol, "age_sec": round(_age, 1),
-                                    "max_age_sec": _max_age})
-                        return (f"EXECUTION BLOCKED: {symbol} last tick is "
-                                f"{_age:.0f}s old (max {_max_age:.0f}s) — the "
-                                "market may have moved; nothing was placed.")
-
-            # ── QC-2 SAFEGUARD 0b: spread gate ──
-            # The entire entry path keys off `last`; on a wide book `last`
-            # can sit far from where an order actually fills. When the venue
-            # reports bid/ask, refuse entries on spreads wider than the
-            # ceiling from entry_max_spread_pct(): ENTRY_MAX_SPREAD_PCT when
-            # set (0 disables), otherwise 2x the analysis-layer liquidity
-            # guard (OF_MAX_SPREAD_BPS) so the two gates move together.
+            # ── QC-2 SAFEGUARDS 0a/0b: stale ticker, wide spread ──
+            # The DECISIONS moved to bot/core/entry_quality.py (pure, no clock,
+            # no I/O). This half keeps what only the executor can do: the one
+            # refetch, and the audit/return. Inline, neither gate could be
+            # driven by a test, and both had the same defect — an unreadable
+            # reading fell into the same branch as a clean one and proceeded.
+            # `except (TypeError, ValueError): _age = 0.0` was the sharpest of
+            # them: 0.0 is the FRESHEST possible age, invented for the one case
+            # where the guard knew least.
+            #
+            # ENTRY_UNREADABLE_MARKET_GATE = off | warn | block (default warn)
+            # decides what an *unreadable* reading does. warn keeps today's
+            # trading behaviour byte-for-byte and makes the blind spot visible
+            # first — the observe-first house rule the book-wall gate below
+            # already follows.
+            from bot.core.entry_quality import spread_verdict, ticker_age_verdict
             from bot.core.order_flow import entry_max_spread_pct
-            _max_spread = entry_max_spread_pct()
-            if _max_spread > 0 and isinstance(ticker, dict):
+
+            _unreadable_mode = os.environ.get(
+                "ENTRY_UNREADABLE_MARKET_GATE", "warn").strip().lower()
+
+            def _unreadable_block(kind: str, reason: str) -> Optional[str]:
+                """Audit an unreadable market reading; block only on 'block'."""
+                if _unreadable_mode == "off":
+                    return None
+                audit(trade_log,
+                      f"{symbol} {kind} could not be read: {reason} "
+                      f"(mode={_unreadable_mode})",
+                      action="entry_market_unreadable",
+                      result="BLOCKED" if _unreadable_mode == "block" else "WARN",
+                      data={"asset": symbol, "check": kind, "reason": reason})
+                if _unreadable_mode != "block":
+                    return None
+                return (f"EXECUTION BLOCKED: {symbol} {kind} could not be read "
+                        f"({reason}) — entering on a market reading this thin "
+                        "is the thing the gate exists to stop; nothing was "
+                        "placed.")
+
+            _max_age = float(os.environ.get("ENTRY_TICKER_MAX_AGE_SEC", "120"))
+            _age_v = ticker_age_verdict(ticker, _max_age, time.time())
+            if _age_v["state"] == "stale":
+                # One refetch, then re-judge — unchanged behaviour.
                 try:
-                    _bid = float(ticker.get("bid") or 0)
-                    _ask = float(ticker.get("ask") or 0)
-                except (TypeError, ValueError):
-                    _bid = _ask = 0.0
-                if _ask > _bid > 0:
-                    _spread_pct = (_ask - _bid) / ((_ask + _bid) / 2.0) * 100.0
-                    if _spread_pct > _max_spread:
-                        audit(trade_log,
-                              f"BLOCKED: {symbol} spread {_spread_pct:.2f}% > "
-                              f"{_max_spread:.2f}% — book too wide to enter",
-                              action="live_execute", result="BLOCKED_WIDE_SPREAD",
-                              data={"asset": symbol, "bid": _bid, "ask": _ask,
-                                    "spread_pct": round(_spread_pct, 3)})
-                        return (f"EXECUTION BLOCKED: {symbol} bid/ask spread is "
-                                f"{_spread_pct:.2f}% (max {_max_spread:.2f}%) — "
-                                "entering into a book this wide gives away the "
-                                "edge; nothing was placed.")
+                    ticker = await active_exchange.fetch_ticker(symbol)
+                    _last2 = ticker.get("last")
+                    if _last2 is not None:
+                        current_price = float(_last2)
+                except Exception:
+                    pass
+                _age_v = ticker_age_verdict(ticker, _max_age, time.time())
+                # A refetch that comes back UNREADABLE does not clear a
+                # staleness we already measured. Absent is not fresher.
+                if _age_v["state"] == "unreadable":
+                    _age_v = {"state": "stale", "age_sec": None,
+                              "reason": "still stale after a refetch that "
+                                        "returned no readable timestamp"}
+            if _age_v["state"] == "stale":
+                audit(trade_log,
+                      f"BLOCKED: {symbol} ticker is stale — {_age_v['reason']}",
+                      action="live_execute", result="BLOCKED_STALE_TICKER",
+                      data={"asset": symbol, "age_sec": _age_v["age_sec"],
+                            "max_age_sec": _max_age})
+                return (f"EXECUTION BLOCKED: {symbol} {_age_v['reason']} — the "
+                        "market may have moved; nothing was placed.")
+            if _age_v["state"] == "unreadable":
+                _blocked = _unreadable_block("ticker age", _age_v["reason"])
+                if _blocked:
+                    return _blocked
+
+            _max_spread = entry_max_spread_pct()
+            _sp_v = spread_verdict(ticker, _max_spread)
+            if _sp_v["state"] == "too_wide":
+                audit(trade_log,
+                      f"BLOCKED: {symbol} {_sp_v['reason']} — book too wide to enter",
+                      action="live_execute", result="BLOCKED_WIDE_SPREAD",
+                      data={"asset": symbol, "bid": _sp_v["bid"],
+                            "ask": _sp_v["ask"],
+                            "spread_pct": round(_sp_v["spread_pct"], 3)})
+                return (f"EXECUTION BLOCKED: {symbol} bid/ask {_sp_v['reason']} — "
+                        "entering into a book this wide gives away the edge; "
+                        "nothing was placed.")
+            if _sp_v["state"] == "unreadable":
+                _blocked = _unreadable_block("bid/ask spread", _sp_v["reason"])
+                if _blocked:
+                    return _blocked
 
             # ── QC-2b SAFEGUARD 0c: order-book wall gate ──
             # A dominant opposing wall in the entry→TP path (a level far larger
