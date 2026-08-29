@@ -1,24 +1,28 @@
-"""Nautilus replay strategy for RUNECLAW Confluence.
+"""Nautilus replay strategy for RUNECLAW Confluence (multi-symbol).
 
-Self-contained and multi-instrument: subscribes to BNBUSDT (traded) and
-BTCUSDT (market-leader regime context, never traded), computes every decision
-input internally from rolling buffers via ``indicators.py`` (the same math the
-live path uses), and routes between three entry families behind the leader
-regime: momentum pullbacks in trends, average-price reversion in ranges, and a
-volume-spike breakout overlay. Flat is the default state; nothing is placed
-below the hard confluence gate or during indicator warmup (warmup trading gate
-retained from the prior draft line).
+Self-contained and multi-instrument: subscribes to every declared traded
+symbol plus BTCUSDT (market-leader regime context, never traded), keeps an
+independent rolling-feature buffer and finite-state machine per symbol via
+``indicators.py`` (the same math the live path uses), and routes each symbol
+between three entry families behind the leader regime: momentum pullbacks in
+trends, average-price reversion in ranges, and a volume-spike breakout
+overlay. Flat is the default state; nothing is placed below the hard
+confluence gate or during indicator warmup.
 
-Risk model (the point of this rewrite):
+Portfolio layer (shared across symbols):
+* at most ``max_concurrent`` symbols may hold a position or a resting entry,
+* one daily circuit breaker over the summed realized PnL pauses new entries
+  after ``circuit_pause_usdt`` of loss and stops the day at
+  ``circuit_stop_usdt``; an unreadable realized-PnL feed disables the breaker
+  visibly (printed) rather than silently counting zero.
+
+Per-symbol risk model:
 * every entry is sized so worst-case loss at the stop is bounded by
   ``max_loss_usdt`` (quantity rounded DOWN, stop distance floored),
 * protection is a REAL stop-market order resting at the venue from the moment
   the position opens — not a bar-close check that can slip past the stop,
 * a take-profit limit rests alongside; whichever fills first, the other is
   cancelled on position close,
-* an intraday circuit breaker pauses entries after a daily loss and stops the
-  day after a deeper one; an unreadable realized-PnL feed disables the breaker
-  visibly (printed) rather than silently counting zero,
 * unfilled entries expire, positions carry a time stop, and the stop lifts to
   entry once the trade has moved favourably.
 
@@ -42,6 +46,30 @@ from .indicators import classify_regime, compute_features, confluence_score
 _BUF = 420          # bars kept per symbol (covers the deepest EMA aggregation)
 _WINDOW = 96        # 24h of 15m bars: VWAP / range / change window
 _NS_PER_DAY = 86_400_000_000_000
+_GATE_TEXT = "BTCUSDT"
+
+
+class _SymbolState:
+    """Rolling buffers + FSM for one traded symbol."""
+
+    __slots__ = ("instrument", "h", "l", "c", "v", "phase", "entry_order",
+                 "stop_order", "tp_order", "pending_age", "pos_age", "plan",
+                 "be_done")
+
+    def __init__(self, instrument: Instrument) -> None:
+        self.instrument = instrument
+        self.h = deque(maxlen=_BUF)
+        self.l = deque(maxlen=_BUF)
+        self.c = deque(maxlen=_BUF)
+        self.v = deque(maxlen=_BUF)
+        self.phase = "FLAT"          # FLAT | PENDING | LONG | SHORT
+        self.entry_order = None
+        self.stop_order = None
+        self.tp_order = None
+        self.pending_age = 0
+        self.pos_age = 0
+        self.plan: Optional[dict] = None
+        self.be_done = False
 
 
 class RuneclawConfluenceStrategyConfig(StrategyConfig):
@@ -54,6 +82,7 @@ class RuneclawConfluenceStrategyConfig(StrategyConfig):
     max_loss_usdt: str = "15"
     min_score: int = 70
     allow_short: bool = True
+    max_concurrent: int = 3
     sl_min_pct: str = "1.2"
     atr_limit_mult: str = "0.5"
     tp1_pct: str = "3.5"
@@ -79,43 +108,38 @@ class RuneclawConfluenceStrategy(Strategy):
     def __init__(self, config: RuneclawConfluenceStrategyConfig) -> None:
         super().__init__(config)
         self.cfg = config
-        self._rc_bnb_id: Optional[InstrumentId] = None
         self._rc_btc_id: Optional[InstrumentId] = None
-        self._rc_bnb: Optional[Instrument] = None
-        self._rc_h: dict = {k: deque(maxlen=_BUF) for k in ("h", "l", "c", "v")}
         self._rc_btc_h: dict = {k: deque(maxlen=_BUF) for k in ("h", "l", "c", "v")}
         self._rc_btc_feat = None
-        self._rc_phase = "FLAT"          # FLAT | PENDING | LONG | SHORT
-        self._rc_entry_order = None
-        self._rc_stop_order = None
-        self._rc_tp_order = None
-        self._rc_pending_age = 0
-        self._rc_pos_age = 0
-        self._rc_plan: Optional[dict] = None
-        self._rc_be_done = False
+        self._rc_states: dict = {}       # InstrumentId -> _SymbolState
         self._rc_day = -1
         self._rc_day_pnl = 0.0
         self._rc_day_unreadable = False
         self._rc_pause_until_bar = 0
         self._rc_day_stopped = False
-        self._rc_bar_index = 0
+        self._rc_bar_index = 0           # advanced on gate (BTC) bars
         self._rc_entries = {"momentum": 0, "mr": 0, "breakout": 0}
         self._rc_blocks = {"warmup": 0, "gate": 0, "chop": 0, "score": 0,
-                           "rr": 0, "sizing": 0, "circuit": 0}
+                           "rr": 0, "sizing": 0, "circuit": 0, "slots": 0}
 
     # ------------------------------------------------------------------ setup
     def on_start(self) -> None:
         for iid in self.cfg.instrument_ids:
-            text = str(iid)
-            if "BNBUSDT" in text:
-                self._rc_bnb_id = iid
-            elif "BTCUSDT" in text:
+            if _GATE_TEXT in str(iid):
                 self._rc_btc_id = iid
-        if self._rc_bnb_id is None and self.cfg.instrument_id is not None:
-            self._rc_bnb_id = self.cfg.instrument_id
-        if self._rc_bnb_id is None:
-            raise RuntimeError("BNBUSDT instrument not found in spec")
-        self._rc_bnb = self.cache.instrument(self._rc_bnb_id)
+                continue
+            instrument = self.cache.instrument(iid)
+            if instrument is not None:
+                self._rc_states[iid] = _SymbolState(instrument)
+        if not self._rc_states and self.cfg.instrument_id is not None:
+            instrument = self.cache.instrument(self.cfg.instrument_id)
+            if instrument is not None:
+                self._rc_states[self.cfg.instrument_id] = _SymbolState(instrument)
+        if not self._rc_states:
+            raise RuntimeError("no traded instruments found in spec")
+        if self._rc_btc_id is None:
+            print("[runeclaw-confluence] WARNING: BTCUSDT gate instrument missing; "
+                  "regime stays CHOP and nothing will trade")
         for bar_type in self.cfg.bar_types:
             self.subscribe_bars(bar_type)
         if not self.cfg.bar_types and self.cfg.bar_type is not None:
@@ -127,6 +151,8 @@ class RuneclawConfluenceStrategy(Strategy):
         h, lo, c, v = float(bar.high), float(bar.low), float(bar.close), float(bar.volume)
 
         if self._rc_btc_id is not None and iid == self._rc_btc_id:
+            self._rc_bar_index += 1
+            self._rc_roll_day(bar)
             for key, val in (("h", h), ("l", lo), ("c", c), ("v", v)):
                 self._rc_btc_h[key].append(val)
             if len(self._rc_btc_h["c"]) >= _WINDOW + 1:
@@ -135,47 +161,54 @@ class RuneclawConfluenceStrategy(Strategy):
                     list(self._rc_btc_h["c"]), list(self._rc_btc_h["v"]), _WINDOW)
             return
 
-        if iid != self._rc_bnb_id:
+        state = self._rc_states.get(iid)
+        if state is None:
+            return
+        state.h.append(h)
+        state.l.append(lo)
+        state.c.append(c)
+        state.v.append(v)
+
+        if state.phase in ("LONG", "SHORT"):
+            self._rc_manage_position(state, c)
+            return
+        if state.phase == "PENDING":
+            state.pending_age += 1
+            ttl = int((state.plan or {}).get("ttl", 16))
+            if state.pending_age > ttl:
+                self._rc_cancel_entry(state)
             return
 
-        self._rc_bar_index += 1
-        for key, val in (("h", h), ("l", lo), ("c", c), ("v", v)):
-            self._rc_h[key].append(val)
-        self._rc_roll_day(bar)
+        self._rc_reconcile(state)
+        if state.phase != "FLAT":
+            return
+        self._rc_try_enter(state, c)
 
-        if self._rc_phase in ("LONG", "SHORT"):
-            self._rc_manage_position(c)
-            return
-        if self._rc_phase == "PENDING":
-            self._rc_pending_age += 1
-            ttl = int((self._rc_plan or {}).get("ttl", 16))
-            if self._rc_pending_age > ttl:
-                self._rc_cancel_entry()
-            return
-
-        self._rc_reconcile()
-        if self._rc_phase != "FLAT":
-            return
-        self._rc_try_enter(c)
+    # --------------------------------------------------------- portfolio gate
+    def _rc_open_slots(self) -> int:
+        used = sum(1 for s in self._rc_states.values() if s.phase != "FLAT")
+        return max(int(self.cfg.max_concurrent), 1) - used
 
     # ------------------------------------------------------- entry evaluation
-    def _rc_try_enter(self, close: float) -> None:
+    def _rc_try_enter(self, state: _SymbolState, close: float) -> None:
         if self._rc_day_stopped or self._rc_bar_index < self._rc_pause_until_bar:
             self._rc_blocks["circuit"] += 1
             return
-        if len(self._rc_h["c"]) < _WINDOW + 1 or self._rc_btc_feat is None:
+        if self._rc_open_slots() <= 0:
+            self._rc_blocks["slots"] += 1
+            return
+        if len(state.c) < _WINDOW + 1 or self._rc_btc_feat is None:
             self._rc_blocks["warmup"] += 1
             return
-        feats = compute_features(list(self._rc_h["h"]), list(self._rc_h["l"]),
-                                 list(self._rc_h["c"]), list(self._rc_h["v"]), _WINDOW)
+        feats = compute_features(list(state.h), list(state.l),
+                                 list(state.c), list(state.v), _WINDOW)
         if not feats.ok or feats.ema20_1h is None or feats.ema20_4h is None:
             self._rc_blocks["warmup"] += 1
             return
 
-        cfgd = self._rc_cfg_dict()
-        regime = classify_regime(self._rc_btc_feat, cfgd)
-        state = regime["state"]
-        if state == "CHOP":
+        regime = classify_regime(self._rc_btc_feat, self._rc_cfg_dict())
+        stt = regime["state"]
+        if stt == "CHOP":
             self._rc_blocks["chop"] += 1
             return
 
@@ -185,15 +218,15 @@ class RuneclawConfluenceStrategy(Strategy):
 
         # 1) volume-spike breakout overlay (trend direction only; both in range)
         vol_ok = feats.vol_ratio is not None and feats.vol_ratio >= float(self.cfg.bo_vol_ratio)
-        if vol_ok and len(self._rc_h["h"]) >= _WINDOW + 1:
-            prior_hi = max(list(self._rc_h["h"])[-_WINDOW - 1:-1])
-            prior_lo = min(list(self._rc_h["l"])[-_WINDOW - 1:-1])
+        if vol_ok and len(state.h) >= _WINDOW + 1:
+            prior_hi = max(list(state.h)[-_WINDOW - 1:-1])
+            prior_lo = min(list(state.l)[-_WINDOW - 1:-1])
             sides = []
-            if state == "TREND_UP":
+            if stt == "TREND_UP":
                 sides = ["long"]
-            elif state == "TREND_DOWN":
+            elif stt == "TREND_DOWN":
                 sides = ["short"] if allow_short else []
-            elif state == "RANGE":
+            elif stt == "RANGE":
                 sides = ["long"] + (["short"] if allow_short else [])
             for side in sides:
                 broke = close > prior_hi if side == "long" else close < prior_lo
@@ -207,8 +240,8 @@ class RuneclawConfluenceStrategy(Strategy):
                 break
 
         # 2) momentum pullback in the trend direction
-        if plan is None and state in ("TREND_UP", "TREND_DOWN"):
-            side = "long" if state == "TREND_UP" else "short"
+        if plan is None and stt in ("TREND_UP", "TREND_DOWN"):
+            side = "long" if stt == "TREND_UP" else "short"
             if side == "short" and not allow_short:
                 self._rc_blocks["gate"] += 1
             else:
@@ -219,7 +252,7 @@ class RuneclawConfluenceStrategy(Strategy):
                     self._rc_blocks["score"] += 1
 
         # 3) average-price reversion in ranges
-        if plan is None and state == "RANGE" and feats.atr and feats.vwap:
+        if plan is None and stt == "RANGE" and feats.atr and feats.vwap:
             stretch = (close - feats.vwap) / feats.atr
             lim = float(self.cfg.mr_stretch_atr)
             side = None
@@ -236,7 +269,7 @@ class RuneclawConfluenceStrategy(Strategy):
 
         if plan is None:
             return
-        self._rc_submit_entry(plan)
+        self._rc_submit_entry(state, plan)
 
     def _rc_build_plan(self, feats, side: str, kind: str, close: float) -> Optional[dict]:
         atr_v = feats.atr or 0.0
@@ -281,10 +314,8 @@ class RuneclawConfluenceStrategy(Strategy):
                 "target": target, "sl_pct": sl_pct, "ttl": ttl, "time_stop": tstop}
 
     # --------------------------------------------------------------- ordering
-    def _rc_submit_entry(self, plan: dict) -> None:
-        instrument = self._rc_bnb
-        if instrument is None:
-            return
+    def _rc_submit_entry(self, state: _SymbolState, plan: dict) -> None:
+        instrument = state.instrument
         max_loss = float(self.cfg.max_loss_usdt)
         leverage = max(int(self.cfg.leverage), 1)
         budget = float(self.cfg.margin_budget)
@@ -302,22 +333,32 @@ class RuneclawConfluenceStrategy(Strategy):
             price=self._rc_px(plan["entry"], instrument),
             time_in_force=TimeInForce.GTC,
         )
-        self._rc_entry_order = order
-        self._rc_plan = plan
-        self._rc_pending_age = 0
-        self._rc_phase = "PENDING"
+        state.entry_order = order
+        state.plan = plan
+        state.pending_age = 0
+        state.phase = "PENDING"
         self._rc_entries[plan["kind"]] += 1
         self.submit_order(order)
 
+    def _rc_state_for_event(self, event) -> Optional[_SymbolState]:
+        try:
+            position = self.cache.position(event.position_id)
+            return self._rc_states.get(position.instrument_id)
+        except Exception:
+            return None
+
     def on_position_opened(self, event) -> None:
-        self._rc_phase = "LONG" if (self._rc_plan or {}).get("side") == "long" else "SHORT"
-        self._rc_entry_order = None
-        self._rc_pos_age = 0
-        self._rc_be_done = False
-        instrument = self._rc_bnb
-        plan = self._rc_plan
-        if instrument is None or plan is None:
+        state = self._rc_state_for_event(event)
+        if state is None:
             return
+        plan = state.plan
+        state.phase = "LONG" if (plan or {}).get("side") == "long" else "SHORT"
+        state.entry_order = None
+        state.pos_age = 0
+        state.be_done = False
+        if plan is None:
+            return
+        instrument = state.instrument
         qty = None
         for position in self.cache.positions_open(instrument_id=instrument.id):
             qty = position.quantity
@@ -331,12 +372,14 @@ class RuneclawConfluenceStrategy(Strategy):
                 quantity=qty,
                 trigger_price=self._rc_px(plan["stop"], instrument),
                 time_in_force=TimeInForce.GTC,
+                reduce_only=True,
             )
-            self._rc_stop_order = stop_order
+            state.stop_order = stop_order
             self.submit_order(stop_order)
-        except Exception as exc:  # surfaced in run logs; position still guarded by bar check
-            print(f"[runeclaw-confluence] stop order rejected: {type(exc).__name__}: {exc}")
-            self._rc_stop_order = None
+        except Exception as exc:  # surfaced in run logs; bar-check backstop remains
+            print(f"[runeclaw-confluence] stop order rejected ({instrument.id}): "
+                  f"{type(exc).__name__}: {exc}")
+            state.stop_order = None
         try:
             tp_order = self.order_factory.limit(
                 instrument_id=instrument.id,
@@ -344,36 +387,36 @@ class RuneclawConfluenceStrategy(Strategy):
                 quantity=qty,
                 price=self._rc_px(plan["target"], instrument),
                 time_in_force=TimeInForce.GTC,
+                reduce_only=True,
             )
-            self._rc_tp_order = tp_order
+            state.tp_order = tp_order
             self.submit_order(tp_order)
         except Exception as exc:
-            print(f"[runeclaw-confluence] tp order rejected: {type(exc).__name__}: {exc}")
-            self._rc_tp_order = None
+            print(f"[runeclaw-confluence] tp order rejected ({instrument.id}): "
+                  f"{type(exc).__name__}: {exc}")
+            state.tp_order = None
 
-    def _rc_manage_position(self, close: float) -> None:
-        plan = self._rc_plan or {}
-        self._rc_pos_age += 1
-        long_side = self._rc_phase == "LONG"
+    def _rc_manage_position(self, state: _SymbolState, close: float) -> None:
+        plan = state.plan or {}
+        state.pos_age += 1
+        long_side = state.phase == "LONG"
 
-        # Backstop only when the resting stop could not be placed: exit at
-        # market on a stop breach detected from the bar.
-        if self._rc_stop_order is None:
+        # Backstop only when the resting stop could not be placed.
+        if state.stop_order is None:
             breached = close <= plan.get("stop", 0.0) if long_side \
                 else close >= plan.get("stop", float("inf"))
             if breached:
-                self._rc_flatten("stop_backstop")
+                self._rc_flatten(state, "stop_backstop")
                 return
 
-        # Breakeven lift once the move covers the configured cushion.
         be_pct = float(self.cfg.breakeven_pct) / 100.0
         entry = plan.get("entry", 0.0)
-        if (not self._rc_be_done and entry > 0 and self._rc_stop_order is not None):
+        if (not state.be_done and entry > 0 and state.stop_order is not None):
             moved = (close / entry - 1.0) if long_side else (1.0 - close / entry)
             if moved >= be_pct:
                 try:
-                    self.cancel_order(self._rc_stop_order)
-                    instrument = self._rc_bnb
+                    self.cancel_order(state.stop_order)
+                    instrument = state.instrument
                     qty = None
                     for position in self.cache.positions_open(instrument_id=instrument.id):
                         qty = position.quantity
@@ -385,18 +428,20 @@ class RuneclawConfluenceStrategy(Strategy):
                             quantity=qty,
                             trigger_price=self._rc_px(be_px, instrument),
                             time_in_force=TimeInForce.GTC,
+                            reduce_only=True,
                         )
-                        self._rc_stop_order = stop_order
+                        state.stop_order = stop_order
                         self.submit_order(stop_order)
-                        self._rc_be_done = True
+                        state.be_done = True
                 except Exception as exc:
-                    print("[runeclaw-confluence] breakeven lift failed: "
-                          f"{type(exc).__name__}: {exc}")
+                    print("[runeclaw-confluence] breakeven lift failed "
+                          f"({state.instrument.id}): {type(exc).__name__}: {exc}")
 
-        if self._rc_pos_age > int(plan.get("time_stop", 32)):
-            self._rc_flatten("time_stop")
+        if state.pos_age > int(plan.get("time_stop", 32)):
+            self._rc_flatten(state, "time_stop")
 
     def on_position_closed(self, event) -> None:
+        state = self._rc_state_for_event(event)
         try:
             position = self.cache.position(event.position_id)
             realized = getattr(position, "realized_pnl", None)
@@ -407,7 +452,8 @@ class RuneclawConfluenceStrategy(Strategy):
                 print("[runeclaw-confluence] realized PnL unreadable; circuit breaker "
                       "disabled for this run (never counted as zero)")
             self._rc_day_unreadable = True
-        self._rc_after_flat()
+        if state is not None:
+            self._rc_after_flat(state)
         if not self._rc_day_unreadable:
             pause_at = -abs(float(self.cfg.circuit_pause_usdt))
             stop_at = -abs(float(self.cfg.circuit_stop_usdt))
@@ -417,32 +463,28 @@ class RuneclawConfluenceStrategy(Strategy):
                 self._rc_pause_until_bar = self._rc_bar_index + int(self.cfg.circuit_pause_bars)
 
     # ------------------------------------------------------------- housekeeping
-    def _rc_after_flat(self) -> None:
-        instrument = self._rc_bnb
-        if instrument is not None:
+    def _rc_after_flat(self, state: _SymbolState) -> None:
+        try:
+            self.cancel_all_orders(state.instrument.id)
+        except Exception:
+            pass
+        state.phase = "FLAT"
+        state.entry_order = None
+        state.stop_order = None
+        state.tp_order = None
+        state.plan = None
+        state.pos_age = 0
+
+    def _rc_cancel_entry(self, state: _SymbolState) -> None:
+        if state.entry_order is not None:
             try:
-                self.cancel_all_orders(instrument.id)
+                self.cancel_order(state.entry_order)
             except Exception:
                 pass
-        self._rc_phase = "FLAT"
-        self._rc_entry_order = None
-        self._rc_stop_order = None
-        self._rc_tp_order = None
-        self._rc_plan = None
-        self._rc_pos_age = 0
+        self._rc_after_flat(state)
 
-    def _rc_cancel_entry(self) -> None:
-        if self._rc_entry_order is not None:
-            try:
-                self.cancel_order(self._rc_entry_order)
-            except Exception:
-                pass
-        self._rc_after_flat()
-
-    def _rc_flatten(self, reason: str) -> None:
-        instrument = self._rc_bnb
-        if instrument is None:
-            return
+    def _rc_flatten(self, state: _SymbolState, reason: str) -> None:
+        instrument = state.instrument
         try:
             self.cancel_all_orders(instrument.id)
         except Exception:
@@ -456,17 +498,16 @@ class RuneclawConfluenceStrategy(Strategy):
             )
             self.submit_order(order)
 
-    def _rc_reconcile(self) -> None:
+    def _rc_reconcile(self, state: _SymbolState) -> None:
         """Positions-vs-state honesty: a position the FSM does not know about is
         flattened rather than adopted."""
-        instrument = self._rc_bnb
-        if instrument is None or self._rc_phase != "FLAT":
+        if state.phase != "FLAT":
             return
-        open_positions = list(self.cache.positions_open(instrument_id=instrument.id))
+        open_positions = list(self.cache.positions_open(instrument_id=state.instrument.id))
         if open_positions:
-            print(f"[runeclaw-confluence] reconcile: {len(open_positions)} unexpected "
-                  "open position(s); flattening")
-            self._rc_flatten("reconcile")
+            print(f"[runeclaw-confluence] reconcile {state.instrument.id}: "
+                  f"{len(open_positions)} unexpected open position(s); flattening")
+            self._rc_flatten(state, "reconcile")
 
     def _rc_roll_day(self, bar: Bar) -> None:
         day = int(bar.ts_event // _NS_PER_DAY)
@@ -493,8 +534,9 @@ class RuneclawConfluenceStrategy(Strategy):
                      instrument.price_precision)
 
     def on_stop(self) -> None:
-        print(f"[runeclaw-confluence] entries={self._rc_entries} blocks={self._rc_blocks} "
+        print(f"[runeclaw-confluence] symbols={len(self._rc_states)} "
+              f"entries={self._rc_entries} blocks={self._rc_blocks} "
               f"day_pnl_unreadable={self._rc_day_unreadable}")
-        if self._rc_bnb is not None:
-            self.cancel_all_orders(self._rc_bnb.id)
-            self.close_all_positions(self._rc_bnb.id)
+        for state in self._rc_states.values():
+            self.cancel_all_orders(state.instrument.id)
+            self.close_all_positions(state.instrument.id)
