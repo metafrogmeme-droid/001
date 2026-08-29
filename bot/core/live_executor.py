@@ -41,6 +41,7 @@ from bot.core.order_rules import (
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
+from bot.core.order_state import pending_cancel_verdict, position_presence
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
 from bot.utils.atomic_write import atomic_write_json
@@ -7304,26 +7305,41 @@ class LiveExecutor:
                 exchange = await self._get_exchange()
                 await exchange.cancel_order(pos.limit_order_id, self._venue.order_symbol(pos.symbol))
 
-                # Verify the order is actually cancelled
-                cancelled = False
+                # Verify the order is actually cancelled. THREE-valued:
+                # True cancelled, False still resting, None nobody could tell.
+                # `cancel_order` returning without raising is not a confirmation
+                # — the "cancel didn't work" branch below exists precisely
+                # because it can fail to take — so an unreadable check must
+                # not borrow its result and delete a position from the book.
+                cancelled: Optional[bool] = None
+                _cancel_detail = "verification did not run"
                 try:
                     order_info = await exchange.fetch_order(
                         pos.limit_order_id, pos.symbol,
                         params=self._venue.futures_params())
-                    status = (order_info.get("status") or "").lower()
-                    filled = float(order_info.get("filled") or 0)
-                    if status in ("canceled", "cancelled", "expired", "closed"):
+                    _verdict = pending_cancel_verdict(order_info)
+                    _state = _verdict["state"]
+                    _cancel_detail = _verdict["detail"]
+                    filled = _verdict["filled_qty"]
+                    if _state == "cancelled":
                         cancelled = True
-                    elif filled > 0:
+                    elif _state == "still_open":
+                        cancelled = False
+                    elif _state == "filled":
                         # It filled while we were cancelling — handle as a fill
                         audit(trade_log,
                               f"Limit order {pos.limit_order_id} filled during cancel for {pos.symbol}",
                               action="cancel_pending", result="FILLED_DURING_CANCEL")
                         pos.status = "open"
-                        pos.quantity = filled          # true up to actual fill
-                        if pos.entry_price > 0:        # keep margin math consistent
-                            pos.cost_usd = (pos.entry_price * filled
-                                            / (pos.leverage or 1))
+                        # Only true up when the venue actually STATED a size. A
+                        # terminal fill status with no `filled` field is still a
+                        # fill; writing 0 there would zero a live position's size
+                        # and, with it, every margin and PnL number built on it.
+                        if filled is not None and filled > 0:
+                            pos.quantity = filled      # true up to actual fill
+                            if pos.entry_price > 0:    # keep margin math consistent
+                                pos.cost_usd = (pos.entry_price * filled
+                                                / (pos.leverage or 1))
                         # Stamp fill time + protect NOW: this transition previously
                         # placed NO exchange stop at all — the position sat naked
                         # until a later monitor tick. Best-effort placement here
@@ -7353,11 +7369,20 @@ class LiveExecutor:
                         self._save_positions()
                         return (f"Limit order for {pos.symbol} filled while cancelling. "
                                 f"Position is now open — use Close to exit.{_sl_note}")
-                except Exception:
-                    # fetch_order failed — assume cancel worked if cancel_order didn't throw
-                    cancelled = True
+                except Exception as _verify_exc:
+                    # fetch_order failed. This USED to assume the cancel worked
+                    # ("if cancel_order didn't throw"), which deleted the position
+                    # from the book on the strength of a read that never happened.
+                    cancelled = None
+                    _cancel_detail = str(_verify_exc)[:120]
+                    audit(trade_log,
+                          f"Could not verify cancel of {pos.limit_order_id} for "
+                          f"{pos.symbol}: {_cancel_detail}",
+                          action="cancel_pending", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "order_id": pos.limit_order_id,
+                                "symbol": pos.symbol})
 
-                if cancelled:
+                if cancelled is True:
                     pos.status = "closed"
                     pos.close_reason = reason
                     pos.closed_at = datetime.now(UTC)
@@ -7368,33 +7393,59 @@ class LiveExecutor:
                     del self._positions[trade_id]
                     self._save_positions()
 
+                    # `_cancel_detail` distinguishes a cancel the venue fully
+                    # described from one where it named the status but never
+                    # stated a fill quantity. The delete is accepted either way
+                    # — refusing it would make cancelling impossible on a venue
+                    # that omits the field, and the 8h hard timeout would then
+                    # book a flat close on a position that might be live — but
+                    # the weaker of the two is now countable instead of silent.
                     audit(trade_log,
-                          f"Cancelled pending limit order for {pos.symbol} (order {pos.limit_order_id})",
+                          f"Cancelled pending limit order for {pos.symbol} "
+                          f"(order {pos.limit_order_id}): {_cancel_detail}",
                           action="cancel_pending", result="CANCELLED",
                           data={"trade_id": trade_id, "order_id": pos.limit_order_id,
-                                "symbol": pos.symbol, "reason": reason})
+                                "symbol": pos.symbol, "reason": reason,
+                                "verdict": _cancel_detail})
                     return f"CANCELLED pending {pos.direction} {pos.symbol} limit order"
-                else:
+                elif cancelled is False:
                     # Cancel didn't work — revert status
                     pos.status = "pending_fill"
                     self._save_positions()
                     return (f"Failed to cancel limit order for {pos.symbol} — "
                             f"order may still be active on exchange. Please cancel manually on Bitget.")
+                else:
+                    # Nobody could tell. Keep tracking it: `_check_pending_limit`
+                    # reads this same order every monitor tick and reads "closed"
+                    # the right way round, and its 2x-expiry hard timeout closes
+                    # the record if the order really is gone. Dropping it here is
+                    # the one move that cannot be undone by a later tick.
+                    pos.status = "pending_fill"
+                    self._save_positions()
+                    return (f"Could NOT verify the cancel of {pos.symbol}'s limit order — "
+                            f"the exchange did not answer. Still tracking it; the monitor "
+                            f"will re-check. Confirm on Bitget before assuming either way.")
 
             except Exception as exc:
                 exc_str = str(exc)
                 # 25204 = order doesn't exist (already cancelled or filled)
                 if "25204" in exc_str or "Order does not exist" in exc_str:
-                    # Check if it filled
+                    # Check if it filled. `_book_state` starts UNREADABLE and is
+                    # only lowered to "flat" by a position list we actually read:
+                    # the delete below is gated on that word, so every way of not
+                    # finding out — a throw, a payload with no sizes — keeps the
+                    # position tracked instead of erasing it.
+                    _book_state = "unreadable"
+                    _book_detail = "position check did not run"
                     try:
                         exchange = await self._get_exchange()
                         ccxt_sym = self._venue.swap_symbol(pos.symbol)
                         ex_positions = await exchange.fetch_positions(
                             [ccxt_sym], params=self._venue.futures_params())
-                        has_pos = any(
-                            abs(float(p.get("contracts", 0) or 0)) > 0 for p in ex_positions
-                        )
-                        if has_pos:
+                        _presence = position_presence(ex_positions)
+                        _book_state = _presence["state"]
+                        _book_detail = _presence["detail"]
+                        if _book_state == "present":
                             pos.status = "open"
                             # Same naked-transition fix as the fill-during-cancel
                             # race above: stamp fill time and best-effort place the
@@ -7426,14 +7477,35 @@ class LiveExecutor:
                     except Exception as _pos_chk_exc:
                         logger.warning("Position check during pending cancel failed for %s: %s",
                                        pos.symbol, _pos_chk_exc)
+                        _book_state = "unreadable"
+                        _book_detail = str(_pos_chk_exc)[:120]
 
-                    # Order doesn't exist and no position — already cancelled
-                    del self._positions[trade_id]
+                    if _book_state == "flat":
+                        # Order doesn't exist and the venue showed us an empty
+                        # book — already cancelled.
+                        del self._positions[trade_id]
+                        self._save_positions()
+                        audit(trade_log,
+                              f"Pending limit order already gone for {pos.symbol}: {exc_str}",
+                              action="cancel_pending", result="ALREADY_GONE")
+                        return f"CANCELLED pending {pos.direction} {pos.symbol} (order already gone)"
+
+                    # The order is gone and we could not read whether a position
+                    # took its place. Those are the two halves of the same
+                    # question and only one of them was answered, so keep the
+                    # record: the monitor re-checks it, and its hard timeout
+                    # closes it if the order really did vanish for nothing.
+                    pos.status = "pending_fill"
                     self._save_positions()
                     audit(trade_log,
-                          f"Pending limit order already gone for {pos.symbol}: {exc_str}",
-                          action="cancel_pending", result="ALREADY_GONE")
-                    return f"CANCELLED pending {pos.direction} {pos.symbol} (order already gone)"
+                          f"Pending limit order gone for {pos.symbol} but the book was "
+                          f"unreadable ({_book_detail}) — still tracking",
+                          action="cancel_pending", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "order_id": pos.limit_order_id,
+                                "symbol": pos.symbol, "book_state": _book_state})
+                    return (f"{pos.symbol}'s limit order is gone, but the exchange did "
+                            f"not tell us whether it FILLED first. Still tracking the "
+                            f"position — check Bitget before assuming it is flat.")
                 else:
                     pos.status = "pending_fill"
                     self._save_positions()
