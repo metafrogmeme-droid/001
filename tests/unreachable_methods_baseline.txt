@@ -30,16 +30,38 @@
 # receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
 # call site resolves to. It is SOUND rather than complete: one unresolvable
 # receiver makes the whole name ambiguous, because the alternative is guessing.
-# **33** method names remain ambiguous and are not checked by anything — the
+# **31** method names remain ambiguous and are not checked by anything — the
 # number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
 # so it cannot rot into a claim.
+#
+# 33 -> 31 when alert_manager, performance_tracker and feedback_loop were
+# deleted: fewer classes in the tree means fewer shared method names the sweep
+# has to give up on. The four METHOD entries those modules owned went with
+# them, and the stale-entry half of the ratchet is what refused to pass until
+# they did.
 #
 # It was 34 until `observe` left the list, and how it left is worth recording
 # because it looks like the ratchet loosening and is the opposite. Two classes
 # define `observe` — PersonPeak and CatalogWatch — and both are genuinely
 # called (person_peak.py:158, market_scanner.py:295); the name was ambiguous,
 # not unreachable, so nothing was ever being checked about either. Adding
-# bot/core/user_memory_store.observe as a MODULE-level function gave the sweep
+# # SignalTracker.record_outcome — RECORDED, and the reason is a live defect it
+# already caused rather than a plan to wire it. Signals are recorded
+# (`record_signal` is called); outcomes never are, so `closed` is permanently
+# empty in the running bot. `_pair_stats_locked` computed
+# `len(wins)/len(closed) if closed else 0.0`, so /signals rendered every pair
+# as 0 wins, 0 losses, an all-hollow win-rate bar and 0.0% — a measured record
+# of failure assembled from the absence of one, which is the shape CLAUDE.md
+# names. That display is fixed (win_rate is None over zero closes and the card
+# prints an em dash); the FEED is not, and joining a signal id to its closing
+# trade is a real piece of work, not a wiring line.
+#
+# Its second consumer is worse off still: bot/web/dashboard_server.py reads
+# `engine.signal_tracker`, and the engine has no such attribute — the tracker
+# lives on TelegramHandler. `getattr(..., None)` means /api/signals answers an
+# empty list forever rather than erroring, so nothing ever reported it.
+bot/core/signal_tracker.py:SignalTracker.record_outcome
+# Adding bot/core/user_memory_store.observe as a MODULE-level function gave the sweep
 # a receiver it can resolve without guessing, and the name resolved to
 # reachable in every definition. Verified by hand before re-recording: neither
 # method became "called" by accident, because neither was ever uncalled.
@@ -115,9 +137,6 @@ bot/core/macro_events.py:MacroEventProvider.format_for_telegram
 bot/core/validation_gate.py:BacktestValidationGate.format_for_telegram
 bot/core/ws_feed.py:BitgetWSFeed.format_for_telegram
 
-bot/core/alert_manager.py:AlertManager.acknowledge
-bot/core/alert_manager.py:AlertManager.create_alert
-bot/core/alert_manager.py:AlertManager.get_pending
 bot/core/analyzer.py:Analyzer.get_no_trade_reason
 bot/core/black_swan.py:BlackSwanDetector.clear_alerts
 bot/core/cost.py:CostTracker.record_infra
@@ -131,7 +150,6 @@ bot/core/llm_cache.py:SemanticLLMCache.purge_expired
 bot/core/metrics.py:MetricsEngine.record_circuit_breaker_trip
 bot/core/metrics.py:MetricsEngine.record_risk_check
 bot/core/news.py:NewsRadar.for_symbol
-bot/core/performance_tracker.py:PerformanceTracker.start_periodic_push
 bot/core/signal_tracker.py:SignalTracker.get_pair_stats
 bot/core/signal_tracker.py:SignalTracker.record_signal
 bot/core/smart_exits.py:AdaptiveLimitDistance.optimal_offset

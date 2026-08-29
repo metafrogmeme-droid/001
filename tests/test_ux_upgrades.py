@@ -14,7 +14,6 @@ At least 15 tests covering:
 import pytest
 
 from bot.core.signal_tracker import SignalTracker
-from bot.core.alert_manager import AlertManager, CRITICAL, HIGH, MEDIUM, LOW, INFO
 from bot.core.validation_gate import BacktestValidationGate
 
 
@@ -26,12 +25,45 @@ from bot.core.validation_gate import BacktestValidationGate
 class TestSignalTrackerRecordAndQuery:
     """Signal tracker: record and query pair stats."""
 
-    def test_empty_tracker_returns_zero_stats(self):
+    def test_empty_tracker_has_no_win_rate_rather_than_a_zero_one(self):
+        # Was `win_rate == 0.0`, which is the assertion that made the live
+        # defect look correct: nothing has closed, so there IS no rate, and
+        # 0.0 reads as "lost every one".
         tracker = SignalTracker()
         stats = tracker.get_pair_stats("BTC/USDT")
         assert stats["total_signals"] == 0
-        assert stats["win_rate"] == 0.0
+        assert stats["closed_signals"] == 0
+        assert stats["win_rate"] is None
+        assert stats["avg_pnl"] is None
         assert stats["last_signal_time"] is None
+
+    def test_signals_fired_but_none_closed_still_has_no_win_rate(self):
+        # The state the running bot is permanently in: record_outcome has no
+        # production caller, so every pair looked like 0W/0L at 0.0%.
+        tracker = SignalTracker()
+        tracker.record_signal("BTC/USDT", "LONG", 0.85, 50000.0, "sig-1")
+        stats = tracker.get_pair_stats("BTC/USDT")
+        assert stats["total_signals"] == 1
+        assert stats["closed_signals"] == 0
+        assert stats["win_rate"] is None, (
+            "a signal that has not closed was scored as a loss")
+
+    def test_a_real_zero_win_rate_is_still_reported(self):
+        # The mirror defect: None must not swallow a MEASURED zero.
+        tracker = SignalTracker()
+        tracker.record_signal("BTC/USDT", "LONG", 0.85, 50000.0, "sig-1")
+        tracker.record_outcome("sig-1", pnl=-10.0, exit_price=49000.0)
+        stats = tracker.get_pair_stats("BTC/USDT")
+        assert stats["closed_signals"] == 1
+        assert stats["win_rate"] == 0.0
+
+    def test_the_card_prints_a_dash_not_an_empty_bar(self):
+        # Five hollow blocks read as "lost everything", not "nothing closed".
+        tracker = SignalTracker()
+        tracker.record_signal("BTC/USDT", "LONG", 0.85, 50000.0, "sig-1")
+        out = tracker.format_for_telegram()
+        assert "—" in out
+        assert "░░░░░" not in out, "an all-empty win-rate bar over zero closes"
 
     def test_record_signal_increments_count(self):
         tracker = SignalTracker()
@@ -80,110 +112,6 @@ class TestSignalTrackerFormatting:
 
 # ═══════════════════════════════════════════════════════════════
 # ALERT MANAGER
-# ═══════════════════════════════════════════════════════════════
-
-
-class TestAlertManagerSignalClassification:
-    """Alert manager: classification for various confidence/regime combos."""
-
-    def test_high_confidence_regime_aligned_high_quant(self):
-        level = AlertManager.classify_signal(85, True, 0.70)
-        assert level == HIGH
-
-    def test_high_confidence_not_regime_aligned(self):
-        # 85% conf, not regime aligned, quant 0.70 -> quant > 0.45 and conf > 70 -> MEDIUM
-        level = AlertManager.classify_signal(85, False, 0.70)
-        assert level == MEDIUM
-
-    def test_medium_confidence_good_quant(self):
-        level = AlertManager.classify_signal(75, False, 0.50)
-        assert level == MEDIUM
-
-    def test_low_confidence_above_60(self):
-        level = AlertManager.classify_signal(65, False, 0.30)
-        assert level == LOW
-
-    def test_below_60_is_info(self):
-        level = AlertManager.classify_signal(55, True, 0.90)
-        assert level == INFO
-
-
-class TestAlertManagerRiskClassification:
-    """Alert manager: risk event classification at boundaries."""
-
-    def test_critical_above_80_pct(self):
-        level = AlertManager.classify_risk_event(4.5, 5.0)  # 90% of limit
-        assert level == CRITICAL
-
-    def test_high_at_65_pct(self):
-        level = AlertManager.classify_risk_event(3.25, 5.0)  # 65% of limit
-        assert level == HIGH
-
-    def test_medium_at_45_pct(self):
-        level = AlertManager.classify_risk_event(2.25, 5.0)  # 45% of limit
-        assert level == MEDIUM
-
-    def test_low_at_20_pct(self):
-        level = AlertManager.classify_risk_event(1.0, 5.0)  # 20% of limit
-        assert level == LOW
-
-    def test_boundary_exactly_80_is_medium(self):
-        # 80% is NOT > 80%, so should be HIGH (>60%)
-        level = AlertManager.classify_risk_event(4.0, 5.0)  # exactly 80%
-        assert level == HIGH
-
-
-class TestAlertManagerPushRepeat:
-    """Alert manager: push/repeat logic."""
-
-    def test_critical_pushes(self):
-        assert AlertManager.should_push(CRITICAL) is True
-
-    def test_high_pushes(self):
-        assert AlertManager.should_push(HIGH) is True
-
-    def test_medium_pushes(self):
-        assert AlertManager.should_push(MEDIUM) is True
-
-    def test_low_does_not_push(self):
-        assert AlertManager.should_push(LOW) is False
-
-    def test_info_does_not_push(self):
-        assert AlertManager.should_push(INFO) is False
-
-    def test_only_critical_repeats(self):
-        assert AlertManager.should_repeat(CRITICAL) is True
-        assert AlertManager.should_repeat(HIGH) is False
-        assert AlertManager.should_repeat(MEDIUM) is False
-
-    def test_critical_repeat_interval_300(self):
-        assert AlertManager.get_repeat_interval(CRITICAL) == 300
-        assert AlertManager.get_repeat_interval(HIGH) == 0
-
-    def test_acknowledge_stops_repeat(self):
-        mgr = AlertManager()
-        aid = mgr.create_alert(CRITICAL, "Test", "Body")
-        assert len(mgr.get_pending()) == 1
-        mgr.acknowledge(aid)
-        assert len(mgr.get_pending()) == 0
-
-    def test_format_alert_critical_has_emoji(self):
-        output = AlertManager.format_alert(CRITICAL, "Drawdown", "At 90%")
-        assert "🚨" in output
-        assert "CRITICAL" in output
-
-    def test_format_alert_high_has_emoji(self):
-        output = AlertManager.format_alert(HIGH, "Signal", "BTC LONG")
-        assert "⚡" in output
-
-    def test_format_alert_info_is_plain(self):
-        output = AlertManager.format_alert(INFO, "Note", "Minor update")
-        assert "🚨" not in output
-        assert "⚡" not in output
-
-
-# ═══════════════════════════════════════════════════════════════
-# VALIDATION GATE
 # ═══════════════════════════════════════════════════════════════
 
 

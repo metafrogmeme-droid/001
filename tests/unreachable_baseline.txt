@@ -75,15 +75,50 @@
 # an execution path to wire — `would_execute` is a hardcoded False and signing
 # is a slice that does not exist — so what became reachable is the fail-closed
 # preflight, not the ability to trade.
+#
+# THREE ENTRIES WERE DELETED RATHER THAN WIRED, after reading each against what
+# is already live. Deleting finished code is not a cleanup's call, so it was
+# put to the operator with the evidence and taken on their answer:
+#
+#   alert_manager.py       a second escalation chain. proactive_monitor.py
+#                          already carries the severity tiers, the dedup cache
+#                          and explicit escalation semantics, and it is the one
+#                          wired to the alerts people actually receive.
+#   performance_tracker.py pushed snapshots to a "Command Hub API" whose URL is
+#                          a constructor argument configured NOWHERE in the
+#                          repo. There is no hub. It could not have worked if
+#                          somebody had wired it.
+#   feedback_loop.py       correlation-based feature importance suggesting
+#                          weight adjustments — which bot/learning/
+#                          voter_weights.py learns, auto_refit.py refits and
+#                          readiness.py gates. Three wired modules to its zero.
+#
+# order_router.py STAYS, and is the one entry here that is not waiting on a
+# product decision. It is the ONLY pre-trade slippage estimate in the codebase
+# — live_executor's wired guard is post-FILL, so it can complain about a bad
+# fill and cannot prevent one. What stopped it being wired in this pass is
+# cost, not doubt: walking the book before an entry means a fresh
+# fetch_order_book on the live order path, which is a latency and rate-limit
+# decision rather than a wiring job.
+#
+# Its honesty defects are fixed either way, because they were wrong whether or
+# not anything called it: three exits returned a NUMBER for a book they could
+# not read (0.0%, or a 0.02% "paper default", each with order_type "MARKET"),
+# and 0.0 is the best slippage there is. optimal_order_type() consumed exactly
+# that number, so "we could not see the book" and "the book is deep and calm"
+# recommended the same market order. slippage_pct is None now, `readable` says
+# which happened, and the consumer answers UNKNOWN rather than guessing.
 bot/risk/order_router.py
-bot/core/alert_manager.py
-bot/core/performance_tracker.py
-bot/core/feedback_loop.py
 bot/core/swarm.py
 
 # ── the detective's remaining scorer ────────────────────────────────────────
 # The only one here with a known reason: presale_claims has no source, the way
 # deployer_history had none until #54. Same shape, same fix if wanted.
+#
+# swarm.py above is the other keep, and for the opposite reason: it is 428
+# lines of in-process pub/sub scaffolding for the roadmap's "Multi-agent
+# ensemble" row, which is 🔵 Planned. Deleting it would throw away design work
+# for a feature that is scheduled; wiring it is that feature, not a cleanup.
 bot/core/presale_claims.py
 
 # ── bot/learning: NOT here any more, and the reason matters ────────────────

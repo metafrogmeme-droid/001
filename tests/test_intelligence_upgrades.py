@@ -1,12 +1,10 @@
 """Tests for the three intelligence-layer upgrades:
-  11. TradeOutcomeFeedback (feedback_loop.py)
   12. SentimentAnalyzer   (sentiment.py)
   13. On-chain flow methods on SmartMoneyEngine (smart_money.py)
 """
 
 import pytest
 
-from bot.core.feedback_loop import TradeOutcomeFeedback
 from bot.core.sentiment import SentimentAnalyzer
 from bot.core.smart_money import SmartMoneyEngine
 
@@ -26,87 +24,6 @@ def _make_outcome(won=True, pnl_pct=2.0, r_multiple=1.5, hold_bars=10):
     return {"pnl_pct": pnl_pct, "r_multiple": r_multiple,
             "won": won, "hold_bars": hold_bars}
 
-
-class TestFeedbackLoopRecording:
-    def test_record_and_stats_basic(self):
-        fb = TradeOutcomeFeedback(buffer_size=50)
-        fb.record_outcome(_make_features(), _make_outcome(won=True))
-        fb.record_outcome(_make_features(), _make_outcome(won=False, pnl_pct=-1.0, r_multiple=-0.5))
-        stats = fb.get_stats()
-        assert stats["total_trades"] == 2
-        assert stats["win_rate"] == 0.5
-
-    def test_buffer_rolls(self):
-        fb = TradeOutcomeFeedback(buffer_size=5)
-        for i in range(10):
-            fb.record_outcome(_make_features(adx=float(i)), _make_outcome())
-        stats = fb.get_stats()
-        assert stats["total_trades"] == 5
-
-    def test_no_trades_stats(self):
-        fb = TradeOutcomeFeedback()
-        stats = fb.get_stats()
-        assert stats["total_trades"] == 0
-        assert stats["win_rate"] == 0.0
-        assert stats["suggested_weights"] == {}
-
-
-class TestFeedbackLoopImportance:
-    def _populate(self, fb, n_wins=15, n_losses=10):
-        for _ in range(n_wins):
-            fb.record_outcome(
-                _make_features(adx=35.0, momentum=0.8, hurst=0.6),
-                _make_outcome(won=True, r_multiple=2.0),
-            )
-        for _ in range(n_losses):
-            fb.record_outcome(
-                _make_features(adx=15.0, momentum=0.2, hurst=0.4),
-                _make_outcome(won=False, r_multiple=-1.0),
-            )
-
-    def test_feature_importance_needs_min_trades(self):
-        fb = TradeOutcomeFeedback()
-        for _ in range(10):
-            fb.record_outcome(_make_features(), _make_outcome())
-        assert fb.compute_feature_importance() == {}
-
-    def test_feature_importance_computed(self):
-        fb = TradeOutcomeFeedback()
-        self._populate(fb)
-        imp = fb.compute_feature_importance()
-        assert len(imp) > 0
-        # adx and momentum should have positive correlation with wins
-        assert imp["adx"] > 0
-        assert imp["momentum"] > 0
-
-    def test_suggest_weights_normalised(self):
-        fb = TradeOutcomeFeedback()
-        self._populate(fb)
-        weights = fb.suggest_weight_adjustments()
-        assert len(weights) > 0
-        assert abs(sum(weights.values()) - 1.0) < 0.01
-
-    def test_all_wins(self):
-        fb = TradeOutcomeFeedback()
-        for _ in range(25):
-            fb.record_outcome(_make_features(), _make_outcome(won=True))
-        imp = fb.compute_feature_importance()
-        # All wins → zero variance in outcome → correlations should be 0
-        for v in imp.values():
-            assert v == 0.0
-
-    def test_all_losses(self):
-        fb = TradeOutcomeFeedback()
-        for _ in range(25):
-            fb.record_outcome(_make_features(), _make_outcome(won=False))
-        imp = fb.compute_feature_importance()
-        for v in imp.values():
-            assert v == 0.0
-
-
-# ======================================================================
-# 12. Sentiment Analyzer
-# ======================================================================
 
 class TestSentimentFunding:
     def test_extreme_positive_funding_bearish(self):
