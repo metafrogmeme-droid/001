@@ -8,57 +8,60 @@ display_name_i18n:
   es: "RUNECLAW Confluencia"
   ja: "RUNECLAW コンフルエンス"
   vi: "RUNECLAW Hợp Lưu"
-description: "Regime-adaptive BNB perpetual strategy that routes between momentum, mean-reversion, and volume-breakout entries behind a market-leader gate and a hard confluence score, with risk-first exits and a daily circuit breaker"
+description: "Regime-adaptive multi-asset USDT-perpetual strategy that routes each major between momentum, mean-reversion, and volume-breakout entries behind a BTC leader gate and a hard confluence score, with per-trade risk caps, a portfolio position cap, and a daily circuit breaker"
 description_i18n:
-  en: "Regime-adaptive BNB perpetual strategy that routes between momentum, mean-reversion, and volume-breakout entries behind a market-leader gate and a hard confluence score, with risk-first exits and a daily circuit breaker"
-  zh: "自适应市场状态的 BNB 永续合约策略:通过市场领导者门控与多指标共振评分,在动量、均值回归与放量突破之间切换,风险优先离场并配备当日熔断"
-  zh-tw: "自適應市場狀態的 BNB 永續合約策略:通過市場領導者門控與多指標共振評分,在動量、均值回歸與放量突破之間切換,風險優先離場並配備當日熔斷"
-  es: "Estrategia adaptativa al régimen en perpetuos de BNB: enruta entre momentum, reversión a la media y rupturas por volumen tras un filtro del líder del mercado y una puntuación de confluencia estricta, con salidas centradas en el riesgo y un cortacircuitos diario"
-  ja: "市場リーダーのゲートと厳格なコンフルエンススコアを通過した後、モメンタム・平均回帰・出来高ブレイクアウトを切り替えるレジーム適応型BNB無期限先物戦略。リスク優先の決済と日次サーキットブレーカーを装備"
-  vi: "Chiến lược hợp đồng vĩnh viễn BNB thích ứng theo chế độ thị trường: định tuyến giữa động lượng, hồi quy trung bình và đột phá khối lượng sau cổng dẫn dắt thị trường và điểm hợp lưu nghiêm ngặt, thoát lệnh ưu tiên rủi ro với cầu dao ngắt mạch hằng ngày"
+  en: "Regime-adaptive multi-asset USDT-perpetual strategy that routes each major between momentum, mean-reversion, and volume-breakout entries behind a BTC leader gate and a hard confluence score, with per-trade risk caps, a portfolio position cap, and a daily circuit breaker"
+  zh: "自适应市场状态的多币种 USDT 永续合约策略:在 BTC 领导者门控与多指标共振评分之后,为每个主流币在动量、均值回归与放量突破之间切换,配备单笔风险上限、组合持仓上限与当日熔断"
+  zh-tw: "自適應市場狀態的多幣種 USDT 永續合約策略:在 BTC 領導者門控與多指標共振評分之後,為每個主流幣在動量、均值回歸與放量突破之間切換,配備單筆風險上限、組合持倉上限與當日熔斷"
+  es: "Estrategia multiactivo adaptativa al régimen en perpetuos USDT: enruta cada activo principal entre momentum, reversión a la media y rupturas por volumen tras un filtro del líder BTC y una puntuación de confluencia estricta, con límites de riesgo por operación, tope de posiciones de cartera y cortacircuitos diario"
+  ja: "BTCリーダーゲートと厳格なコンフルエンススコアを通過した後、主要銘柄ごとにモメンタム・平均回帰・出来高ブレイクアウトを切り替えるレジーム適応型マルチアセットUSDT無期限先物戦略。取引毎のリスク上限、ポートフォリオ建玉上限、日次サーキットブレーカーを装備"
+  vi: "Chiến lược đa tài sản thích ứng theo chế độ trên hợp đồng vĩnh viễn USDT: định tuyến từng đồng chủ chốt giữa động lượng, hồi quy trung bình và đột phá khối lượng sau cổng dẫn dắt BTC và điểm hợp lưu nghiêm ngặt, với giới hạn rủi ro mỗi lệnh, trần vị thế danh mục và cầu dao ngắt mạch hằng ngày"
 long_description: |
-  RUNECLAW Confluence is a regime-adaptive system on BNB perpetual futures that
-  aims to capture whatever behavior the market is actually offering rather than
-  forcing one style onto every session. It reads the market leader's backdrop
-  first and routes to a matching playstyle: riding momentum pullbacks when the
-  backdrop trends, fading stretched moves back toward the session's average
-  traded price when it ranges, and an opportunistic breakout overlay when
-  unusual volume arrives. Flat is the default state — when the backdrop is
-  mixed or unreadable the strategy opens nothing and waits.
+  RUNECLAW Confluence is a regime-adaptive system on major USDT perpetual
+  futures that aims to capture whatever behavior the market is actually
+  offering rather than forcing one style onto every session. It reads the
+  market leader's backdrop first and routes every name in its universe to a
+  matching playstyle: riding momentum pullbacks when the backdrop trends,
+  fading stretched moves back toward the session's average traded price when
+  it ranges, and an opportunistic breakout overlay when unusual volume
+  arrives. Flat is the default state — when the backdrop is mixed or
+  unreadable the strategy opens nothing and waits.
 
-  Entries are gated by a blended confluence reading built from independent
-  technical voters: trend alignment across timeframes, momentum oscillators,
-  position against the session's average traded price, location within the
-  recent range, volume behavior, and volatility bands. Only when the
-  electorate agrees strongly enough does it act — entering long with a
-  constructive leader, short against a weak one, usually on a resting limit
+  Entries are gated per symbol by a blended confluence reading built from
+  independent technical voters: trend alignment across timeframes, momentum
+  oscillators, position against the session's average traded price, location
+  within the recent range, volume behavior, and volatility bands. Only when
+  the electorate agrees strongly enough does a name act — entering long with
+  a constructive leader, short against a weak one, usually on a resting limit
   order placed where a normal retracement should fill rather than chasing.
 
-  Exits are risk-first. A protective stop rests at the venue from the moment a
-  position opens, and every position is sized backward from a fixed worst-case
-  dollar loss so a single trade cannot take more than its allowance. Profit is
-  taken at a defined target, the stop lifts toward the entry once a trade has
-  moved favourably, stale unfilled entries expire on their own, positions
-  carry an intraday time stop, and a daily circuit breaker first pauses and
-  then stops trading entirely after a losing day.
+  Exits are risk-first. A protective stop rests at the venue from the moment
+  a position opens, and every position is sized backward from a fixed
+  worst-case dollar loss so a single trade cannot take more than its
+  allowance. Profit is taken at a defined target, the stop lifts toward the
+  entry once a trade has moved favourably, stale unfilled entries expire on
+  their own, positions carry an intraday time stop, a portfolio cap limits
+  how many names may hold positions at once, and a daily circuit breaker
+  first pauses and then stops trading entirely after a losing day.
 
-  Subscribers can tune the leverage applied, the margin budget that anchors
-  sizing and the displayed return, the dollar risk allowed per trade, the
-  confluence bar required to act, and whether short entries are allowed.
-  Higher leverage or a larger risk allowance enlarges gains and drawdowns
-  alike; a higher confluence bar trades less often but more selectively;
-  disabling shorts limits the system to supportive backdrops only.
+  Subscribers can tune the traded universe, the leverage applied, the margin
+  budget that anchors sizing and the displayed return, the dollar risk
+  allowed per trade, the confluence bar required to act, whether short
+  entries are allowed, and how many positions may run concurrently. Higher
+  leverage or a larger risk allowance enlarges gains and drawdowns alike; a
+  higher confluence bar trades less often but more selectively; widening the
+  universe spreads attention across more names but increases data load.
 
   The strategy underperforms when the leader chops without committing to a
   direction, when a quiet range resolves into a sudden trend against a
   reversion entry, or when fast moves gap through protective stops. By design
   it can sit idle for long stretches. Historical results come from replaying
   real bars with fees applied, but past performance is not a promise: live
-  trading pays slippage that erodes edge, so size every position to a drawdown
-  you can tolerate.
+  trading pays slippage that erodes edge, so size every position to a
+  drawdown you can tolerate.
 market_type: contract
-trading_symbols: ["BNBUSDT", "BTCUSDT"]
-tags: ["confluence", "regime-adaptive", "momentum", "mean-reversion", "breakout", "multi-timeframe", "risk-managed", "bnb", "contract", "runeclaw"]
+trading_symbols: ["BNBUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT", "BCHUSDT", "NEARUSDT", "AAVEUSDT", "BTCUSDT"]
+tags: ["confluence", "regime-adaptive", "momentum", "mean-reversion", "breakout", "multi-timeframe", "multi-asset", "risk-managed", "contract", "runeclaw"]
 
 schedule:
   cron: "*/15 * * * *"
@@ -71,14 +74,18 @@ execution_mode: follow_trade
 follow_trade_supported: true
 
 strategy_config:
-  trading_symbols: ["BNBUSDT", "BTCUSDT"]
+  trading_symbols: ["BNBUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT", "BCHUSDT", "NEARUSDT", "AAVEUSDT", "BTCUSDT"]
   leverage: 10
   margin_budget: "100"
   max_loss_usdt: "15"
   min_score: 70
   allow_short: true
+  max_concurrent: 3
+  max_scan_symbols: 12
   interval: "15m"
-  backtest_days: 60
+  backtest_days: 30
+  max_backtest_symbols: 5
+  backtest_batch_size: 4
   data_exchange: "bitget"
   sl_min_pct: "1.2"
   atr_limit_mult: "0.5"
@@ -101,6 +108,14 @@ strategy_config:
   min_notional_usdt: "5"
 
 user_config_schema:
+  trading_symbols:
+    type: array
+    item_type: string
+    default: ["BNBUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT", "BCHUSDT", "NEARUSDT", "AAVEUSDT", "BTCUSDT"]
+    options: ["BNBUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT", "BCHUSDT", "NEARUSDT", "AAVEUSDT", "LTCUSDT", "DOTUSDT", "XLMUSDT", "BTCUSDT"]
+    min_items: 2
+    max_items: 16
+    label: "Traded universe (keep BTCUSDT in the list: it is the regime leader and is never traded)"
   leverage:
     type: integer
     default: 10
@@ -130,3 +145,21 @@ user_config_schema:
     type: boolean
     default: true
     label: "Enable short-side setups"
+  max_concurrent:
+    type: integer
+    default: 3
+    min: 1
+    max: 5
+    label: "Max concurrent open positions across the universe"
+  max_backtest_symbols:
+    type: integer
+    default: 5
+    min: 1
+    max: 12
+    label: "Symbols replayed in the official backtest slice"
+  backtest_days:
+    type: integer
+    default: 30
+    min: 7
+    max: 60
+    label: "Backtest window in days"

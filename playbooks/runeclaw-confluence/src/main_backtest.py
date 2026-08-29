@@ -1,10 +1,12 @@
-"""Historical replay entry for RUNECLAW Confluence.
+"""Historical replay entry for RUNECLAW Confluence (multi-symbol).
 
-Fetches BNB (traded) + BTC (leader regime context) 15m klines in chunks that
-respect the per-request bar cap, runs the self-contained Nautilus replay via
-``backtest.run`` with both instruments, writes the output contract files, and
-emits a summary signal. A missing leader feed aborts the run as a watch —
-regime is never fabricated from absent data.
+Fetches 15m klines for a configurable slice of the traded universe plus the
+BTC leader context in batches that respect the per-request bar cap, filters
+the Nautilus spec down to the instruments that actually loaded (the engine
+requires data for every declared instrument), runs the self-contained replay,
+writes the output contract files, and emits a summary signal. A missing
+leader feed aborts the run as a watch — regime is never fabricated from
+absent data, and skipped symbols are reported, never silently dropped.
 """
 import json
 import math
@@ -15,8 +17,8 @@ from typing import Any, Optional
 import pandas as pd
 from getagent import backtest, data, runtime
 
-_BNB_KEY = "BNBUSDT.BITGET"
-_BTC_KEY = "BTCUSDT.BITGET"
+_GATE = "BTCUSDT"
+_VENUE = "BITGET"
 _OUT = Path("/workspace/output")
 _INTERVAL_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000}
 _WARMUP_BARS = 420
@@ -47,7 +49,7 @@ def _fetch_frame(symbol: str, interval: str, exchange: str, days: int) -> Option
     start_ms = end_ms - total_bars * step_ms
     frames = []
     cursor = start_ms
-    for _ in range(24):  # hard bound on requests
+    for _ in range(24):  # hard bound on requests per symbol
         if cursor >= end_ms:
             break
         chunk_end = min(cursor + 990 * step_ms, end_ms)
@@ -73,46 +75,77 @@ def _fetch_frame(symbol: str, interval: str, exchange: str, days: int) -> Option
     return out.tail(total_bars)
 
 
+def _filtered_spec(spec: Any, loaded_keys: set) -> Any:
+    """Keep only instruments whose data loaded — the engine expects OHLCV for
+    every declared instrument. On any surprise in the spec shape, return it
+    unchanged and let the engine report the real error."""
+    try:
+        out = dict(spec)
+        instruments = out.get("instruments")
+        if isinstance(instruments, list):
+            kept = [i for i in instruments if str(i.get("id")) in loaded_keys]
+            if kept:
+                out["instruments"] = kept
+                return out
+    except Exception as exc:
+        print(f"[runeclaw-confluence] spec filter skipped: {type(exc).__name__}: {exc}")
+    return spec
+
+
 def run() -> None:
     cfg = runtime.manifest.get("strategy_config", {}) or {}
     interval = str(cfg.get("interval", "15m"))
-    days = int(cfg.get("backtest_days", 45))
+    days = int(cfg.get("backtest_days", 30))
     exchange = str(cfg.get("data_exchange", "bitget"))
+    max_symbols = max(int(cfg.get("max_backtest_symbols", 5)), 1)
+    batch_size = max(int(cfg.get("backtest_batch_size", 4)), 1)
 
-    bnb = _fetch_frame("BNBUSDT", interval, exchange, days)
-    btc = _fetch_frame("BTCUSDT", interval, exchange, days)
-    if (bnb is None or bnb.empty) and exchange != "binance":
-        # Documented fallback: replay data only; venue fees stay as declared.
-        print("[runeclaw-confluence] bitget kline path empty for BNBUSDT; "
-              "falling back to binance data feed")
-        exchange = "binance"
-        bnb = _fetch_frame("BNBUSDT", interval, exchange, days)
-        btc = _fetch_frame("BTCUSDT", interval, exchange, days)
-    if bnb is None or bnb.empty:
-        _emit_watch("no_historical_bars_bnb")
+    universe = [str(s).upper() for s in (cfg.get("trading_symbols") or [])
+                if str(s).upper() != _GATE]
+    requested = universe[:max_symbols]
+    if not requested:
+        _emit_watch("empty_universe")
         return
+
+    btc = _fetch_frame(_GATE, interval, exchange, days)
     if btc is None or btc.empty:
         _emit_watch("no_historical_bars_btc_leader")
         return
 
-    print(f"[runeclaw-confluence] bnb_rows={len(bnb)} btc_rows={len(btc)} "
-          f"first={bnb.index[0]} last={bnb.index[-1]} exchange={exchange}")
+    loaded: dict = {}
+    skipped: list = []
+    for start in range(0, len(requested), batch_size):
+        for symbol in requested[start:start + batch_size]:
+            frame = _fetch_frame(symbol, interval, exchange, days)
+            if frame is None or frame.empty:
+                skipped.append(symbol)
+                print(f"[runeclaw-confluence] no replay data for {symbol}; skipped")
+                continue
+            loaded[symbol] = frame
+    if not loaded:
+        _emit_watch("no_historical_bars_universe",
+                    {"symbols_requested": len(requested)})
+        return
 
-    result = backtest.run(ohlcv_data={_BNB_KEY: bnb, _BTC_KEY: btc},
-                          spec=runtime.backtest_spec)
+    ohlcv = {f"{sym}.{_VENUE}": frame for sym, frame in loaded.items()}
+    ohlcv[f"{_GATE}.{_VENUE}"] = btc
+    loaded_keys = set(ohlcv.keys())
+    anchor = next(iter(loaded))
+    print(f"[runeclaw-confluence] symbols_loaded={len(loaded)}/{len(requested)} "
+          f"skipped={skipped} rows_each≈{len(next(iter(loaded.values())))} "
+          f"btc_rows={len(btc)} exchange={exchange}")
+
+    spec = _filtered_spec(runtime.backtest_spec, loaded_keys)
+    result = backtest.run(ohlcv_data=ohlcv, spec=spec)
     summary = result.summary or {}
     raw = result.raw if isinstance(result.raw, dict) else {}
-    total_trades = int(getattr(result, "total_trades", 0) or 0)
-    print(f"[runeclaw-confluence] trades={total_trades} "
-          f"return_pct={getattr(result, 'total_return_pct', None)} "
-          f"win_rate={getattr(result, 'win_rate', None)} "
-          f"pf={getattr(result, 'profit_factor', None)}")
+    print(f"[runeclaw-confluence] trades={int(_f(summary.get('total_trades'), 0))} "
+          f"positions={int(_f(summary.get('position_count'), 0))} "
+          f"pf={summary.get('profit_factor')} sharpe={summary.get('sharpe_ratio')}")
 
     starting_balance = _f(summary.get("starting_balance"), 10000.0)
 
     # Reconcile from the positions ledger itself — never from summary fields.
-    # (The engine's in-run summary and the platform-normalized record can
-    # disagree; the closed-positions report is the single source of truth.)
     ledger = _position_ledger(raw)
     if ledger["count"] > 0:
         net_pnl = ledger["net_pnl"]
@@ -137,7 +170,7 @@ def run() -> None:
     except Exception as exc:
         print(f"[runeclaw-confluence] report write failed: {type(exc).__name__}: {exc}")
 
-    _write_equity_curve(bnb, starting_balance, net_pnl, raw)
+    _write_equity_curve(btc, starting_balance, net_pnl, raw)
 
     chart_path = ""
     try:
@@ -145,7 +178,6 @@ def run() -> None:
     except Exception as exc:
         print(f"[runeclaw-confluence] chart failed: {type(exc).__name__}: {exc}")
 
-    # Source every emitted number from the closed-positions ledger.
     if ledger["count"] > 0:
         positions = ledger["count"]
         win_rate = ledger["win_rate"]
@@ -166,16 +198,19 @@ def run() -> None:
         "position_count": positions,
         "profit_factor": profit_factor,
         "metrics_source": "positions_ledger" if ledger["count"] > 0 else "engine_summary",
-        "rows": len(bnb),
+        "symbols_requested": len(requested),
+        "symbols_loaded": len(loaded),
         "leader_rows": len(btc),
     }
     action = "long" if net_pnl > 0 and positions > 0 else "watch"
     runtime.emit_signal(
-        action=action, symbol="BNBUSDT",
+        action=action, symbol=anchor,
         confidence=win_rate,
         metrics=metrics,
         meta={"chart_path": chart_path, "interval": interval, "exchange": exchange,
-              "gate_symbol": "BTCUSDT", "backtest_days": days, "run_id": runtime.run_id},
+              "gate_symbol": _GATE, "backtest_days": days,
+              "symbols_loaded": sorted(loaded.keys()), "symbols_skipped": skipped,
+              "batch_size": batch_size, "run_id": runtime.run_id},
     )
 
 
@@ -197,8 +232,11 @@ def _position_ledger(raw: dict) -> dict:
         try:
             pnl = float(value)
         except (TypeError, ValueError):
-            out["unreadable"] += 1
-            continue
+            try:
+                pnl = float(str(value).split()[0].replace(",", ""))
+            except (TypeError, ValueError, IndexError):
+                out["unreadable"] += 1
+                continue
         if not math.isfinite(pnl):
             out["unreadable"] += 1
             continue
@@ -226,13 +264,17 @@ def _write_equity_curve(frame: pd.DataFrame, starting_balance: float,
     points: list = []
     try:
         positions = (raw.get("reports") or {}).get("positions") or []
-        running = starting_balance
+        rows = []
         for pos in positions:
             ts = pos.get("ts_closed") or pos.get("closing_time") or pos.get("ts_last")
             pnl = _f(pos.get("realized_pnl") or pos.get("realized_return") or 0.0)
-            running += pnl
             if ts is not None:
-                points.append((str(ts), running))
+                rows.append((str(ts), pnl))
+        rows.sort(key=lambda r: r[0])
+        running = starting_balance
+        for ts, pnl in rows:
+            running += pnl
+            points.append((ts, running))
     except Exception:
         points = []
     if not points:

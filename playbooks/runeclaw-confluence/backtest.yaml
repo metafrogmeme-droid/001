@@ -17,6 +17,7 @@ strategy:
     max_loss_usdt: "15"
     min_score: 70
     allow_short: true
+    max_concurrent: 3
     sl_min_pct: "1.2"
     atr_limit_mult: "0.5"
     tp1_pct: "3.5"
@@ -52,6 +53,160 @@ instruments:
     maker_fee: "0.0002"
     taker_fee: "0.0006"
     bar_type: BNBUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: ETHUSDT.BITGET
+    kind: perpetual
+    raw_symbol: ETHUSDT
+    base_currency: ETH
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 2
+    size_precision: 2
+    price_increment: "0.01"
+    size_increment: "0.01"
+    lot_size: "0.01"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: ETHUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: SOLUSDT.BITGET
+    kind: perpetual
+    raw_symbol: SOLUSDT
+    base_currency: SOL
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 3
+    size_precision: 1
+    price_increment: "0.001"
+    size_increment: "0.1"
+    lot_size: "0.1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: SOLUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: XRPUSDT.BITGET
+    kind: perpetual
+    raw_symbol: XRPUSDT
+    base_currency: XRP
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 4
+    size_precision: 0
+    price_increment: "0.0001"
+    size_increment: "1"
+    lot_size: "1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: XRPUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: DOGEUSDT.BITGET
+    kind: perpetual
+    raw_symbol: DOGEUSDT
+    base_currency: DOGE
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 5
+    size_precision: 0
+    price_increment: "0.00001"
+    size_increment: "1"
+    lot_size: "1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: DOGEUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: ADAUSDT.BITGET
+    kind: perpetual
+    raw_symbol: ADAUSDT
+    base_currency: ADA
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 4
+    size_precision: 0
+    price_increment: "0.0001"
+    size_increment: "1"
+    lot_size: "1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: ADAUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: LINKUSDT.BITGET
+    kind: perpetual
+    raw_symbol: LINKUSDT
+    base_currency: LINK
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 3
+    size_precision: 0
+    price_increment: "0.001"
+    size_increment: "1"
+    lot_size: "1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: LINKUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: AVAXUSDT.BITGET
+    kind: perpetual
+    raw_symbol: AVAXUSDT
+    base_currency: AVAX
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 3
+    size_precision: 1
+    price_increment: "0.001"
+    size_increment: "0.1"
+    lot_size: "0.1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: AVAXUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: SUIUSDT.BITGET
+    kind: perpetual
+    raw_symbol: SUIUSDT
+    base_currency: SUI
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 4
+    size_precision: 1
+    price_increment: "0.0001"
+    size_increment: "0.1"
+    lot_size: "0.1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: SUIUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: BCHUSDT.BITGET
+    kind: perpetual
+    raw_symbol: BCHUSDT
+    base_currency: BCH
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 2
+    size_precision: 2
+    price_increment: "0.01"
+    size_increment: "0.01"
+    lot_size: "0.01"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: BCHUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: NEARUSDT.BITGET
+    kind: perpetual
+    raw_symbol: NEARUSDT
+    base_currency: NEAR
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 4
+    size_precision: 0
+    price_increment: "0.0001"
+    size_increment: "1"
+    lot_size: "1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: NEARUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
+  - id: AAVEUSDT.BITGET
+    kind: perpetual
+    raw_symbol: AAVEUSDT
+    base_currency: AAVE
+    quote_currency: USDT
+    settlement_currency: USDT
+    price_precision: 2
+    size_precision: 1
+    price_increment: "0.01"
+    size_increment: "0.1"
+    lot_size: "0.1"
+    maker_fee: "0.0002"
+    taker_fee: "0.0006"
+    bar_type: AAVEUSDT.BITGET-15-MINUTE-LAST-EXTERNAL
   - id: BTCUSDT.BITGET
     kind: perpetual
     raw_symbol: BTCUSDT
