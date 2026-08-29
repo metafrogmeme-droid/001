@@ -2185,6 +2185,31 @@ class RiskEngine:
                                 f"('{_strat}' {_why})")
                     else:
                         passed.append(f"VALIDATION: '{_strat}' {_verdict}")
+                    # `validation_result` was built here and then DISCARDED
+                    # (ruff F841). That made a promise the product prints
+                    # elsewhere untrue: /gates renders a shadow gate as one
+                    # that "records what it would reject, refuses nothing" —
+                    # and this one refused nothing and recorded nothing.
+                    #
+                    # A gate ships off -> shadow -> enforce on EVIDENCE, and
+                    # the evidence for promoting this one is the count of
+                    # trades it would have stopped. With the dict thrown away
+                    # that count did not exist, so shadow was not a stage on
+                    # the way to enforce; it was where the gate stayed.
+                    #
+                    # The audit chain is the right home rather than a new
+                    # tally surface: it is already durable, already read, and
+                    # a module nobody calls is the failure mode this file's
+                    # neighbours keep being fixed for. Recording-only — this
+                    # block cannot touch `passed` or `failed`.
+                    audit(risk_log,
+                          f"VALIDATION {_vmode}: '{_strat}' {_verdict}"
+                          + (" (would reject)" if _would_reject else ""),
+                          action="validation_gate",
+                          result=("WOULD_REJECT" if _would_reject
+                                  else "ALLOW") if _vmode != "enforce"
+                                 else ("REJECTED" if _would_reject else "ALLOW"),
+                          data=validation_result)
             except Exception as _vge:
                 # A validation fault must NEVER affect a trade.
                 passed.append(f"VALIDATION: skipped (error: {_vge})")

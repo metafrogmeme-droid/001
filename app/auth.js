@@ -11,6 +11,7 @@ const { stepUpBlock } = require('./lib/stepup');
 const { postGateway, isConfigured } = require('./lib/gateway');
 const gateway = { isConfigured };
 const { erasurePlan } = require('./lib/account_erasure');
+const { aggregateStats } = require('./public/js/trade-stats');
 const { secLog } = require('./lib/seclog');
 
 // Self-custody sign-in verifier — optional dependency. Lazy so the app still
@@ -303,6 +304,10 @@ async function revokeUserTokens(userId) {
   return rows.length ? Number(rows[0].token_epoch) || 0 : 0;
 }
 
+// The standard paper starting stake, same constant routes/leaderboard.js
+// scores percentages against.
+const PAPER_BASE = 10000;
+
 async function getUserEquity(userId) {
   // Use latest synced equity snapshot if available
   const [snapRows] = await pool.execute(
@@ -310,7 +315,11 @@ async function getUserEquity(userId) {
     [userId]
   );
   if (snapRows.length > 0) {
-    return parseFloat(snapRows[0].equity);
+    // A row can exist with an unparseable equity; parseFloat would hand back
+    // NaN, which survives arithmetic and JSON-serializes to null anyway. Say
+    // null deliberately instead of arriving there by accident.
+    const e = parseFloat(snapRows[0].equity);
+    return Number.isFinite(e) ? e : null;
   }
   // The operator (BOT_USER_ID) trades LIVE — there is no paper baseline to fall
   // back to. If no real synced snapshot exists, the honest answer is null
@@ -318,13 +327,42 @@ async function getUserEquity(userId) {
   // paper baseline, which is correct for them.
   const BOT_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
   if (userId === BOT_USER_ID) return null;
-  // Fallback: compute from trade PnL (paper users who haven't synced yet start
-  // from the $10k paper baseline).
-  const [rows] = await pool.execute(
-    'SELECT COALESCE(SUM(pnl), 0) as total_pnl FROM trades WHERE user_id = ? AND status = ?',
-    [userId, 'CLOSED']
-  );
-  return 10000 + parseFloat(rows[0].total_pnl || 0);
+
+  // Paper users: baseline + realized P&L — but only over a book we can READ.
+  // This was `COALESCE(SUM(pnl), 0)` plus a second `|| 0` in JS, so a paper
+  // user whose closed trades were all unpriced read exactly $10,000.00: the
+  // same number as a brand-new account and as one traded to precise
+  // break-even. `trades.pnl` is nullable and a CLOSED row with no recorded
+  // P&L genuinely occurs (routes/sync.js forwards the gateway's `pnl`
+  // uncoerced), so that was not a hypothetical.
+  //
+  // routes/portfolio.js, routes/leaderboard.js, routes/sync.js and
+  // routes/trades.js were each rewritten to score the priced rows explicitly.
+  // This function was the fourth path and was missed for the same reason
+  // portfolio.js's own comment gives for having been missed: nobody was
+  // reading it while auditing the trade routes. Same query, same reader
+  // (aggregateStats), so the paths cannot drift apart again.
+  const [pnlRows] = await pool.execute(
+    "SELECT COUNT(*) AS total, " +
+    "SUM(CASE WHEN pnl IS NOT NULL THEN 1 ELSE 0 END) AS scored, " +
+    "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, " +
+    "SUM(pnl) AS net_pnl " +
+    "FROM trades WHERE user_id = ? AND status = ?",
+    [userId, 'CLOSED']);
+  const closed = aggregateStats(pnlRows[0]);
+
+  // No closed trades at all is a READING, not an absence: a paper account that
+  // has not closed anything holds exactly the starting stake.
+  if (closed.total === 0) return PAPER_BASE;
+
+  // Any unpriced row makes the sum PARTIAL, and a partial total printed as a
+  // whole one is the row of CLAUDE.md's table this function was sitting on.
+  // Equity is a single scalar with nowhere to carry a caveat, so it guards
+  // rather than omits. null is already a value this endpoint returns (the
+  // operator branch above), so every consumer already handles it.
+  if (closed.unpriced > 0 || closed.net_pnl === null) return null;
+
+  return PAPER_BASE + closed.net_pnl;
 }
 
 // The single place that turns a user into the session JSON the SPA stores after
