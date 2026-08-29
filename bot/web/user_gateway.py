@@ -2882,7 +2882,14 @@ async def handle_account_purge(request: web.Request) -> web.Response:
         result["strategy_preference"] = "error"
 
     try:
-        store = getattr(tg_handler, "user_store", None)
+        # `.users`, not `.user_store`. TelegramHandler binds the store as
+        # `self.users` (bot/skills/telegram_handler.py:846) and every other
+        # call site in this file reads it that way (_is_admin_id, _guard_user,
+        # _web_skill_denied). The probe here named an attribute that has never
+        # existed, so it resolved to None on every real request and reported
+        # `error` — a deletion the user asked for, never attempted, and
+        # reported as a partial failure rather than as not-run.
+        store = getattr(tg_handler, "users", None)
         if store is None:
             result["user_record"] = "error"
         else:
