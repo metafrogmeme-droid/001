@@ -68,16 +68,28 @@ F = [
          note="COMPLIANCE-RELEVANT: behaviour changed from never-deletes to deletes. "
               "Not retroactive; records surviving earlier requests need a sweep."),
     dict(id="RC-2026-007", title="setlimit: callback ownership guard is fail-open on a "
-         "missing owner tag", status="FIXED", severity="HIGH", confidence="CONFIRMED",
-         category="broken-access-control", component="telegram-bot",
+         "missing owner tag", status="FIXED", severity="LOW", confidence="CONFIRMED",
+         severity_history=[dict(was="HIGH", now="LOW",
+                                why="I rated it on 'rewrite another user's pending "
+                                    "trade'. An adversarial verifier challenged the "
+                                    "impact and was right: engine._pending_ideas is a "
+                                    "SHARED book (bot/core/engine.py:4258,6576), and "
+                                    "every scan-role user already gets a legitimate "
+                                    "setlimit button for ideas in it. The untagged "
+                                    "payload skipped a tag check on a resource the "
+                                    "caller already had. The fix stands; the impact "
+                                    "claim was mine and was wrong.")],
+         category="defence-in-depth", component="telegram-bot",
          file="bot/skills/telegram_handler.py", line="14007",
          fix_class="SAFE_AUTO_FIX",
-         standard=["OWASP-A01:2021", "CWE-639", "CWE-863"],
+         standard=["CWE-639"],
          verified_by="lead-auditor+dimension-agent",
          test="tests/test_callback_owner_guard_is_fail_closed.py",
-         note="Residual: ownership still rides in the callback round-trip, so "
-              "setlimit:<victim_trade>:<own_uid> satisfies a tag the caller authored. "
-              "Needs owner_uid on TradeIdea - REVIEW_REQUIRED."),
+         note="Fix is still correct: an untagged payload matches none of the four "
+              "construction sites, and the branch now matches its two fail-closed "
+              "siblings. Residual (also LOW for the same shared-book reason): "
+              "ownership rides in the callback round-trip; an owner_uid on TradeIdea "
+              "would matter if the book ever became per-user."),
     dict(id="RC-2026-008", title="Backups omit the per-user credential store, and the "
          "master key that opens what they do archive",
          status="PARTIALLY_FIXED", severity="HIGH", confidence="CONFIRMED",
@@ -103,6 +115,30 @@ F = [
          note="Proposed, not applied: the card is assembled inline; the builder wants "
               "extracting first so the fix can be tested."),
 ]
+
+VERIFICATION = dict(
+    method="two independent adversarial verifiers per finding, distinct lenses "
+           "(evidence/correctness; reachability/prior-art), both defaulting to refute. "
+           "Refuted by both -> REFUTED, by one -> SUSPECTED, by neither -> CONFIRMED.",
+    dimensions_verified=["web-authz", "py-api-authz", "telegram-authz", "secrets"],
+    raw=22, confirmed=15, suspected=6, refuted=1, unverified=0,
+    confirmed_and_still_open=[
+        "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt counter (HIGH)",
+        "py-api-authz: /risk/halt swallows the halt failure and returns hardcoded success (HIGH)",
+        "py-api-authz: Redis unreachable at boot silently downgrades JWT revocation (HIGH)",
+        "telegram-authz: /risk 'Safe Mode' button changes no state but says it is on (HIGH)",
+        "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but not the READ (MEDIUM)",
+        "py-api-authz: unauthenticated /api/lab/run allows unbounded subprocess/job growth (MEDIUM)",
+        "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
+        "secrets: gitleaks allowlist disables Solana keypair rules under tests/ and app/ (MEDIUM)",
+        "secrets: an undecryptable LLM key is returned as ciphertext, reported present (MEDIUM)",
+        "py-api-authz: /lab/status returns subprocess stderr to unauthenticated callers (LOW)",
+        "py-api-authz: handle_policy_clear swallows the failure and answers ok:true (LOW)",
+        "secrets: /connect and /setexchange echo a raw ccxt exception to the user (LOW)",
+    ],
+    note="These twelve are REPORTED, NOT REMEDIATED. Full detail with evidence in "
+         "audit/workflow_raw_findings.md; classification in audit/verified_findings.md.",
+)
 
 REFUTED = [
     dict(id="RC-2026-F01", title=".env.example testnet RPC vars are dead config",
@@ -213,6 +249,7 @@ art = dict(
              "declared as intended scope, not as assessed.",
     ),
     findings=F,
+    verification=VERIFICATION,
     refuted=REFUTED,
     validation=VALIDATION,
     coverage=COVERAGE,
