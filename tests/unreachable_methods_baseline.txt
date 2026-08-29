@@ -185,7 +185,6 @@ bot/nlp/conversation_store.py:ConversationStore.clear_all
 bot/risk/multi_portfolio.py:MultiUserPortfolio.all_user_ids
 bot/risk/multi_portfolio.py:MultiUserPortfolio.snapshot_all
 bot/risk/multi_portfolio.py:MultiUserPortfolio.venue_portfolios
-bot/risk/order_router.py:SmartOrderRouter.estimate_slippage
 bot/risk/order_router.py:SmartOrderRouter.optimal_order_type
 bot/risk/person_peak.py:PersonPeakStore.reseed
 bot/risk/risk_engine.py:RiskEngine.warning_rate_summary

@@ -3236,10 +3236,26 @@ class LiveExecutor:
             # error, or a malformed verdict must NEVER block a trade. Set
             # ENTRY_BOOK_WALL_GATE=off to opt out of the observing fetch.
             _wall_mode = os.environ.get("ENTRY_BOOK_WALL_GATE", "warn").strip().lower()
+            _slip_mode = os.environ.get("ENTRY_SLIPPAGE_GATE", "warn").strip().lower()
+            # ONE fetch serves both book gates. The slippage gate below reads
+            # `_entry_book` rather than fetching its own, so enabling it costs
+            # no extra call, no extra latency and no extra rate-limit budget on
+            # the live entry path. It is also why the fetch is driven by EITHER
+            # gate being on: making the slippage estimate depend on the WALL
+            # gate's flag would be a coupling nobody could see from its own
+            # config. `None` means the book was never read — distinct from a
+            # book that was read and came back empty.
+            _entry_book = None
+            if _wall_mode in ("warn", "block") or _slip_mode in ("warn", "block"):
+                try:
+                    _entry_book = await active_exchange.fetch_order_book(symbol, limit=25)
+                except Exception as _ob_exc:
+                    trade_log.debug("entry order-book fetch failed for %s: %s",
+                                    symbol, _ob_exc)
             if _wall_mode in ("warn", "block"):
                 try:
                     from bot.core.entry_quality import book_wall_verdict
-                    _ob = await active_exchange.fetch_order_book(symbol, limit=25)
+                    _ob = _entry_book
                     _verdict = book_wall_verdict(
                         idea.direction.value if hasattr(idea.direction, "value")
                         else str(idea.direction),
@@ -3304,6 +3320,83 @@ class LiveExecutor:
                 except (TypeError, ValueError):
                     pass
             quantity = (size_usd * leverage_mult) / current_price
+
+            # ── QC-2c SAFEGUARD 0d: pre-trade slippage estimate ──
+            # The only PRE-trade slippage reading in the codebase.
+            # `live_executor`'s wired guard is post-FILL: it compares what
+            # filled against the approved entry and complains afterwards, which
+            # cannot prevent a bad fill. This walks the book before the order
+            # exists.
+            #
+            # WHY HERE AND NOT BESIDE THE WALL GATE ABOVE. `size_usd` is the
+            # MARGIN, not the notional — `quantity = size_usd * leverage /
+            # price` two lines up. At the wall gate `leverage_mult` still holds
+            # CONFIG's default; the real value is only resolved just above.
+            # Estimating on the margin, or on the default leverage, would size
+            # the walk at a fraction of the real order and report a slippage
+            # for a trade nobody is placing. The book is the one fetched above,
+            # so this costs no second call.
+            #
+            # OBSERVE-FIRST: off | warn | block, default warn — logs and
+            # gathers evidence with zero trade impact. Fail-open at every
+            # layer; an unreadable book reports None and never blocks.
+            # Names are prefixed `_pre_slip*` deliberately. `_slip` and
+            # `_notional` are both ALREADY BOUND later in this same
+            # function — `_slip` to a float by the POST-FILL slippage
+            # guard, `_notional` by the notional check — and a function
+            # scope has one binding per name across 1,700 lines. The
+            # first draft reused both; the type ratchet caught it as
+            # `dict` assigned where `float` was expected. Harmless only
+            # because of statement order, which is not a property worth
+            # relying on.
+            if _slip_mode in ("warn", "block"):
+                try:
+                    from bot.risk.order_router import SmartOrderRouter
+                    # Buys eat the asks, sells eat the bids.
+                    _pre_slip_levels = ((_entry_book or {}).get("asks")
+                                    if idea.direction == Direction.LONG
+                                    else (_entry_book or {}).get("bids"))
+                    _pre_slip_notional = abs(quantity * current_price)
+                    _pre_slip = SmartOrderRouter().estimate_slippage(
+                        symbol, _pre_slip_notional, _pre_slip_levels)
+                    _pre_slip_pct = _pre_slip.get("slippage_pct")
+                    if _pre_slip_pct is None:
+                        # Not measured. Recorded as such rather than as 0.0,
+                        # which is the best slippage there is and the whole
+                        # reason this module was fixed before being wired.
+                        audit(trade_log,
+                              f"{symbol} pre-trade slippage UNREADABLE: "
+                              f"{_pre_slip.get('warning')} (mode={_slip_mode})",
+                              action="entry_slippage", result="UNREADABLE",
+                              data={"asset": symbol, "notional_usd": _pre_slip_notional,
+                                    "reason": _pre_slip.get("warning")})
+                    elif _pre_slip_pct > SmartOrderRouter.REJECT_THRESHOLD_PCT:
+                        audit(trade_log,
+                              f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% on "
+                              f"${_pre_slip_notional:,.0f} notional (mode={_slip_mode})",
+                              action="entry_slippage",
+                              result="BLOCKED" if _slip_mode == "block" else "WARN",
+                              data={"asset": symbol, "slippage_pct": _pre_slip_pct,
+                                    "notional_usd": _pre_slip_notional,
+                                    "order_type": _pre_slip.get("order_type"),
+                                    "warning": _pre_slip.get("warning")})
+                        if _slip_mode == "block":
+                            return (f"EXECUTION BLOCKED: {symbol} order book is too "
+                                    f"thin for ${_pre_slip_notional:,.0f} — a market order "
+                                    f"would slip ~{_pre_slip_pct:.2f}%; nothing was "
+                                    "placed.")
+                    else:
+                        audit(trade_log,
+                              f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% "
+                              f"on ${_pre_slip_notional:,.0f} notional",
+                              action="entry_slippage", result="OK",
+                              data={"asset": symbol, "slippage_pct": _pre_slip_pct,
+                                    "notional_usd": _pre_slip_notional,
+                                    "order_type": _pre_slip.get("order_type")})
+                except Exception as _pre_slip_exc:
+                    # Fail-open: a slippage read must never take a trade down.
+                    trade_log.debug("slippage gate skipped for %s: %s",
+                                    symbol, _pre_slip_exc)
 
             # Determine side
             side = "buy" if idea.direction == Direction.LONG else "sell"
