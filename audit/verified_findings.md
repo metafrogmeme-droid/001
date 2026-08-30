@@ -1055,3 +1055,89 @@ incomplete because neither the finder nor I asked *"what else calls this?"*
 before writing it up. CLAUDE.md says to ask which OTHER surface makes the same
 claim before calling a fix done — that applies to a *finding* as much as to a
 fix, and I did not do it the first time.
+
+---
+
+# Batch 3 — ai-injection, injection, browser-sec, honesty-py
+
+**22 raw · 22 CONFIRMED · 0 SUSPECTED · 0 REFUTED.** The only batch so far in
+which nothing was refuted. Recovered from the workflow journal after a worker
+restart swallowed the completion notification — the findings were produced and
+verified normally; only the delivery was lost.
+
+Full detail in `audit/workflow_raw_findings.md` as **B3-01 … B3-22**. The four
+at HIGH:
+
+**RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment.**
+That token carries trade-confirm, close and halt authority. A URL fragment
+survives in browser history, is readable by any script on the page, and leaks
+through anything that reflects `location`. `browser-sec`, HIGH.
+
+**RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready`
+and `/metrics` publish a permanent HEALTHY.** A monitor with no input reporting
+the good state is the exact failure CLAUDE.md's rule describes, on the endpoints
+an operator and any uptime checker consult first. `honesty-py`, HIGH.
+
+**RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a
+complete $0.00 account statement** — cash, equity and the rest, presented as a
+measurement. `honesty-py`, HIGH.
+
+**RC-2026-016 — the web gateway reports `unprotected: false` for a live position
+that has no stop at all.** This is the inverse of the finding CLAUDE.md already
+records about `sl_order` being three-valued: there, an unreadable stop rendered
+as "SL None" and alarmed the operator wrongly; here a genuinely absent stop
+renders as *protected*, which is the direction that loses money quietly.
+`honesty-py`, HIGH.
+
+The remaining 18 are MEDIUM/LOW across browser security (raw LLM research HTML
+into `innerHTML` with no sanitiser; CSP `script-src` omitting the Google
+Identity script the login page loads; no `Permissions-Policy` anywhere), the
+LLM/agent surface (the web chat computes a Guardian prompt-injection verdict and
+then discards it; a blanket 200-character cap on every MCP string argument; the
+public MCP server's header claiming "every tool is READ-ONLY"), one
+authenticated SSRF on the web-push subscription endpoint, and further
+unreadable-as-zero renderings in `/performance`, `/classpf`, `/livepositions`
+and the Daily Alpha card.
+
+---
+
+# What the verifiers found that the finders missed
+
+Each dimension's verifiers were also asked to name defects the finder had not
+reported. Across 12 dimensions they returned **59 items**, now recorded verbatim
+in `audit/verifier_surfaced_gaps.md`.
+
+**They are UNTRIAGED and are not findings.** A verifier asserting a defect is
+exactly the kind of claim this audit refuses to take on trust; the same standard
+that applies to finders applies to them. Per your decision, they are triaged
+after the remaining dimensions complete, each getting the treatment the
+CRITICALs got — read the code, establish reachability, check for an existing
+test — and then confirmed, refuted, or dropped.
+
+Recorded now rather than later because they existed only in this container's
+workflow journal.
+
+That said, the list is worth reading before then, because several read more
+severe than the findings they were attached to:
+
+- **There is no HTTP route anywhere for the real global kill switch.**
+  `RuneClawEngine.emergency_halt_all` (`bot/core/engine.py:2437`) — the only
+  thing that halts everything — is reachable from nothing.
+- **Trade-executing callbacks sit outside the destructive-callback permission
+  map**, so the `viewer` role can execute trades it is explicitly denied at the
+  command layer.
+- **`/broadcast`** lets a Telegram group admin who is not on the bot allowlist
+  post to every registered marketing group.
+- **`/autoconfirm off` does not disable auto-confirm** for manual ideas, despite
+  `config.py:2306-2311` documenting exactly that.
+- **`/news` is dead at runtime** — a zero-argument method behind a command guard
+  — and so is the web news endpoint.
+- **Any user holding `trade` can suspend the operator's autonomous scanning**
+  for up to `PENDING_IDEA_TTL`, via the early return at `engine.py:4109`.
+- `bot/web/performance_chart.html:92` loads Chart.js from a CDN with **no
+  subresource integrity**, on the same origin that stores the money-capable
+  `DASHBOARD_TOKEN`.
+
+The methodological point is the one worth keeping: the finder-plus-verifier
+shape catches a great deal, but 59 items in 12 dimensions says it does not bound
+what a single finder pass will miss.

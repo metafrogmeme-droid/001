@@ -2205,3 +2205,1072 @@ The repo names this exact trap elsewhere — bot/core/onchain.py:204-208:
   - The quotes are verbatim (bot/core/ws_feed.py:556-560, 239-246, 202-227) but the described harm does not follow. `_process_ticker` runs when a ticker message is RECEIVED (called from _handle_message at line 549), and it writes the tick once; nothing refreshes that timestamp afterwards. So `datetime.now(UTC)` there is not a fabricated measurement of an unknown quantity — it is a real, locally measured arrival time, and a tick stamped that way ages normally in `_ticks`. The guard's purpose, stated in get_prices' own docstring ('so a silently-stalled feed can't serve a stale price to stop logic'),
 - **The repaint guard decides whether a candle has closed by comparing the venue's bar timestamp to the LOCAL wall clock, and fails silently in both directions under clock skew** — `bot/utils/candles.py:96-101`
   - The quote is verbatim at bot/utils/candles.py:96-101 and the docstring at 78-86 is as described, but this is not a defect in the code — it is the standard and, for the last bar, the only available test. The finding's own proposed alternative ('a bar is closed when a later bar exists') cannot apply to `ohlcv[-1]`, which is precisely the bar in question. Behaviour only changes when the host clock is skewed by more than the time remaining in the final bar, so on the 5m/15m/1h timeframes used (engine.py:4421-4425 delegates to it; live_executor.py:3475 uses '1h') a few seconds of NTP drift changes 
+
+
+========================================================================
+
+# Batch 3 — ai-injection, injection, browser-sec, honesty-py
+
+**22 raw · 22 CONFIRMED · 0 SUSPECTED · 0 REFUTED.** Every finding in this
+batch survived both adversarial verifiers — the only batch so far where
+nothing was refuted.
+
+> Recovered from the workflow journal after a worker restart swallowed the
+> completion notification. The findings below were produced and verified
+> normally; only the delivery was lost.
+
+
+## B3-01 [HIGH] Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage on a page served with no CSP, no X-Frame-Options and no nosniff
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/web/dashboard.html:532-536 (and bot/web/performance_chart.html:95-99)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-522 Insufficiently Protected Credentials; CWE-1021 Improper Restriction of Rendered UI Layers.
+
+**Observed**: The token is taken from `location.hash` (so it also lands in browser history and in any screenshot of the address bar), written to `localStorage` permanently, and the page is served with zero security headers. Any script that executes on that origin — now or after a future edit — reads the token with one `localStorage.getItem`, and there is no CSP to stop the read or the exfiltration. The page is also framable by anyone, since neither X-Frame-Options nor frame-ancestors is set.
+
+**Expected**: An operator secret that can confirm and close live trades should not be persisted in a JavaScript-readable store, and the page holding it should carry at minimum a CSP that forbids inline script and an X-Frame-Options/frame-ancestors deny — the same treatment app/server.js:200-209 gives the user-facing app.
+
+**Root cause**: `dashboard_server.create_app` installs only CORS and bearer-auth middleware. Security headers were added to the Express app (app/server.js:200-209), to nginx (nginx/snippets/security-headers.conf) and to dashboard_api.py (`_security_headers`, dashboard_api.py:141-144), but the aiohttp dashboard — the one surface that actually holds a money-capable secret in the browser — was never given any.
+
+**Business impact**: The DASHBOARD_TOKEN is the single credential that authorises `/confirm` (execute a proposed trade), `/close/{symbol}` and `/halt` on api_bridge.py, plus read access to aggregate multi-user positions, equity and rejection history. Any theft of it is direct control over real-money order flow and a full read of every user's financial state.
+
+**Reachability**: Reachable and default-on. bot/main.py:440-458 calls `create_app(engine, tg_handler=handler)` unconditionally inside `_run_all()` and binds it to `0.0.0.0:8080` by default. `handle_index` is registered at dashboard_server.py:505 (`app.router.add_get("/", handle_index)`). `auth_middleware` gates only paths starting with `/api/` (dashboard_server.py:452), so the HTML itself is served to anyone who can reach the port.
+
+**Existing tests**: grep of tests/ and app/test/ found no test asserting security headers on the aiohttp dashboard. tests/test_nginx_security_headers.py covers nginx.conf only; app/test/csp_no_unsafe_inline.test.js covers app/server.js and app/public/*.html only. tests/test_dashboard_api_hardening.py covers dashboard_api.py path traversal, not headers on bot/web.
+
+**Remediation**: Add a security-headers middleware to `create_app` alongside `cors_middleware` that sets `Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin` on every response. Separately, stop persisting the token: hold it in a module-scoped variable for the page's lifetime (the pattern app/routes/miniapp.js already argues for at length) and clear `location.hash` with `history.replaceState` once read, so the secret does not outlive the tab or leak through history. Keep DASHBOARD_BIND_HOST guidance as-is.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:531-536:
+```js
+// Auth token — read from URL hash or prompt
+const _token = (new URLSearchParams(window.location.hash.slice(1))).get('token')
+  || localStorage.getItem('dashboard_token')
+  || prompt('Enter dashboard token:');
+if (_token) localStorage.setItem('dashboard_token', _token);
+const AUTH_HEADERS = _token ? {'Authorization': 'Bearer ' + _token} : {};
+```
+bot/web/performance_chart.html:95-99 repeats the identical block.
+
+The page is served with no security headers at all — bot/web/dashboard_server.py:299-304:
+```python
+async def handle_index(request: web.Request) -> web.Response:
+    """Serve the dashboard HTML."""
+    html_path = pathlib.Path(__file__).parent / "dashboard.html"
+    if html_path.exists():
+        return web.FileResponse(html_path, content_type="text/html")
+```
+and the only middlewares are bot/web/dashboard_server.py:503:
+```python
+app = web.Application(middlewares=[cors_middleware, auth_middleware])
+```
+`cors_middleware` (dashboard_server.py:481-485) sets only three `Access-Control-*` headers; nothing sets Content-Security-Policy, X-Frame-Options, X-Content-Type-Options or Referrer-Policy anywhere in that file.
+
+The secret being stored is the same `DASHBOARD_TOKEN` that authorises money-moving endpoints on the bridge — bot/web/dashboard_server.py:28 `_DASHBOARD_TOKEN: str = os.environ.get("DASHBOARD_TOKEN", "")` and api_bridge.py:704/760/1036:
+```python
+async def confirm_trade(req: ConfirmRequest, _token: str = Depends(require_dashboard_token), ...)
+async def close_position(symbol: str, _token: str = Depends(require_dashboard_token), ...)
+async def risk_halt(_token: str = Depends(require_dashboard_token), ...)
+```
+```
+
+## B3-02 [MEDIUM] Raw LLM web-research HTML is injected into the dashboard with innerHTML and no sanitizer, while the identical value is tag-stripped on the Telegram path
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/public/js/dashboard.js:7311-7318`
+- **Standard**: OWASP A03 Injection; CWE-79 Improper Neutralization of Input During Web Page Generation.
+
+**Observed**: `r.data.web_html` is concatenated into a template literal and assigned to `innerHTML` unsanitized. Content that originated on third-party web pages, laundered through the model, becomes live markup in the operator's authenticated dashboard.
+
+**Expected**: Model output rendered as HTML should pass through `sanitizeBotHtml`, the whitelist sanitizer this same file already imports and uses for `scan.key_call` at dashboard.js:4148 and that chat.js applies to every bot reply (chat.js:212, 297, 582).
+
+**Root cause**: A second rendering path for LLM output was added without reusing the sanitizer the first path established. CLAUDE.md's own corollary — 'ask which OTHER surface makes the same claim' — is the rule that was missed: the Telegram surface got a stripper, the web surface did not.
+
+**Business impact**: Injected markup renders inside the authenticated operator dashboard — the surface used to read risk state and reach trade controls. Even with script blocked, an attacker-authored block can impersonate engine output, fabricate a 'circuit breaker OK' style claim, or present a link the operator is invited to trust.
+
+**Reachability**: Reachable. The button is bound at dashboard.js:7300 (`const webBtn = document.getElementById('hubResWeb')`) and the route exists at app/routes/research.js:24 (`router.post('/:symbol/web', ...)`), mounted in app/server.js. Gated to the operator: bot/web/user_gateway.py:1122-1126 returns 403 `admin_only` for non-admins, which caps who can trigger it but does not make the sink safe. Script execution is blocked by the app CSP (app/server.js:184-185: `script-src` carries no 'unsafe-inline' and no 'unsafe-hashes'), so the residual impact is HTML/UI injection rather than script execution — that mitigation is why this is MEDIUM and not HIGH.
+
+**Existing tests**: grep of app/test/ and tests/ for `web_html` returns only tests/test_research_web_gateway.py (asserts citations ride through) and tests/test_telegram_web_parity.py:68 (`test_research_strips_web_html_to_telegram_subset`). Neither asserts anything about the web renderer; no app/test file references `hubResWeb`.
+
+**Remediation**: Wrap the value: `<div>${sanitizeBotHtml(r.data.web_html)}</div>`. `sanitizeBotHtml` is already destructured into scope at dashboard.js:13.
+
+**Evidence**:
+
+```
+app/public/js/dashboard.js:7311-7316:
+```js
+          if (r?.ok && r.data?.web_html) {
+            out.innerHTML = `<div class="panel" style="background:var(--surface-2,#12151c)">
+                <div class="small muted" style="margin-bottom:6px">🌐 Live web research — ${esc(sym)}${r.data.model ? ' · ' + esc(r.data.model) : ''}</div>
+                <div>${r.data.web_html}</div>
+                <div class="small muted" style="margin-top:8px;font-style:italic">${esc(r.data.disclaimer || '')}</div>
+              </div>`;
+```
+Every neighbouring interpolation is wrapped in `esc(...)`; `web_html` alone is not, and `sanitizeBotHtml` (app/public/js/app.js:209, the whitelist b/i/code/pre/br sanitizer this file imports at dashboard.js:13 and uses at dashboard.js:4148) is not applied.
+
+The value is the model's raw answer, relayed verbatim — bot/web/user_gateway.py:1146-1153:
+```python
+        answer, meta = await tg_handler._llm_chat(
+            prompt, user_id=tg_id, is_admin=True, return_meta=True)
+...
+    return web.json_response({
+        "read_only": True,
+        "base": base,
+        "web_html": answer,
+```
+and app/routes/research.js:33-35 simply relays it: `const r = await gateway.postGateway('/research/web', { telegram_id: ident.id, base }, 30000); return gateway.relay(res, r);`
+
+The Telegram consumer of the same field does strip it — bot/skills/telegram_handler.py:4657-4661:
+```python
+    def _web_html_to_tg(s: str) -> str:
+        """Web panel HTML → Telegram-safe HTML: <br> to newline, keep only
+        <b>/<i>/<code>, drop everything else."""
+        s = re.sub(r"<br\s*/?>", "\n", str(s or ""), flags=re.I)
+        return re.sub(r"<(?!/?(?:b|i|code)>)[^>]*>", "", s)
+```
+```
+
+## B3-03 [MEDIUM] CSP script-src omits accounts.google.com, so the Google Identity Services script the login page injects can never load — Google sign-in silently never appears
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/server.js:185 (policy) vs app/public/index.html:1700 (blocked script)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-16 Configuration.
+
+**Observed**: An operator who configures Google login gets a sign-in area with a blank space where the Google button should be, and nothing anywhere reports why. This is the exact failure app/test/csp_no_unsafe_inline.test.js warns about in its own docstring — 'the server returns 200, the HTML is intact, the tests pass, and the script simply never runs' — applied to an external host rather than an inline block.
+
+**Expected**: Either `https://accounts.google.com` is in `script-src` (and `frame-src`/`connect-src`) so Google sign-in works, or the page does not advertise a Google sign-in it cannot deliver.
+
+**Root cause**: lib/csp.js hard-codes the external-host allowlist to `https://telegram.org` only. The guard test enumerates inline-block hashes and inline `on*` handlers but never enumerates `<script src="https://...">` (static or dynamically created) and checks it against the policy, so a second external dependency could be added with nothing noticing.
+
+**Business impact**: One of the advertised sign-in methods is dead on arrival, with no error surfaced and no log entry. Users bounce off a blank button; the operator has no signal to diagnose from.
+
+**Reachability**: Reachable whenever GOOGLE_CLIENT_ID is set. app/server.js:447 serves index.html at `/`, and the global header middleware at app/server.js:201-209 applies the CSP to it. The Telegram widget on the same page (index.html:1712) is unaffected because telegram.org IS allowlisted, which is why the gap is invisible in a deployment that only uses Telegram login.
+
+**Existing tests**: app/test/csp_no_unsafe_inline.test.js asserts `src.includes('https://telegram.org')` and nothing about any other external host; it has no test that walks page script sources and checks them against the policy. No other test in app/test/ references accounts.google.com.
+
+**Remediation**: Add `https://accounts.google.com` to `scriptSrc()` in app/lib/csp.js, and add it to `frame-src` and `connect-src` in app/server.js (GIS opens an iframe and makes XHRs to that origin). Then extend app/test/csp_no_unsafe_inline.test.js with a case that scans every served page and every file under public/js for `https://` script sources — static attributes and `.src = 'https://...'` assignments alike — and asserts each host appears in `csp.scriptSrc()`.
+
+**Evidence**:
+
+```
+The policy, app/server.js:183-186:
+```js
+const CSP = [
+  "default-src 'self'",
+  `script-src ${require('./lib/csp').scriptSrc()}`,
+```
+and app/lib/csp.js:118-121 fixes the host list:
+```js
+function scriptSrc() {
+  if (_cached === null) _cached = scriptHashes();
+  return ["'self'", ...(_cached), 'https://telegram.org'].join(' ');
+```
+Running it confirms the shipped value: `node -e "console.log(require('./lib/csp').scriptSrc())"` yields `'self' <49 sha256 hashes> https://telegram.org` — `accounts.google.com` is absent.
+
+The page loads exactly that host, app/public/index.html:1698-1706:
+```js
+  if(cfg.google_client_id){
+    const s=document.createElement('script');
+    s.src='https://accounts.google.com/gsi/client';s.async=true;
+    s.onload=()=>{
+      try{
+        google.accounts.id.initialize({client_id:cfg.google_client_id,callback:handleGoogleCredential});
+        google.accounts.id.renderButton(document.getElementById('google-btn'),
+```
+`grep -o "src=['\"]https://[^'\"]+"` across app/public/*.html and app/public/js/*.js returns exactly two external hosts: `accounts.google.com` and `telegram.org`. Only one of them is in the policy.
+
+`frame-src https://oauth.telegram.org` (app/server.js:195) and `connect-src 'self' blob:` (app/server.js:191) likewise exclude accounts.google.com, so even a loaded GIS would be unable to open its iframe or call home.
+```
+
+## B3-04 [MEDIUM] CSP img-src blocks every remote image the dashboard renders, and the onerror fallbacks that would hide them are inline handlers CSP also blocks — unreadable images render as permanent broken tiles
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/public/js/dashboard.js:5337, 5359, 2146 (policy at app/server.js:190)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-16 Configuration. (CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement.')
+
+**Observed**: Every remote image is blocked, and the recovery path for a blocked image is blocked too. The result is a row of broken-image icons with no explanation, and one dead click-suppression on a control that sits inside another clickable control.
+
+**Expected**: Either the remote image hosts are in `img-src`, or the code does not attempt remote images; and in every case a failed image load resolves to the honest fallback the code already contains. Per CLAUDE.md, an unreadable source must render as an error/omission — not as a broken tile that reads as a corrupt asset.
+
+**Root cause**: Two policies that are individually correct were never checked against the JS renderers. The inline-handler guard was written when all inline script lived in .html files and was scoped to those; `public/js/*.js` builds markup at runtime and falls entirely outside it, so three inline handlers and three remote-image dependencies landed with nothing objecting.
+
+**Business impact**: Cosmetic on its own, but it is the repo's stated failure mode in miniature: a failed read rendering as a broken artifact rather than an honest absence, and a control (stopPropagation on the receipt link) that is present in source and never reached — the #999 shape CLAUDE.md documents.
+
+**Reachability**: All three sites are reachable. `nftCard` is called from `grid()` at dashboard.js:5342 inside the collectibles panel, backed by app/routes/web3.js:37 (`GET /api/web3/collectibles`) which is mounted in app/server.js. The ENS block is in the same identity panel. The signals table renderer around dashboard.js:2140-2156 is the main dashboard signals view. The header middleware at app/server.js:201-209 applies the CSP to every response including these pages.
+
+**Existing tests**: app/test/csp_no_unsafe_inline.test.js is the only guard and, as quoted above, it scans `.html` files only — I confirmed by reading `htmlFiles()` at lines 63-72 and the `for (const file of PAGES)` loop in 'no served page carries an inline event handler'. No test in app/test/ asserts anything about img-src, and app/test/opensea_nft.test.js / web3_worlds.test.js contain no reference to rendering or CSP.
+
+**Remediation**: Two independent fixes. (a) Replace the three inline `on*` attributes with delegated listeners or with a `querySelectorAll('img').forEach(el => el.onerror = ...)` pass after the innerHTML assignment — the same conversion index.html already made. (b) Decide the image policy deliberately: either widen `img-src` to the specific hosts (`https://i.seadn.io` and the ENS avatar gateway) or proxy them same-origin; leaving it as-is means the NFT and ENS panels can never show an image. Then extend app/test/csp_no_unsafe_inline.test.js's `PAGES` walk to include `public/js/**/*.js` so the next inline handler fails loudly.
+
+**Evidence**:
+
+```
+Policy — app/server.js:190: `"img-src 'self' data: blob:",` (no remote host, no `https:`).
+
+Renderers that need remote images — app/public/js/dashboard.js:5336-5337:
+```js
+      const img = it.image_url
+        ? `<img src="${esc(it.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.parentElement.classList.add('nft-noimg')" ...>`
+```
+and dashboard.js:5358-5359:
+```js
+      const avatar = d.avatar
+        ? `<img src="${esc(d.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode('🧑‍🚀'))" ...>`
+```
+The `referrerpolicy="no-referrer"` on both proves remote origins were intended. They are: app/lib/opensea.js:116 `image_url: typeof n.image_url === 'string' ? n.image_url : null,` (OpenSea CDN URLs) and app/lib/ens.js:68 `if (name) avatar = await p.getAvatar(name).catch(() => null);` (an https/IPFS-gateway URL). dashboard.js:4487 does the same for `p.minted_image`.
+
+The fallbacks are inline event handlers, which the same policy forbids — app/server.js:184-185 builds `script-src` from app/lib/csp.js, whose own header states: 'Inline event handlers (`onclick="..."`) are not reachable by hash at all — they need `'unsafe-hashes'`, which re-opens a weaker version of the same hole.'
+
+A third inline handler is dead the same way — dashboard.js:2146:
+```js
+${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}
+```
+inside a `<td ... role="button" tabindex="0" ... style="cursor:pointer">` (dashboard.js:2142-2144) that carries `data-geo`/`data-sym` for the chart handler.
+
+The guard that should have caught all three scans only HTML — app/test/csp_no_unsafe_inline.test.js:66-72 builds `PAGES` from `htmlFiles(csp.PUBLIC_DIR)` filtered on `e.name.endsWith('.html')`, and the inline-handler test iterates `for (const file of PAGES)`. public/js/*.js is never read.
+```
+
+## B3-05 [LOW] Permissions-Policy is set nowhere in the stack, on an app that uses the Web Speech API
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/server.js:201-209`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-693 Protection Mechanism Failure.
+
+**Observed**: No Permissions-Policy on any response from any of the four HTTP surfaces.
+
+**Expected**: A deny-by-default Permissions-Policy naming the features the app does not use, so an injected or framed context cannot silently reach camera, geolocation, payment or USB.
+
+**Root cause**: The header set was chosen before Permissions-Policy was widely supported and never revisited; tests/test_nginx_security_headers.py's REQUIRED_HEADERS list (lines 48-54) codifies the same five headers, so the omission is pinned rather than noticed.
+
+**Business impact**: Defence in depth only. It does not create an exposure by itself; it removes one layer that would blunt a future injection or a framing bug on the embed/miniapp surfaces, which deliberately allow `frame-ancestors *`.
+
+**Reachability**: The middleware at app/server.js:201 runs on every request (it is registered before the static handler and every router), so the omission is universal rather than route-specific.
+
+**Existing tests**: tests/test_nginx_security_headers.py:48-54 lists the five headers the snippet must define; Permissions-Policy is not among them, and no app/test file asserts any response header.
+
+**Remediation**: Add `res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=(), usb=(), microphone=(self)')` to app/server.js's middleware, mirror it in nginx/snippets/security-headers.conf, and add the name to REQUIRED_HEADERS in tests/test_nginx_security_headers.py so the two agree (that file's own docstring makes agreement the contract).
+
+**Evidence**:
+
+```
+app/server.js:201-209 is the complete header middleware:
+```js
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
+```
+`rg -n "Permissions-Policy|Feature-Policy" -g '!node_modules' .` over the whole repository returns nothing — it is absent from app/server.js, from nginx/snippets/security-headers.conf, from dashboard_api.py's `_security_headers` (dashboard_api.py:141-144) and from bot/web/dashboard_server.py.
+
+The app does use a permission-gated API — app/public/js/chat.js:364:
+```js
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+```
+(mic dictation, chat.js:356) plus `navigator.clipboard.writeText` (app/public/trader.html:158, app/public/index.html:1574).
+```
+
+## B3-06 [LOW] api_bridge serves the whole marketing site with no security headers at all; dashboard_api serves static HTML with three headers but no CSP
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `api_bridge.py:1080 (and dashboard_api.py:141-144, 185-193)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-1021 Improper Restriction of Rendered UI Layers; CWE-693.
+
+**Observed**: Two of the three Python HTTP surfaces serve HTML with a weaker header set than the nginx path, and one serves it with none.
+
+**Expected**: The same page should carry the same headers regardless of which server hands it out — that is the property tests/test_nginx_security_headers.py exists to defend one layer up.
+
+**Root cause**: Header policy was implemented per-server rather than as a shared decision. api_bridge's static mount was added as a catch-all (api_bridge.py:1078-1080, 'This must be LAST so API routes take priority') and never given the middleware treatment the Express app and nginx received.
+
+**Business impact**: The affected content is static marketing and the archived submission — no session, no user data, no actions — so the practical impact is framing/sniffing of public pages. The real cost is the inconsistency: a reader auditing nginx.conf reasonably concludes the site is covered, and it is only covered on one of three paths.
+
+**Reachability**: api_bridge.py:1078 guards the mount with `if os.path.isdir(_WEBSITE_DIR)` and `website/` exists in the checkout, so the mount is active. Whether it is internet-facing depends on deployment: api_bridge.py's `__main__` block comments that it binds loopback by default, and docker-compose.yml:170 mounts `./website` into nginx, so the production path is nginx. That is why this is LOW and not higher — the exposure is limited to deployments that reach api_bridge or dashboard_api directly.
+
+**Existing tests**: tests/test_nginx_security_headers.py covers nginx.conf only. tests/test_dashboard_api_hardening.py covers path traversal in dashboard_api.py's static handler, not headers. No test asserts headers on api_bridge responses.
+
+**Remediation**: Add a small FastAPI middleware to api_bridge.py setting the same five headers the nginx snippet defines, and add a `Content-Security-Policy` line to dashboard_api.py's `_security_headers`. Note that `dashboard_static/index.html` carries an inline `<script>` (its `/platform-url` fetch, lines 96-110), so a `script-src 'self'` policy on that path must either hash that block or the block must move to an external file — otherwise the platform CTA button silently never appears, which is the same class of defect as the accounts.google.com finding.
+
+**Evidence**:
+
+```
+api_bridge.py:1080:
+```python
+    app.mount("/", StaticFiles(directory=_WEBSITE_DIR, html=True), name="website")
+```
+`grep -n "Content-Security-Policy|X-Frame-Options|Referrer-Policy|X-Content-Type-Options" api_bridge.py` returns nothing — the only middleware added is CORSMiddleware at api_bridge.py:357-363. Every byte of `website/` (index.html, privacy.html, the hackathon archive) therefore goes out with no CSP, no X-Frame-Options and no nosniff when this process serves it directly.
+
+dashboard_api.py does better but still has no CSP — dashboard_api.py:141-144:
+```python
+    def _security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+```
+called from `_serve_static` (dashboard_api.py:186) which serves `dashboard_static/` and `website/`.
+
+The same content served through nginx does get the full set — nginx/snippets/security-headers.conf defines all five including `Content-Security-Policy "default-src 'self'; script-src 'self'; ..."`. So the protection depends entirely on which front door a given deployment uses.
+```
+
+## B3-07 [MEDIUM] Authenticated SSRF: web-push subscription endpoint is an unvalidated attacker-supplied URL the server later POSTs to
+
+- **Dimension**: injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/push.js:45-50 (sink at app/lib/push.js:80 -> app/lib/push.js:35-36)`
+- **Standard**: CWE-918 (Server-Side Request Forgery) / OWASP A10:2021 — Server-Side Request Forgery
+
+**Observed**: Only `startsWith('https://')` and a 500-char cap. Any host, any port, any path is accepted and is subsequently dereferenced by the server on every broadcast until pruned.
+
+**Expected**: The endpoint should be constrained to the known push-service hosts a real browser PushManager can produce (fcm.googleapis.com / updates.push.services.mozilla.com / *.notify.windows.com / web.push.apple.com, plus any operator-configured self-hosted service), and non-public IP literals refused, before the row is stored.
+
+**Root cause**: The route treats `subscription.endpoint` as if it were browser-attested data, but it arrives in a plain JSON request body from the client, so it is fully user-controlled. `web-push` deliberately does no host validation (it cannot know the operator's push service), so there is no second line of defence anywhere on this path.
+
+**Business impact**: This host runs beside the money path: the same box reaches the bot gateway, the operator's internal services and whatever else sits on its network. A registered user — free-tier, paper-only, no operator approval — can make the platform issue authenticated-looking TLS requests to internal addresses and enumerate which internal https endpoints exist via the 404/410 prune oracle. It is blind (no response body is returned to the attacker), which is what keeps this below CRITICAL, but it is a reconnaissance and request-forwarding primitive inside the trust boundary of a system that holds exchange credentials and signing keys. It also allows a subscriber row to be pointed at an attacker-run collector, which then receives the VAPID JWT and the encrypted broadcast payload for every public feed event.
+
+**Reachability**: Reachable and exercised. The write path is `router.post('/subscribe')` behind `authMiddleware` only (app/routes/push.js:21) — no operator/admin gate. The read/send path `notifySubscribers` is called from seven production modules listed above, including the bot sync ingest, so an attacker's row is dereferenced by ordinary system activity without any further attacker action. There is no upstream guard: I grepped app/routes and app/lib for any endpoint host allowlist and found none, and the library itself (app/node_modules/web-push/src/web-push-lib.js:274, 348-369) parses and uses the URL directly. The one precondition is that the operator has configured VAPID keys (`configured` at app/lib/push.js:24-30); with no keys the route returns 503 and the whole module is a no-op, so this is a defect only on deployments that have push enabled.
+
+**Existing tests**: app/test/push.test.js is the only test covering this route. Its negative case is `body: { subscription: { endpoint: 'http://evil', keys: {} } }` (app/test/push.test.js:84) — it pins that plain `http://` is rejected, and nothing more. Its fixtures use `https://push.example/${n}` (line 65), i.e. an arbitrary non-push-service https host, which the suite asserts is ACCEPTED. So no existing test pins a host allowlist, and the current tests would need one line changed if one is added.
+
+**Remediation**: Validate the endpoint at app/routes/push.js:45 before the INSERT: `new URL(endpoint)`, require `protocol === 'https:'`, require the hostname to be in an allowlist of push-service suffixes (make it configurable via an env var so self-hosted services still work), and reject hostnames that parse as IP literals or resolve into private/link-local/loopback ranges. Keep the existing length cap. This is a few lines in one route and touches no ratchet baseline. Optionally also stop the 404/410 prune from being observable by an unauthenticated-to-that-endpoint party — but fixing the allowlist removes the oracle's value.
+
+**Evidence**:
+
+```
+app/routes/push.js:44-50 —
+```js
+    const sub = (req.body || {}).subscription || {};
+    const endpoint = String(sub.endpoint || '');
+    const keys = sub.keys || {};
+    if (!endpoint.startsWith('https://') || endpoint.length > MAX_ENDPOINT_LEN
+        || !keys.p256dh || !keys.auth) {
+      return res.status(400).json({ error: 'invalid subscription' });
+    }
+```
+app/lib/push.js:35-36 (the transport) —
+```js
+let sender = (subscription, payload) =>
+  webpush.sendNotification(subscription, payload, { TTL: 3600 });
+```
+app/lib/push.js:79-85 (the call, per stored row) —
+```js
+      await sender({ endpoint: row.endpoint, keys }, body);
+      sent++;
+    } catch (err) {
+      const code = err && (err.statusCode || err.status);
+      if (code === 404 || code === 410) await prune(row.endpoint);
+```
+And the library dereferences the URL verbatim — app/node_modules/web-push/src/web-push-lib.js:348-369:
+```js
+      const urlParts = url.parse(requestDetails.endpoint);
+      httpsOptions.hostname = urlParts.hostname;
+      httpsOptions.port = urlParts.port;
+      httpsOptions.path = urlParts.path;
+...
+      const pushRequest = https.request(httpsOptions, function(pushResponse) {
+```
+```
+
+## B3-08 [MEDIUM] Web chat computes the Guardian prompt-injection verdict and then discards it — defang_if_flagged is wired on Telegram only, so hidden-character smuggling and fake `Assistant:` role turns reach the LLM prompt intact on the surface that can dispatch skills and propose trades
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/web/user_gateway.py:307-327, 555-558`
+- **Standard**: OWASP GenAI LLM01 (Prompt Injection); repo rule in bot/guardian/firewall.py:190-197 that a detector's finding must reach the prompt, not just telemetry.
+
+**Observed**: Only Telegram hardens. On the web path the zero-width character and the `Assistant:` role turn survive verbatim into the LLM prompt, because bot/nlp/sanitize.py's INJECTION_PATTERNS covers `system\s*:` but not `assistant:` and has no hidden-character rule (tests/test_firewall_hardens_the_prompt.py:36-46 asserts exactly that gap as the measurement the fix was built on).
+
+**Expected**: Both chat transports harden the prompt with the verdict the firewall just produced, as bot/guardian/firewall.py:190-225 documents ('Detection that alters nothing is telemetry, not a control') and as the user_gateway comment at line 307-309 promises.
+
+**Root cause**: Two dispatch sites for one behaviour. defang_if_flagged was added to the Telegram handler and its wiring test (tests/test_firewall_hardens_the_prompt.py, class TestItIsActuallyReached) source-scans bot/skills/telegram_handler.py only — so the second surface that makes the same claim was never checked. This is the exact failure mode CLAUDE.md names ('Ask which OTHER surface makes the same claim — before calling the fix done').
+
+**Business impact**: Defence-in-depth, not a boundary — bot/nlp/sanitize.py and firewall.py both state that LLM chat output has no execution authority and trades still pass confirm_trade -> compliance -> executor. The realistic impact is that the web agent, which can dispatch skills and propose trades, can be steered by smuggled instructions (a pasted block from a website, a forwarded message) with the hardening the operator believes is running silently absent on that surface, and the tamper-evident chain records a verdict that changed nothing.
+
+**Reachability**: handle_chat is registered on the gateway router and is the target of app/routes/chat.js POST /api/chat (authMiddleware + per-user rate limit), i.e. the primary product surface for signed-in web users. The path reached is the LLM-chat fallback at line 555, which runs whenever the intent router does not match at >=0.8 confidence — the ordinary case for free-form text. The firewall block at line 315-316 is gated on CONFIG.risk.guardian_firewall_block_high, so by default nothing is refused either.
+
+**Existing tests**: tests/test_firewall_hardens_the_prompt.py exists and is thorough, but every wiring assertion in TestItIsActuallyReached reads bot/skills/telegram_handler.py. grep of tests/ and app/test/ for 'defang' returns only that file. No test covers the web path.
+
+**Remediation**: In bot/web/user_gateway.py::handle_chat, initialise `fw_verdict = None` before the try at line 313, and at line 555 replace `sanitize_chat_input(text)` with `sanitize_chat_input(defang_if_flagged(text, fw_verdict)[0])` — keeping `text` itself untouched so the intent router and trade intercepts still see what the user typed (the same split telegram_handler.py:2894-2899 makes). Do the same for the vision path (line 347) and consider it for handle_public_chat (line 622), which has no firewall scan at all. Extend tests/test_firewall_hardens_the_prompt.py::TestItIsActuallyReached to source-scan user_gateway.py so the third surface cannot repeat this.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:307-314 — the verdict is computed and the comment states the web path is equivalent to Telegram:
+
+    # Guardian firewall pre-scan — the web chat can ACT (propose trades,
+    # dispatch skills) exactly like Telegram, so the same input-provenance gate
+    # applies here. ...
+    try:
+        fw_verdict = engine.firewall_scan(text, source="web", user_id=tg_id)
+
+bot/web/user_gateway.py:555-558 — the verdict is never used again; the raw text goes straight to the thin denylist:
+
+    answer, meta = await tg_handler._llm_chat(
+        sanitize_chat_input(text), user_id=tg_id, user_name=name,
+        is_admin=_is_admin,
+        profile_note=profile_note, reply_lang=reply_lang, return_meta=True)
+
+bot/skills/telegram_handler.py:2897-2900 — the ONLY production caller of the hardening step:
+
+        from bot.guardian.firewall import defang_if_flagged
+        _prompt_text, _ = defang_if_flagged(text, fw_verdict)
+        answer = await self._llm_chat(
+            _sanitize_chat_input(_prompt_text), user_id=tg_id, ...)
+
+`grep -rn 'defang_if_flagged' --include=*.py` outside tests returns exactly bot/guardian/firewall.py (the definition) and bot/skills/telegram_handler.py:2897-2898. Nothing in bot/web/user_gateway.py.
+```
+
+## B3-09 [MEDIUM] MCP argument validator applies a blanket 200-character cap to every string, silently breaking all four public Guardian security tools and contradicting the inputSchema they advertise (`maxLength: 100000`)
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/mcp.js:1196`
+- **Standard**: OWASP GenAI LLM06 (Excessive Agency — tool contract must match declared schema); MCP tools/list inputSchema is the caller's contract.
+
+**Observed**: Every string argument on every tool is rejected above 200 characters with a JSON-RPC -32602. scan_transaction ('Paste anything the agent is about to act on — a message, a token name or metadata, a URL, an address, a signing request'), xray_transaction (multicall/permit calldata), compile_intent (a mandate) and plan_escape/stress_portfolio's nested `asset`/`where` strings are all constrained to 200 chars, so realistic payloads — the ones the tools exist to scan — cannot be submitted at all.
+
+**Expected**: validateArgs honours each field's declared `maxLength` (or at least the handler's own cap), so scan_transaction accepts up to 20 000 characters and xray_transaction accepts up to 100 000 as advertised in tools/list.
+
+**Root cause**: validateArgs was written as a minimal shape checker ('object shape, known keys, primitive types, string caps' — its own docblock at app/routes/mcp.js:1170-1176) with a hardcoded 200 constant, and was added after the tools; it never consults `spec.maxLength`. The per-tool tests exercise the handlers directly (app/test/mcp_guardian_tools.test.js:51 calls `TOOLS.scan_transaction.handler({...})`), bypassing validateArgs entirely, so the divergence is invisible to the suite.
+
+**Business impact**: The four Guardian tools are the product's public agent-safety offering, advertised in the MCP initialize instructions and in the ERC-8257 on-chain manifest. An external agent calling scan_transaction on a real signing request (which is routinely >200 chars) gets a protocol error instead of a scan; the intended pre-signature safety check simply does not run, and the agent may proceed unscanned.
+
+**Reachability**: app/routes/mcp.js:1204-1226 mounts POST /mcp publicly (per-IP rate limit only, no auth for the read/computesOnInput family). handleRpc -> tools/call -> validateArgs at line 1145 runs before every handler, so every real MCP client hits it. Confirmed by executing handleRpc directly above.
+
+**Existing tests**: grep of app/test/ for 'validateArgs' and 'too long (200' returns nothing. app/test/mcp_guardian_tools.test.js, app/test/scan_seal.test.js and app/test/tool8257_families.test.js all invoke `TOOLS.<name>.handler(...)` directly, so none of them pass through the validator.
+
+**Remediation**: In validateArgs, use `const cap = Number.isInteger(spec.maxLength) ? spec.maxLength : 200;` and compare against that. Add `maxLength` to scan_transaction.text (20000) and compile_intent.mandate (4000) so the published schema states the real bound. Add a test that drives a >200-char payload through `handleRpc` (not the handler) for each computesOnInput tool — the existing tests call handlers directly and cannot see this.
+
+**Evidence**:
+
+```
+app/routes/mcp.js:1193-1197 — the blanket cap, which reads no per-field maxLength:
+
+    if (spec.type === 'string') {
+      if (typeof v !== 'string') return `${k} must be a string`;
+      if (v.length > 200) return `${k} too long (200 max)`;
+    } else if (spec.type === 'number' || spec.type === 'integer') {
+
+app/routes/mcp.js:153 — the schema the server publishes for the same field:
+
+        data: { type: 'string', maxLength: 100000, description: 'The transaction calldata, 0x-hex.' },
+
+app/routes/mcp.js:104 — scan_transaction's own handler cap, three orders of magnitude larger:
+
+      const t = String(text == null ? '' : text).slice(0, 20000);
+
+app/routes/mcp.js:275 — compile_intent's handler cap:
+
+      const m = String(mandate == null ? '' : mandate).slice(0, 4000);
+```
+
+## B3-10 [MEDIUM] Every free-text prompt is silently truncated to 500 characters after the surface has accepted 2000 — the model answers a quarter of the question, and Contract Studio drafts Solidity from a quarter of the spec, with no truncation notice anywhere
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/nlp/sanitize.py:35, 44-47`
+- **Standard**: OWASP GenAI LLM05 (Improper Output Handling); repo rule 'a partial total, printed as whole' (CLAUDE.md shapes table) and skill_memory.py's announced-truncation precedent.
+
+**Observed**: A 2000-character web chat message, a 4096-character Telegram message, and a 2000-character Contract Studio spec are all cut to 500 characters before the model sees them. The response is generated from the fragment and returned with no marker, so it reads as an answer to the whole question. For Contract Studio the user receives a Solidity draft (plus a compile and, for the operator, a testnet deploy path) built from the first quarter of their requirements.
+
+**Expected**: Either the accepted length and the prompted length agree, or the truncation is announced — the same rule bot/nlp/skill_memory.py:32-38 already applies on the memory side ('Truncation is ANNOUNCED rather than silent. A long scan card cut at a fixed length and presented whole is a partial printed as a total').
+
+**Root cause**: MAX_CHAT_INPUT_LEN was chosen inside the sanitizer as an injection-surface bound and never reconciled with the per-surface length limits that were set independently four times (user_gateway._MAX_TEXT_LEN, chat.js, public_chat.js). Truncation is applied silently and after the denylist substitution, so nothing downstream can tell a short question from a cut one.
+
+**Business impact**: A trader pasting a position description, a multi-part question, or a contract spec gets a confident answer to a fragment. In Contract Studio the artefact is code the user can compile and (as operator) deploy to testnet, generated from requirements that were dropped without notice — the highest-cost instance of the repo's own 'partial printed as whole' rule.
+
+**Reachability**: sanitize_chat_input is called on every LLM chat path: bot/web/user_gateway.py:556 (authed web chat), :623 (public anonymous chat), :672 (contract studio), :338 (vision), and bot/skills/telegram_handler.py:2899 (Telegram free text). All are live product surfaces.
+
+**Existing tests**: tests/test_audit_v5_followup_telegram.py:61 asserts the truncation happens (`out = _sanitize_chat_input(long_text)`), i.e. the 500 cap is pinned as intended behaviour. No test anywhere asserts that the caller is told, or that the surface limit and the prompt limit agree.
+
+**Remediation**: Return the truncation flag from sanitize_chat_input (e.g. `(text, truncated: bool)` or expose `sanitize_chat_input_ex`) and have callers either reject over-length input at the surface with the real limit, or append an explicit marker to the prompt ('[the user's message was cut here at 500 of N characters]') and surface a notice in the reply. For Contract Studio, do not truncate the spec at 500 at all — align the cap with _MAX_TEXT_LEN, since a drafting spec is exactly the payload that needs length.
+
+**Evidence**:
+
+```
+bot/nlp/sanitize.py:35,38-47:
+
+    MAX_CHAT_INPUT_LEN = 500
+
+    def sanitize_chat_input(text: str) -> str:
+        """Sanitize free-form user text before sending to LLM.
+        - Strips prompt-injection patterns FIRST
+        - Then truncates to 500 characters
+        """
+        sanitized = INJECTION_PATTERNS.sub("[filtered]", text)
+        truncated = sanitized[:MAX_CHAT_INPUT_LEN]
+        return truncated.strip()
+
+The surfaces that feed it accept four times as much, and say so:
+bot/web/user_gateway.py:53  `_MAX_TEXT_LEN = 2000`
+bot/web/user_gateway.py:300 `if len(text) > _MAX_TEXT_LEN: return web.json_response({"error": "message too long"}, status=400)`
+app/routes/public_chat.js:31 `const MAX_TEXT_LEN = 2000;`
+
+And the Contract Studio path, where the loss is largest:
+bot/web/user_gateway.py:644,672:
+
+    if len(spec) > _MAX_TEXT_LEN:
+        return web.json_response({"error": "spec too long"}, status=400)
+    ...
+    prompt = build_generation_prompt(sanitize_chat_input(spec), license=lic,
+                                     pragma=pragma)
+```
+
+## B3-11 [MEDIUM] Free-tier chat quota deliberately exempts skill intents, but the analyze_asset intent runs a billable LLM thesis on the engine's SHARED daily call/dollar budget — one free web account can drive the autonomous trading brain to the rule engine for the rest of the day
+
+- **Dimension**: ai-injection · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/web/user_gateway.py:446, 514-520`
+- **Standard**: OWASP GenAI LLM10 (Unbounded Consumption) / denial-of-wallet and denial-of-service on a shared model budget.
+
+**Observed**: The chat quota is applied only to the LLM-chat fallback. The analyze_asset intent — the single most LLM-expensive skill in the registry — is on the exempt side, and it debits the same `Analyzer._llm_calls_today` and `CostTracker.llm_cost_usd` counters the autonomous scan cycle depends on. Once exhausted, every autonomous thesis for the rest of the UTC day returns `source="RULE_ENGINE_BUDGET"`.
+
+**Expected**: Any chat-initiated path that can trigger a billable LLM call is metered against that user, or at minimum the user-invoked and autonomous budgets are separated so a chat user cannot exhaust the trading engine's analysis budget.
+
+**Root cause**: The quota was scoped to 'the operator-funded xAI Grok budget' (chat) and the exemption list was written in terms of transports ('skill/news/trade intents above are free') rather than in terms of which paths spend LLM tokens. analyze_asset is both a skill intent and an LLM caller, so it fell into the gap.
+
+**Business impact**: A single free-tier account, or an automation loop, can exhaust LLM_DAILY_LIMIT (500) or LLM_DAILY_BUDGET_USD ($1.00) and force every subsequent autonomous trade thesis to RULE_ENGINE_BUDGET for the remainder of the UTC day — degrading the quality of live trading decisions on real money, silently, from an unprivileged surface.
+
+**Reachability**: Confirmed the full chain by reading each hop: chat.js POST / -> gateway.postGateway('/chat') -> handle_chat line 424-446 -> AnalyzeAssetSkill.execute (skill_registry.py:406) -> engine._analyze_signal (engine.py:4881) -> analyzer.analyze -> _llm_thesis (analyzer.py:3873). The `background` flag is False on this path, so the LLM_BACKGROUND_SCANS throttle at analyzer.py:3945-3955 does not apply — the call is a real LLM call. _web_skill_denied only checks role permission and the (default-off) token tier gate.
+
+**Existing tests**: grep of tests/ and app/test/ for chat_quota shows the quota is tested for the chat fallback only; no test asserts that an LLM-spending skill intent is metered. bot/web/chat_quota.py is consumed at user_gateway.py:519 and :661 (contract studio) and nowhere on the skill-dispatch branch.
+
+**Remediation**: Either (a) consume a quota unit for LLM-spending skill intents (analyze_asset, and the scan_* aliases where they reach the analyzer) before dispatch at bot/web/user_gateway.py:424, or (b) give user-invoked analyses their own budget counter in bot/core/analyzer.py so `_llm_calls_today` for the autonomous cycle cannot be drained from chat. (b) is the safer one for the money path: the trading brain should never lose its LLM because a chat user was busy. Mirror whichever is chosen on the Telegram free-text dispatch, which has the same shape.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:513-520 — the quota's own scope note, and where it is consumed:
+
+    # Fallback: LLM chat — same append-around-call pattern as _handle_message.
+    # Free-tier chat quota: bound the operator-funded xAI Grok budget. Only the
+    # LLM fallback (this path) consumes a "question" — skill/news/trade intents
+    # above are free. ...
+    _is_admin = _is_admin_id(tg_handler, tg_id)
+
+bot/web/user_gateway.py:446 — the exempted dispatch, reached at intent confidence >= 0.8:
+
+                result = await skill.execute(engine, user_id=tg_id, **intent.kwargs)
+
+bot/skills/skill_registry.py:500-503 — analyze_asset goes straight into the engine's analysis pipeline:
+
+        idea = await engine._analyze_signal(sig, is_admin=kwargs.get("is_admin", False),
+                                            user_id=kwargs.get("user_id"),
+                                            user_tier=kwargs.get("user_tier"))
+
+bot/core/analyzer.py:3983-3996 — the budget guards that path shares with the autonomous engine:
+
+        if today != self._llm_day:
+            self._llm_day = today
+            self._llm_calls_today = 0
+        if self._llm_calls_today >= CONFIG.llm.daily_call_limit:
+            audit(trade_log, f"LLM daily budget exhausted ({self._llm_calls_today} calls), using rules",
+                  action="analyze", result="LLM_BUDGET")
+            result = self._rule_based_thesis(signal, indicators)
+            ...
+            result["source"] = "RULE_ENGINE_BUDGET"
+
+bot/config.py:1132,1139 — the caps are global, not per user:
+
+    daily_call_limit: int = int(_env_float("LLM_DAILY_LIMIT", 500))
+    daily_budget_usd: float = _env_float("LLM_DAILY_BUDGET_USD", 1.0)
+```
+
+## B3-12 [LOW] LLM shadow A/B makes billable model calls that no budget or cost counter ever sees, and its in-flight cap is read before the counter it guards is incremented, so a concurrent analysis batch can exceed it several-fold
+
+- **Dimension**: ai-injection · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/llm/shadow_eval.py:96-111, 118-140`
+- **Standard**: OWASP GenAI LLM10 (Unbounded Consumption); repo rule that measured spend must be recorded (bot/llm/usage.py header: 'llm_complete threw response.usage away and returned the text').
+
+**Observed**: The bound is advisory only under concurrency, and shadow spend is invisible to both accounting systems: `bot.llm.usage` (never called, because llm_complete is bypassed) and `engine.cost` / `Analyzer._llm_calls_today` (never called). A shadow provider is therefore billed with no cap and no visibility.
+
+**Expected**: The in-flight counter is incremented at spawn time (in maybe_spawn, before create_task) so the documented bound holds, and shadow token spend is recorded so `/costs` and the daily budget guards see it — the module's own header promises 'fire-and-forget with a bounded in-flight count'.
+
+**Root cause**: The counter guarding the spawn decision lives inside the coroutine being spawned, and the shadow path was written against the raw SDK clients rather than the shared llm_complete helper that carries the usage recording.
+
+**Business impact**: When an operator enables shadow A/B to evaluate the in-house runeclaw model, the resulting spend does not appear in /costs and does not count toward LLM_DAILY_BUDGET_USD, so the configured budget stops being the real bound — the same class of gap that LLM_FALLBACK_COST_ACCOUNTING was added to close for the fallback chain (bot/config.py:1145-1157).
+
+**Reachability**: maybe_spawn is called from bot/core/analyzer.py:4348-4352 on every successful primary thesis (inside `if as_of is None`). It is a no-op unless LLM_SHADOW_ENABLED is truthy AND LLM_SHADOW_PROVIDER is set (bot/llm/shadow_eval.py:48-52), so it is default-off — which is why this is LOW rather than higher.
+
+**Existing tests**: grep of tests/ for shadow_eval shows tests covering load_records / score_against_trades / format_ab_html (the scoring half). No test drives maybe_spawn concurrently or asserts the in-flight bound or any cost recording.
+
+**Remediation**: Increment `self._in_flight` in maybe_spawn immediately before `loop.create_task(...)` and drop the increment from `_run` (keep the decrement in `_run`'s finally, guarded so a task that never starts still releases). Add `from bot.llm import usage as _usage; _usage.record_from_response(cfg.model, resp)` after each create call, or route the call through `llm_complete` which already does it.
+
+**Evidence**:
+
+```
+bot/llm/shadow_eval.py:96-105 — the cap is checked in maybe_spawn:
+
+        try:
+            if not _enabled() or self._in_flight >= _MAX_IN_FLIGHT:
+                return
+            sample = float(os.environ.get("LLM_SHADOW_SAMPLE_PCT", "100") or 100)
+            if sample < 100 and random.random() * 100 >= sample:
+                return
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._run(analyzer, prompt, prompt_hash,
+                                       symbol, dict(primary)))
+
+bot/llm/shadow_eval.py:108-111 — but incremented only once the task actually starts:
+
+    async def _run(self, analyzer, prompt: str, prompt_hash: str,
+                   symbol: str, primary: dict) -> None:
+        self._in_flight += 1
+        t0 = time.monotonic()
+
+bot/llm/shadow_eval.py:122-140 — the calls are made directly on the SDK client, with no cost/usage recording anywhere in the method:
+
+                resp = await asyncio.wait_for(
+                    client.messages.create(
+                        model=cfg.model, max_tokens=512, system=sys_content,
+                        messages=[{"role": "user", "content": prompt}]),
+                    timeout=25)
+                ...
+                resp = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=cfg.model, ... max_tokens=512),
+                    timeout=25)
+
+Compare bot/llm/provider.py:1251-1256 and 1279-1284, where every llm_complete call does `_usage.record_from_response(config.model, response)` — shadow_eval bypasses llm_complete entirely, and never calls `self._cost.record_llm` either.
+```
+
+## B3-13 [LOW] Raw LLM output is interpolated unescaped into a Telegram parse_mode="HTML" message with no plain-text fallback, so an ordinary model phrase containing '<' (e.g. 'RSI < 30') can drop the entire /scan deepall result
+
+- **Dimension**: ai-injection · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/scan_skill.py:1201-1206, 1231-1233`
+- **Standard**: OWASP GenAI LLM05 (Improper Output Handling) — treating model output as trusted markup for a downstream renderer.
+
+**Observed**: An unescaped '<' or '&' in the summary makes msg.edit_text raise; the exception propagates out of _scan_batch with no local handler, so the user's /scan deepall produces no result card at all — the scan ran, cost the LLM call, and rendered nothing.
+
+**Expected**: Model text is HTML-escaped (or the send is wrapped with the same plain-text fallback TelegramHandler._send already implements) before being placed in a parse_mode="HTML" message.
+
+**Root cause**: scan_skill.py builds and sends its own Telegram messages instead of going through TelegramHandler._send, and therefore inherits neither its redaction chokepoint nor its HTML-parse fallback. Model output is the one value in the message that is not machine-formatted.
+
+**Business impact**: Low — an operator-facing rendering failure on one command, costing the LLM call and the scan. Included because it is the one place in the LLM surface where provider output reaches a markup renderer unescaped and unguarded; it is also the shape that would matter if the summary prompt ever carried third-party text.
+
+**Reachability**: The `ai=True` argument is passed only by `/scan deepall` (bot/skills/scan_skill.py:996), so this is one command rather than every scan. _ai_summary itself is live — the audit note at line 1342-1344 records that it previously raised TypeError on every call and was silently dead; that has been fixed, so the path now really returns model text.
+
+**Existing tests**: grep of tests/ for _ai_summary / scan_skill AI summary returns no test that renders model output through the HTML path. tests/test_surface_scenarios.py covers other cards.
+
+**Remediation**: Escape the summary before interpolation (`html.escape(summary)`), or wrap the two `edit_text`/`send_message` calls in the same try/except-to-plain-text pattern as bot/skills/telegram_handler.py:1159-1179. Escaping is the smaller change and keeps the '🤖 AI Summary:' label intact.
+
+**Evidence**:
+
+```
+bot/skills/scan_skill.py:1201-1206 — model text spliced into an HTML-parsed message:
+
+    if ai and results and not card_sent:
+        text += "\n\n⏳ <i>Generating AI summary...</i>"
+        await msg.edit_text(text, parse_mode="HTML")
+        summary = await _ai_summary(results[:15])
+        text = text.replace("⏳ <i>Generating AI summary...</i>",
+                            f"\U0001f916 <b>AI Summary:</b>\n{summary}")
+
+bot/skills/scan_skill.py:1231-1233 — the same on the card path:
+
+        if ai and results:
+            summary = await _ai_summary(results[:15])
+            btn_text += f"\n\n\U0001f916 <b>AI:</b> {summary}"
+
+bot/skills/scan_skill.py:1364 — the value is the provider's text verbatim:
+
+        s = await llm_complete(client, cfg, system_prompt, "\n".join(lines))
+        return s.strip() if s else "<i>No summary generated.</i>"
+
+The send here is a bare `await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)` (bot/skills/scan_skill.py:1240) — unlike TelegramHandler._send, which wraps every send and falls back to plain text on a parse error (bot/skills/telegram_handler.py:1159-1179):
+
+            try:
+                await send_method(chunk, parse_mode="HTML", reply_markup=markup)
+            except Exception as e:
+                ...
+                plain = re.sub(r"<[^>]+>", "", chunk)
+```
+
+## B3-14 [INFORMATIONAL] The public MCP server's file header states 'Every tool is READ-ONLY' and 'no tool can act', which the same file's WRITE_TOOLS registry (arena_open / arena_close / arena_my_positions) contradicts
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/mcp.js:8-17`
+- **Standard**: OWASP GenAI LLM06 — accurate declaration of agent capability.
+
+**Observed**: The header is a stale absolute. The actual controls are sound — WRITE_TOOLS require a verified Arena key resolved once per request (line 1214-1220), tools/list annotates them `readOnlyHint: false` (line 1124-1129), and tool8257.js is deliberately given only the read-only registry (line 1247-1250) — but the first thing a reader or auditor of this file sees asserts the opposite.
+
+**Expected**: The header describes the capability surface accurately, as the initialize instructions at app/routes/mcp.js:1095-1105 already do ('two of them can open and close PAPER positions... require an Arena key').
+
+**Root cause**: The write family was added later with its own local justification comment (line 938-942) and the file header was not revisited. CLAUDE.md's own note applies: 'a number in prose is the part that rots first'.
+
+**Business impact**: None directly; it misleads anyone auditing the public agent surface about whether the endpoint can take actions.
+
+**Reachability**: Documentation only — no runtime behaviour depends on the header. Reported because the enforcement it misdescribes (arena keys, readOnlyHint annotations) is the exact thing an integrator relies on when deciding what to auto-approve.
+
+**Existing tests**: app/test/mcp_public_records.test.js and app/test/tool8257_families.test.js pin the tool families programmatically, and app/test/mcp_v2.test.js exercises the RPC surface — none read the file header. tests/test_mcp_doc_matches_the_code.py covers bot/mcp/server.py, not this file.
+
+**Remediation**: Update the header to describe three families (intelligence, Guardian-computes-on-input, and key-gated paper-write), mirroring the wording already used in the initialize instructions. Consider a test in the style of tests/test_mcp_doc_matches_the_code.py (which pins the Python MCP server's doc) for this file.
+
+**Evidence**:
+
+```
+app/routes/mcp.js:8-17 (file header):
+
+ * Scope is deliberate. Every tool is READ-ONLY and falls in one of two
+ * families:
+ *   - intelligence — serves data this site already publishes without auth ...
+ *   - Guardian safety — evaluates input the CALLER supplies (marked
+ *     `computesOnInput: true`), storing nothing and reading no account.
+ * No tool can see a user's account, and no tool can act — trade-capable MCP
+ * tools are a separate, gated decision for the operator.
+
+app/routes/mcp.js:943-945, 1015-1017, 1043-1044:
+
+    const WRITE_TOOLS = {
+      arena_open: {
+        requiresKey: true,
+    ...
+      arena_close: {
+        requiresKey: true,
+    ...
+      arena_my_positions: {
+        requiresKey: true,
+```
+
+## B3-15 [HIGH] SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY / "Exchange: 🟢 Connected" / "0.0% error" all-clear manufactured from zero measurements
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/system_health.py:101-112 (snapshot), 56/70/75 (the three unfed feeders), 128-167 (format_telegram)`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-a-heuristic-is-never-a-verdict; CLAUDE.md-registration-is-not-reachability; CWE-754
+
+**Observed**: `/health` prints ✅ SYSTEM HEALTH: HEALTHY with 0ms latency, 0.0% error rate (0/0) and a green "Exchange: Connected" for the entire life of the process, whatever the bot is actually doing. GET /ready (bot/web/dashboard_server.py:352) computes `_is_ready` = exchange_connected AND status != CRITICAL — both constants — so it returns 200 unconditionally, despite its own docstring "Fails CLOSED — if health can't be determined the bot is reported NOT ready". /metrics emits runeclaw_exchange_connected 1, runeclaw_api_error_rate_pct 0, runeclaw_ready 1 as constants (bot/web/dashboard_server.py:388-399).
+
+**Expected**: A monitor with no samples has no reading. Latency/error-rate should render as "—" or "not measured", the exchange line should say "unknown" until something actually probed it, and the verdict should be a third state (UNKNOWN) rather than HEALTHY — the repo's own rule: absent is never a measurement, and a green sub-check that rules no cause out must not be painted as a verdict.
+
+**Root cause**: Two defects compounding, one from each of CLAUDE.md's headline rules. (1) Reachability: the monitor's three write methods were never wired to any caller, so the class is a module that "nothing calls" one granularity down — indistinguishable from one that does not work. (2) The empty-window branch fills the readings with 0.0 instead of None, and the verdict ladder then reads those manufactured zeros as evidence of health.
+
+**Business impact**: The operator's first triage command, the orchestrator readiness probe and the Prometheus scrape all report a healthy, exchange-connected bot during a total exchange outage. CLAUDE.md records 37 timed-out ticks spent on the wrong subsystem after reading one green sub-check; here every signal is green by construction. A load balancer can never take this instance out of rotation.
+
+**Reachability**: REACHABLE AND ALWAYS-ON. /health is registered at bot/skills/telegram_handler.py:970 ("health", self._cmd_health) and renders engine.health.format_telegram() (telegram_handler.py:8347). engine.health is constructed at bot/core/engine.py:444. The /ready and /metrics routes are mounted at bot/web/dashboard_server.py:514-515 and the app is created from bot/main.py:440. No upstream guard exists — the failure is not conditional on any error path; it is the only behaviour the class has.
+
+**Existing tests**: tests/test_ops_endpoints.py imports HealthSnapshot and constructs _HEALTHY/_CRITICAL/_DEGRADED_DISCONNECTED literals (lines 42-45); it never calls SystemHealthMonitor.snapshot() on an unfed monitor, so the constant-HEALTHY path is untested. tests/test_monitoring_is_honest.py is about scripts/monitoring/heartbeat.sh and verify_deploy.sh, not this class. tests/unreachable_methods_baseline.txt records the three dead feeders but nothing asserts the consequence.
+
+**Remediation**: Make the empty-window case tri-state: return None for api_latency_ms / api_latency_p99_ms / error_rate_pct and status="UNKNOWN" when `recent` is empty, and make `exchange_connected` Optional[bool] defaulting to None until something calls set_exchange_status. `_is_ready` should then treat UNKNOWN as not-ready (it already claims to). Separately, wire record_api_call/set_exchange_status at the exchange call sites (or delete the class and stop publishing the card) — and remove the three names from tests/unreachable_methods_baseline.txt in the same commit, per the two-way ratchet rule.
+
+**Evidence**:
+
+```
+bot/core/system_health.py:101-112 —
+            else:
+                avg_lat = 0.0
+                p99_lat = 0.0
+                err_rate = 0.0
+
+            # Determine status
+            if not self._exchange_ok or err_rate > 50:
+                status = "CRITICAL"
+            elif err_rate > 10 or avg_lat > 5000:
+                status = "DEGRADED"
+            else:
+                status = "HEALTHY"
+
+The three methods that would ever move those inputs have ZERO callers in the whole tree (`rg 'record_api_call|set_exchange_status|record_scan' .` returns only the definitions at bot/core/system_health.py:56,70,75 and tests/unreachable_methods_baseline.txt:160-162). `self._samples` is therefore always empty and `self._exchange_ok` is always its constructor default:
+
+bot/core/system_health.py:52-53 —
+        self._exchange_ok = True
+        self._ws_ok = False
+
+Only `set_ws_status` is wired (bot/core/engine.py:4059), so one of five signals on the card is real.
+```
+
+## B3-16 [HIGH] /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement — Cash, Equity and NET all "$0.00"
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/telegram_handler.py:7756-7771, 7861-7863, 7896`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-guard-or-omit-never-neither; CWE-754
+
+**Observed**: A read failure that fetch_balance swallowed into a zeros dict is rendered as a confident, fully-formed account statement showing an empty account. The user reading /livebalance to find out whether their money is there is told it is gone.
+
+**Expected**: A failed balance read is not a zero balance. The card should paint an error state (guard) — the outer `except` at line 7914 already does exactly that with "❌ Balance fetch failed: …" — or omit the balance block and say the read failed.
+
+**Root cause**: fetch_balance converts an exception into a success-shaped dict carrying an "error" key plus zero-valued money fields, and the only caller that inspects that key does so for the cache write, not the display. The exception never reaches line 7914 because `_get_exchange()` returns the CACHED ccxt instance (bot/core/live_executor.py:809-820 — `if self._exchange is None: … return self._exchange`), so a fetch_balance-only failure leaves every later call working.
+
+**Business impact**: The most-read money surface tells a live trader their exchange account is empty during a transient venue/auth failure. That is the reading most likely to provoke a panic manual intervention on a real account.
+
+**Reachability**: REACHABLE. /livebalance is registered at bot/skills/telegram_handler.py:967 and listed in bot/skills/command_catalog.py:34. The handler is reached by any user with the "portfolio" permission; `balance_view_executor` routes linked users to their own account. No upstream guard inspects bal["error"] before the render; verified by grepping the whole function body (lines 7742-7917) for "error" — only line 7760 matches.
+
+**Existing tests**: tests/test_telegram_commands.py:146 test_livebalance_returns_balance mocks a SUCCESSFUL fetch_balance ({"total": 123.45, …}) and asserts "123.45" appears. No test in tests/ plants the {"error": …} payload for this handler.
+
+**Remediation**: In `_cmd_livebalance`, immediately after line 7756 add `if bal.get("error"): raise RuntimeError(bal["error"])` (or render the existing "❌ Balance fetch failed" branch directly) so the failure takes the guard path that already exists twelve lines further down. Better still, have `LiveExecutor.fetch_balance` re-raise or return None instead of a zeros dict, so no caller can mistake the failure for a reading — the same change the /portfolio and /balance realized-total work already made with `realized_totals` returning None.
+
+**Evidence**:
+
+```
+bot/core/live_executor.py:8933-8934 — fetch_balance's failure return:
+        except Exception as exc:
+            return {"error": str(exc), "free": 0, "used": 0, "total": 0, "holdings": []}
+
+bot/skills/telegram_handler.py:7768-7771 — the display path reads it without ever asking about "error":
+            total = bal.get("total", 0)
+            free = bal.get("free", 0)
+            used = bal.get("used", 0)
+            holdings = bal.get("holdings", [])
+
+bot/skills/telegram_handler.py:7861-7863 —
+                f"- Cash: <code>${free:,.2f}</code>",
+                f"- Used: <code>${used_display:,.2f}</code>",
+                f"- Equity: <code>${total_usd:,.2f}</code>",
+
+The ONLY "error" check in the whole handler is the cache-write guard at line 7760 (`if is_operator_view and ("error" not in bal or bal.get("total", 0) > 0)`), which protects the engine's cache and not the card.
+```
+
+## B3-17 [HIGH] The web gateway reports `unprotected: false` for a live position that has NO stop at all, and the dashboard paints it "🤖 bot-managed" under a "🛡️ All positions have their stop-loss on the exchange" banner
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/web/user_gateway.py:1589-1597 (esp. 1596), 1675-1676`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim; CWE-754
+
+**Observed**: `unprotected: false`, `sl_order: "manual"`, `sl_dist_pct: 0.0`. The dashboard row shows the neutral "🤖 bot-managed" chip (asserting the bot is managing a stop that does not exist) and, because unprotected_count is 0, the page-level banner reads "🛡️ All 0 live positions have their stop-loss on the exchange."
+
+**Expected**: "No stop anywhere" is the strongest form of unprotected, not a protected state. It should set unprotected=True (or a third value, `sl_order: "none"`), and sl_dist_pct should be None rather than 0.0 — 0.0% away reads as a stop sitting exactly at entry.
+
+**Root cause**: The serializer is two-valued where the fact is three-valued. Its own docstring (user_gateway.py:1583-1586) enumerates only two cases — "non-null ⇒ protected; None with a stop price set ⇒ UNPROTECTED" — and the third case, no stop price at all, falls through the `sl > 0` guard into the safe answer. The exact `(x or 0) > 0` shape from CLAUDE.md's table, leaning toward safety-looking.
+
+**Business impact**: The web dashboard's protection banner is the answer to "is my money stopped out if this gaps?". An adopted or reclaimed position carrying no stop is counted as fine and shown with a reassuring chip, while the bot's own Telegram alert is simultaneously calling it CRITICAL — two surfaces disagreeing about the single most expensive safety fact.
+
+**Reachability**: REACHABLE. handle_positions (user_gateway.py:1641) maps `_live_position_row` over `executor.open_positions` (lines 1660-1661) for any live, non-web caller, and the gateway is mounted by bot/web/dashboard_server.create_app. Positions with stop_loss == 0 are produced by the two adoption constructors cited above; the limit-order one (live_executor.py:2800-2815) never runs the safety-default block at all, and the position one skips it whenever entry_price is 0 (`need_sl = lp.stop_loss <= 0 and entry_price > 0`, live_executor.py:2484), which the `or 0` entry-price chain at :2340-2344 can produce. Two other surfaces get the same question right, which is what makes this a divergence rather than a design choice: /livepositions prints "⚠️ NOT SET" (telegram_handler.py:8049) and the proactive alert fires POSITION_UNPROTECTED on `has_sl = bool(sl_order_id)` alone.
+
+**Existing tests**: tests/test_positions_web_gateway.py covers three cases (sl_order_id present; sl_order_id None WITH stop_loss=95.0; the runtime `unprotected` marker) — its `_live()` fixture always sets `stop_loss=95.0`. No test plants stop_loss=0, so the case is unpinned in both directions.
+
+**Remediation**: Change line 1596 to `unprotected = (not sl_protected) or bool(getattr(pos, "unprotected", False))` — matching bot/core/proactive_monitor.py:1897-1901, which already gates the CRITICAL alert on `sl_order_id` alone — and return `stop_loss`/`sl_dist_pct` as None (not 0.0) when no stop is recorded so the client cannot format a price it does not have. Add the missing scenario to tests/test_positions_web_gateway.py.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:1588-1597 —
+    entry = float(getattr(pos, "entry_price", 0) or 0)
+    sl = float(getattr(pos, "stop_loss", 0) or 0)
+    …
+    sl_protected = bool(getattr(pos, "sl_order_id", None))
+    tp_protected = bool(getattr(pos, "tp_order_id", None))
+    unprotected = (not sl_protected and sl > 0) or bool(getattr(pos, "unprotected", False))
+
+The `sl > 0` conjunct means "there is no stop price recorded at all" resolves to NOT-unprotected. Positions with stop_loss == 0 are constructed on the adoption paths: bot/core/live_executor.py:2377 (`stop_loss=0,` for an adopted exchange position) and :2807 (`stop_loss=0,` for an adopted/reclaimed limit order, status="pending_fill"), and both appear in `open_positions` (live_executor.py:8938 — `p.status in ("open", "pending_fill")`).
+
+Downstream, app/public/js/dashboard.js:1130-1132 —
+      if (p.unprotected) chip = `<span class="chip chip--down">⚠️ unprotected</span>`;
+      else if (p.sl_order === 'exchange') chip = `<span class="chip chip--up">🛡️ on exchange</span>`;
+      else chip = `<span class="chip">🤖 bot-managed</span>`;
+
+and app/public/js/dashboard.js:1123 — with unprotected_count 0 the banner is the all-clear:
+    else if (d.live) banner = `<div class="lpos-alert lpos-alert--ok">🛡️ All ${prot} live position${prot === 1 ? '' : 's'} have their stop-loss on the exchange.</div>`;
+```
+
+## B3-18 [MEDIUM] /performance prints an all-time realized total of "$+0.00" when nothing could be priced — the `_total_known` flag that exists to prevent it is computed and never used
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/telegram_handler.py:12447-12449, 12525-12528`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim
+
+**Observed**: "All-time $+0.00" (and Today / 7-Day) printed as measured figures, one line above a win rate that honestly says "n/a" and names the two unpriced closes. The card contradicts itself: the rate knows nothing could be scored, the total beside it claims break-even.
+
+**Expected**: The total should read "unknown" (or "—") with no sign and no arrow, exactly as its sibling /balance already does: `_realized_str = (f"${pnl_sign}{realized_pnl:.2f}" if _realized_known else "unknown")` (telegram_handler.py:7832-7833), with the unpriced count stated beside it.
+
+**Root cause**: The None-preserving fix was applied to the rate (line 12446, with a comment explaining that None must travel) and half-applied to the total: the flag was computed at 12449 and the wiring into the card was never finished. render_performance has no way to recover it — it is handed a measured-looking 0.0, the exact situation the comment at 12441-12445 describes for the win rate.
+
+**Business impact**: The headline lifetime P&L figure on the performance card is fabricated from no measurements. Combined with the honest "n/a" win rate on the same card, the operator sees a break-even record where the truth is "we cannot price any of these closes".
+
+**Reachability**: REACHABLE. /performance is registered in the command table and guarded by @guard("portfolio") at line 12366. The live branch runs whenever CONFIG.is_live() and the engine has a live_executor. `pnl_usd` is Optional BY DESIGN and survives restarts as JSON null — bot/core/live_executor.py:9368 `pnl_usd=(None if item.get("pnl_usd") is None else float(item["pnl_usd"]))`, under a comment saying `float(x or 0)` "silently converted 'we could not price this' into 'this broke even'".
+
+**Existing tests**: tests/test_unpriced_closes_are_not_break_even.py exercises render_performance and render_daily_report directly with hand-built dicts; it never drives `_cmd_performance`, so the layer that manufactures the 0.0 above the renderer is untested. audit/generate_artifact.py's RC-2026-009 covers the PAPER branch's hardcoded week_pnl (line 12555) — a different branch and a different value.
+
+**Remediation**: Pass the tri-state through: put `total_pnl` in `data` as None when `_total_known` is False (plus the `_tot["unpriced"]`/`_tot["total"]` counts), and teach render_performance to render an unknown total as "unknown" with a neutral glyph — the treatment it already gives an unknown win rate at bot/warroom/warroom_bot.py:380-386. Do the same for `today_pnl`/`week_pnl`, whose `_today_unpriced`/`_week_unpriced` counters (lines 12461-12496) are likewise computed and never surfaced.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:12447-12449 —
+            _tot = realized_totals(user_trades)
+            total_pnl = _tot["net"] if _tot["net"] is not None else 0.0
+            _total_known = _tot["net"] is not None
+
+`_total_known` appears exactly once in the whole file (`grep -n '_total_known' bot/skills/telegram_handler.py` → 12449 only). The manufactured 0.0 is then published verbatim:
+
+bot/skills/telegram_handler.py:12525-12527 —
+            data = {
+                "today_pnl": round(today_pnl, 2),
+                "week_pnl": round(week_pnl, 2),
+                "total_pnl": round(total_pnl, 2),
+
+realized_totals returns None for exactly this case and says why (bot/formatters/realized_totals.py:26-30): "In the all-unpriced case it printed `$+0.00 🟢`: a measured break-even, in green, built from zero measurements. … an unreadable total is None, and None has no colour."
+```
+
+## B3-19 [MEDIUM] /performance crashes with `TypeError: type NoneType doesn't define __round__` when an adopted-orphan close has no recorded P&L
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/telegram_handler.py:12436, 12538`
+- **Standard**: CLAUDE.md-test-is-None-not-falsiness; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim; CWE-476
+
+**Observed**: The handler raises before the data dict is built, so nothing is sent. `_cmd_performance` has no try/except of its own — the @guard decorator (telegram_handler.py:743-764) only runs the permission gate — so the exception escapes to the PTB error handler and the user gets no card at all.
+
+**Expected**: The excluded-orphans line should render "(P&L not recorded)" the way /balance does, and the command should complete.
+
+**Root cause**: One of the three sibling call sites of realized_totals was left with a caller that assumes a float. The comment sitting directly above the line names the defect ("this total beside it was not") and the fix was applied to /balance and /portfolio but not here.
+
+**Business impact**: /performance becomes unusable for any account carrying an unpriced adopted orphan — the operator loses the P&L surface entirely and gets no explanation, on exactly the accounts (positions the bot did not open) where the numbers are least well understood.
+
+**Reachability**: REACHABLE. Requires (a) live mode, (b) at least one closed position whose trade_id starts with 'TI-adopted' or 'TI-injected', and (c) that row's pnl_usd being None. Adopted orphans are created by bot/core/live_executor.py:2369 (`trade_id = f"TI-adopted-{…}"`), and pnl_usd is Optional and round-trips as JSON null (live_executor.py:9368). No upstream guard filters unpriced adopted rows — lines 12430-12431 select them purely by trade_id prefix.
+
+**Existing tests**: No test in tests/ drives `_cmd_performance` with an adopted orphan (grep for ORPHAN_PREFIXES in tests/ returns filter tests, not this handler). audit/generate_artifact.py RC-2026-010 records a DIFFERENT crash on the same command — `f"{_wr:.0f}%"` on a None win rate at lines 12567/12574 — which is caught by the surrounding try/except and merely drops the PNG; this one is outside any handler and kills the command.
+
+**Remediation**: Mirror /balance: keep `adopted_pnl` Optional in `data` (`"adopted_pnl": None if adopted_pnl is None else round(adopted_pnl, 2)`) and have bot/warroom/warroom_bot.py:418-424 render the excluded-orphans line as "(P&L not recorded)" when it is None rather than formatting it with `_money`.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:12432-12436 —
+            # Third copy of the same parenthetical (see /balance and
+            # /portfolio). The win rate six lines below was carefully made to
+            # pass None through; this total beside it was not.
+            from bot.formatters.realized_totals import realized_totals
+            adopted_pnl = realized_totals(adopted_trades)["net"]
+
+bot/skills/telegram_handler.py:12538 —
+                "adopted_pnl": round(adopted_pnl, 2),
+
+`realized_totals(...)["net"]` is documented as "None when rows exist and none are priced" (bot/formatters/realized_totals.py:57-58), and `round(None, 2)` raises. The sibling call site handles it — telegram_handler.py:7909-7910:
+                    + (f" ({'+' if adopted_pnl >= 0 else ''}{adopted_pnl:.2f})</i>"
+                       if adopted_pnl is not None else " (P&L not recorded)</i>")
+```
+
+## B3-20 [MEDIUM] /classpf scores every unpriced close as a break-even trade: the win rate is diluted downward and a partial net is printed as the whole
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/telegram_handler.py:4569, 4576, 4585-4593`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-test-is-None-not-falsiness
+
+**Observed**: WR 33% (1 win out of 3), computed over a denominator that includes two rows nobody could price; and "net $+12.00" presented as the class total over all 3 trades with no indication that 2 contributed nothing.
+
+**Expected**: "1 of 1 priced close was a win; 2 closes carry no recorded P&L and are scored neither way" — WR 100% over a scored population of 1, with the shortfall stated. That is exactly what bot/utils/win_rate.py's win_stats returns and what the /portfolio and /performance cards already print.
+
+**Root cause**: `float(getattr(tr, "pnl_usd", 0) or 0)` collapses None to 0.0 at the top of the loop, so by the time the bucket is scored there is no way to tell an unpriced close from a genuine break-even. `is_filled_close` cannot help: a close_reason of "TP"/"SL" is not in NON_FILL_CLOSE_REASONS (bot/utils/close_reason.py:64-79), so the manufactured zero passes straight through into the bucket.
+
+**Business impact**: The card is described in its own docstring as the evidence base for growing or pruning the non-crypto universe. A win rate pushed down by unscorable rows and a partial net printed as whole are the inputs to a decision about which asset classes the bot keeps trading.
+
+**Reachability**: REACHABLE. /classpf is registered at bot/skills/telegram_handler.py:950 ("classpf", self._cmd_classpf) and listed in bot/skills/command_catalog.py:101; the handler is @guard("portfolio"). It reads `self.engine.live_executor.closed_positions` directly (line 4557). `pnl_usd` is Optional by design and preserved as JSON null across restarts (bot/core/live_executor.py:9360-9369). No upstream guard drops unpriced rows.
+
+**Existing tests**: grep for `classpf` in tests/ returns no test file. The behaviour is covered nowhere; the cure (bot/utils/win_rate.py) is heavily tested but this call site does not use it.
+
+**Remediation**: Read the field with `bot.utils.win_rate.trade_pnl(tr)` (which returns Optional and exists precisely so callers cannot get the field wrong), keep unpriced rows out of the bucket lists, count them separately, and append the coverage note the other cards use (`bot.utils.win_rate.coverage_note`). PF and the net should be omitted or marked partial when the priced count is short of the trade count.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:4567-4576 —
+        for tr in trades:
+            try:
+                pnl = float(getattr(tr, "pnl_usd", 0) or 0)
+                if not is_filled_close(getattr(tr, "close_reason", None), pnl):
+                    skipped_non_fills += 1
+                    continue  # never filled — no capital was at risk
+                cat = category_for_symbol(getattr(tr, "symbol", "") or "")
+            except Exception:
+                continue
+            buckets.setdefault(cat, []).append(pnl)
+
+bot/skills/telegram_handler.py:4585-4593 —
+            wins = [p for p in pnls if p > 0]
+            losses = [-p for p in pnls if p < 0]
+            gw, gl = sum(wins), sum(losses)
+            pf = (gw / gl) if gl > 0 else (float("inf") if gw > 0 else 0.0)
+            …
+            wr = 100.0 * len(wins) / len(pnls) if pnls else 0.0
+            lines.append(
+                f"{category_icon(cat)} <b>{cat}</b>: {len(pnls)} trades · "
+                f"PF <b>{pf_s}</b> · WR {wr:.0f}% · net ${sum(pnls):+.2f}")
+
+This is `getattr(o, "pnl", 0)` plus a sum over a set containing unreadable rows — two rows of CLAUDE.md's shape table — in a file that already imports the cure: `from bot.utils.win_rate import win_stats as _win_stats` (telegram_handler.py:684).
+```
+
+## B3-21 [MEDIUM] /livepositions' exchange-fallback list renders an unreadable entry, mark and unrealized P&L as $0.0000 / $+0.00 — on the orphan list the bot has a purpose-built honest renderer for
+
+- **Dimension**: honesty-py · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/telegram_handler.py:8017-8029`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim
+
+**Observed**: "- Mark: $0.0000", "- uPnL: $+0.00" and "- Entry: $0.0000" rendered as measurements, under the header "LIVE POSITIONS (from exchange)" and the caveat "⚠️ Showing exchange data — local tracking out of sync" (line 8030), which explains that tracking is stale but asserts the numbers themselves are real.
+
+**Expected**: The same three-valued treatment `orphan_position_row` gives: an em dash or "unknown" for a field the venue did not report, no sign, and no colour. A missing unrealizedPnl must not print as a measured break-even.
+
+**Root cause**: This fallback branch was not migrated when the orphan-row renderer was extracted. It is the second surface answering the same question from the same venue payload, and only the first was cured — the corollary CLAUDE.md states as "Ask which OTHER surface makes the same claim — before calling the fix done."
+
+**Business impact**: This list is shown precisely when local tracking is out of sync — the moment the operator least knows what is open. A fabricated $+0.00 unrealized on an untracked live position asserts break-even for a position whose P&L nobody read.
+
+**Reachability**: REACHABLE. The branch at telegram_handler.py:8003-8032 runs when the caller's executor has no locally tracked positions but the exchange reports open ones — i.e. exactly the orphan case. `_render_livepositions_cards` cannot pre-empt it: it returns False immediately when both lists are empty (telegram_handler.py:8182-8183). /livepositions is registered in the command table and listed in bot/skills/command_catalog.py.
+
+**Existing tests**: tests/test_telegram_commands.py:165 test_livepositions_empty asserts the "no live positions" message with `_positions = {}` and no exchange fallback data; nothing plants an exchange position dict with a missing unrealizedPnl. tests/ has no coverage of this branch.
+
+**Remediation**: Route this branch through `bot.formatters.orphan_position.orphan_position_row` (or at minimum through its `_f()` helper) so a missing field renders as "—", and drop the `or 0` on entryPrice / markPrice / unrealizedPnl. The row builder is already pure and unit-tested, so the change is a call, not a rewrite.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:8017-8029 —
+                        contracts = float(p.get("contracts") or 0)
+                        entry = float(p.get("entryPrice") or 0)
+                        mark = float(p.get("markPrice") or 0)
+                        upnl = float(p.get("unrealizedPnl") or 0)
+                        lev = int(float(p.get("leverage") or 1))
+                        …
+                            f"- Entry: <code>${entry:,.4f}</code>\n"
+                            f"- Mark: <code>${mark:,.4f}</code>\n"
+                            f"- Qty: <code>{contracts:.6f}</code>\n"
+                            f"- uPnL: <code>${upnl:+,.2f}</code>\n"
+
+The cure for this exact payload already exists and documents the exact claim being made here — bot/formatters/orphan_position.py:80-83:
+    # The venue omits unrealizedPnl more often than it reports a real 0.00, and
+    # for an orphan "break-even" is the single worst thing to assert. A genuine
+    # 0 from the venue still reads as 0; only a missing field is unknown.
+    unrealized = _f(pos.get("unrealizedPnl")) if pos.get("unrealizedPnl") is not None else None
+```
+
+## B3-22 [MEDIUM] The Daily Alpha card publishes an unreadable funding rate as a measured "+0.0000% (flat)", while the open-interest and long/short fields beside it correctly omit themselves
+
+- **Dimension**: honesty-py · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/alpha_card.py:180-184, 278-281`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-test-is-None-not-falsiness
+
+**Observed**: "⚖️ Positioning — Funding: +0.0000% (flat)" on the text card and "Funding +0.0000% (flat)" in the POSITIONING block of the PNG, asserting a measured neutral funding regime built from a field the venue never sent.
+
+**Expected**: Omit the funding line when the rate could not be read, exactly as the open-interest and long/short lines already do — or read it through `bot.risk.funding_clock.read_funding_rate`, which returns None for absent / empty / NaN and a real 0.0 only for a genuine zero.
+
+**Root cause**: `float(x or 0)` on an Optional venue field, in the one of three positioning reads that was not given a presence guard. The falsiness collapse also makes the "flat" label unrecoverable downstream — by the time the renderer sees 0.0 there is nothing left to distinguish it from a genuine zero.
+
+**Business impact**: The card's own footer reads "Same data the bot trades on — not investment advice." A fabricated flat funding rate on the positioning block misrepresents crowding for a symbol whose venue reports none — and 0% funding is itself a meaningful signal in this codebase (the executor reads it as "market likely closed").
+
+**Reachability**: REACHABLE. `build_alpha_insight` / `format_alpha_card` are imported and called at bot/skills/telegram_handler.py:10464 and 10483, with the PNG variant at 10474-10475 (bot/formatters/signal_card.py:1799 render_alpha_card). Nothing between the fetch and the render inspects whether the rate was readable. DISPLAY ONLY — the trading gate reads funding independently through the null-preserving `read_funding_rate` (bot/core/live_executor.py:45, 2954), so no order decision is affected; scored MEDIUM for that reason.
+
+**Existing tests**: grep for `funding_rate` in tests/ and app/test/ turns up no test that plants a null fundingRate against build_alpha_insight or format_alpha_card; tests/test_alpha_card.py exercises the formatter with populated dicts.
+
+**Remediation**: Replace bot/core/alpha_card.py:182 with `_r = read_funding_rate(fr)` (bot/risk/funding_clock.py) and `if _r is not None: d["funding_rate"] = _r`. That is a one-line change using a reader the repo already ships and tests, and it fixes both renderers at once because both key on the field's presence.
+
+**Evidence**:
+
+```
+bot/core/alpha_card.py:180-200 — funding is stored unconditionally; its two neighbours are guarded:
+    try:
+        fr = await exchange.fetch_funding_rate(symbol)
+        d["funding_rate"] = float(fr.get("fundingRate") or 0)
+    except Exception:
+        pass
+    …
+        if oi_usd > 0:
+            d["open_interest_usd"] = oi_usd
+
+bot/core/alpha_card.py:278-281 — the text renderer keys on presence, not on a reading:
+    if "funding_rate" in d:
+        f = d["funding_rate"] * 100
+        payer = "longs pay" if f > 0 else ("shorts pay" if f < 0 else "flat")
+        pos_lines.append(f"  Funding: {f:+.4f}% ({payer})")
+
+and the PNG renderer repeats it — bot/formatters/signal_card.py:1974-1977:
+        if "funding_rate" in data:
+            f = data["funding_rate"] * 100
+            payer = "longs pay" if f > 0 else ("shorts pay" if f < 0 else "flat")
+            row.append(f"Funding {f:+.4f}% ({payer})")
+
+The repo already owns the null-preserving reader and says why 0 is not a neutral filler — bot/risk/funding_clock.py:41-48: "an absent field, a null, an empty string and a genuine 0.0 all became 0.0 … In this domain 0 is not a neutral filler: the executor's own comment says '0% funding on metals/stocks = market likely closed', so an unreadable rate was impersonating a real and quite specific signal."
+```
