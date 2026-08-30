@@ -26,7 +26,6 @@ import pytest
 
 from bot.llm.provider import LLMProvider, sc_config
 
-
 _ENV_KEYS = ("RUNECLAW_SC_BASE_URL", "RUNECLAW_SC_MODEL", "RUNECLAW_SC_API_KEY")
 
 
