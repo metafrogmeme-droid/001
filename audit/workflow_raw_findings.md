@@ -4625,3 +4625,2715 @@ There is no `__del__` on LiveExecutor (`grep -n "__del__" bot/core/live_executor
 
 - **[LOW]** Background tasks are created with no retained reference and no cancellation path (fire-and-forget in the monitor loop and the self-audit spawn) — `/home/user/001/bot/core/proactive_monitor.py:548 and 607 (proactive_monitor); bot/core/self_audit.py:229`
 - **[LOW]** DashboardPusher decides it is configured from live env but starts from import-time constants, and stop() cancels its task without awaiting it — `/home/user/001/bot/core/dashboard_pusher.py:24-26 (import-time constants), 43-44 (call-time check), 55-64 (start reads the constants), 66-70 (stop), 180-183 (_loop reads the constants)`
+
+
+========================================================================
+
+# Batch 5 — infra-cicd, deps, privacy, observability
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED**
+
+
+## B5-01 [HIGH] CI installs the Solana toolchain by piping an unverified remote script into sh, in the same job that produces and "proves" the deployable staking bytecode
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `.github/workflows/ci.yml:216-219 (staking), 554-557 (token-tooling)`
+
+**Observed**: The installer script is fetched and executed unverified in two jobs. In the `staking` job it installs `cargo-build-sbf`, which then produces `target/deploy/rclaw_staking.so` — the artifact `scripts/build_provenance_gate.py` immediately certifies as reproducible and mint-pinned.
+
+**Root cause**: The workflow applies checksum discipline only to the step it labelled "a supply-chain control" (gitleaks) and not to the two steps that install a compiler for the deployed program. The provenance argument is circular: build_provenance_gate.py's reproducibility check builds twice with the SAME installed toolchain, so a compromised toolchain produces two byte-identical compromised artifacts and the gate reports green.
+
+**Business impact**: A compromise or MITM of the installer endpoint yields arbitrary code execution inside a job that holds GITHUB_TOKEN with undeclared permissions and emits the deployable bytecode of the staking program holding staked $RCLAW. A substituted cargo-build-sbf could strip enforce_pinned_mint while the provenance gate — rebuilding with the same toolchain — still reports reproducible and pinned. build_provenance_gate.py's docstring states the stakes: a verifier "cannot distinguish 'the deployer legitimately set the pin' from 'the deployer stripped the mint check before deploying'."
+
+**Remediation**: Download the Anza release tarball for v1.18.26 to a file, verify a committed SHA256 with `sha256sum -c -` (the pattern already at ci.yml:491), then extract and add to $GITHUB_PATH. Do it in both jobs. While there, pin `cargo install cargo-audit --locked` (ci.yml:259) to an explicit `--version`, since that step installs the SCA gate's own binary at whatever version crates.io serves that day.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — The framing 'produces the deployable staking bytecode' overstates the blast radius. I grepped the whole workflow for `upload-artifact`/`actions/upload` and there is none, and .github/workflows/ ci.yml is the only workflow file — the .so built at :221 is `ls -l`'d and discarded. Nothing is published or released from CI, so a compromised installer buys arbitrary code execution on the runner with GITHUB_TOKEN in scope (which is what F2 is about), NOT a poisoned artifact reaching a chain. Real, worth fixing, but MEDIUM not HIGH.
+
+- sev→MEDIUM — Severity HIGH is inflated for this system, for two reasons the finder under-weighted. (1) The installer URL is itself version-pinned — https://release.anza.xyz/v1.18.26/install, not a floating `stable` endpoint — so this is not the usual `curl|sh` of a moving target; the residual risk is Anza's CDN serving different bytes at a fixed version path. (2) I read the whole staking job (ci.yml:165-296): there is no `actions/upload-artifact`, no release publish, and no deploy step — the SBF build ends at `ls -l target/deploy/rclaw_staking.so` (:221-223). CI never ships the .so anywhere, so a compromised toolchain cannot put bytecode on chain; it can only make CI's reproducibility claim untrustworthy, which a human deployer rebuilding locally would not inherit. That is a real erosion of the provena
+
+**Evidence**:
+
+```
+  .github/workflows/ci.yml:216-219
+      - name: Install the SBF toolchain (pinned to Anchor.toml's solana_version)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+  ...and the next steps are the ones that produce and certify the artifact:
+  .github/workflows/ci.yml:221 and :259-260
+      - name: Build — SBF bytecode (deployable artifact)
+      - name: Build provenance — reproducible, and the mint pin is compiled in
+        run: python3 scripts/build_provenance_gate.py
+
+  Contrast, in the SAME workflow, .github/workflows/ci.yml:479-491:
+      # The binary is pinned and checksum-verified rather than installed from a
+      # floating tag: this step is a supply-chain control, so it must not itself
+      # execute an unverified download.
+      - name: gitleaks (full history)
+        env:
+          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          curl -sSLo "$tarball" ...
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+```
+
+## B5-02 [MEDIUM] Third-party GitHub Actions are referenced by mutable branch/tag, not commit SHA — including a branch ref on the Rust toolchain action
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `.github/workflows/ci.yml:173, 176, 454`
+
+**Observed**: All three third-party actions run whatever the referenced branch or major tag points at on the day the job runs. gitleaks/gitleaks-action@v2 additionally receives secrets.GITHUB_TOKEN explicitly (:456).
+
+**Root cause**: No pinning policy for `uses:` refs and no test enforcing one. The author reasoned about download integrity for the one step labelled "a supply-chain control" and did not extend it to the actions themselves, which execute earlier and with the same privileges.
+
+**Business impact**: A compromise of any of the three action repositories (or of a maintainer account able to move a branch/tag) executes attacker code in this repo's CI. The staking job builds the deployable on-chain artifact; the secrets job is handed GITHUB_TOKEN. Tag/branch hijack of popular actions is a demonstrated real-world attack class.
+
+**Remediation**: Replace each third-party `uses:` with `owner/repo@<40-char-sha> # vX.Y.Z` and add a Dependabot/Renovate github-actions rule so SHAs are bumped deliberately. Optionally add a pytest that parses ci.yml and asserts every non-`actions/*` `uses:` matches `^[^@]+@[0-9a-f]{40}$` — tests/test_preflight_matches_ci.py and tests/test_ci_covers_what_ships.py already parse this file with PyYAML, so the seam exists.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Verbatim at ci.yml:172-176 (`- uses: dtolnay/rust-toolchain@stable` with `components: clippy, rustfmt`, then `- uses: Swatinem/rust-cache@v2`) and :452-457 (`uses: gitleaks/gitleaks-action@v2` under `if: github.event_name == 'pull_request'`, with `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`). `@stable` on dtolnay/rust-toolchain is a branch ref, `@v2` a floating major tag — GitHub re-resolves both at job start. The finding correctly scopes to third-party actions and does not accuse actions/checkout@v4 or actions/setup-node@v4. grep across tests/ for dtolnay/Swatinem/gitleaks-action returns nothing; the only tree-wide hits are docs/TOKEN_SECURITY_AUDIT.md:1627/1630/2796, which are remediation snippets proposing these very steps, not pinning findings — exactly as the finding states.
+
+- sev→LOW — MEDIUM is inflated here. This is a generic hardening recommendation, not a live defect, and the blast radius in THIS repo is small: the workflow triggers are pull_request / push-to-main / workflow_dispatch (:3-7) with no `pull_request_target`, so fork PRs get no repository secrets; the only secret any of these three actions touches is GITHUB_TOKEN; and — as established under finding 0 — no job publishes an artifact, pushes a package, or deploys. A compromised action could poison CI verdicts, which is real, but it cannot exfiltrate a deploy key or ship bytecode. LOW.
+
+**Evidence**:
+
+```
+  .github/workflows/ci.yml:172-176
+      # Toolchain comes from rust-toolchain.toml so CI and a local build agree.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+  .github/workflows/ci.yml:453-456
+        if: github.event_name == 'pull_request'
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## B5-03 [MEDIUM] No workflow-level GITHUB_TOKEN permissions block — least privilege is asserted in a comment but depends on a repository setting the tree cannot pin
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `.github/workflows/ci.yml:1-13 (no permissions key), 405-419`
+
+**Observed**: Seven of eight jobs run with an inherited, tree-invisible token scope. Two of them (staking, token-tooling) execute an unverified remote installer (:218, :556) while that token is live.
+
+**Root cause**: The workflow reasoned about permissions only where a step demanded them (gitleaks needed pull-requests: read), and the resulting comment records the observed default as if it were a guarantee. A default is a setting; a permissions: key is a declaration.
+
+**Business impact**: If the repository or organisation default is read/write (the pre-2023 default, still selectable), a compromised action ref or a compromised toolchain installer in any of the seven undeclared jobs receives a token that can push commits, move tags and create releases on a repository that publishes on-chain program source and a trading bot.
+
+**Remediation**: Add `permissions:\n  contents: read` immediately after the `concurrency:` block. The existing secrets-job block at :417-419 already widens correctly and needs no change. Two lines, zero behaviour change under the current default, and a real control if the default is ever permissive.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Downgrade to LOW. The workflow's own comment records empirical evidence that the repository default is already restrictive: gitleaks-action died on `403 Resource not accessible by integration` asking for pull_requests=read, which is what a contents-only token does. So the missing `permissions:` key is a durability/declaration gap (protects against a future settings change), not a live over-privilege. Two lines, zero behaviour change today — that is hardening, not a defect that moves money.
+
+- sev→LOW — Downgrade to LOW. This is defence-in-depth against a repo setting that the finder concedes they cannot read and that is read-only by GitHub's own default for repositories created after Feb 2023. There is no path in this workflow that uses the token to write — no artifact publish, no release, no `gh` call, no bot commit — so even a permissive default has nothing here to abuse beyond what a compromised third-party action (finding 1) already implies. The two-line fix is worth taking; the impact rating is not MEDIUM on a system that moves real money, because nothing in the money path passes through it.
+
+**Evidence**:
+
+```
+  .github/workflows/ci.yml:1-13 — the entire workflow preamble, with no `permissions:` key:
+    name: CI
+
+    on:
+      pull_request:
+      push:
+        branches: [main]
+      workflow_dispatch:
+
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
+
+    jobs:
+
+  .github/workflows/ci.yml:405-419 — the only permissions declaration in the file:
+      # The workflow declares no permissions, so GITHUB_TOKEN arrives with the
+      # repository default — contents only. gitleaks-action calls
+      # ...
+        permissions:
+          contents: read
+          pull-requests: read
+```
+
+## B5-04 [MEDIUM] The GitLab failover pipeline installs a requirements.txt that does not exist, so all seven of its Python gates abort in before_script
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `.gitlab-ci.yml:33-38`
+
+**Observed**: before_script exits non-zero on all seven jobs. The pipeline whose own header (:6-8) says it exists because "the GitHub account was suspended and six checks went with it ... This restores enforcement on a host that is not the one that went away" enforces nothing.
+
+**Root cause**: The GitLab file was written as a translation of ci.yml without being executed, and the one filename that differs between the two hosts was transcribed from habit rather than from the source file.
+
+**Business impact**: The documented backstop for a repeat of the 2026-08-02 GitHub suspension is inert. If GitHub goes away again, this repository has zero automated enforcement of the ruff floors, the mypy gates, bandit, pip-audit, the baseline test gate and guard_lint — on a codebase that moves real money — while a file at the repo root states the opposite.
+
+**Remediation**: Change .gitlab-ci.yml:37 to `- pip install -q -r requirements-ci.txt`. Then either fix the rest of the file (see the two related findings) or delete it — a failover that cannot run is worse than none, because it is documented as coverage. Add a test that parses .gitlab-ci.yml and asserts every `-r <file>` and every script path it names exists on disk; nothing in tests/ reads this file today.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Downgrade to LOW on impact grounds. `git remote -v` shows only the GitHub origin — no GitLab remote is configured, so nothing runs this file today, and if it ever is adopted the failure is maximally loud: before_script exits non-zero on the first job, red on the first push, impossible to mistake for coverage. That is the opposite of the silent-undercoverage shape this repo actually bleeds from (see finding 4, which is the dangerous one).
+
+- sev→LOW — The facts are exact; the framing overstates impact. A failing `before_script` makes each job RED, not green — GitLab blocks the MR and the pipeline is visibly broken. So this is not the repo's signature failure (a subset reported as the whole, silently); it is a loudly-broken dormant failover. The header's claim at :6-8 that it "restores enforcement" is false, which is a documentation-honesty defect worth fixing, but nothing can be merged on a false green because of it. LOW. Note also this is now the third audit to report it unfixed, which argues for deleting the file rather than repairing it.
+
+**Evidence**:
+
+```
+  .gitlab-ci.yml:33-38
+    .python:
+      image: python:3.11
+      before_script:
+        - pip install -q --upgrade pip
+        - pip install -q -r requirements.txt
+        - pip install -q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov
+```
+
+## B5-05 [MEDIUM] GitLab's token-tooling job runs from the repo root against paths that only exist under token/, and its `rules: changes` list can never match
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `.gitlab-ci.yml:92-99`
+
+**Observed**: The job never tests the token tooling. On the only trigger that can fire it (a root package.json/lock change) it installs the wrong workspace and globs paths that do not exist. It also omits ci.yml's `node scripts/audit_gate.mjs` npm advisory ratchet entirely.
+
+**Root cause**: The translation dropped ci.yml's `working-directory: token` and did not adjust the paths, so the job reads as a correct port while pointing at a directory layout that does not exist.
+
+**Business impact**: On the failover host, the tooling that mints the $RCLAW SPL token and runs the Genesis presale — code that signs privileged Solana transactions — has no test execution and no npm advisory ratchet, while the pipeline lists a job named test:token-tooling. The token tree carries 9 high advisories per token/.audit-baseline.json; nothing on GitLab would print them.
+
+**Remediation**: Rewrite as `script: [cd token, npm ci --no-audit --no-fund, node --test presale/*.test.mjs scripts/*.test.mjs, node scripts/audit_gate.mjs]` with `rules: - changes: [token/**/*]`. Or delete the job and state the omission in the header, which the header (:16-20) promises is the convention.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Two corrections, one of which makes this WORSE. (1) The title says the `rules: changes` list 'can never match', which the finding's own Reachability section correctly contradicts — package.json and package-lock.json exist at root, so it does match. Fix the title, not the body. (2) I tested the runtime behaviour: `node --test nosuch/*.test.mjs` prints `1..0 / # tests 0` and exits 0. So on the trigger that fires it, this job installs the wrong workspace, runs zero tests, and reports GREEN — it is a silently-passing gate, not a loudly-broken one, which is the exact failure shape CLAUDE.md's header paragraph is about. (Confirmed on node v22; the pipeline pins node:20, where the runner's handling of non-existent explicit paths may differ, so treat the silent-green half as HIGH-confidence-not-CO
+
+- sev→LOW — Same correction as finding 3. "A job that runs and tests nothing" implies a silent pass; in fact a non-matching glob passes the literal string to `node --test`, which errors and exits non-zero, so the job goes RED. The defect is a job that can only ever fail, on a pipeline that is already wholly broken by finding 3. Real, documented three audits running, and worth deleting — but LOW impact, not MEDIUM.
+
+**Evidence**:
+
+```
+  .gitlab-ci.yml:92-99
+    test:token-tooling:
+      stage: test
+      image: node:20
+      script:
+        - npm ci --no-audit --no-fund
+        - node --test presale/*.test.mjs scripts/*.test.mjs
+      rules:
+        - changes: [presale/**/*, scripts/*.mjs, package.json, package-lock.json]
+```
+
+## B5-06 [MEDIUM] The GitLab pipeline silently omits nine GitHub gates while its header promises that every omission is stated
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `.gitlab-ci.yml:10-20, 57-62, 81-90`
+
+**Observed**: The header names two omissions (cargo, solidity). Nine further gates are dropped without mention, including both red teams (the gates on the risk engine and on the custody authority gate) and every npm advisory ratchet in the repo.
+
+**Root cause**: The file was written against an earlier ci.yml and never re-derived. CLAUDE.md documents six occasions where a new ci.yml step appeared in the local preflight plan "for free" because preflight PARSES ci.yml; .gitlab-ci.yml restates it by hand, so each of those six additions widened the gap silently.
+
+**Business impact**: A reader of .gitlab-ci.yml is told, in the file itself, that a green pipeline there means what a green pipeline on GitHub meant. It does not: on GitLab the risk engine is never attacked, the custody authority gate is never attacked, no npm tree is advisory-checked, the marketing site is never built, and app/ route files are never parse-checked. That is the precise class of false assurance this repository's guard tests exist to prevent.
+
+**Remediation**: Port the missing steps, or update the NOT-PORTED block to name all of them. Replace `python3 scripts/mypy_gate.py || mypy ...` with the two separate steps ci.yml runs (`python3 scripts/mypy_gate.py`, then the six-target mypy invocation) so the ratchet is blocking and the floor has the same scope. Then add a test that parses BOTH files and asserts every `run:` step in ci.yml is either present in .gitlab-ci.yml or named in its NOT-PORTED list — scripts/preflight.py:100-123 already implements exactly this shape (`uncovered()`) for the local plan and is the model.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — One omission the finder missed, in the same file and the same shape: .gitlab-ci.yml:106 runs `bandit -r bot/ --severity-level high --confidence-level high -q`, while ci.yml:95 runs `bandit -r bot/ api_bridge.py dashboard_api.py scripts/`. ci.yml's comment at :85-94 exists specifically because 'the module the production image RUNS by default was never statically analysed'. The GitLab translation silently reinstates that exact gap. Add it to the list.
+
+- sev→LOW — Downgrade to LOW on the same grounds as 3 and 4: today this pipeline cannot report green at all (four Python jobs abort in before_script, test:token-tooling errors), so the "green here means what green meant there" claim cannot currently mislead anyone. The finding becomes MEDIUM the moment finding 3 is fixed without also fixing this — which is worth saying explicitly in the fix note, because repairing requirements.txt alone would convert a loud failure into precisely the quiet parity lie the header disclaims.
+
+**Evidence**:
+
+```
+  .gitlab-ci.yml:10-20 — the claim:
+    # It is a TRANSLATION of .github/workflows/ci.yml, not a redesign. Same tools,
+    # same flags, same order, so a green pipeline here means the same thing it
+    # meant there. Where a job is omitted it is stated, rather than quietly
+    # dropped — a CI file that silently covers less than it appears to is the
+    # exact failure mode this repo keeps finding elsewhere.
+    #
+    # NOT PORTED YET (both need toolchains heavier than a default runner):
+    #   * Staking program (cargo)  — cargo test / clippy / SBF build / cargo-audit
+    #   * Rune NFT (solidity)      — hardhat suite under contracts/
+
+  .gitlab-ci.yml:57-62 — the mypy gate, weakened and rescoped:
+    lint:mypy:
+      extends: .python
+      stage: lint
+      # Money modules only, ratcheted — matches the GitHub job's scope.
+      script:
+        - python3 scripts/mypy_gate.py || mypy bot/risk bot/core --ignore-missing-imports
+
+  .gitlab-ci.yml:81-87 — the web job, tests only:
+    test:web:
+      stage: test
+      image: node:20
+      script:
+        - cd app && npm ci --no-audit --no-fund && npm test
+```
+
+## B5-07 [MEDIUM] health_check.sh's auto-restart launches a `python` the repo documents the box does not have, never verifies survival, and exits 0 regardless
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `scripts/health_check.sh:42-51`
+
+**Observed**: With RUNECLAW_RESTART=1 the script prints `RESTART: launched (pid N)` and exits 0 for a process that exec-failed a millisecond earlier. A cron job or monitor reading the exit code sees success forever.
+
+**Root cause**: The lesson recorded in verify_bot_alive.sh, watchdog.sh, docker-compose.yml and both systemd units — "starting is not running" — was applied to every other launcher in the repo and never carried across to this one; the same shape as watchdog.sh:36-38's own note about the zombie check not being carried across.
+
+**Business impact**: On a box where auto-restart is enabled, a crashed live-trading bot is never actually restarted (wrong interpreter) and the health check reports success every five minutes. This is the 2026-08-01 failure mode CLAUDE.md documents — a launcher that reports success and leaves nothing running — reproduced in the script whose job is to catch it.
+
+**Remediation**: In scripts/health_check.sh:42-51: resolve `PY="$RUNECLAW_DIR/.venv/bin/python"` with a python3 fallback (copy watchdog.sh:91-92); create the log directory or write to logs/ (which deploy.sh symlinks to the persistent store); capture `NEW_PID=$!` and replace the bare `exit 0` with `scripts/verify_bot_alive.sh --pid "$NEW_PID" || { echo "$STAMP RESTART FAILED"; exit 1; }`.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Minor: the log-directory half of the proposed fix is weaker than stated — data/ is what deploy.sh symlinks into the persistent store per CLAUDE.md, so `$RUNECLAW_DIR/data/logs/bot_restart.log` is already a persistent path, unlike the launcher in finding 8. The interpreter and survival-gate halves are the real content.
+
+- sev→LOW — LOW rather than MEDIUM. Three mitigations compound: the branch is off by default; the alert fires before it; and — the one the finder missed — watchdog.sh at the repo root is the actually-installed cron recovery path (crontab line at watchdog.sh:3, and docs/AUDIT_2026-08-12.md:105 discusses it as such), and it already does the correct venv-preferring, survival-gated restart. health_check.sh's restart branch is a redundant second restarter that nothing in the repo installs with RUNECLAW_RESTART=1. The fix is cheap and should still be made; the exposure is not MEDIUM. Also worth folding into the fix: :47 redirects into `$RUNECLAW_DIR/data/logs/` with no `mkdir -p`, so on a box where that directory is absent the redirect itself fails and the launch never happens, still exiting 0.
+
+**Evidence**:
+
+```
+  scripts/health_check.sh:42-51
+    if [ "$RUNECLAW_RESTART" = "1" ]; then
+      echo "$STAMP RESTART: launching bot.main --mode $RUNECLAW_MODE"
+      cd "$RUNECLAW_DIR"
+      # nohup + disown so the restarted bot survives this cron shell exiting.
+      nohup python -m bot.main --mode "$RUNECLAW_MODE" \
+        >> "$RUNECLAW_DIR/data/logs/bot_restart.log" 2>&1 &
+      disown || true
+      echo "$STAMP RESTART: launched (pid $!)"
+      exit 0
+    fi
+
+  The header states the contract, scripts/health_check.sh:15
+    # Exit code: 0 = healthy (or restarted), 1 = down and not restarted.
+```
+
+## B5-08 [MEDIUM] verify_deploy.sh's bot-box half claims to compare the running commit and compares nothing — it never reads the build field the bot serves for exactly this purpose
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `scripts/verify_deploy.sh:175-182`
+
+**Observed**: Any directory that is a git checkout produces `OK  checkout at <sha>` and contributes a pass. `scripts/verify_deploy.sh --box-only` on a box whose bot process is still running last week's code — the restart-did-not-apply case — prints `DEPLOY VERIFIED on every target checked.` (:187).
+
+**Root cause**: The bot half was written as liveness probes plus a printed sha, and the comment describing the intended comparison was written before the comparison existed. bot/utils/build_info.py and dashboard_server.py's `build` field were added specifically to make this comparison possible and were never wired into the script that needs them — the repo's own "a module nothing calls" pattern, one level up.
+
+**Business impact**: The tool CLAUDE.md points operators at for "Verifying a deploy" gives a clean bill of health to the exact failure it was written for. On 2026-08-20 a stale-code deploy passed every check; this script's bot half would pass it again, because printing a local sha and comparing a sha differ by precisely the check that incident needed. An operator then applies new configuration to an engine running old code that manages live positions.
+
+**Remediation**: In scripts/verify_deploy.sh:175-182, curl `$GATEWAY_URL/health`, sed out `"build":"([^"]*)"`, and branch three ways: equal -> ok; different -> fail with live=/expected= notes (mirroring :132-143); field absent or endpoint unreadable -> unk, never ok. The web half at :86-146 is the template and already handles the omitted-field trap correctly.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Verified verbatim at scripts/verify_deploy.sh:175-182: the comment says 'Compared against the local checkout, because a deploy that pulled the wrong commit passes every other check' and the body is `if head="$(cd "$REPO" && git rev-parse --short HEAD ...)"; then ok "checkout at $head"` — it prints one value and compares it to nothing, so any git checkout contributes a pass and worst stays 0, yielding 'DEPLOY VERIFIED on every target checked.' at :187. CHECK_BOX defaults to 1 at :59. bot/web/dashboard_server.py:333-349 is verbatim including the 255-commits-stale paragraph and `return web.json_response({"status": "ok", "build": build_short(), "timestamp": _ts()})`. bot/utils/build_info.py's docstring does say it 'answers the half no pre-launch gate can: AFTER a restart, what is running right
+
+- sev→UNCHANGED — One factual overreach to strike: "bot/utils/build_info.py and dashboard_server.py's build field were... never wired in — the repo's own 'a module nothing calls' pattern." That is wrong. `grep -rn build_short` shows three live non-test callers: bot/main.py:25/46, bot/skills/telegram_handler.py:1274/1282, and bot/web/dashboard_server.py:21/349. The module is thoroughly reachable; it is only THIS script that fails to consume it. Drop the reachability-pattern framing and the finding is otherwise exact. MEDIUM stands: this is the deploy-verification path CLAUDE.md builds a whole section around, the comment asserts a check that does not exist, and `--box-only` prints "DEPLOY VERIFIED" after asking only two liveness probes.
+
+**Evidence**:
+
+```
+  scripts/verify_deploy.sh:175-182
+      # Which code the box is actually on. Compared against the local checkout,
+      # because a deploy that pulled the wrong commit passes every other check —
+      # 2026-08-20, 255 commits stale, everything green.
+      if head="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"; then
+        ok "checkout at $head"
+      else
+        unk "not a git checkout here, so the running commit could not be confirmed."
+      fi
+
+  What the bot already publishes, bot/web/dashboard_server.py:340-349
+      `build` names WHICH COMMIT answered — the machine-readable twin of the web
+      app's /api/version ... On 2026-08-20 the bot could not be asked that at all;
+      a deploy had reset to a mirror 255 commits stale and every other check
+      agreed it was fine.
+      """
+      return web.json_response(
+          {"status": "ok", "build": build_short(), "timestamp": _ts()})
+```
+
+## B5-09 [LOW] The launcher template starts both processes with bare `python` and logs to the repo root, contradicting the two rules the repo wrote after those exact incidents — and a test pins the wrong form
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `scripts/launch_all.sh.template:63-64, 72-73`
+
+**Observed**: On the box the repo describes, the launcher cannot start either process. The failure is loud — verify_bot_alive.sh --pid at :69 and :77 catches it and calls die — so this is LOW, not a silent-success defect. The log-path half is silent: on a box that does have `python`, both logs land in the repo root and are erased by the next `git reset --hard`, which is the redeploy path.
+
+**Root cause**: The launcher template predates the interpreter and log-path rules and was never brought in line; the test written alongside it transcribed the launch line verbatim as a regex, so the regression is now pinned rather than caught.
+
+**Business impact**: A deploy on a box matching the repo's own description cannot start either process, and the tracebacks explaining a failed start are written to a path the next redeploy erases — which is how the 2026-08-01 and 2026-08-25 incidents stayed undiagnosed. Low severity because the failure is loud and the systemd units are the newer, correct path.
+
+**Remediation**: Update scripts/launch_all.sh.template:63-64 and 72-73 to the venv-preferring interpreter and logs/ destinations, and loosen tests/test_launch_all_starts_both.py:59,65 to `nohup [^ ]*python3?` so the assertion pins that BOTH processes are launched (its actual subject, per the file's docstring) rather than the interpreter spelling.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Verified verbatim at scripts/launch_all.sh.template:63-64 (`log "starting bot.main"` / `nohup python -m bot.main --mode telegram >> bot.log 2>&1 &`) and :72-73 (`log "starting api_bridge"` / `nohup python api_bridge.py >> api_bridge.log 2>&1 &`). The documented-correct form at scripts/verify_bot_alive.sh:45-52 is verbatim, including 'python3, not python — the box has no `python`' and the logs/ rationale. The mitigation is real: :69 and :77 call verify_bot_alive.sh --pid and `die` on failure, so the interpreter half fails loudly. The test claim holds — tests/test_launch_all_starts_both.py:59 asserts `re.search(r"nohup python -m bot\.main", code)`, :65 asserts `nohup python api_bridge\.py`, and :166 does `code.index("nohup python")`, so the wrong spelling is pinned. LOW is the right call.
+
+- sev→UNCHANGED — No correction — LOW is the right call and the finder reasoned to it correctly. One addition to the proposed fix: loosening the two regexes to `nohup [^ ]*python3?` also has to cover the ordering assertion at :166, which uses the bare literal `"nohup python"` via str.index and will raise ValueError (not a clean assertion failure) once the launch line changes. And while editing this template, see the far more serious defect in the same file that this finding walked past — item 1 in "missed".
+
+**Evidence**:
+
+```
+  scripts/launch_all.sh.template:63-64 and 72-73
+    log "starting bot.main"
+    nohup python -m bot.main --mode telegram >> bot.log 2>&1 &
+    ...
+    log "starting api_bridge"
+    nohup python api_bridge.py >> api_bridge.log 2>&1 &
+
+  The documented-correct form it is supposed to implement, scripts/verify_bot_alive.sh:45-52
+    # Correct:
+    #     cd ~/runeclaw
+    #     nohup python3 -m bot.main --mode telegram >> logs/bot.log 2>&1 &
+    #     scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
+    #
+    # python3, not python — the box has no `python`. And logs/bot.log, not
+    # bot.log: logs/ is symlinked into the persistent store, the repo root is
+    # not, so a log written there is lost on the next `git reset --hard`.
+```
+
+## B5-10 [HIGH] The production image and `make install` install a manifest that omits three packages `requirements.lock` guarantees present — charts are permanently dead in the container
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `bot/requirements.txt:1-13 (with Dockerfile:21-23 and Makefile:28-29)`
+
+**Observed**: The container and `make install` install a strict subset. `charts_available()` is False for the entire life of the image, `/chart` and every signal card's chart composite silently send text, and the only trace is an INFO log line. This is the 2026-08-17 incident recorded in requirements.lock:29-42 and tests/dep_policy.py:1-16, reproduced verbatim on the containerised path.
+
+**Root cause**: Four Python manifests exist (requirements.lock, requirements-ci.txt, bot/requirements.txt, pyproject.toml). The 2026-08-17 fix added matplotlib/mplfinance/pandas to two of them — the lock and the CI file — and to neither of the two that actually install software on a running box. The guard tests that were written for that incident check only lock↔requirements-ci: tests/test_ci_env_matches_lock.py:70 is `missing = sorted(_dists(LOCK) - _dists(CI) - set(CI_EXEMPT))`, and no test computes `_dists(LOCK) - _dists(BOT_REQS)`.
+
+**Business impact**: The chart is the artefact an operator looks at before approving or rejecting a trade idea. On the container path they get a text message instead and nothing tells them a rendering was attempted and skipped — the same silent degradation that ran undetected for months in the recorded incident.
+
+**Remediation**: Add matplotlib==3.11.1, mplfinance==0.12.10b0 and pandas==3.0.5 to bot/requirements.txt (or make the Dockerfile and Makefile install requirements.lock), and extend tests/test_manifests_agree.py with a set-coverage assertion in the same shape as tests/test_ci_env_matches_lock.py:70 — `_dists(LOCK) - _dists('bot/requirements.txt')` must be empty or carry a written exemption. Do not touch any ratchet baseline; this is a manifest edit plus one new test.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Facts stand; severity is inflated. The blast radius is one display feature — charts silently degrade to text — not order routing, risk or custody. No unguarded import of the three libs exists anywhere in bot/, so nothing crashes. Also worth stating precisely: this is proven for the container and for `make install`/the documented README-and-gitbook setup path; CLAUDE.md's actual bot-box deploy uses `nohup python -m bot.main` against a venv whose provenance is not recorded anywhere, and requirements.lock's own header says to install the lock in production — so whether the LIVE bot has the libs is unknown from the tree, and the finding should say that rather than asserting the whole fleet is affected. MEDIUM.
+
+- sev→MEDIUM — Two scope corrections that lower the impact from HIGH. (1) The bot box, not the container, is the documented live path in CLAUDE.md ('nohup python -m bot.main'), and deploy.sh:28-40 discusses `pip install -r requirements.lock` on that box — so the affected paths are the container build and `make install`, not necessarily the box that trades. (2) The user-visible failure is a downgrade to a text card plus a log line, not a false claim about money — it is feature loss, not a wrong number, so it sits below the pnl-rendering class of defect. Also worth adding to the writeup: the same manifest is missing fastapi and uvicorn, which the Dockerfile and Makefile paper over inline (and see my `missed` item about how badly the Dockerfile does it), and pyproject.toml:33-37 declares the three chart lib
+
+**Evidence**:
+
+```
+bot/requirements.txt:1-13 — the file the Dockerfile COPYs — ends at redis and contains no charting libraries:
+```
+10	cryptography>=48.0.1
+11	Pillow>=10.3.0
+12	# RC-AUD-020: optional — durable JWT revocation store (token_store.py import-guards it).
+13	redis>=5.0.0
+```
+Dockerfile:21-23:
+```
+COPY bot/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    fastapi>=0.110 "uvicorn[standard]>=0.29"
+```
+Makefile:28-29 (`make install`, the documented setup target):
+```
+	$(PYTHON) -m pip install -r bot/requirements.txt
+	$(PYTHON) -m pip install "fastapi>=0.110" "uvicorn[standard]>=0.29"
+```
+requirements.lock:40-42 pins the three that are missing:
+```
+matplotlib==3.11.1
+mplfinance==0.12.10b0
+pandas==3.0.5
+```
+bot/skills/chart_renderer.py:76-88 turns their absence into a boolean, not an error:
+```
+# Optional dependencies — resolved once at import.
+try:
+    import matplotlib
+    ...
+    import mplfinance as mpf
+    import pandas as pd
+    _CHARTS_AVAILABLE = True
+except Exception as exc:  # noqa: BLE001 — any import failure ⇒ graceful text fallback
+    _CHARTS_AVAILABLE = False
+```
+bot/skills/telegram_handler.py:1329-1331:
+```
+            if not chart_renderer.charts_available():
+                system_log.info("chart libs not available, skipping")
+                return
+```
+```
+
+## B5-11 [HIGH] pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `.github/workflows/ci.yml:161-163 (with bot/requirements.txt:10-13, Dockerfile:22-23, tests/test_manifests_agree.py:49)`
+
+**Observed**: `pip-audit` evaluates `cryptography==50.0.0` and `Pillow==12.3.0` while the image installs `cryptography>=48.0.1` and `Pillow>=10.3.0`, resolved at build time with `--no-cache-dir` and no constraints file — so the image's contents are neither reproducible nor audited. `fastapi` and `uvicorn[standard]` are installed from a bare command line in Dockerfile:23 and appear in no manifest, so no gate reads them at all. The agreement test that exists is structurally blind to all of it, because its regex requires `==`.
+
+**Root cause**: `_PIN` at tests/test_manifests_agree.py:49 matches only `==`. Every `>=` line in a manifest is therefore invisible to `test_shared_pins_agree_across_manifests` (:69), which skips any package it sees in fewer than two manifests. cryptography appears as `==50.0.0` in the lock and `>=48.0.1` in the deployed file, so `seen` has length 1 and the check passes vacuously on the one comparison it exists to make.
+
+**Business impact**: The SCA gate reports green for a dependency set the deployed container does not contain. An advisory in the HTTP front door (fastapi/uvicorn/starlette), the image-rendering path (Pillow) or the crypto library used by the secrets vault (cryptography) can be present in the running image with the CI check still green.
+
+**Remediation**: Either (a) make the Dockerfile and Makefile install `requirements.lock` so the audited file is the installed file, or (b) point pip-audit at the shipped set too: `pip-audit -r requirements.lock -r bot/requirements.txt`. Independently, widen `_PIN` to capture `>=`/`~=` and add a check that a package pinned `==` in requirements.lock is not range-pinned below that version in any manifest. Move the Dockerfile's inline `fastapi`/`uvicorn` into bot/requirements.txt so they are covered by test_manifests_agree.py at all.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — The title's headline number — 'its floors carry 27+ known advisories the gate never evaluates' — is unsupported by anything in the finding; no advisory query was run or shown, and the finding's own reachability paragraph concedes the floors are not the versions a build resolves. pip's resolver installs the NEWEST compatible release, so a build today gets cryptography/Pillow/redis at or above the lock's pins; the demonstrated defect is that the image is unreproducible and unaudited, not that 27 advisories ship. Drop the count and retitle to the reproducibility/scope claim. Severity MEDIUM.
+
+- sev→LOW — Two evidence claims in this finding are FALSE and must not reach an engineer. (a) 'fastapi and uvicorn[standard] ... appear in no manifest at all, so no gate reads them' is wrong: requirements.lock:26-27 pins `fastapi==0.141.1` and `uvicorn==0.52.3` — so pip-audit DOES evaluate them — and they also appear in requirements-ci.txt:31-32 and pyproject.toml:20-21. (b) 'its floors carry 27+ known advisories the gate never evaluates' is unverified and mechanically misleading: `pip install 'cryptography>=48.0.1'` with no ceiling and no constraints file resolves to the NEWEST release, not the floor, so the image almost certainly carries a version at or above the audited pin. The finding itself concedes this in its reachability note, which contradicts its own title. Strip the advisory count entirely
+
+**Evidence**:
+
+```
+.github/workflows/ci.yml:161-163 — the only Python SCA gate:
+```
+      - name: SCA — dependency vulnerability audit (pip-audit)
+        if: always()
+        run: pip-audit -r requirements.lock
+```
+The file that is actually installed, bot/requirements.txt:10-13, does not pin those packages:
+```
+cryptography>=48.0.1
+Pillow>=10.3.0
+# RC-AUD-020: optional — durable JWT revocation store (token_store.py import-guards it).
+redis>=5.0.0
+```
+and Dockerfile:22-23 adds two more that appear in no manifest at all:
+```
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    fastapi>=0.110 "uvicorn[standard]>=0.29"
+```
+The test written to close exactly this gap can only see `==` lines — tests/test_manifests_agree.py:49:
+```
+_PIN = re.compile(r'^\s*"?([A-Za-z0-9_.\-]+)==([0-9][^"\s,;]*)', re.M)
+```
+```
+
+## B5-12 [HIGH] The GitLab CI that exists because GitHub was suspended cannot run: it installs a `requirements.txt` that does not exist, and its Node job runs the wrong paths
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `.gitlab-ci.yml:37, 96-99`
+
+**Observed**: No Python job can start. `sca:pip-audit` — the only Python dependency audit on this host — is one of them. Separately, and unstated in the "NOT PORTED YET" list at :16-20, this pipeline has zero npm advisory ratchet for any of the five workspaces and zero cargo-audit, while .github/workflows/ci.yml runs the npm ratchet five times (:333 root, :359 site, :621 token, :653 contracts/rune, :702 app) and cargo_audit_gate.py at :262. `scripts/preflight.py` parses only `.github/workflows/ci.yml` (LOCAL_JOBS at :59-60), so none of this is visible from the local loop, and `grep -rln gitlab tests/ scripts/` returns nothing — no test reads this file.
+
+**Root cause**: The GitLab file was written as a hand translation and never executed against this tree. The root `requirements.txt` it installs is a filename from an older layout (docs/DEEP_AUDIT_2026-08-14.md:437 records the same observation), and the token job was copied without the `token/` working directory that .github/workflows/ci.yml:516-517 supplies.
+
+**Business impact**: The redundancy that was built after losing CI once does not exist. If GitHub goes away again, there is no dependency audit, no lint ratchet, no baseline test gate and no secret scan actually running — only the belief that there is.
+
+**Remediation**: Change :37 to `pip install -q -r requirements-ci.txt` (the file whose contents the known-failures baseline was generated against). Give test:token-tooling `cd token &&` before both commands and change its `changes:` globs to `token/**/*`. Then either port the five npm advisory ratchets and cargo_audit_gate.py, or extend the "NOT PORTED YET" paragraph at :16-20 to name them, since it currently names only cargo and solidity. A test asserting that every `run:` step name in ci.yml has a counterpart in .gitlab-ci.yml or an explicit exemption would keep the two from drifting again.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Severity is inflated to HIGH on a mirror whose pipeline nobody in this tree can show is enabled — the finding says so itself. .github/workflows/ci.yml is intact and is what scripts/preflight.py parses, so the enforcement layer that actually runs is unaffected; what is broken is a standby. The `changes:` globs at :98-99 are a second, independent reason the token job is dead (nothing at those paths ever changes), so the job would be skipped rather than failing loudly — worth stating, since a never-triggered job is quieter than a red one. MEDIUM.
+
+- sev→MEDIUM — Downgrade from HIGH on the failure mode. Every defect here fails LOUDLY — a missing requirements.txt makes before_script exit non-zero and the pipeline goes red, and an unexpandable `presale/*.test.mjs` glob makes `node --test` error. This is not the silent-false-green shape the repo's other supply-chain findings share, and it cannot ship stale or vulnerable code the way Finding 0's manifest gap can. It is also a secondary enforcement layer whose current enablement state is unobservable from here, which the finding correctly admits. The one part that is genuinely quiet is the coverage claim: the header at :16-20 asserts that omissions are stated, and the five npm advisory ratchets plus cargo_audit_gate.py are omitted without being named — a CI file that overstates its own coverage is the r
+
+**Evidence**:
+
+```
+.gitlab-ci.yml:33-38, the base every Python job extends:
+```
+.python:
+  image: python:3.11
+  before_script:
+    - pip install -q --upgrade pip
+    - pip install -q -r requirements.txt
+    - pip install -q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov
+```
+There is no `requirements.txt`. `git ls-files | grep -i requirements` returns exactly: `bot/requirements.txt`, `requirements-ci.txt`, `requirements.lock`, `tests/test_requirements_cover_imports.py`; `ls /home/user/001/requirements.txt` → No such file or directory, and `.gitignore` contains no `requirements` pattern.
+
+.gitlab-ci.yml:93-99:
+```
+test:token-tooling:
+  stage: test
+  image: node:20
+  script:
+    - npm ci --no-audit --no-fund
+    - node --test presale/*.test.mjs scripts/*.test.mjs
+  rules:
+    - changes: [presale/**/*, scripts/*.mjs, package.json, package-lock.json]
+```
+`ls -d presale` and `ls scripts/*.mjs` at the repo root both return "No such file or directory"; the token tests live at `token/presale/*.test.mjs` and `token/scripts/*.test.mjs`.
+```
+
+## B5-13 [MEDIUM] The cargo advisory ratchet never re-checks the `shipped` classification it baselines six advisories on
+
+- **Dimension**: deps · **Fix class**: SAFE_AUTO_FIX · **File**: `scripts/cargo_audit_gate.py:214`
+
+**Observed**: The classification is recorded once at `--update` time and never re-asserted. If a Cargo.toml or Anchor version change moves `ring 0.16.20`, `rustls-webpki 0.101.7` (three advisories) or `quinn-proto 0.10.6` (two) out of `solana-program-test` dev-dependencies and into the normal tree, the gate prints "No new advisories" and exits 0 — the six advisories baselined *because* they were dev-only stay baselined once they no longer are.
+
+**Root cause**: `collect()` (:138) recomputes `shipped` for every advisory on every run, and `main()` discards that recomputation for any id already present in the baseline. The comparison is `set(found) - set(known)`, a set difference over keys, so no per-entry field is ever diffed.
+
+**Business impact**: The deployed staking program's supply chain could acquire a TLS certificate-validation bypass (RUSTSEC-2026-0098/0099) or a reachable CRL-parsing panic (RUSTSEC-2026-0104) with the gate green, because those three were excused on a classification that is never revisited.
+
+**Remediation**: In `main()`, after computing `new_ids`, also compute `promoted = [i for i in found if i in known and known[i].get("shipped") is not True and found[i]["shipped"] is not False]` and fail on it with the same message as a new shipped advisory. This adds no baseline churn: today all nine classifications match, so the check is green on the current tree.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Two corrections. (1) Count: SEVEN of nine baseline entries are `"shipped": false` (ring 0.16.20, quinn-proto 0.10.6 ×2, rustls-webpki 0.101.7 ×3, and h2 0.3.27 — the finding omits h2), not six. (2) Severity: the reclassification is not invisible. Line 226-227 prints `RustSec advisories in Cargo.lock: N (X in the shipped tree, Y dev-only)` on every run, so a dev-only→shipped move changes that printed line even though nothing asserts on it. That plus the narrowness of the trigger (a Cargo.toml/Anchor change moving a crate out of solana-program-test) makes this LOW, not MEDIUM. The proposed `promoted` check is sound and costs no baseline churn.
+
+- sev→LOW — Downgrade MEDIUM→LOW. The trigger is entirely hypothetical — it needs a Cargo.toml/Anchor change that moves ring, rustls-webpki, quinn-proto or h2 from solana-program-test dev-deps into the normal graph, which the repo pins deliberately against (rust-toolchain.toml / Anchor.toml, per the module docstring at :5-13). And it is not fully silent: `shipped_now` is recomputed from the live tree every run and printed as 'RustSec advisories in Cargo.lock: N (X in the shipped tree, ...)', so a promotion changes the number an operator sees on that line — it just does not gate. Correct the count in the writeup: the baseline is 2 shipped / 7 dev-only, not 'six of nine'. The proposed `promoted` check is sound and green on today's tree; note that the `is not False` polarity should be kept so a classific
+
+**Evidence**:
+
+```
+scripts/cargo_audit_gate.py:210-224 — the gate's entire failure condition is the advisory-id set:
+```
+    baseline = json.loads(BASELINE.read_text())
+    known = baseline.get("advisories", {})
+
+    new_ids = sorted(set(found) - set(known))
+    gone_ids = sorted(set(known) - set(found))
+    ...
+    shipped_now = sum(1 for e in found.values() if e["shipped"] is True)
+```
+`shipped_now` is computed and printed but never compared to `known[id]["shipped"]`. The baseline stakes six of nine entries on that field, e.g. .cargo-audit-baseline.json:
+```
+    "RUSTSEC-2026-0098": {
+      "crate": "rustls-webpki",
+      "version": "0.101.7",
+      "title": "Name constraints for URI names were incorrectly accepted",
+      "shipped": false
+    },
+```
+```
+
+## B5-14 [MEDIUM] NOTICE asserts blanket licence compatibility over a dependency set it enumerates 6 of, while the real tree carries LGPL-3.0-only, MPL-2.0 and 17 packages with no declared licence
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `NOTICE:62-72`
+
+**Observed**: A categorical assertion — "All third-party licenses are compatible" — over a set that was never enumerated. It omits the entire npm dependency graph (~950 packages across five workspaces), the entire Rust graph, and 11 of the 17 Python packages in requirements.lock, including Pillow, matplotlib, pandas, cryptography, aiohttp and redis. No licence gate runs anywhere: `.github/workflows/ci.yml` has no licence-check step, and neither does .gitlab-ci.yml.
+
+**Root cause**: The NOTICE was written against an early 6-package Python dependency list and never revisited as the Node, Rust and Solidity workspaces were added. Its own parenthetical, "(see bot/requirements.txt)", points at a file that is itself no longer the full Python set.
+
+**Business impact**: The project sells commercial licences (NOTICE:56-57) and converts to GPL-2.0-or-later in 2030. A commercial licensee relying on the compatibility sentence is relying on a claim nobody has checked, and 17 unlicensed packages in the token-signing path are, by default, all-rights-reserved.
+
+**Remediation**: Generate the third-party list rather than hand-writing it (`npm ls --all --json` per workspace plus `pip-licenses` over requirements.lock and `cargo license`), publish it as a NOTICE appendix or an SBOM, and replace the blanket sentence with the actual findings — in particular that rpc-websockets is LGPL-3.0-only in a runtime path and that 17 token/ packages declare no licence. Add a CI step that fails on a new copyleft or unlicensed package, in the same ratchet shape as token/scripts/audit_gate.mjs.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — One sub-claim is wrong and one is weaker than stated. (a) '17 packages with no declared licence' does not reproduce: I walked every installed node_modules tree reading each package.json — token 380 packages / 3 with no licence field (@wormhole-foundation/sdk-definitions, sdk-definitions-ntt, text-encoding-utf-8), root 183/1, app 144/0, site 111/0, contracts/rune 57/0. Four, not seventeen. Drop or re-derive that number. (b) The compatibility claim is not shown to be FALSE, only unverified: the Change License is GPL-2.0-OR-LATER, under which LGPL-3.0-only combines fine via GPLv3, and MPL-2.0 is file-level copyleft with an explicit GPL secondary-licence compatibility clause. NOTICE already lists python-telegram-bot as LGPL-3.0 itself. So what survives is 'a blanket assertion over a set nobody
+
+- sev→LOW — One number in this finding is fabricated and one line reference is wrong. '17 token/ packages declare no licence' is FALSE: parsing token/package-lock.json, exactly 4 non-root entries lack a `license` field (@wormhole-foundation/sdk-definitions, @wormhole-foundation/sdk-definitions-ntt, eyes, text-encoding-utf-8). Tree-wide it is 7, not 17 — root 2 (eyes, text-encoding-utf-8), token 4, contracts/rune 1 (memorystream, dev-only), app 0, site 0. Anyone acting on '17' will go looking for thirteen packages that do not exist. Also, web-push is at app/package.json:16, not :14 (I confirmed it resolves to MPL-2.0 in app/node_modules). Downgrade MEDIUM→LOW: this is a legal-hygiene documentation defect with no runtime or money impact, node_modules is not vendored so nothing copyleft is actually redis
+
+**Evidence**:
+
+```
+NOTICE:62-72:
+```
+This project uses the following open-source libraries (see bot/requirements.txt):
+  - ccxt (MIT) -- cryptocurrency exchange trading library
+  - openai (Apache-2.0) -- OpenAI Python client
+  - pydantic (MIT) -- data validation using Python type annotations
+  - numpy (BSD-3-Clause) -- numerical computing
+  - python-telegram-bot (LGPL-3.0) -- Telegram Bot API wrapper
+  - python-dotenv (BSD-3-Clause) -- .env file loading
+
+All third-party licenses are compatible with source-available distribution
+under the Business Source License 1.1 and with the GPL v2.0-or-later Change
+License.
+```
+LICENSE:26 sets that Change License: `Change License:       GNU General Public License, version 2.0 or later`.
+```
+
+## B5-15 [LOW] No SBOM is produced for any artefact, including the container image
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `.github/workflows/ci.yml:1-720 (absence)`
+
+**Observed**: The image records a git SHA and a date. Given Dockerfile:22's unconstrained `pip install` of a range-pinned manifest (see the pip-audit finding above), the git SHA does not determine the dependency versions in the layer, and nothing else records them — so for any given running container the question "which version of cryptography is in it?" has no answer outside the container.
+
+**Root cause**: SBOM generation was never part of the build; provenance work went into the Rust artefact only.
+
+**Business impact**: When the next advisory lands against a transitive Python or npm package, there is no record of which versions any deployed image contains, so the blast radius cannot be determined from artefacts — only re-derived from a manifest that does not pin.
+
+**Remediation**: Add `pip freeze > /app/sbom-python.txt` inside the builder stage and COPY it into the production image (cheap, exact, and it also makes the image's resolved versions auditable), and/or emit a CycloneDX SBOM per workspace in CI with `cyclonedx-py` and `@cyclonedx/cyclonedx-npm`. This adds no ratchet churn.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — None. Accurate as written, correctly scoped as an absence, and correctly rated LOW. Note only that it is the same root cause as finding 1 viewed from the artefact side — the cheap half of the proposed fix (`pip freeze` captured in the builder stage) resolves the 'which cryptography is in this container' question that finding 1 raises, so the two should be fixed together rather than counted as independent work.
+
+- sev→INFORMATIONAL — This is a missing best practice rather than a defect — there is no incorrect behaviour, no wrong number shown to anyone, and nothing to 'fix' so much as to add. Downgrade LOW→INFORMATIONAL. Its supporting argument is also weaker than stated: only 5 of the 17 packages the image installs are range-pinned (cryptography, Pillow, redis, plus the inline fastapi/uvicorn); the other 12 are `==` in bot/requirements.txt, so the git SHA determines most of the dependency set, not none of it. If it is actioned at all, the `pip freeze` into the image is the cheap half and is worth doing precisely because it also records what the unconstrained installs resolved to.
+
+**Evidence**:
+
+```
+`grep -rin "sbom\|cyclonedx\|spdx" .github/ scripts/ Makefile CLAUDE.md docs/` returns no matches, and `find . -maxdepth 3 \( -iname "*sbom*" -o -iname "*cyclonedx*" -o -iname "*spdx*" \) -not -path "*/node_modules/*"` returns nothing. The image records only two labels — Dockerfile:34-36:
+```
+ARG BUILD_SHA=dev
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.revision="${BUILD_SHA}"
+```
+```
+
+## B5-16 [LOW] GitHub Actions are pinned to mutable tags, including a third-party action and a moving `@stable` branch ref
+
+- **Dimension**: deps · **Fix class**: SAFE_AUTO_FIX · **File**: `.github/workflows/ci.yml:173, 176, 454`
+
+**Observed**: Three third-party actions run from refs their maintainers can repoint at any time. The blast radius is genuinely limited here — the gitleaks job scopes its token to `contents: read` / `pull-requests: read` (ci.yml:415-417) and no other job passes a secret — but a repointed tag still executes arbitrary code on a runner with the full checkout, and `Swatinem/rust-cache@v2` writes the cache the `staking` job's builds read.
+
+**Root cause**: Default GitHub Actions idiom; never hardened.
+
+**Business impact**: A compromised action tag runs on a runner with the full source tree of a trading bot at build time.
+
+**Remediation**: Pin each third-party action to a full commit SHA with the tag in a trailing comment (`uses: gitleaks/gitleaks-action@<sha> # v2.3.9`), and enable Dependabot for `github-actions` so the SHAs are bumped deliberately. The `actions/*` first-party ones are lower risk and can follow the same pattern for consistency.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Two counts are off and should be fixed before anyone quotes them: actions/checkout@v4 appears EIGHT times (19, 170, 302, 340, 421, 505, 628, 660), not seven, and actions/setup-node@v4 FIVE times (303, 341, 506, 629, 661), not four; setup-python@v5 appears once (line 21). The substance and the LOW rating are right — a repointed tag on Swatinem/rust-cache or dtolnay/rust-toolchain executes on a runner holding only the default read token, and the one job that receives a secret has it narrowed to read-only.
+
+- sev→LOW — LOW is the right level and I would not move it, but two details tighten the writeup. actions/checkout@v4 appears 8 times, not 7. And the finding's own framing overstates the exposure slightly: the gitleaks job is the only one with an explicit token grant, and it is read-only; the two rust actions run in the `staking` job which handles no secret. The genuine residual risk is arbitrary code execution on a runner holding a full checkout plus a writable rust-cache, which is real but speculative. This is a hardening item, not a live defect — it belongs in a backlog, not ahead of anything in this audit.
+
+**Evidence**:
+
+```
+Third-party actions referenced by mutable ref:
+```
+173:      - uses: dtolnay/rust-toolchain@stable
+176:      - uses: Swatinem/rust-cache@v2
+454:        uses: gitleaks/gitleaks-action@v2
+```
+plus `actions/checkout@v4` (×7), `actions/setup-python@v5` and `actions/setup-node@v4` (×4). No `uses:` line in the workflow carries a commit SHA.
+```
+
+## B5-17 [HIGH] Account deletion never contacts the bot for web-only accounts, so every bot-side store survives a "deleted" account
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `app/auth.js:1725`
+
+**Observed**: A NULL telegram_id is read as "the bot holds nothing for this person". The bot in fact holds, keyed by "web:<uid>": the auto-provisioned UserStore record (bot/web/user_gateway.py:186-189), the agent profile and observed-memory stores, leverage/strategy preferences, the persisted conversation transcript (data/conversations.jsonl), the paper portfolio book (data/portfolio_web<uid>.json), the encrypted third-party LLM provider key and news provider key, and personal ingest notes. None of it is touched, and the user is told their account and its data have been erased.
+
+**Root cause**: The presence of a Telegram id is used as a proxy for "the bot knows this person". That was true before lib/identity.js introduced the "web:<id>" fallback identity; the deletion route was never updated to match, and absent-telegram_id became a confident negative about a store nobody queried.
+
+**Business impact**: A user who only ever used the website is told their account and data are erased while the bot retains their chat transcripts, their pasted personal notes, and their third-party LLM/news API keys indefinitely. Erasure requests are answered with a false confirmation.
+
+**Remediation**: Call /account/purge unconditionally with the identity resolved by resolveBotIdentity(req) (telegram_id when linked, `web:<uid>` otherwise), keeping the existing abort-on-partial behaviour. Change app/test/account_delete_route.test.js:219-228 in the same commit - it currently pins the defect.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — One detail: the on-disk paper book is data/portfolio_web5.json, not portfolio_web:5.json — MultiUserPortfolio._sanitize strips ':' (documented at bot/web/user_gateway.py:83). Cosmetic; does not affect the finding.
+
+- sev→UNCHANGED — None material. Worth adding to the fix: the same branch also skips the purge for a TELEGRAM-LINKED account whenever `gateway.isConfigured()` is false (app/lib/gateway.js:17-19 — `GATEWAY_SECRET.length >= 32`), which silently produces the exact failure the route's own header calls the worst version of the defect.
+
+**Evidence**:
+
+```
+app/auth.js:1724-1730
+    let botStores = null;
+    if (user.telegram_id && gateway.isConfigured()) {
+      let purge;
+      try {
+        purge = await postGateway('/account/purge',
+          { telegram_id: String(user.telegram_id) }, 15000);
+
+app/lib/identity.js:23-27
+  if (u && u.telegram_linked && u.telegram_id) {
+    return { id: String(u.telegram_id), linked: true, email: u.email || '' };
+  }
+  return { id: `web:${uid}`, linked: false, email: (u && u.email) || '' };
+```
+
+## B5-18 [HIGH] handle_account_purge misses the bot's own SQLite database entirely - LLM and news API keys, Telegram chat id/username, paper portfolio and personal ingest notes all survive account deletion
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/web/user_gateway.py:2830`
+
+**Observed**: Six stores are reported and the rollup answers `purged: true`. The SQLite database holding the user's third-party API keys, their Telegram chat id and username, their paper portfolio (positions + trade_history JSON) and up to 50 x 20,000 characters of text they pasted is never consulted, so its absence from the report is indistinguishable from success.
+
+**Root cause**: The per-store enumeration that keeps this list honest (tests/test_account_purge.py::TestNoPerUserStoreOutlivesTheDeletePath) sweeps only `bot/core/*.py` for a module-level `def clear(user_id)`. bot/db/models.py is a different package with a different shape (module-level functions taking an INTEGER uid mapped by settings_user_id), so it is structurally invisible to the guard that exists to catch exactly this.
+
+**Business impact**: A user's own paid third-party API keys (LLM provider, news provider) and the personal text they pasted into their agent are retained indefinitely after they delete their account and are told their data is erased. The keys remain usable by the operator against the user's provider billing.
+
+**Remediation**: Add a bot.db.models purge step to handle_account_purge that resolves uid = settings_user_id(tg_id) and deletes from user_settings, user_news_keys, user_ingest_notes, user_telegram and user_portfolio (and tombstones/deletes the users stub row), reporting each as its own key. Widen the enumeration in tests/test_account_purge.py past bot/core/ so the next store outside that directory cannot be missed.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Note the mitigation the finder omits: user_settings.llm_api_key and ingest note bodies are Fernet-encrypted at rest (bot/db/models.py:372 _encrypt_llm_key, used by add_user_ingest_note). Survival is still real; readability requires the host key.
+
+- sev→UNCHANGED — One nuance to carry into the fix: the ingest-note body is Fernet-encrypted at rest (bot/db/models.py:519-524 via _encrypt_llm_key), so the retained note text is ciphertext under the operator's master key rather than plaintext. That reduces exposure, not retention — the rows still survive an erasure the user was told completed.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:2830-2836, 2892-2896 - the complete store list:
+    result: dict = {}
+    # Credentials first: this is the one that matters most if the rest fails.
+    try:
+        from bot.core.exchange_credentials import get_credential_store
+...
+        store = getattr(tg_handler, "users", None)
+...
+            result["user_record"] = "deleted" if store.forget(tg_id) else "none"
+
+The handler imports bot.core.exchange_credentials, user_profile_store, user_memory_store, user_leverage_store, user_strategy_store and tg_handler.users - and nothing from bot.db.models. Meanwhile the SAME file writes personal data there:
+bot/web/user_gateway.py:2758-2767
+    from bot.db.models import (ensure_settings_parent, get_user_settings,
+                               save_user_settings, settings_user_id)
+    ...
+    s.llm_api_key = api_key
+    save_user_settings(s)
+```
+
+## B5-19 [HIGH] Chat transcripts persisted to data/conversations.jsonl are never deleted, and clear_user() only clears memory - a restart restores them
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/nlp/conversation_store.py:200`
+
+**Observed**: No caller anywhere in the product invokes clear_user (only live_e2e_test.py:131 and tests/test_core.py:4643). The verbatim message text - capped at 2000 chars per message - remains in data/conversations.jsonl indefinitely, keyed by telegram id or "web:<uid>", and is reloaded into memory on every restart.
+
+**Root cause**: The store was written as "in-memory with optional JSONL persistence" and clear_user was written against the in-memory half only. It was then given a persist_path in production, which made the file the durable copy while the delete path kept operating on the volatile one - and no delete path ever reached it at all.
+
+**Business impact**: Everything a user typed to the agent - including anything they volunteered about themselves, their holdings or their finances - is retained verbatim on disk forever, with no deletion path, after they delete their account.
+
+**Remediation**: Make clear_user rewrite the JSONL (it already has an atomic_write_text-based compactor at lines 340-357 to reuse), and wire `tg_handler.conversations.clear_user(tg_id)` into handle_account_purge as its own reported store key.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Two qualifications. (a) _maybe_compact (l.339-357) rewrites the JSONL from in-memory state once the file passes 5000 lines, so a cleared user's lines would eventually disappear — incidental, unbounded in time, and not a delete path. (b) The policy does disclose 'stored chat context' in its retention paragraph and does not list chat in the deletion sentence, so the over-promise is weaker than for credentials; the un-deletable content is real, hence MEDIUM rather than HIGH.
+
+- sev→MEDIUM — Severity trimmed from HIGH to MEDIUM: this is retention of local on-host content with no exposure vector and no money path, and the user-facing false-erasure claim it feeds is already counted once in finding 0/1. The technical claim is fully confirmed. Also note the privacy page DOES disclose that chat context is stored indefinitely ('Nothing currently expires or purges account records, trade history or stored chat context on a schedule'), so the undisclosed-collection half of this is weaker than the undeleted half.
+
+**Evidence**:
+
+```
+bot/nlp/conversation_store.py:200-204
+    def clear_user(self, user_id: str) -> None:
+        """Clear all conversation history for a user."""
+        with self._lock:
+            self._conversations.pop(user_id, None)
+            self._user_contexts.pop(user_id, None)
+
+bot/nlp/conversation_store.py:289-290 (the copy that is not popped)
+            with open(self._persist_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+```
+
+## B5-20 [MEDIUM] Per-user paper trading books (data/portfolio_<user>.json plus a .bak copy) have no delete path anywhere, while the privacy policy says deletion removes trades and positions
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/risk/multi_portfolio.py:209`
+
+**Observed**: The privacy page states "It removes your trades, positions, snapshots, alerts, watchlist, strategies, profile, diary, notification subscriptions, wallet links, and any exchange credentials on either side." The MySQL `trades`/`arena_trades`/`equity_snapshots` rows are indeed erased, but the bot's own per-user book - open positions plus complete trade history, keyed by telegram id or web:<uid> in the filename - is not, and neither is its .bak sidecar. No code in bot/ deletes a portfolio file.
+
+**Root cause**: MultiUserPortfolio is a class in bot/risk/, outside the bot/core/*.py module-level `clear(user_id)` shape that the purge-coverage enumeration searches for, so the store was never surfaced as needing a delete path.
+
+**Business impact**: A deleted user's complete trading history stays on disk indefinitely under a filename containing their Telegram id, contradicting an explicit deletion promise on the published policy.
+
+**Remediation**: Add a delete(user_id) to MultiUserPortfolio that drops the in-memory tracker and unlinks data/portfolio_<id>.json, its .json.bak and any .conflict-*.json sidecar (and the data/venue/<venue>/ split copies), wire it into handle_account_purge as its own reported store, and re-check the policy sentence against the result.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Additional supporting fact the finder missed: bot/utils/backup.py:_CRITICAL_GLOBS includes "data/portfolio_*", so these books are also copied into every rotating archive — the same tension finding 7 raises for credentials.
+
+- sev→UNCHANGED — Add to scope: bot/utils/backup.py:61 `_CRITICAL_GLOBS = ['data/learning/*', 'data/portfolio_*', 'data/risk_state_*']` archives these same files, so any delete() added here also needs the backup-window caveat from finding 7.
+
+**Evidence**:
+
+```
+bot/risk/multi_portfolio.py:209-213
+                    self._portfolios[user_id] = PortfolioTracker(
+                        initial_balance=self._default_balance,
+                        on_trade_close=self._make_close_cb(user_id),
+                        state_file=f"data/portfolio_{user_id}.json",
+                        trailing_config=self._trailing_config,
+                    )
+
+bot/risk/portfolio.py:536-539 (what the file holds)
+            "positions": {
+                tid: t.model_dump(mode="json") for tid, t in self._positions.items()
+            },
+            "history": [t.model_dump(mode="json") for t in self._history],
+```
+
+## B5-21 [MEDIUM] The purge-coverage guard sweeps only bot/core/*.py for module-level clear(user_id), so its "no per-user store outlives the delete path" claim is narrower than it reads
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `tests/test_account_purge.py:196`
+
+**Observed**: Its docstring reads "A module in bot/core with a `clear(user_id)` is, by that signature, holding something keyed to a person - if the purge does not name it, either wire it or say here why it does not belong", and the EXEMPT dict is empty. Nothing states that stores outside bot/core, stores exposed as methods, and stores with no clear at all are all outside the sweep. Three such stores exist today and all three are missed by the purge.
+
+**Root cause**: The sweep derives its question from a single implementation shape (module + top-level clear(user_id)) rather than from the property (holds data keyed to a person). Every store that chose a different shape is silently acquitted.
+
+**Business impact**: This is the root cause of the three erasure gaps above; while it stands, the next per-user store added outside bot/core will be missed the same way and the suite will stay green.
+
+**Remediation**: Walk the whole tree rather than bot/core, and include class methods named clear/clear_user/forget/delete taking a user id. Where a store legitimately has no clear (MultiUserPortfolio), the sweep should fail until it is either given one or added to EXEMPT with a reason - which is what the docstring already promises.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — The finding overstates the docstring's dishonesty: the very sentence it quotes states the boundary — 'A module IN BOT/CORE with a clear(user_id)…'. Only the preceding 'the NEXT per-user store cannot be forgotten either' reads wider than the sweep. This is a scope-overclaim in one sentence of a test docstring, not a broken gate; LOW.
+
+- sev→LOW — Downgrade to LOW and correct the premise: the docstring DOES state the bot/core scope; what overreaches is the single clause 'so the NEXT per-user store cannot be forgotten either'. This finding is the meta-form of 1/2/3 and adds no distinct exposure — its value is only that widening the sweep is the cheapest way to keep those three fixed.
+
+**Evidence**:
+
+```
+tests/test_account_purge.py:196-208
+        for f in sorted(pathlib.Path("bot/core").glob("*.py")):
+            ...
+            for node in tree.body:
+                if (isinstance(node, ast.FunctionDef) and node.name == "clear"
+                        and node.args.args
+                        and node.args.args[0].arg in ("user_id", "uid")):
+                    found.append(f.stem)
+```
+
+## B5-22 [MEDIUM] The privacy policy's collection list and deletion list do not match what the code stores: verbatim chat text, personal ingest notes and third-party provider keys are undisclosed and undeleted
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `website/privacy/index.html:28`
+
+**Observed**: Four disclosure gaps and one over-promise, all against a page that is otherwise unusually careful (it correctly discloses cookies, the reversible key encryption, the LLM providers, the surviving users row and the absence of any retention limit).
+
+**Root cause**: privacy_truth.test.js pins the five claims that had already gone false and the shape of the deletion path, but never asks the two questions that would catch drift: what stores exist, and what the purge actually reaches.
+
+**Business impact**: The published policy under-states what is collected and over-states what deletion removes, on the one document a data subject relies on to decide what to share.
+
+**Remediation**: Add bullets for stored chat content, personal ingest notes, and BYO LLM/news provider keys; and correct the deletion paragraph until the code covers what it claims (see the erasure findings above). Extend site/test/privacy_truth.test.js with a ratchet that fails when a store is added that the deletion paragraph does not account for.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — The headline claim 'verbatim chat text … undisclosed' is materially weakened: the retention paragraph says in terms 'Nothing currently expires or purges account records, trade history or stored chat context on a schedule. Chat context is bounded by volume rather than by age.' — chat storage IS disclosed. The 'not the words you typed' phrase scopes the observed-assets bullet, not the conversation store. What genuinely survives is: ingest notes undisclosed, BYO provider keys undisclosed, deletion paragraph over-broad. Downgrade to LOW and drop the chat-text bullet.
+
+- sev→UNCHANGED — Drop the 'verbatim chat text is undisclosed' claim — the retention section discloses stored chat context explicitly, and the 'not the words you typed' sentence is scoped to the observed-assets bullet, not a global denial. What survives: the deletion paragraph over-promises, and ingest notes and BYO LLM/news keys are absent from 'What we collect'. Confidence lowered to HIGH because two of the four asserted gaps do not hold.
+
+**Evidence**:
+
+```
+website/privacy/index.html:28 (published policy text, "What we collect"):
+"Which assets you ask the agent about - not the words you typed, but the ticker the bot itself resolved when it ran a tool for you, kept as a count per symbol over a rolling window of your twelve most recent."
+
+website/privacy/index.html:28 ("Keeping and deleting your data"):
+"It removes your trades, positions, snapshots, alerts, watchlist, strategies, profile, diary, notification subscriptions, wallet links, and any exchange credentials on either side."
+
+bot/nlp/conversation_store.py:281-290 (what is actually written to disk):
+            entry = {
+                "user_id": user_id,
+                "role": msg.role,
+                "content": msg.content[:2000],  # Cap stored content
+```
+
+## B5-23 [MEDIUM] The append-only audit hash chain records the user id as `actor` and is immutable by design, but the policy admits only one surviving record
+
+- **Dimension**: privacy · **Fix class**: MANUAL_ONLY · **File**: `bot/core/engine.py:1360`
+
+**Observed**: The policy's only admission is a highlighted box titled "One row survives, with nothing in it that names you." A second, larger, deliberately un-erasable record exists and is not mentioned; and the purge's own completion is itself appended to it with `data={"user": tg_id}`.
+
+**Root cause**: Tamper-evidence and erasability are in direct tension, and the design resolved it in favour of tamper-evidence without recording the consequence on the policy page.
+
+**Business impact**: An erasure request is answered with a specific, quantified admission ("one row") that is incomplete, on a system whose whole design principle is not making confident claims about unmeasured state.
+
+**Remediation**: Decide and then state it: either write a per-account pseudonym into `actor` whose mapping is destroyed on erasure (breaking linkability without breaking the chain), or add the surviving-audit-chain admission alongside the existing "one row survives" box. Do not silently keep both claims.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — One piece of evidence is misattributed and inverts its own point: bot/web/user_gateway.py:2902-2904 calls `audit(system_log, …)`, which is bot/utils/logger.py:137 — a plain structured log line into logs/system.jsonl through a RotatingFileHandler (10MB, backupCount=5). It is NOT an audit-chain append, so 'the purge writes one too [into the immutable chain]' is false. The actors recorded are opaque numeric/web ids in an operator-local log, so this is a disclosure-completeness gap: LOW.
+
+- sev→LOW — Correct the evidence: the purge's `audit(system_log, ...)` at user_gateway.py:2902 writes a rotating log line via bot/utils/logger.py:137, not an audit_chain entry — the chain is appended only from bot/core/engine.py. Downgraded to LOW: this is a disclosure/linkability gap in an operator-only, on-host, tamper-evident log, and the tension between tamper-evidence and erasure is a legitimate design position — the defect is that the page claims exactly one surviving record.
+
+**Evidence**:
+
+```
+bot/core/engine.py:1360
+            self.audit_chain.append("POLICY_DECISION", payload, actor=str(user_id or "operator"))
+
+bot/utils/audit_chain.py:195-196
+            with self._path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry.to_dict(), sort_keys=False) + "\n")
+
+bot/web/user_gateway.py:2902-2904 (the purge writes one too)
+    audit(system_log, f"Account purge requested: {tg_id}",
+          action="account_purge", result="OK" if ok else "PARTIAL",
+          data={"user": tg_id, "stores": result})
+```
+
+## B5-24 [MEDIUM] Rotating backups retain erased users' encrypted exchange credentials and the whole SQLite user database for up to BACKUP_KEEP archives, contradicting the policy's "rewrites the encrypted file" wording
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/utils/backup.py:36`
+
+**Observed**: The policy sentence is true of the live file and false of the archives. The archives also carry the SQLite tables that the purge never clears at all (see the bot/db/models.py finding), so those persist both live and in backup.
+
+**Root cause**: Erasure was designed against live state; the backup set was designed independently and includes the same files.
+
+**Business impact**: Data a user was told is gone remains recoverable from operator backups for up to two weeks, and the SQLite portion remains indefinitely because it was never deleted live either.
+
+**Remediation**: Qualify the policy sentence to the live store and state the backup window (BACKUP_KEEP archives, default 14 at BACKUP_INTERVAL_H=24), or document a backup-expiry commitment. Note the mitigating fact already recorded at bot/utils/backup.py:47-55: data/.exchange_secret.key is deliberately NOT archived, so an off-host archive alone yields unreadable ciphertext.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Severity is inflated. The policy sentence is about the removal mechanism (rewrite vs. append), not a claim that no copy exists anywhere; the Fernet master key data/.exchange_secret.key is deliberately excluded from the archive (documented in the comment at l.44-56), so an archive alone yields unreadable ciphertext; and backups are host-local. This is a wording/retention-window disclosure gap, LOW.
+
+- sev→LOW — Downgrade MEDIUM -> LOW. This is a policy-wording fix (qualify the sentence to the live store and state the BACKUP_KEEP window), not a code defect; the encryption-key exclusion at backup.py:47-55 already bounds the exposure to on-host access, which the live file has anyway.
+
+**Evidence**:
+
+```
+bot/utils/backup.py:36-56 (the archived set)
+    "logs/audit_chain.jsonl",
+    "data/attestation_key.bin",
+    ...
+    "data/runeclaw.db",
+    "data/secrets_vault.enc",
+    ...
+    "data/exchange_creds.enc",
+
+bot/utils/backup.py:90-92
+def _keep() -> int:
+    ...
+        return max(1, int(os.environ.get("BACKUP_KEEP", "14")))
+
+website/privacy/index.html:28 (the claim)
+"You can remove your keys at any time from either surface. Removal rewrites the encrypted file rather than leaving the old ciphertext behind."
+```
+
+## B5-25 [LOW] The policy names only a referral code in localStorage; the app writes at least six more keys including the signed-in user id
+
+- **Dimension**: privacy · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/index.html:1328`
+
+**Observed**: Only rc_ref is named. rc_session stores the authenticated user id, and rc_watchlist stores the user's watchlist - the same watchlist the policy elsewhere lists as collected preference data.
+
+**Root cause**: The Cookies section was written against the cookie module (app/lib/session_cookie.js) and picked up localStorage only where the referral flow was being described.
+
+**Business impact**: Understated disclosure of client-side storage on the document a reader uses to verify the claim in their own browser.
+
+**Remediation**: Name the keys the way the cookies are named, with a one-line purpose each, and extend site/test/privacy_truth.test.js's cookie-naming assertion to cover localStorage keys so the list cannot drift.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Minor nuance: rc_watchlist is written only on the signed-OUT branch of saveUserProfile (`if (!LOGGED_IN)`), so it is a pre-login preference cache rather than the signed-in user's stored watchlist.
+
+- sev→UNCHANGED — Two accuracy fixes: rc_session IS named on the privacy page, listed under Cookies rather than under localStorage; and rc_watchlist is written only when the visitor is signed out (dashboard.js:470 `if (!LOGGED_IN)`), so it is not the signed-in user's saved watchlist. The unnamed set is really rc_watchlist, rc_tts, rc_lang, rc_welcomed and rc_chk_done — all functional, none identifying. LOW is right.
+
+**Evidence**:
+
+```
+website/privacy/index.html:28 (the claim, under "Cookies")
+"Your browser's own localStorage may hold a referral code from a link you followed, so it still applies if you sign up on a later visit."
+
+app/public/index.html:1328
+  localStorage.setItem('rc_session',JSON.stringify({user_id:data.user_id}));
+
+app/public/js/dashboard.js:471
+      if (patch.watchlist) localStorage.setItem('rc_watchlist', JSON.stringify(patch.watchlist));
+```
+
+## B5-26 [MEDIUM] No consent or lawful-basis gate exists in code before chat text, positions and profile are transmitted to third-party LLM providers, and the policy discloses no processing location or transfer safeguard
+
+- **Dimension**: privacy · **Fix class**: MANUAL_ONLY · **File**: `bot/llm/provider.py:62`
+
+**Observed**: Neither exists. The leaderboard feature demonstrates the team can build an opt-in, revocable, documented consent flow (bot/core/engine.py:3690-3701 - "OPT-IN ONLY", "REVOCABLE", "UNLINKABLE"); nothing equivalent gates the LLM transfer, which is the larger and less obvious one.
+
+**Root cause**: The LLM path predates the multi-user product and was disclosed retroactively on the policy page (privacy_truth.test.js records that the old page's "No Telegram user data is included in LLM requests" had gone false) without a corresponding gate being added.
+
+**Business impact**: Chat content plus open positions and stated risk appetite are transmitted to third-party model providers, possibly via a relay, with no recorded basis and no stated transfer safeguard.
+
+**Remediation**: NEEDS_LEGAL_REVIEW to decide the basis. Technically: record a per-user acknowledgement (a timestamped row, revocable, checked before the first _llm_chat transmission) modelled on the leaderboard opt-in, and add a processing-location / transfer paragraph to the policy naming the vendors' regions.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Two problems. (a) Evidence mislabelled: line 175 is a `get_key_url` (where a USER obtains their own key), not an egress endpoint, and the ALIBABA entry's actual base_url is https://hackathon.bitgetops.com/v1 — so 'the egress endpoints' misdescribes one of the four quoted lines. (b) This is a legal-basis judgment, not a defect in code that misreports state: the transfer is disclosed on the policy page in unusually direct terms, and the finder itself marks it NEEDS_LEGAL_REVIEW. Report it as a compliance question at LOW, not a MEDIUM engineering defect.
+
+- sev→LOW — Downgrade to LOW/NEEDS_LEGAL_REVIEW and fix the evidence: line 175 is a get_key_url, not an egress endpoint; the actual Alibaba base_url is the Bitget hackathon relay, which the policy already describes. The page does disclose the transfer and its contents — what is absent is a processing-location/safeguard statement and any recorded acknowledgement. This is a legal-posture item with no code defect behind it, and should not be filed at the same severity as the erasure findings.
+
+**Evidence**:
+
+```
+bot/llm/provider.py:62, 76, 151, 175 (the egress endpoints)
+        "base_url": "https://api.anthropic.com",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "base_url": "https://openrouter.ai/api/v1",
+        "get_key_url": "https://dashscope.console.aliyun.com/apiKey",
+
+website/privacy/index.html:28 (the full disclosure of who receives it)
+"Which provider handles a given request is set by the operator's configuration and can change; possible providers include OpenAI, Anthropic, Google and Alibaba/DashScope, and one configuration routes through a third-party relay rather than the vendor directly."
+```
+
+## B5-27 [CRITICAL] SystemHealthMonitor is never fed: /health, /ready and /metrics can only ever report a fabricated all-clear
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/system_health.py:53, 101-112, 123`
+
+**Observed**: status is pinned to HEALTHY, error_rate_pct to 0.0, api_latency to 0ms and exchange_connected to True forever. Three operator-facing surfaces publish those constants as measurements:
+
+1. Telegram /health - bot/skills/telegram_handler.py:8347 `text = self.engine.health.format_telegram()`
+2. /ready (503 gate) - bot/web/dashboard_server.py:327-330 `_is_ready` returns `exchange_connected and status != 'CRITICAL'`, i.e. it can never return False
+3. /metrics (unauthenticated Prometheus scrape) - bot/web/dashboard_server.py:391-397 emits `runeclaw_exchange_connected 1`, `runeclaw_api_error_rate_pct 0`, `runeclaw_api_calls_total 0`, `runeclaw_ready 1` unconditionally
+
+docs/LIVE_HARDENING_RUNBOOK.md makes this the primary triage instruction - line 13: '**Watch via Telegram:** `/health` (vitals)' and line 36: '**Watch:** run `/health` and `/livepositions`'. And two proactive alerts point the operator straight at it as the follow-up: bot/core/proactive_monitor.py:1811 (WS_DOWN) and :2488 both end '👉 /health — check system vitals'. So the alert fires correctly and then hands the operator a panel that manufactures an all-clear.
+
+**Root cause**: The monitor was written as a push-based collector ('Call record_api_call() after each exchange/LLM API call' - its own docstring, line 38) and the instrumentation at the call sites was never added. A push collector with no producers degrades to its constructor defaults, and every default here points at 'safe': `_exchange_ok = True`, and the empty-sample branch synthesises `err_rate = 0.0` rather than leaving it unknown. This is the exact 'fail-open defaults all pointed at safe' shape CLAUDE.md records for guardian_status.
+
+**Business impact**: The bot's primary vitals panel, its container readiness gate and its Prometheus scrape all report a green system regardless of actual state. An orchestrator or load balancer reading /ready will keep routing to, and never restart, an instance whose exchange connectivity is gone; a Grafana/alertmanager rule on runeclaw_api_error_rate_pct or runeclaw_exchange_connected can never fire. On a bot holding leveraged perpetual positions, the runbook's own Stage-0 instruction ('run /health') will confirm health during an outage.
+
+**Remediation**: Make 'never measured' a first-class state rather than a synthesised zero. Minimum: (a) give HealthSnapshot an `observed: bool` (or make error_rate_pct/api_latency_ms Optional[float] = None) set from `len(recent) > 0`, and have `_exchange_ok` start as None; (b) in format_telegram, print 'Error Rate: not measured' / 'Exchange: ⚪ unknown' when nothing was observed instead of 0.0%/🟢 Connected; (c) in `_is_ready`, treat an unmeasured exchange flag as NOT ready (the docstring already claims it 'fails CLOSED'); (d) omit `runeclaw_api_error_rate_pct` / `runeclaw_exchange_connected` from /metrics when unobserved rather than exporting 0/1. Separately, wire `record_api_call` into the exchange/LLM call path and `set_exchange_status` into the connectivity check, and drop the corresponding lines from tests/unreachable_methods_baseline.txt in the same commit (the ratchet's own rule). Add a test that drives a real SystemHealthMonitor (no test currently does - only tests/test_ops_endpoints.py, which hand-builds HealthSnapshot objects and so cannot see this).
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→HIGH — Downgrade CRITICAL to HIGH. Nothing on the money path consumes this: no risk gate, executor or trade decision reads engine.health (the class docstring's claim that it 'provides a health snapshot for risk engine' is itself unbacked — the only reader outside the display surfaces is set_ws_status). The impact is a misleading operator card, a readiness probe that cannot fail, and three Prometheus series that are constants — severe for triage, not directly loss-causing. Also correct the metrics line range to dashboard_server.py:389-397, and note in the writeup that uptime, ws_connected and the (0/0) counters are genuine.
+
+- sev→HIGH — Factually correct in every particular. Severity CRITICAL is one notch high for this system: the fabricated all-clear misleads triage and can keep an orchestrator routing to a half-up instance, but it does not itself move money or place orders, and the ws_connected field on the same card is real. HIGH.
+
+**Evidence**:
+
+```
+bot/core/system_health.py:53-54
+        self._exchange_ok = True
+        self._ws_ok = False
+
+bot/core/system_health.py:101-112
+            else:
+                avg_lat = 0.0
+                p99_lat = 0.0
+                err_rate = 0.0
+
+            # Determine status
+            if not self._exchange_ok or err_rate > 50:
+                status = "CRITICAL"
+            elif err_rate > 10 or avg_lat > 5000:
+                status = "DEGRADED"
+            else:
+                status = "HEALTHY"
+
+The three methods that would ever move those inputs have no caller anywhere in the tree, and the repo's own ratchet already records it:
+
+tests/unreachable_methods_baseline.txt:160-162
+bot/core/system_health.py:SystemHealthMonitor.record_api_call
+bot/core/system_health.py:SystemHealthMonitor.record_scan
+bot/core/system_health.py:SystemHealthMonitor.set_exchange_status
+
+The only writer that IS wired is the websocket flag, bot/core/engine.py:4059:
+        self.health.set_ws_status(self.ws_feed.is_connected())
+```
+
+## B5-28 [HIGH] verify_deploy.sh reports "DEPLOY VERIFIED" for the bot box after asking nothing about what code the bot box is running
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `scripts/verify_deploy.sh:175-182`
+
+**Observed**: The bot-box half contributes an `ok` line to a verdict about a claim it never tested. The exact 2026-08-20 scenario the comment cites - HEAD sitting 255 commits stale - is not detected either: `git rev-parse HEAD` prints whatever the box is on, and the script has no notion of what it SHOULD be on. Worse, the far more common failure (the pull landed but the process was never restarted, so the running bot is on the old code) is structurally invisible, and that is the same class as the 2026-08-25 incident in this file's own header.
+
+**Root cause**: The web half was built around a content hash the server reports (/api/version), which makes it a real comparison. The bot half has no equivalent - the gateway's /health deliberately returns a fixed body, and the dashboard's /health (bot/web/dashboard_server.py:349-350) DOES return `{"status":"ok","build":build_short(),...}` but this script never calls it. The git rev-parse was substituted as a stand-in and then labelled `ok`.
+
+**Business impact**: The gate an operator runs to confirm a deploy landed will say VERIFIED for a bot box running stale code, which is the precise pair of incidents (2026-08-20 stale checkout, 2026-08-25 half-deploy) documented in this file's own header. On a live trading bot, that means risk-limit or stop-loss fixes reported as deployed while the process enforcing them contains none of them.
+
+**Remediation**: Query the bot box's own build stamp instead of the local checkout: `curl -fsS "$GATEWAY_URL/health"` (the dashboard liveness route registered at bot/web/dashboard_server.py:513, which already returns `build`) and compare its `build` field to `git rev-parse --short HEAD`. Apply the same absent-field discipline the web half already has (lines 105-118): an unparseable or missing `build` is `unk`, not `fail` and not `ok`. If the field is missing, `unk "the bot box did not report which commit it is serving - not verified"` so the run ends INCOMPLETE rather than VERIFIED. Optionally also call scripts/verify_deploy_source.sh, which does the remote-URL comparison correctly.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Downgrade HIGH to MEDIUM and soften the title from 'asking nothing about what code the bot box is running' to 'never comparing the running process's build against this checkout'. Two compensating controls exist in the documented flow: scripts/verify_deploy_source.sh performs the real remote-URL comparison pre-launch (the 255-commit case), and scripts/verify_bot_alive.sh gates DEPLOY_DONE on the process. The residual, real gap is process-vs-checkout drift (pull landed, restart missed) plus the `ok` label overstating a line that measured nothing.
+
+- sev→MEDIUM — Two corrections. (a) The title overstates: the box half does ask two real questions (gateway and bridge reachability) and fails on them; what it never asks is which code is running. (b) The finder names the helper `build_short()`; the actual symbol is `bot.utils.build_info.short`, imported into dashboard_server.py as `n` and rendered as `"build": n()`. Severity HIGH → MEDIUM: the documented deploy flow also runs scripts/verify_deploy_source.sh (which does compare against the remote URL) before starting, and verify_bot_alive.sh after, so this is a weak link in a chain rather than the only check.
+
+**Evidence**:
+
+```
+scripts/verify_deploy.sh:175-182
+  # Which code the box is actually on. Compared against the local checkout,
+  # because a deploy that pulled the wrong commit passes every other check —
+  # 2026-08-20, 255 commits stale, everything green.
+  if head="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"; then
+    ok "checkout at $head"
+  else
+    unk "not a git checkout here, so the running commit could not be confirmed."
+  fi
+
+The comment promises a comparison. The code reads the LOCAL HEAD and prints it, then calls `ok`, which sets no failure. There is no second value to compare it against.
+```
+
+## B5-29 [HIGH] Forensic audit logs (trade/risk/system/scan .jsonl) are written to a cwd-relative directory, and the durable-path ratchet's regex cannot see it
+
+- **Dimension**: observability · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/utils/logger.py:27-28, 115-116`
+
+**Observed**: The four structured audit channels (trade.jsonl, risk.jsonl, system.jsonl, scan.jsonl, built at bot/utils/logger.py:131-134) land in `<cwd>/logs/`. `mkdir(exist_ok=True)` and RotatingFileHandler both CREATE, so a wrong cwd produces a fresh empty log tree in silence - the failure mode bot/utils/paths.py's docstring describes verbatim ('mkdir(exist_ok=True) and sqlite3.connect both create, so a wrong directory produced a brand-new empty database in silence'). deploy.sh:167-178 symlinks the repo-root `logs` to the persistent store precisely so these survive, with a comment stating persistence 'is NOT optional' and calling logs/trade.jsonl 'the forensic record'. A process launched from anywhere else writes outside that symlink and outside backup coverage.
+
+**Root cause**: logger.py predates bot/utils/paths.py and was not migrated with the six modules that were. The ratchet meant to find the stragglers keys on a slash-bearing literal, so a module that builds its relative path from a bare directory name (`Path("logs") / filename`) is invisible to it - a blind spot in the checker, which is exactly what that test's own docstring warns produces 'the reassurance it exists to prevent'.
+
+**Business impact**: On a wrong-cwd launch the entire structured forensic record - every trade idea, every risk decision - is written to a directory nobody backs up (bot/utils/backup.py's _CRITICAL set is joined to rootp_of(), the repo root) and nobody greps during an incident. The logs appear to be working; `logs/` at the repo root simply stays at whatever it held before. Post-mortem evidence for a live trading loss would be missing with no signal that it was ever redirected.
+
+**Remediation**: Two changes, one commit. (1) In bot/utils/logger.py, `from bot.utils.paths import state_path` and `LOG_DIR = state_path("logs")`. (2) Widen the ratchet so a bare directory literal is a finding too - e.g. `_LITERAL = re.compile(r'["\'](?:data|logs)(?:/[^"\']*)?["\']')` - and add any resulting legitimate exemptions to tests/durable_path_baseline.txt with reasons, per that file's two-way ratchet rule. Add a driven assertion in the existing `test_every_durable_path_is_absolute_and_under_the_repo` parametrize list for `bot.utils.logger.LOG_DIR`, since a scan alone is what missed it.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Downgrade HIGH to MEDIUM. Unlike the 2026-08-19 DB incident this cannot make a surface print a false measurement — nothing in bot/ or app/ reads logs/*.jsonl back (the only readers are ollama/generate_training_data*.py, which use hardcoded /workspace paths). The loss is forensic-record continuity under a launcher that does not cd, and the tamper-evident chain that actually matters (logs/audit_chain.jsonl) is already anchored via state_path. The checker blind spot is the more valuable half of this finding and should lead it.
+
+- sev→MEDIUM — Correct, including the blind-spot analysis of the guard. Severity HIGH → MEDIUM: nothing in the codebase READS logs/{trade,risk,system,scan}.jsonl (grep finds only writers plus docs), so the loss is forensic/human, not a wrong decision or a wrong number on a surface — unlike the runeclaw.db incident this rule was written for. It is also latent, not active: today's launchers cd correctly.
+
+**Evidence**:
+
+```
+bot/utils/logger.py:27-28
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+bot/utils/logger.py:115-116
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_DIR / filename, maxBytes=10 * 1024 * 1024, backupCount=5,
+        )
+
+The sibling audit chain does it correctly - bot/utils/audit_chain.py:165: `self._path = state_path(path)`.
+
+The guard that should have caught this cannot match a bare directory name:
+tests/test_durable_paths_are_not_cwd_dependent.py:277
+_LITERAL = re.compile(r'["\'](?:data|logs)/[^"\']*["\']')
+
+The literal in logger.py is `"logs"` with no slash, so `_LITERAL` never fires, and bot/utils/logger.py appears in neither the findings nor tests/durable_path_baseline.txt.
+```
+
+## B5-30 [MEDIUM] The F-08 "tamper-evident and verifiable" log hash chain has no verifier, restarts at GENESIS per process, and is silently truncated by log rotation
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/utils/logger.py:85, 103, 115-116`
+
+**Observed**: Three independent gaps: (1) no code path anywhere verifies these chains, so tampering with logs/trade.jsonl would be detected by nobody; (2) `_prev_hash` is instance state reset to 'GENESIS' in __init__, and each process gets a fresh formatter while the file is opened in append mode - so every restart writes a 'GENESIS' link mid-file, which any future verifier would have to special-case; (3) RotatingFileHandler with backupCount=5 deletes the oldest segment, so the chain is not merely split across files, it is permanently truncated at ~60MB per channel.
+
+**Root cause**: The chain was bolted onto a logging Formatter, which is the wrong seam: a Formatter has no knowledge of file boundaries, cannot persist state across process lifetimes, and produces no artifact anyone was tasked with checking. The parallel implementation in audit_chain.py got all three right (state re-read from the file's tail on every append, no rotation, a reachable verify()), which shows the difference is oversight rather than intent.
+
+**Business impact**: The repository treats a tamper-evident trade log as a real control (deploy.sh goes out of its way to SIGTERM before SIGKILL so an append is not interrupted, watchdog.sh:71-74). For logs/trade.jsonl that control is nominal: nothing would ever notice an edited line, and the oldest evidence is deleted on a size trigger with no record. In a dispute over a live trade the chain would not support the claim made for it.
+
+**Remediation**: Decide which of the two it is and say so. Either (a) add a verifier for logs/*.jsonl (a `verify_log_chain(path)` alongside audit_chain.verify, tolerant of a 'GENESIS' restart marker, plus a preflight/ops command that runs it) and stop deleting segments - set backupCount high enough that a full retention window survives, or archive rotated files rather than dropping them; or (b) if the chain is not actually relied on, delete the prev_hash field and the F-08 docstring claim, so nobody mistakes an unchecked field for an integrity control. Do not leave it as-is: an unverifiable integrity claim in a docstring is what an auditor and an operator will both trust.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Downgrade MEDIUM to LOW. Nothing depends on this chain and no operator surface reports on it, so the concrete harm is a docstring making an integrity claim the code does not support — worth resolving in the direction of deleting the claim rather than building a verifier, given the real tamper-evident chain (audit_chain.jsonl, anchored, unrotated, verified from two call sites) already exists beside it.
+
+- sev→MEDIUM — Stands as written. One addition that makes it worse than reported — see 'missed': the bot box runs two processes that both import this module and both append to the same files, so the chains interleave, which no restart-marker tolerance can repair.
+
+**Evidence**:
+
+```
+bot/utils/logger.py:83-85
+    def __init__(self) -> None:
+        super().__init__()
+        self._prev_hash: str = "GENESIS"
+
+bot/utils/logger.py:102-103
+        line = json.dumps(entry, default=str)
+        self._prev_hash = hashlib.sha256(line.encode()).hexdigest()
+
+bot/utils/logger.py:114-116
+        # File handler with rotation (10MB per file, keep 5 backups)
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_DIR / filename, maxBytes=10 * 1024 * 1024, backupCount=5,
+        )
+
+The module docstring claims (bot/utils/logger.py:9-10): 'F-08 FIX: Hash chain -- each JSON line includes prev_hash = sha256(previous line), making the audit trail tamper-evident and verifiable.'
+```
+
+## B5-31 [MEDIUM] Every trade blocks the event loop on four full scans of an audit chain that nothing rotates
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/engine.py:1555, 1559, 1646, 1650, 1655`
+
+**Observed**: _sync_flight_records is a synchronous def called from three places on the trading path: bot/core/engine.py:1105 (inside _on_live_position_closed, right after appending the OUTCOME event), :5963 (after a re-check rejection), and :6460 (inside the async `_confirm_trade_inner`, immediately after sealing an EXECUTED_LIVE decision). Only the network send is backgrounded - `sync_flight_records_in_background` at line 1657 - while the four full-file scans happen inline on the caller's thread, which for line 6460 is the event loop. The chain is never rotated: bot/utils/audit_chain.py:59-61 states outright that append was optimised because it iterated 'a file that nothing rotates', but verify() and get_chain_length() were left as forward full scans on the same hot path.
+
+**Root cause**: The append path was correctly optimised to O(1) via `_tail_lines` (audit_chain.py:44-101) when its linear cost was measured, but the two other linear readers on the same call chain were not, and guardian_status duplicates both. The growth assumption ('nothing rotates') was recorded as a fact without a corresponding bound on the readers.
+
+**Business impact**: Cost grows monotonically with the number of decisions the bot has ever made, on the exact code path that runs at trade confirmation and at position close. At ~100k entries this is on the order of seconds of blocked event loop per trade, during which SL/TP monitoring, the WS heartbeat and the Telegram poller do not run - on a leveraged perpetuals book that is the window in which a stop is not being watched. It degrades silently and only on long-lived deployments, which is when it is hardest to attribute.
+
+**Remediation**: Three cheap changes: (1) drop the duplicate work - _sync_flight_records already computes `ok` and `length`, so pass them into guardian_status (or have guardian_status accept a precomputed chain dict) rather than recomputing; (2) replace get_chain_length()'s full scan with the sequence number already on the tail entry (`_tail_state()` returns next_sequence, which IS the length); (3) either move verify() off the trade path (run it on a timer or on demand from /guardian) or run the whole of _sync_flight_records via `asyncio.to_thread` from the async call sites so it cannot block the loop. None of these change the chain format or touch a ratchet baseline.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Severity stands at MEDIUM, but state the today-vs-later split plainly: logs/audit_chain.jsonl is 38 lines on this checkout, so present-day cost is negligible; the defect is that the two linear readers were left on the hot path after the append path was explicitly optimised for the same reason, on a file with no bound. Fix (1) alone — pass the already-computed ok/length into guardian_status — halves it with no behaviour change.
+
+- sev→LOW — Severity MEDIUM → LOW. The finder itself notes the chain is 38 lines (45KB) today, and the chain only grows per decision/outcome — not per scan — so the measured cost is microseconds and the harm is entirely a growth projection. Nothing here is wrong output; it is a latency/altitude issue plus an over-strong docstring.
+
+**Evidence**:
+
+```
+bot/core/engine.py:1643-1655 (_sync_flight_records, a plain `def` at line 1629)
+            entries = self.audit_chain.get_entries(limit=400)
+            records = assemble_flight_records(entries, limit=50)
+            incidents = assemble_incident_records(entries, limit=40)
+            ok, problems = self.audit_chain.verify(str(self.audit_chain._path))
+            tip = entries[-1].entry_hash if entries else ""
+            chain = {
+                "ok": bool(ok),
+                "length": self.audit_chain.get_chain_length(),
+...
+            try:
+                gstatus = self.guardian_status()
+
+and guardian_status repeats both scans, bot/core/engine.py:1555-1560
+            status["chain"]["length"] = self.audit_chain.get_chain_length()
+            entries = self.audit_chain.get_entries(limit=1)
+            status["chain"]["tip"] = entries[-1].entry_hash if entries else ""
+            try:
+                ok, _problems = self.audit_chain.verify(str(self.audit_chain._path))
+
+Both underlying methods read the whole file - audit_chain.py:238-239 `with file_path.open(...) as fh: for line_no, raw_line in enumerate(fh, ...)` and audit_chain.py:225-231 `for line in fh: if line.strip(): count += 1`.
+```
+
+## Suspected in batch 5
+
+- **[INFORMATIONAL]** npm lifecycle install scripts execute unrestricted in every CI workspace install — `.github/workflows/ci.yml:316, 348, 516, 636, 668`
+- **[LOW]** The bot dashboard's /ready leaks raw exception text on an unauthenticated, 0.0.0.0-bound endpoint, contradicting the F-15 coarse-reason rule the web app implements — `bot/web/dashboard_server.py:369-371`
+
+
+========================================================================
+
+# Batch 6 — a11y, reachability, docs-consistency, tests
+
+**39 raw · 38 CONFIRMED · 1 SUSPECTED · 0 REFUTED**
+
+> **Every a11y finding is STATIC INSPECTION.** No browser was driven in
+> this container, so none of them is a runtime observation and no WCAG
+> conformance is claimed. Treat each as NEEDS_RUNTIME_VALIDATION.
+
+
+## B6-01 [HIGH] 3D Strength Map is pointer-only: no keyboard path to any coin's data, in either the WebGL view or the 2D fallback
+
+- **Dimension**: a11y · **Fix class**: REVIEW_REQUIRED · **File**: `app/public/js/strengthmap.js:439-446, 220, 227-230`
+- **Standard**: WCAG 2.2 Level A: 2.1.1 Keyboard. Also WCAG 2.2 Level AA: 2.5.7 Dragging Movements (orbit has no single-pointer alternative). EN 301 549 §9.2.1.1 / §9.2.5.7.
+
+**Observed**: Selecting a coin — and therefore reaching its factor breakdown and the venue links that take a user to a trade — is possible only with a mouse or touch tap on the canvas, or a mouse click on a fallback table row. Orbiting the scene is drag-only and zooming is wheel-only (OrbitControls at app/public/js/strengthmap.js:300-303), with no single-pointer non-drag alternative and no keyboard alternative.
+
+**Root cause**: The page was built as a pure pointer-driven WebGL scene; the 2D fallback was written for the no-WebGL case (a rendering concern) rather than for the no-pointer case (an interaction concern), so it inherited the same click-only row handler instead of using anchors or buttons.
+
+**Remediation**: Make the fallback rows real controls: emit `<tr>` cells wrapping a `<button type="button" data-sym=...>` (or give the row `role="button" tabindex="0"` plus an Enter/Space handler — the dashboard already has that pattern at app/public/js/dashboard.js:8516-8520). Render the fallback table always (visually hidden behind a "list view" toggle when WebGL is up) so keyboard users have a route to every coin regardless of WebGL. For 2.5.7, add zoom-in / zoom-out / reset-view buttons beside the bias segmented control, which OrbitControls can drive directly.
+
+**Verifier corrections** (these override the finder):
+
+- sev→MEDIUM — One evidence claim is wrong: the finder says grep for 'strengthmap' in app/test/ returns only unrelated files. app/test/strengthmap_page.test.js exists and reads both strengthmap.html and strengthmap.js — but it pins routing, the import map, the venue picker and §4 payload rules, and asserts nothing about keyboard operability, so the 'no test pins this' conclusion survives. Severity lowered HIGH->MEDIUM: this is a public read-only data-viz funnel (that same test file records 'the "trade" action is a venue picker of external deep links, not an order path'), and the same coins and the trade ticket are reachable from /dashboard, so no money path is keyboard-blocked — the loss is the visualisation and its factor breakdown.
+
+- sev→MEDIUM — Two factual errors in the write-up, neither fatal. (1) The existing-test claim is wrong: app/test/strengthmap.test.js, app/test/strengthmap_page.test.js, app/test/strengthmap_polish.test.js and app/test/landing_strengthmap.test.js all exist. I grepped them for keyboard/tabindex/keydown/role/aria and found only one unrelated match, so no test pins this — the conclusion survives, the premise does not. (2) boot() is at strengthmap.js:275, not :373. Severity: HIGH is inflated. This is a public read-only data-viz page; the panel's only money-adjacent element is an outbound venue link, and every one of those venues is reachable from the app's own market surfaces. A Level A keyboard failure on a public tool page is MEDIUM here, not HIGH.
+
+**Evidence**:
+
+```
+app/public/js/strengthmap.js:438-446 — the ONLY way to open a coin:
+```js
+  canvas.addEventListener('pointerdown', (e) => { downXY = [e.clientX, e.clientY]; lastInteract = now(); });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!downXY) return;
+    const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]); downXY = null;
+    if (moved > 6) return; // a drag, not a tap
+    setNDC(e.clientX, e.clientY);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObjects(pickables, false)[0];
+    if (hit && hit.object.userData.node) openPanel(hit.object.userData.node.coin);
+  });
+```
+The 2D fallback that is supposed to be the non-WebGL path is pointer-only too — app/public/js/strengthmap.js:220 and 227-230:
+```js
+    return `<tr style="cursor:pointer" data-sym="${esc(c.symbol)}"><td><b>${esc(c.base)}</b></td>
+...
+  $('smFbBody').addEventListener('click', (e) => {
+    const tr = e.target.closest('[data-sym]'); if (!tr) return;
+    const c = state.coins.find((x) => x.symbol === tr.dataset.sym); if (c) openPanel(c);
+  });
+```
+The `<tr>` carries no `role`, no `tabindex` and no key handler. The canvas (app/public/strengthmap.html:125) is not focusable:
+```html
+<canvas class="sm-canvas" id="smCanvas" aria-label="3D strength map of the USDT-perp universe" data-i18n-attr="aria-label:a11y.strength_map"></canvas>
+```
+`grep -n "keydown\|keyup\|tabinde
+```
+
+## B6-02 [MEDIUM] Command palette is a role="dialog" with no focus trap, no aria-modal, no focus return, and no aria-activedescendant — shipped on 35 public pages
+
+- **Dimension**: a11y · **Fix class**: REVIEW_REQUIRED · **File**: `app/public/js/palette.js:111-147`
+- **Standard**: WCAG 2.2 Level A: 2.4.3 Focus Order. Level A: 4.1.2 Name, Role, Value. EN 301 549 §9.2.4.3 / §9.4.1.2.
+
+**Observed**: Tab escapes into the page behind the overlay; the background is never inerted or marked `aria-hidden`; focus is not restored on close; and the arrow-key selection is announced to nobody.
+
+**Root cause**: palette.js was written as a self-contained IIFE ("Self-contained (no deps)", app/public/js/palette.js:11) and therefore did not reuse `RC.modalA11y` — which is loaded on most, but not all, of these pages (e.g. roots.html loads anchor_cell.js, i18n.js and palette.js but not app.js).
+
+**Remediation**: Give the input `role="combobox" aria-expanded="true" aria-controls="<listbox id>" aria-autocomplete="list"`, assign each rendered option an id and set `input.setAttribute('aria-activedescendant', ...)` in the same block that toggles `aria-selected` (app/public/js/palette.js:104-108). Add `wrap.setAttribute('aria-modal','true')`, an inert/Tab-cycle pass over the other body children, and stash `document.activeElement` in `open()` to restore it in `close()`. Where `window.RC.modalA11y` is present, delegate to it rather than reimplementing; otherwise inline the same ~20 lines so pages without app.js are covered too.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — The existing-test claim is materially false. app/test/palette.test.js EXISTS and is squarely about this file — it has a 'keyboard contract: toggle, slash guard, escape' test asserting /role', 'dialog'/, Escape handling, the INPUT|TEXTAREA|SELECT slash guard and the reduced-motion fade. What it does not assert is aria-modal, a focus trap, focus return or aria-activedescendant, so the defect is still unpinned — but 'nothing in app/test/ references palette.js' is wrong and would mislead whoever goes to add the test.
+
+- sev→LOW — The existing-test claim is WRONG and should be corrected: app/test/palette.test.js exists and explicitly pins the palette's keyboard contract (Ctrl/Cmd+K, the slash guard, Escape, `role', 'dialog'`, reduced motion). It does NOT assert aria-modal, focus trap, focus return or activedescendant, so the defect itself is genuinely unpinned — but 'nothing in app/test/ references palette.js' is false. Severity: LOW rather than MEDIUM. The palette is navigation-only (app/test/palette.test.js:26 pins `location.href = it[3]` as the only act), so on Enter the page unloads and focus return is moot; the only lost case is Esc. Every ROOMS destination is an ordinary link in the site nav, so no function is keyboard-unreachable — the harm is a confusing overlay, not a lost capability.
+
+**Evidence**:
+
+```
+app/public/js/palette.js:116-141 — the dialog is opened with nothing but a role and a label, and focus is dropped into the input with the whole page still reachable behind it:
+```js
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-label', T('pal.aria', 'Command palette'));
+...
+      + '<div class="rcp-box"><input type="text" spellcheck="false" autocomplete="off" '
+...
+      + '<div class="rcp-ls" role="listbox"></div></div>';
+    document.body.appendChild(wrap);
+    input = wrap.querySelector('input');
+    list = wrap.querySelector('.rcp-ls');
+    render('');
+    input.focus();
+```
+Closing throws the node away without restoring focus (app/public/js/palette.js:92-95):
+```js
+  function close() {
+    if (wrap) { wrap.remove(); wrap = null; }
+    document.removeEventListener('keydown', onNav, true);
+  }
+```
+Arrow keys repaint the selection but focus never leaves the input and nothing points at the active option (app/public/js/palette.js:100-108):
+```js
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      var els = list.querySelectorAll('.rcp-it');
+      els.forEach(function (el, i) {
+        el.classList.toggle('on', i === sel);
+        el.setAttribute('aria-selected', String(i === sel));
+      });
+```
+The repo already owns the correct helper — app/public/js/app.js:464-497 `modalA11y()` sets `aria-modal`, `inert`s every other 
+```
+
+## B6-03 [MEDIUM] Operator war-room dashboard: --text-dim (#64748b) fails AA at 3.83:1 and carries every table header, stat label and empty-state line
+
+- **Dimension**: a11y · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/web/dashboard.html:20, 191-195, 227-235, 336, 346, 395, 436, 454, 465`
+- **Standard**: WCAG 2.2 Level AA: 1.4.3 Contrast (Minimum). EN 301 549 §9.1.4.3.
+
+**Observed**: Every column header in Active Positions / Recent Trades, every stat label (Balance, Equity, Open, Trades, Win Rate, Drawdown, Checks, Rejected, Trips, Loss Streak, LLM Calls, Cost, Tokens), the LLM tier provenance notes, the empty-state lines ("No open positions", "No trade history") and the connection status line render at 3.83-4.03:1, below AA.
+
+**Root cause**: This file predates and does not import app/public/styles.css; it re-declares its own :root ramp (bot/web/dashboard.html:10-22) with a dimmer grey than the platform's, and it is outside the scope of app/test/palette_contrast.test.js, which reads only app/public/styles.css.
+
+**Remediation**: Raise `--text-dim` to the platform's `--text-3` value #8f99ab (6.40:1 on #12141c, and 6.7:1 on this file's #111520) — a one-line change at bot/web/dashboard.html:20 that fixes all nine usages at once. Then extend app/test/palette_contrast.test.js (or add a sibling) to read this file's :root block, so a second ramp cannot drift again.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Arithmetic: 3.78:1, not 3.83:1 (same conclusion). Severity lowered MEDIUM->LOW: this is the internal operator war room, not a user surface. bot/web/dashboard_server.py:435-452 documents that the whole /api/* surface is fail-closed token-gated and that bot/main.py:455 is meant to bind it to a private network, so the affected population is the one or two operators who hold DASHBOARD_TOKEN — a real AA failure, but not a product-wide one.
+
+- sev→LOW — Facts all hold. Severity down to LOW: this is an internal single-operator war room whose data API is fail-closed behind DASHBOARD_TOKEN and documented as belonging on a private network (bot/web/dashboard_server.py:440-452). Sub-AA labels here inconvenience one operator; they do not reach a user or move money. The proposed one-line fix is sound — I verified #8f99ab scores 6.35:1 on #111520 and #94a3b8 scores 7.11:1, so either clears AA.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:11-21 defines the pair:
+```css
+  --bg: #0a0c10;
+  --panel: #111520;
+...
+  --text-dim: #64748b;
+```
+and it is the colour of every column header and every stat label — bot/web/dashboard.html:191-195 and 227-235:
+```css
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+```
+```css
+.tbl th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+```
+Arithmetic (WCAG relative-luminance formula):
+  #64748b -> sRGB (100,116,139) -> linearised (0.1274, 0.1776, 0.2670) -> L1 = 0.2126*0.1274 + 0.7152*0.1776 + 0.0722*0.2670 = 0.1734
+  #111520 -> sRGB (17,21,32)    -> linearised (0.00605, 0.00750, 0.01444) -> L2 = 0.00699
+  ratio = (0.1734 + 0.05) / (0.00699 + 0.05) = 0.2234 / 0.05699 = 3.83:1
+Against the header's gradient end #0d1018 (`.header` at bot/web/dashboard.html:64) it is 4.00:1. AA requires 4.5:1; none of these are large text (10px, 11px, 12px, 13px).
+```
+
+## B6-04 [MEDIUM] Operator war-room dashboard has no landmarks, one heading for six panels, and its live connection/state changes are announced to nobody
+
+- **Dimension**: a11y · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/web/dashboard.html:413-505, 555-562, 820-835`
+- **Standard**: WCAG 2.2 Level A: 1.3.1 Info and Relationships. WCAG 2.2 Level AA: 4.1.3 Status Messages. EN 301 549 §9.1.3.1 / §9.4.1.3.
+
+**Observed**: Six panel titles are `<span class="panel-title">`, carrying their heading role in CSS only. The connect/disconnect transition — the single most important thing on the page, because it decides whether every other number is stale — changes silently.
+
+**Root cause**: The page was styled first; `panel-title` is a visual treatment (Cinzel, uppercase, gold, letter-spaced) that was never given semantics, and the status span was written as a plain label rather than a status region.
+
+**Remediation**: Change `<span class="panel-title">` to `<h2 class="panel-title">` at bot/web/dashboard.html:435, 453, 464, 475, 485, 504 (the class already carries all the styling, so no visual change). Wrap the grid in `<main>`. Add `role="status"` to `#connStatus` at :424 — the existing textContent writes then announce themselves with no JS change.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Severity lowered MEDIUM->LOW for the same reason as finding 2: this is the token-gated, private-network operator dashboard, not a public surface. The proposed fix (span->h2, wrap in <main>, role="status" on #connStatus) is correct and costs nothing visually.
+
+- sev→LOW — Every claim checks out; the quoted grep result is exact. Severity LOW rather than MEDIUM for the same reason as finding 2: internal operator page, one user, private bind. The proposed fix (span -> h2, wrap in <main>, role="status" on #connStatus) is genuinely zero-visual-risk since .panel-title carries all styling.
+
+**Evidence**:
+
+```
+The whole page has exactly one heading and no landmark, role or live region. `grep -n "<h1\|<h2\|<h3\|aria-live\|role=\|<main\|<nav\|<footer\|alt=" bot/web/dashboard.html` returns a single line: `416:      <h1>⚔️ RUNECLAW</h1>`. Every panel is titled by a styled span — bot/web/dashboard.html:433-435, and repeated at :453, :464, :475, :485, :504:
+```html
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">Portfolio</span>
+```
+The connection status is rewritten in place with no live region — bot/web/dashboard.html:424 and :555-562:
+```html
+      <span id="connStatus">Connecting...</span>
+```
+```js
+  const age = (Date.now() - lastUpdate) / 1000;
+  if (lastUpdate && age > 10) {
+    $('connStatus').textContent = 'Disconnected';
+    $('connStatus').style.color = 'var(--red)';
+    $('statusDot').className = 'status-dot dot-red';
+  }
+```
+and again at :822-823 / :832-833 (`'Connected'` / `'Disconnected'`).
+```
+
+## B6-05 [MEDIUM] Platform header chips announce PAPER vs LIVE and engine reachability with no live region — the mode change is silent to screen readers
+
+- **Dimension**: a11y · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/dashboard.html:21, 24`
+- **Standard**: WCAG 2.2 Level AA: 4.1.3 Status Messages. Level A: 1.3.1 Info and Relationships (the `title`-only reason). EN 301 549 §9.4.1.3.
+
+**Observed**: The transition into LIVE mode — the moment the account starts risking real money — and the transition to ENGINE OFFLINE are both silent. The page's own comment at app/public/js/dashboard.js:217-230 explains how carefully the four connection states are distinguished; none of that distinction reaches a screen reader.
+
+**Root cause**: The chips were built as visual chrome; the live-region discipline applied elsewhere in this codebase (26 `aria-live` regions across app/public/*.html, including `#tgTokArea` at app/public/js/dashboard.js:4935) was not applied to the two top-bar chips.
+
+**Remediation**: Add `role="status"` to both spans in app/public/dashboard.html:21 and :24 — the existing `textContent` writes then announce themselves with no JS change. Move the `title` string in `set()` (app/public/js/dashboard.js:237) into visible text or an `aria-describedby` target so the reason is not pointer-only.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None. MEDIUM stands: PAPER->LIVE is the money-relevant transition on the main user surface, and role="status" on two spans is a two-attribute fix with no JS change.
+
+- sev→MEDIUM — Stands as written, MEDIUM is right. This is the user-facing production dashboard, and the elaborate four-state honesty model the file's own comment at :217-230 describes reaches sighted users only. Two nuances worth carrying into the fix: role="status" on #modeChip must be added carefully because the element starts with class 'hidden' and is unhidden by classList.remove('hidden') at :251 — a live region that gains content while display:none may not announce in all AT, so the first announcement after unhide should be verified rather than assumed.
+
+**Evidence**:
+
+```
+app/public/dashboard.html:21 and :24 — plain spans, no role, no aria-live:
+```html
+  <span id="connChip" class="chip chip--offline">● CONNECTING</span>
+...
+    <span id="modeChip" class="chip chip--paper hidden">PAPER</span>
+```
+Both are rewritten asynchronously — app/public/js/dashboard.js:231-247:
+```js
+  function updateConnChip() {
+    const el = document.getElementById('connChip');
+    if (!el) return;
+    const set = (text, cls, title) => {
+      el.textContent = text;
+      el.className = `chip ${cls}`;
+      el.title = title;
+    };
+```
+and app/public/js/dashboard.js:248-267:
+```js
+  function updateModeChip(pf) {
+...
+    if (live && pf.live_unavailable) {
+      el.textContent = 'LIVE — BALANCE UNAVAILABLE';
+      el.className = 'chip chip--warn';
+      return;
+    }
+    el.textContent = live ? 'LIVE' : 'PAPER';
+```
+The reason for the connection verdict is carried only in `el.title` (line 237), on a non-focusable `<span>` — unreachable by keyboard and by touch.
+```
+
+## B6-06 [MEDIUM] Copy-to-clipboard controls: two declare role="button" but ignore Enter/Space, two are bare divs with no role or tabindex
+
+- **Dimension**: a11y · **Fix class**: REVIEW_REQUIRED · **File**: `app/public/js/dashboard.js:4952, 5018, 4954-4972`
+- **Standard**: WCAG 2.2 Level A: 2.1.1 Keyboard; 4.1.2 Name, Role, Value. EN 301 549 §9.2.1.1 / §9.4.1.2.
+
+**Observed**: Two focusable, button-announced controls do nothing on any key press; two clickable controls are invisible to keyboard and to assistive technology.
+
+**Root cause**: The `role="button" tabindex="0"` idiom was copied from the `[data-sym]` cards, but the keyboard bridge that makes that idiom work was written against `[data-sym][role="button"]` rather than `[role="button"]`, so it silently excluded every non-symbol adopter.
+
+**Remediation**: Cheapest correct fix: make them real `<button type="button" class="token-display">` elements — they get keyboard activation, the button role and the focus ring for free, and `esc()`-ed text content still renders identically. If the markup must stay a div, widen the selector at app/public/js/dashboard.js:8518 from `[data-sym][role="button"]` to `[role="button"]` and dispatch a click, and add `role="button" tabindex="0"` plus a keydown branch to the `data-act` delegate at app/public/index.html:1782.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Severity lowered MEDIUM->LOW. The failure is real (a role="button" that ignores Enter/Space is a 2.1.1 + 4.1.2 failure) but the content of all four controls is visible plain text a user can select and copy manually, and none of them is on an order path — the worst outcome is friction linking Telegram or copying an invite link.
+
+- sev→LOW — Facts confirmed. Severity LOW rather than MEDIUM: in all four cases the value being copied is rendered as visible, selectable text right there (the token in #tgTok/#tok-box, the URL in #refLink, the TOTP secret in #tfa-secret), and #tok-box/#tfa-secret sit beside prose that repeats the value (`/link ${tok}`), so no capability is actually lost to a keyboard user — the failure is a false role promise (4.1.2) plus lost convenience. The #tgTok/#refLink pair is the real half; the two bare divs are the weaker half and should not be leaned on.
+
+**Evidence**:
+
+```
+app/public/js/dashboard.js:4952 and :5018 promise button behaviour:
+```js
+          <div class="token-display" id="tgTok" role="button" tabindex="0" title="Copy">${esc(tok)}</div>
+```
+```js
+        <div class="token-display" id="refLink" role="button" tabindex="0" title="Copy invite link">${esc(link)}</div>
+```
+but the only handler is a click delegate — app/public/js/dashboard.js:4941 and :4954-4956:
+```js
+    onView('click', async (e) => {
+...
+      const tokEl = e.target.id === 'tgTok' ? e.target : e.target.closest?.('#tgTok');
+      if (tokEl) {
+        try {
+          await navigator.clipboard.writeText(tokEl.textContent.trim());
+```
+`onView` is click-only (app/public/js/dashboard.js:78-81: `container.addEventListener(type, handler, ...)`). The one keyboard bridge on the page is scoped to a different selector — app/public/js/dashboard.js:8516-8520:
+```js
+  document.body.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeSymModal(); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-sym][role="button"]')) {
+      e.preventDefault(); openSymbol(e.target.getAttribute('data-sym'), _geoOf(e.target));
+    }
+  });
+```
+Neither `#tgTok` nor `#refLink` carries `data-sym`, so they never match. The same page family has two copy controls that are not even announced as controls — app/public/index.html:821 and :1569:
+```html
+        <div
+```
+
+## B6-07 [MEDIUM] Silent demo video with no alternative for time-based media and no accessible name
+
+- **Dimension**: a11y · **Fix class**: REVIEW_REQUIRED · **File**: `site/src/routes/index.tsx:86-102`
+- **Standard**: WCAG 2.2 Level A: 1.2.1 Audio-only and Video-only (Prerecorded). Level A: 4.1.2 Name, Role, Value. EN 301 549 §9.1.2.1 — and this is a consumer-facing commercial site, so European Accessibility Act scope applies.
+
+**Observed**: A 2.2MB silent screen recording of the product is the only demonstration on the landing page, with no textual equivalent of what it shows, and the player itself is unnamed.
+
+**Root cause**: The video was added as a hero asset; the accompanying caption was written for the honesty concern ("not a live feed") rather than as a media alternative, and no transcript was authored.
+
+**Remediation**: Add `aria-label="Recorded RUNECLAW session"` (or `aria-labelledby` pointing at the caption paragraph) to the `<video>`, and publish a short text alternative directly beneath it — a `<details><summary>What this recording shows</summary>` block listing the steps the session walks through is enough to satisfy 1.2.1 and costs no layout. Rebuild the site so website/index.html picks it up (the repo already gates on "the committed site is the built site").
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Severity lowered MEDIUM->LOW. It is a genuine WCAG 1.2.1 Level A gap, but the surface is a marketing landing page whose entire substance is restated in text elsewhere on the same route; nothing functional is gated behind the recording. Note also the surrounding comment at site/src/routes/index.tsx:76-81 still says `preload="none"` while the element ships preload="metadata" — unrelated to a11y, but the comment the finder did not read does not change the finding.
+
+- sev→LOW — Technically correct (WCAG 1.2.1 Level A) and the atom analysis independently reproduces. Severity down to LOW: this is a marketing landing page, the video is a supplementary product demo rather than the sole carrier of any information (the rest of the route is text), and the element already degrades to a labelled download link. Also worth noting the finder's own quoted docblock at site/src/routes/index.tsx:78 says preload="none" while the code says preload="metadata" — an unrelated stale comment, not part of this finding.
+
+**Evidence**:
+
+```
+site/src/routes/index.tsx:86-102:
+```jsx
+        <video
+          controls
+          preload="metadata"
+          playsInline
+          className="block aspect-video w-full bg-surface-2"
+        >
+...
+          <source src="/demo-recording.mp4" type="video/mp4" />
+          <source src="/demo-recording.webm" type="video/webm" />
+          Your browser cannot play embedded video.{' '}
+          <a href="/demo-recording.mp4">Download the demo (MP4)</a>.
+        </video>
+```
+The only surrounding text is site/src/routes/index.tsx:104-106:
+```jsx
+      <p className="mt-3 text-center text-xs text-ink-3">
+        A recorded session. Not a live feed.
+      </p>
+```
+The asset is video-only. Parsing website/demo-recording.mp4 (2,179,259 bytes) for handler and codec atoms: `hdlr` appears at offsets [2132759, 2179186], `vide` at [162, 2132771], `avc1` at [24, 2132892]; there is no `soun` handler, no `mp4a` and no `esds` — a single video track with no audio track. `grep -rn "track kind\|captions\|<track" site/src/ website/index.html` returns nothing.
+```
+
+## B6-08 [MEDIUM] Keyboard focus is obscured by the sticky topbar and the fixed bottom tab bar — no scroll-padding anywhere in the app shell
+
+- **Dimension**: a11y · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/styles.css:184-190, 219-226, 1060`
+- **Standard**: WCAG 2.2 Level AA: 2.4.11 Focus Not Obscured (Minimum). EN 301 549 (2021 revision tracks WCAG 2.1; the EAA-referenced update tracks 2.2).
+
+**Observed**: Only `.section[id]` and `nav.page-index[id]` carry a scroll offset. Every button, link, input and `role="button"` card in the app — including the trade forms and the position rows — can be scrolled entirely under the topbar or the tab bar when it receives focus.
+
+**Root cause**: `scroll-margin-top` was added for in-page anchor navigation (the page-index jump links) rather than for focus, so it was scoped to the anchor targets instead of applied as `scroll-padding` on the scroll container, which covers both cases.
+
+**Remediation**: One rule: `html { scroll-padding-top: var(--topbar-h); scroll-padding-bottom: var(--tabbar-h); }` in app/public/styles.css, dropping the bottom value inside the `@media (min-width: 1024px)` block where the tab bar is hidden. On the marketing site add `html { scroll-padding-top: 4.5rem; }` to site/src/styles.css beside the existing `scroll-behavior: smooth`.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Two corrections. (a) The bottom half is partially mitigated already: app/public/styles.css:205 gives .content `padding-bottom: calc(var(--tabbar-h) + var(--s6))`, so the last focusable in the scroll flow is not tucked under the tab bar; the topbar half has no such mitigation. (b) The claim that 'every button, link, input and role=button card ... can be scrolled entirely under' is an inference about UA scroll-into-view behaviour, not something read from the code — WCAG 2.4.11 requires ENTIRELY hidden, and whether a given control ends up entirely under 56px of chrome depends on its height and the browser. Severity lowered MEDIUM->LOW to match that; the one-line scroll-padding fix is still correct and cheap.
+
+- sev→LOW — Not refuted, but weaker than presented and one mitigation was missed. app/public/styles.css:205 gives .content `padding-bottom: calc(var(--tabbar-h) + var(--s6))`, so page content never rests under the tab bar — the bottom half of the claim only bites transiently during a focus scroll, not at rest. And WCAG 2.4.11 requires the focused component be ENTIRELY hidden; whether a given control lands fully behind 56px of sticky header is UA- and element-height-dependent and was not demonstrated. The finder correctly flagged this themselves. LOW, and it should be presented as a hardening gap ('add scroll-padding') rather than as a confirmed conformance failure.
+
+**Evidence**:
+
+```
+app/public/styles.css:184-190 — a 56px sticky header over the scroll flow:
+```css
+.topbar {
+  position: sticky; top: 0; z-index: 50; height: var(--topbar-h);
+  display: flex; align-items: center; gap: var(--s4); padding: 0 var(--s4);
+  background: rgba(10, 11, 16, .85); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+```
+app/public/styles.css:219-222 — a 58px fixed bar over the bottom of the viewport (`--tabbar-h: 58px`, line 122):
+```css
+.tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 60; height: var(--tabbar-h);
+  display: flex; background: rgba(14, 16, 23, .96); backdrop-filter: blur(12px);
+```
+The only scroll offset in the whole stylesheet is scoped to two selectors — app/public/styles.css:1060:
+```css
+.section[id], nav.page-index[id] { scroll-margin-top: calc(var(--topbar-h) + var(--s3)); }
+```
+`grep -rn "scroll-padding\|scroll-margin" app/public/ site/src/ bot/web/dashboard.html` returns that one line and nothing else. The marketing site has the same shape with no offset at all — site/src/routes/__root.tsx:62 `className="sticky top-0 z-50 border-b border-line bg-bg/85 backdrop-blur-md"` and site/src/styles.css:70 `html { color-scheme: dark; scroll-behavior: smooth; }`.
+```
+
+## B6-09 [LOW] Strength Map panel keeps focusable controls and links in the tab order while it is fully transparent and non-interactive
+
+- **Dimension**: a11y · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/strengthmap.html:45-48, 133-136`
+- **Standard**: WCAG 2.2 Level AA: 2.4.7 Focus Visible. Level A: 2.4.3 Focus Order. EN 301 549 §9.2.4.7 / §9.2.4.3.
+
+**Observed**: `opacity: 0` and `pointer-events: none` hide the panel from sight and from the mouse but not from the keyboard or from assistive technology, so at least one and (after the first open) several controls are permanently focusable while invisible.
+
+**Root cause**: The show/hide was written as a CSS opacity transition, which needs opacity to stay animatable — so `display`/`visibility` were deliberately avoided and nothing took their place for the a11y tree.
+
+**Remediation**: Add `visibility: hidden` to `.sm-panel` and `visibility: visible` to `.sm-panel.open`, with `transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s` on the closed state so the fade still plays. Alternatively set the `inert` attribute in `closePanel()` and clear it in `openPanel()`.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — Line-number nit only: the smClose wiring is at app/public/js/strengthmap.js:276, not :374. LOW is the right severity — the stray focusables are a close button and a handful of external links, not a destructive control.
+
+- sev→LOW — Correct; LOW is the right severity. One line-number correction: #smClose is wired at app/public/js/strengthmap.js:276 inside boot() (which starts at :275), not :374 — the same ~98-line drift that appears in finding 0's reachability note. The quoted code itself is accurate.
+
+**Evidence**:
+
+```
+The panel is hidden with opacity and pointer-events only — app/public/strengthmap.html:45-48:
+```css
+  .sm-panel { position: fixed; z-index: 6; top: 64px; right: var(--s4); width: min(360px, 92vw); max-height: calc(100vh - 90px); overflow: auto;
+    background: var(--surface); border: 1px solid var(--line-2); border-top: 3px solid var(--gold-bright); border-radius: var(--radius); padding: var(--s4);
+    box-shadow: var(--shadow); transform: translateY(8px); opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+  .sm-panel.open { opacity: 1; transform: none; pointer-events: auto; }
+```
+and it contains a real button plus, after the first open, a list of external venue links — app/public/strengthmap.html:133-136:
+```html
+<aside class="sm-panel" id="smPanel" aria-live="polite">
+  <button class="x" id="smClose" aria-label="Close" data-i18n-attr="aria-label:a11y.close">&times;</button>
+  <div id="smPanelBody"></div>
+</aside>
+```
+Closing only drops the class, leaving the populated body in the DOM — app/public/js/strengthmap.js:208:
+```js
+function closePanel() { state.sel = null; $('smPanel').classList.remove('open'); }
+```
+The venue links it leaves behind are anchors — app/public/js/strengthmap.js:200-204: `` `<a class="sm-v" href="${esc(v.url)}" target="_blank" rel="noopener">` ``.
+```
+
+## B6-10 [LOW] Sign-in / create-account tabs expose role="tab" with no tabpanel, no aria-controls and no arrow-key navigation
+
+- **Dimension**: a11y · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/index.html:706-726, 1242-1251`
+- **Standard**: WCAG 2.2 Level A: 1.3.1 Info and Relationships; 4.1.2 Name, Role, Value. EN 301 549 §9.1.3.1 / §9.4.1.2. (ARIA Authoring Practices: Tabs pattern.)
+
+**Observed**: The tabs announce a relationship that the markup does not contain. A user who activates a tab is given no programmatic route to the panel it revealed.
+
+**Root cause**: `role="tablist"`/`role="tab"` were added to two styled buttons for the announcement they produce, without the rest of the pattern; the panels were already being shown and hidden by a `.step.active` display rule that predates the roles.
+
+**Remediation**: Add `aria-controls="step-register"` / `aria-controls="step-login"` to the two buttons, and `role="tabpanel" aria-labelledby="tab-register"` / `aria-labelledby="tab-login"` plus `tabindex="0"` to the two `.step` divs. Optionally add a roving `tabindex` and Left/Right handling in `switchTab`. The forgot-password step (`#step-forgot`) is not a tab and should stay outside the tablist, which it already is.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None. LOW is right-sized: the panels are visible and their fields are individually labelled (every input at :711-729 has a matching <label for>), so the missing relationship costs orientation, not access.
+
+- sev→LOW — Stands, LOW. Mitigation the finder got right by implication and worth stating explicitly for whoever fixes it: app/public/index.html:37-38 sets `.step { display: none }` / `.step.active { display: flex }`, so the inactive panel is genuinely removed from the a11y tree and the tab order — the defect is the missing tab/panel relationship and the missing arrow-key/roving-tabindex behaviour, not hidden focusable content. Both fields sets are still reachable by ordinary Tab, so no function is lost.
+
+**Evidence**:
+
+```
+app/public/index.html:706-714 — a tablist whose tabs point at nothing, over panels that claim no role:
+```html
+    <div class="tab-row" role="tablist">
+      <button class="tab-btn active" id="tab-register" role="tab" aria-selected="true" data-act="switchTab" data-arg="register" data-i18n="auth.tab_create">Create account</button>
+      <button class="tab-btn" id="tab-login" role="tab" aria-selected="false" data-act="switchTab" data-arg="login" data-i18n="auth.tab_login">Log in</button>
+    </div>
+    <div id="step-register" class="step active">
+```
+and app/public/index.html:1242-1251 — the switch toggles `aria-selected` and a display class and nothing else:
+```js
+function switchTab(t){
+  const isReg = t==='register';
+  document.getElementById('tab-register').classList.toggle('active',isReg);
+  document.getElementById('tab-register').setAttribute('aria-selected',isReg);
+  document.getElementById('tab-login').classList.toggle('active',!isReg);
+  document.getElementById('tab-login').setAttribute('aria-selected',!isReg);
+  document.getElementById('step-register').classList.toggle('active',isReg);
+  document.getElementById('step-login').classList.toggle('active',!isReg);
+  document.getElementById('step-forgot').classList.remove('active');
+}
+```
+`grep -rn "aria-controls\|role=\"tabpanel\"" app/public/` returns nothing across the whole directory.
+```
+
+## B6-11 [LOW] Equity curve is canvas-only: its 'Waiting for data…' state and the whole series exist only as pixels
+
+- **Dimension**: a11y · **Fix class**: REVIEW_REQUIRED · **File**: `bot/web/dashboard.html:457, 566-583`
+- **Standard**: WCAG 2.2 Level A: 1.1.1 Non-text Content. EN 301 549 §9.1.1.1.
+
+**Observed**: Both the loading state and the rendered series are pixel-only. The 'Waiting for data...' text also renders at #64748b on the panel — the same 3.83:1 pair flagged separately — so it is low-contrast for sighted users too.
+
+**Root cause**: The chart was written as a direct 2D-context renderer with no DOM mirror; the placeholder text was the quickest way to fill the empty canvas.
+
+**Remediation**: Put the placeholder in the DOM instead of the canvas (a `<p class="empty-msg">` sibling toggled alongside the draw, matching the pattern already used at bot/web/dashboard.html:469 and :480), and give the canvas `role="img"` with an `aria-label` refreshed in drawChart() from the values it already has — e.g. "Equity curve, N points, from X to Y, latest Z". `#chartPoints` already tracks the count.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None. LOW is correct — same private operator-dashboard population as findings 2 and 3, and the same series is available numerically from /api/state.
+
+- sev→LOW — Accurate; LOW is right. Two notes for the fix: the '#64748b' here is a hard-coded literal, not var(--text-dim), so raising the token as finding 2 proposes will NOT fix this string — it needs its own edit. And the aria-label refresh must be honest about the empty case: 'Equity curve, no data yet' rather than an invented zero, per the repo's own rule.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:457 — an empty canvas with no role, no label and no fallback content:
+```html
+        <div class="chart-wrap"><canvas id="eqChart"></canvas></div>
+```
+and the state message is painted into it — bot/web/dashboard.html:576-583:
+```js
+  ctx.clearRect(0, 0, W, H);
+  if (equityHistory.length < 2) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '13px Rajdhani';
+    ctx.textAlign = 'center';
+    ctx.fillText('Waiting for data...', W/2, H/2);
+    return;
+  }
+```
+The panel's only other content is its span title (`<span class="panel-title">Equity Curve</span>`, bot/web/dashboard.html:453) and a point count (`<span ... id="chartPoints">0 pts</span>`, :454).
+```
+
+## B6-12 [HIGH] Drawdown early-warning tier alerts (50/75/85% of the circuit-breaker limit) can never fire — the probe names a field RiskEngine does not define
+
+- **Dimension**: reachability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/proactive_monitor.py:1121`
+- **Standard**: CLAUDE.md: 'A module nothing calls is indistinguishable from one that does not work' (here one granularity in: a method that IS called but whose probe can never resolve); and 'Ask which OTHER surface makes the same claim — before calling the fix done.'
+
+**Observed**: `dd` is always None because RiskEngine has no `current_drawdown_pct`, so the method returns `[]` on the very first branch. The 50/75/85% early-warning tiers have never fired and cannot fire at any drawdown. Verified at runtime against a real PortfolioTracker + real RiskEngine (output above).
+
+**Root cause**: An attribute probe pointing at the wrong object: the drawdown reading lives on the portfolio snapshot (`portfolio.snapshot().current_drawdown_pct`) or on the risk engine's own reporter `RiskEngine.drawdown_status()['drawdown_pct']` (bot/risk/risk_engine.py:3709-3739, which additionally distinguishes the ENFORCED live high-water mark from the paper number), not as a bare attribute on RiskEngine. The identical mistake was already found and fixed in the SIBLING method 75 lines above in the same file — bot/core/proactive_monitor.py:1044-1047 carries the comment: '# Gather live context for the alert. Read the REAL trip cause and the live accumulators — the old code read non-existent attrs (risk.current_drawdown_pct / risk.daily_pnl) and the empty PAPER portfolios'. The fix was applied to `_check_circuit_breaker` and not to `_check_drawdown_tiers`, which is exactly the 'ask which OTHER surface makes the same claim' rule in CLAUDE.md going unapplied.
+
+**Remediation**: Read the enforced drawdown from the risk engine's own reporter rather than a non-existent attribute, and keep the three-valued shape: `st = self.engine.risk.drawdown_status(); dd = st.get('drawdown_pct') if st else None`. `drawdown_status()` is documented 'best-effort; returns empty on any error', so an empty dict must stay `dd = None` (silent) rather than becoming 0.0 (a confident 'no drawdown'). Then fix tests/test_proactive_alerts.py:19-27, whose `_engine()` fake constructs `types.SimpleNamespace(current_drawdown_pct=...)` — a shape the real RiskEngine never has, which is why four green tests said nothing about production.
+
+**Verifier corrections** (these override the finder):
+
+- sev→MEDIUM — Severity trimmed from HIGH to MEDIUM: this is a lost EARLY-WARNING tier, not a lost control. The circuit breaker itself still trips (its own check reads the real `circuit_trip_cause` / `last_known_daily_loss_pct`, both of which do exist on RiskEngine), so no money-moving gate is disabled — the operator merely never gets the 50/75/85% heads-up. Everything else in the finding is accurate as written.
+
+- sev→MEDIUM — Severity lowered from HIGH: nothing false is printed and the enforcing path is unaffected — the drawdown circuit breaker itself gates on the live high-water mark inside _evaluate_locked and _check_circuit_breaker still fires on the trip (it reads circuit_breaker_active / circuit_trip_cause, both of which exist). What is lost is an advisory pre-warning, not a control. The proposed fix (drawdown_status()['drawdown_pct'], staying None on the empty dict) is correct and matches risk_engine.py:3709-3745, which also carries drawdown_source.
+
+**Evidence**:
+
+```
+bot/core/proactive_monitor.py:1119-1125
+        alerts: list[Alert] = []
+        try:
+            dd = getattr(self.engine.risk, "current_drawdown_pct", None)
+            limit = float(getattr(CONFIG.risk, "max_drawdown_pct", 0) or 0)
+            if dd is None or limit <= 0:
+                return alerts
+            frac = float(dd) / limit
+
+The docstring directly above (bot/core/proactive_monitor.py:1114-1117) states the intent:
+        """Early-warning alerts as drawdown approaches the circuit-breaker limit.
+
+        Fires once at 50%, 75%, 85% of MAX_DRAWDOWN_PCT so the operator can act
+        BEFORE the breaker halts trading. ..."""
+
+`current_drawdown_pct` is a field of PortfolioState (bot/utils/models.py:283), NOT of RiskEngine. Every other reader in the tree reads it off the portfolio SNAPSHOT — bot/risk/risk_engine.py:1067, :1528, :3716, :3773 all use `getattr(state, "current_drawdown_pct", state.max_drawdown_pct)`. bot/core/proactive_monitor.py:1121 is the only place it is read off `risk`.
+```
+
+## B6-13 [MEDIUM] Every losing journal entry is stamped with a fabricated lesson ('Low confidence trade lost') derived from a confidence field nothing ever records
+
+- **Dimension**: reachability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/engine.py:7170`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement'; 'A heuristic is never a verdict'; and the shape table entry '`getattr(o, "pnl", 0)` — absent field is zero'.
+
+**Observed**: `confidence` is 0.0 for every journal entry (the paper path passes `getattr(c, '_confidence', 0)`, which is always 0; the live path at bot/core/engine.py:1064-1077 omits the argument entirely and takes the dataclass default `confidence: float = 0.0` from bot/core/trade_journal.py:51). 0.0 < 0.60, so EVERY losing trade gets 'Low confidence trade lost — stick to high-conf setups'. Because get_weekly_review tallies lessons by frequency (bot/core/trade_journal.py:183-190) and /journal prints the top 3, this fabricated verdict becomes the #1 'Recurring Lesson' in any week that contains losses.
+
+**Root cause**: An attribute probe naming a field that does not exist on the target class, with a falsy numeric default. `.get(k, 0)`-shaped defaulting on a field documented as a measurement is the exact shape CLAUDE.md tabulates ('`.get("pnl", 0)` · `getattr(o, "pnl", 0)` — absent field is zero'). The idea's confidence IS available at close time (TradeIdea.confidence is used all over the risk engine) but was never carried onto TradeExecution.
+
+**Remediation**: Make JournalEntry.confidence three-valued: change `confidence: float = 0.0` to `Optional[float] = None` (bot/core/trade_journal.py:51) and `confidence: float = 0.0` in record_trade's signature (bot/core/trade_journal.py:88) to `Optional[float] = None`, then guard `_generate_lessons` with `if confidence is not None and pnl < 0 and confidence < 0.60:`. Separately, either carry the entry confidence through to TradeExecution so the field can be real, or drop the `getattr(c, '_confidence', 0)` argument so the absence is explicit at the call site rather than disguised as a reading.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — One reachability detail is wrong and should not be carried into a fix: /journal is NOT held by trader/paper/viewer. `_cmd_journal` opens with `if not self._is_admin(update): return` (bot/skills/telegram_handler.py:10638-10639), so the fabricated 'Recurring Lesson' is shown to admins only. The defect and its severity are unchanged; only the audience is narrower than claimed.
+
+- sev→LOW — Two corrections. (a) The reachability claim about roles is wrong: _cmd_journal is admin-only — telegram_handler.py:10638-10640 opens with `if not self._is_admin(update): return`, so trader/paper/viewer never see this card regardless of the registration at :917. (b) Severity lowered to LOW: the output is an advisory prose line on an admin-only weekly review; it misattributes a real loss to a confidence level nobody recorded, but no number, gate or sizing decision is derived from it. The fix (Optional[float] = None plus `if confidence is not None and ...`) is right and cheap.
+
+**Evidence**:
+
+```
+bot/core/engine.py:7168-7171 (inside _check_paper_positions, which starts at bot/core/engine.py:6975)
+                        take_profit=c.take_profit,
+                        pnl=c.pnl,
+                        confidence=getattr(c, '_confidence', 0),
+                        signals_used=getattr(c, '_signals_used', []),
+
+`c` is a TradeExecution (bot/utils/models.py:198, a pydantic BaseModel with no `_confidence` field). A whole-word grep over the whole tree finds exactly ONE occurrence of `_confidence`: this read. Nothing writes it.
+
+The consumer, bot/core/trade_journal.py:232-236:
+        # Confidence analysis
+        if pnl < 0 and confidence < 0.60:
+            lessons.append("Low confidence trade lost — stick to high-conf setups")
+        if pnl > 0 and confidence >= 0.80:
+            lessons.append("High confidence = high win rate confirmed")
+```
+
+## B6-14 [MEDIUM] /attribution can never render data — `_signals_used` is read in two places and written in none, so signal attribution is structurally empty forever
+
+- **Dimension**: reachability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/metrics.py:170`
+- **Standard**: CLAUDE.md: 'A module nothing calls is indistinguishable from one that does not work' — and the corollary that a passing/green surface says nothing about whether the producer exists; plus 'absent is never a measurement' for the message that implies data is merely pending.
+
+**Observed**: `compute_attribution` returns `{}` for any input, because the `continue` on line 172 fires for every trade. `/attribution` therefore always takes the empty branch at bot/skills/telegram_handler.py:5917-5922 and prints '⚠️ No signal attribution data yet. Need closed trades with signal tracking.' — wording that reads as a not-yet state that more trading will resolve, when in fact no amount of trading can ever populate it. The same root cause also makes `signals_used=[]` on every journal entry (bot/core/engine.py:7171) and `signals_attribution={}` on every MetricsEngine snapshot (bot/core/metrics.py:152).
+
+**Root cause**: A feature whose producer was never wired: the consumer reads a private attribute `_signals_used` off TradeExecution that no producer ever writes. This is the CLAUDE.md 'module nothing calls' failure one granularity in — the code IS reached, so no reachability ratchet can see it, and its own error message disguises the permanent emptiness as a temporary one.
+
+**Remediation**: Decide the product question first: either (a) carry the analyzer's contributing signals onto TradeExecution as a real declared field (e.g. `signals_used: list[str] = Field(default_factory=list)` in bot/utils/models.py) and populate it at open/close time, then read `trade.signals_used`; or (b) if the signal is not wanted, stop advertising it — remove the /attribution registration (bot/skills/telegram_handler.py:1011) and its catalogue entry (bot/skills/command_catalog.py:172). Do not leave the current shape, where an empty result is reported as 'not yet'. Until a producer exists, the message should say the feature is not recording rather than that data is pending.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Severity trimmed MEDIUM -> LOW. Nothing false is rendered as a measurement: the surface prints an explicit empty-state, admin-only, and no number anywhere is fabricated from the absence (`signals_attribution={}` is an empty dict, not a zero). The real cost is an advertised-but-never-implemented analytic whose empty-state wording implies 'pending' rather than 'not recording' — worth fixing, but below the money-moving bar. Also correct the catalogue line number to bot/skills/command_catalog.py:169.
+
+- sev→LOW — Severity lowered to LOW: the command is admin-gated inline (telegram_handler.py:5908 `if not self._is_admin(update): return`), it displays nothing rather than displaying something false, and no risk or sizing path consumes signals_attribution (grep shows the field is read nowhere outside the model). The honest complaint that survives is the wording — 'not yet' implies more trading will populate it — which is a message fix, not a subsystem rewrite. Do not remove the registration without a product decision; that would churn tests/unreachable_skills_baseline.txt territory.
+
+**Evidence**:
+
+```
+bot/core/metrics.py:168-173
+        for trade in closed:
+            # Get signals_used from the trade's metadata
+            signals = getattr(trade, '_signals_used', None)
+            if signals is None:
+                # Try to get from trade idea linkage
+                continue
+
+A whole-word grep over the tree for `_signals_used` returns exactly two lines, both READS:
+  ./bot/core/metrics.py:170:            signals = getattr(trade, '_signals_used', None)
+  ./bot/core/engine.py:7171:                        signals_used=getattr(c, '_signals_used', []),
+
+TradeExecution (bot/utils/models.py:198-234) declares no such field.
+```
+
+## B6-15 [LOW] The bot dashboard's /api/signals always returns an empty signals list — SignalTracker lives on TelegramHandler, not on the engine
+
+- **Dimension**: reachability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/web/dashboard_server.py:174`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement' — the guard/omit table requires that a composite view which omits a dead source still not present the omission as a measured negative.
+
+**Observed**: `"signals": []` on every request, always, regardless of how many signals the bot has actually tracked.
+
+**Root cause**: An attribute probe against the wrong object — the same shape as the macro_skills probes CLAUDE.md records ('all seven of that module's attribute probes named fields that never existed'). The failure is silent because `getattr(..., None)` plus `if tracker:` degrades to the omit path with no marker distinguishing 'no signals' from 'nobody looked'.
+
+**Remediation**: Decide where the tracker belongs. If the engine should own it, construct it there and have TelegramHandler read `self.engine.signal_tracker` (one construction, one owner). If it genuinely belongs to the Telegram transport, this endpoint cannot serve it: return a distinguishable shape (e.g. `"signals": null` with a reason key) rather than `[]`, so a consumer cannot read 'nobody looked' as 'nothing tracked'.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — The reachability paragraph is imprecise: there IS an in-repo consumer of the endpoint — bot/web/dashboard.html:813 fetches `API + '/api/signals'` on a 3-second poll. It happens to use only `sig.trades` (`updateTrades(sig.trades)` at dashboard.html:827) and never reads `sig.signals`, so no in-repo surface renders the always-empty list. Conclusion and LOW severity unaffected, but 'no in-repo consumer of this endpoint' should read 'no in-repo consumer of this FIELD'.
+
+- sev→LOW — One refinement that further caps impact: the repo's own consumer does exist but ignores the field — bot/web/dashboard.html:813 fetches `/api/signals` and line 827 uses only `sig.trades` (`updateTrades(sig.trades)`); nothing renders `sig.signals`. So no in-repo surface makes a false claim from it; the defect is a dead probe on a DASHBOARD_TOKEN-gated JSON payload. LOW is right, arguably INFORMATIONAL.
+
+**Evidence**:
+
+```
+bot/web/dashboard_server.py:170-180
+async def handle_signals(request: web.Request) -> web.Response:
+    engine = request.app["engine"]
+    signals = []
+    try:
+        tracker = getattr(engine, "signal_tracker", None)
+        if tracker:
+            all_stats = tracker.get_all_pair_stats()
+            for symbol, stats in all_stats.items():
+                signals.append({"symbol": symbol, **stats})
+    except Exception:
+        pass
+
+The only construction of a SignalTracker in the tree is on the Telegram handler, not the engine:
+  bot/skills/telegram_handler.py:845:        self.signal_tracker = SignalTracker()
+A whole-tree grep for `signal_tracker` outside bot/core/signal_tracker.py returns only telegram_handler.py:603 (import), :845 (construction), :12865 (use) and dashboard_server.py:174 (this probe).
+```
+
+## B6-16 [LOW] The bot dashboard's /api/state reports a hardcoded scan_interval of 60 — the engine's field is _current_scan_interval
+
+- **Dimension**: reachability · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/web/dashboard_server.py:94`
+- **Standard**: CLAUDE.md: 'absent is never a measurement' — a default that looks like a plausible reading is indistinguishable from one, which is why the RC-AUD-016 comment three lines above exists.
+
+**Observed**: `"scan_interval": 60` on every response, forever, whatever the engine is doing. This is the same defect class the block's own neighbouring comment records for a different field — bot/web/dashboard_server.py:85-87: '# RC-AUD-016: report the REAL trading mode, not a hardcoded True. # A hardcoded "simulation_mode": True made the dashboard show paper mode # even while trading live with real capital.'
+
+**Root cause**: A field-name mismatch in an attribute probe, with a plausible-looking numeric default that hides the miss. The neighbouring `pending_ideas` probe on the same dict resolves correctly (RuneClawEngine defines a `pending_ideas` property at bot/core/engine.py:7244), which is what makes the one bad entry easy to miss.
+
+**Remediation**: Read the real field: `"scan_interval": getattr(engine, "_current_scan_interval", None)`. Keep the fallback as None rather than 60 so an absent reading is distinguishable from a 60-second one, matching how the Telegram surface at telegram_handler.py:11405 treats it.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — Confirmed additionally that no in-repo surface renders the field: `updateEngine` (bot/web/dashboard.html:719) uses only `eng.state`, and grep for scan_interval in bot/web/dashboard.html returns nothing. LOW is right.
+
+- sev→LOW — Confirmed no in-repo consumer: bot/web/dashboard.html's updateEngine (line 719 onward) renders state, tiers and cost, and never reads eng.scan_interval. So this is a stale field on a token-gated operator API, not something an operator currently reads — LOW stands, and the fix (read `_current_scan_interval`, default None not 60) is a one-liner.
+
+**Evidence**:
+
+```
+bot/web/dashboard_server.py:92-96
+        data["engine"] = {
+            "state": state_name,
+            "scan_interval": getattr(engine, "_scan_interval", 60),
+            "pending_ideas": len(getattr(engine, "pending_ideas", [])),
+            "simulation_mode": _sim_mode,
+
+The engine's field is named differently — bot/core/engine.py:682:
+        self._current_scan_interval: float = CONFIG.scan_interval_seconds
+
+and the Telegram surface reads the correct one — bot/skills/telegram_handler.py:11405:
+            _interval = float(getattr(self.engine, "_current_scan_interval", 0.0)
+```
+
+## B6-17 [MEDIUM] scripts/e2e_pipeline.py PHASE 5 crashes on AttributeError whenever a trade actually executes — PortfolioTracker has no get_state()
+
+- **Dimension**: reachability · **Fix class**: SAFE_AUTO_FIX · **File**: `scripts/e2e_pipeline.py:276`
+- **Standard**: CLAUDE.md 'Writing tests that scan source' / reachability: a code path that runs only on the success case is exactly the one a green run never exercises. Also the repo's own preflight ethos — a validation script that cannot complete its own success path is reporting a subset as the whole.
+
+**Observed**: `engine.portfolio.get_state()` raises AttributeError. The block is guarded by no try/except — the nearest handlers in this file are at lines 107, 157, 175, 218 and 245, all in earlier phases — so the exception propagates out of `main()` (scripts/e2e_pipeline.py:43) and aborts the pipeline before PHASE 6. Had get_state existed, the very next two lines would still have failed on `state.unrealized_pnl` and `state.exposure_pct`.
+
+**Root cause**: Three stale API names in a code path guarded by `if executed:` — it only runs when the pipeline succeeds in executing a trade, so the ordinary dry run (nothing executed) skips it and the breakage is invisible. Method-renaming drift on a caller no test covers; a dead branch that is dead only on the success path.
+
+**Remediation**: `state = engine.portfolio.snapshot()`, then `state.portfolio_exposure_pct` for exposure. `unrealized_pnl` has no equivalent on PortfolioState (the note at bot/utils/models.py:284 marks portfolio_exposure_pct itself as 'Reserved — not currently populated by _snapshot_locked()'), so either compute it locally from the marked positions or drop the line rather than print a field that does not exist.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — Severity trimmed MEDIUM -> LOW. This is a standalone operator/validation script, not in CI, not on any trading path, and it fails LOUDLY with an AttributeError rather than printing a wrong number — the opposite of the silent-falsehood class this repo grades as severe. The fix note is right except that `state.open_positions` is fine as-is; only `get_state`, `unrealized_pnl` and `exposure_pct` need changing.
+
+- sev→LOW — Severity lowered from MEDIUM: this is a standalone diagnostic script, not imported by bot/ or scripts/preflight.py and not run by CI, and the failure is a loud AttributeError traceback on an operator's terminal — it cannot mislead and cannot touch live money (the script is paper-only, 'Mode: PAPER SIMULATION', e2e_pipeline.py:45). Minor factual correction to the finding: execution happens in PHASE 3 (scripts/e2e_pipeline.py:227-247), not PHASE 4 — PHASE 4 is the portfolio card.
+
+**Evidence**:
+
+```
+scripts/e2e_pipeline.py:275-280
+        engine.portfolio.mark_to_market(prices)
+        state = engine.portfolio.get_state()
+        print(f"  Equity:       {usd(state.equity_usd)}")
+        print(f"  Unrealized:   {usd(state.unrealized_pnl)}")
+        print(f"  Positions:    {state.open_positions}")
+        print(f"  Exposure:     {state.exposure_pct:.1f}%")
+
+PortfolioTracker (bot/risk/portfolio.py) exposes `snapshot()` at line 309 and `_snapshot_locked()` at line 401; it has no `get_state`. `grep -rn "def get_state" bot/ --include=*.py` returns nothing at all.
+```
+
+## B6-18 [INFORMATIONAL] CLAUDE.md states 34 ambiguous method names; the baseline and the sweep both say 31, and no test pins the CLAUDE.md number
+
+- **Dimension**: reachability · **Fix class**: SAFE_AUTO_FIX · **File**: `CLAUDE.md:465`
+- **Standard**: CLAUDE.md: 'a gate whose coverage is overstated is the failure this file exists to prevent' — the sentence containing the stale number.
+
+**Observed**: CLAUDE.md says 34. The other reachability counts in CLAUDE.md are accurate today and are pinned: the modules baseline holds 2 entries (bot/core/swarm.py, bot/core/presale_claims.py) matching the '**2** modules today' claim, and the skills baseline holds 7 entries against 30 registered skills — I verified the registry returns exactly 30 skill names — matching the '**7** of 30 registered skills' claim. All 24 reachability-ratchet tests plus the 42 dead-public-API / macro-card / roadmap tests pass on this commit, so every baseline file is accurate; only this one prose number has drifted.
+
+**Root cause**: The paragraph was written when the number was 34 and not updated when three modules (alert_manager, performance_tracker, feedback_loop) were deleted — the baseline header itself records the resulting drop and was updated, CLAUDE.md was not. It is the exact failure mode CLAUDE.md names in the adjacent test docstring: 'A number in prose is the part that rots first.'
+
+**Remediation**: Change '34' to '31' at CLAUDE.md:465, and extend tests/test_claude_md_accuracy.py with a test that re-derives the count from `ambiguous_method_names()` and asserts CLAUDE.md quotes it — the same shape as test_claude_md_states_the_real_count in tests/test_no_new_unreachable_modules.py, so this cannot rot again.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None. INFORMATIONAL is the right grade and the proposed fix (change 34 to 31 and pin it from `ambiguous_method_names()`) is exactly the shape the repo already uses in tests/test_no_new_unreachable_modules.py.
+
+- sev→INFORMATIONAL — Stands as written. One nuance for whoever fixes it: the baseline header already narrates 34 -> 33 -> 31, so the CLAUDE.md sentence should be edited to 31 rather than rewritten, and the proposed test should derive the number from ambiguous_method_names() the same way test_no_new_unreachable_functions.py:680 derives it from the header, so the two cannot diverge again.
+
+**Evidence**:
+
+```
+CLAUDE.md:463-467
+> A second pass now attributes `<recv>.<name>()` by resolving the receiver
+> through `self.x = Foo()` and `x = Foo()`. **Sound, not complete**: one
+> unresolvable receiver makes the whole name ambiguous, and the 34 names that
+> stay ambiguous are stated in the baseline and pinned by a test, because a
+> gate whose coverage is overstated is the failure this file exists to prevent.
+
+tests/unreachable_methods_baseline.txt:33
+# **31** method names remain ambiguous and are not checked by anything — the
+```
+
+## B6-19 [HIGH] SECURITY.md, both READMEs, the published GitBook root and agent_card.json all promise unconditional human confirmation, which auto_confirm_live_enabled=True contradicts by default
+
+- **Dimension**: docs-consistency · **Fix class**: REVIEW_REQUIRED · **File**: `SECURITY.md:29`
+- **Standard**: CLAUDE.md: 'Ask which OTHER surface makes the same claim — before calling the fix done.' / 'A heuristic is never a verdict.' Also the repo's own stated rule in tests/test_mcp_doc_matches_the_code.py: overstating a safety property 'is the direction this repo is organised around catching.'
+
+**Observed**: Six further surfaces still carry the removed claim: SECURITY.md:29; README.md:62 ('receive explicit human confirmation before execution'), :66 ('The bot suggests. The human decides.'), :655 ('No trade executes without explicit confirmation.'); README.zh-TW.md (mirror); docs/gitbook/README.md:44 ('**Human-in-the-loop.** No trade executes without explicit confirmation via Telegram inline keyboard.') — which is the root page of the site the README's 'Full Documentation' badge links to; and agent_card.json:36 ("requires_confirmation": true) plus :44 ("human_in_the_loop": true).
+
+**Root cause**: The fix for this exact claim was applied surface-by-surface without the CLAUDE.md corollary 'Ask which OTHER surface makes the same claim'. site/src/facts.ts:61-63 literally records the unfinished work: 'README.md says "explicit human confirmation before execution" in three places and is wrong in all three.' The only automated guard, tests/test_mcp_doc_matches_the_code.py::test_the_doc_does_not_promise_human_confirmation, is hardcoded to one file (docs/gitbook/mcp-integration.md), so nothing catches the rest.
+
+**Remediation**: Either (a) restate the claim accurately on all six surfaces — e.g. 'trades require human confirmation unless the operator enables auto-confirm (AUTO_CONFIRM_LIVE_ENABLED, default ON in code)' — and set agent_card.json's requires_confirmation/human_in_the_loop to reflect the shipped default, or (b) flip bot/config.py:2313/2317 to the fail-closed values the docs already claim (1.0 / False), which is the smaller change and would make every surface true at once. Then generalise the existing guard: parametrise test_the_doc_does_not_promise_human_confirmation over SECURITY.md, README.md, README.zh-TW.md, docs/gitbook/README.md and agent_card.json instead of a single path.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — One line-number nit: the GitBook root sentence is docs/gitbook/README.md:45, not :44 (:44 is the '20 pre-trade checks' line). Everything else is verbatim at the cited lines.
+
+- sev→UNCHANGED — None material. One nit: the finder cites README.md:62/:66/:655 — line 655 is the '- **Human-in-the-loop.** No trade executes without explicit confirmation.' bullet (the finder wrote :655 in one place and :653 in another for a neighbouring line); README.md:711 is a fourth English instance the finder did not list ('All trades are executed via the Telegram bot interface with human confirmation'). Both strengthen rather than weaken the finding.
+
+**Evidence**:
+
+```
+SECURITY.md:29
+  - **Human-in-the-Loop** — all trade executions require explicit human confirmation; the AI agent cannot autonomously place orders.
+
+bot/config.py:2313-2317
+    auto_confirm_threshold: float = _env_float("AUTO_CONFIRM_THRESHOLD", 0.85)
+    # Allow auto-confirm to place LIVE (real-money) orders with no human press.
+    # OPERATOR-ACTIVATED default ON. Set AUTO_CONFIRM_LIVE_ENABLED=0 to require a
+    # human tap for every live trade (the fail-closed posture).
+    auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
+
+bot/core/engine.py:6058-6065
+            if human or CONFIG.auto_confirm_live_enabled:
+                approval_token = self.compliance.issue_approval_token(
+                    trade_id, self.compliance_profile.subject_id,
+                )
+                if not human:
+                    # RC-AUD-018: unattended live execution explicitly opted in.
+                    system_log.warning(
+                        "AUTO-MINT APPROVAL TOKEN (RC-AUD-018): engine minted the "
+```
+
+## B6-20 [HIGH] The public /risk page claims categorically that no unevaluable check is treated as passed; risk_engine.py appends three 'skipped' outcomes to the passed list
+
+- **Dimension**: docs-consistency · **Fix class**: REVIEW_REQUIRED · **File**: `site/src/routes/risk.tsx:82`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement' and 'A heuristic is never a verdict.' A skip reported to a caller as a pass is the tabulated shape 'unreadable rendered as a confident positive'.
+
+**Observed**: The page makes an unqualified categorical claim. config/risk_manifest.yaml — the file SECURITY.md and README.md both call authoritative — contradicts it directly: check 17 LIQUIDITY has fail_behavior 'open' with the description 'This is the ONLY fail-open check: no data = pass', and checks 19 MTF_ALIGNMENT, 20 CONCENTRATION_PCA and 21 PORTFOLIO_VAR have fail_behavior 'skip', defined in the manifest header as 'check is gracefully skipped when data is unavailable (returns pass)'. README.md:653 states the accurate version ('a fail-open liquidity guard, advisory rules that skip without data'), so the site is inconsistent with the repo's own README.
+
+**Root cause**: The page quotes the risk_engine.py module docstring ('if ANY check cannot be evaluated, the trade is REJECTED', risk_engine.py:203) as if it described every branch. It describes the except handlers only — every `except Exception` does append to `failed`. The explicit insufficient-data branches, which are the common case rather than the exceptional one, take the other path and were not covered by the sentence.
+
+**Remediation**: Narrow the sentence on site/src/routes/risk.tsx to what is true — 'an exception inside a check rejects the trade' — and state separately that four checks are documented in config/risk_manifest.yaml as fail-open or graceful-skip. Rebuild website/ (the 'committed site is the built site' CI gate requires it). Then update site/test/site_honesty.test.js:316-319, which currently pins the over-broad wording in place by asserting /cannot be evaluated/i must remain on the page.
+
+**Verifier corrections** (these override the finder):
+
+- sev→MEDIUM — Anchor is site/src/routes/risk.tsx:72-78 (the prose), not :82 (the adjacent verbatim-contract block). Severity lowered from HIGH: this is marketing copy that overstates a property the repo's own README.md:653 and SECURITY.md already state accurately; no money moves differently because of it. Note the defect is broader than reported — risk_engine.py:2058 ('TAKER_3BAR: skipped (no order flow analyzer)') and :2096 ('BID_DOMINANCE: skipped (no fresh order flow data)') are two further skipped-counts-as-passed outcomes the finding did not list.
+
+- sev→MEDIUM — Severity lowered from HIGH to MEDIUM: this is a false claim on a public marketing page, not a code path that moves money. It is a genuine violation of the repo's own honesty rule and worth fixing, but no order is placed or mis-sized because of it. Also note the fix must touch site/test/site_honesty.test.js:316-319 in the same commit or the rebuilt page fails that assertion — the finder correctly flagged this.
+
+**Evidence**:
+
+```
+website/risk/index.html (built from site/src/routes/risk.tsx:82), visible copy:
+  "Each check runs inside its own error boundary, and an exception does not skip that check: it records a failure, and any failure rejects the trade. There is no path where a check that could not be evaluated is treated as a check that passed."
+
+bot/risk/risk_engine.py:1982
+                passed.append("MACRO_EVENT: no calendar configured (skipped)")
+bot/risk/risk_engine.py:1992
+                passed.append("MTF_ALIGNMENT: aligned or skipped (no data)")
+bot/risk/risk_engine.py:2019
+                passed.append("PORTFOLIO_VAR: skipped (insufficient trade history)")
+```
+
+## B6-21 [MEDIUM] SECURITY.md's 21-check fail-behaviour breakdown does not match config/risk_manifest.yaml, the file it cites as authoritative
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `SECURITY.md:24`
+- **Standard**: config/risk_manifest.yaml's own header: 'Single source of truth for all risk parameters. The risk engine loads from this file; docs render from it. "The documentation cannot drift from the code because they read the same file."'
+
+**Observed**: The manifest is 17 closed / 1 open / 3 skip. #18 MACRO_EVENT is fail_behavior 'closed', not a skip. Three other surfaces state a fourth and fifth number for the same quantity: docs/gitbook/README.md:44 says 'all 20 pre-trade checks (fail-closed + 1 fail-open for liquidity only)'; docs/gitbook/risk-framework.md:164 says 'Of the 20 pre-trade checks, **19 are fail-closed** … and **1 is fail-open**'; and bot/risk/risk_engine.py:980 says 'Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance)'.
+
+**Root cause**: A hand-maintained count and breakdown duplicated across five surfaces, none of which is derived from config/risk_manifest.yaml at build or test time — the exact drift mode tests/test_mcp_doc_matches_the_code.py documents ('a number typed into a document is a second, staler copy of something already knowable') and that the marketing site deliberately solved by removing the count entirely.
+
+**Remediation**: Either derive the breakdown from the manifest at doc-build time, or extend tests/test_manifest_and_whynot.py (which already loads and validates the manifest) with an assertion that any fail_behavior counts stated in SECURITY.md and docs/gitbook/*.md equal the manifest's actual Counter. The 20/19-1 statements in docs/gitbook/README.md:44 and docs/gitbook/risk-framework.md:164 are the most misleading and should be corrected first: 'and 1 is fail-open' asserts there are no graceful skips at all.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None on the facts. Worth adding that the manifest itself is incomplete, not merely disagreed-with: it holds exactly 21 `- id:` entries while risk_engine.py implements #22 TAKER_3BAR (:2048-2060) and #23 BID_DOMINANCE (:2084-2098), so the 'authoritative list' omits two live checks.
+
+- sev→UNCHANGED — One caveat the finder did not state: risk_engine.py:1982 shows MACRO_EVENT *does* have a skip branch ('no calendar configured (skipped)' → passed), so on this one point SECURITY.md is arguably closer to the code than the manifest is, and the fix may belong in the manifest rather than in SECURITY.md. The docs/gitbook '20 checks / 19 fail-closed / 1 fail-open' statements are unambiguously wrong against both and should be corrected first, as the finder says.
+
+**Evidence**:
+
+```
+SECURITY.md:24
+  - **21-Check Risk Engine** — every order must pass all pre-trade validations before execution. Of these, 16 are strict fail-closed (any failure = rejection), 1 is fail-open (#17 LIQUIDITY: no order-book data = pass), and 4 gracefully skip when data is insufficient (#18 MACRO, #19 MTF, #20 PCA, #21 VaR). See `config/risk_manifest.yaml` for the authoritative list.
+
+config/risk_manifest.yaml (check 18):
+    name: MACRO_EVENT
+    fail_behavior: closed
+    notes: "v2 provider: BLOCK_NEW_ENTRIES = reject, REDUCE = pass with size multiplier. v1 calendar: EVENT_LOCKDOWN = reject, BLACKOUT = reject (fail-closed)."
+```
+
+## B6-22 [MEDIUM] SECURITY.md says credentials are never persisted beyond process memory; the secrets vault (default ON) writes them to data/ and the master key in cleartext
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `SECURITY.md:35`
+- **Standard**: SECURITY.md's own purpose — it is the document a security reviewer and an operator use to reason about where secret material lives.
+
+**Observed**: SECURITY.md still describes a pre-vault design. bot/core/exchange_credentials.py:115-117 itself spells out what the key file decrypts: 'data/exchange_creds.enc (every user's exchange key+secret+passphrase and agent private keys), data/secrets_vault.enc, and the llm_api_key column'. .env.example:23-29 also documents the per-user BYOK store as 'encrypted at rest', so the repo's own operator-facing config contradicts its security policy.
+
+**Root cause**: The secrets vault and the per-user BYOK credential store were added after SECURITY.md was written, and the API Key Handling section was never revisited. Nothing tests SECURITY.md against the code.
+
+**Remediation**: Rewrite SECURITY.md:35-37 to state: keys are read from .env or the process environment; when SECRETS_VAULT_ENABLED is on (default) the managed set in bot/core/secrets_vault.py:49-72 is mirrored encrypted to data/secrets_vault.enc; per-user BYOK keys live encrypted in data/exchange_creds.enc; and the Fernet master key is stored at data/.exchange_secret.key (0600) unless pinned via RUNECLAW_SECRETS_KEY. Add a note that data/ therefore needs the same protection as .env. Consider a small test asserting SECURITY.md mentions secrets_vault.enc while bot/core/secrets_vault.py exists.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None.
+
+- sev→UNCHANGED — Precision: the persisted material is Fernet-encrypted, so 'writes them to data/ … in cleartext' in the title reads worse than the facts — the *master key* is cleartext, the secrets are not. The operator-facing consequence the finder states (data/ needs the same protection, backup and wipe discipline as .env) is exactly right and is the part SECURITY.md omits.
+
+**Evidence**:
+
+```
+SECURITY.md:35-37
+  - API keys and secrets are loaded exclusively from a `.env` file, which is **gitignored** by default.
+  …
+  - Credentials are passed to the Bitget SDK at runtime only and are not persisted beyond process memory.
+
+bot/core/secrets_vault.py:50-53
+_DEFAULT_MANAGED = (
+    "BITGET_API_KEY", "BITGET_API_SECRET", "BITGET_PASSPHRASE",
+    "BITGET_API_PASSPHRASE",  # legacy passphrase spelling — preserve either name
+    "TELEGRAM_BOT_TOKEN",
+
+bot/core/exchange_credentials.py:108-113
+    key: bytes = Fernet.generate_key()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(key)
+    try:
+        os.chmod(str(p), 0o600)
+```
+
+## B6-23 [MEDIUM] README's Live Trading Records cites three evidence files in logs/; one has no producer anywhere in the repo, one is written to data/, and logs/ is gitignored wholesale
+
+- **Dimension**: docs-consistency · **Fix class**: REVIEW_REQUIRED · **File**: `README.md:721`
+- **Standard**: CLAUDE.md: 'A principle is not searchable. The shapes it takes are' — and the shape here is a published performance record whose cited substantiation is absent. README.md:53's own disclaimer commits to not presenting unverifiable performance.
+
+**Observed**: logs/ is gitignored in its entirety (.gitignore:139), so none of the three files can ever be in the repository. logs/live_trading_log.csv has no writer anywhere in bot/, app/, scripts/ or the root scripts — the only occurrences are the two READMEs, a .gitignore comment, and a test fixture (tests/test_deploy_sh_preserves_state.py:58) that fabricates one to check deploy.sh symlink preservation. closed_trades.json is written to $RUNECLAW_STATE_DIR/closed_trades.json, default data/, not logs/ (bot/core/live_executor.py:318-320, corroborated by bot/backtest/parity.py:30 DEFAULT_TRADES_FILE = str(state_path("data/closed_trades.json"))). Only logs/audit_chain.jsonl matches a real runtime path.
+
+**Root cause**: The section documents an operator's local machine state as if it were repository content, and was not revisited when .gitignore:132-139 began ignoring /data and /logs (added because deploy.sh replaces them with symlinks). The CSV filename appears to describe an artifact that was produced manually or by tooling that no longer exists.
+
+**Remediation**: Either commit a redacted, verifiable extract of the trade record (a CSV under a tracked path such as evidence/, which already exists and is tracked) and point the table at it, or delete the 'Files in logs/' table and label the figures as operator-reported and unverifiable from the repository. Correct closed_trades.json's path to data/closed_trades.json in either case. Removing live_trading_log.csv from the table costs nothing since nothing produces it.
+
+**Verifier corrections** (these override the finder):
+
+- sev→LOW — closed_trades.json is at bot/core/live_executor.py:317-319, not :318-320 (one line high). Severity lowered from MEDIUM: this is a README table describing operator-local artifacts; the concrete errors are a wrong directory for one file and a non-existent file for another. It changes no behaviour and misleads only a reader trying to audit the published track record.
+
+- sev→UNCHANGED — The finding is slightly over-stated in framing: the README does not literally claim these files are in the repository, and an operator's own logs/ dir is a plausible reading. What survives regardless is that (a) closed_trades.json is written to data/, not logs/, so the path is wrong on the shipped code, and (b) live_trading_log.csv is produced by nothing in the tree, so a published track record of 38 trades / 55.3% / +$46.30 names an evidence artifact that no version of the bot writes.
+
+**Evidence**:
+
+```
+README.md:713-727
+**Trading Period:** June 17-19, 2026
+**Total Closed Trades:** 38
+**Win Rate:** 55.3% (21W / 17L)
+**Total Realized PnL:** +$46.30
+
+### Files in `logs/`
+| `live_trading_log.csv` | Complete trade log with timestamp, pair, side, entry/exit price, size, PnL |
+| `closed_trades.json` | Raw closed trade records from the bot's state file |
+| `audit_chain.jsonl` | Immutable audit chain -- every trade decision logged with context |
+
+.gitignore:139
+/logs
+
+bot/core/live_executor.py:318-320
+    os.environ.get("RUNECLAW_STATE_DIR", "data"), "closed_trades.json"
+```
+
+## B6-24 [MEDIUM] .env.example ships deprecated model IDs as active settings, and two hardcoded LLM fallback chains use models provider.py itself records as retired
+
+- **Dimension**: docs-consistency · **Fix class**: REVIEW_REQUIRED · **File**: `.env.example:328`
+- **Standard**: tests/test_model_catalog_2026.py's own stated rationale, and CLAUDE.md: 'Ask which OTHER surface makes the same claim — before calling the fix done.'
+
+**Observed**: Three classes of stale id survive outside the guard's scope: (a) .env.example's ACTIVE tier settings (gemini-2.5-flash ×3, claude-sonnet-4-6 ×2), which is the file every operator copies; (b) the hardcoded fallback chains at bot/core/analyzer.py:4455-4456 (gemini-2.0-flash, llama-3.3-70b-versatile) and bot/skills/telegram_handler.py:2178 (gemini-2.0-flash) — bot/llm/provider.py:96-97 says 'Groq retired the llama-3.3/3.1-instant models (June 2026)' and :83-85 says the Gemini '2.5 line was superseded by the 3.x generation'; (c) README.md:90-97, which advertises 'Google Gemini 2.5 Flash -- default provider' and 'Groq -- llama-3.3-70b-versatile' and tells the reader to set LLM_MODEL=gemini-2.5-flash. .env.example:290 also sets LLM_MODEL=claude-sonnet-4-6, which is not in PROVIDER_CATALOG's Anthropic recommended_models (bot/llm/provider.py:63-64: claude-fable-5, claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5-20251001).
+
+**Root cause**: The 2026-07 model refresh updated the four routing tables and wrote a guard scoped to those tables. Model ids also live in three other places the guard cannot see: the shipped .env.example, two hardcoded fallback chains that bypass resolve_tier_config by design, and the README.
+
+**Remediation**: Update .env.example:290,328,330,332,334 to current ids (claude-sonnet-5, gemini-3.5-flash), update README.md:90-97 and README.zh-TW.md:92,97, and replace the hardcoded literals at bot/core/analyzer.py:4455-4456 and bot/skills/telegram_handler.py:2178 with PROVIDER_CATALOG[provider]['default_model'] so a catalog bump carries them. Then widen test_no_deprecated_model_ids_in_routing to scan .env.example, README.md and the two fallback-chain literals — the test's comment already claims the property it does not yet check there.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — One softening: the guard's dead-list literally bans 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant' and 'gemini-2.5'; 'gemini-2.0-flash' in the two fallback chains is an inference from provider.py's 2.5-superseded note rather than a listed dead id. The .env.example/README half needs no inference.
+
+- sev→UNCHANGED — One overreach: provider.py records llama-3.3-70b-versatile as retired, but nowhere records gemini-2.0-flash as retired — it only says the 2.5 line was superseded. So of the two hardcoded literals, only the Groq one is provably a dead id; gemini-2.0-flash is merely two generations stale. The .env.example leg (gemini-2.5-flash and claude-sonnet-4-6 shipped as active tier settings, both explicitly out-of-catalog) is the strongest part and is fully confirmed.
+
+**Evidence**:
+
+```
+.env.example:327-334 (all uncommented, i.e. active in a copied .env)
+LLM_TIER_SCAN_PROVIDER=gemini
+LLM_TIER_SCAN_MODEL=gemini-2.5-flash
+LLM_TIER_THESIS_PROVIDER=anthropic
+LLM_TIER_THESIS_MODEL=claude-sonnet-4-6
+LLM_TIER_LEARNING_PROVIDER=gemini
+LLM_TIER_LEARNING_MODEL=gemini-2.5-flash
+LLM_TIER_CHAT_PROVIDER=gemini
+LLM_TIER_CHAT_MODEL=gemini-2.5-flash
+
+bot/core/analyzer.py:4453-4457
+        fallback_chain = [
+            (LLMProvider.ALIBABA, "ALIBABA_API_KEY", "qwen3.6-flash"),
+            (LLMProvider.GEMINI, "GEMINI_API_KEY", "gemini-2.0-flash"),
+            (LLMProvider.GROQ, "GROQ_API_KEY", "llama-3.3-70b-versatile"),
+            (LLMProvider.DEEPSEEK, "DEEPSEEK_API_KEY", "deepseek-chat"),
+        ]
+
+tests/test_model_catalog_2026.py:66-70
+    # Groq retired llama-3.3/3.1-instant (June 2026) and Gemini 2.5 was superseded
+    # by the 3.x line — a deprecated id breaks live calls the moment it's retired.
+    models = " ".join(_all_routing_models())
+    for dead in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemini-2.5"):
+        assert dead not in models, f"deprecated model id still routed: {dead}"
+```
+
+## B6-25 [MEDIUM] config/risk_manifest.yaml documents MIN_BOOK_DEPTH_USD as check #17's threshold; bot/config.py records it as a dead knob and says the manifest is stale
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `config/risk_manifest.yaml:232`
+- **Standard**: config/risk_manifest.yaml header: 'Single source of truth for all risk parameters. The risk engine loads from this file; docs render from it.' And bot/config.py:548-549, which already states the defect.
+
+**Observed**: The manifest names MIN_BOOK_DEPTH_USD twice: at check 17 (env_var: MIN_BOOK_DEPTH_USD, min_book_depth_usd: 5000.0) and in the defaults section (value: 2000.0, env_var: MIN_BOOK_DEPTH_USD) with an operational note — 'Lowered from $50K default so small-cap and micro-test trades can pass' — that describes a tuning decision made through a knob that controls nothing. The two manifest entries also disagree with each other (5000.0 vs 2000.0). bot/config.py:548-549 explicitly flags the manifest as stale; the manifest was never corrected. OF_MIN_DEPTH_USD, the live knob, is not in .env.example at all.
+
+**Root cause**: The liquidity guard moved from risk_engine.py into the order-flow analyzer (the manifest itself notes 'Runs in engine.py, not in risk_engine.py'), taking its threshold with it. config.py's field was kept for backward compatibility and annotated; the manifest and .env.example were not updated.
+
+**Remediation**: In config/risk_manifest.yaml, change check 17's env_var to OF_MIN_DEPTH_USD and align the threshold with bot/core/order_flow.py:113 (default 2000.0); either drop the min_book_depth_usd entry from the defaults section or mark it deprecated-and-inert. Document OF_MIN_DEPTH_USD in .env.example. Extend tests/test_manifest_and_whynot.py::test_manifest_env_vars_match_config (which already maps manifest default keys to config.py env vars) to fail when a manifest env_var names a config field no module reads.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None.
+
+- sev→UNCHANGED — None. This is the strongest finding in the set: the manifest is the file SECURITY.md and README both call authoritative, it names a knob the code itself annotates as inert, and the working knob is undocumented — so an operator tuning liquidity depth gets silent no-ops.
+
+**Evidence**:
+
+```
+config/risk_manifest.yaml (check 17, LIQUIDITY):
+    threshold:
+      min_book_depth_usd: 5000.0
+      large_cap_floor_usd: 50000.0
+    env_var: MIN_BOOK_DEPTH_USD
+
+bot/config.py:545-550
+    # DEAD KNOB (tuning audit) — kept only for backward env compatibility:
+    # the liquidity guard actually reads OrderFlowConfig.min_top_depth_usd
+    # (env OF_MIN_DEPTH_USD, bot/core/order_flow.py). Nothing reads this
+    # field; setting MIN_BOOK_DEPTH_USD changes NOTHING. risk_manifest.yaml
+    # documenting it as check #17's threshold is likewise stale.
+    min_book_depth_usd: float = _env_float("MIN_BOOK_DEPTH_USD", 2_000.0)
+```
+
+## B6-26 [MEDIUM] .env.example and an engine.py comment both state auto-confirm defaults that bot/config.py contradicts
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `.env.example:141`
+- **Standard**: CLAUDE.md's central rule applied to configuration: a document read before the code is the worst place for a stale claim, and .env.example:6-7 explicitly tells operators 'All settings have safe defaults. Only TELEGRAM_BOT_TOKEN is required.'
+
+**Observed**: Three statements are wrong. .env.example:139 claims the default threshold is 1.0 (it is 0.85). .env.example:145 claims AUTO_CONFIRM_USE_CALIBRATED defaults OFF (it is True) — and this is the one where the code default actually governs, because the line is commented out. bot/core/engine.py:4327-4329 repeats both errors inside the function that performs auto-confirmation. config.py's own comments say the opposite ('OPERATOR-ACTIVATED default 0.85', 'OPERATOR-ACTIVATED default ON'), so the disagreement is visible within the repo.
+
+**Root cause**: The defaults were flipped from fail-closed to operator-activated in bot/config.py and the accompanying prose was not updated. .env.example's active lines happen to set the safe values, which masks the error for anyone who copies the file and hides it from anyone who reads it to learn the default.
+
+**Remediation**: Correct .env.example:139 to state the code default is 0.85 and that the shipped line overrides it to 1.0; correct :145 to '(default ON)'; correct bot/core/engine.py:4327-4329. Add an assertion to tests/test_audit_v5_fixes.py (which already pins the two code defaults at :37-38) that .env.example's prose and the engine comment agree with them — the values are already asserted, so the doc check is a two-line addition.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — Line numbers drift by 2 in .env.example: the 'Default 1.0 = DISABLED' claim is :137 and '(default OFF)' is :143. Note also that the threshold sentence is arguably describing the shipped line rather than the code default; the AUTO_CONFIRM_USE_CALIBRATED sentence and the engine.py:4328 comment are the two that cannot be read charitably.
+
+- sev→UNCHANGED — Line numbers drift by ~2 from the finder's citations (the .env.example prose is at :136-138 and :143, the values at :141-142, the commented line at :148). docs/FLAG_ACTIVATION.md exists and .env.example:21 points at docs/LIVE_TRADING_ENABLEMENT.md, so the activation decision is documented somewhere — but neither corrects the three false statements at the point of use.
+
+**Evidence**:
+
+```
+.env.example:137-149
+# Signals at/above this blended confidence auto-execute without a human button
+# press. Default 1.0 = DISABLED (everyone manual-confirm). For the admin
+# "85% or higher" auto-trade policy, set 0.85 AND enable live auto-confirm.
+AUTO_CONFIRM_THRESHOLD=1.0
+AUTO_CONFIRM_LIVE_ENABLED=false
+# Gate auto-confirm on CALIBRATED confidence (default OFF).
+# AUTO_CONFIRM_USE_CALIBRATED=false
+
+bot/config.py:2313-2326
+    auto_confirm_threshold: float = _env_float("AUTO_CONFIRM_THRESHOLD", 0.85)
+    auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
+    auto_confirm_use_calibrated: bool = _env_bool("AUTO_CONFIRM_USE_CALIBRATED", True)
+```
+
+## B6-27 [LOW] SECURITY.md lists /portfolio and /risk/status as unauthenticated read-only endpoints; both require the DASHBOARD_TOKEN bearer
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `SECURITY.md:25`
+- **Standard**: SECURITY.md is the integration contract for the API bridge; an endpoint list in it is a schema claim.
+
+**Observed**: The four state-changing endpoints listed are correct (/analyze api_bridge.py:617, /confirm :704, /portfolio/close :760, /risk/halt :1036 all carry the dependency). Two of the four endpoints listed as unauthenticated do carry it. Only /health (:412) and /scan (:534) are genuinely open.
+
+**Root cause**: Authentication was tightened on the two portfolio/risk read endpoints without updating the security policy that enumerates them.
+
+**Remediation**: Update SECURITY.md:25 to list only /health and /scan as unauthenticated, and note that with DASHBOARD_TOKEN unset the token-gated endpoints return 503 rather than 401. Optionally add a test that enumerates api_bridge.py's routes and their dependencies and diffs against the SECURITY.md lists, so the two cannot drift again.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — Minor: /scan is POST at :533 (the finding wrote :534, the signature line) and /portfolio/close/{symbol} is at :759, not :760. Also worth stating plainly — the doc errs in the SAFE direction: the endpoints are more protected than SECURITY.md claims, so no exposure follows from it. LOW is the right ceiling.
+
+- sev→UNCHANGED — Worth noting the direction: the doc understates the actual protection, so nobody is exposed by it — the risk is an operator or integrator building against a stated-public endpoint and getting 401/503. LOW is the right severity. Minor nit: /scan is a POST (api_bridge.py:533), not a GET, so SECURITY.md's 'read-only endpoints' grouping is loose there too.
+
+**Evidence**:
+
+```
+SECURITY.md:25
+  - **Bearer Token Authentication** — state-changing API endpoints (`/confirm`, `/portfolio/close`, `/risk/halt`, `/analyze`) require a `DASHBOARD_TOKEN` bearer token. Read-only endpoints (`/health`, `/scan`, `/portfolio`, `/risk/status`) do not require authentication.
+
+api_bridge.py:691-692
+@app.get("/portfolio")
+async def portfolio(_token: str = Depends(require_dashboard_token)):
+
+api_bridge.py:804-805
+@app.get("/risk/status")
+async def risk_status(_token: str = Depends(require_dashboard_token)):
+```
+
+## B6-28 [LOW] README and agent_card.json present the multi-agent swarm as a shipped capability; bot/core/swarm.py has zero non-test importers and the roadmap marks the feature Planned
+
+- **Dimension**: docs-consistency · **Fix class**: REVIEW_REQUIRED · **File**: `README.md:236`
+- **Standard**: CLAUDE.md: 'A module nothing calls is indistinguishable from one that does not work.' The repo already applies this to its own baselines; the public-facing surfaces were not brought along.
+
+**Observed**: bot/core/swarm.py is recorded in tests/unreachable_baseline.txt — the repo's own ratchet for 'Modules imported by tests and by nothing else' — with the note that it is '428 lines of in-process pub/sub scaffolding for the roadmap's "Multi-agent ensemble" row, which is 🔵 Planned. Deleting it would throw away design work for a feature that is scheduled; wiring it is that feature, not a cleanup.' docs/ROADMAP.md:63 confirms: '**Multi-agent ensemble** — specialist sub-agents … | Later | 🔵 | the strategy engine'. README.md:240 nonetheless says 'Ready for production deployment as separate Agent Hub agents' under a heading tagged (NEW), and agent_card.json advertises multi_agent_swarm to any agent that reads the card.
+
+**Root cause**: The README section and the agent card were written when the module was authored and never reconciled with the roadmap status or the unreachable-module ratchet that later catalogued it.
+
+**Remediation**: Move README.md:236-240 out of the feature list into the Limitations section (which at :751 already hedges 'swarm uses experimental in-process pub/sub (not a production MCP deployment)'), or mark the heading Planned to match docs/ROADMAP.md:63. Remove 'multi_agent_swarm' from agent_card.json:22 until something constructs a SwarmBus. Optionally extend tests/test_no_new_unreachable_modules.py to fail when a module in unreachable_baseline.txt is also named as a capability in agent_card.json.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — One mitigating fact the finding already half-acknowledges: README's own sentence calls the architecture 'experimental, in-process pub/sub', and README's Limitations section repeats the hedge, so the README is not uniformly claiming shipped status. The load-bearing errors are the 'Ready for production deployment' clause and the unhedged agent_card.json capability entry.
+
+- sev→UNCHANGED — None. README.md:751 does hedge in the Limitations section ('swarm uses experimental in-process pub/sub'), which softens the README half slightly, but agent_card.json advertises the capability unqualified to any agent reading the card, and the feature-list heading still says '(NEW)' and 'Ready for production deployment'.
+
+**Evidence**:
+
+```
+README.md:236-240
+### Multi-Agent Swarm Protocol (NEW)
+Composable agent collaboration via experimental, in-process pub/sub architecture. Five specialized agents:
+Scanner (perceives market), Analyst (generates theses), Risk (gates every trade), Executor (manages positions),
+Sentinel (monitors for black swans). Communication via SwarmBus pub/sub, with Sentinel broadcasting HALT
+to all agents when severity >= 0.8. Ready for production deployment as separate Agent Hub agents.
+
+agent_card.json:22
+    "multi_agent_swarm"
+
+tests/unreachable_baseline.txt
+bot/core/swarm.py
+```
+
+## B6-29 [LOW] README badges and prose state stale counts: 28 red-team scenarios (30 run), 2644 test functions across 227 files (8489 across 734)
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `README.md:21`
+- **Standard**: CLAUDE.md's pinned-count discipline: the gate count in CLAUDE.md is enforced by tests/test_claude_md_accuracy.py::test_the_gate_count_it_quotes_is_the_real_one precisely because 'a number in prose is the part that rots first'. No equivalent guard covers README.md.
+
+**Observed**: Red team: 28 claimed in three places (badge alt text, README.md:206, README.md:209) versus 30 actually run and 30 named in the CI step title ('Red team — 30 adversarial scenarios against the live risk engine'). Test suite: 2644 functions / 227 files claimed in two places versus 8489 / 734. Security tests: 29 is correct. README.zh-TW.md:22-23 carries the same two stale badges.
+
+**Root cause**: Hand-maintained counts in a document with no guard, exactly the failure mode tests/test_mcp_doc_matches_the_code.py describes ('a number typed into a document is a second, staler copy of something already knowable') and that the marketing site solved by deleting its counts.
+
+**Remediation**: Either drop the numbers from the badges (the red-team badge already says 'framework included', which is the durable claim) or derive them: scripts/red_team.py already reports report.total_scenarios, so a test can assert README's figure equals it, mirroring the existing CLAUDE.md gate-count test.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — The prose line numbers are wrong by six: the '28 scenarios across 10 categories' sentence is README.md:200 and 'runs 28 adversarial scenarios' is :203, not :206 and :209. Content is otherwise exact. My own count of test functions came to 8490 rather than the finder's 8489 — immaterial to the claim.
+
+- sev→UNCHANGED — None. The direction of the test-count drift is worth noting for whoever fixes it: the real numbers are ~3x the advertised ones, so the badge understates rather than oversells — but it is still a number in prose with no guard, the exact class CLAUDE.md and tests/test_mcp_doc_matches_the_code.py both call out.
+
+**Evidence**:
+
+```
+README.md:21-23
+  <img src="https://img.shields.io/badge/tests-2644%20test%20functions%20%7C%20227%20files-brightgreen" alt="2644 Test Functions | 227 Files">
+  <img src="https://img.shields.io/badge/security%20tests-29%20passing-blueviolet" alt="29 Security Tests">
+  <img src="https://img.shields.io/badge/red%20team-28%20scenarios%20%7C%20framework%20included-critical" alt="Red Team 28 Scenarios | Framework Included">
+
+README.md:622
+|   |-- (2644 total test functions across 227 files)
+
+README.md:206-209
+An adversarial engine that attacks the risk engine with 28 scenarios across 10 categories:
+… Red-team testing framework included -- runs 28 adversarial scenarios to verify risk gate behavior.
+```
+
+## B6-30 [LOW] README advertises Gemini 2.5 Flash as the default LLM provider; the code default is OpenAI, .env.example sets Anthropic, and the tier tables use Gemini 3.5 Flash and Grok
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `README.md:90`
+- **Standard**: CLAUDE.md's requirement that a document read first must be true, since everything after it is interpreted through it.
+
+**Observed**: Four different answers: README says Gemini 2.5 Flash; bot/config.py:1101 says openai; .env.example's own comment says gemini is DEFAULT while its active line sets anthropic; and the tier routing tables — which are what actually resolve per task — use Groq / Gemini 3.5 Flash / Grok. bot/llm/provider.py:83-85 additionally records that the Gemini 2.5 line 'was superseded by the 3.x generation'.
+
+**Root cause**: 'Default provider' means three different things in this codebase (the LLMConfig fallback, the shipped .env.example value, and the tier routing tables) and the README picked a fourth that no longer matches any of them after the 2026-07 model refresh.
+
+**Remediation**: Rewrite README.md:88-97 to describe the tier routing that actually applies (bot/llm/provider.py:246-268) rather than a single 'default provider', and correct the model ids. Fix the internal contradiction in .env.example between :265 and :287.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None.
+
+- sev→UNCHANGED — None. Overlaps finding 5 on the model-id half; the distinct defect here is that four surfaces give four different answers to 'what runs by default', including a self-contradiction between .env.example:265 and :287.
+
+**Evidence**:
+
+```
+README.md:90 and :97
+- **Google Gemini 2.5 Flash** -- default provider, zero-cost reasoning with free-tier API key
+> **Zero-cost setup:** Set `LLM_PROVIDER=gemini` and `LLM_MODEL=gemini-2.5-flash` with a free API key from [Google AI Studio](https://aistudio.google.com/apikey). No credit card required.
+
+bot/config.py:1101
+    provider: str = _env("LLM_PROVIDER", "openai")
+
+.env.example:265,287
+#   gemini      → Gemini 2.5 Flash               (free tier, reasoning)  ← DEFAULT
+LLM_PROVIDER=anthropic
+```
+
+## B6-31 [LOW] CLAUDE.md's '47 of 532 test files' is stale by ~200 files and is one of the few counts it states that no test pins
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `CLAUDE.md:245`
+- **Standard**: tests/test_claude_md_accuracy.py's own docstring: 'A document that is read FIRST is the worst place for a stale claim… So the checkable claims are pinned.'
+
+**Observed**: 532 versus 734 actual test files. tests/test_claude_md_accuracy.py, which exists specifically to pin CLAUDE.md's checkable claims and which does pin the gate count, does not cover this one.
+
+**Root cause**: A ratio typed into prose with no guard, in the one document the repo declares 'is read FIRST … the worst place for a stale claim'.
+
+**Remediation**: Drop the numerator/denominator ('A minority of test files scan source, and most of them should') or add a bounded assertion to tests/test_claude_md_accuracy.py in the shape of the existing gate-count test.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — The finding only challenges the denominator; I did not verify the numerator (47 source-scanning files) and neither did the finder, so no claim about 47 should be carried forward.
+
+- sev→UNCHANGED — None, though the impact is the mildest in the set: the sentence's point ('do not convert wholesale') is unaffected by the denominator, and CLAUDE.md itself says a number typed into prose is the part that rots first. Dropping the ratio is the cheaper fix than pinning it.
+
+**Evidence**:
+
+```
+CLAUDE.md:245
+**Do not convert wholesale.** 47 of 532 test files scan source and most of
+them should — `tests/test_trade_live_mode.py` says so in its own docstring:
+```
+
+## B6-32 [LOW] tests/unreachable_skills_baseline.txt's triage prose claims no @guard handler exists for /macro or /compliance; both exist
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `tests/unreachable_skills_baseline.txt:16`
+- **Standard**: tests/unreachable_skills_baseline.txt's own framing — the file exists 'so the decision is visible rather than silent' — and CLAUDE.md: 'A note explaining why something is unreachable is itself a claim, and it ages against code that keeps moving. Re-read it before trusting it.'
+
+**Observed**: The paragraph still asserts all five commands are dark on every transport. CLAUDE.md records that '/eventrisk and /compliance are wired', and I confirmed @guard handlers for /macro and /compliance plus CommandHandler registrations for macro, eventrisk, compliance and approve. The later sentence 'The other three (macro_brief, check_event_risk, compliance_status) are read-only cards and would be reachable the moment somebody adds a permission' is also stale — two of those three left the list.
+
+**Root cause**: The ratchet test enforces the entry LIST but not the explanatory prose around it, so the entries were maintained and the narrative was not.
+
+**Remediation**: Rewrite the TRIAGED block to distinguish the SKILL (macro_brief, still undispatched) from the COMMAND (/macro, a separate handwritten @guard handler at bot/skills/telegram_handler.py:10560). Drop check_event_risk and compliance_status from the 'other three' sentence.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — The finder writes 'CommandHandler registrations'; the registrations are (name, handler) tuples at telegram_handler.py:907-909 and :944, not literal CommandHandler(...) calls — same fact, different construction.
+
+- sev→UNCHANGED — Sharpen the distinction the finder gestures at: /macro dispatches the skill `macro_calendar` (telegram_handler.py:10562), NOT `macro_brief`, so the baseline entry `macro_brief` is still correctly listed as dark — the entry list is right and only the narrative around it drifted. Any rewrite must keep macro_brief in the list.
+
+**Evidence**:
+
+```
+tests/unreachable_skills_baseline.txt
+# Five skills that each advertise a slash command — /macro, /eventrisk,
+# /compliance, /approve, /kill — dispatched by NOTHING. Confirmed dark on
+# every transport: no @guard command handler exists for any of them, they are
+# absent from SKILL_PERMISSION …
+
+bot/skills/telegram_handler.py:10560-10561
+    @guard("macro")
+    async def _cmd_macro(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+
+bot/skills/telegram_handler.py:10591
+    @guard("compliance")
+```
+
+## B6-33 [INFORMATIONAL] ONCHAIN_PROVIDER is documented as configuration in .env.example and docs/ONCHAIN.md and is read by nothing
+
+- **Dimension**: docs-consistency · **Fix class**: SAFE_AUTO_FIX · **File**: `.env.example:368`
+- **Standard**: The audit dimension's rule that env vars documented but never read are a defect; and this repo's general rule that an absent mechanism must not be presented as a present one.
+
+**Observed**: ONCHAIN_PROVIDER appears in an uncommented .env.example line and in the Configuration fence of docs/ONCHAIN.md, positioned as a peer of three knobs that do work. Setting it has no effect. The same doc's closing 'Next' section ('Wire to_confluence_votes() into _score_confluence') is also stale — that wiring exists at bot/core/analyzer.py:3585.
+
+**Root cause**: A knob sketched during design, documented, and never implemented; the surrounding block was implemented so the dead name reads as live.
+
+**Remediation**: Remove ONCHAIN_PROVIDER from .env.example:368 and docs/ONCHAIN.md:39, or implement provider selection. Also update docs/ONCHAIN.md's 'Next' section, which asks for wiring that bot/core/analyzer.py:3585 already performs. A general guard is worth considering: a test that parses .env.example's uncommented names and fails on any not read by bot/, app/, scripts/, docker-compose.yml or nginx.conf would have caught this.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None. INFORMATIONAL is the right level — an inert name in a config block.
+
+- sev→UNCHANGED — None. INFORMATIONAL is the right level — the knob is inert and its absence changes nothing. The stale 'Next' section is the more useful half of the report, since it tells a reader work is outstanding that has already shipped.
+
+**Evidence**:
+
+```
+.env.example:359-368
+ONCHAIN_ENABLED=false
+ONCHAIN_API_KEY=
+ONCHAIN_BASE_URL=
+…
+ONCHAIN_FLOW_ENABLED=0
+ONCHAIN_PROVIDER=
+
+docs/ONCHAIN.md:36-39
+ONCHAIN_ENABLED=false
+ONCHAIN_API_KEY=            # your Glassnode / Arkham / Nansen-style key
+ONCHAIN_BASE_URL=          # endpoint returning normalised metrics
+ONCHAIN_PROVIDER=
+```
+
+## B6-34 [HIGH] CI coverage floor silently excludes bot/core/live_executor.py — the order-placing module has been measured at zero for the life of the gate
+
+- **Dimension**: tests · **Fix class**: SAFE_AUTO_FIX · **File**: `scripts/ci_test_gate.py:50-52, 129-150`
+- **Standard**: CLAUDE.md: "Running a subset and reporting it as the whole is the defect this repo spends most of its guard tests preventing" and "Unreadable is never zero, and absent is never a measurement."
+
+**Observed**: Only bot/risk (2,659 stmts) and bot/compliance (143 stmts) are measured. bot/core/live_executor.py (4,163 stmts, 60% of the intended scope) contributes nothing to the floor. The gate prints `[gate] FAIL — coverage on ['bot/risk', 'bot/core/live_executor.py', 'bot/compliance'] is below 60%` — a message that names a target it has never measured.
+
+**Root cause**: `--cov=` takes an importable module/package name or a directory, not a file path. The list at line 50 mixes two directory paths (which work) with one file path (which does not). coverage emits a CoverageWarning rather than an error, so pytest still exits 0 and the drop is invisible in a 15-minute log. A second, independent fail-open sits in the same function: `coverage report` exits 1 for "No data to report", and lines 148-150 return False (pass) for that case — an unreadable measurement read as a passing one, in the gate whose sibling comments (lines 190-215) are entirely about not doing that.
+
+**Remediation**: Change line 50 to `COV_TARGETS = ["bot/risk", "bot.core.live_executor", "bot/compliance"]` (or `--cov=bot/core` plus an include filter), then re-measure and set COV_FAIL_UNDER to a floor just under the real number. Add a test asserting every entry in COV_TARGETS appears as a row in `coverage report` output after a run — the gate's coverage of its own targets is exactly the claim nothing checks. Separately, make the rc==1 "no data" branch FAIL rather than return False. Note also that `--fail-under` is a single TOTAL across the report, so once live_executor is included a well-covered bot/risk can still mask a poorly covered live_executor; a per-file floor is the honest shape.
+
+**Verifier corrections** (these override the finder):
+
+- sev→MEDIUM — Two line-number corrections, neither material: the call site is ci_test_gate.py:357 (not 337), and the rc-handling quote sits at ~143-150 (not 136-147). The finding's own title says 'measured at zero' while the body correctly says the module is absent from the report entirely — the body is right. Severity lowered HIGH->MEDIUM: this is a gate that measures less than it claims, with no current live-money impact; the code being unmeasured is not the code being wrong. It is nonetheless exactly the defect CLAUDE.md names as the one the repo spends most of its guard tests preventing ('Running a subset and reporting it as the whole'), which is why it is not LOW.
+
+- sev→MEDIUM — Two corrections to the write-up, neither of which changes the verdict. (1) `_coverage_below_floor()` is called at scripts/ci_test_gate.py:357, not 337 — the finder's line number is wrong; the guard is `if cov_available and not (new_failures or internal_error)` at line 356. (2) The finder's statement counts for live_executor (4,163 stmts, "60% of the intended scope") cannot have come from a coverage report, since coverage never measures the file — they are an estimate presented as a measurement, which is the very thing this repo's rules forbid. The line count (9,728) is real (`wc -l`). Severity down HIGH->MEDIUM: this is a gate overstating its own scope, with zero direct effect on money movement today; no live defect follows from it. It is still a genuine instance of CLAUDE.md's central complaint ("running a subset and reporting it as the 
+
+**Evidence**:
+
+```
+scripts/ci_test_gate.py:50-52
+    COV_TARGETS = ["bot/risk", "bot/core/live_executor.py", "bot/compliance"]
+    COV_FAIL_UNDER = 60
+    COV_FLAGS = [f"--cov={t}" for t in COV_TARGETS] + ["--cov-report="]
+
+scripts/ci_test_gate.py:136-147
+            r = subprocess.run(
+                [sys.executable, "-m", "coverage", "report", f"--fail-under={COV_FAIL_UNDER}"],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+        ...
+        if r.returncode == 2:
+            print(f"[gate] FAIL — coverage on {COV_TARGETS} is below {COV_FAIL_UNDER}%.")
+
+Actual tool output when the gate's own flags are used:
+    CoverageWarning: Module bot/core/live_executor.py was never imported. (module-not-imported)
+
+coverage's `--cov=` argument is an importable module/package name or a directory. `bot/risk` and `bot/compliance` resolve as directories and are measured; `bot/core/live_executor.py` is neither, so coverage never registers it as a source and it is omitted from the report entirely — not reported at 0%, simply absent.
+```
+
+## B6-35 [HIGH] The two fail-closed guards between a malformed LLM response and a live trade have zero tests; the second is the only thing stopping an unreadable direction becoming a SHORT
+
+- **Dimension**: tests · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/analyzer.py:1348-1358, 4295-4299, 4744, 4775`
+- **Standard**: CLAUDE.md: "A heuristic is never a verdict" and "absent is never a measurement"; the C-07 comments in the source ("do not default to LONG on parse failure", "guards against any path that returns a thesis dict with direction=None") are load-bearing claims with nothing holding them.
+
+**Observed**: Both guards are unpinned. The suite asserts only the happy direction of the parser (`_parsed is True` in five places across four files). No test in tests/ mentions INVALID_DIRECTION or LLM_PARSE_FAIL, and no test drives `Analyzer.analyze()` with an LLM stub returning unparseable or non-directional output.
+
+**Root cause**: Coverage was written around the shapes the parser accepts (tests/test_thesis_prose_is_not_the_tag.py explicitly says its job is proving the empty-reasoning shape is REACHABLE). The refusal half — the reason the C-07 fix exists — was never given a test, so the guards are the code equivalent of CLAUDE.md's #999 card: present, and nothing distinguishes present from working.
+
+**Remediation**: Add two behavioural tests. (1) `Analyzer._parse_llm_response` against the shapes that must be refused — 'garbage', 'DIRECTION: LONG' alone, a JSON body with a non-directional direction — asserting `_parsed is False` or (for the JSON case) that the downstream guard catches it. (2) A test calling the analyzer's thesis path with `{"direction": None}` / `{"direction": "SIDEWAYS"}` asserting `analyze()` returns None and `_record_no_trade` was called with "thesis". Optionally tighten analyzer.py:4744 to mirror 4775 so the JSON branch does not depend on a guard 3,000 lines away, but the tests matter more.
+
+**Verifier corrections** (these override the finder):
+
+- sev→MEDIUM — Severity lowered HIGH->MEDIUM. The finder is explicit that both guards are currently correct and that this is a coverage finding; there is no live defect today. The consequence of an unnoticed regression is real (an unreadable direction becoming a live SHORT), which keeps it above LOW, but HIGH overstates the present state of a system that moves real money.
+
+- sev→MEDIUM — Severity HIGH->MEDIUM. The finder itself concedes "I confirmed both guards are currently CORRECT: this is a test-coverage finding, not a live bug," and I verified the same by reading both guards end to end — there is no path today by which a non-directional LLM response becomes a trade. Un-pinned correct code on the money path is a real gap but it is not HIGH on a severity scale defined by real-world money impact; HIGH would imply something is currently mis-executing. The title also overstates slightly: guard #2 is not "the only thing" stopping a SHORT for every malformed response — for the plain-text branch guard #1 already refuses (verified: 'garbage' and 'DIRECTION: LONG' alone both return _parsed=False). Guard #2 is the sole defence specifically for the JSON branch, which is the accurate narrower claim.
+
+**Evidence**:
+
+```
+bot/core/analyzer.py:4295-4299 — guard #1, the parse gate:
+            if not result.pop("_parsed", False):
+                audit(trade_log, "LLM response could not be parsed, blocking trade",
+                      action="analyze", result="LLM_PARSE_FAIL",
+                      data={"raw_text": raw_text[:200]})
+                return None  # C-07 FIX: do not default to LONG on parse failure
+
+bot/core/analyzer.py:1348-1358 — guard #2, and what sits immediately after it:
+        if thesis.get("direction") not in ("LONG", "SHORT"):
+            audit(trade_log,
+                  f"Thesis has invalid direction={thesis.get('direction')!r}, blocking trade",
+                  action="analyze", result="INVALID_DIRECTION", ...)
+            return None
+
+        direction = Direction.LONG if thesis["direction"] == "LONG" else Direction.SHORT
+
+bot/core/analyzer.py:4744 — why guard #2 is load-bearing: the JSON branch sets _parsed=True WITHOUT requiring a valid direction, unlike the text branch at 4775 (`result["_parsed"] = parsed_fields >= 2 and result["direction"] is not None`):
+                result["_parsed"] = True
+                return result
+
+Driven, not read (./.venv-audit/bin/python, Analyzer._parse_llm_response):
+  '{}'                                        -> {'direction': None, 'confidence': 0.0, '_parsed': True}
+  '{"direction":"SIDEWAYS","confidence":0.9}'  -> {'direction':
+```
+
+## B6-36 [MEDIUM] The POST_ONLY double-fill guards are pinned by one substring-in-source assertion; no test ever executes the retry branch
+
+- **Dimension**: tests · **Fix class**: REVIEW_REQUIRED · **File**: `tests/test_audit_v7_fixes.py:211-217`
+- **Standard**: CLAUDE.md: "The narrow failure mode is a source scan STANDING IN FOR BEHAVIOUR NOTHING ELSE TESTS" and "Rank candidates by what a wrong claim would cost."
+
+**Observed**: One assertion: `"ABORT_UNVERIFIED_RECHECK" in inspect.getsource(execute)`. It confirms a string literal exists inside a 900-line function. It cannot distinguish a reached guard from an unreached one, cannot see the `elif not _orig2_verified:` condition it depends on, and would stay green if that condition were negated or made unreachable while the audit call remained.
+
+**Root cause**: tests/test_halt_holds_at_order_submission.py:169-176 states the belief that made this acceptable: "Reaching the second needs the venue to reject a post-only order and `_find_order_by_client_oid` to confirm it never landed — a path this suite cannot stage honestly." That premise appears not to hold: tests/test_order_idempotency.py:30-45 already contains the exact fixture shape needed (a `_FakeExchange` with a mode-switched `create_order` and `fetch_open_orders`/`fetch_closed_orders`), and the lookup's verified/unverified behaviour is driven directly in tests/test_audit_v5_fixes.py:98-125. Both halves exist; nothing composes them.
+
+**Remediation**: Add a behavioural test driving `LiveExecutor.execute()` with `CONFIG.limit_orders.post_only` on and an exchange whose first `create_order` raises `Exception("post only order failed")`, parameterised over the three lookup outcomes, asserting `create_order` call counts (1 when the original is found or unverifiable, 2 only in the verified-absent case). Keep the source scan as a cheap position check; it stops being the only evidence.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — Line-number drift on the resubmit quote: `retry_coid = coid + "-r1"` is at live_executor.py:3957, not 3970-3979 (the `_create_order_idempotent` call it leads to is at 3977). The quoted test_halt_holds_at_order_submission.py premise is at ~178-185, not 169-176. Content is otherwise accurate and the severity is appropriate.
+
+- sev→MEDIUM — No correction to substance; MEDIUM is the right level for an untested-but-correct double-fill guard. One caveat the finder does not state: the existing halt test's fixture (`_executor()` in tests/test_halt_holds_at_order_submission.py) uses a MagicMock exchange, so composing the proposed test still requires driving `use_limit` on and supplying price_to_precision/ATR plumbing — the suite's "cannot stage honestly" claim is overstated but not baseless, and the proposed test is a real piece of work rather than a five-line addition.
+
+**Evidence**:
+
+```
+tests/test_audit_v7_fixes.py:211-217 — the entire test coverage of the retry path:
+    def test_post_only_retry_reverifies_before_resubmit(self):
+        # F-10: before resubmitting with a fresh clientOid, the code must
+        # re-verify the original isn't resting (index-lag double-fill guard).
+        import inspect
+        import bot.core.live_executor as le
+        src = inspect.getsource(le.LiveExecutor.execute)
+        assert "ABORT_UNVERIFIED_RECHECK" in src
+
+What it stands in for — bot/core/live_executor.py:3888-3893 and 3910-3916, two guards whose failure mode is a second live fill:
+                        elif not _orig_verified:
+                            audit(trade_log, ... result="ABORT_UNVERIFIED", ...)
+                            raise
+...
+                            elif not _orig2_verified:
+                                audit(trade_log, ... result="ABORT_UNVERIFIED_RECHECK", ...)
+                                raise
+
+and the resubmit they gate, at bot/core/live_executor.py:3970-3979:
+                                retry_coid = coid + "-r1"
+                                create_kwargs["coid"] = retry_coid
+                                ...
+                                order = await self._create_order_idempotent(exchange, **create_kwargs)
+```
+
+## B6-37 [MEDIUM] api_bridge's bearer-token dependency has no behavioural test — its fail-closed property is asserted only as a substring on one route, while the sibling surface's equivalent IS driven
+
+- **Dimension**: tests · **Fix class**: REVIEW_REQUIRED · **File**: `api_bridge.py:372-388`
+- **Standard**: CLAUDE.md: "Ask which OTHER surface makes the same claim — before calling the fix done." The aiohttp dashboard's auth middleware is tested behaviourally and the FastAPI bridge's is not — the parity shape this repo has been bitten by repeatedly.
+
+**Observed**: Zero. The presence of the dependency on each privileged route is enforced structurally by scripts/guard_lint.py's `fastapi-route-auth` rule; the dependency's own logic — including the fail-closed 503 that guard_lint's `why` text calls "the property to preserve" — is executed by nothing.
+
+**Root cause**: api_bridge refuses to import without JWT_SECRET, so the suite historically source-scanned it instead of importing it. tests/test_http_gate_parity.py:38-39 solved the import problem (`os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))`) for the gate-parity helpers but did not extend it to the auth dependency. `_DASHBOARD_TOKEN` being read at module import time (line 372) also makes a naive monkeypatch of the env var a no-op — a trap for whoever writes the test.
+
+**Remediation**: Add tests/test_api_bridge_auth.py: set JWT_SECRET the way tests/test_http_gate_parity.py:39 does, import api_bridge, and call `require_dashboard_token` directly with (a) `api_bridge._DASHBOARD_TOKEN` monkeypatched to "" -> HTTPException 503, (b) credentials=None -> 401, (c) a wrong token -> 401, (d) the right token -> returns it. Patch the module attribute, not the env var, because line 372 runs at import.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — The quoted test_http_gate_parity assertion is at lines 129-134 rather than 132-134; everything else, including all six route line numbers and the guard_lint rule text, checks out to the line. MEDIUM is the right level — the wiring is structurally pinned by guard_lint, so only the dependency's eight-line body is unexercised.
+
+- sev→LOW — Severity MEDIUM->LOW, and one stated root cause is factually wrong. The finder writes "api_bridge refuses to import without JWT_SECRET, which is why the suite historically source-scanned it instead of importing it" — but tests/test_client_ip_cannot_be_forged.py:239 and tests/test_health_does_not_invent_an_engine.py:50 both already do `pytest.importorskip("api_bridge")` and drive real module functions, so the import barrier is not what is stopping this test from existing. On severity: the dependency body is six lines of straight-line logic with no branch that can silently mis-answer, its attachment to every non-exempt route is machine-enforced by scripts/guard_lint.py's fastapi-route-auth rule, and the identical logic on the sibling surface IS driven end to end. That is a coverage gap worth closing cheaply, not a MEDIUM risk to a money-mov
+
+**Evidence**:
+
+```
+api_bridge.py:372-388 — the whole of the operator auth for the FastAPI bridge:
+    _DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
+    _security = HTTPBearer(auto_error=False)
+
+    async def require_dashboard_token(
+        credentials: HTTPAuthorizationCredentials = Security(_security),
+    ) -> str:
+        """Validate bearer token on state-changing endpoints."""
+        if not _DASHBOARD_TOKEN:
+            raise HTTPException(status_code=503, detail="DASHBOARD_TOKEN not configured — ...")
+        import hmac as _hmac
+        if credentials is None or not _hmac.compare_digest(credentials.credentials, _DASHBOARD_TOKEN):
+            raise HTTPException(status_code=401, detail="Invalid or missing bearer token")
+        return credentials.credentials
+
+The only test that mentions it — tests/test_http_gate_parity.py:132-134, a substring check on one route:
+    def test_risk_status_is_still_token_gated(self):
+        i = SRC.index("async def risk_status(")
+        assert "Depends(require_dashboard_token)" in SRC[i:i + 200]
+
+The sibling surface is driven end-to-end — tests/test_analytics_endpoints.py:191-196:
+    def test_no_token_configured_fails_closed(self, monkeypatch):
+        monkeypatch.setattr(ds, "_DASHBOARD_TOKEN", "")
+        for path in ("/api/performance", "/api/equitycurve"):
+            req = SimpleNamespace(path=path, headers={}, method="GET")
+            resp = _
+```
+
+## B6-38 [LOW] A vacuous `assert ... or True` in tests/test_board_cards.py — the exact pattern the repo caught and annotated once, missed a second time
+
+- **Dimension**: tests · **Fix class**: SAFE_AUTO_FIX · **File**: `tests/test_board_cards.py:71`
+- **Standard**: CLAUDE.md, "Asserting a short string is ABSENT is the assertion that keeps misfiring", and the repo's own annotation of `X or True` as vacuous at tests/test_trade_gate_parity.py:274.
+
+**Observed**: A line that reads as a third check and is unconditionally true. Per the neighbouring comment in test_trade_gate_parity.py this is a shape the author already knows misfires; the second instance simply was not re-read.
+
+**Root cause**: The `or True` was very likely added to silence a failing assertion whose expression (`card.split("You:")[0].split("\n\n")[-1]`) is brittle string surgery, rather than the assertion being reworked or dropped. CLAUDE.md's own guidance applies: "when a fresh assertion fails, check whether the code or the assertion is wrong before touching the code" — here neither happened; the assertion was neutered in place.
+
+**Remediation**: Delete line 71, or replace it with the property it was reaching for, anchored to a line rather than to a `split` chain — e.g. assert the rows block contains exactly `DISPLAY_ROWS` handle lines and that `h17` is not one of them. A grep for `or True` inside `assert` is worth adding to whatever already lints tests/, since this is now the second occurrence.
+
+**Verifier corrections** (these override the finder):
+
+- sev→UNCHANGED — None. Quote, line number, precedence reasoning and the cross-reference to test_trade_gate_parity.py:274 all check out; LOW is the right severity since the two live assertions around it do the test's stated job.
+
+- sev→LOW — The finding stands but its root-cause paragraph is wrong and should not be acted on. The finder speculates the `or True` was "very likely added to silence a failing assertion." I executed the expression against the real renderer: with `render_leaderboard(many, "h17", ranked_total=20)`, `card.split("You:")[0].split("\n\n")[-1]` is the ten-row table block (`#  HANDLE ... 1 h1 ... 10 h10`) and `"h17" not in seg` evaluates to True. The assertion passes on its own today, so `or True` is redundant belt-and-braces, not a neutered failure. The fix is therefore the trivial one — delete ` or True` — and the CLAUDE.md quote about "check whether the code or the assertion is wrong" does not apply here. Severity LOW is right; arguably INFORMATIONAL.
+
+**Evidence**:
+
+```
+tests/test_board_cards.py:63-72
+    def test_a_viewer_below_the_display_cut_still_sees_their_rank(self):
+        """The exact case the web version added my_rank for: dropping to 11th
+        is when you most want to be told where you are."""
+        many = [{"rank": i, "handle": f"h{i}", "profit_factor": "1.0",
+                 "round_trips": 5, "trust_tier": "bronze"}
+                for i in range(1, 21)]
+        card = plain(render_leaderboard(many, "h17", ranked_total=20))
+        assert "#17" in card
+        assert "h17" not in card.split("You:")[0].split("\n\n")[-1] or True
+        assert "You: #17" in card
+
+The repo has already diagnosed this exact shape once, at tests/test_trade_gate_parity.py:272-274:
+        assert "gate_label(_gate)" in src
+        # `X or True` is vacuous — written once here and caught on re-read.
+        # The real property: the icon is a LOOKUP with no green fallback, so
+        # a label the map does not know cannot come out green.
+```

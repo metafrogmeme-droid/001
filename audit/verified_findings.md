@@ -1291,3 +1291,184 @@ is unreachable on every deployment.
 per position; regenerating the published scorecards writes to a directory
 nothing reads; the live↔backtest parity report scores an unpriced live close as
 break-even.
+
+---
+
+# Batch 5 — infra-cicd, deps, privacy, observability
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED.** Confirmed mix: 1 CRITICAL,
+9 HIGH, 17 MEDIUM, 4 LOW. Detail in `audit/workflow_raw_findings.md` as
+**B5-01 … B5-31**.
+
+**The verifiers downgraded 8 of the 10 CRITICAL/HIGH findings.** That is the
+strongest signal yet that the finders systematically inflate severity, and the
+register records the verifiers' number, not the finder's, in every case:
+
+| finder | verifiers | finding |
+|---|---|---|
+| CRITICAL | HIGH | `SystemHealthMonitor` is never fed — `/health`, `/ready`, `/metrics` |
+| HIGH | MEDIUM | CI pipes an unverified installer into `sh` |
+| HIGH | MEDIUM | production image installs a manifest omitting pins |
+| HIGH | LOW/MEDIUM | pip-audit audits a different manifest than the deployed one |
+| HIGH | MEDIUM | the GitLab CI fallback cannot run |
+| HIGH | MEDIUM | chat transcripts never deleted |
+| HIGH | MEDIUM | `verify_deploy.sh` reports VERIFIED after a failure |
+| HIGH | MEDIUM | forensic audit logs written where they are lost |
+
+On the CI installer one, both verifiers independently made the same point and
+they are right: there is **no `actions/upload-artifact` and no release step** in
+the whole workflow — the `.so` is `ls -l`'d and discarded. So a compromised
+toolchain buys code execution on the runner, not bytecode on a chain. The
+installer URL is also already version-pinned (`v1.18.26`, not a floating tag).
+Worth fixing; not HIGH.
+
+## RC-2026-019 — the GDPR purge misses the bot's SQLite database entirely
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **File**: `bot/web/user_gateway.py:2830-2900`
+- **Fix class**: REVIEW_REQUIRED
+
+**This qualifies a fix I already shipped, and I want that stated plainly.**
+
+RC-2026-006 found that `handle_account_purge` probed
+`getattr(tg_handler, "user_store", ...)` — an attribute that does not exist — so
+the bot's user record was never deleted. I fixed that (now `.users`, at
+`:2892`), with a regression test, and it merged in PR #227.
+
+The fix was correct. **The finding was narrower than the real defect.**
+
+The handler imports `exchange_credentials`, `user_profile_store`,
+`user_memory_store`, `user_leverage_store`, `user_strategy_store` and
+`tg_handler.users` — and **nothing from `bot.db.models`**. Verified by reading
+every import and every `result[...]` assignment in the handler. Meanwhile
+`bot/db/models.py` holds, for that same user:
+
+- `username TEXT` (`:84`) and the Telegram chat id via
+  `link_telegram(user_id, chat_id, username)` (`:314-322`)
+- `llm_api_key TEXT` (`:95`) — the user's third-party LLM provider key
+- the paper portfolio and personal ingest notes
+
+None of it is touched, before my fix or after. Six stores are reported and the
+rollup answers `purged: true`, so the database's absence from the report is
+indistinguishable from success — the same shape as the original defect, one
+level up.
+
+**The lesson is the one this audit keeps relearning**: I fixed the store the
+finding named and did not ask which *other* stores the purge should reach.
+CLAUDE.md says to ask which other surface makes the same claim before calling a
+fix done. I applied that to the code and not to the completeness of the store
+list.
+
+## RC-2026-020 — web-only accounts never reach the purge at all
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **File**: `app/auth.js:1724-1730`
+
+```js
+let botStores = null;
+if (user.telegram_id && gateway.isConfigured()) {
+```
+
+A NULL `telegram_id` is read as "the bot holds nothing for this person". But
+`app/lib/identity.js:23-27` provisions web-only users as `web:<uid>`, and the
+bot holds under that key: the auto-provisioned UserStore record, agent profile
+and memory, leverage and strategy preferences, the conversation transcript, the
+paper portfolio book, and the encrypted LLM and news provider keys.
+
+None of it is contacted, and the user is told their account and its data have
+been erased.
+
+Together with RC-2026-019: a Telegram-linked user's erasure misses the SQLite
+database; a web-only user's erasure misses **everything the bot holds**.
+Both surfaces report success.
+
+---
+
+# Batch 6 — a11y, reachability, docs-consistency, tests
+
+**39 raw · 38 CONFIRMED · 1 SUSPECTED · 0 REFUTED.** Mix: 6 HIGH, 18 MEDIUM,
+12 LOW, 2 INFORMATIONAL. By dimension: a11y 11, reachability 7,
+docs-consistency 15, tests 5. Detail as **B6-01 … B6-38**.
+
+**Every a11y finding is static inspection.** No browser was driven in this
+container, so none is a runtime observation and **no WCAG conformance is
+claimed**. Each is `NEEDS_RUNTIME_VALIDATION`.
+
+**The verifiers changed severity on 16 of the 38**, and downgraded 5 of the 6
+HIGHs. Only one HIGH survived untouched.
+
+## The finder made a false evidence claim, and both verifiers caught it
+
+The a11y finder wrote that grepping `app/test/` for `strengthmap` "returns only
+strengthmap-unrelated files". It does not: `strengthmap.test.js`,
+`strengthmap_page.test.js`, `strengthmap_polish.test.js` and
+`landing_strengthmap.test.js` all exist. Both verifiers independently checked,
+found them, and confirmed that **none pins keyboard operability** — so the
+finder's *conclusion* survived while its stated *evidence* was false. One also
+corrected a line number (`boot()` is at :275, not :373).
+
+That is the single clearest argument for the two-verifier design in this whole
+audit: a finding can be right for reasons its author did not actually verify.
+
+## RC-2026-021 — the security documentation promises human confirmation that the default configuration does not provide
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED (documentation vs default is a product decision)
+- The one HIGH in this batch neither verifier downgraded. I verified it directly.
+
+`SECURITY.md:29`:
+
+> **Human-in-the-Loop** — all trade executions require explicit human
+> confirmation; the AI agent cannot autonomously place orders.
+
+`README.md:655` and `docs/gitbook/README.md:45` (the root of the site the
+README's documentation badge points at) repeat it. `agent_card.json` declares it
+in machine-readable form — `"requires_confirmation": true` (`:36`) and
+`"human_in_the_loop": true` (`:48`), which other systems may consume as fact.
+
+`bot/config.py:2317`:
+
+```python
+auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
+```
+
+**Defaults True**, and the code comment says exactly what that means: "Allow
+auto-confirm to place LIVE (real-money) orders with no human press." The engine
+then auto-mints the approval token (`engine.py:6058-6065`) and logs
+"AUTO-MINT APPROVAL TOKEN … unattended live execution explicitly opted in".
+
+The code is self-consistent and honestly commented. Five public surfaces,
+including a machine-readable capability declaration, state the opposite of its
+default.
+
+## RC-2026-022 — the public /risk page's categorical claim, and it is worse than reported
+
+- **Status**: OPEN · **Severity**: MEDIUM (verifier-corrected from HIGH) · **Confidence**: CONFIRMED
+
+`site/src/routes/risk.tsx:82`, published to `website/risk/index.html`:
+
+> "There is no path where a check that could not be evaluated is treated as a
+> check that passed."
+
+That is CLAUDE.md's own rule asserted as a product guarantee. The finder cited
+**three** counter-examples. I counted them myself:
+
+```
+$ grep -c 'passed\.append(".*skipped' bot/risk/risk_engine.py
+9
+```
+
+`RISK_REWARD` (:1603), `MARGIN_RISK` (:1690), `CONFIDENCE` (:1695),
+`MACRO_EVENT` (:1982), `MTF_ALIGNMENT` (:1992), `PORTFOLIO_VAR` (:2020),
+`TAKER_3BAR` (:2058), `BID_DOMINANCE` (:2096), `VALIDATION` (:2204) — nine
+checks that append a *skipped* outcome to the **passed** list.
+
+`config/risk_manifest.yaml` — which `SECURITY.md` and `README.md` both call
+authoritative — agrees with the code and contradicts the website: check 17
+LIQUIDITY is `fail_behavior: open` ("the ONLY fail-open check: no data = pass"),
+and 19/20/21 are `fail_behavior: skip`. `README.md:653` states the accurate
+version. So the website is inconsistent with the repo's own README, its own
+manifest, and its own engine.
+
+I am recording nine rather than three because I ran the count. The finding was
+right and understated.
