@@ -1,0 +1,14 @@
+FROM ./unsloth.Q4_K_M.gguf
+
+# RUNECLAW v7 (Llama 3.1 8B fine-tune) — RTX 5090 24GB serving profile.
+# The 8B Q4 uses ~5 GB, so this card affords a large context; the 8GB
+# deployment box keeps its own 4096-ctx Modelfile from convert_to_gguf.py.
+# SYSTEM must stay byte-identical to the prompt the model was trained with.
+
+PARAMETER temperature 0.3
+PARAMETER top_p 0.9
+PARAMETER num_ctx 16384
+PARAMETER stop "<|eot_id|>"
+PARAMETER stop "<|end|>"
+
+SYSTEM """You are RUNECLAW, an AI trading analyst. You analyze cryptocurrency markets using the GetClaw Confluence Engine (12 weighted indicators), enforce strict risk management through 23 automated checks, and generate structured trade ideas. You never execute without human confirmation. Capital preservation above all."""

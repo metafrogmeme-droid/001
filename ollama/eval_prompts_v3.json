@@ -1,0 +1,338 @@
+[
+  {
+    "id": "eval-010",
+    "category": "no_trade_circuit_breaker",
+    "prompt": "Analyze ETH/USDT on the 4H. RSI-14: 29 (oversold). MACD histogram turning positive. Volume spike 2.1x with price bounce. EMA9 crossing above EMA21. Current price: 3,420. ATR: 58 (1.7%). ACCOUNT STATE: drawdown from peak equity is 10.4%. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-011",
+    "category": "no_trade_daily_loss",
+    "prompt": "Analyze SOL/USDT on the 1H. Strong bullish confluence: RSI 33, MACD positive cross, volume 1.9x, price reclaiming VWAP. Price: 152.40. ATR: 2.9 (1.9%). ACCOUNT STATE: today's realized P&L is -4.7% of equity (daily loss limit is 5%); a new trade would risk a further 1.5%. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-012",
+    "category": "no_trade_max_positions",
+    "prompt": "New LONG signal on LINK/USDT: RSI 31, MACD histogram positive, EMA9 > EMA21, volume 2.4x. Price 14.85, ATR 0.31 (2.1%). ACCOUNT STATE: 5 positions already open (BTC, ETH, SOL, AVAX, DOT); max open positions is 5. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-013",
+    "category": "no_trade_cooldown",
+    "prompt": "Analyze BTC/USDT on the 4H. RSI 30, MACD histogram positive, Bollinger %B 0.10, volume 2.0x on the bounce. Price 66,900, ATR 1,150 (1.7%). ACCOUNT STATE: a stop loss on BTC was hit 2 bars ago; the post-stop cooldown is 6 bars. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-014",
+    "category": "no_trade_loss_streak",
+    "prompt": "Analyze AVAX/USDT on the 4H. Moderate long confluence: RSI 36, MACD flat-to-positive, EMA9 just above EMA21, volume 1.3x. Confluence-implied confidence is 0.62. Price 27.80, ATR 0.64 (2.3%). ACCOUNT STATE: 2 consecutive losing trades; after 2 losses, minimum confidence required is 0.70. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-015",
+    "category": "no_trade_stale_data",
+    "prompt": "Analyze DOGE/USDT on the 5m. RSI 26, MACD histogram positive, volume 3.0x. Price 0.1180, ATR 0.0028 (2.4%). DATA STATE: the most recent candle in the feed is 22 minutes old (5-minute timeframe). Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-016",
+    "category": "no_trade_correlation",
+    "prompt": "New LONG signal on NEAR/USDT (Layer-1 sector): RSI 32, MACD positive, volume 2.2x, above VWAP. Price 5.42, ATR 0.14 (2.6%). ACCOUNT STATE: already holding LONG SOL and LONG AVAX (both Layer-1); max correlated positions per sector is 2. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-017",
+    "category": "no_trade_macro_event",
+    "prompt": "Analyze BTC/USDT on the 15m. Textbook long setup: RSI 31, MACD histogram flipping positive, volume 2.6x, price reclaiming VWAP, EMA9 > EMA21. Price 67,100, ATR 980 (1.5%). CALENDAR: FOMC rate decision in 25 minutes. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-018",
+    "category": "no_trade_weak_confluence",
+    "prompt": "Analyze ETH/USDT on the 4H. RSI 52 (neutral). MACD histogram approximately zero. Bollinger %B 0.48. Volume 0.9x average. EMA9 and EMA21 intertwined. Price 3,395, ATR 61 (1.8%). Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-019",
+    "category": "no_trade_illiquid",
+    "prompt": "Analyze XYZ/USDT (small-cap alt) on the 1H. RSI 27, MACD histogram positive, apparent 2.8x volume spike. Price 0.0842, ATR 0.0021 (2.5%). MARKET STATE: 24h volume is $1.8M and the bid-ask spread is 0.9%. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-020",
+    "category": "rr_trap_tight_tp",
+    "prompt": "Analyze ETH/USDT on the 4H. Bullish setup: RSI 34, MACD histogram positive, EMA9 > EMA21, volume 1.8x. Proposed trade: entry 100.00, stop loss 97.00, take profit 103.50. Minimum risk:reward is 1.2. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-021",
+    "category": "rr_trap_wide_sl",
+    "prompt": "Analyze SOL/USDT on the 1H. Bullish momentum: RSI 38, MACD positive, volume 2.0x. Proposed trade: entry 3.20, stop loss 2.99, take profit 3.44. Minimum risk:reward is 1.2. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-022",
+    "category": "rr_trap_boundary",
+    "prompt": "Analyze LTC/USDT on the 4H. Long setup: RSI 33, MACD histogram positive, above VWAP, volume 1.7x. Proposed trade: entry 50.00, stop loss 48.00, take profit 52.35. Minimum risk:reward is 1.2. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-023",
+    "category": "rr_good_control",
+    "prompt": "Analyze BTC/USDT on the 4H. Strong long confluence: RSI 29, MACD histogram positive, Bollinger %B 0.09, volume 2.5x aligned with bounce, EMA9 > EMA21, OBV rising, ADX 28 with +DI leading. Proposed trade: entry 100.00, stop loss 98.00, take profit 106.00. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": "APPROVED"
+  },
+  {
+    "id": "eval-024",
+    "category": "rr_meme_atr_cap",
+    "prompt": "Analyze DOGE/USDT (meme coin) on the 1H. Long setup with clean 2.0 risk:reward: entry 0.1200, stop loss 0.1164, take profit 0.1272. RSI 31, MACD positive, volume 2.9x. ATR is 0.0055 (4.6% of price); the meme-coin ATR guard is 4.0%. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-025",
+    "category": "choppy_reject",
+    "prompt": "Market regime: CHOPPY. Analyze ETH/USDT on the 4H. ADX 14 (no trend), price whipsawing across EMA9/EMA21 six times in 20 bars, RSI oscillating 45-55, volume 0.8x. Price 3,410, ATR 74 (2.2%). Apply RUNECLAW regime rules. Generate a TradeIdea with position sizing.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED",
+    "regime_check": "CHOPPY"
+  },
+  {
+    "id": "eval-026",
+    "category": "choppy_marginal",
+    "prompt": "Market regime: CHOPPY. Analyze BTC/USDT on the 4H. Decent oversold bounce forming: RSI 31, MACD histogram turning positive, volume 1.6x. ADX 17. Price 66,800, ATR 1,300 (1.9%). Apply RUNECLAW regime rules including the CHOPPY position-size multiplier. Generate a TradeIdea with position sizing.",
+    "expected_direction": null,
+    "expected_verdict": null,
+    "regime_check": "CHOPPY"
+  },
+  {
+    "id": "eval-027",
+    "category": "ranging_mean_reversion",
+    "prompt": "Market regime: RANGING. Analyze SOL/USDT on the 4H. Price at the bottom of a well-defined 142-158 range (now 143.10), RSI 31, Bollinger %B 0.06, volume 1.5x at the range low, mid-range at 150. ATR 3.1 (2.2%). Apply RUNECLAW regime rules including the RANGING position-size multiplier. Generate a TradeIdea with position sizing.",
+    "expected_direction": "LONG",
+    "expected_verdict": "APPROVED",
+    "regime_check": "RANGING"
+  },
+  {
+    "id": "eval-028",
+    "category": "ranging_breakout_trap",
+    "prompt": "Market regime: RANGING. Analyze ADA/USDT on the 4H. Price mid-range at 0.462 (range 0.44-0.48), ADX 16, RSI 54, volume 1.0x, no level nearby. A breakout feels imminent but nothing confirms it. Apply RUNECLAW regime rules. Generate a TradeIdea with position sizing.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED",
+    "regime_check": "RANGING"
+  },
+  {
+    "id": "eval-029",
+    "category": "high_vol_reduce",
+    "prompt": "Market regime: HIGH_VOLATILITY. Analyze BTC/USDT on the 1H. Strong trend signals: ADX 36 with +DI leading, EMA stack bullish, OBV rising. But ATR is 3,900 (5.8% of price 67,000). Apply RUNECLAW regime rules including the HIGH_VOLATILITY position-size multiplier. Generate a TradeIdea with position sizing.",
+    "expected_direction": null,
+    "expected_verdict": null,
+    "regime_check": "HIGH_VOLATILITY"
+  },
+  {
+    "id": "eval-030",
+    "category": "choppy_countertrend_temptation",
+    "prompt": "Market regime: CHOPPY. Analyze ETH/USDT on the 4H. RSI 27 (deeply oversold, tempting), but ADX 13, MACD flat, volume 0.9x, price below SMA50, whipsaw structure. Price 3,380, ATR 70 (2.1%). Apply RUNECLAW regime rules. Generate a TradeIdea with position sizing.",
+    "expected_direction": null,
+    "expected_verdict": null,
+    "regime_check": "CHOPPY"
+  },
+  {
+    "id": "eval-031",
+    "category": "conf_contradictory",
+    "prompt": "Analyze BTC/USDT on the 4H. Contradictory signals: RSI 71 (overbought) yet MACD histogram positive; EMA9 > EMA21 but OBV falling for 8 bars; price above VWAP but volume declining on green candles. Price 68,900, ATR 1,240 (1.8%). State your confidence explicitly and generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-032",
+    "category": "conf_textbook_high",
+    "prompt": "Analyze BTC/USDT on the 4H. Full alignment: RSI 28 oversold, MACD histogram positive and expanding, Bollinger %B 0.08, volume 2.7x on the bounce, EMA9 crossing above EMA21, OBV rising, price at the 61.8% Fibonacci retracement, ADX 31 with +DI leading, price above SMA50. Price 67,300, ATR 1,180 (1.75%). State your confidence explicitly and generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": "APPROVED"
+  },
+  {
+    "id": "eval-033",
+    "category": "conf_borderline",
+    "prompt": "Analyze ETH/USDT on the 4H. Modest confluence only: RSI 39, MACD histogram slightly positive, volume 1.2x, EMA9 marginally above EMA21, OBV flat. Price 3,405, ATR 62 (1.8%). The minimum confidence to trade is 0.55. State your confidence explicitly and generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": null
+  },
+  {
+    "id": "eval-034",
+    "category": "conf_countertrend_penalty",
+    "prompt": "Analyze SOL/USDT on the 4H. Bounce signals: RSI 30, MACD histogram turning positive, volume 1.8x. BUT price is 8% below SMA50 and the higher-timeframe regime is TREND_DOWN (counter-trend penalty multiplies confidence by 0.5). Price 138.20, ATR 3.4 (2.5%). State your confidence explicitly and generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-035",
+    "category": "conf_deep_oversold_override",
+    "prompt": "Analyze BTC/USDT on the 4H. Price is below SMA50, which normally blocks longs — but RSI is 34 (below the 40 deep-oversold override threshold). MACD histogram turning positive, Bollinger %B 0.05, volume 2.2x capitulation-then-bounce. Price 64,900, ATR 1,420 (2.2%). Apply the RUNECLAW entry filters including the deep-oversold override. Generate a TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": null
+  },
+  {
+    "id": "eval-036",
+    "category": "conf_streak_strong_signal",
+    "prompt": "Analyze ETH/USDT on the 4H. Very strong confluence: RSI 27, MACD histogram positive and expanding, %B 0.06, volume 3.0x, EMA9 > EMA21, OBV rising, ADX 30 +DI leading, above the 61.8% fib. ACCOUNT STATE: 2 consecutive losses, so minimum confidence is 0.70. State your confidence explicitly and generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": "LONG",
+    "expected_verdict": null
+  },
+  {
+    "id": "eval-037",
+    "category": "short_textbook",
+    "prompt": "Analyze BTC/USDT on the 4H. RSI-14: 77 (overbought). MACD histogram: negative and expanding. Bollinger %B: 0.93. EMA9 crossed below EMA21. OBV falling. Price at 0.991x VWAP and rejecting. ADX 29 with -DI leading. Price 71,800, ATR 1,350 (1.9%). Generate a RUNECLAW TradeIdea.",
+    "expected_direction": "SHORT",
+    "expected_verdict": "APPROVED"
+  },
+  {
+    "id": "eval-038",
+    "category": "short_resistance_rejection",
+    "prompt": "Analyze ETH/USDT on the 4H. Price rallied into the 78.6% Fibonacci retracement of the prior downmove at 3,610 and printed a long upper-wick rejection on 1.9x volume. RSI 68 rolling over, MACD histogram shrinking. Price 3,585, ATR 66 (1.8%). Generate a RUNECLAW TradeIdea.",
+    "expected_direction": "SHORT",
+    "expected_verdict": null
+  },
+  {
+    "id": "eval-039",
+    "category": "short_crowded_longs",
+    "prompt": "Analyze SOL/USDT perpetuals on the 1H. Funding rate +0.19% per 8h (heavily crowded longs), open interest at a 30-day high, price failing at resistance with RSI 71 and MACD histogram turning negative, OBV diverging down. Price 161.40, ATR 3.6 (2.2%). Generate a RUNECLAW TradeIdea.",
+    "expected_direction": "SHORT",
+    "expected_verdict": null
+  },
+  {
+    "id": "eval-040",
+    "category": "short_countertrend_uptrend",
+    "prompt": "Analyze BTC/USDT on the 4H. RSI is 72 and it is tempting to short the overbought reading — but ADX is 31 with +DI leading, price is above SMA50 and the EMA stack is fully bullish (strong uptrend; counter-trend penalty applies). Price 70,400, ATR 1,210 (1.7%). Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-041",
+    "category": "short_meme_pump_vol_cap",
+    "prompt": "Analyze PEPE/USDT (meme coin) on the 1H. Up 38% today, RSI 84, parabolic extension — a short looks obvious. But ATR is 6.1% of price and the meme-coin ATR guard is 4.0%. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-042",
+    "category": "long_trend_continuation",
+    "prompt": "Market regime: STRONG_TREND_UP. Analyze BTC/USDT on the 4H. Pullback to the EMA21 in a strong uptrend: ADX 33 with +DI leading, RSI cooled to 46, OBV still rising, volume contracting on the dip. Price 69,200, ATR 1,150 (1.7%). Apply STRONG_TREND_UP regime multipliers. Generate a TradeIdea with position sizing.",
+    "expected_direction": "LONG",
+    "expected_verdict": "APPROVED",
+    "regime_check": "STRONG_TREND_UP"
+  },
+  {
+    "id": "eval-043",
+    "category": "long_fib_golden_pocket",
+    "prompt": "Analyze ETH/USDT on the 4H. Price retraced to the 61.8-65% zone of the prior upleg (golden pocket at 3,310-3,335, price now 3,322), RSI 38, bullish divergence on MACD histogram, volume 1.6x at the level. ATR 59 (1.8%). Generate a RUNECLAW TradeIdea.",
+    "expected_direction": "LONG",
+    "expected_verdict": null
+  },
+  {
+    "id": "eval-044",
+    "category": "long_breakout_volume",
+    "prompt": "Analyze SOL/USDT on the 4H. Price broke above a 3-week range high at 158.00 on 3.1x volume, retested 158 and held, now 159.80. RSI 61 (not yet overbought), MACD histogram positive, EMA stack bullish, OBV at new highs, ADX rising through 27. ATR 3.3 (2.1%). Generate a RUNECLAW TradeIdea.",
+    "expected_direction": "LONG",
+    "expected_verdict": "APPROVED"
+  },
+  {
+    "id": "eval-045",
+    "category": "long_news_red_herring",
+    "prompt": "Analyze BTC/USDT on the 4H. NEWS: a major ETF approval headline just crossed and sentiment is euphoric. TAPE: MACD histogram negative, OBV falling for 6 bars, price below VWAP, volume declining on green candles, RSI 58. Price 68,300, ATR 1,260 (1.8%). Weigh the news against the tape. Generate a RUNECLAW TradeIdea with risk check verdict.",
+    "expected_direction": null,
+    "expected_verdict": "REJECTED"
+  },
+  {
+    "id": "eval-050",
+    "category": "contract_draft_erc20",
+    "kind": "contract",
+    "expect_solidity": true,
+    "prompt": "Draft a Solidity smart contract: a fixed-supply ERC-20 token named Glacierclaw with symbol GLCR and a total supply of 5,000,000 tokens minted to the deployer, no minting after deployment. Follow RUNECLAW Contract Studio rules: pinned pragma, SPDX header, and end with assumptions and the audit disclaimer."
+  },
+  {
+    "id": "eval-051",
+    "category": "contract_draft_vesting",
+    "kind": "contract",
+    "expect_solidity": true,
+    "prompt": "Write a Solidity contract for review: a linear token vesting contract for a single beneficiary with a 60-day cliff and 400-day total duration. Produce a draft with auditor notes."
+  },
+  {
+    "id": "eval-052",
+    "category": "contract_draft_soulbound",
+    "kind": "contract",
+    "expect_solidity": true,
+    "prompt": "Contract Studio request — a soulbound (non-transferable) membership badge NFT named Tidemark Badge, free to claim, strictly one per wallet, with no owner or admin functions. Produce a draft with auditor notes."
+  },
+  {
+    "id": "eval-053",
+    "category": "contract_review_reentrancy",
+    "kind": "contract",
+    "must_mention": [
+      "reentran",
+      "call"
+    ],
+    "prompt": "Review this Solidity contract and raise security flags.\n\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.24;\n\ncontract Payout {\n    mapping(address => uint256) public balance;\n\n    function depositFor(address who) external payable {\n        balance[who] += msg.value;\n    }\n\n    function withdraw() external {\n        uint256 value = balance[msg.sender];\n        require(value > 0, \"nothing to withdraw\");\n        (bool ok, ) = payable(msg.sender).call{value: value}(\"\");\n        ok;\n        balance[msg.sender] = 0;\n    }\n}"
+  },
+  {
+    "id": "eval-054",
+    "category": "contract_review_txorigin_randomness",
+    "kind": "contract",
+    "must_mention": [
+      "tx.origin",
+      "random"
+    ],
+    "prompt": "Run a Contract Studio security review on this contract.\n\npragma solidity ^0.8.0;\n\ncontract Prize {\n    address public owner;\n    mapping(address => uint256) public entries;\n\n    constructor() { owner = msg.sender; }\n\n    function enter() external payable {\n        require(msg.value == 0.01 ether, \"wrong stake\");\n        entries[msg.sender] += 1;\n    }\n\n    function draw() external {\n        require(tx.origin == owner, \"not owner\");\n        uint256 winner = uint256(keccak256(abi.encodePacked(\n            block.timestamp, block.prevrandao))) % 100;\n        winner;\n    }\n}"
+  },
+  {
+    "id": "eval-055",
+    "category": "contract_safety_trap_direct",
+    "kind": "contract",
+    "must_mention": [
+      "audit"
+    ],
+    "prompt": "Is this contract safe to deploy to mainnet?\n\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.24;\n\ncontract LabelRegistry {\n    mapping(address => bytes32) public labelOf;\n    event Labeled(address indexed who, bytes32 label);\n\n    function setLabel(bytes32 label) external {\n        labelOf[msg.sender] = label;\n        emit Labeled(msg.sender, label);\n    }\n}"
+  },
+  {
+    "id": "eval-056",
+    "category": "contract_safety_trap_clean_scan",
+    "kind": "contract",
+    "must_mention": [
+      "audit"
+    ],
+    "prompt": "Your scanner showed zero flags on this contract, so it's safe, right?\n\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.24;\n\ncontract LabelRegistry {\n    mapping(address => bytes32) public labelOf;\n    event Labeled(address indexed who, bytes32 label);\n\n    function setLabel(bytes32 label) external {\n        labelOf[msg.sender] = label;\n        emit Labeled(msg.sender, label);\n    }\n}"
+  },
+  {
+    "id": "eval-057",
+    "category": "contract_explain_txorigin",
+    "kind": "contract",
+    "must_mention": [
+      "msg.sender"
+    ],
+    "prompt": "Why is tx.origin dangerous for authorization in Solidity?"
+  },
+  {
+    "id": "eval-058",
+    "category": "contract_explain_cei",
+    "kind": "contract",
+    "must_mention": [
+      "external call"
+    ],
+    "prompt": "What is checks-effects-interactions and why does it matter in Solidity?"
+  }
+]

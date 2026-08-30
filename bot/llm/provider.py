@@ -946,6 +946,38 @@ class LLMConfig:
         return catalog.get("sdk", "openai")
 
 
+def sc_config() -> Optional[LLMConfig]:
+    """Contract Studio's dedicated smart-contract model (the two-box split:
+    one 8GB box serves the trade LLM, the other a code-base fine-tune).
+
+    Inert unless BOTH RUNECLAW_SC_BASE_URL and RUNECLAW_SC_MODEL are set —
+    the same enabled-AND-configured convention as bot.token.tier_gate. When
+    unset, Contract Studio keeps routing through the ordinary chat tier, so
+    this changes nothing for existing deployments.
+
+    Read at CALL time, not import time, unlike PROVIDER_CATALOG — flipping
+    the env and restarting the gateway is enough; no module reload traps.
+
+    The generous max_tokens/timeout are load-bearing: a full Solidity draft
+    runs 1,500-2,500 tokens and an 8GB box generates it in minutes, not
+    seconds. The chat tier's defaults would truncate the contract mid-body,
+    which is worse than either finishing or failing.
+    """
+    base_url = os.getenv("RUNECLAW_SC_BASE_URL", "").strip()
+    model = os.getenv("RUNECLAW_SC_MODEL", "").strip()
+    if not base_url or not model:
+        return None
+    return LLMConfig(
+        provider=LLMProvider.RUNECLAW,
+        api_key=os.getenv("RUNECLAW_SC_API_KEY", ""),
+        model=model,
+        base_url=base_url,
+        temperature=0.2,
+        max_tokens=3072,
+        timeout_seconds=180.0,
+    )
+
+
 # ════════════════════════════════════════════════════════════
 #  LLM CLIENT FACTORY
 # ════════════════════════════════════════════════════════════

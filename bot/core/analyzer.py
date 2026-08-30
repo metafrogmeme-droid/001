@@ -3902,6 +3902,21 @@ class Analyzer:
             result["source"] = "RULE_ENGINE"
             return result
 
+        # LLM_BACKGROUND_SCANS=off: route BACKGROUND sweep analyses (no
+        # user_id — engine-initiated) to the rule engine while keeping every
+        # user-invoked analysis on the LLM. The valve exists because a full
+        # sweep (~85 candidates, one call every 3-4s) is more volume than a
+        # single serving GPU can absorb — with training sharing the card it
+        # produced a timeout storm that flapped the brain OFFLINE/online and
+        # doubled training time. Default ON preserves historical behavior.
+        if user_id is None and os.getenv(
+                "LLM_BACKGROUND_SCANS", "on").strip().lower() in ("off", "false", "0"):
+            result = self._rule_based_thesis(signal, indicators)
+            if result is None:
+                return None
+            result["source"] = "RULE_ENGINE_BG_THROTTLE"
+            return result
+
         # ── Optimization 1: Semantic Cache ──
         # Scope the key by the answering model's routing identity (default OFF →
         # byte-identical) so an admin/premium/BYOK thesis (or a tier-1 rule
