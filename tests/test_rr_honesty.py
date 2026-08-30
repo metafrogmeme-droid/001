@@ -187,6 +187,7 @@ class TestReachedThroughTheChatSeam:
 
     def test_chat_ret_still_returns_meta_when_asked(self):
         from types import SimpleNamespace
+
         from bot.skills.telegram_handler import _chat_ret
         cfg = SimpleNamespace(provider=SimpleNamespace(value="runeclaw"),
                               model="v12-14b")
