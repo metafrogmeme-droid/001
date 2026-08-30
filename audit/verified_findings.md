@@ -1558,3 +1558,99 @@ Every one is the repo's own rule on the operator's own console:
 Five of the six HIGHs in the final batch are the same shape — *unreadable
 rendered as a confident value* — on the screen an operator watches while real
 money moves.
+
+---
+
+# RC-2026-024 — the secret scanner reports another branch's leak as this PR's
+
+- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED (mechanism)
+  / NEEDS_RUNTIME_VALIDATION (the specific leak)
+- **Fix class**: REVIEW_REQUIRED — no fix pushed; this changes a security gate
+- **Dimension**: infra-cicd · **File**: `.github/workflows/ci.yml:482-500`
+- **Standard**: NIST SSDF PS.1 / PW.7; CWE-1120 (excessive code complexity in a
+  control) is a poor fit — the closer statement is that a control whose alarms
+  are unattributable is a control people learn to ignore.
+
+**Found by tripping over it.** `Secret scan (gitleaks)` failed on this PR's head
+`97476bd`, and the two steps in that one job disagreed with each other:
+
+| step | scope | gitleaks | result |
+|---|---|---|---|
+| pull-request scope | `c40c4d6^..97476bd`, 2 commits, 60,170 B | 8.24.3 | **no leaks found** |
+| full history | (see below) | 8.28.0 | **leaks found: 1** → exit 1 |
+
+**Reproduction** — CI's own pinned binary, downloaded and checksum-verified
+against the workflow's own pin (`a65b5253…40ae`, `sha256sum -c` → `OK`), with
+the repo's `.gitleaks.toml` and `--baseline-path .gitleaks-history-baseline.json`:
+
+```
+$ gitleaks git --log-opts="c40c4d6^..97476bd" .   2 commits,     60,170 B  -> no leaks found
+$ gitleaks git --log-opts="97476bd" .          1037 commits, 86,063,153 B  -> no leaks found
+$ gitleaks git --log-opts="990ef73" .          1037 commits, 86,063,153 B  -> no leaks found
+$ gitleaks git .            (all refs)         1039 commits, 86,080,867 B  -> no leaks found
+$ git fetch <url> refs/pull/237/merge
+$ gitleaks git --log-opts="$(git rev-parse FETCH_HEAD)" .
+                                               1037 commits               -> no leaks found
+```
+
+The 2-commit scan is **byte-identical** to CI's own PR-scope scan (60,170 B), and
+the all-refs scan is byte-identical to CI's **main** run 567 (1039 commits,
+86,080,867 B, no leaks). So the local environment reproduces CI exactly; it is
+not a version or configuration difference.
+
+CI's **PR** run 566 on the same content reported **1079 commits, 86,367,776 B** —
+40 commits and 287 KB that neither this branch's history nor main's contains.
+
+**Root cause (confirmed):** `gitleaks git .` with no `--log-opts` scans **every
+ref in the checkout**, not the history of the commit under test. The 1037 → 1039
+delta above is exactly the two then-unmerged commits on an unrelated branch
+(`claude/new-session-fk85gd`), and nothing else. `actions/checkout` with
+`fetch-depth: 0` fetches every branch, so the scan's subject is "the repository
+as the runner happened to see it", not "this pull request".
+
+**Consequence:** one leak on any branch anybody pushes turns this check red on
+every open PR and names a commit the PR never touched — while the PR-scope step
+sitting directly above it says *"✅ No leaks detected"*. That is the failure mode
+`ci.yml`'s own comment says the `pull_request` gating exists to prevent: *"A step
+that is guaranteed red on a whole class of events carries no signal and trains
+people to click past the scanner."* Same hazard, reached by the other door.
+
+**What is NOT established.** The specific leaking commit is not identified, and
+this finding does not claim there was no real secret. Output is `--redact`ed, the
+report names a fingerprint the baseline does not hold, and the refs carrying
+those 40 commits are no longer reachable — so the evidence is gone. Two facts are
+consistent with the mechanism above and neither proves it: run 565, on the
+unrelated branch `claude/runeclaw-llm-rtx-setup-hwvebb`, failed the same check in
+the same minute; main passed it 23 minutes later. **If a real credential was
+briefly pushed on a branch, it is still in that branch's objects until GitHub
+garbage-collects them, and this finding must not be read as an all-clear.**
+
+**Remediation.** Scope the full-history step to the commit under test:
+
+```yaml
+./gitleaks git \
+  --config .gitleaks.toml \
+  --baseline-path .gitleaks-history-baseline.json \
+  --log-opts="HEAD" \
+  --redact --no-banner .
+```
+
+A PR is then judged on its own history, which is the question the step's comment
+says it is asking (*"is anything still reachable in this repository's history"* —
+of **this** ref). The all-refs sweep keeps real value, but as a scheduled job or
+on `push` to main, where a red result is actionable by whoever can act on it.
+Pair it with a fingerprint the operator can act on: the current step prints a
+redacted count and no location, so the reader cannot tell a real incident from
+this one.
+
+**Test.** `.github/workflows/` has no test harness, so the assertion belongs with
+the other CI-parity checks in `tests/test_preflight_matches_ci.py`: parse the
+`secrets` job and assert the full-history step passes an explicit `--log-opts`,
+with the reason in the failure message.
+
+**Residual risk.** Scoping to `HEAD` means a secret pushed on a branch that is
+never merged is not caught by PR CI. That is the correct trade — it was never
+that step's job, the branch-tip sweep belongs on a schedule, and GitHub's own
+push protection covers the push itself.
+
+**Rollback.** Delete the `--log-opts` line. One line, no state.
