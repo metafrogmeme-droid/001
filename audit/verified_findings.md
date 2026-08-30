@@ -1140,21 +1140,36 @@ verified normally; only the delivery was lost.
 Full detail in `audit/workflow_raw_findings.md` as **B3-01 … B3-22**. The four
 at HIGH:
 
-**RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment.**
+## RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: browser-sec · **Raw**: `B3-01`
+
 That token carries trade-confirm, close and halt authority. A URL fragment
 survives in browser history, is readable by any script on the page, and leaks
 through anything that reflects `location`. `browser-sec`, HIGH.
 
-**RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready`
-and `/metrics` publish a permanent HEALTHY.** A monitor with no input reporting
+## RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready` and `/metrics` publish a permanent HEALTHY
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py · **Raw**: `B5-27`
+ A monitor with no input reporting
 the good state is the exact failure CLAUDE.md's rule describes, on the endpoints
 an operator and any uptime checker consult first. `honesty-py`, HIGH.
 
-**RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a
-complete $0.00 account statement** — cash, equity and the rest, presented as a
+## RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a complete $0.00 account statement
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py
+ — cash, equity and the rest, presented as a
 measurement. `honesty-py`, HIGH.
 
-**RC-2026-016 — the web gateway reports `unprotected: false` for a live position
+## RC-2026-016 — the web gateway reports `unprotected: false` for a live position
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py
+
+
 that has no stop at all.** This is the inverse of the finding CLAUDE.md already
 records about `sl_order` being three-valued: there, an unreadable stop rendered
 as "SL None" and alarmed the operator wrongly; here a genuinely absent stop
@@ -1544,3 +1559,507 @@ manifest, and its own engine.
 
 I am recording nine rather than three because I ran the count. The finding was
 right and understated.
+
+---
+
+# Batch 7 (final) — frontend-correctness, contracts
+
+**18 raw · 15 CONFIRMED · 1 SUSPECTED · 2 REFUTED.** Mix: 1 CRITICAL (verifiers
+say HIGH), 5 HIGH, 5 MEDIUM, 2 LOW, 2 INFORMATIONAL. **This completes all 26
+dimensions.**
+
+Two findings were refuted by both verifiers and are recorded as such: the claim
+that the Authority Envelope applies no notional ceiling to `transfer`/`withdraw`,
+and that `reject_hazardous_extensions` is a deny-list with a catch-all.
+
+## RC-2026-023 — the operator's live dashboard says SIMULATION while trading live
+
+- **Status**: OPEN · **Severity**: HIGH (finder said CRITICAL; both verifiers
+  downgraded, and I agree with them)
+- **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/web/dashboard.html:417-419` (markup), `:718-771` (`updateEngine`)
+
+The badge is hardcoded:
+
+```html
+<span class="header-badge badge-sim" id="modeBadge">
+  <span class="status-dot dot-amber" id="statusDot"></span>
+  SIMULATION
+</span>
+```
+
+`grep -n "simulation" bot/web/dashboard.html` returns nothing — the client never
+reads the field. `.badge-live` exists in the CSS at `:97-101` and is reachable
+from no code path.
+
+**The server half was already fixed.** `dashboard_server.py:84-97` carries an
+`RC-AUD-016` comment saying exactly this: *"report the REAL trading mode, not a
+hardcoded True. A hardcoded `simulation_mode: True` made the dashboard show
+paper mode even while trading live with real capital."* It now sends
+`simulation_mode: false` correctly. The client was never wired to it.
+
+So the fix is present in the payload and unreachable from the UI — which, by
+this repo's own reachability rule, is indistinguishable from not being there.
+And the connection dot nested *inside* the badge does update, so a live engine
+renders as a **green-dot "SIMULATION"** badge: the colour says healthy, the word
+says no money at risk, and both are wrong together.
+
+**Why HIGH and not CRITICAL** — both verifiers made the same point independently
+and it is correct: this is a display-only operator console behind a Bearer
+token, no trading decision is gated on it, and the operator learns the mode
+elsewhere (`bot/main.py:47` prints it at boot; `telegram_handler.py:1275`
+derives LIVE/PAPER/IDLE from `CONFIG.is_live()`). The lie points the dangerous
+way, so HIGH rather than MEDIUM.
+
+The remediation needs **three** states, not two, because
+`dashboard_server.py:98-99` has a branch emitting `{"state": "UNKNOWN"}` with no
+`simulation_mode` key at all: `true` → SIMULATION, `false` → LIVE, anything else
+→ MODE UNKNOWN with a neutral colour.
+
+## The other confirmed HIGHs — all the same defect class
+
+Every one is the repo's own rule on the operator's own console:
+
+- **A swallowed positions-read exception renders as "No open positions"**
+  (`dashboard_server.py:151-167` — `except Exception: pass`, then HTTP 200 with
+  `[]`). `user_gateway.py:1667-1670` returns `503 positions_unavailable` for the
+  same data, so the correct pattern exists in the codebase already.
+- **"CIRCUIT BREAKER: OK" painted green from an absent reading.**
+- **"Daily: +0.00%" in green with 0 open positions** from unreadable data.
+- **The chat drawer stamps a confident PAPER badge** on a portfolio payload it
+  could not classify.
+- `contracts`: the Solana delegate scan queries only the legacy SPL Token
+  program, missing Token-2022 delegates (verifiers: MEDIUM).
+
+Five of the six HIGHs in the final batch are the same shape — *unreadable
+rendered as a confident value* — on the screen an operator watches while real
+money moves.
+
+---
+
+## RC-2026-024 — the secret scanner reports another branch's leak as this PR's
+
+- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED (mechanism)
+  / NEEDS_RUNTIME_VALIDATION (the specific leak)
+- **Fix class**: REVIEW_REQUIRED — no fix pushed; this changes a security gate
+- **Dimension**: infra-cicd · **File**: `.github/workflows/ci.yml:482-500`
+- **Standard**: NIST SSDF PS.1 / PW.7; CWE-1120 (excessive code complexity in a
+  control) is a poor fit — the closer statement is that a control whose alarms
+  are unattributable is a control people learn to ignore.
+
+**Found by tripping over it.** `Secret scan (gitleaks)` failed on this PR's head
+`97476bd`, and the two steps in that one job disagreed with each other:
+
+| step | scope | gitleaks | result |
+|---|---|---|---|
+| pull-request scope | `c40c4d6^..97476bd`, 2 commits, 60,170 B | 8.24.3 | **no leaks found** |
+| full history | (see below) | 8.28.0 | **leaks found: 1** → exit 1 |
+
+**Reproduction** — CI's own pinned binary, downloaded and checksum-verified
+against the workflow's own pin (`a65b5253…40ae`, `sha256sum -c` → `OK`), with
+the repo's `.gitleaks.toml` and `--baseline-path .gitleaks-history-baseline.json`:
+
+```
+$ gitleaks git --log-opts="c40c4d6^..97476bd" .   2 commits,     60,170 B  -> no leaks found
+$ gitleaks git --log-opts="97476bd" .          1037 commits, 86,063,153 B  -> no leaks found
+$ gitleaks git --log-opts="990ef73" .          1037 commits, 86,063,153 B  -> no leaks found
+$ gitleaks git .            (all refs)         1039 commits, 86,080,867 B  -> no leaks found
+$ git fetch <url> refs/pull/237/merge
+$ gitleaks git --log-opts="$(git rev-parse FETCH_HEAD)" .
+                                               1037 commits               -> no leaks found
+```
+
+The 2-commit scan is **byte-identical** to CI's own PR-scope scan (60,170 B), and
+the all-refs scan is byte-identical to CI's **main** run 567 (1039 commits,
+86,080,867 B, no leaks). So the local environment reproduces CI exactly; it is
+not a version or configuration difference.
+
+CI's **PR** run 566 on the same content reported **1079 commits, 86,367,776 B** —
+40 commits and 287 KB that neither this branch's history nor main's contains.
+
+**Root cause (confirmed):** `gitleaks git .` with no `--log-opts` scans **every
+ref in the checkout**, not the history of the commit under test. The 1037 → 1039
+delta above is exactly the two then-unmerged commits on an unrelated branch
+(`claude/new-session-fk85gd`), and nothing else. `actions/checkout` with
+`fetch-depth: 0` fetches every branch, so the scan's subject is "the repository
+as the runner happened to see it", not "this pull request".
+
+**Consequence:** one leak on any branch anybody pushes turns this check red on
+every open PR and names a commit the PR never touched — while the PR-scope step
+sitting directly above it says *"✅ No leaks detected"*. That is the failure mode
+`ci.yml`'s own comment says the `pull_request` gating exists to prevent: *"A step
+that is guaranteed red on a whole class of events carries no signal and trains
+people to click past the scanner."* Same hazard, reached by the other door.
+
+**What is NOT established.** The specific leaking commit is not identified, and
+this finding does not claim there was no real secret. Output is `--redact`ed, the
+report names a fingerprint the baseline does not hold, and the refs carrying
+those 40 commits are no longer reachable — so the evidence is gone. Two facts are
+consistent with the mechanism above and neither proves it: run 565, on the
+unrelated branch `claude/runeclaw-llm-rtx-setup-hwvebb`, failed the same check in
+the same minute; main passed it 23 minutes later. **If a real credential was
+briefly pushed on a branch, it is still in that branch's objects until GitHub
+garbage-collects them, and this finding must not be read as an all-clear.**
+
+**Remediation.** Scope the full-history step to the commit under test:
+
+```yaml
+./gitleaks git \
+  --config .gitleaks.toml \
+  --baseline-path .gitleaks-history-baseline.json \
+  --log-opts="HEAD" \
+  --redact --no-banner .
+```
+
+A PR is then judged on its own history, which is the question the step's comment
+says it is asking (*"is anything still reachable in this repository's history"* —
+of **this** ref). The all-refs sweep keeps real value, but as a scheduled job or
+on `push` to main, where a red result is actionable by whoever can act on it.
+Pair it with a fingerprint the operator can act on: the current step prints a
+redacted count and no location, so the reader cannot tell a real incident from
+this one.
+
+**Test.** `.github/workflows/` has no test harness, so the assertion belongs with
+the other CI-parity checks in `tests/test_preflight_matches_ci.py`: parse the
+`secrets` job and assert the full-history step passes an explicit `--log-opts`,
+with the reason in the failure message.
+
+**Residual risk.** Scoping to `HEAD` means a secret pushed on a branch that is
+never merged is not caught by PR CI. That is the correct trade — it was never
+that step's job, the branch-tip sweep belongs on a schedule, and GitHub's own
+push protection covers the push itself.
+
+**Rollback.** Delete the `--log-opts` line. One line, no state.
+
+## Confirmed by the experiment I could not run at the time
+
+The finding above was written from a local reproduction plus an inference: that
+the 40 extra commits came from refs the runner held at 08:17 and no longer
+holds. CI has now run the identical check on the same branch, and the inference
+is confirmed.
+
+| run | head | commits | bytes | verdict |
+|---|---|---|---|---|
+| 08:17 | `97476bd` | 1,079 | 86,367,776 | **leaks found: 1** → exit 1 |
+| 11:37 | `ec6b977` | **1,081** | **86,427,022** | **no leaks found** |
+
+Nothing about the scanner changed between them: same pinned 8.28.0, same
+`.gitleaks.toml`, same `--baseline-path`, same runner image, same `git 2.55.0`.
+Nothing about the branch's own history was removed — it **grew** by two commits,
+and the second run scanned 2 more commits and 59 KB more content than the one
+that failed.
+
+So the scan that saw MORE was clean and the scan that saw LESS was not. That is
+only possible if the offending content was never in the set under test, and the
+whole delta is what else happened to be in the runner's checkout at the time.
+The mechanism is no longer an inference: **this check's verdict depends on which
+branches exist when it runs.**
+
+It also settles the direction. A green result here is not evidence that the
+history is clean — it is evidence that whatever tripped the scanner at 08:17 is
+no longer reachable from any ref the runner fetched. Those are different claims,
+and the check reports them identically. **The caveat above therefore stands
+unchanged**: the leak was never identified, the fingerprint is not in the
+baseline, and a credential briefly pushed on a branch survives in that branch's
+objects until GitHub garbage-collects them. A gate that goes green because
+evidence became unreachable is the same shape as every other finding in this
+audit — absent read as clean.
+
+Confidence on the mechanism: **CONFIRMED**. Confidence on the specific leak:
+unchanged at `NEEDS_RUNTIME_VALIDATION`, and no longer obtainable from CI.
+
+---
+
+# RC-2026-001 — `/api/auth/validate-token` is unauthenticated and it WRITES
+
+- **Status**: FIXED · **Severity**: CRITICAL · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED — it changes an auth boundary and it has a
+  deploy-ordering constraint (below)
+- **Dimension**: web-authz · **File**: `app/auth.js:903-935` (before the fix)
+- **Standard**: OWASP API Top 10 API2:2023 (Broken Authentication) and API5:2023
+  (Broken Function Level Authorization); ASVS V4.1.1; CWE-306 (Missing
+  Authentication for a Critical Function), CWE-639 (Authorization Bypass
+  Through User-Controlled Key)
+
+**What it did.** Anyone on the internet could POST `{token, chat_id}` and the
+route would, with no credential of any kind:
+
+1. look the account up by `link_token`;
+2. **consume** the token;
+3. **set `telegram_id` to the caller-supplied `chat_id`** and
+   `telegram_linked = TRUE`; and
+4. return the account's `user_id`, `email` and `plan`.
+
+**The exemption argued the read, and the route is a write.** `guard_lint`
+carried it in `express-mixed-module-routes` with the reason *"answers 'is this
+token valid' — the token IS the credential being checked"*. That is a sound
+argument about a lookup. It is not an argument about binding a Telegram account
+to somebody's row and handing back their email. The exemption is deleted, not
+reworded, in the same commit as the gate.
+
+**The codebase already knew the rule.** Two entries below it in the same list
+sits `auth.js:POST /wallet/link-by-code`, whose comment reads: *"Refuses if the
+wallet is already on another account."* And `app/auth.js:1110-1115` implements
+it:
+
+```js
+// A wallet identifies at most one account (it is also a login key).
+const [rows] = await pool.execute(
+  'SELECT id FROM users WHERE wallet_address = ? LIMIT 1', [lower]);
+if (rows.length && rows[0].id !== req.user.user_id) {
+  return res.status(409).json({ error: 'That wallet is already linked to another account.' });
+}
+```
+
+`telegram_id` had no equivalent. It also had no unique index, while
+`wallet_address`, `referral_code` and `leaderboard_handle` all do
+(`app/db.js:2309`, `:2339`, `:2347`). So **two rows could hold the same
+chat_id**, and every resolver takes the first match — `app/db.js:1492`
+(`WHERE telegram_id = ?`) and the tier sync at `:1749`
+(`this.users.find(x => String(x.telegram_id) === String(params[1]))`). Which
+account a user's tier, trades and exchange credentials attached to would depend
+on row order.
+
+**Not a brute-force finding.** `link-token` mints
+`crypto.randomBytes(16).toString('hex')` with a 10-minute TTL
+(`app/auth.js:889-890`) — 128 bits is not guessable, and saying otherwise would
+overstate it. The exposure is every path by which a 10-minute token reaches a
+second pair of eyes: pasted into the wrong chat, screenshotted, in a proxy log,
+or simply raced. Against an anonymous endpoint, one such token was a complete
+account bind plus an email disclosure.
+
+## The fix
+
+Four parts, and the fourth is the one that keeps the other three honest.
+
+1. **`app/lib/bot_auth.js`** — `botAuth` extracted from `app/routes/sync.js`,
+   which has used it since the sync endpoints existed. Extracted rather than
+   rewritten: a second constant-time comparison is one that can drift into not
+   being constant-time with nothing noticing. It now reads
+   `process.env.BOT_SYNC_SECRET` **per request** instead of at module scope, so
+   whether the channel works no longer depends on import order versus the vault
+   restore. All 31 tests that set the variable set it before requiring the
+   router, so none change.
+2. **`app/auth.js`** — the route takes `botAuth` as middleware, and refuses a
+   `chat_id` already bound to a different row with a **409, before the write**,
+   so a refusal does not burn the token and the legitimate owner can retry.
+3. **`app/db.js`** — `CREATE UNIQUE INDEX idx_users_telegram_id`. Deliberately
+   **not** wrapped in the bare `catch (e) { /* exists */ }` its neighbours use:
+   on a live table that already holds duplicates this fails `ER_DUP_ENTRY`, and
+   swallowing that leaves no index while the code reads as though there is one.
+   It distinguishes "already created" from "could not create" and says which,
+   naming the manual reconciliation. An absent constraint reported as a present
+   one is the defect this repository exists to prevent.
+4. **`scripts/guard_lint.py`** — the exemption removed. Without this the rule
+   keeps reporting the route as covered and the fix is unverifiable from
+   outside.
+
+Plus `bot/skills/user_middleware.py:198` sends `X-Bot-Secret`, reusing
+`BOT_SYNC_SECRET` rather than minting a second credential to rotate. An unset
+secret is **logged by name and the header omitted** rather than sent blank — a
+blank fails the comparison exactly like a wrong one, so the operator would read
+"invalid bot secret" for "this bot has none".
+
+**`botAuth` is named as middleware rather than open-coded on purpose.**
+`guard_lint`'s rule matches `authMiddleware|optionalAuth|botAuth`, so naming it
+is what makes the exemption *deletable*. Open-coding the same check would have
+left the route flagged and invited a reworded exemption — the defect wearing a
+different hat.
+
+## ⚠ Deploy order: **bot first, then app**
+
+`app/` and `bot/` deploy to separate targets. A new bot against an old server
+sends a header the old server ignores — harmless. **Reversed, every `/link`
+returns 403.** Merging this is not the same as being safe to deploy in either
+order.
+
+## Validation
+
+| gate | result |
+|---|---|
+| `app/test/link_binding_is_bot_authenticated.test.js` | 6/6 |
+| full app suite | **3,607 passed, 0 failed** |
+| `tests/test_link_sends_the_bot_secret.py` | 4/4 |
+| `guard_lint.py` | 12/12 rules, `express-mixed-module-routes` 196/225 |
+| `ruff_gate.py` | 1257 == baseline |
+
+**Four mutations, all killed** — a test that passes against the reverted code
+proves nothing:
+
+| mutation | caught by |
+|---|---|
+| drop `botAuth` from the route | 3 test failures |
+| drop the already-bound check | 1 failure |
+| move the check *after* the write | 1 failure — the token is burned |
+| exemption removed, route left unguarded | `guard_lint` ✗, naming the route |
+
+**A defect in the test found first.** Its seeding used one combined
+`UPDATE ... SET link_token = ?, link_token_expires = ?, telegram_id = ? WHERE id = ?`.
+`app/db.js`'s in-memory shim pattern-matches SQL and reads parameters
+positionally, so that statement matched its `UPDATE USERS SET LINK_TOKEN`
+branch, misread `params[2]` as the user id, found nobody, and **silently seeded
+nothing**. Four tests failed with a 404 that had nothing to do with the route.
+The shim's supported statements are used now, with the reason recorded in the
+file.
+
+## Residual risk
+
+The 503 branch in `botAuth` is not reachable through a normal boot —
+`app/server.js` refuses to start without `BOT_SYNC_SECRET`. It is reachable
+when the router is mounted by something that is not `server.js`, which is what
+every test suite does, and it costs one branch. Stated rather than presented as
+production protection.
+
+The unique index does not repair pre-existing duplicates; it refuses new ones
+and reports loudly if it could not be created. Any account already sharing a
+chat_id needs a human decision about which one owns it.
+
+## Rollback
+
+Revert the four files. The index survives a revert and is harmless on its own —
+it enforces a property the application would then no longer depend on. Dropping
+it (`DROP INDEX idx_users_telegram_id ON users`) is separate and optional.
+
+---
+
+## Correction — the confirmed-finding count was 177 and it is 162
+
+I reported **177 confirmed findings** in the batch-7 commit message
+(`97476bd`), in the PR description, and in every status update after batch 7.
+The number is wrong. Counted from the batch summaries in
+`audit/workflow_raw_findings.md`:
+
+| batch | raw | CONFIRMED | SUSPECTED | REFUTED |
+|---|---|---|---|---|
+| money-path (`M-*`) | 27 | 25 | 0 | 2 |
+| 3 (`B3-*`) | 22 | 22 | 0 | 0 |
+| 4 (`B4-*`) | 33 | 31 | 2 | 0 |
+| 5 (`B5-*`) | 33 | 31 | 2 | 0 |
+| 6 (`B6-*`) | 39 | 38 | 1 | 0 |
+| 7 (`B7-*`) | 18 | 15 | 1 | 2 |
+| **total** | **172** | **162** | **6** | **4** |
+
+162 is also exactly the number of finding blocks written in that file, which is
+the independent check: only CONFIRMED findings get a block, so the two counts
+have to agree, and they do.
+
+Separately there are **22 `W-*` items** from the first, rate-limited run that
+never went through a refutation pass at all. They are not confirmed and were
+never included in the total.
+
+**Where 177 came from.** A running total I carried forward by hand across seven
+batch reports instead of recounting. Every individual batch figure I published
+was right; the sum was not, and nothing recomputed it because it lived in prose.
+
+That is this repository's own stated lesson — *"a number in prose is the part
+that rots first"*, the sentence justifying why `tests/test_claude_md_accuracy.py`
+pins the gate count in `CLAUDE.md` — committed by the person auditing for it,
+in the headline figure of a security audit, five times in a row.
+
+**The structural fix, not just the number.** `audit/generate_artifact.py` now
+derives the release decision from the findings list rather than restating it,
+derives the dimension total from the two coverage lists with an overlap
+assertion, and counts the untriaged verifier gaps by parsing
+`verifier_surfaced_gaps.md` instead of carrying an integer. The remaining hand-
+carried number is this one, and the batch table above is now the thing to
+recount from.
+
+**Not corrected:** commit `97476bd`'s message. It is pushed and merged into this
+branch's history, and rewriting published history to fix a figure would cost
+more than the figure is worth. This entry is the correction of record.
+
+---
+
+## RC-2026-001, corrected — the attack needs no leaked token at all
+
+I wrote RC-2026-001 up as: someone who obtains a live link token can bind their
+Telegram to that account, and stated the exposure as *"every path by which a
+10-minute token reaches a second pair of eyes"*. That is true and it is the
+smaller half. The raw finding for the same route (`W-09`, from the first
+rate-limited batch, which I had not read when I wrote mine) has the direction
+right and I had it backwards.
+
+**The attacker uses their OWN token.** `POST /link-token` is authenticated and
+mints a token for the caller's own account — entirely legitimately. The attacker
+then posts `{their_own_token, THE OPERATOR'S chat_id}` to the anonymous
+`/validate-token`. The route looks the row up by *token* and writes `telegram_id`
+from the *body*, so it writes the operator's Telegram id onto the attacker's row
+and sets `telegram_linked = TRUE`.
+
+No token has to leak. No race is needed. The attacker needs a free account.
+
+**What that buys, verified in the code rather than taken from the claim:**
+
+`app/lib/identity.js` resolves the bot identity for gateway-backed routes:
+
+```js
+const [rows] = await pool.execute(
+  'SELECT telegram_id, telegram_linked, email FROM users WHERE id = ?', [uid]);
+if (u && u.telegram_linked && u.telegram_id) return { id: String(u.telegram_id), ... };
+```
+
+Its docstring says:
+
+> The identity is always resolved server-side from the DB — the browser can
+> never choose who it acts as.
+
+**That sentence is true of the read and false of the write.** The browser could
+not choose an identity in the request; it could write one into the column the
+read trusts, one route away. A server-side resolution is only as trustworthy as
+every path that writes the column it reads, and nothing connected the two.
+
+`resolveBotIdentity` is imported by a dozen routers. The `telegram_required`
+gates (`credentials.js:81-83`, `controls.js:78-80`) are satisfied because
+`/validate-token` also sets `telegram_linked = TRUE` — the same write.
+
+**And the 2FA step-up does not stop it**, `app/routes/staking.js:55-66`:
+
+```js
+const [rows] = await pool.execute(
+  'SELECT totp_enabled, totp_secret FROM users WHERE id = ?', [req.user.user_id]);
+const blk = stepUpBlock(u.totp_enabled, u.totp_secret, b.totp_code, ...);
+if (blk) return res.status(blk.status).json(blk.body);
+const ident = await resolveBotIdentity(req);
+const r = await gateway.postGateway('/staking/fixed', { telegram_id: ident.id, ... });
+```
+
+The step-up is evaluated against the **caller's own row** — an attacker who has
+enrolled no 2FA passes it trivially — and the action is then performed as the
+**resolved identity**. Guard and action address different subjects, two lines
+apart, on a money move.
+
+**Severity is unchanged at CRITICAL and the fix is unchanged**; what was wrong
+was my account of how it is reached, which made it sound like it needed bad luck.
+It needed a signup. Both halves of the fix independently block it: `botAuth`
+means the attacker cannot call the route at all, and the 409 means that even
+holding the bot secret, a chat_id already on another row is refused.
+
+## RC-2026-025 — the step-up and the action address different subjects
+
+- **Status**: OPEN · **Severity**: MEDIUM (latent — see reachability)
+- **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/routes/staking.js:55-66`, and the same shape wherever
+  `stepUpBlock` precedes `resolveBotIdentity`
+- **Standard**: CWE-863 (Incorrect Authorization); ASVS V4.2.1
+
+Found while verifying the correction above, and reported separately because it
+**survives the RC-2026-001 fix**. The 2FA check reads the caller's row; the
+money move is executed as whatever identity `resolveBotIdentity` returns. Those
+are the same subject only while nothing can put another account's `telegram_id`
+on your row.
+
+**Reachability: latent, not live.** With RC-2026-001 fixed, `telegram_id` is
+written only by an authenticated bot-secret request that refuses an id already
+on another row, and `idx_users_telegram_id` makes the collision impossible at
+the storage layer too. So there is no path today. It is recorded because the
+property the code depends on is stated nowhere near the code that depends on
+it — the next route that writes `telegram_id`, or a migration that repairs rows
+by hand, re-opens a 2FA bypass on a money path with nothing to catch it.
+
+**Remediation**: read the step-up factors for the identity the action will be
+performed as, not for `req.user.user_id` — or assert the two agree and refuse if
+they do not. The second is cheaper and states the invariant out loud.
+
+**Test**: plant a row whose `telegram_id` belongs to another account, with 2FA
+disabled on the caller and enabled on the identity, and assert `/staking/fixed`
+refuses. That test fails today and passes under either remediation.

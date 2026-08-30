@@ -9,6 +9,7 @@ recurring / resolved / reopened against this file.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -25,9 +26,9 @@ F = [
          "attacker-chosen Telegram id to the attacker's own web account",
          status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
          category="broken-authentication", component="web-app/auth",
-         file="app/auth.js", line="867-889", fix_class="REVIEW_REQUIRED",
+         file="app/auth.js", line="903-935", fix_class="REVIEW_REQUIRED",
          standard=["OWASP-A01:2021", "OWASP-API1:2023", "OWASP-API5:2023",
-                   "CWE-287", "CWE-639", "ASVS-4.2.1"],
+                   "CWE-287", "CWE-306", "CWE-639", "ASVS-4.1.1"],
          verified_by="lead-auditor+dimension-agent",
          note="Fixed in three layers. (1) Bot sends X-Bot-Secret from BOT_SYNC_SECRET, "
               "read per request. (2) linkBotAuth gates the route on a constant-time "
@@ -42,6 +43,145 @@ F = [
               "tests/test_link_sends_bot_secret.py (7) now cover it, all 10 mutations "
               "killed. DEPLOY THE BOT HALF FIRST: with block as the default, a web-first "
               "deploy refuses every /link until the bot follows."),
+    # ── Batch 3's four HIGHs. Written narratively in the register (no status
+    # block), which is why the ratchet counted the gap as ten rather than six.
+    dict(id="RC-2026-013", title="Operator DASHBOARD_TOKEN (trade-confirm / close / halt "
+         "authority) is read from the URL fragment and persisted to localStorage",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="credential-exposure", component="bot/web/dashboard",
+         file="bot/web/dashboard.html", line="see B3-01", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-522", "OWASP-A02:2021"], raw_id="B3-01",
+         verified_by="dimension-agent+2-verifiers",
+         note="A URL fragment survives in browser history, is readable by any script on "
+              "the page, and leaks through anything that reflects location. The page is "
+              "served with no CSP, no X-Frame-Options and no nosniff."),
+    dict(id="RC-2026-014", title="SystemHealthMonitor is fed by nothing, so /health, "
+         "/ready and /metrics publish a permanent HEALTHY",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="honesty-fail-open", component="observability",
+         file="bot/core/health.py", line="see B3/B5-27", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-754"], raw_id="B5-27",
+         verified_by="dimension-agent+2-verifiers",
+         note="A monitor with no input reporting the good state, on the endpoints an "
+              "operator and any uptime checker consult first."),
+    dict(id="RC-2026-015", title="/livebalance renders a FAILED exchange balance read as "
+         "a complete $0.00 account statement",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="honesty-fail-open", component="telegram",
+         file="bot/skills/telegram_handler.py", line="see B3", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
+         note="Cash, equity and the rest presented as a measurement. CLAUDE.md's first "
+              "rule, on the account-value card."),
+    dict(id="RC-2026-016", title="The web gateway reports unprotected: false for a live "
+         "position whose stop could not be read",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="honesty-fail-open", component="bot/web/user_gateway",
+         file="bot/web/user_gateway.py", line="see B3", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
+         note="'This position has a stop' asserted from a read that failed."),
+    dict(id="RC-2026-017", title="A balance payload without `free` clamps every live "
+         "order to $0 and reports it as a measurement",
+         status="OPEN", severity="LOW", confidence="CONFIRMED",
+         category="honesty-fail-open", component="order-execution",
+         file="bot/core/engine.py", line="6271-6278", fix_class="SAFE_AUTO_FIX",
+         standard=["CWE-754"], verified_by="lead-auditor"),
+    dict(id="RC-2026-018", title="The default backtest fills entries at prices the market "
+         "never traded",
+         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         category="backtest-integrity", component="backtest",
+         file="bot/backtest/engine.py", line="593", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-1041"], raw_id="B4-01",
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         note="CONFIG.limit_orders defaults enabled with default_order_type='limit' "
+              "(config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback "
+              "up to 1 ATR below the close, and bot/backtest/ has no order-type model at "
+              "all. The finder said BLOCKER; recorded CRITICAL after the correction. "
+              "Every published backtest number rests on this."),
+    dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="privacy-erasure", component="bot/web/user_gateway",
+         file="bot/web/user_gateway.py", line="2830-2900", fix_class="REVIEW_REQUIRED",
+         standard=["GDPR-Art.17"], verified_by="lead-auditor",
+         note="NEEDS_LEGAL_REVIEW. Wider than RC-2026-006, which fixed only the "
+              "attribute probe: bot.db.models is not reached by the purge at all."),
+    dict(id="RC-2026-020", title="Web-only accounts never reach the purge at all",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="privacy-erasure", component="web-app/auth",
+         file="app/auth.js", line="1724-1730", fix_class="REVIEW_REQUIRED",
+         standard=["GDPR-Art.17"], verified_by="lead-auditor",
+         note="NEEDS_LEGAL_REVIEW. `if (user.telegram_id && gateway.isConfigured())` "
+              "gates the bot-side purge, so an account that never linked Telegram has "
+              "its bot-side state skipped silently."),
+    dict(id="RC-2026-021", title="SECURITY.md promises human-in-the-loop confirmation "
+         "that the default configuration does not provide",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="docs-vs-default", component="documentation",
+         file="SECURITY.md", line="29", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-1059"], verified_by="lead-auditor",
+         note="The one HIGH in its batch neither verifier downgraded, and I verified it "
+              "directly. Documentation vs default is a product decision, so "
+              "REVIEW_REQUIRED rather than a doc edit."),
+    dict(id="RC-2026-022", title="The public /risk page asserts a categorical guarantee "
+         "the code does not provide",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="public-claim-honesty", component="marketing-site",
+         file="site/src/routes/risk.tsx", line="82", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-1059"], verified_by="lead-auditor",
+         note="Severity verifier-corrected from HIGH. Published to "
+              "website/risk/index.html: 'There is no path where a check that could not "
+              "be evaluated is treated as a check that passed' - CLAUDE.md's own rule "
+              "asserted to the public as a product guarantee."),
+    dict(id="RC-2026-023", title="The operator's live dashboard header badge is hardcoded "
+         "SIMULATION and never reads the mode the server sends",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="operator-display-honesty", component="bot/web/dashboard",
+         file="bot/web/dashboard.html", line="417-419 (markup), 718-771 (updateEngine)",
+         fix_class="SAFE_AUTO_FIX", standard=["CWE-1007"], raw_id="B7-01",
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         note="Finder said CRITICAL; both verifiers independently said HIGH and I took "
+              "their number - display-only console behind a Bearer token, no trade gated "
+              "on it. The SERVER half was already fixed (dashboard_server.py:84-97, "
+              "RC-AUD-016); the client was never wired to it, so the fix sits in the "
+              "payload and is unreachable from the UI. The connection dot INSIDE the "
+              "badge does update, so a live engine renders as a green-dot SIMULATION. "
+              "Needs three states: dashboard_server.py:98 emits {'state': 'UNKNOWN'} "
+              "with no simulation_mode key at all."),
+    dict(id="RC-2026-024", title="The full-history gitleaks step scans every ref in the "
+         "checkout, so another branch's leak fails the check on every open PR",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="gate-integrity", component="ci",
+         file=".github/workflows/ci.yml", line="482-500", fix_class="REVIEW_REQUIRED",
+         standard=["NIST-SSDF-PS.1", "NIST-SSDF-PW.7"], verified_by="lead-auditor",
+         note="Reproduced with CI's own pinned, checksum-verified binary: scoping to one "
+              "tip gives 1037 commits, all refs gives 1039 - exactly the two then-"
+              "unmerged commits on an unrelated branch. CONFIRMED EXPERIMENTALLY: CI "
+              "re-ran the identical check on the same branch and passed, scanning 1081 "
+              "commits / 86,427,022 bytes, MORE than the 1079 / 86,367,776 of the run "
+              "that failed, with no change to scanner, config, baseline or runner. The "
+              "scan that saw more was clean and the scan that saw less was not. A green "
+              "result therefore means the trigger is no longer reachable from any "
+              "fetched ref, NOT that history is clean - the check reports both "
+              "identically. NOT AN ALL-CLEAR: the leak was never identified and a "
+              "credential briefly pushed on a branch survives in that branch's objects "
+              "until GitHub collects them. Remediation: --log-opts=HEAD, with the "
+              "all-refs sweep moved to a schedule."),
+    dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the money "
+         "move executes as the resolved bot identity",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="incorrect-authorization", component="web-app/staking",
+         file="app/routes/staking.js", line="55-66", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-863", "ASVS-4.2.1"], verified_by="lead-auditor",
+         reachability="LATENT, not live. stepUpBlock reads totp_enabled/totp_secret FROM "
+                      "users WHERE id = req.user.user_id, then the action runs as "
+                      "resolveBotIdentity(req).id. Same subject only while nothing can "
+                      "put another account's telegram_id on your row - which RC-2026-001 "
+                      "could and no longer can (bot-secret gate, 409, and "
+                      "uniq_users_telegram_id closing the race at the storage layer).",
+         note="Recorded because the invariant it depends on is stated nowhere near the "
+              "code depending on it: the next route that writes telegram_id, or a hand "
+              "migration repairing rows, re-opens a 2FA bypass on a money path. Fix: "
+              "read the step-up factors for the identity the action runs as, or assert "
+              "the two agree and refuse if not."),
     dict(id="RC-2026-002", title="guard_lint accuses third-party code in any virtualenv "
          "not named .venv", status="FIXED", severity="MEDIUM", confidence="CONFIRMED",
          category="gate-integrity", component="tooling",
@@ -116,7 +256,7 @@ F = [
          category="cross-account-money-path", component="order-execution",
          file="bot/core/live_executor.py", line="5202-5208, 5321 (SL/TP); 8765 (flash close)",
          fix_class="REVIEW_REQUIRED", standard=["CWE-522", "CWE-863"],
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         raw_id="M-06", verified_by="lead-auditor+dimension-agent+2-verifiers",
          reachability="LATENT BY DEFAULT: PER_USER_LIVE_ENABLED defaults False "
                       "(bot/config.py:2261). Live the moment that supported feature is "
                       "enabled; nothing warns that stops land on the wrong account.",
@@ -141,7 +281,7 @@ F = [
          file="bot/risk/risk_engine.py", line="1033 (sizing), 1413-1418 (daily loss), 1475-1486 (drawdown)",
          fix_class="REVIEW_REQUIRED",
          standard=["CLAUDE.md-unreadable-is-never-zero", "CWE-754"],
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         raw_id="M-14", verified_by="lead-auditor+dimension-agent+2-verifiers",
          reachability="NO FEATURE FLAG NEEDED - applies to the default operator live path.",
          note="THREE fail-open branches, not two. Beyond the daily-loss (1413) and "
               "drawdown (1475) breakers, position SIZING at 1033 also falls back to paper "
@@ -272,21 +412,195 @@ VALIDATION = [
 # writing the artifact, so the total is now computed from the two lists below
 # and a mismatch is an error rather than a sentence nobody rechecks.
 _COMPLETED = ["web-authz", "py-api-authz", "telegram-authz", "secrets",
-              "ai-to-money", "order-exec", "risk-engine", "market-data"]
-_NOT_RUN = ["injection", "browser-sec", "ai-injection", "backtest",
-            "honesty-py", "honesty-js", "data-db", "concurrency",
-            "infra-cicd", "deps", "a11y", "privacy", "observability",
-            "reachability", "docs-consistency", "tests",
-            "frontend-correctness", "contracts"]
+              "ai-to-money", "order-exec", "risk-engine", "market-data",
+              "ai-injection", "injection", "browser-sec", "honesty-py",
+              "honesty-js", "data-db", "concurrency", "backtest",
+              "infra-cicd", "deps", "privacy", "observability",
+              "a11y", "reachability", "docs-consistency", "tests",
+              "frontend-correctness", "contracts"]
+_NOT_RUN = []
 assert not set(_COMPLETED) & set(_NOT_RUN), "a dimension cannot be both"
+assert len(_COMPLETED) == len(set(_COMPLETED)), "a dimension is listed twice"
+
+# Counted from the file, not typed. The number in prose is the part that rots
+# first — the same reason the dimension total above is derived.
+_GAPS = ROOT / "audit" / "verifier_surfaced_gaps.md"
+GAPS_UNTRIAGED = re.findall(
+    r"(?m)^(\d+)\.\s", _GAPS.read_text(encoding="utf-8").split("---", 1)[1]
+) if _GAPS.is_file() else []
 
 COVERAGE = dict(
     dimensions_total=len(_COMPLETED) + len(_NOT_RUN),
     dimensions_completed=_COMPLETED,
     dimensions_not_run=_NOT_RUN,
-    adversarial_verification="COMPLETE for the 8 dimensions run: 49 raw findings, "
-                             "40 CONFIRMED, 6 SUSPECTED, 3 REFUTED, 0 unverified. "
-                             "Two verifiers per finding, both defaulting to refute.",
+    adversarial_verification=(
+        f"COMPLETE for all {len(_COMPLETED)} dimensions. Two independent verifiers "
+        "per finding, each given a different lens and both instructed to default "
+        "to refuted. A finding refuted by both is recorded REFUTED, by one "
+        "SUSPECTED, by neither CONFIRMED."),
+    verifier_surfaced_gaps=dict(
+        count=len(GAPS_UNTRIAGED),
+        status="TRIAGE IN PROGRESS",
+        note="Defect claims the verifiers raised that their own finders had "
+             "missed. They are NOT findings and are NOT counted as such: a "
+             "verifier asserting a defect gets the same skepticism as a finder. "
+             "Each is being re-read against the code, checked for reachability "
+             "from outside its file, reproduced where reproduction is cheap, and "
+             "then put to two adversarial refuters like any other claim.",
+        file="audit/verifier_surfaced_gaps.md",
+    ),
+)
+
+# ── The 162 verified findings are INGESTED, not retyped ────────────────────
+#
+# F above is the lead-auditor register: the subset re-read by hand, with
+# reachability established from outside the file and a fix or a proposed patch.
+# It is 14 entries. The audit has 162 confirmed findings, and for a while this
+# artifact carried only the 14 while its release decision spoke for the whole
+# audit — a verdict computed over a curated subset and presented as covering
+# everything, which is the defect this file exists to expose.
+#
+# They are parsed from the markdown rather than transcribed, so the two cannot
+# drift: workflow_raw_findings.md is the single source and this is a view of it.
+_RAW_MD = ROOT / "audit" / "workflow_raw_findings.md"
+_raw_text = _RAW_MD.read_text(encoding="utf-8")
+
+
+def _parse_verified_findings(text: str) -> list[dict]:
+    """Every `## <ID> [SEV] <title>` block, with its metadata line."""
+    out: list[dict] = []
+    for block in re.split(r"(?m)^## (?=[A-Za-z0-9-]+ \[[A-Z]+\])", text)[1:]:
+        head, body = block.split("\n", 1)
+        m = re.match(r"^([A-Za-z0-9-]+) \[([A-Z]+)\] (.+)$", head)
+        if not m:
+            continue
+        fid, claimed, title = m.groups()
+        meta = "\n".join(ln for ln in body.splitlines()[:6] if ln.startswith("- **"))
+
+        def field(name: str):
+            f = re.search(r"\*\*" + name + r"\*\*:\s*`?([^·`\n]+)`?", meta)
+            return f.group(1).strip().rstrip("`").strip() if f else None
+
+        # Both verifiers may correct the severity. Where they agree I took their
+        # number; where they disagree the claim stands and the dispute is
+        # recorded rather than resolved by picking the one I prefer.
+        # `^- sev→X` misses `^- refuted=False sev→X`, which is 62 of the 230
+        # correction lines in the file — and every one of those was a verifier
+        # LOWERING a severity, so the strict pattern inflated the audit and put
+        # at least one MEDIUM into the release decision's blocker list as a
+        # CRITICAL. Found by reading B4-22, whose two verifiers both said
+        # MEDIUM while the artifact called it a blocker. A parser that silently
+        # matches a subset is the same defect as a gate that scans a subset;
+        # the count assertion below could not see it, because the number of
+        # BLOCKS was right and only their severities were wrong.
+        corrections = re.findall(r"(?m)^- (?:[\w=]+ )?sev→([A-Z]+)", block)
+        agreed = len(set(corrections)) == 1 if corrections else False
+        out.append(dict(
+            id=fid,
+            title=title.strip(),
+            severity=(corrections[0] if agreed else claimed),
+            severity_claimed=claimed,
+            # BOTH votes, in order, not a set. The set was for display and it
+            # made the assertion below compare 148 deduped corrections against
+            # 230 real ones. Two verifiers agreeing on MEDIUM is a different
+            # fact from one verifier saying it, and collapsing them lost that.
+            severity_verifier=corrections or None,
+            severity_disputed=bool(corrections) and not agreed,
+            status="OPEN",
+            confidence=field("Confidence") or "CONFIRMED",
+            dimension=field("Dimension"),
+            fix_class=field("Fix class"),
+            file=field("File"),
+            verified_by="dimension-agent+2-verifiers",
+            source="audit/workflow_raw_findings.md",
+        ))
+    return out
+
+
+VERIFIED_FINDINGS = _parse_verified_findings(_raw_text)
+
+# A gate whose coverage is overstated is the failure this repository spends its
+# guard tests preventing, so the parse is checked against the batch summaries
+# the file states independently. If a batch is added and the parser misses its
+# blocks, this raises instead of quietly reporting a smaller audit.
+_BATCH_SUMS = re.findall(
+    r"\*\*(\d+) raw · (\d+) CONFIRMED · (\d+) SUSPECTED · (\d+) REFUTED", _raw_text)
+_declared = [sum(int(g[i]) for g in _BATCH_SUMS) for i in range(4)]
+assert _BATCH_SUMS, "no batch summaries found — has workflow_raw_findings.md moved?"
+assert len(VERIFIED_FINDINGS) == _declared[1], (
+    f"parsed {len(VERIFIED_FINDINGS)} finding blocks but the batch summaries "
+    f"declare {_declared[1]} CONFIRMED. Only CONFIRMED findings get a block, so "
+    "these must agree; one of the two is wrong.")
+_DECLARED_CORRECTIONS = len(re.findall(r"(?m)^- (?:[\w=]+ )?sev→[A-Z]+", _raw_text))
+_PARSED_CORRECTIONS = sum(len(f["severity_verifier"] or []) for f in VERIFIED_FINDINGS)
+assert _PARSED_CORRECTIONS == _DECLARED_CORRECTIONS, (
+    f"parsed {_PARSED_CORRECTIONS} verifier severity corrections but the file "
+    f"contains {_DECLARED_CORRECTIONS}. Every one that is missed keeps a "
+    "finder's severity the verifiers had lowered, which inflates the audit and "
+    "can put a MEDIUM in the blocker list.")
+assert all(f["dimension"] and f["fix_class"] and f["file"] for f in VERIFIED_FINDINGS), (
+    "a finding block is missing dimension, fix class or file")
+
+# The first, rate-limited run. Its two verifiers per dimension died before the
+# refutation pass, so these are claims and are kept apart from the 162.
+UNVERIFIED_CLAIMS = [
+    dict(id=m.group(1), title=m.group(2).strip(), verification="UNVERIFIED",
+         note="First run; the adversarial verifiers died on the session rate "
+              "limit before judging these. Treat as SUSPECTED.")
+    for m in re.finditer(r"(?m)^## (W-\d+) — (.+)$", _raw_text)
+]
+
+# Where a register entry supersedes a raw one, the register wins: it carries the
+# hand-verification and the fix status. Counting both would inflate the total
+# and, worse, would count a FIXED finding as open.
+_SUPERSEDED = {f.get("raw_id") for f in F if f.get("raw_id")}
+ALL_FINDINGS = F + [f for f in VERIFIED_FINDINGS if f["id"] not in _SUPERSEDED]
+
+# ── The release decision is DERIVED, not restated ──────────────────────────
+#
+# It used to be a literal, and it drifted: it named RC-2026-011 and RC-2026-012
+# as blockers after both were fixed, and cited "8 of 26 dimensions" after all 26
+# had run. The register (markdown) and this file are two hands and neither could
+# correct the other, so an operator checking before arming live trading would
+# have read fixed CRITICALs as live. Computing it from F means a status change in
+# one place moves the verdict.
+_OPEN = {"OPEN", "PARTIALLY_FIXED"}
+_BLOCKING = {"BLOCKER", "CRITICAL"}
+OPEN_BLOCKERS = [f for f in ALL_FINDINGS
+                 if f["status"] in _OPEN and f["severity"] in _BLOCKING]
+OPEN_HIGH = [f for f in ALL_FINDINGS
+             if f["status"] in _OPEN and f["severity"] == "HIGH"]
+
+# The brief prohibits GO with ANY unresolved BLOCKER or CRITICAL. Below that bar
+# the open HIGHs still bear on the decision, so it is CONDITIONAL GO rather than
+# GO while any remain.
+if OPEN_BLOCKERS:
+    _decision = "NO-GO"
+    _basis = (f"{len(OPEN_BLOCKERS)} unresolved "
+              f"{'BLOCKER/CRITICAL finding' if len(OPEN_BLOCKERS) == 1 else 'BLOCKER/CRITICAL findings'}. "
+              "The brief prohibits GO with any unresolved BLOCKER or CRITICAL.")
+elif OPEN_HIGH:
+    _decision = "CONDITIONAL GO"
+    _basis = (f"No unresolved BLOCKER or CRITICAL findings. {len(OPEN_HIGH)} HIGH "
+              "findings remain open and were reported rather than fixed, by the "
+              "instruction to fix only CRITICALs and genuine safe auto-fixes. Each "
+              "carries a proposed patch. The conditions are those patches.")
+else:
+    _decision = "GO"
+    _basis = "No unresolved BLOCKER, CRITICAL or HIGH findings."
+
+RELEASE_DECISION = dict(
+    decision=_decision,
+    basis=_basis,
+    blockers=[f"{f['id']} {f['title']}" for f in OPEN_BLOCKERS],
+    open_high=[f"{f['id']} {f['title']}" for f in OPEN_HIGH],
+    completeness_caveat=(
+        f"All {len(_COMPLETED)} planned dimensions ran and every finding was put to "
+        "two independent adversarial verifiers. It is still a bounded assessment: "
+        "accessibility is static-only, nothing was deployed, no exchange was "
+        f"contacted, and {len(GAPS_UNTRIAGED)} verifier-raised claims are triaged "
+        "separately and deliberately excluded from these counts until each is "
+        "confirmed or refuted on its own evidence."),
 )
 
 art = dict(
@@ -314,55 +628,29 @@ art = dict(
              "declared as intended scope, not as assessed.",
     ),
     findings=F,
+    findings_verified=VERIFIED_FINDINGS,
+    findings_unverified_claims=UNVERIFIED_CLAIMS,
     verification=VERIFICATION,
     refuted=REFUTED,
     validation=VALIDATION,
     coverage=COVERAGE,
-    release_decision=dict(
-        decision="NO-GO",
-        basis="RC-2026-018 is an unresolved CRITICAL - the default backtest fills entries "
-              "at prices the market never traded (bot/backtest/engine.py:593). The brief "
-              "prohibits GO with any unresolved BLOCKER or CRITICAL finding, and that "
-              "prohibition still bites. The three CRITICALs this artifact used to list "
-              "(001, 011, 012) are all fixed; 018 is not, and it was not being counted "
-              "because it is one of TEN findings the register documents and this "
-              "generator does not carry - see artifact_undercount below. A decision "
-              "computed over 12 of 22 findings is a decision over the ones that happened "
-              "to be transcribed.",
-        blockers=["RC-2026-018 backtest fills at prices that never traded (OPEN CRITICAL, "
-                  "documented in verified_findings.md, absent from this artifact)",
-                  "RC-2026-013..016 four HIGHs from Batch 3, likewise unpublished here",
-                  "RC-2026-019/020 GDPR purge misses the bot SQLite DB and web-only "
-                  "accounts entirely (HIGH, unpublished here)",
-                  "RC-2026-021 SECURITY.md promises human-in-the-loop the default config "
-                  "does not provide (HIGH, unpublished here)",
-                  "RC-2026-008 PARTIALLY_FIXED - see its entry for the remaining half",
-                  "18 of 26 dimensions unrun (see completeness_caveat)"],
-        artifact_undercount="This findings list carries RC-2026-001..012. The register in "
-                            "verified_findings.md documents RC-2026-001..022, and "
-                            "workflow_raw_findings.md holds Batch 3 as B3-01..B3-22. So "
-                            "this file under-reports the audit by ten findings, one of "
-                            "them an OPEN CRITICAL. Found by "
-                            "tests/test_audit_register_agrees_with_itself.py on its first "
-                            "run; the gap is pinned there as a two-way ratchet so it "
-                            "cannot grow or be silently closed. Transcribing the ten is "
-                            "outstanding work, not a formatting task - it needs the "
-                            "auditor's severity and standard mappings, which are not "
-                            "mine to invent.",
-        completeness_caveat="This decision rests on 8 of 26 planned dimensions. It is a "
-                            "floor, not a full assessment - 18 remain unrun, accessibility "
-                            "has not been assessed at all, and the money-path batch alone "
-                            "produced two further CRITICALs. More may exist.",
-    ),
+    release_decision=RELEASE_DECISION,
     limitations=[
-        "18 of 26 audit dimensions have not run.",
-        "Adversarial verification is complete for the 8 dimensions that ran.",
+        f"All {len(_COMPLETED)} planned dimensions ran. The {len(GAPS_UNTRIAGED)} "
+        "defect claims the verifiers raised beyond their finders are triaged "
+        "separately (audit/verifier_surfaced_gaps.md); untriaged items are NOT "
+        "counted as findings.",
+        "Adversarial verification (two independent refuters per finding, both "
+        "instructed to default to refuted) is complete for every dimension.",
         "No live deployment, no exchange connectivity, no production data. All dynamic "
         "verification was against local modules with in-memory or temp-dir backends.",
-        "Accessibility was not assessed at all; no browser was driven.",
-        "The Python baseline gate now passes clean on a quiescent tree: 9146 passed, 0 failed.",
-        "Rust/Anchor programs were type-checked but not compiled or fuzzed; cargo CI job "
-        "was still running at time of writing.",
+        "Accessibility is STATIC ONLY - no browser was driven, so every WCAG item is "
+        "NEEDS_RUNTIME_VALIDATION and no conformance level is claimed.",
+        "Legal and GDPR conclusions are technical alignment only and require qualified "
+        "legal review.",
+        "The Python baseline gate passes clean on a quiescent tree: 9202 passed, 0 failed.",
+        "Rust/Anchor programs were type-checked but not compiled or fuzzed locally; "
+        "cargo, solidity, gitleaks and token-tooling remain CI-only.",
     ],
 )
 

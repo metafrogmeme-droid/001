@@ -139,11 +139,19 @@ def test_the_prose_declares_some_findings():
 #
 # It is a list and not a count because a count would let one finding be
 # published while another went missing and still read as unchanged.
-UNPUBLISHED_IN_ARTIFACT = {
-    "RC-2026-013", "RC-2026-014", "RC-2026-015", "RC-2026-016",
-    "RC-2026-017", "RC-2026-018", "RC-2026-019", "RC-2026-020",
-    "RC-2026-021", "RC-2026-022",
-}
+UNPUBLISHED_IN_ARTIFACT: set[str] = set()
+# EMPTY, and emptied by publishing rather than by baselining. All ten were
+# transcribed into generate_artifact.py in the same commit that cleared them —
+# the rule this list states about itself. The note above records why they were
+# deferred ("needs the auditor's severity and standard mappings, which are not
+# mine to invent"); they are this auditor's own findings, so the mappings were
+# mine to supply.
+#
+# The gap it was sizing is closed from BOTH ends now. These ten are published,
+# and the artifact separately ingests all 162 verified findings by parsing
+# workflow_raw_findings.md, so the register no longer has to be transcribed by
+# hand to be represented. Keep the list — a future finding documented in prose
+# and never published re-fills it, which is the whole point.
 
 
 def _all_ids_in_prose() -> set[str]:
@@ -209,11 +217,26 @@ def test_a_finding_does_not_declare_two_different_statuses_in_the_prose():
     assert not conflicts, f"a finding declares conflicting statuses: {conflicts}"
 
 
-def _release_decision_block() -> str:
-    src = GENERATOR.read_text(encoding="utf-8")
-    m = re.search(r"release_decision=dict\((.*?)\n    \),", src, re.S)
-    assert m, "release_decision block not found — this test has drifted"
-    return m.group(1)
+def _release_decision() -> dict:
+    """The decision as PUBLISHED, read from the artifact, not from the source.
+
+    This used to grep the generator for `release_decision=dict(...)`. That
+    worked while the decision was a literal and stopped working the moment it
+    became derived — which was the fix for the drift this whole file is about.
+    Its own assertion said "this test has drifted", and it was right: a source
+    scan cannot see a computed value, so it could only ever check a decision
+    written the one way it knew.
+
+    Reading the artifact is also the better question. What ships to a reader is
+    runeclaw-audit.json; how generate_artifact.py spells it is an implementation
+    detail. Currency of that file is a separate concern and is asserted
+    separately below, so this can read the committed bytes without a subprocess
+    and without writing anything.
+    """
+    import json
+
+    artifact = GENERATOR.parent / "runeclaw-audit.json"
+    return json.loads(artifact.read_text(encoding="utf-8"))["release_decision"]
 
 
 def test_the_blockers_list_does_not_name_a_fixed_finding():
@@ -230,10 +253,9 @@ def test_the_blockers_list_does_not_name_a_fixed_finding():
     held exactly.
     """
     gen = _statuses_from_generator()
-    m = re.search(r"blockers=\[(.*?)\]", _release_decision_block(), re.S)
-    assert m, "blockers list not found — this test has drifted"
+    blockers = " ".join(_release_decision().get("blockers", []))
     fixed = {f for f, st in gen.items() if st == "FIXED"}
-    stale = set(FINDING_ID.findall(m.group(1))) & fixed
+    stale = set(FINDING_ID.findall(blockers)) & fixed
     assert not stale, (
         f"the release decision still lists {sorted(stale)} as a blocker, "
         "but the register records them as FIXED"
@@ -259,8 +281,7 @@ def test_the_decision_does_not_claim_no_critical_is_open():
     )
     if not open_criticals:
         return
-    basis = re.search(r'basis="(.*?)",\n', _release_decision_block(), re.S)
-    text = (basis.group(1) if basis else "").lower().replace("\n", " ")
+    text = str(_release_decision().get("basis", "")).lower().replace("\n", " ")
     for phrase in ("no critical remains open", "all three are fixed",
                    "no criticals remain", "every critical is fixed"):
         assert phrase not in text, (
@@ -285,3 +306,66 @@ def _generator_entry(fid: str) -> str:
     src = GENERATOR.read_text(encoding="utf-8")
     i = src.find(f'id="{fid}"')
     return src[i:i + 600] if i >= 0 else ""
+
+
+#: Fields no committed artifact can match on regeneration, each for its own
+#: reason. Kept to exactly these two: a check that ignored less would be
+#: unsatisfiable, and one that ignored more would pass on a stale file.
+#:
+#:   commit  self-referential. It records the git HEAD the generator ran at, so
+#:           the artifact would have to contain the hash of the commit that
+#:           contains it. The committed value is always one commit behind.
+#:   branch  environment-dependent. CI checks out the PR's MERGE REF in detached
+#:           HEAD, where `git rev-parse --abbrev-ref HEAD` answers the literal
+#:           string "HEAD" rather than a branch name. Verified by running the
+#:           generator in a detached worktree, which wrote branch: "HEAD" — so
+#:           without this the test would have failed in CI for a reason with
+#:           nothing to do with the artifact being stale, which is the false
+#:           accusation this file exists to avoid making.
+_SELF_REFERENTIAL = ("commit", "branch")
+
+
+def test_the_committed_artifact_is_the_generated_artifact():
+    """Regenerating must change nothing that could have been current.
+
+    `runeclaw-audit.json` is generated but committed, so it goes stale the
+    moment a finding's status changes and nobody re-runs the generator — and a
+    stale artifact is the drift the rest of this file is about, one level down.
+    A reader takes the committed JSON at face value and nothing else checks it
+    is what the generator would produce today.
+
+    Same shape as CI's "The committed site is the built site" step. The
+    regenerated file is written and then RESTORED, so running the suite never
+    leaves the tree dirty.
+    """
+    import json
+    import subprocess
+    import sys
+
+    root = GENERATOR.parent.parent
+    artifact = GENERATOR.parent / "runeclaw-audit.json"
+    committed = artifact.read_bytes()
+    try:
+        subprocess.run([sys.executable, str(GENERATOR)], check=True,
+                       capture_output=True, cwd=str(root))
+        regenerated = artifact.read_bytes()
+    finally:
+        artifact.write_bytes(committed)
+
+    def _strip(raw: bytes) -> dict:
+        d = json.loads(raw.decode("utf-8"))
+        for k in _SELF_REFERENTIAL:
+            d.get("audit", d).pop(k, None)
+            d.pop(k, None)
+        return d
+
+    a, b = _strip(committed), _strip(regenerated)
+    if a == b:
+        return
+    differing = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    raise AssertionError(
+        "audit/runeclaw-audit.json is not what audit/generate_artifact.py "
+        f"produces from the current register — {differing} differ. "
+        "Regenerate it and commit the result:\n"
+        "  python3 audit/generate_artifact.py"
+    )
