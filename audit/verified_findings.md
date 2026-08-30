@@ -1055,3 +1055,239 @@ incomplete because neither the finder nor I asked *"what else calls this?"*
 before writing it up. CLAUDE.md says to ask which OTHER surface makes the same
 claim before calling a fix done — that applies to a *finding* as much as to a
 fix, and I did not do it the first time.
+
+---
+
+# Batch 3 — ai-injection, injection, browser-sec, honesty-py
+
+**22 raw · 22 CONFIRMED · 0 SUSPECTED · 0 REFUTED.** The only batch so far in
+which nothing was refuted. Recovered from the workflow journal after a worker
+restart swallowed the completion notification — the findings were produced and
+verified normally; only the delivery was lost.
+
+Full detail in `audit/workflow_raw_findings.md` as **B3-01 … B3-22**. The four
+at HIGH:
+
+**RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment.**
+That token carries trade-confirm, close and halt authority. A URL fragment
+survives in browser history, is readable by any script on the page, and leaks
+through anything that reflects `location`. `browser-sec`, HIGH.
+
+**RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready`
+and `/metrics` publish a permanent HEALTHY.** A monitor with no input reporting
+the good state is the exact failure CLAUDE.md's rule describes, on the endpoints
+an operator and any uptime checker consult first. `honesty-py`, HIGH.
+
+**RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a
+complete $0.00 account statement** — cash, equity and the rest, presented as a
+measurement. `honesty-py`, HIGH.
+
+**RC-2026-016 — the web gateway reports `unprotected: false` for a live position
+that has no stop at all.** This is the inverse of the finding CLAUDE.md already
+records about `sl_order` being three-valued: there, an unreadable stop rendered
+as "SL None" and alarmed the operator wrongly; here a genuinely absent stop
+renders as *protected*, which is the direction that loses money quietly.
+`honesty-py`, HIGH.
+
+The remaining 18 are MEDIUM/LOW across browser security (raw LLM research HTML
+into `innerHTML` with no sanitiser; CSP `script-src` omitting the Google
+Identity script the login page loads; no `Permissions-Policy` anywhere), the
+LLM/agent surface (the web chat computes a Guardian prompt-injection verdict and
+then discards it; a blanket 200-character cap on every MCP string argument; the
+public MCP server's header claiming "every tool is READ-ONLY"), one
+authenticated SSRF on the web-push subscription endpoint, and further
+unreadable-as-zero renderings in `/performance`, `/classpf`, `/livepositions`
+and the Daily Alpha card.
+
+---
+
+# What the verifiers found that the finders missed
+
+Each dimension's verifiers were also asked to name defects the finder had not
+reported. Across 12 dimensions they returned **59 items**, now recorded verbatim
+in `audit/verifier_surfaced_gaps.md`.
+
+**They are UNTRIAGED and are not findings.** A verifier asserting a defect is
+exactly the kind of claim this audit refuses to take on trust; the same standard
+that applies to finders applies to them. Per your decision, they are triaged
+after the remaining dimensions complete, each getting the treatment the
+CRITICALs got — read the code, establish reachability, check for an existing
+test — and then confirmed, refuted, or dropped.
+
+Recorded now rather than later because they existed only in this container's
+workflow journal.
+
+That said, the list is worth reading before then, because several read more
+severe than the findings they were attached to:
+
+- **There is no HTTP route anywhere for the real global kill switch.**
+  `RuneClawEngine.emergency_halt_all` (`bot/core/engine.py:2437`) — the only
+  thing that halts everything — is reachable from nothing.
+- **Trade-executing callbacks sit outside the destructive-callback permission
+  map**, so the `viewer` role can execute trades it is explicitly denied at the
+  command layer.
+- **`/broadcast`** lets a Telegram group admin who is not on the bot allowlist
+  post to every registered marketing group.
+- **`/autoconfirm off` does not disable auto-confirm** for manual ideas, despite
+  `config.py:2306-2311` documenting exactly that.
+- **`/news` is dead at runtime** — a zero-argument method behind a command guard
+  — and so is the web news endpoint.
+- **Any user holding `trade` can suspend the operator's autonomous scanning**
+  for up to `PENDING_IDEA_TTL`, via the early return at `engine.py:4109`.
+- `bot/web/performance_chart.html:92` loads Chart.js from a CDN with **no
+  subresource integrity**, on the same origin that stores the money-capable
+  `DASHBOARD_TOKEN`.
+
+The methodological point is the one worth keeping: the finder-plus-verifier
+shape catches a great deal, but 59 items in 12 dimensions says it does not bound
+what a single finder pass will miss.
+
+---
+
+## RC-2026-017 — a balance payload without `free` clamps every live order to $0 and reports it as a measurement
+
+- **Status**: OPEN · **Severity**: LOW · **Confidence**: CONFIRMED
+- **Category**: absent-is-never-a-measurement, on the pre-execution size clamp
+- **File**: `bot/core/engine.py:6271-6278`
+- **Fix class**: SAFE_AUTO_FIX (proposed, not applied — out of scope for the
+  RC-2026-012 change and I will not widen a risk-engine PR)
+
+Found by tripping over it: while repairing test scaffolding for RC-2026-012 I
+supplied a balance cache of `{"total": …}` and every order silently sized to
+zero.
+
+```python
+live_bal = await self.get_user_live_equity(user_id)
+if live_bal:
+    available = live_bal.get("free", 0.0)
+    if size_usd > available:
+        audit(trade_log,
+              f"Live size clamped: ${size_usd:.2f} -> ${available:.2f} (exchange available)",
+              ...)
+        size_usd = available
+```
+
+`if live_bal:` establishes only that *a* payload came back. `.get("free", 0.0)`
+then treats a **missing** `free` exactly like a measured zero, so the clamp sets
+`size_usd = 0.0`.
+
+The behaviour fails **safe** — no order is placed — which is why this is LOW and
+not higher. The dishonesty is in the reporting: the audit line reads
+
+> Live size clamped: $250.00 -> $0.00 (exchange available)
+
+which states as fact that the exchange had $0 available, when in truth nothing
+was read. An operator diagnosing "why did my $250 trade not go on" is pointed at
+their balance instead of at a payload shape. The block's own docstring is careful
+about the neighbouring case — "Fail-safe: returns None on fetch failure, so the
+clamp is simply skipped" — so `None` is handled; a payload *present but missing
+the key* is not.
+
+Remediation: distinguish the two. `free = live_bal.get("free")`, then skip the
+clamp when it is `None` (matching the documented fetch-failure behaviour) and
+apply it when a real number came back. Bitget's ccxt payload does carry `free`,
+so this is latent rather than active on the current venue — which is exactly why
+it wants a test rather than a comment.
+
+---
+
+# Batch 4 — backtest, honesty-js, data-db, concurrency
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED.** Severity mix of the
+confirmed: 1 BLOCKER (downgraded — see below), 4 CRITICAL, 10 HIGH, 12 MEDIUM,
+4 LOW. Full detail in `audit/workflow_raw_findings.md` as **B4-01 … B4-31**,
+including each finding's verifier notes.
+
+## RC-2026-018 — the default backtest fills entries at prices the market never traded
+
+- **Status**: OPEN · **Severity**: **CRITICAL** (the finder said BLOCKER; see the correction)
+- **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/engine.py:593`
+
+`CONFIG.limit_orders` defaults to `enabled=True` with
+`default_order_type="limit"` (`config.py:1982-1984`), so the analyzer sets
+`idea.entry_price` to a pullback level up to 1 ATR below the close. The
+backtest has **no order-type model at all** — `bot/backtest/` contains zero
+references to `order_type` — so `_execute_fill` books the position at that limit
+price unconditionally on the signal bar, whether or not any bar ever traded
+there. The engine captures exactly the entries a real limit order would have
+missed: the ones that ran away favourably.
+
+`bot/backtest/models.py:52-57` states the discipline this violates: *"Run both
+and compare: a large edge gap between them means the strategy's backtested edge
+lives in the fill assumption, not the signal."* Nothing runs that comparison.
+
+### The verifiers corrected this, and the corrections are the important part
+
+I am recording the corrected version, not the finder's.
+
+**1. Severity: BLOCKER → CRITICAL.** No live order path is affected and no money
+moves on this code. It corrupts measurement, which is severe, but it is not
+ship-stopping in the way a live-trading defect is.
+
+**2. The blast radius is much smaller than claimed — I verified this myself.**
+The finder implied every published figure is tainted. It is not:
+
+```python
+# bot/backtest/runner.py:546-548
+if getattr(args, "honest", False):
+    args.strict_data = True
+    args.fill_mode = "next_open"
+```
+
+and `--honest` is what the published paths actually use — `bot/api/lab.py:164`
+passes `"--honest", "--strict-data"`, and `docs/FROZEN_BENCHMARK.md:11,36` runs
+`--honest --walk-forward 6`. So the **frozen benchmark and the marketplace
+scorecards are NOT affected.**
+
+What *is* affected is everything run in the default `fill_mode="close"`
+(`models.py:50`) — including the committed **`backtest_deep_results.json`**, and
+the `/backtest` and `/walk_forward` Telegram cards.
+
+**3. I am not quoting the fill percentage.** The finder reported "73% of fills
+(35 of 48)"; one verifier re-ran it and measured "21 of 36 (58%)"; the other did
+not re-run at all and said so. Two measurements that disagree, neither
+reproduced by me. The *mechanism* is proven from source — a limit up to 1 ATR
+below the close, filled without being touched — and that is what I am asserting.
+A number I have not reproduced does not go in a register that exists to be
+trusted.
+
+**Remediation**: honour `idea.order_type` in `_execute_fill` — queue a limit and
+fill only when a later bar's low (LONG) / high (SHORT) reaches it, expiring per
+`CONFIG.limit_orders.expire_seconds` and cancelling on `price_drift_cancel_pct`.
+Add a test asserting every recorded entry price lies within some bar's
+`[low, high]` at or after the signal bar. Until then, **no default-mode artifact
+should be quoted as a performance figure** — `backtest_deep_results.json`
+included.
+
+## The other confirmed CRITICALs
+
+- **`buildDefiPositions` returns an all-clear on Aave liquidation risk when
+  every check failed** (`honesty-js`). The repo's own rule, on a liquidation
+  warning.
+- **The migration fast path checks TABLE existence only**, so all 64
+  column/index migrations are skipped on an existing database (`data-db`).
+- **`/walk_forward`'s out-of-sample window is shorter than the indicator
+  warmup** (`backtest`).
+- **Under `--honest`, positions open at the next bar's open while [exit logic
+  still uses the signal bar]** (`backtest`) — the honest mode has its own
+  asymmetry.
+
+## HIGHs worth naming (reported, not fixed, per your scope decision)
+
+`data-db`: arena position close has no transaction and no affected-rows check;
+bot sync acks delete the pending row by `user_id` unconditionally, discarding
+concurrent writes; portfolio sync deletes all of a user's trades and equity
+snapshots before reinserting.
+
+`concurrency`: **no SIGTERM handler at all** — the entire graceful-shutdown path
+is unreachable on every deployment.
+
+`honesty-js`: `buildExposure` renders a failed `trades` query as a flat book
+("No directional exposure"); the escape planner reads a 502 wallet response as
+"No linked wallet found".
+
+`backtest`: `--honest` win rate and trade count are per scale-out **leg**, not
+per position; regenerating the published scorecards writes to a directory
+nothing reads; the live↔backtest parity report scores an unpriced live close as
+break-even.

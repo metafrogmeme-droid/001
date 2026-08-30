@@ -1317,7 +1317,18 @@ class TestEngineFSM:
         engine.portfolio.balance = 50000.0
         engine.portfolio._peak_equity = 50000.0
         # No live-balance cache → size-clamp branch is skipped.
-        engine._live_balance_cache = {}
+        # A live confirm now requires a READABLE equity: an empty cache means
+        # "live, but we could not read the balance", and the risk engine
+        # refuses rather than measuring the daily-loss and drawdown limits
+        # against the paper book (see tests/test_live_equity_unreadable_is_not_paper.py).
+        # It mirrors the paper balance on purpose: these tests size against
+        # portfolio.balance, so a DIFFERENT live equity would silently change
+        # their arithmetic. Scaffolding for the orchestration under test, not
+        # an assertion about balances. `free` is present as well as `total`
+        # because the pre-execution clamp reads `live_bal.get("free", 0.0)`
+        # and a payload without it clamps the order to $0.
+        engine._live_balance_cache = {"total": engine.portfolio.balance,
+                                      "free": engine.portfolio.balance}
 
         # Mock exchange so price drift check passes (return price near entry)
         mock_exchange = AsyncMock()
@@ -1379,7 +1390,18 @@ class TestEngineFSM:
         engine.risk._last_loss_time = None
         engine.portfolio.balance = 50000.0
         engine.portfolio._peak_equity = 50000.0
-        engine._live_balance_cache = {}
+        # A live confirm now requires a READABLE equity: an empty cache means
+        # "live, but we could not read the balance", and the risk engine
+        # refuses rather than measuring the daily-loss and drawdown limits
+        # against the paper book (see tests/test_live_equity_unreadable_is_not_paper.py).
+        # It mirrors the paper balance on purpose: these tests size against
+        # portfolio.balance, so a DIFFERENT live equity would silently change
+        # their arithmetic. Scaffolding for the orchestration under test, not
+        # an assertion about balances. `free` is present as well as `total`
+        # because the pre-execution clamp reads `live_bal.get("free", 0.0)`
+        # and a payload without it clamps the order to $0.
+        engine._live_balance_cache = {"total": engine.portfolio.balance,
+                                      "free": engine.portfolio.balance}
 
         mock_exchange = AsyncMock()
         mock_exchange.fetch_ticker = AsyncMock(return_value={"last": idea.entry_price})

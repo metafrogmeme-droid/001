@@ -975,7 +975,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None) -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -983,11 +983,15 @@ class RiskEngine:
         Pass live_equity= to override paper equity for sizing in LIVE mode.
         Pass max_position_usd= to cap sizing at execution limit (e.g. micro-test $10).
         Pass live_open_count= to override paper open position count in LIVE mode.
+        Pass live_mode=True when this is a LIVE evaluation, so that an
+        unreadable `live_equity` is refused instead of silently falling back
+        to the paper book. Defaults False: only the caller knows whether a
+        `live_equity=None` means "paper" or "live, read failed".
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None) -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False) -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -1002,6 +1006,44 @@ class RiskEngine:
                 verdict=RiskVerdict.REJECTED,
                 reason=f"Portfolio state unavailable: {exc}",
                 checks_failed=[f"PORTFOLIO_STATE: {exc}"],
+                timestamp=datetime.now(UTC),
+            )
+
+        # LIVE EQUITY MUST BE READABLE BEFORE ANY GATE MEASURES ANYTHING.
+        #
+        # `live_equity=None` carried two meanings and could not be told apart:
+        # "paper mode" and "live, but the balance read failed". Three gates
+        # branched on `if live_equity is not None and live_equity > 0` and sent
+        # BOTH to the paper book — position sizing, the daily-loss breaker and
+        # the drawdown breaker.
+        #
+        # On a live account that is worthless in the direction that spends
+        # money. The comment above the daily-loss branch says why: "the paper
+        # snapshot's daily_pnl is ~0 because live fills never touch the paper
+        # portfolio". ~0 PnL over paper equity is ~0% loss and the paper
+        # drawdown is ~0%, so neither breaker trips however the real account is
+        # doing, while sizing keeps sizing against paper equity — the exact
+        # thing its own comment says the live fix exists to prevent.
+        #
+        # So the caller now states which situation it is in, because only the
+        # caller knows, and a LIVE evaluation with no readable equity is
+        # REFUSED. An unmeasurable drawdown is not a passing one. This mirrors
+        # the `Portfolio state unavailable` rejection directly above: the same
+        # answer, for the same reason, one input further out.
+        #
+        # `> 0` rather than `is not None`: the gates below test `> 0`, so a
+        # venue answering a zero balance, or a cache whose `.get("total", 0.0)`
+        # found no total, reaches the same else. Refusing on a genuinely-zero
+        # live balance is correct anyway — there is nothing to size against.
+        if live_mode and (live_equity is None or live_equity <= 0):
+            self._total_rejections += 1
+            return RiskCheck(
+                trade_id=idea.id,
+                verdict=RiskVerdict.REJECTED,
+                reason=("Live equity could not be read, so the daily-loss and "
+                        "drawdown limits cannot be measured. Refusing rather "
+                        "than evaluating this live trade against the paper book."),
+                checks_failed=["LIVE_EQUITY: unreadable"],
                 timestamp=datetime.now(UTC),
             )
 

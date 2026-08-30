@@ -2205,3 +2205,2423 @@ The repo names this exact trap elsewhere — bot/core/onchain.py:204-208:
   - The quotes are verbatim (bot/core/ws_feed.py:556-560, 239-246, 202-227) but the described harm does not follow. `_process_ticker` runs when a ticker message is RECEIVED (called from _handle_message at line 549), and it writes the tick once; nothing refreshes that timestamp afterwards. So `datetime.now(UTC)` there is not a fabricated measurement of an unknown quantity — it is a real, locally measured arrival time, and a tick stamped that way ages normally in `_ticks`. The guard's purpose, stated in get_prices' own docstring ('so a silently-stalled feed can't serve a stale price to stop logic'),
 - **The repaint guard decides whether a candle has closed by comparing the venue's bar timestamp to the LOCAL wall clock, and fails silently in both directions under clock skew** — `bot/utils/candles.py:96-101`
   - The quote is verbatim at bot/utils/candles.py:96-101 and the docstring at 78-86 is as described, but this is not a defect in the code — it is the standard and, for the last bar, the only available test. The finding's own proposed alternative ('a bar is closed when a later bar exists') cannot apply to `ohlcv[-1]`, which is precisely the bar in question. Behaviour only changes when the host clock is skewed by more than the time remaining in the final bar, so on the 5m/15m/1h timeframes used (engine.py:4421-4425 delegates to it; live_executor.py:3475 uses '1h') a few seconds of NTP drift changes 
+
+
+========================================================================
+
+# Batch 3 — ai-injection, injection, browser-sec, honesty-py
+
+**22 raw · 22 CONFIRMED · 0 SUSPECTED · 0 REFUTED.** Every finding in this
+batch survived both adversarial verifiers — the only batch so far where
+nothing was refuted.
+
+> Recovered from the workflow journal after a worker restart swallowed the
+> completion notification. The findings below were produced and verified
+> normally; only the delivery was lost.
+
+
+## B3-01 [HIGH] Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage on a page served with no CSP, no X-Frame-Options and no nosniff
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/web/dashboard.html:532-536 (and bot/web/performance_chart.html:95-99)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-522 Insufficiently Protected Credentials; CWE-1021 Improper Restriction of Rendered UI Layers.
+
+**Observed**: The token is taken from `location.hash` (so it also lands in browser history and in any screenshot of the address bar), written to `localStorage` permanently, and the page is served with zero security headers. Any script that executes on that origin — now or after a future edit — reads the token with one `localStorage.getItem`, and there is no CSP to stop the read or the exfiltration. The page is also framable by anyone, since neither X-Frame-Options nor frame-ancestors is set.
+
+**Expected**: An operator secret that can confirm and close live trades should not be persisted in a JavaScript-readable store, and the page holding it should carry at minimum a CSP that forbids inline script and an X-Frame-Options/frame-ancestors deny — the same treatment app/server.js:200-209 gives the user-facing app.
+
+**Root cause**: `dashboard_server.create_app` installs only CORS and bearer-auth middleware. Security headers were added to the Express app (app/server.js:200-209), to nginx (nginx/snippets/security-headers.conf) and to dashboard_api.py (`_security_headers`, dashboard_api.py:141-144), but the aiohttp dashboard — the one surface that actually holds a money-capable secret in the browser — was never given any.
+
+**Business impact**: The DASHBOARD_TOKEN is the single credential that authorises `/confirm` (execute a proposed trade), `/close/{symbol}` and `/halt` on api_bridge.py, plus read access to aggregate multi-user positions, equity and rejection history. Any theft of it is direct control over real-money order flow and a full read of every user's financial state.
+
+**Reachability**: Reachable and default-on. bot/main.py:440-458 calls `create_app(engine, tg_handler=handler)` unconditionally inside `_run_all()` and binds it to `0.0.0.0:8080` by default. `handle_index` is registered at dashboard_server.py:505 (`app.router.add_get("/", handle_index)`). `auth_middleware` gates only paths starting with `/api/` (dashboard_server.py:452), so the HTML itself is served to anyone who can reach the port.
+
+**Existing tests**: grep of tests/ and app/test/ found no test asserting security headers on the aiohttp dashboard. tests/test_nginx_security_headers.py covers nginx.conf only; app/test/csp_no_unsafe_inline.test.js covers app/server.js and app/public/*.html only. tests/test_dashboard_api_hardening.py covers dashboard_api.py path traversal, not headers on bot/web.
+
+**Remediation**: Add a security-headers middleware to `create_app` alongside `cors_middleware` that sets `Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin` on every response. Separately, stop persisting the token: hold it in a module-scoped variable for the page's lifetime (the pattern app/routes/miniapp.js already argues for at length) and clear `location.hash` with `history.replaceState` once read, so the secret does not outlive the tab or leak through history. Keep DASHBOARD_BIND_HOST guidance as-is.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:531-536:
+```js
+// Auth token — read from URL hash or prompt
+const _token = (new URLSearchParams(window.location.hash.slice(1))).get('token')
+  || localStorage.getItem('dashboard_token')
+  || prompt('Enter dashboard token:');
+if (_token) localStorage.setItem('dashboard_token', _token);
+const AUTH_HEADERS = _token ? {'Authorization': 'Bearer ' + _token} : {};
+```
+bot/web/performance_chart.html:95-99 repeats the identical block.
+
+The page is served with no security headers at all — bot/web/dashboard_server.py:299-304:
+```python
+async def handle_index(request: web.Request) -> web.Response:
+    """Serve the dashboard HTML."""
+    html_path = pathlib.Path(__file__).parent / "dashboard.html"
+    if html_path.exists():
+        return web.FileResponse(html_path, content_type="text/html")
+```
+and the only middlewares are bot/web/dashboard_server.py:503:
+```python
+app = web.Application(middlewares=[cors_middleware, auth_middleware])
+```
+`cors_middleware` (dashboard_server.py:481-485) sets only three `Access-Control-*` headers; nothing sets Content-Security-Policy, X-Frame-Options, X-Content-Type-Options or Referrer-Policy anywhere in that file.
+
+The secret being stored is the same `DASHBOARD_TOKEN` that authorises money-moving endpoints on the bridge — bot/web/dashboard_server.py:28 `_DASHBOARD_TOKEN: str = os.environ.get("DASHBOARD_TOKEN", "")` and api_bridge.py:704/760/1036:
+```python
+async def confirm_trade(req: ConfirmRequest, _token: str = Depends(require_dashboard_token), ...)
+async def close_position(symbol: str, _token: str = Depends(require_dashboard_token), ...)
+async def risk_halt(_token: str = Depends(require_dashboard_token), ...)
+```
+```
+
+## B3-02 [MEDIUM] Raw LLM web-research HTML is injected into the dashboard with innerHTML and no sanitizer, while the identical value is tag-stripped on the Telegram path
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/public/js/dashboard.js:7311-7318`
+- **Standard**: OWASP A03 Injection; CWE-79 Improper Neutralization of Input During Web Page Generation.
+
+**Observed**: `r.data.web_html` is concatenated into a template literal and assigned to `innerHTML` unsanitized. Content that originated on third-party web pages, laundered through the model, becomes live markup in the operator's authenticated dashboard.
+
+**Expected**: Model output rendered as HTML should pass through `sanitizeBotHtml`, the whitelist sanitizer this same file already imports and uses for `scan.key_call` at dashboard.js:4148 and that chat.js applies to every bot reply (chat.js:212, 297, 582).
+
+**Root cause**: A second rendering path for LLM output was added without reusing the sanitizer the first path established. CLAUDE.md's own corollary — 'ask which OTHER surface makes the same claim' — is the rule that was missed: the Telegram surface got a stripper, the web surface did not.
+
+**Business impact**: Injected markup renders inside the authenticated operator dashboard — the surface used to read risk state and reach trade controls. Even with script blocked, an attacker-authored block can impersonate engine output, fabricate a 'circuit breaker OK' style claim, or present a link the operator is invited to trust.
+
+**Reachability**: Reachable. The button is bound at dashboard.js:7300 (`const webBtn = document.getElementById('hubResWeb')`) and the route exists at app/routes/research.js:24 (`router.post('/:symbol/web', ...)`), mounted in app/server.js. Gated to the operator: bot/web/user_gateway.py:1122-1126 returns 403 `admin_only` for non-admins, which caps who can trigger it but does not make the sink safe. Script execution is blocked by the app CSP (app/server.js:184-185: `script-src` carries no 'unsafe-inline' and no 'unsafe-hashes'), so the residual impact is HTML/UI injection rather than script execution — that mitigation is why this is MEDIUM and not HIGH.
+
+**Existing tests**: grep of app/test/ and tests/ for `web_html` returns only tests/test_research_web_gateway.py (asserts citations ride through) and tests/test_telegram_web_parity.py:68 (`test_research_strips_web_html_to_telegram_subset`). Neither asserts anything about the web renderer; no app/test file references `hubResWeb`.
+
+**Remediation**: Wrap the value: `<div>${sanitizeBotHtml(r.data.web_html)}</div>`. `sanitizeBotHtml` is already destructured into scope at dashboard.js:13.
+
+**Evidence**:
+
+```
+app/public/js/dashboard.js:7311-7316:
+```js
+          if (r?.ok && r.data?.web_html) {
+            out.innerHTML = `<div class="panel" style="background:var(--surface-2,#12151c)">
+                <div class="small muted" style="margin-bottom:6px">🌐 Live web research — ${esc(sym)}${r.data.model ? ' · ' + esc(r.data.model) : ''}</div>
+                <div>${r.data.web_html}</div>
+                <div class="small muted" style="margin-top:8px;font-style:italic">${esc(r.data.disclaimer || '')}</div>
+              </div>`;
+```
+Every neighbouring interpolation is wrapped in `esc(...)`; `web_html` alone is not, and `sanitizeBotHtml` (app/public/js/app.js:209, the whitelist b/i/code/pre/br sanitizer this file imports at dashboard.js:13 and uses at dashboard.js:4148) is not applied.
+
+The value is the model's raw answer, relayed verbatim — bot/web/user_gateway.py:1146-1153:
+```python
+        answer, meta = await tg_handler._llm_chat(
+            prompt, user_id=tg_id, is_admin=True, return_meta=True)
+...
+    return web.json_response({
+        "read_only": True,
+        "base": base,
+        "web_html": answer,
+```
+and app/routes/research.js:33-35 simply relays it: `const r = await gateway.postGateway('/research/web', { telegram_id: ident.id, base }, 30000); return gateway.relay(res, r);`
+
+The Telegram consumer of the same field does strip it — bot/skills/telegram_handler.py:4657-4661:
+```python
+    def _web_html_to_tg(s: str) -> str:
+        """Web panel HTML → Telegram-safe HTML: <br> to newline, keep only
+        <b>/<i>/<code>, drop everything else."""
+        s = re.sub(r"<br\s*/?>", "\n", str(s or ""), flags=re.I)
+        return re.sub(r"<(?!/?(?:b|i|code)>)[^>]*>", "", s)
+```
+```
+
+## B3-03 [MEDIUM] CSP script-src omits accounts.google.com, so the Google Identity Services script the login page injects can never load — Google sign-in silently never appears
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/server.js:185 (policy) vs app/public/index.html:1700 (blocked script)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-16 Configuration.
+
+**Observed**: An operator who configures Google login gets a sign-in area with a blank space where the Google button should be, and nothing anywhere reports why. This is the exact failure app/test/csp_no_unsafe_inline.test.js warns about in its own docstring — 'the server returns 200, the HTML is intact, the tests pass, and the script simply never runs' — applied to an external host rather than an inline block.
+
+**Expected**: Either `https://accounts.google.com` is in `script-src` (and `frame-src`/`connect-src`) so Google sign-in works, or the page does not advertise a Google sign-in it cannot deliver.
+
+**Root cause**: lib/csp.js hard-codes the external-host allowlist to `https://telegram.org` only. The guard test enumerates inline-block hashes and inline `on*` handlers but never enumerates `<script src="https://...">` (static or dynamically created) and checks it against the policy, so a second external dependency could be added with nothing noticing.
+
+**Business impact**: One of the advertised sign-in methods is dead on arrival, with no error surfaced and no log entry. Users bounce off a blank button; the operator has no signal to diagnose from.
+
+**Reachability**: Reachable whenever GOOGLE_CLIENT_ID is set. app/server.js:447 serves index.html at `/`, and the global header middleware at app/server.js:201-209 applies the CSP to it. The Telegram widget on the same page (index.html:1712) is unaffected because telegram.org IS allowlisted, which is why the gap is invisible in a deployment that only uses Telegram login.
+
+**Existing tests**: app/test/csp_no_unsafe_inline.test.js asserts `src.includes('https://telegram.org')` and nothing about any other external host; it has no test that walks page script sources and checks them against the policy. No other test in app/test/ references accounts.google.com.
+
+**Remediation**: Add `https://accounts.google.com` to `scriptSrc()` in app/lib/csp.js, and add it to `frame-src` and `connect-src` in app/server.js (GIS opens an iframe and makes XHRs to that origin). Then extend app/test/csp_no_unsafe_inline.test.js with a case that scans every served page and every file under public/js for `https://` script sources — static attributes and `.src = 'https://...'` assignments alike — and asserts each host appears in `csp.scriptSrc()`.
+
+**Evidence**:
+
+```
+The policy, app/server.js:183-186:
+```js
+const CSP = [
+  "default-src 'self'",
+  `script-src ${require('./lib/csp').scriptSrc()}`,
+```
+and app/lib/csp.js:118-121 fixes the host list:
+```js
+function scriptSrc() {
+  if (_cached === null) _cached = scriptHashes();
+  return ["'self'", ...(_cached), 'https://telegram.org'].join(' ');
+```
+Running it confirms the shipped value: `node -e "console.log(require('./lib/csp').scriptSrc())"` yields `'self' <49 sha256 hashes> https://telegram.org` — `accounts.google.com` is absent.
+
+The page loads exactly that host, app/public/index.html:1698-1706:
+```js
+  if(cfg.google_client_id){
+    const s=document.createElement('script');
+    s.src='https://accounts.google.com/gsi/client';s.async=true;
+    s.onload=()=>{
+      try{
+        google.accounts.id.initialize({client_id:cfg.google_client_id,callback:handleGoogleCredential});
+        google.accounts.id.renderButton(document.getElementById('google-btn'),
+```
+`grep -o "src=['\"]https://[^'\"]+"` across app/public/*.html and app/public/js/*.js returns exactly two external hosts: `accounts.google.com` and `telegram.org`. Only one of them is in the policy.
+
+`frame-src https://oauth.telegram.org` (app/server.js:195) and `connect-src 'self' blob:` (app/server.js:191) likewise exclude accounts.google.com, so even a loaded GIS would be unable to open its iframe or call home.
+```
+
+## B3-04 [MEDIUM] CSP img-src blocks every remote image the dashboard renders, and the onerror fallbacks that would hide them are inline handlers CSP also blocks — unreadable images render as permanent broken tiles
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/public/js/dashboard.js:5337, 5359, 2146 (policy at app/server.js:190)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-16 Configuration. (CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement.')
+
+**Observed**: Every remote image is blocked, and the recovery path for a blocked image is blocked too. The result is a row of broken-image icons with no explanation, and one dead click-suppression on a control that sits inside another clickable control.
+
+**Expected**: Either the remote image hosts are in `img-src`, or the code does not attempt remote images; and in every case a failed image load resolves to the honest fallback the code already contains. Per CLAUDE.md, an unreadable source must render as an error/omission — not as a broken tile that reads as a corrupt asset.
+
+**Root cause**: Two policies that are individually correct were never checked against the JS renderers. The inline-handler guard was written when all inline script lived in .html files and was scoped to those; `public/js/*.js` builds markup at runtime and falls entirely outside it, so three inline handlers and three remote-image dependencies landed with nothing objecting.
+
+**Business impact**: Cosmetic on its own, but it is the repo's stated failure mode in miniature: a failed read rendering as a broken artifact rather than an honest absence, and a control (stopPropagation on the receipt link) that is present in source and never reached — the #999 shape CLAUDE.md documents.
+
+**Reachability**: All three sites are reachable. `nftCard` is called from `grid()` at dashboard.js:5342 inside the collectibles panel, backed by app/routes/web3.js:37 (`GET /api/web3/collectibles`) which is mounted in app/server.js. The ENS block is in the same identity panel. The signals table renderer around dashboard.js:2140-2156 is the main dashboard signals view. The header middleware at app/server.js:201-209 applies the CSP to every response including these pages.
+
+**Existing tests**: app/test/csp_no_unsafe_inline.test.js is the only guard and, as quoted above, it scans `.html` files only — I confirmed by reading `htmlFiles()` at lines 63-72 and the `for (const file of PAGES)` loop in 'no served page carries an inline event handler'. No test in app/test/ asserts anything about img-src, and app/test/opensea_nft.test.js / web3_worlds.test.js contain no reference to rendering or CSP.
+
+**Remediation**: Two independent fixes. (a) Replace the three inline `on*` attributes with delegated listeners or with a `querySelectorAll('img').forEach(el => el.onerror = ...)` pass after the innerHTML assignment — the same conversion index.html already made. (b) Decide the image policy deliberately: either widen `img-src` to the specific hosts (`https://i.seadn.io` and the ENS avatar gateway) or proxy them same-origin; leaving it as-is means the NFT and ENS panels can never show an image. Then extend app/test/csp_no_unsafe_inline.test.js's `PAGES` walk to include `public/js/**/*.js` so the next inline handler fails loudly.
+
+**Evidence**:
+
+```
+Policy — app/server.js:190: `"img-src 'self' data: blob:",` (no remote host, no `https:`).
+
+Renderers that need remote images — app/public/js/dashboard.js:5336-5337:
+```js
+      const img = it.image_url
+        ? `<img src="${esc(it.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.parentElement.classList.add('nft-noimg')" ...>`
+```
+and dashboard.js:5358-5359:
+```js
+      const avatar = d.avatar
+        ? `<img src="${esc(d.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode('🧑‍🚀'))" ...>`
+```
+The `referrerpolicy="no-referrer"` on both proves remote origins were intended. They are: app/lib/opensea.js:116 `image_url: typeof n.image_url === 'string' ? n.image_url : null,` (OpenSea CDN URLs) and app/lib/ens.js:68 `if (name) avatar = await p.getAvatar(name).catch(() => null);` (an https/IPFS-gateway URL). dashboard.js:4487 does the same for `p.minted_image`.
+
+The fallbacks are inline event handlers, which the same policy forbids — app/server.js:184-185 builds `script-src` from app/lib/csp.js, whose own header states: 'Inline event handlers (`onclick="..."`) are not reachable by hash at all — they need `'unsafe-hashes'`, which re-opens a weaker version of the same hole.'
+
+A third inline handler is dead the same way — dashboard.js:2146:
+```js
+${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}
+```
+inside a `<td ... role="button" tabindex="0" ... style="cursor:pointer">` (dashboard.js:2142-2144) that carries `data-geo`/`data-sym` for the chart handler.
+
+The guard that should have caught all three scans only HTML — app/test/csp_no_unsafe_inline.test.js:66-72 builds `PAGES` from `htmlFiles(csp.PUBLIC_DIR)` filtered on `e.name.endsWith('.html')`, and the inline-handler test iterates `for (const file of PAGES)`. public/js/*.js is never read.
+```
+
+## B3-05 [LOW] Permissions-Policy is set nowhere in the stack, on an app that uses the Web Speech API
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/server.js:201-209`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-693 Protection Mechanism Failure.
+
+**Observed**: No Permissions-Policy on any response from any of the four HTTP surfaces.
+
+**Expected**: A deny-by-default Permissions-Policy naming the features the app does not use, so an injected or framed context cannot silently reach camera, geolocation, payment or USB.
+
+**Root cause**: The header set was chosen before Permissions-Policy was widely supported and never revisited; tests/test_nginx_security_headers.py's REQUIRED_HEADERS list (lines 48-54) codifies the same five headers, so the omission is pinned rather than noticed.
+
+**Business impact**: Defence in depth only. It does not create an exposure by itself; it removes one layer that would blunt a future injection or a framing bug on the embed/miniapp surfaces, which deliberately allow `frame-ancestors *`.
+
+**Reachability**: The middleware at app/server.js:201 runs on every request (it is registered before the static handler and every router), so the omission is universal rather than route-specific.
+
+**Existing tests**: tests/test_nginx_security_headers.py:48-54 lists the five headers the snippet must define; Permissions-Policy is not among them, and no app/test file asserts any response header.
+
+**Remediation**: Add `res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=(), usb=(), microphone=(self)')` to app/server.js's middleware, mirror it in nginx/snippets/security-headers.conf, and add the name to REQUIRED_HEADERS in tests/test_nginx_security_headers.py so the two agree (that file's own docstring makes agreement the contract).
+
+**Evidence**:
+
+```
+app/server.js:201-209 is the complete header middleware:
+```js
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
+```
+`rg -n "Permissions-Policy|Feature-Policy" -g '!node_modules' .` over the whole repository returns nothing — it is absent from app/server.js, from nginx/snippets/security-headers.conf, from dashboard_api.py's `_security_headers` (dashboard_api.py:141-144) and from bot/web/dashboard_server.py.
+
+The app does use a permission-gated API — app/public/js/chat.js:364:
+```js
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+```
+(mic dictation, chat.js:356) plus `navigator.clipboard.writeText` (app/public/trader.html:158, app/public/index.html:1574).
+```
+
+## B3-06 [LOW] api_bridge serves the whole marketing site with no security headers at all; dashboard_api serves static HTML with three headers but no CSP
+
+- **Dimension**: browser-sec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `api_bridge.py:1080 (and dashboard_api.py:141-144, 185-193)`
+- **Standard**: OWASP A05 Security Misconfiguration; CWE-1021 Improper Restriction of Rendered UI Layers; CWE-693.
+
+**Observed**: Two of the three Python HTTP surfaces serve HTML with a weaker header set than the nginx path, and one serves it with none.
+
+**Expected**: The same page should carry the same headers regardless of which server hands it out — that is the property tests/test_nginx_security_headers.py exists to defend one layer up.
+
+**Root cause**: Header policy was implemented per-server rather than as a shared decision. api_bridge's static mount was added as a catch-all (api_bridge.py:1078-1080, 'This must be LAST so API routes take priority') and never given the middleware treatment the Express app and nginx received.
+
+**Business impact**: The affected content is static marketing and the archived submission — no session, no user data, no actions — so the practical impact is framing/sniffing of public pages. The real cost is the inconsistency: a reader auditing nginx.conf reasonably concludes the site is covered, and it is only covered on one of three paths.
+
+**Reachability**: api_bridge.py:1078 guards the mount with `if os.path.isdir(_WEBSITE_DIR)` and `website/` exists in the checkout, so the mount is active. Whether it is internet-facing depends on deployment: api_bridge.py's `__main__` block comments that it binds loopback by default, and docker-compose.yml:170 mounts `./website` into nginx, so the production path is nginx. That is why this is LOW and not higher — the exposure is limited to deployments that reach api_bridge or dashboard_api directly.
+
+**Existing tests**: tests/test_nginx_security_headers.py covers nginx.conf only. tests/test_dashboard_api_hardening.py covers path traversal in dashboard_api.py's static handler, not headers. No test asserts headers on api_bridge responses.
+
+**Remediation**: Add a small FastAPI middleware to api_bridge.py setting the same five headers the nginx snippet defines, and add a `Content-Security-Policy` line to dashboard_api.py's `_security_headers`. Note that `dashboard_static/index.html` carries an inline `<script>` (its `/platform-url` fetch, lines 96-110), so a `script-src 'self'` policy on that path must either hash that block or the block must move to an external file — otherwise the platform CTA button silently never appears, which is the same class of defect as the accounts.google.com finding.
+
+**Evidence**:
+
+```
+api_bridge.py:1080:
+```python
+    app.mount("/", StaticFiles(directory=_WEBSITE_DIR, html=True), name="website")
+```
+`grep -n "Content-Security-Policy|X-Frame-Options|Referrer-Policy|X-Content-Type-Options" api_bridge.py` returns nothing — the only middleware added is CORSMiddleware at api_bridge.py:357-363. Every byte of `website/` (index.html, privacy.html, the hackathon archive) therefore goes out with no CSP, no X-Frame-Options and no nosniff when this process serves it directly.
+
+dashboard_api.py does better but still has no CSP — dashboard_api.py:141-144:
+```python
+    def _security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+```
+called from `_serve_static` (dashboard_api.py:186) which serves `dashboard_static/` and `website/`.
+
+The same content served through nginx does get the full set — nginx/snippets/security-headers.conf defines all five including `Content-Security-Policy "default-src 'self'; script-src 'self'; ..."`. So the protection depends entirely on which front door a given deployment uses.
+```
+
+## B3-07 [MEDIUM] Authenticated SSRF: web-push subscription endpoint is an unvalidated attacker-supplied URL the server later POSTs to
+
+- **Dimension**: injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/push.js:45-50 (sink at app/lib/push.js:80 -> app/lib/push.js:35-36)`
+- **Standard**: CWE-918 (Server-Side Request Forgery) / OWASP A10:2021 — Server-Side Request Forgery
+
+**Observed**: Only `startsWith('https://')` and a 500-char cap. Any host, any port, any path is accepted and is subsequently dereferenced by the server on every broadcast until pruned.
+
+**Expected**: The endpoint should be constrained to the known push-service hosts a real browser PushManager can produce (fcm.googleapis.com / updates.push.services.mozilla.com / *.notify.windows.com / web.push.apple.com, plus any operator-configured self-hosted service), and non-public IP literals refused, before the row is stored.
+
+**Root cause**: The route treats `subscription.endpoint` as if it were browser-attested data, but it arrives in a plain JSON request body from the client, so it is fully user-controlled. `web-push` deliberately does no host validation (it cannot know the operator's push service), so there is no second line of defence anywhere on this path.
+
+**Business impact**: This host runs beside the money path: the same box reaches the bot gateway, the operator's internal services and whatever else sits on its network. A registered user — free-tier, paper-only, no operator approval — can make the platform issue authenticated-looking TLS requests to internal addresses and enumerate which internal https endpoints exist via the 404/410 prune oracle. It is blind (no response body is returned to the attacker), which is what keeps this below CRITICAL, but it is a reconnaissance and request-forwarding primitive inside the trust boundary of a system that holds exchange credentials and signing keys. It also allows a subscriber row to be pointed at an attacker-run collector, which then receives the VAPID JWT and the encrypted broadcast payload for every public feed event.
+
+**Reachability**: Reachable and exercised. The write path is `router.post('/subscribe')` behind `authMiddleware` only (app/routes/push.js:21) — no operator/admin gate. The read/send path `notifySubscribers` is called from seven production modules listed above, including the bot sync ingest, so an attacker's row is dereferenced by ordinary system activity without any further attacker action. There is no upstream guard: I grepped app/routes and app/lib for any endpoint host allowlist and found none, and the library itself (app/node_modules/web-push/src/web-push-lib.js:274, 348-369) parses and uses the URL directly. The one precondition is that the operator has configured VAPID keys (`configured` at app/lib/push.js:24-30); with no keys the route returns 503 and the whole module is a no-op, so this is a defect only on deployments that have push enabled.
+
+**Existing tests**: app/test/push.test.js is the only test covering this route. Its negative case is `body: { subscription: { endpoint: 'http://evil', keys: {} } }` (app/test/push.test.js:84) — it pins that plain `http://` is rejected, and nothing more. Its fixtures use `https://push.example/${n}` (line 65), i.e. an arbitrary non-push-service https host, which the suite asserts is ACCEPTED. So no existing test pins a host allowlist, and the current tests would need one line changed if one is added.
+
+**Remediation**: Validate the endpoint at app/routes/push.js:45 before the INSERT: `new URL(endpoint)`, require `protocol === 'https:'`, require the hostname to be in an allowlist of push-service suffixes (make it configurable via an env var so self-hosted services still work), and reject hostnames that parse as IP literals or resolve into private/link-local/loopback ranges. Keep the existing length cap. This is a few lines in one route and touches no ratchet baseline. Optionally also stop the 404/410 prune from being observable by an unauthenticated-to-that-endpoint party — but fixing the allowlist removes the oracle's value.
+
+**Evidence**:
+
+```
+app/routes/push.js:44-50 —
+```js
+    const sub = (req.body || {}).subscription || {};
+    const endpoint = String(sub.endpoint || '');
+    const keys = sub.keys || {};
+    if (!endpoint.startsWith('https://') || endpoint.length > MAX_ENDPOINT_LEN
+        || !keys.p256dh || !keys.auth) {
+      return res.status(400).json({ error: 'invalid subscription' });
+    }
+```
+app/lib/push.js:35-36 (the transport) —
+```js
+let sender = (subscription, payload) =>
+  webpush.sendNotification(subscription, payload, { TTL: 3600 });
+```
+app/lib/push.js:79-85 (the call, per stored row) —
+```js
+      await sender({ endpoint: row.endpoint, keys }, body);
+      sent++;
+    } catch (err) {
+      const code = err && (err.statusCode || err.status);
+      if (code === 404 || code === 410) await prune(row.endpoint);
+```
+And the library dereferences the URL verbatim — app/node_modules/web-push/src/web-push-lib.js:348-369:
+```js
+      const urlParts = url.parse(requestDetails.endpoint);
+      httpsOptions.hostname = urlParts.hostname;
+      httpsOptions.port = urlParts.port;
+      httpsOptions.path = urlParts.path;
+...
+      const pushRequest = https.request(httpsOptions, function(pushResponse) {
+```
+```
+
+## B3-08 [MEDIUM] Web chat computes the Guardian prompt-injection verdict and then discards it — defang_if_flagged is wired on Telegram only, so hidden-character smuggling and fake `Assistant:` role turns reach the LLM prompt intact on the surface that can dispatch skills and propose trades
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/web/user_gateway.py:307-327, 555-558`
+- **Standard**: OWASP GenAI LLM01 (Prompt Injection); repo rule in bot/guardian/firewall.py:190-197 that a detector's finding must reach the prompt, not just telemetry.
+
+**Observed**: Only Telegram hardens. On the web path the zero-width character and the `Assistant:` role turn survive verbatim into the LLM prompt, because bot/nlp/sanitize.py's INJECTION_PATTERNS covers `system\s*:` but not `assistant:` and has no hidden-character rule (tests/test_firewall_hardens_the_prompt.py:36-46 asserts exactly that gap as the measurement the fix was built on).
+
+**Expected**: Both chat transports harden the prompt with the verdict the firewall just produced, as bot/guardian/firewall.py:190-225 documents ('Detection that alters nothing is telemetry, not a control') and as the user_gateway comment at line 307-309 promises.
+
+**Root cause**: Two dispatch sites for one behaviour. defang_if_flagged was added to the Telegram handler and its wiring test (tests/test_firewall_hardens_the_prompt.py, class TestItIsActuallyReached) source-scans bot/skills/telegram_handler.py only — so the second surface that makes the same claim was never checked. This is the exact failure mode CLAUDE.md names ('Ask which OTHER surface makes the same claim — before calling the fix done').
+
+**Business impact**: Defence-in-depth, not a boundary — bot/nlp/sanitize.py and firewall.py both state that LLM chat output has no execution authority and trades still pass confirm_trade -> compliance -> executor. The realistic impact is that the web agent, which can dispatch skills and propose trades, can be steered by smuggled instructions (a pasted block from a website, a forwarded message) with the hardening the operator believes is running silently absent on that surface, and the tamper-evident chain records a verdict that changed nothing.
+
+**Reachability**: handle_chat is registered on the gateway router and is the target of app/routes/chat.js POST /api/chat (authMiddleware + per-user rate limit), i.e. the primary product surface for signed-in web users. The path reached is the LLM-chat fallback at line 555, which runs whenever the intent router does not match at >=0.8 confidence — the ordinary case for free-form text. The firewall block at line 315-316 is gated on CONFIG.risk.guardian_firewall_block_high, so by default nothing is refused either.
+
+**Existing tests**: tests/test_firewall_hardens_the_prompt.py exists and is thorough, but every wiring assertion in TestItIsActuallyReached reads bot/skills/telegram_handler.py. grep of tests/ and app/test/ for 'defang' returns only that file. No test covers the web path.
+
+**Remediation**: In bot/web/user_gateway.py::handle_chat, initialise `fw_verdict = None` before the try at line 313, and at line 555 replace `sanitize_chat_input(text)` with `sanitize_chat_input(defang_if_flagged(text, fw_verdict)[0])` — keeping `text` itself untouched so the intent router and trade intercepts still see what the user typed (the same split telegram_handler.py:2894-2899 makes). Do the same for the vision path (line 347) and consider it for handle_public_chat (line 622), which has no firewall scan at all. Extend tests/test_firewall_hardens_the_prompt.py::TestItIsActuallyReached to source-scan user_gateway.py so the third surface cannot repeat this.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:307-314 — the verdict is computed and the comment states the web path is equivalent to Telegram:
+
+    # Guardian firewall pre-scan — the web chat can ACT (propose trades,
+    # dispatch skills) exactly like Telegram, so the same input-provenance gate
+    # applies here. ...
+    try:
+        fw_verdict = engine.firewall_scan(text, source="web", user_id=tg_id)
+
+bot/web/user_gateway.py:555-558 — the verdict is never used again; the raw text goes straight to the thin denylist:
+
+    answer, meta = await tg_handler._llm_chat(
+        sanitize_chat_input(text), user_id=tg_id, user_name=name,
+        is_admin=_is_admin,
+        profile_note=profile_note, reply_lang=reply_lang, return_meta=True)
+
+bot/skills/telegram_handler.py:2897-2900 — the ONLY production caller of the hardening step:
+
+        from bot.guardian.firewall import defang_if_flagged
+        _prompt_text, _ = defang_if_flagged(text, fw_verdict)
+        answer = await self._llm_chat(
+            _sanitize_chat_input(_prompt_text), user_id=tg_id, ...)
+
+`grep -rn 'defang_if_flagged' --include=*.py` outside tests returns exactly bot/guardian/firewall.py (the definition) and bot/skills/telegram_handler.py:2897-2898. Nothing in bot/web/user_gateway.py.
+```
+
+## B3-09 [MEDIUM] MCP argument validator applies a blanket 200-character cap to every string, silently breaking all four public Guardian security tools and contradicting the inputSchema they advertise (`maxLength: 100000`)
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/mcp.js:1196`
+- **Standard**: OWASP GenAI LLM06 (Excessive Agency — tool contract must match declared schema); MCP tools/list inputSchema is the caller's contract.
+
+**Observed**: Every string argument on every tool is rejected above 200 characters with a JSON-RPC -32602. scan_transaction ('Paste anything the agent is about to act on — a message, a token name or metadata, a URL, an address, a signing request'), xray_transaction (multicall/permit calldata), compile_intent (a mandate) and plan_escape/stress_portfolio's nested `asset`/`where` strings are all constrained to 200 chars, so realistic payloads — the ones the tools exist to scan — cannot be submitted at all.
+
+**Expected**: validateArgs honours each field's declared `maxLength` (or at least the handler's own cap), so scan_transaction accepts up to 20 000 characters and xray_transaction accepts up to 100 000 as advertised in tools/list.
+
+**Root cause**: validateArgs was written as a minimal shape checker ('object shape, known keys, primitive types, string caps' — its own docblock at app/routes/mcp.js:1170-1176) with a hardcoded 200 constant, and was added after the tools; it never consults `spec.maxLength`. The per-tool tests exercise the handlers directly (app/test/mcp_guardian_tools.test.js:51 calls `TOOLS.scan_transaction.handler({...})`), bypassing validateArgs entirely, so the divergence is invisible to the suite.
+
+**Business impact**: The four Guardian tools are the product's public agent-safety offering, advertised in the MCP initialize instructions and in the ERC-8257 on-chain manifest. An external agent calling scan_transaction on a real signing request (which is routinely >200 chars) gets a protocol error instead of a scan; the intended pre-signature safety check simply does not run, and the agent may proceed unscanned.
+
+**Reachability**: app/routes/mcp.js:1204-1226 mounts POST /mcp publicly (per-IP rate limit only, no auth for the read/computesOnInput family). handleRpc -> tools/call -> validateArgs at line 1145 runs before every handler, so every real MCP client hits it. Confirmed by executing handleRpc directly above.
+
+**Existing tests**: grep of app/test/ for 'validateArgs' and 'too long (200' returns nothing. app/test/mcp_guardian_tools.test.js, app/test/scan_seal.test.js and app/test/tool8257_families.test.js all invoke `TOOLS.<name>.handler(...)` directly, so none of them pass through the validator.
+
+**Remediation**: In validateArgs, use `const cap = Number.isInteger(spec.maxLength) ? spec.maxLength : 200;` and compare against that. Add `maxLength` to scan_transaction.text (20000) and compile_intent.mandate (4000) so the published schema states the real bound. Add a test that drives a >200-char payload through `handleRpc` (not the handler) for each computesOnInput tool — the existing tests call handlers directly and cannot see this.
+
+**Evidence**:
+
+```
+app/routes/mcp.js:1193-1197 — the blanket cap, which reads no per-field maxLength:
+
+    if (spec.type === 'string') {
+      if (typeof v !== 'string') return `${k} must be a string`;
+      if (v.length > 200) return `${k} too long (200 max)`;
+    } else if (spec.type === 'number' || spec.type === 'integer') {
+
+app/routes/mcp.js:153 — the schema the server publishes for the same field:
+
+        data: { type: 'string', maxLength: 100000, description: 'The transaction calldata, 0x-hex.' },
+
+app/routes/mcp.js:104 — scan_transaction's own handler cap, three orders of magnitude larger:
+
+      const t = String(text == null ? '' : text).slice(0, 20000);
+
+app/routes/mcp.js:275 — compile_intent's handler cap:
+
+      const m = String(mandate == null ? '' : mandate).slice(0, 4000);
+```
+
+## B3-10 [MEDIUM] Every free-text prompt is silently truncated to 500 characters after the surface has accepted 2000 — the model answers a quarter of the question, and Contract Studio drafts Solidity from a quarter of the spec, with no truncation notice anywhere
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/nlp/sanitize.py:35, 44-47`
+- **Standard**: OWASP GenAI LLM05 (Improper Output Handling); repo rule 'a partial total, printed as whole' (CLAUDE.md shapes table) and skill_memory.py's announced-truncation precedent.
+
+**Observed**: A 2000-character web chat message, a 4096-character Telegram message, and a 2000-character Contract Studio spec are all cut to 500 characters before the model sees them. The response is generated from the fragment and returned with no marker, so it reads as an answer to the whole question. For Contract Studio the user receives a Solidity draft (plus a compile and, for the operator, a testnet deploy path) built from the first quarter of their requirements.
+
+**Expected**: Either the accepted length and the prompted length agree, or the truncation is announced — the same rule bot/nlp/skill_memory.py:32-38 already applies on the memory side ('Truncation is ANNOUNCED rather than silent. A long scan card cut at a fixed length and presented whole is a partial printed as a total').
+
+**Root cause**: MAX_CHAT_INPUT_LEN was chosen inside the sanitizer as an injection-surface bound and never reconciled with the per-surface length limits that were set independently four times (user_gateway._MAX_TEXT_LEN, chat.js, public_chat.js). Truncation is applied silently and after the denylist substitution, so nothing downstream can tell a short question from a cut one.
+
+**Business impact**: A trader pasting a position description, a multi-part question, or a contract spec gets a confident answer to a fragment. In Contract Studio the artefact is code the user can compile and (as operator) deploy to testnet, generated from requirements that were dropped without notice — the highest-cost instance of the repo's own 'partial printed as whole' rule.
+
+**Reachability**: sanitize_chat_input is called on every LLM chat path: bot/web/user_gateway.py:556 (authed web chat), :623 (public anonymous chat), :672 (contract studio), :338 (vision), and bot/skills/telegram_handler.py:2899 (Telegram free text). All are live product surfaces.
+
+**Existing tests**: tests/test_audit_v5_followup_telegram.py:61 asserts the truncation happens (`out = _sanitize_chat_input(long_text)`), i.e. the 500 cap is pinned as intended behaviour. No test anywhere asserts that the caller is told, or that the surface limit and the prompt limit agree.
+
+**Remediation**: Return the truncation flag from sanitize_chat_input (e.g. `(text, truncated: bool)` or expose `sanitize_chat_input_ex`) and have callers either reject over-length input at the surface with the real limit, or append an explicit marker to the prompt ('[the user's message was cut here at 500 of N characters]') and surface a notice in the reply. For Contract Studio, do not truncate the spec at 500 at all — align the cap with _MAX_TEXT_LEN, since a drafting spec is exactly the payload that needs length.
+
+**Evidence**:
+
+```
+bot/nlp/sanitize.py:35,38-47:
+
+    MAX_CHAT_INPUT_LEN = 500
+
+    def sanitize_chat_input(text: str) -> str:
+        """Sanitize free-form user text before sending to LLM.
+        - Strips prompt-injection patterns FIRST
+        - Then truncates to 500 characters
+        """
+        sanitized = INJECTION_PATTERNS.sub("[filtered]", text)
+        truncated = sanitized[:MAX_CHAT_INPUT_LEN]
+        return truncated.strip()
+
+The surfaces that feed it accept four times as much, and say so:
+bot/web/user_gateway.py:53  `_MAX_TEXT_LEN = 2000`
+bot/web/user_gateway.py:300 `if len(text) > _MAX_TEXT_LEN: return web.json_response({"error": "message too long"}, status=400)`
+app/routes/public_chat.js:31 `const MAX_TEXT_LEN = 2000;`
+
+And the Contract Studio path, where the loss is largest:
+bot/web/user_gateway.py:644,672:
+
+    if len(spec) > _MAX_TEXT_LEN:
+        return web.json_response({"error": "spec too long"}, status=400)
+    ...
+    prompt = build_generation_prompt(sanitize_chat_input(spec), license=lic,
+                                     pragma=pragma)
+```
+
+## B3-11 [MEDIUM] Free-tier chat quota deliberately exempts skill intents, but the analyze_asset intent runs a billable LLM thesis on the engine's SHARED daily call/dollar budget — one free web account can drive the autonomous trading brain to the rule engine for the rest of the day
+
+- **Dimension**: ai-injection · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/web/user_gateway.py:446, 514-520`
+- **Standard**: OWASP GenAI LLM10 (Unbounded Consumption) / denial-of-wallet and denial-of-service on a shared model budget.
+
+**Observed**: The chat quota is applied only to the LLM-chat fallback. The analyze_asset intent — the single most LLM-expensive skill in the registry — is on the exempt side, and it debits the same `Analyzer._llm_calls_today` and `CostTracker.llm_cost_usd` counters the autonomous scan cycle depends on. Once exhausted, every autonomous thesis for the rest of the UTC day returns `source="RULE_ENGINE_BUDGET"`.
+
+**Expected**: Any chat-initiated path that can trigger a billable LLM call is metered against that user, or at minimum the user-invoked and autonomous budgets are separated so a chat user cannot exhaust the trading engine's analysis budget.
+
+**Root cause**: The quota was scoped to 'the operator-funded xAI Grok budget' (chat) and the exemption list was written in terms of transports ('skill/news/trade intents above are free') rather than in terms of which paths spend LLM tokens. analyze_asset is both a skill intent and an LLM caller, so it fell into the gap.
+
+**Business impact**: A single free-tier account, or an automation loop, can exhaust LLM_DAILY_LIMIT (500) or LLM_DAILY_BUDGET_USD ($1.00) and force every subsequent autonomous trade thesis to RULE_ENGINE_BUDGET for the remainder of the UTC day — degrading the quality of live trading decisions on real money, silently, from an unprivileged surface.
+
+**Reachability**: Confirmed the full chain by reading each hop: chat.js POST / -> gateway.postGateway('/chat') -> handle_chat line 424-446 -> AnalyzeAssetSkill.execute (skill_registry.py:406) -> engine._analyze_signal (engine.py:4881) -> analyzer.analyze -> _llm_thesis (analyzer.py:3873). The `background` flag is False on this path, so the LLM_BACKGROUND_SCANS throttle at analyzer.py:3945-3955 does not apply — the call is a real LLM call. _web_skill_denied only checks role permission and the (default-off) token tier gate.
+
+**Existing tests**: grep of tests/ and app/test/ for chat_quota shows the quota is tested for the chat fallback only; no test asserts that an LLM-spending skill intent is metered. bot/web/chat_quota.py is consumed at user_gateway.py:519 and :661 (contract studio) and nowhere on the skill-dispatch branch.
+
+**Remediation**: Either (a) consume a quota unit for LLM-spending skill intents (analyze_asset, and the scan_* aliases where they reach the analyzer) before dispatch at bot/web/user_gateway.py:424, or (b) give user-invoked analyses their own budget counter in bot/core/analyzer.py so `_llm_calls_today` for the autonomous cycle cannot be drained from chat. (b) is the safer one for the money path: the trading brain should never lose its LLM because a chat user was busy. Mirror whichever is chosen on the Telegram free-text dispatch, which has the same shape.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:513-520 — the quota's own scope note, and where it is consumed:
+
+    # Fallback: LLM chat — same append-around-call pattern as _handle_message.
+    # Free-tier chat quota: bound the operator-funded xAI Grok budget. Only the
+    # LLM fallback (this path) consumes a "question" — skill/news/trade intents
+    # above are free. ...
+    _is_admin = _is_admin_id(tg_handler, tg_id)
+
+bot/web/user_gateway.py:446 — the exempted dispatch, reached at intent confidence >= 0.8:
+
+                result = await skill.execute(engine, user_id=tg_id, **intent.kwargs)
+
+bot/skills/skill_registry.py:500-503 — analyze_asset goes straight into the engine's analysis pipeline:
+
+        idea = await engine._analyze_signal(sig, is_admin=kwargs.get("is_admin", False),
+                                            user_id=kwargs.get("user_id"),
+                                            user_tier=kwargs.get("user_tier"))
+
+bot/core/analyzer.py:3983-3996 — the budget guards that path shares with the autonomous engine:
+
+        if today != self._llm_day:
+            self._llm_day = today
+            self._llm_calls_today = 0
+        if self._llm_calls_today >= CONFIG.llm.daily_call_limit:
+            audit(trade_log, f"LLM daily budget exhausted ({self._llm_calls_today} calls), using rules",
+                  action="analyze", result="LLM_BUDGET")
+            result = self._rule_based_thesis(signal, indicators)
+            ...
+            result["source"] = "RULE_ENGINE_BUDGET"
+
+bot/config.py:1132,1139 — the caps are global, not per user:
+
+    daily_call_limit: int = int(_env_float("LLM_DAILY_LIMIT", 500))
+    daily_budget_usd: float = _env_float("LLM_DAILY_BUDGET_USD", 1.0)
+```
+
+## B3-12 [LOW] LLM shadow A/B makes billable model calls that no budget or cost counter ever sees, and its in-flight cap is read before the counter it guards is incremented, so a concurrent analysis batch can exceed it several-fold
+
+- **Dimension**: ai-injection · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/llm/shadow_eval.py:96-111, 118-140`
+- **Standard**: OWASP GenAI LLM10 (Unbounded Consumption); repo rule that measured spend must be recorded (bot/llm/usage.py header: 'llm_complete threw response.usage away and returned the text').
+
+**Observed**: The bound is advisory only under concurrency, and shadow spend is invisible to both accounting systems: `bot.llm.usage` (never called, because llm_complete is bypassed) and `engine.cost` / `Analyzer._llm_calls_today` (never called). A shadow provider is therefore billed with no cap and no visibility.
+
+**Expected**: The in-flight counter is incremented at spawn time (in maybe_spawn, before create_task) so the documented bound holds, and shadow token spend is recorded so `/costs` and the daily budget guards see it — the module's own header promises 'fire-and-forget with a bounded in-flight count'.
+
+**Root cause**: The counter guarding the spawn decision lives inside the coroutine being spawned, and the shadow path was written against the raw SDK clients rather than the shared llm_complete helper that carries the usage recording.
+
+**Business impact**: When an operator enables shadow A/B to evaluate the in-house runeclaw model, the resulting spend does not appear in /costs and does not count toward LLM_DAILY_BUDGET_USD, so the configured budget stops being the real bound — the same class of gap that LLM_FALLBACK_COST_ACCOUNTING was added to close for the fallback chain (bot/config.py:1145-1157).
+
+**Reachability**: maybe_spawn is called from bot/core/analyzer.py:4348-4352 on every successful primary thesis (inside `if as_of is None`). It is a no-op unless LLM_SHADOW_ENABLED is truthy AND LLM_SHADOW_PROVIDER is set (bot/llm/shadow_eval.py:48-52), so it is default-off — which is why this is LOW rather than higher.
+
+**Existing tests**: grep of tests/ for shadow_eval shows tests covering load_records / score_against_trades / format_ab_html (the scoring half). No test drives maybe_spawn concurrently or asserts the in-flight bound or any cost recording.
+
+**Remediation**: Increment `self._in_flight` in maybe_spawn immediately before `loop.create_task(...)` and drop the increment from `_run` (keep the decrement in `_run`'s finally, guarded so a task that never starts still releases). Add `from bot.llm import usage as _usage; _usage.record_from_response(cfg.model, resp)` after each create call, or route the call through `llm_complete` which already does it.
+
+**Evidence**:
+
+```
+bot/llm/shadow_eval.py:96-105 — the cap is checked in maybe_spawn:
+
+        try:
+            if not _enabled() or self._in_flight >= _MAX_IN_FLIGHT:
+                return
+            sample = float(os.environ.get("LLM_SHADOW_SAMPLE_PCT", "100") or 100)
+            if sample < 100 and random.random() * 100 >= sample:
+                return
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._run(analyzer, prompt, prompt_hash,
+                                       symbol, dict(primary)))
+
+bot/llm/shadow_eval.py:108-111 — but incremented only once the task actually starts:
+
+    async def _run(self, analyzer, prompt: str, prompt_hash: str,
+                   symbol: str, primary: dict) -> None:
+        self._in_flight += 1
+        t0 = time.monotonic()
+
+bot/llm/shadow_eval.py:122-140 — the calls are made directly on the SDK client, with no cost/usage recording anywhere in the method:
+
+                resp = await asyncio.wait_for(
+                    client.messages.create(
+                        model=cfg.model, max_tokens=512, system=sys_content,
+                        messages=[{"role": "user", "content": prompt}]),
+                    timeout=25)
+                ...
+                resp = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=cfg.model, ... max_tokens=512),
+                    timeout=25)
+
+Compare bot/llm/provider.py:1251-1256 and 1279-1284, where every llm_complete call does `_usage.record_from_response(config.model, response)` — shadow_eval bypasses llm_complete entirely, and never calls `self._cost.record_llm` either.
+```
+
+## B3-13 [LOW] Raw LLM output is interpolated unescaped into a Telegram parse_mode="HTML" message with no plain-text fallback, so an ordinary model phrase containing '<' (e.g. 'RSI < 30') can drop the entire /scan deepall result
+
+- **Dimension**: ai-injection · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/scan_skill.py:1201-1206, 1231-1233`
+- **Standard**: OWASP GenAI LLM05 (Improper Output Handling) — treating model output as trusted markup for a downstream renderer.
+
+**Observed**: An unescaped '<' or '&' in the summary makes msg.edit_text raise; the exception propagates out of _scan_batch with no local handler, so the user's /scan deepall produces no result card at all — the scan ran, cost the LLM call, and rendered nothing.
+
+**Expected**: Model text is HTML-escaped (or the send is wrapped with the same plain-text fallback TelegramHandler._send already implements) before being placed in a parse_mode="HTML" message.
+
+**Root cause**: scan_skill.py builds and sends its own Telegram messages instead of going through TelegramHandler._send, and therefore inherits neither its redaction chokepoint nor its HTML-parse fallback. Model output is the one value in the message that is not machine-formatted.
+
+**Business impact**: Low — an operator-facing rendering failure on one command, costing the LLM call and the scan. Included because it is the one place in the LLM surface where provider output reaches a markup renderer unescaped and unguarded; it is also the shape that would matter if the summary prompt ever carried third-party text.
+
+**Reachability**: The `ai=True` argument is passed only by `/scan deepall` (bot/skills/scan_skill.py:996), so this is one command rather than every scan. _ai_summary itself is live — the audit note at line 1342-1344 records that it previously raised TypeError on every call and was silently dead; that has been fixed, so the path now really returns model text.
+
+**Existing tests**: grep of tests/ for _ai_summary / scan_skill AI summary returns no test that renders model output through the HTML path. tests/test_surface_scenarios.py covers other cards.
+
+**Remediation**: Escape the summary before interpolation (`html.escape(summary)`), or wrap the two `edit_text`/`send_message` calls in the same try/except-to-plain-text pattern as bot/skills/telegram_handler.py:1159-1179. Escaping is the smaller change and keeps the '🤖 AI Summary:' label intact.
+
+**Evidence**:
+
+```
+bot/skills/scan_skill.py:1201-1206 — model text spliced into an HTML-parsed message:
+
+    if ai and results and not card_sent:
+        text += "\n\n⏳ <i>Generating AI summary...</i>"
+        await msg.edit_text(text, parse_mode="HTML")
+        summary = await _ai_summary(results[:15])
+        text = text.replace("⏳ <i>Generating AI summary...</i>",
+                            f"\U0001f916 <b>AI Summary:</b>\n{summary}")
+
+bot/skills/scan_skill.py:1231-1233 — the same on the card path:
+
+        if ai and results:
+            summary = await _ai_summary(results[:15])
+            btn_text += f"\n\n\U0001f916 <b>AI:</b> {summary}"
+
+bot/skills/scan_skill.py:1364 — the value is the provider's text verbatim:
+
+        s = await llm_complete(client, cfg, system_prompt, "\n".join(lines))
+        return s.strip() if s else "<i>No summary generated.</i>"
+
+The send here is a bare `await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)` (bot/skills/scan_skill.py:1240) — unlike TelegramHandler._send, which wraps every send and falls back to plain text on a parse error (bot/skills/telegram_handler.py:1159-1179):
+
+            try:
+                await send_method(chunk, parse_mode="HTML", reply_markup=markup)
+            except Exception as e:
+                ...
+                plain = re.sub(r"<[^>]+>", "", chunk)
+```
+
+## B3-14 [INFORMATIONAL] The public MCP server's file header states 'Every tool is READ-ONLY' and 'no tool can act', which the same file's WRITE_TOOLS registry (arena_open / arena_close / arena_my_positions) contradicts
+
+- **Dimension**: ai-injection · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/mcp.js:8-17`
+- **Standard**: OWASP GenAI LLM06 — accurate declaration of agent capability.
+
+**Observed**: The header is a stale absolute. The actual controls are sound — WRITE_TOOLS require a verified Arena key resolved once per request (line 1214-1220), tools/list annotates them `readOnlyHint: false` (line 1124-1129), and tool8257.js is deliberately given only the read-only registry (line 1247-1250) — but the first thing a reader or auditor of this file sees asserts the opposite.
+
+**Expected**: The header describes the capability surface accurately, as the initialize instructions at app/routes/mcp.js:1095-1105 already do ('two of them can open and close PAPER positions... require an Arena key').
+
+**Root cause**: The write family was added later with its own local justification comment (line 938-942) and the file header was not revisited. CLAUDE.md's own note applies: 'a number in prose is the part that rots first'.
+
+**Business impact**: None directly; it misleads anyone auditing the public agent surface about whether the endpoint can take actions.
+
+**Reachability**: Documentation only — no runtime behaviour depends on the header. Reported because the enforcement it misdescribes (arena keys, readOnlyHint annotations) is the exact thing an integrator relies on when deciding what to auto-approve.
+
+**Existing tests**: app/test/mcp_public_records.test.js and app/test/tool8257_families.test.js pin the tool families programmatically, and app/test/mcp_v2.test.js exercises the RPC surface — none read the file header. tests/test_mcp_doc_matches_the_code.py covers bot/mcp/server.py, not this file.
+
+**Remediation**: Update the header to describe three families (intelligence, Guardian-computes-on-input, and key-gated paper-write), mirroring the wording already used in the initialize instructions. Consider a test in the style of tests/test_mcp_doc_matches_the_code.py (which pins the Python MCP server's doc) for this file.
+
+**Evidence**:
+
+```
+app/routes/mcp.js:8-17 (file header):
+
+ * Scope is deliberate. Every tool is READ-ONLY and falls in one of two
+ * families:
+ *   - intelligence — serves data this site already publishes without auth ...
+ *   - Guardian safety — evaluates input the CALLER supplies (marked
+ *     `computesOnInput: true`), storing nothing and reading no account.
+ * No tool can see a user's account, and no tool can act — trade-capable MCP
+ * tools are a separate, gated decision for the operator.
+
+app/routes/mcp.js:943-945, 1015-1017, 1043-1044:
+
+    const WRITE_TOOLS = {
+      arena_open: {
+        requiresKey: true,
+    ...
+      arena_close: {
+        requiresKey: true,
+    ...
+      arena_my_positions: {
+        requiresKey: true,
+```
+
+## B3-15 [HIGH] SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY / "Exchange: 🟢 Connected" / "0.0% error" all-clear manufactured from zero measurements
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/system_health.py:101-112 (snapshot), 56/70/75 (the three unfed feeders), 128-167 (format_telegram)`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-a-heuristic-is-never-a-verdict; CLAUDE.md-registration-is-not-reachability; CWE-754
+
+**Observed**: `/health` prints ✅ SYSTEM HEALTH: HEALTHY with 0ms latency, 0.0% error rate (0/0) and a green "Exchange: Connected" for the entire life of the process, whatever the bot is actually doing. GET /ready (bot/web/dashboard_server.py:352) computes `_is_ready` = exchange_connected AND status != CRITICAL — both constants — so it returns 200 unconditionally, despite its own docstring "Fails CLOSED — if health can't be determined the bot is reported NOT ready". /metrics emits runeclaw_exchange_connected 1, runeclaw_api_error_rate_pct 0, runeclaw_ready 1 as constants (bot/web/dashboard_server.py:388-399).
+
+**Expected**: A monitor with no samples has no reading. Latency/error-rate should render as "—" or "not measured", the exchange line should say "unknown" until something actually probed it, and the verdict should be a third state (UNKNOWN) rather than HEALTHY — the repo's own rule: absent is never a measurement, and a green sub-check that rules no cause out must not be painted as a verdict.
+
+**Root cause**: Two defects compounding, one from each of CLAUDE.md's headline rules. (1) Reachability: the monitor's three write methods were never wired to any caller, so the class is a module that "nothing calls" one granularity down — indistinguishable from one that does not work. (2) The empty-window branch fills the readings with 0.0 instead of None, and the verdict ladder then reads those manufactured zeros as evidence of health.
+
+**Business impact**: The operator's first triage command, the orchestrator readiness probe and the Prometheus scrape all report a healthy, exchange-connected bot during a total exchange outage. CLAUDE.md records 37 timed-out ticks spent on the wrong subsystem after reading one green sub-check; here every signal is green by construction. A load balancer can never take this instance out of rotation.
+
+**Reachability**: REACHABLE AND ALWAYS-ON. /health is registered at bot/skills/telegram_handler.py:970 ("health", self._cmd_health) and renders engine.health.format_telegram() (telegram_handler.py:8347). engine.health is constructed at bot/core/engine.py:444. The /ready and /metrics routes are mounted at bot/web/dashboard_server.py:514-515 and the app is created from bot/main.py:440. No upstream guard exists — the failure is not conditional on any error path; it is the only behaviour the class has.
+
+**Existing tests**: tests/test_ops_endpoints.py imports HealthSnapshot and constructs _HEALTHY/_CRITICAL/_DEGRADED_DISCONNECTED literals (lines 42-45); it never calls SystemHealthMonitor.snapshot() on an unfed monitor, so the constant-HEALTHY path is untested. tests/test_monitoring_is_honest.py is about scripts/monitoring/heartbeat.sh and verify_deploy.sh, not this class. tests/unreachable_methods_baseline.txt records the three dead feeders but nothing asserts the consequence.
+
+**Remediation**: Make the empty-window case tri-state: return None for api_latency_ms / api_latency_p99_ms / error_rate_pct and status="UNKNOWN" when `recent` is empty, and make `exchange_connected` Optional[bool] defaulting to None until something calls set_exchange_status. `_is_ready` should then treat UNKNOWN as not-ready (it already claims to). Separately, wire record_api_call/set_exchange_status at the exchange call sites (or delete the class and stop publishing the card) — and remove the three names from tests/unreachable_methods_baseline.txt in the same commit, per the two-way ratchet rule.
+
+**Evidence**:
+
+```
+bot/core/system_health.py:101-112 —
+            else:
+                avg_lat = 0.0
+                p99_lat = 0.0
+                err_rate = 0.0
+
+            # Determine status
+            if not self._exchange_ok or err_rate > 50:
+                status = "CRITICAL"
+            elif err_rate > 10 or avg_lat > 5000:
+                status = "DEGRADED"
+            else:
+                status = "HEALTHY"
+
+The three methods that would ever move those inputs have ZERO callers in the whole tree (`rg 'record_api_call|set_exchange_status|record_scan' .` returns only the definitions at bot/core/system_health.py:56,70,75 and tests/unreachable_methods_baseline.txt:160-162). `self._samples` is therefore always empty and `self._exchange_ok` is always its constructor default:
+
+bot/core/system_health.py:52-53 —
+        self._exchange_ok = True
+        self._ws_ok = False
+
+Only `set_ws_status` is wired (bot/core/engine.py:4059), so one of five signals on the card is real.
+```
+
+## B3-16 [HIGH] /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement — Cash, Equity and NET all "$0.00"
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/telegram_handler.py:7756-7771, 7861-7863, 7896`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-guard-or-omit-never-neither; CWE-754
+
+**Observed**: A read failure that fetch_balance swallowed into a zeros dict is rendered as a confident, fully-formed account statement showing an empty account. The user reading /livebalance to find out whether their money is there is told it is gone.
+
+**Expected**: A failed balance read is not a zero balance. The card should paint an error state (guard) — the outer `except` at line 7914 already does exactly that with "❌ Balance fetch failed: …" — or omit the balance block and say the read failed.
+
+**Root cause**: fetch_balance converts an exception into a success-shaped dict carrying an "error" key plus zero-valued money fields, and the only caller that inspects that key does so for the cache write, not the display. The exception never reaches line 7914 because `_get_exchange()` returns the CACHED ccxt instance (bot/core/live_executor.py:809-820 — `if self._exchange is None: … return self._exchange`), so a fetch_balance-only failure leaves every later call working.
+
+**Business impact**: The most-read money surface tells a live trader their exchange account is empty during a transient venue/auth failure. That is the reading most likely to provoke a panic manual intervention on a real account.
+
+**Reachability**: REACHABLE. /livebalance is registered at bot/skills/telegram_handler.py:967 and listed in bot/skills/command_catalog.py:34. The handler is reached by any user with the "portfolio" permission; `balance_view_executor` routes linked users to their own account. No upstream guard inspects bal["error"] before the render; verified by grepping the whole function body (lines 7742-7917) for "error" — only line 7760 matches.
+
+**Existing tests**: tests/test_telegram_commands.py:146 test_livebalance_returns_balance mocks a SUCCESSFUL fetch_balance ({"total": 123.45, …}) and asserts "123.45" appears. No test in tests/ plants the {"error": …} payload for this handler.
+
+**Remediation**: In `_cmd_livebalance`, immediately after line 7756 add `if bal.get("error"): raise RuntimeError(bal["error"])` (or render the existing "❌ Balance fetch failed" branch directly) so the failure takes the guard path that already exists twelve lines further down. Better still, have `LiveExecutor.fetch_balance` re-raise or return None instead of a zeros dict, so no caller can mistake the failure for a reading — the same change the /portfolio and /balance realized-total work already made with `realized_totals` returning None.
+
+**Evidence**:
+
+```
+bot/core/live_executor.py:8933-8934 — fetch_balance's failure return:
+        except Exception as exc:
+            return {"error": str(exc), "free": 0, "used": 0, "total": 0, "holdings": []}
+
+bot/skills/telegram_handler.py:7768-7771 — the display path reads it without ever asking about "error":
+            total = bal.get("total", 0)
+            free = bal.get("free", 0)
+            used = bal.get("used", 0)
+            holdings = bal.get("holdings", [])
+
+bot/skills/telegram_handler.py:7861-7863 —
+                f"- Cash: <code>${free:,.2f}</code>",
+                f"- Used: <code>${used_display:,.2f}</code>",
+                f"- Equity: <code>${total_usd:,.2f}</code>",
+
+The ONLY "error" check in the whole handler is the cache-write guard at line 7760 (`if is_operator_view and ("error" not in bal or bal.get("total", 0) > 0)`), which protects the engine's cache and not the card.
+```
+
+## B3-17 [HIGH] The web gateway reports `unprotected: false` for a live position that has NO stop at all, and the dashboard paints it "🤖 bot-managed" under a "🛡️ All positions have their stop-loss on the exchange" banner
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/web/user_gateway.py:1589-1597 (esp. 1596), 1675-1676`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim; CWE-754
+
+**Observed**: `unprotected: false`, `sl_order: "manual"`, `sl_dist_pct: 0.0`. The dashboard row shows the neutral "🤖 bot-managed" chip (asserting the bot is managing a stop that does not exist) and, because unprotected_count is 0, the page-level banner reads "🛡️ All 0 live positions have their stop-loss on the exchange."
+
+**Expected**: "No stop anywhere" is the strongest form of unprotected, not a protected state. It should set unprotected=True (or a third value, `sl_order: "none"`), and sl_dist_pct should be None rather than 0.0 — 0.0% away reads as a stop sitting exactly at entry.
+
+**Root cause**: The serializer is two-valued where the fact is three-valued. Its own docstring (user_gateway.py:1583-1586) enumerates only two cases — "non-null ⇒ protected; None with a stop price set ⇒ UNPROTECTED" — and the third case, no stop price at all, falls through the `sl > 0` guard into the safe answer. The exact `(x or 0) > 0` shape from CLAUDE.md's table, leaning toward safety-looking.
+
+**Business impact**: The web dashboard's protection banner is the answer to "is my money stopped out if this gaps?". An adopted or reclaimed position carrying no stop is counted as fine and shown with a reassuring chip, while the bot's own Telegram alert is simultaneously calling it CRITICAL — two surfaces disagreeing about the single most expensive safety fact.
+
+**Reachability**: REACHABLE. handle_positions (user_gateway.py:1641) maps `_live_position_row` over `executor.open_positions` (lines 1660-1661) for any live, non-web caller, and the gateway is mounted by bot/web/dashboard_server.create_app. Positions with stop_loss == 0 are produced by the two adoption constructors cited above; the limit-order one (live_executor.py:2800-2815) never runs the safety-default block at all, and the position one skips it whenever entry_price is 0 (`need_sl = lp.stop_loss <= 0 and entry_price > 0`, live_executor.py:2484), which the `or 0` entry-price chain at :2340-2344 can produce. Two other surfaces get the same question right, which is what makes this a divergence rather than a design choice: /livepositions prints "⚠️ NOT SET" (telegram_handler.py:8049) and the proactive alert fires POSITION_UNPROTECTED on `has_sl = bool(sl_order_id)` alone.
+
+**Existing tests**: tests/test_positions_web_gateway.py covers three cases (sl_order_id present; sl_order_id None WITH stop_loss=95.0; the runtime `unprotected` marker) — its `_live()` fixture always sets `stop_loss=95.0`. No test plants stop_loss=0, so the case is unpinned in both directions.
+
+**Remediation**: Change line 1596 to `unprotected = (not sl_protected) or bool(getattr(pos, "unprotected", False))` — matching bot/core/proactive_monitor.py:1897-1901, which already gates the CRITICAL alert on `sl_order_id` alone — and return `stop_loss`/`sl_dist_pct` as None (not 0.0) when no stop is recorded so the client cannot format a price it does not have. Add the missing scenario to tests/test_positions_web_gateway.py.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:1588-1597 —
+    entry = float(getattr(pos, "entry_price", 0) or 0)
+    sl = float(getattr(pos, "stop_loss", 0) or 0)
+    …
+    sl_protected = bool(getattr(pos, "sl_order_id", None))
+    tp_protected = bool(getattr(pos, "tp_order_id", None))
+    unprotected = (not sl_protected and sl > 0) or bool(getattr(pos, "unprotected", False))
+
+The `sl > 0` conjunct means "there is no stop price recorded at all" resolves to NOT-unprotected. Positions with stop_loss == 0 are constructed on the adoption paths: bot/core/live_executor.py:2377 (`stop_loss=0,` for an adopted exchange position) and :2807 (`stop_loss=0,` for an adopted/reclaimed limit order, status="pending_fill"), and both appear in `open_positions` (live_executor.py:8938 — `p.status in ("open", "pending_fill")`).
+
+Downstream, app/public/js/dashboard.js:1130-1132 —
+      if (p.unprotected) chip = `<span class="chip chip--down">⚠️ unprotected</span>`;
+      else if (p.sl_order === 'exchange') chip = `<span class="chip chip--up">🛡️ on exchange</span>`;
+      else chip = `<span class="chip">🤖 bot-managed</span>`;
+
+and app/public/js/dashboard.js:1123 — with unprotected_count 0 the banner is the all-clear:
+    else if (d.live) banner = `<div class="lpos-alert lpos-alert--ok">🛡️ All ${prot} live position${prot === 1 ? '' : 's'} have their stop-loss on the exchange.</div>`;
+```
+
+## B3-18 [MEDIUM] /performance prints an all-time realized total of "$+0.00" when nothing could be priced — the `_total_known` flag that exists to prevent it is computed and never used
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/telegram_handler.py:12447-12449, 12525-12528`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim
+
+**Observed**: "All-time $+0.00" (and Today / 7-Day) printed as measured figures, one line above a win rate that honestly says "n/a" and names the two unpriced closes. The card contradicts itself: the rate knows nothing could be scored, the total beside it claims break-even.
+
+**Expected**: The total should read "unknown" (or "—") with no sign and no arrow, exactly as its sibling /balance already does: `_realized_str = (f"${pnl_sign}{realized_pnl:.2f}" if _realized_known else "unknown")` (telegram_handler.py:7832-7833), with the unpriced count stated beside it.
+
+**Root cause**: The None-preserving fix was applied to the rate (line 12446, with a comment explaining that None must travel) and half-applied to the total: the flag was computed at 12449 and the wiring into the card was never finished. render_performance has no way to recover it — it is handed a measured-looking 0.0, the exact situation the comment at 12441-12445 describes for the win rate.
+
+**Business impact**: The headline lifetime P&L figure on the performance card is fabricated from no measurements. Combined with the honest "n/a" win rate on the same card, the operator sees a break-even record where the truth is "we cannot price any of these closes".
+
+**Reachability**: REACHABLE. /performance is registered in the command table and guarded by @guard("portfolio") at line 12366. The live branch runs whenever CONFIG.is_live() and the engine has a live_executor. `pnl_usd` is Optional BY DESIGN and survives restarts as JSON null — bot/core/live_executor.py:9368 `pnl_usd=(None if item.get("pnl_usd") is None else float(item["pnl_usd"]))`, under a comment saying `float(x or 0)` "silently converted 'we could not price this' into 'this broke even'".
+
+**Existing tests**: tests/test_unpriced_closes_are_not_break_even.py exercises render_performance and render_daily_report directly with hand-built dicts; it never drives `_cmd_performance`, so the layer that manufactures the 0.0 above the renderer is untested. audit/generate_artifact.py's RC-2026-009 covers the PAPER branch's hardcoded week_pnl (line 12555) — a different branch and a different value.
+
+**Remediation**: Pass the tri-state through: put `total_pnl` in `data` as None when `_total_known` is False (plus the `_tot["unpriced"]`/`_tot["total"]` counts), and teach render_performance to render an unknown total as "unknown" with a neutral glyph — the treatment it already gives an unknown win rate at bot/warroom/warroom_bot.py:380-386. Do the same for `today_pnl`/`week_pnl`, whose `_today_unpriced`/`_week_unpriced` counters (lines 12461-12496) are likewise computed and never surfaced.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:12447-12449 —
+            _tot = realized_totals(user_trades)
+            total_pnl = _tot["net"] if _tot["net"] is not None else 0.0
+            _total_known = _tot["net"] is not None
+
+`_total_known` appears exactly once in the whole file (`grep -n '_total_known' bot/skills/telegram_handler.py` → 12449 only). The manufactured 0.0 is then published verbatim:
+
+bot/skills/telegram_handler.py:12525-12527 —
+            data = {
+                "today_pnl": round(today_pnl, 2),
+                "week_pnl": round(week_pnl, 2),
+                "total_pnl": round(total_pnl, 2),
+
+realized_totals returns None for exactly this case and says why (bot/formatters/realized_totals.py:26-30): "In the all-unpriced case it printed `$+0.00 🟢`: a measured break-even, in green, built from zero measurements. … an unreadable total is None, and None has no colour."
+```
+
+## B3-19 [MEDIUM] /performance crashes with `TypeError: type NoneType doesn't define __round__` when an adopted-orphan close has no recorded P&L
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/telegram_handler.py:12436, 12538`
+- **Standard**: CLAUDE.md-test-is-None-not-falsiness; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim; CWE-476
+
+**Observed**: The handler raises before the data dict is built, so nothing is sent. `_cmd_performance` has no try/except of its own — the @guard decorator (telegram_handler.py:743-764) only runs the permission gate — so the exception escapes to the PTB error handler and the user gets no card at all.
+
+**Expected**: The excluded-orphans line should render "(P&L not recorded)" the way /balance does, and the command should complete.
+
+**Root cause**: One of the three sibling call sites of realized_totals was left with a caller that assumes a float. The comment sitting directly above the line names the defect ("this total beside it was not") and the fix was applied to /balance and /portfolio but not here.
+
+**Business impact**: /performance becomes unusable for any account carrying an unpriced adopted orphan — the operator loses the P&L surface entirely and gets no explanation, on exactly the accounts (positions the bot did not open) where the numbers are least well understood.
+
+**Reachability**: REACHABLE. Requires (a) live mode, (b) at least one closed position whose trade_id starts with 'TI-adopted' or 'TI-injected', and (c) that row's pnl_usd being None. Adopted orphans are created by bot/core/live_executor.py:2369 (`trade_id = f"TI-adopted-{…}"`), and pnl_usd is Optional and round-trips as JSON null (live_executor.py:9368). No upstream guard filters unpriced adopted rows — lines 12430-12431 select them purely by trade_id prefix.
+
+**Existing tests**: No test in tests/ drives `_cmd_performance` with an adopted orphan (grep for ORPHAN_PREFIXES in tests/ returns filter tests, not this handler). audit/generate_artifact.py RC-2026-010 records a DIFFERENT crash on the same command — `f"{_wr:.0f}%"` on a None win rate at lines 12567/12574 — which is caught by the surrounding try/except and merely drops the PNG; this one is outside any handler and kills the command.
+
+**Remediation**: Mirror /balance: keep `adopted_pnl` Optional in `data` (`"adopted_pnl": None if adopted_pnl is None else round(adopted_pnl, 2)`) and have bot/warroom/warroom_bot.py:418-424 render the excluded-orphans line as "(P&L not recorded)" when it is None rather than formatting it with `_money`.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:12432-12436 —
+            # Third copy of the same parenthetical (see /balance and
+            # /portfolio). The win rate six lines below was carefully made to
+            # pass None through; this total beside it was not.
+            from bot.formatters.realized_totals import realized_totals
+            adopted_pnl = realized_totals(adopted_trades)["net"]
+
+bot/skills/telegram_handler.py:12538 —
+                "adopted_pnl": round(adopted_pnl, 2),
+
+`realized_totals(...)["net"]` is documented as "None when rows exist and none are priced" (bot/formatters/realized_totals.py:57-58), and `round(None, 2)` raises. The sibling call site handles it — telegram_handler.py:7909-7910:
+                    + (f" ({'+' if adopted_pnl >= 0 else ''}{adopted_pnl:.2f})</i>"
+                       if adopted_pnl is not None else " (P&L not recorded)</i>")
+```
+
+## B3-20 [MEDIUM] /classpf scores every unpriced close as a break-even trade: the win rate is diluted downward and a partial net is printed as the whole
+
+- **Dimension**: honesty-py · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/telegram_handler.py:4569, 4576, 4585-4593`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-test-is-None-not-falsiness
+
+**Observed**: WR 33% (1 win out of 3), computed over a denominator that includes two rows nobody could price; and "net $+12.00" presented as the class total over all 3 trades with no indication that 2 contributed nothing.
+
+**Expected**: "1 of 1 priced close was a win; 2 closes carry no recorded P&L and are scored neither way" — WR 100% over a scored population of 1, with the shortfall stated. That is exactly what bot/utils/win_rate.py's win_stats returns and what the /portfolio and /performance cards already print.
+
+**Root cause**: `float(getattr(tr, "pnl_usd", 0) or 0)` collapses None to 0.0 at the top of the loop, so by the time the bucket is scored there is no way to tell an unpriced close from a genuine break-even. `is_filled_close` cannot help: a close_reason of "TP"/"SL" is not in NON_FILL_CLOSE_REASONS (bot/utils/close_reason.py:64-79), so the manufactured zero passes straight through into the bucket.
+
+**Business impact**: The card is described in its own docstring as the evidence base for growing or pruning the non-crypto universe. A win rate pushed down by unscorable rows and a partial net printed as whole are the inputs to a decision about which asset classes the bot keeps trading.
+
+**Reachability**: REACHABLE. /classpf is registered at bot/skills/telegram_handler.py:950 ("classpf", self._cmd_classpf) and listed in bot/skills/command_catalog.py:101; the handler is @guard("portfolio"). It reads `self.engine.live_executor.closed_positions` directly (line 4557). `pnl_usd` is Optional by design and preserved as JSON null across restarts (bot/core/live_executor.py:9360-9369). No upstream guard drops unpriced rows.
+
+**Existing tests**: grep for `classpf` in tests/ returns no test file. The behaviour is covered nowhere; the cure (bot/utils/win_rate.py) is heavily tested but this call site does not use it.
+
+**Remediation**: Read the field with `bot.utils.win_rate.trade_pnl(tr)` (which returns Optional and exists precisely so callers cannot get the field wrong), keep unpriced rows out of the bucket lists, count them separately, and append the coverage note the other cards use (`bot.utils.win_rate.coverage_note`). PF and the net should be omitted or marked partial when the priced count is short of the trade count.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:4567-4576 —
+        for tr in trades:
+            try:
+                pnl = float(getattr(tr, "pnl_usd", 0) or 0)
+                if not is_filled_close(getattr(tr, "close_reason", None), pnl):
+                    skipped_non_fills += 1
+                    continue  # never filled — no capital was at risk
+                cat = category_for_symbol(getattr(tr, "symbol", "") or "")
+            except Exception:
+                continue
+            buckets.setdefault(cat, []).append(pnl)
+
+bot/skills/telegram_handler.py:4585-4593 —
+            wins = [p for p in pnls if p > 0]
+            losses = [-p for p in pnls if p < 0]
+            gw, gl = sum(wins), sum(losses)
+            pf = (gw / gl) if gl > 0 else (float("inf") if gw > 0 else 0.0)
+            …
+            wr = 100.0 * len(wins) / len(pnls) if pnls else 0.0
+            lines.append(
+                f"{category_icon(cat)} <b>{cat}</b>: {len(pnls)} trades · "
+                f"PF <b>{pf_s}</b> · WR {wr:.0f}% · net ${sum(pnls):+.2f}")
+
+This is `getattr(o, "pnl", 0)` plus a sum over a set containing unreadable rows — two rows of CLAUDE.md's shape table — in a file that already imports the cure: `from bot.utils.win_rate import win_stats as _win_stats` (telegram_handler.py:684).
+```
+
+## B3-21 [MEDIUM] /livepositions' exchange-fallback list renders an unreadable entry, mark and unrealized P&L as $0.0000 / $+0.00 — on the orphan list the bot has a purpose-built honest renderer for
+
+- **Dimension**: honesty-py · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/telegram_handler.py:8017-8029`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-ask-which-OTHER-surface-makes-the-same-claim
+
+**Observed**: "- Mark: $0.0000", "- uPnL: $+0.00" and "- Entry: $0.0000" rendered as measurements, under the header "LIVE POSITIONS (from exchange)" and the caveat "⚠️ Showing exchange data — local tracking out of sync" (line 8030), which explains that tracking is stale but asserts the numbers themselves are real.
+
+**Expected**: The same three-valued treatment `orphan_position_row` gives: an em dash or "unknown" for a field the venue did not report, no sign, and no colour. A missing unrealizedPnl must not print as a measured break-even.
+
+**Root cause**: This fallback branch was not migrated when the orphan-row renderer was extracted. It is the second surface answering the same question from the same venue payload, and only the first was cured — the corollary CLAUDE.md states as "Ask which OTHER surface makes the same claim — before calling the fix done."
+
+**Business impact**: This list is shown precisely when local tracking is out of sync — the moment the operator least knows what is open. A fabricated $+0.00 unrealized on an untracked live position asserts break-even for a position whose P&L nobody read.
+
+**Reachability**: REACHABLE. The branch at telegram_handler.py:8003-8032 runs when the caller's executor has no locally tracked positions but the exchange reports open ones — i.e. exactly the orphan case. `_render_livepositions_cards` cannot pre-empt it: it returns False immediately when both lists are empty (telegram_handler.py:8182-8183). /livepositions is registered in the command table and listed in bot/skills/command_catalog.py.
+
+**Existing tests**: tests/test_telegram_commands.py:165 test_livepositions_empty asserts the "no live positions" message with `_positions = {}` and no exchange fallback data; nothing plants an exchange position dict with a missing unrealizedPnl. tests/ has no coverage of this branch.
+
+**Remediation**: Route this branch through `bot.formatters.orphan_position.orphan_position_row` (or at minimum through its `_f()` helper) so a missing field renders as "—", and drop the `or 0` on entryPrice / markPrice / unrealizedPnl. The row builder is already pure and unit-tested, so the change is a call, not a rewrite.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:8017-8029 —
+                        contracts = float(p.get("contracts") or 0)
+                        entry = float(p.get("entryPrice") or 0)
+                        mark = float(p.get("markPrice") or 0)
+                        upnl = float(p.get("unrealizedPnl") or 0)
+                        lev = int(float(p.get("leverage") or 1))
+                        …
+                            f"- Entry: <code>${entry:,.4f}</code>\n"
+                            f"- Mark: <code>${mark:,.4f}</code>\n"
+                            f"- Qty: <code>{contracts:.6f}</code>\n"
+                            f"- uPnL: <code>${upnl:+,.2f}</code>\n"
+
+The cure for this exact payload already exists and documents the exact claim being made here — bot/formatters/orphan_position.py:80-83:
+    # The venue omits unrealizedPnl more often than it reports a real 0.00, and
+    # for an orphan "break-even" is the single worst thing to assert. A genuine
+    # 0 from the venue still reads as 0; only a missing field is unknown.
+    unrealized = _f(pos.get("unrealizedPnl")) if pos.get("unrealizedPnl") is not None else None
+```
+
+## B3-22 [MEDIUM] The Daily Alpha card publishes an unreadable funding rate as a measured "+0.0000% (flat)", while the open-interest and long/short fields beside it correctly omit themselves
+
+- **Dimension**: honesty-py · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/alpha_card.py:180-184, 278-281`
+- **Standard**: CLAUDE.md-unreadable-is-never-zero; CLAUDE.md-test-is-None-not-falsiness
+
+**Observed**: "⚖️ Positioning — Funding: +0.0000% (flat)" on the text card and "Funding +0.0000% (flat)" in the POSITIONING block of the PNG, asserting a measured neutral funding regime built from a field the venue never sent.
+
+**Expected**: Omit the funding line when the rate could not be read, exactly as the open-interest and long/short lines already do — or read it through `bot.risk.funding_clock.read_funding_rate`, which returns None for absent / empty / NaN and a real 0.0 only for a genuine zero.
+
+**Root cause**: `float(x or 0)` on an Optional venue field, in the one of three positioning reads that was not given a presence guard. The falsiness collapse also makes the "flat" label unrecoverable downstream — by the time the renderer sees 0.0 there is nothing left to distinguish it from a genuine zero.
+
+**Business impact**: The card's own footer reads "Same data the bot trades on — not investment advice." A fabricated flat funding rate on the positioning block misrepresents crowding for a symbol whose venue reports none — and 0% funding is itself a meaningful signal in this codebase (the executor reads it as "market likely closed").
+
+**Reachability**: REACHABLE. `build_alpha_insight` / `format_alpha_card` are imported and called at bot/skills/telegram_handler.py:10464 and 10483, with the PNG variant at 10474-10475 (bot/formatters/signal_card.py:1799 render_alpha_card). Nothing between the fetch and the render inspects whether the rate was readable. DISPLAY ONLY — the trading gate reads funding independently through the null-preserving `read_funding_rate` (bot/core/live_executor.py:45, 2954), so no order decision is affected; scored MEDIUM for that reason.
+
+**Existing tests**: grep for `funding_rate` in tests/ and app/test/ turns up no test that plants a null fundingRate against build_alpha_insight or format_alpha_card; tests/test_alpha_card.py exercises the formatter with populated dicts.
+
+**Remediation**: Replace bot/core/alpha_card.py:182 with `_r = read_funding_rate(fr)` (bot/risk/funding_clock.py) and `if _r is not None: d["funding_rate"] = _r`. That is a one-line change using a reader the repo already ships and tests, and it fixes both renderers at once because both key on the field's presence.
+
+**Evidence**:
+
+```
+bot/core/alpha_card.py:180-200 — funding is stored unconditionally; its two neighbours are guarded:
+    try:
+        fr = await exchange.fetch_funding_rate(symbol)
+        d["funding_rate"] = float(fr.get("fundingRate") or 0)
+    except Exception:
+        pass
+    …
+        if oi_usd > 0:
+            d["open_interest_usd"] = oi_usd
+
+bot/core/alpha_card.py:278-281 — the text renderer keys on presence, not on a reading:
+    if "funding_rate" in d:
+        f = d["funding_rate"] * 100
+        payer = "longs pay" if f > 0 else ("shorts pay" if f < 0 else "flat")
+        pos_lines.append(f"  Funding: {f:+.4f}% ({payer})")
+
+and the PNG renderer repeats it — bot/formatters/signal_card.py:1974-1977:
+        if "funding_rate" in data:
+            f = data["funding_rate"] * 100
+            payer = "longs pay" if f > 0 else ("shorts pay" if f < 0 else "flat")
+            row.append(f"Funding {f:+.4f}% ({payer})")
+
+The repo already owns the null-preserving reader and says why 0 is not a neutral filler — bot/risk/funding_clock.py:41-48: "an absent field, a null, an empty string and a genuine 0.0 all became 0.0 … In this domain 0 is not a neutral filler: the executor's own comment says '0% funding on metals/stocks = market likely closed', so an unreadable rate was impersonating a real and quite specific signal."
+```
+
+
+========================================================================
+
+# Batch 4 — backtest, honesty-js, data-db, concurrency
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED**
+
+
+## B4-01 [BLOCKER] Default backtest fills every entry at an un-touched limit price — 73% of fills are at a price the decision bar never traded
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/engine.py:593`
+
+**Observed**: CONFIG.limit_orders defaults to enabled=True / default_order_type="limit", so the analyzer sets idea.entry_price to a pullback level up to 1.0*ATR below the close for LONG (floor 0.15*ATR, else close-0.1*ATR). bot/backtest/ contains zero references to order_type (verified by grep), so _execute_fill books the position at that limit price unconditionally on the signal bar. 35 of 48 fills (73%) were at a price outside the decision bar's entire high/low range — buying ~1,900 below the bar's low on a ~107k instrument, roughly 2% of free price improvement granted on every entry.
+
+**Root cause**: The backtest has no order-type model. It treats idea.entry_price as an achieved fill instead of as a resting limit that must be touched, so it captures every trade a real limit order would have missed — precisely the entries that ran away favourably.
+
+**Business impact**: Every backtest number the repo produces in default mode is inflated by an unconditional ~1 ATR price improvement per trade. backtest_deep_results.json's headline (avg_return +2.92%, avg win rate 0.7, avg Sharpe 3.28, 393/500 profitable runs) is built on it. Flipping only the fill convention on one of those runs turns +5.57% into -2.17%.
+
+**Reachability**: fill_mode defaults to 'close' (bot/backtest/models.py:59, pinned by tests/test_audit_batch3.py:96). Every default-mode consumer is affected: run_deep_backtest.py (which wrote the committed backtest_deep_results.json), run_deep_backtest_full.py, backtest_audit.py, run_realdata_backtest.py, backtest_realdata.py, bot/backtest/engine.py::walk_forward_backtest, and the Telegram /backtest and /walk_forward cards (bot/skills/skill_registry.py:1062, 1224). Confirmed by running the engine, not inferred.
+
+**Remediation**: Honour idea.order_type in _execute_fill: for order_type == 'limit', queue the idea and fill only when a subsequent bar's low (LONG) / high (SHORT) reaches the limit, expiring it after CONFIG.limit_orders.expire_seconds and cancelling on price_drift_cancel_pct; fill order_type == 'market' at the bar close (or next open). Add a test asserting every recorded entry_price lies within [bar.low, bar.high] of some bar at or after the signal bar. Until then, no artifact produced in fill_mode='close' should be quoted as a performance figure.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→CRITICAL — The mechanism is confirmed from source alone and needs no downgrade. Two caveats on the write-up: (a) I did not re-run the engine, so the specific "35 of 48 fills (73%)" and "~1,900 below the bar's low" figures are unverified — the qualitative claim (a limit at up to 1.0*ATR below the close, minimum 0.1*ATR, filled without ever being touched) is what the code proves; (b) severity BLOCKER is slightly overstated for this system: no live order path is affected and no money moves on this code — it corrupts every published backtest/scorecard number, which is CRITICAL rather than ship-stopping. Note also the related upstream fact I confirmed while checking this: because order_type is "limit" for essentially every analyzer idea, bot/risk/risk_engine.py:1601-1607 SKIPS the risk-reward gate entirely, so the backtest is also not gating R:R — see the "missed" list.
+
+- refuted=False sev→HIGH — Two corrections. (1) The exact ratio is setup-dependent — I measured 21/36 (58%), not 35/48 (73%); the phenomenon and its direction are confirmed but the specific count should not be quoted. (2) BLOCKER overstates the blast radius: bot/backtest/runner.py:546-548 forces fill_mode='next_open' under --honest, and every published figure (benchmark/scorecards/*.json, docs/FROZEN_BENCHMARK.md, bot/api/lab.py, the Telegram real-data card) goes through --honest. So this does NOT taint the marketplace scorecards; it taints the default-mode artifacts (backtest_deep_results.json, the synthetic /backtest and /walk_forward cards). HIGH, not BLOCKER.
+
+**Evidence**:
+
+```
+bot/backtest/engine.py:587-593
+        # 5. Execute (no human confirmation in backtest). With
+        # fill_mode="next_open" (audit fix #15) the approved idea is queued and
+        # filled at the NEXT bar's open instead of this bar's close.
+        if getattr(self.config, "fill_mode", "close") == "next_open":
+            self._pending_entry = (idea, risk_check)
+            return
+        self._execute_fill(idea, risk_check, idea.entry_price, bar)
+
+bot/core/analyzer.py:1801-1814
+        order_type = CONFIG.limit_orders.default_order_type if CONFIG.limit_orders.enabled else "market"
+        limit_entry = None
+        if CONFIG.limit_orders.enabled:
+            limit_entry = _compute_limit_entry(
+                entry, atr, direction, indicators, closes
+            )
+            # If no pullback level found but default is "limit", use a small
+            # offset (0.1 ATR) from market price to get price improvement
+            if limit_entry is None and order_type == "limit":
+                offset = 0.1 * atr
+
+bot/config.py:1982-1984
+    enabled: bool = _env_bool("LIMIT_ORDERS_ENABLED", True)
+    # Default order type: "market" or "limit"
+    default_order_type: str = _env("DEFAULT_ORDER_TYPE", "limit")
+```
+
+## B4-02 [CRITICAL] /walk_forward's out-of-sample window is shorter than the indicator warmup, so every fold reports an unrun test as a measured +0.00% and 0% consistency
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/engine.py:1537`
+
+**Observed**: fold_size = 1440//3 = 480; split_point = 336; embargo = 48; test_bars = fold_bars[384:480] = 96 bars. BacktestEngine._run iterates `for i in range(lookback_size, len(bars))` = range(100, 96), i.e. zero iterations, so no signal is ever generated. _compile_result then returns total_return_pct 0.0, win_rate 0.0, max_drawdown 0.0 from an empty run, and those zeros are published as the out-of-sample result. The card at bot/skills/skill_registry.py:1237-1250 prints 'Avg Test +0.00%', 'Consist. |╌╌╌╌╌╌╌╌| 0%', a Gap computed against the fabricated zero, and its per-fold TRADES column prints `f['train_trades'] + f['test_trades']` so the reader cannot see test_trades == 0.
+
+**Root cause**: The min-fold guard's arithmetic ('200 bars per fold = 100 lookback + 100 tradeable') is computed as if the whole fold were traded, but the fold is then split 70/30 with a two-sided embargo, leaving ~0.3*fold_size - embargo test bars. A fold needs fold_size > 500 for the test window to exceed lookback_size at all; the guard admits fold_size >= 200.
+
+**Business impact**: The overfitting guard is the control an operator uses to decide whether a strategy generalises. It currently answers with a fabricated flat out-of-sample result and a fabricated 0% consistency for every fold, and then draws an 'Overfitting risk detected' verdict from the difference.
+
+**Reachability**: walk_forward_backtest has exactly one non-test caller: WalkForwardSkill.execute at bot/skills/skill_registry.py:1225, reached from Telegram. Its defaults (bars=1440, folds=3) are the failing case — verified by running it, not inferred. bot/backtest/portfolio_engine.py::portfolio_walk_forward is a different function and does prepend warmup correctly, which is what makes the omission here visible.
+
+**Remediation**: Require len(test_bars) > config.lookback_size + a minimum tradeable count when sizing folds (or prepend lookback_size warmup bars to each test slice the way bot/backtest/portfolio_engine.py::portfolio_walk_forward already does at lines 254-259), and make a fold that cannot be measured return None for its test metrics so the card prints 'not measured' rather than 0.00%. Report train_trades and test_trades in separate columns.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→HIGH — Confirmed as written. Severity CRITICAL is one notch high for this system: /walk_forward is an operator-facing diagnostic card, not a trading control — nothing sizes a position off it. It is nonetheless a textbook violation of the repo's own rule (an unrun test rendered as a measured +0.00% and 0% consistency, with the per-fold TRADES column summing train+test so the zero is invisible), so HIGH. Two extras the finder did not spell out: the same zero also poisons `consistency_score` (a never-run fold is counted as "not profitable", bot/backtest/engine.py:1600-1601) and `train_test_gap`, which can then print "Overfitting risk detected" from a fold that never ran.
+
+- refuted=False sev→HIGH — CRITICAL is a notch high for a Telegram diagnostic card that moves no money; HIGH is right. The substance is exactly as reported — a fabricated +0.00% / 0% consistency published as an out-of-sample measurement, plus a green overfitting verdict computed against it.
+
+**Evidence**:
+
+```
+bot/backtest/engine.py:1535-1553
+        total_bars = len(bars)
+        fold_size = total_bars // n_folds
+        if fold_size < 200:
+            # Need at least 200 bars per fold (100 lookback + 100 tradeable)
+            n_folds = max(1, total_bars // 200)
+            fold_size = total_bars // n_folds if n_folds > 0 else total_bars
+...
+        split_point = int(len(fold_bars) * train_ratio)
+        embargo = min(50, max(10, len(fold_bars) // 10))
+        train_bars = fold_bars[:split_point - embargo]  # stop before embargo zone
+        test_bars = fold_bars[split_point + embargo:]    # start after embargo zone
+
+bot/skills/skill_registry.py:1219-1225
+        bars_count = min(int(kwargs.get("bars", 1440)), 5000)
+        seed = int(kwargs.get("seed", 42))
+        folds = int(kwargs.get("folds", 3))
+        config = BacktestConfig(symbol="BTC/USDT", timeframe="1h")
+        bars = DataLoader.generate_synthetic(bars=bars_count, seed=seed)
+        result = await walk_forward_backtest(bars, config, n_folds=folds)
+```
+
+## B4-03 [CRITICAL] Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit — 57% of opened positions have a realized R:R below the 1.2 gate that approved them
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/engine.py:614`
+
+**Observed**: model_copy(update={'entry_price': ...}) rewrites only entry_price. stop_loss and take_profit stay at the levels the analyzer computed for the limit entry (shifted by entry_shift at bot/core/analyzer.py:1851-1853). Filling at the next bar's open — typically ~1 ATR above the limit for a LONG — therefore widens the effective stop and shrinks the effective target: median R:R collapses from 4.34 to 1.06, and 27 of 47 positions are opened with a realized R:R below CONFIG.risk.min_risk_reward, the very gate that approved them. risk_check.position_size_usd was also computed off the intended (narrower) stop distance, so the dollar risk actually taken exceeds the sizing model.
+
+**Root cause**: The next_open fill path treats entry price as an independent scalar rather than as one leg of a geometry the analyzer and risk engine both reasoned about together.
+
+**Business impact**: Every published 'honest' figure (benchmark/scorecards/*.json, the +0.49% OOS / PF 1.24 baseline in docs/FROZEN_BENCHMARK.md, the Strategy Lab, the Telegram real-data card) is measured on positions with roughly a quarter of the intended reward-to-risk and more than the intended dollar risk. It is not the strategy live runs.
+
+**Reachability**: _apply_honest_fidelity (bot/backtest/runner.py:546-548) sets args.fill_mode = 'next_open' for every --honest run. --honest is used by scripts/gen_agent_scorecards.py:70, bot/api/lab.py:164 (web Strategy Lab), and bot/skills/skill_registry.py:990 (the Telegram real-data backtest card) — i.e. every published performance figure in benchmark/scorecards/*.json and docs/FROZEN_BENCHMARK.md. Verified by running the engine.
+
+**Remediation**: In _execute_fill, when fill_price differs from idea.entry_price, either (a) shift stop_loss/take_profit by the same delta so R:R is preserved, and re-run risk.evaluate on the shifted idea, or (b) re-evaluate the idea against the fill and skip it if it no longer clears min_risk_reward. Add a test asserting abs(tp-entry)/abs(entry-sl) >= CONFIG.risk.min_risk_reward for every recorded BacktestTrade.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Keep the underlying observation (a fill displaced from idea.entry_price leaves SL/TP and the sizing model's stop distance un-re-anchored), drop the risk-gate framing entirely — the R:R gate is bypassed for limit ideas, so nothing was "approved" on R:R and no gate is being violated. This is also not an independent defect: it is a downstream consequence of finding 0 (entry_price being an untouched limit price). If finding 0 is fixed so a limit only fills when touched, the displacement disappears; fixing this one in isolation (shifting SL/TP to the fill) would paper over finding 0 by making a never-touched entry look self-consistent. The proposed fix (b) — re-gate against min_risk_reward — would also be a no-op today for the same order_type reason. Severity MEDIUM, and it should be filed as a sub-item of finding 0, not as a second CRITICAL.
+
+- refuted=False sev→HIGH — Numbers differ from the finder's (20 fills / 9 below gate / 3.67→1.26, vs their 47/27/4.34→1.06) because of the bar series used — the effect is confirmed, the counts are not quotable. One partial mitigation the finding omits: the partial-TP ladder's R multiples DO use the real fill (engine.py:919 and :1212 compute risk_dist from bt_meta['adjusted_entry']), so only the absolute SL/TP levels and the sizing are mis-anchored. CRITICAL→HIGH: the mis-anchoring makes results worse, not flattering, so it corrupts rather than inflates the benchmark.
+
+**Evidence**:
+
+```
+bot/backtest/engine.py:610-616
+        slippage = fill_price * (self.config.slippage_pct / 100)
+        if idea.direction == Direction.LONG:
+            adjusted_entry = fill_price + slippage
+        else:
+            adjusted_entry = fill_price - slippage
+
+        # Create a slippage-adjusted copy of the idea for portfolio
+        slipped_idea = idea.model_copy(update={"entry_price": round(adjusted_entry, 6)})
+
+bot/core/analyzer.py:1849-1855
+        if limit_entry is not None and limit_entry != entry:
+            # Shift SL/TP by the same offset so R:R stays the same
+            entry_shift = limit_entry - entry
+            entry = limit_entry
+            stop_loss = stop_loss + entry_shift
+            take_profit = take_profit + entry_shift
+            order_type = "limit"
+```
+
+## B4-04 [HIGH] --honest win rate and trade count are per scale-out LEG, not per position, inflating every published scorecard win rate
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/engine.py:1272`
+
+**Observed**: _partial_close appends a full BacktestTrade for each TP1/TP2 leg, and _compile_result counts len(self._trades) as total_trades and classifies each row independently. TP1 and TP2 legs are profitable by construction (they only fire at +1.5R and +2.5R), so every position that reaches TP1 contributes one or two guaranteed winning rows while a position stopped before TP1 contributes a single losing row. benchmark/scorecards/full-scan.json publishes "win_rate": 0.5333 with "total_trades": 30 and "honest": true; dip-sniper.json publishes 0.4737 / 19. docs/FROZEN_BENCHMARK.md:83 compares '57%' (single-exit, per position) against '64%' (partial-TP, per leg) as though they were the same statistic, in the table that supports 'The bot is backtest-profitable on this window when measured honestly.'
+
+**Root cause**: The ladder was ported into the engine as additional trade rows without a corresponding position-level rollup, and _compile_result was never taught the difference.
+
+**Business impact**: Marketplace Strategy-Agent scorecards and the frozen-benchmark table publish a win rate that is structurally biased upward, on public surfaces sold as reproducible design backtests.
+
+**Reachability**: BACKTEST_PARTIAL_TP defaults False, but bot/backtest/runner.py:556 sets it for every --honest run, and --honest is used by scripts/gen_agent_scorecards.py, bot/api/lab.py and RunBacktestSkill._run_dataset_backtest. The committed scorecards all carry "honest": true. Also note bot/backtest/scorecard.py::pipeline_rows computes `remainder = ideas - (risk + timing + pending + trades)` — with legs in `trades` that goes negative and the card prints 'OVER-COUNTED ... the funnel is not trustworthy'.
+
+**Remediation**: Group self._trades by trade_id in _compile_result and score win/loss on the position's total realized PnL (runner net_pnl_usd + banked_net_pnl), reporting positions as total_trades and legs separately (e.g. total_fills). Regenerate benchmark/scorecards/*.json and correct the win-rate column in docs/FROZEN_BENCHMARK.md. Also feed the position count, not the leg count, to bot/backtest/scorecard.sample_note (MIN_SAMPLE=10) — dip-sniper's 19 legs may be fewer than 10 positions.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→HIGH — Confirmed as written; severity stands. One refinement: the note about bot/backtest/scorecard.py::pipeline_rows going negative is plausible but I did not observe it — `remainder = ideas - (risk + timing + pending + trades)` at scorecard.py:136 does use total_trades (legs), so legs can push it negative, but in the portfolio path the same line is already broken by finding 11 (unsummed counters), so the two interact and the sign is not predictable from reading alone. Treat that sub-claim as plausible, not confirmed.
+
+- refuted=False sev→HIGH — Confirmed and, if anything, understated: on the reproduction the leg-based rate (40%) overstated the position-based rate (30.8%) by 9 points. The dip-sniper sample_note speculation ('19 legs may be fewer than 10 positions') is unverified — leave it out.
+
+**Evidence**:
+
+```
+bot/backtest/engine.py:1272-1279
+        total = len(trades)
+        # BT-L: treat exact-breakeven (net_pnl == 0) as neither win nor loss,
+        # matching the risk engine's neutral handling. Previously net_pnl <= 0
+        # counted breakeven as a loss, depressing win rate / inflating the
+        # consecutive-loss streak.
+        winners = [t for t in trades if t.net_pnl_usd > 0]
+        losers = [t for t in trades if t.net_pnl_usd < 0]
+        win_rate = len(winners) / total if total > 0 else 0
+
+bot/backtest/engine.py:1207-1209  (_partial_close, one row per scale-out leg)
+            signal_type=getattr(idea, "signal_type", ""),
+        )
+        self._trades.append(bt_trade)
+
+bot/backtest/runner.py:556
+        os.environ.setdefault("BACKTEST_PARTIAL_TP", "1")
+```
+
+## B4-05 [HIGH] Regenerating the published agent scorecards writes to a directory nothing reads, so stale marketplace performance figures can never be refreshed
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `scripts/gen_agent_scorecards.py:33`
+
+**Observed**: _scorecard_dir() prefers benchmark/scorecards, which exists and holds the four committed cards. gen_agent_scorecards writes into data/benchmark/scorecards, which does not exist here and, on a deployed box, is under the data/ -> ~/runeclaw-persist symlink that deploy.sh creates and that git cannot traverse (the exact problem tests/test_benchmark_location.py was written to solve). An operator who reruns the generator after changing a preset sees 'Wrote 4 scorecards', while the marketplace keeps serving the old numbers indefinitely.
+
+**Root cause**: The output path was left pinned to the retired location when the benchmark moved, and the guard that was supposed to catch exactly this cannot see it.
+
+**Business impact**: Published per-agent performance figures on a public marketplace surface silently freeze. A preset whose gates change keeps advertising the old backtest, and nothing reports the divergence.
+
+**Reachability**: bot/core/strategy_catalog.py is the marketplace catalogue loader; the four cards in benchmark/scorecards/ are what it returns today. The generator is the documented way to refresh them (its own module docstring and usage block). Confirmed by resolving both paths at runtime.
+
+**Remediation**: Set OUT_DIR from the resolver (e.g. bot.core.strategy_catalog._scorecard_dir() or a snapshot-anchored benchmark/scorecards path), and add `'"data" /'`-style pathlib spellings to TestNoConsumerPinsTheOldPath.PINNED so the scan sees the operator form.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed. Severity HIGH → MEDIUM: nothing served today is wrong, and the failure needs an operator to change a preset and regenerate before it bites — it is a latent staleness trap, not a currently-false number. The claim about the data/ symlink is inference about a deployed box I cannot inspect from here, but it does not change the verdict: benchmark/scorecards exists and is preferred, so the write target is dead regardless of what data/ is.
+
+- refuted=False sev→MEDIUM — HIGH→MEDIUM: no wrong number is produced, and the served cards keep working; the harm is that a regeneration silently no-ops and (because data/ is gitignored) leaves nothing to commit. Worth adding to the report: this is very likely why the committed cards no longer reproduce (see my missed-item 1).
+
+**Evidence**:
+
+```
+scripts/gen_agent_scorecards.py:7
+writes a percent/ratio-only scorecard to ``benchmark/scorecards/<slug>.json``.
+
+scripts/gen_agent_scorecards.py:33
+OUT_DIR = REPO / "data" / "benchmark" / "scorecards"
+
+bot/core/strategy_catalog.py:48-52
+    for parts in (("benchmark", "scorecards"), ("data", "benchmark", "scorecards")):
+        cand = os.path.join(_REPO_ROOT, *parts)
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(_REPO_ROOT, "benchmark", "scorecards")
+```
+
+## B4-06 [HIGH] backtest_realdata.py — the README's 'real-data strategy validation' harness — raises AttributeError on every run
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `backtest_realdata.py:76`
+
+**Observed**: run_single builds its return dict from five attributes BacktestResult does not have; the accesses are outside the try/except (which only wraps the data fetch), so the AttributeError propagates out of asyncio.run and the script dies on the first symbol. Even if that were fixed, print_results at lines 128-138 places the `if isinstance(bnh, float) else` between implicitly-concatenated literals, so the else-branch absorbs the remaining six format fields and the true branch prints only four columns.
+
+**Root cause**: Field names were never reconciled with BacktestResult, and no test or CI step ever executes this file.
+
+**Business impact**: The only harness README presents as validating strategy performance on real Bitget data cannot produce a single number, so nobody has ever actually run the real-data validation the README claims exists.
+
+**Reachability**: README.md:403 lists it in the backtest-mode table as 'Real-data | backtest_realdata.py | Bitget historical OHLCV | Strategy performance validation', and README.md:410/413 give the exact commands. grep of tests/, scripts/, .github/ and Makefile for 'backtest_realdata' returns nothing — no test and no CI job exercises it, which is why it has stayed broken.
+
+**Remediation**: Rename to the real fields (win_rate*100, total_signals_generated, total_ideas_generated, total_ideas_rejected_risk, total_ideas_rejected_confidence), fix the table by moving the ternary into a single value rather than splitting a concatenated literal, and add a smoke test that runs the script against a small fixture bar series. If the harness is redundant with bot/backtest/runner.py, delete it and remove the README rows rather than leaving a documented entry point that cannot run.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed. Severity HIGH → MEDIUM: this is a standalone, README-documented harness that crashes on first use — embarrassing and a reachability failure of exactly the class CLAUDE.md describes, but it produces no wrong number (it produces no number at all), touches no live path, and corrupts no artifact. A loud crash is the honest failure mode; the LOW-severity sibling (finding 13) that silently writes zeros is the more dangerous one.
+
+- refuted=False sev→MEDIUM — HIGH→MEDIUM. It is a documented dev harness that has never been in CI and moves no money; on a network-less box every symbol short-circuits to the {'symbol','error'} branch so nothing crashes. Note the ternary bug is only reachable after the AttributeError is fixed, since an errored row hits `continue` at :121.
+
+**Evidence**:
+
+```
+backtest_realdata.py:76-85
+        "win_rate_pct": result.win_rate_pct,
+        "max_drawdown_pct": result.max_drawdown_pct,
+        "sharpe_ratio": result.sharpe_ratio,
+        "sortino_ratio": result.sortino_ratio,
+        "calmar_ratio": result.calmar_ratio,
+        "profit_factor": result.profit_factor,
+        "signals_generated": result.signals_generated,
+        "ideas_generated": result.ideas_generated,
+        "risk_rejected": result.risk_rejected,
+        "confidence_rejected": result.confidence_rejected,
+```
+
+## B4-07 [HIGH] Live↔backtest parity report scores an unpriced live close as break-even, counting unscorable trades as losses in the win rate and as zeros in the printed total
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/backtest/parity.py:49`
+
+**Observed**: pnl_usd is Optional and is legitimately null for a close nobody could price — bot/core/live_executor.py:9368 deserialises it as `pnl_usd=(None if item.get("pnl_usd") is None else float(...))` with a comment recording that `float(x or 0)` on that field 'silently converted "we could not price this" into "this broke even"'. _net() reintroduces exactly that: None is not an int/float, so it returns 0.0. is_filled_close then keeps the record (its close_reason is not in NON_FILL_CLOSE_REASONS), so it lands in `n` and, being not > 0, is counted as a non-win, and contributes 0 to net_pnl and to the profit-factor numerator/denominator.
+
+**Root cause**: parity.py reimplements P&L reading instead of calling bot/utils/win_rate.py, which exists precisely because five surfaces each wrote their own copy of this mistake.
+
+**Business impact**: This is the report that decides whether execution or the strategy is the leak on a live money account. Unpriced closes push the reported live win rate down and the reported net total is a partial sum printed as a whole, so an operator can conclude 'live is far below the backtest, halt' from records that were simply never priced.
+
+**Reachability**: parity.py's only entry point is `python -m bot.backtest.parity`, documented in docs/FROZEN_BENCHMARK.md:176-179 as the tool that answers 'is live tracking the benchmark'. It reads data/closed_trades.json, written by bot/core/live_executor.closed_trade_row (line 345: "pnl_usd": pos.pnl_usd) where pnl_usd is Optional[float] = None (line 535) and the reload path explicitly preserves null. Reachable and demonstrated.
+
+**Remediation**: Use bot/utils/win_rate.trade_pnl / the module's rate and pnl_stats helpers: exclude records whose P&L is None from nets, count them separately, and print the unscorable count beside the win rate and the net total in format_report.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed, exactly the shape CLAUDE.md's table names. Severity HIGH → MEDIUM: parity.py is a read-only CLI observability tool (`python -m bot.backtest.parity`) with no gate, no automation and no money downstream; its worst effect is an operator reading a slightly depressed win rate and a partial total printed as whole. The fix is cheap and correct (route through bot/utils/win_rate.py and print the unscorable count) — the impact just isn't HIGH.
+
+- refuted=False sev→MEDIUM — HIGH→MEDIUM: read-only observability, no order path. The claim is otherwise exactly right and matches the repo's own canonical rule; the fix is a two-line switch to bot/utils/win_rate.trade_pnl plus reporting the unscorable count beside the rate.
+
+**Evidence**:
+
+```
+bot/backtest/parity.py:49-55
+def _net(t: dict) -> float:
+    """Realized net PnL for a trade, tolerant of field naming."""
+    for k in ("pnl_usd", "net_pnl", "net_pnl_usd"):
+        v = t.get(k)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return 0.0
+
+bot/backtest/parity.py:128-137
+    nets = [_net(t) for t in trades]
+...
+    wins = sum(1 for n in nets if n > 0)
+    n = len(trades)
+```
+
+## B4-08 [MEDIUM] run_deep_backtest_full.py and backtest_audit.py still average the PF_UNDEFINED sentinel into 'avg profit factor' — the exact bug, and key name, bot/backtest/metrics.py was written to kill
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `run_deep_backtest_full.py:157`
+
+**Observed**: run_deep_backtest_full.py (67 symbols x 5 regimes x 5 seeds = 1675 runs, the largest sweep in the repo) computes a plain arithmetic mean over profit_factor, printing it as 'Avg profit factor:' and saving it under the key `avg_profit_factor` — the very key run_deep_backtest.py deliberately renamed because 'silently changing what a key means is worse than breaking it'. Its per-regime table (line 195) does the same. backtest_audit.py:188 feeds the raw list to a Min/Max/Mean/Median/Std line. Neither file imports bot.backtest.metrics.
+
+**Root cause**: The 2026-08-07 fix was applied to run_deep_backtest.py only; the two sibling harnesses that compute the same statistic were not audited.
+
+**Business impact**: The largest robustness sweep in the repo would republish the 19.17-shaped headline: on the committed sample the same arithmetic yields 43.73 against an honest median of 3.46, on the number a reader checks first when asking whether the strategy works.
+
+**Reachability**: Both are top-level scripts with __main__ guards; README.md:639 and :761 document backtest_audit.py as the synthetic sanity check. run_deep_backtest_full.py imports run_deep_backtest as rdb and reuses its per-run dict, so its inputs carry the same 999.99 sentinel that appears 18 times in the committed 500-run sample.
+
+**Remediation**: Replace both call sites with profit_factor_summary((r['profit_factor'], r['total_trades']) for r in valid) and render .median / .mean / .n_undefined / .n_no_trades, as run_deep_backtest.py:283-284 already does. Rename the saved key away from avg_profit_factor.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed as written, severity unchanged. Minor: backtest_audit.py:178-180 prints Median alongside Mean, so its damage is smaller than run_deep_backtest_full.py's — the latter prints and SAVES a bare mean under the retired key name and has no median anywhere. If only one is fixed, fix run_deep_backtest_full.py.
+
+- refuted=False sev→MEDIUM — Accurate as written. One de-escalating fact worth stating: neither harness's output is committed (run_deep_backtest_full writes backtest_deep_full_results.json, which is not in git ls-files), so the damage is confined to whoever runs the sweep. backtest_audit.py at least prints Median alongside the poisoned Mean/Std.
+
+**Evidence**:
+
+```
+run_deep_backtest_full.py:149-157
+    def avg(k):
+        return sum(r[k] for r in valid) / n
+...
+    avg_pf = avg("profit_factor")
+
+run_deep_backtest_full.py:208
+                "avg_profit_factor": round(avg_pf, 2), "crashed_runs": crashed,
+
+backtest_audit.py:188
+    stat_line("Profit Factor", pfs)
+```
+
+## B4-09 [MEDIUM] Deep-backtest aggregate means fold zero-trade runs in as 0.0, and avg_win_rate is published rounded to one decimal
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `run_deep_backtest.py:279`
+
+**Observed**: Five of the seven aggregates still divide by len(valid), so each of the 83 idle runs contributes win_rate 0.0, sharpe 0.0, sortino 0.0, drawdown 0.0 and return 0.0 to the mean. 'avg_win_rate: 0.7' is therefore not the win rate of anything: the mean over runs that actually traded is 0.781 and over all runs 0.6513. round(0.6513, 1) then discards a further digit, turning 65.1% into a published 0.7 while every neighbouring metric in the same block is rounded to two places.
+
+**Root cause**: The 2026-08-26 idle-run fix was applied to the profit-factor and profitable-share lines and stopped there; the other five means were left summing over a set that includes non-measurements.
+
+**Business impact**: The headline robustness numbers of the repo's largest committed artifact are means over a set that includes 83 non-measurements, and the published win rate is off by 13 percentage points from the win rate of the runs that traded.
+
+**Reachability**: These lines write the committed backtest_deep_results.json summary block, quoted as the repo's robustness evidence and cited by bot/backtest/metrics.py and tests/test_backtest_metrics_honesty.py. Verified numerically against the committed file.
+
+**Remediation**: Compute the five means over the runs that traded, report the idle count beside them (the code already has pf.n_no_trades / shr.idle), and round avg_win_rate to 4 places like run_deep_backtest_full.py:206 does. Regenerate backtest_deep_results.json, whose summary block also predates the current script — it is missing the runs_no_trades / runs_that_traded / runs_idle keys the code now emits.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed, severity unchanged. The 2026-08-26 partial-fix reading is right: profit_factor_summary and share_profitable both take (value, total_trades) precisely so an idle run is excluded and counted, and the five raw sums beside them ignore that signal. Note the same defect exists one file over in backtest_audit.py's robustness table (its stat_line filters only None, not zero-trade runs) — see the "missed" list.
+
+- refuted=False sev→MEDIUM — Confirmed exactly, including both numbers (0.6513 and 0.7810). No correction.
+
+**Evidence**:
+
+```
+run_deep_backtest.py:275-281
+    total_trades = sum(r["total_trades"] for r in valid)
+    avg_return = sum(r["total_return_pct"] for r in valid) / len(valid)
+    avg_dd = sum(r["max_drawdown_pct"] for r in valid) / len(valid)
+    avg_wr = sum(r["win_rate"] for r in valid) / len(valid)
+    avg_sharpe = sum(r["sharpe_ratio"] for r in valid) / len(valid)
+    avg_sortino = sum(r["sortino_ratio"] for r in valid) / len(valid)
+
+run_deep_backtest.py:334
+                "avg_win_rate": round(avg_wr, 1),
+```
+
+## B4-10 [MEDIUM] backtest_deep_results.json carries no data provenance — 500 synthetic GBM runs stamped with real ticker names and realistic prices
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `backtest_deep_results.json:1`
+
+**Observed**: The 480 KB artifact contains the string 'synthetic' zero times. Every one of the 500 rows is labelled with a real ticker and a real project name ('BTC/USDT' / 'Bitcoin') at a realistic price, and the summary reports avg_return +2.92%, avg_win_rate 0.7, avg_sharpe 3.28, 393/500 profitable — while every bar was produced by DataLoader.generate_synthetic. run_deep_backtest.run_single_backtest copies 30 result fields into its per-run dict and includes neither provenance field.
+
+**Root cause**: The per-run dict was written before the provenance fields existed and was never extended; the aggregate meta block has no provenance either.
+
+**Business impact**: A reader who opens the largest committed performance artifact sees 500 named-crypto runs with a 70% win rate and a 3.28 Sharpe and nothing telling them the prices are a random walk.
+
+**Reachability**: The file is committed at the repo root and is cited by bot/backtest/metrics.py, bot/backtest/engine.py:1325 and tests/test_backtest_metrics_honesty.py as the repo's robustness evidence. README.md:763 does correctly describe run_deep_backtest.py as synthetic, so the disclosure exists — just not anywhere in the artifact itself.
+
+**Remediation**: Add "data_source": "synthetic", "used_synthetic": true and the generator parameters (start_price, volatility, trend, seed) to meta and to each row, and regenerate. README.md:417 and :765 already carry the caveat in prose — put it in the artifact, since the artifact is what gets read and quoted on its own.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed as written; severity stands. The repo's own models.py comment is the argument for the fix, so this is not a matter of taste. One addition the finder gestured at but did not pin: `seed` IS present per row, so a regenerated artifact only needs data_source/used_synthetic plus start_price/volatility/trend to be fully self-describing.
+
+- refuted=False sev→LOW — MEDIUM→LOW. README.md:763 explicitly labels run_deep_backtest.py as 'Synthetic (GBM+GARCH)' and the paragraph under it says synthetic backtests 'cannot validate alpha-generating modules', so the disclosure exists — the gap is that the artifact is not self-describing when read alone. Real, but the smallest of the provenance gaps; see my missed-item 2 for the larger one on the portfolio path.
+
+**Evidence**:
+
+```
+run_deep_backtest.py:105-111 (every run's bars)
+        return DataLoader.generate_synthetic(
+            bars=BARS,
+            start_price=sym_info["price"],
+            volatility=vol,
+            trend=regime["trend"],
+            seed=seed,
+        )
+
+bot/backtest/models.py:206-211
+    # Data provenance (deep-audit medium): make a saved result self-describing so
+    # a synthetic-fallback run is never mistaken for a real backtest. data_source
+    # is one of "csv" | "bitget_real" | "synthetic" | "synthetic_fallback";
+    # used_synthetic is True for the latter two. Stamped by the runner.
+    used_synthetic: bool = False
+    data_source: str = "unknown"
+```
+
+## B4-11 [MEDIUM] The parity report prints a hardcoded benchmark the frozen-benchmark doc explicitly marks as superseded
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/backtest/parity.py:183`
+
+**Observed**: Three places retype the number (bot/backtest/parity.py:4, :183, and bot/backtest/runner.py:554 as a comment), and the doc that owns it has already moved on to +0.49% / PF 1.24. An operator comparing live realized PF against 1.14 is comparing against a benchmark that has been superseded twice (time-stop and fee-model fidelity), so a live PF of 1.18 reads as 'beating the benchmark' when it is below it.
+
+**Root cause**: A performance figure duplicated as prose in code, which is the part that rots first.
+
+**Business impact**: The operator's live-vs-backtest verdict is anchored to a superseded benchmark, biasing the 'is execution the leak' decision on a real-money account.
+
+**Reachability**: format_report is what `python -m bot.backtest.parity` prints; docs/FROZEN_BENCHMARK.md:176-179 documents that command as the live-vs-benchmark check. The line is unconditional (not inside any branch).
+
+**Remediation**: Load the comparison target from a single source (a committed baseline JSON, or a module constant that docs/FROZEN_BENCHMARK.md is tested against), and pin it with a test the way tests/test_claude_md_accuracy.py pins the CLAUDE.md gate count.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — Confirmed but MEDIUM is too high. This is a stale prose constant in a read-only diagnostic print, in a tool whose own docstring frames the comparison as "is live in the same ballpark?" rather than a pass/fail gate — the error band of that question is wider than the 0.31→0.49 drift. LOW. The proposed fix is sound; the test-pinning half (pin the constant the way tests/test_claude_md_accuracy.py pins the gate count) is the part actually worth doing, since the number will rot again.
+
+- refuted=False sev→LOW — MEDIUM→LOW. The line is a soft prompt ('is live in the same ballpark?'), not a pass/fail verdict, and the doc it contradicts is one file away. Real staleness, low consequence.
+
+**Evidence**:
+
+```
+bot/backtest/parity.py:182-184
+             + (f"  ({s['excluded_non_fills']} never-filled records excluded)"
+                if s.get("excluded_non_fills") else ""),
+             "  Backtest benchmark (majors_1h, --honest): +0.31% / PF 1.14 — "
+             "is live in the same ballpark?"]
+
+docs/FROZEN_BENCHMARK.md:110-112
+| **on** | **0.06%** | **+0.49%** | **+$294** | 63% | **1.24** |
+...
+**+0.49% OOS / PF 1.24 is the current baseline — every future A/B beats this
+number, not the +0.31% one above.**
+```
+
+## B4-12 [MEDIUM] Portfolio backtests report the preset-rejection, per-gate and entry-timing counters for only the first symbol
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/backtest/portfolio_engine.py:219`
+
+**Observed**: total_ideas_rejected_preset, total_ideas_timing_unfilled, total_entries_pending_at_end, rejections_by_gate and stateful_rejections are taken from the first symbol only, while total_signals_generated / total_ideas_generated / total_ideas_rejected_risk / total_ideas_rejected_confidence are summed across all of them. The funnel therefore cannot reconcile, and bot/backtest/scorecard.py::pipeline_rows will print 'UNACCOUNTED — ideas left the pipeline somewhere this card cannot name'.
+
+**Root cause**: The counters were added to BacktestEngine after the portfolio orchestrator's merge list was written, and the merge list was never revisited.
+
+**Business impact**: An A/B on the frozen benchmark can show zero stateful rejections while a non-first symbol tripped the breaker repeatedly, so a parameter change is credited with a metric move that came from a different trade set.
+
+**Reachability**: PortfolioBacktester is what bot/backtest/runner.py::_run_portfolio drives, which is the path taken by scripts/gen_agent_scorecards.py (which sets --regime-filter / --rsi-max / --confidence-threshold, i.e. the preset gates whose counter is under-reported), bot/api/lab.py, and RunBacktestSkill._run_dataset_backtest.
+
+**Remediation**: Sum the remaining counters in the same block: _ideas_rejected_preset, _et_disarmed_invalidated, _et_disarmed_expired, len(_armed_setups) and pending entries across engines, and merge _rejections_by_gate with a per-key sum. Add a test that a two-symbol portfolio run's total_ideas_rejected_preset equals the sum of the two single-symbol runs'.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Confirmed, severity unchanged. One qualifier: the finding asserts scorecard.pipeline_rows "will print UNACCOUNTED" — the direction and magnitude of `remainder = ideas - (risk + timing + pending + trades)` (scorecard.py:136) depends on the interaction with finding 3's leg-counted `trades`, so the funnel is definitely unreconcilable but which of the two messages fires is not determinable by reading. Also note _rejections_by_gate needs a per-key merge, not a sum of totals, which the proposed fix gets right.
+
+- refuted=False sev→MEDIUM — Confirmed as written. Worth adding the observed evidence: the funnel already prints UNACCOUNTED on a plain 3-symbol run, so the failure is visible today, not hypothetical. Note the single-symbol path (the Telegram /backtest card) is unaffected — one engine means `first` is the whole set.
+
+**Evidence**:
+
+```
+bot/backtest/portfolio_engine.py:214-223
+        first._trades = merged_trades
+        first._equity_curve = self._equity_curve
+        first._rr_values = [rr for eng in self._engines.values()
+                            for rr in eng._rr_values]
+        first._signals_generated = sum(e._signals_generated for e in self._engines.values())
+        first._ideas_generated = sum(e._ideas_generated for e in self._engines.values())
+        first._ideas_rejected_risk = sum(e._ideas_rejected_risk for e in self._engines.values())
+        first._ideas_rejected_confidence = sum(
+            e._ideas_rejected_confidence for e in self._engines.values())
+```
+
+## B4-13 [LOW] PF_UNDEFINED_FLOOR reclassifies a genuine profit factor as 'had no losing trades' — the committed artifact overstates the undefined count
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/metrics.py:51`
+
+**Observed**: The >= 999.0 floor swallows it. ProfitFactorSummary.render() then emits '18 run(s) had no losing trades — ratio undefined', which is a false statement about the sample, and the genuine 1385.11 observation is dropped from the median/mean of defined runs.
+
+**Root cause**: A magnitude threshold is being used to identify a sentinel whose real signature is 'net_loss == 0'. bot/backtest/engine.py:1336 sets PF_UNDEFINED only when net_loss == 0, so the information that distinguishes the two cases (the losing-trade count) exists and is already passed into profit_factor_summary as part of the row.
+
+**Business impact**: Small numerically, but the published sentence 'N run(s) had no losing trades' is untrue for one of the 18 it names, in the module whose entire purpose is telling a sentinel apart from a measurement.
+
+**Reachability**: profit_factor_summary is called from run_deep_backtest.py:247, :270 and :283 — the per-symbol, per-regime and global tables — and its render() output is printed to the operator. The misclassified row is in the committed 500-run sample, so this is realised, not hypothetical.
+
+**Remediation**: Either emit a JSON null (or a separate flag / losing_trades count) for the undefined case instead of a magic float, or extend the row tuple with losing_trades and classify on that. If the floor must stay for backward compatibility, narrow the render text to 'ratio undefined or above the reporting ceiling' so it stops asserting something false about the sample.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — Confirmed exactly, severity LOW is right. Worth flagging that the proposed fix collides with a pinned test: tests/test_backtest_metrics_honesty.py:69-76 asserts the magnitude floor, so the row-tuple/losing-trades variant is the fix that does not churn that baseline. The cheapest honest change is the render-text narrowing ("ratio undefined or above the reporting ceiling"), which stops the false claim without touching the pinned classifier.
+
+- refuted=False sev→LOW — Confirmed, severity correct. Emphasise the cheap half of the fix: the floor can stay (the test pins it on purpose); only render()'s wording asserts something false about the sample, and narrowing it to 'ratio undefined or above the reporting ceiling' costs nothing and churns no baseline.
+
+**Evidence**:
+
+```
+bot/backtest/metrics.py:49-51
+#: At or above this, a value is the sentinel rather than a measurement. A plain
+#: `== PF_UNDEFINED` would miss a value that survived a float round-trip.
+PF_UNDEFINED_FLOOR = 999.0
+
+bot/backtest/metrics.py:133-138
+        if f >= PF_UNDEFINED_FLOOR:
+            undefined += 1
+        else:
+            defined.append(f)
+```
+
+## B4-14 [LOW] run_realdata_backtest.py records signals and rejection counts as 0 from three field names BacktestResult does not have
+
+- **Dimension**: backtest · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `run_realdata_backtest.py:128`
+
+**Observed**: getattr with a default of 0 on names that do not exist returns 0 unconditionally, so every saved run reports 'signals_generated: 0, risk_rejections: 0, confidence_rejections: 0' — a confident zero manufactured from a wrong attribute name, for runs that generated hundreds of signals.
+
+**Root cause**: Attribute probes written against remembered field names rather than against bot/backtest/models.py, with a getattr default that converts the miss into a plausible-looking number.
+
+**Business impact**: Any saved real-data backtest artifact understates the pipeline as having produced no signals and rejected nothing, which is the exact opposite of what happened and would read as a broken engine.
+
+**Reachability**: run_realdata_backtest.py is documented in README.md:762 and :769-772 (including `--output results.json`), and unlike its sibling backtest_realdata.py it does not crash, so these zeros actually reach the saved artifact. Confirmed against BacktestResult.model_fields.
+
+**Remediation**: Use the real field names. Where a default is genuinely needed, use None so the absence is visible rather than a 0 that reads as a measurement.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — Confirmed, severity unchanged. If anything this is the more insidious of the two script bugs (it and finding 5): the crashing one announces itself, this one writes a plausible-looking 0 into a JSON someone may quote. The `getattr(..., 0)` default is the exact shape CLAUDE.md's table lists as `getattr(o, "pnl", 0)` — absent field is zero.
+
+- refuted=False sev→LOW — Confirmed, severity correct.
+
+**Evidence**:
+
+```
+run_realdata_backtest.py:126-131
+        "profit_factor": round(result.profit_factor, 3) if result.profit_factor else 0,
+        "signals_generated": getattr(result, "signals_generated", 0),
+        "risk_rejections": getattr(result, "risk_rejections", 0),
+        "confidence_rejections": getattr(result, "confidence_rejections", 0),
+    }
+```
+
+## B4-15 [CRITICAL] buildDefiPositions returns an all-clear on Aave liquidation risk when every chain RPC is dead — no marker distinguishes it from a position-free wallet
+
+- **Dimension**: honesty-js · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/lib/defi.js:130-149`
+
+**Observed**: A wallet whose every chain RPC is down produces a payload byte-identical to a wallet that genuinely holds no DeFi positions: `aave: []`, `warnings: []`, no error field anywhere. Downstream: app/public/js/dashboard.js:3806 `if (!bits.length) return null;` sends it to the panel's empty state, app/public/js/dashboard.js:3811 `empty: { … text: 'No Aave, Lido or Uniswap v3 positions found on the tracked chains.' }` — and mustRead() at dashboard.js:3778 passes, because the HTTP read genuinely succeeded. The chat intercept says the same (app/lib/defi.js:225-227: `no Aave, Lido or Uniswap v3 positions found on the tracked chains.`).
+
+**Root cause**: `.catch(() => undefined)` collapses a failed read into the same sentinel space as a successful read of an empty position, and `filter(Boolean)` then discards both. The composition is neither of CLAUDE.md's two honest strategies: it is not a guard (nothing throws) and it is not an omit-with-notice (nothing records what was omitted).
+
+**Business impact**: The DeFi panel's stated purpose is liquidation-risk warning ('your Aave, Lido and Uniswap positions appear here with liquidation-risk warnings', dashboard.js:3781-3782). During an RPC outage a user with an Aave health factor below 1.1 is shown 'No Aave, Lido or Uniswap v3 positions found', receives no CRITICAL warning, and their configured health-factor push alert stays silent — an all-clear on imminent liquidation, assembled from a failure to read. This is the same shape as the `_cmd_escape` 'no open positions to unwind' case CLAUDE.md records on the bot side.
+
+**Reachability**: Reachable from three live callers, all wired: GET /api/defi (app/routes/defi.js:22-28, mounted authed), the dashboard DeFi panel (app/public/js/dashboard.js:3776-3811), and the chat intercept `maybeHandleDefiChat` (app/lib/defi.js:195). It is ALSO the input to the user-configured `health_factor` alert: app/lib/alerts.js:349-355 does `const hfs = (d?.aave || []).map(x => x.health_factor)…; if (!hfs.length) continue;` — so during an RPC outage a user's Aave liquidation alert silently does not fire and nothing anywhere says why. No upstream guard prevents any of this: readAave's rejection is the only signal and it is discarded on the spot.
+
+**Remediation**: Distinguish the two outcomes in readAave/readUniswapCount/readLido's callers: keep `null` = no position, and on a rejection push a row `{ chain, label, error: 'rpc unreadable' }` (or collect the failed chain keys into an `unreadable_chains: []` + `partial: true` pair on the returned object), mirroring app/lib/wallet.js:274-277 / app/lib/holdings.js:93-101. Then (a) the dashboard panel at dashboard.js:3792-3811 must not fall into its empty state while `unreadable_chains.length`, and (b) the health_factor alert path (app/lib/alerts.js:352-355, `if (!hfs.length) continue;`) must be able to tell "healthy" from "nobody could look". Also stop caching an all-unreadable read: app/lib/defi.js:179 caches it for CACHE_MS = 60_000, freezing a transient outage into "no positions" — app/lib/gas_read.js:105 already refuses to do this (`if (Object.keys(body.chains).length) cached = …`).
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→HIGH — Finding stands as written. Severity trimmed CRITICAL->HIGH: the surface is read-only advisory and the alert it silences is user-opt-in; nothing here can move funds or place an order. The 60s cache of an all-unreadable read (defi.js:173-183) is real and correctly noted.
+
+- refuted=False sev→HIGH — Severity CRITICAL is inflated for this system: /api/defi is a read-only advisory surface — nothing here sizes, opens or closes a position, and the alert path's failure is a non-firing notification during an outage rather than a wrong trade. It is still a textbook instance of the repo's central rule (a confident negative about a leveraged lending book, manufactured from a failed read) and the sibling modules already carry the fix, so HIGH.
+
+**Evidence**:
+
+```
+app/lib/defi.js:135-143
+  const [aaveRes, uniRes, lidoRes] = await Promise.all([
+    Promise.all(chains.map(c => readAave(c, address).catch(() => undefined))),
+    Promise.all(chains.map(c => readUniswapCount(c, address).catch(() => undefined))),
+    chains.some(c => c.key === 'ethereum')
+      ? readLido(address, tickers).catch(() => undefined) : null,
+  ]);
+
+  const aave = aaveRes.filter(Boolean);
+
+readAave returns `null` for "no position on this chain" (app/lib/defi.js:87: `if (collateral <= 0 && debt <= 0) return null;   // no position on this chain`) and the `.catch(() => undefined)` returns `undefined` for "the RPC would not answer". `filter(Boolean)` erases the difference and nothing else in the payload records it (app/lib/defi.js:163-176 returns only read_only/address/aave/lido/uniswap/warnings/note/generated_at).
+```
+
+## B4-16 [HIGH] buildExposure renders a failed `trades` query as a flat book — "No directional exposure found — no open positions" and $0 net/gross
+
+- **Dimension**: honesty-js · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/lib/exposure.js:106-114`
+
+**Observed**: `openTrades` stays `[]`, computeExposure produces `assets: []`, `net_total_usd: 0`, `gross_total_usd: 0`, `warnings: []`, `open_positions: 0`, and the route answers HTTP 200 (app/routes/exposure.js:16-17). The dashboard panel's mustRead() at app/public/js/dashboard.js:3694 therefore passes, `if (!d || !(d.assets || []).length) return null;` (dashboard.js:3695) sends it to the empty state, and dashboard.js:3716 renders 'Exposure appears once you have open positions or non-stable wallet holdings.' — the exact same empty state is wired a second time at dashboard.js:7227. The chat reply asserts 'no open positions' outright.
+
+**Root cause**: An unconditional `catch (e) { /* section empty */ }` with no out-of-band record. "I could not read your positions" and "you have no positions" become the same value, and every consumer downstream is structurally unable to tell them apart.
+
+**Business impact**: A user checking 'am I overexposed?' during a database hiccup is told they hold nothing directional, at $0 net and $0 gross, on their own real money — and the stacked_long / concentrated risk-desk warnings (app/lib/exposure.js:70-86) all silently disappear with it. CLAUDE.md names this class directly: 'a 500 on /api/holdings told the user they held nothing. That is a lie about their own money.'
+
+**Reachability**: Three live callers: GET /api/exposure (app/routes/exposure.js:15-22, authed, mounted at app/server.js:403 `app.use('/api/exposure', require('./routes/exposure'))`), the dashboard panel (app/public/js/dashboard.js:3691-3716 and again at 7217-7227), and `maybeHandleExposureChat` from the chat route. The one consumer that survives this by accident is app/routes/guardian_readiness.js:96-100, which requires `exp.assets.length >= 2` and so leaves its concentration axis null. No upstream guard: `pool.execute` rejecting on a DB outage is the ordinary failure mode, and the catch is unconditional.
+
+**Remediation**: Track it the way the wallet half already is: set a flag in the catch (`let positionsReadable = true; … catch (e) { positionsReadable = false; }`) and return it beside `wallet_included`. Then app/public/js/dashboard.js:3695 must paint an unreadable state rather than the empty one when `positions_readable === false`, and the chat branch at app/lib/exposure.js:143 must say the positions could not be read instead of 'no open positions'. Note `computeExposure` itself is pure and correct — the fix is entirely in buildExposure + its two renderers, so no ratchet baseline is disturbed.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→UNCHANGED — None. Only nuance: the trigger is a failing `pool.execute` on the trades table, so in a full DB outage several sibling panels would also be visibly broken — but nothing structurally prevents a query-scoped failure (lock/timeout) producing this lie on its own.
+
+- refuted=False sev→MEDIUM — The reachability claim overstates the trigger. app/auth.js:237-244 runs `tokenIsCurrent` — a `SELECT token_epoch FROM users WHERE id = ?` — on every authed request and returns **503 auth_unavailable** when it throws, so a full DB outage never reaches buildExposure; the request 503s and mustRead() paints the error state correctly. The defect therefore needs a PARTIAL failure (a lock/deadlock or statement timeout on `trades` specifically, or pool exhaustion hitting one query) rather than 'the ordinary failure mode'. That is real but narrower, so MEDIUM rather than HIGH.
+
+**Evidence**:
+
+```
+app/lib/exposure.js:105-114
+/** Load the caller's open positions + wallet and compute. Fails soft. */
+async function buildExposure(userId) {
+  let openTrades = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT symbol, direction, size_usd FROM trades
+        WHERE user_id = ? AND status = 'OPEN' ORDER BY opened_at DESC`, [userId]);
+    openTrades = rows;
+  } catch (e) { /* section empty */ }
+
+and the claim built on it, app/lib/exposure.js:143-147
+    if (!e.assets.length) {
+      return {
+        reply_html: 'No directional exposure found — no open positions'
+          + (e.wallet_included ? ' and no non-stable wallet holdings.' : ', and no wallet linked.'),
+```
+
+## B4-17 [HIGH] Escape planner reads a 502 wallet response as "No linked wallet found", and an all-RPC-down wallet as "no priced balances, so there is no book to build"
+
+- **Dimension**: honesty-js · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/public/escape.html:341-342`
+
+**Observed**: An HTTP 502 from /api/wallet/portfolio (its catch-all, app/routes/wallet.js:58-61) renders as 'No linked wallet found. Link one in Account, then come back.' — telling a user who HAS linked a wallet to go link one. Separately, a wallet whose every chain RPC is down renders as 'The linked wallet mirrors no priced balances, so there is no book to build.' — a confident statement that the user owns nothing, even though the payload it just parsed carries `error: 'rpc unreadable'` on every chain and the code never looks at it.
+
+**Root cause**: `!r.ok` is folded into the same branch as `!d.linked`, so transport failure and a genuine absence share one sentence; and the second branch reads only the flattened `assets` array while ignoring the per-chain `error` markers that `readChain` deliberately attaches (app/lib/wallet.js:274-277).
+
+**Business impact**: This is the emergency-exit screen — the surface a user opens precisely because something is going wrong. Telling them their book is empty, or that no wallet is linked, at the moment they are trying to plan an unwind is the same failure CLAUDE.md records for `_cmd_escape`: 'An all-clear on the emergency-exit screen, assembled from a failure, shown to someone reading it precisely because something is wrong.'
+
+**Reachability**: Reachable: the handler is bound to the page's `loadWallet` button (app/public/escape.html:325-326, `var btn = $('loadWallet'); btn.disabled = true;`) and /escape is a served public page (app/public/escape.html exists in the static root; guardian-console.js:134 links to it as 'Open the Escape planner →'). The upstream 502 is real and unconditional (app/routes/wallet.js:58-61). The all-chains-unreadable payload is real and was produced by running lib/wallet.js above. Nothing upstream prevents either.
+
+**Remediation**: Split the first branch: `if (!r.ok) { walletNote(T('sx.w_failed', …), 'bad'); return; }` before the `!d.linked` check. In the second, compute `var unreadable = (d.chains || []).filter(function (c) { return c.error; })` and, when it is non-empty, say the chains could not be read rather than that the wallet is empty. Both changes are local to app/public/escape.html; bump its script cache-buster per CLAUDE.md's 'Verifying a deploy' note.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Stands. Severity trimmed HIGH->MEDIUM: the planner is a client-side planning aid that cannot act, the page keeps a working sample book, and the misdirection is 'go link a wallet' rather than a number the user could trade on. The two-line fix and its placement are correct as described.
+
+- refuted=False sev→MEDIUM — Two corrections. (a) Severity: this is a planning-page hint on a page that changes nothing (the sample book still works, and `sx.w_failed` itself says 'nothing was changed') — misdirection, not a money-moving claim, so MEDIUM. (b) Scope: the finding is filed against escape.html only, but app/public/stress.html:236-248 contains the byte-identical conflation — including the same `!r.ok || !d || !d.linked` fold — and stress.html is the file whose test's own comment says 'Signed out, no wallet, empty wallet and a failed read are four different answers. Collapsing them would tell a signed-out user they have no wallet.' Any fix must land on both pages or the test's stated intent stays false on the page it was written for.
+
+**Evidence**:
+
+```
+app/public/escape.html:339-342
+        headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
+      var d = await r.json().catch(function () { return null; });
+      if (!r.ok || !d || !d.linked) { walletNote(T('sx.w_none', 'No linked wallet found. Link one in Account, then come back.'), 'bad'); return; }
+      var assets = (d.assets || []).filter(function (a) { return Number(a.usd) > 0 && a.symbol && a.chain; });
+      if (!assets.length) { walletNote(T('sx.w_empty', 'The linked wallet mirrors no priced balances, so there is no book to build.'), 'bad'); return; }
+```
+
+## B4-18 [MEDIUM] Wallet chat reply says "no balances found across the tracked chains" when every chain reported `rpc unreadable`, and sums dead chains' zeros into a printed total
+
+- **Dimension**: honesty-js · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/lib/wallet.js:356-365`
+
+**Observed**: Two separate claims from an unread wallet. (1) The `!withAssets.length` branch prints 'no balances found across the tracked chains among the tracked assets' with no mention that nothing could be read. (2) In the populated branch, app/lib/wallet.js:372-373 `const total = chainFilter ? withAssets.reduce((a, c) => a + (c.total_usd || 0), 0) : p.total_usd;` — `p.total_usd` sums `total_usd: 0` from every dead chain (confirmed above: `total_usd = 0` with both chains flagged `rpc unreadable`), and it is then printed as 'Total (priced): $X' with the unreadable note relegated to a muted trailing line.
+
+**Root cause**: The readability evidence (`chain.error`) is produced correctly by readChain but consulted in only one of the two rendering branches, and the total is computed before the readability question is asked.
+
+**Business impact**: A user asking the chat 'what's in my wallet' during an RPC outage is told their wallet is empty, or is given a dollar total silently missing whole chains. Lower blast radius than the DeFi and exposure findings because the wallet is read-only mirror data and the populated branch does eventually print the unreadable note — but it is still a false statement about the user's own holdings.
+
+**Reachability**: Reachable: `maybeHandleWalletChat` is exported (app/lib/wallet.js:392-401) and driven by the chat route's intercept chain. The all-chains-unreadable payload was produced by running lib/wallet.js directly. No upstream guard — readWallet never throws by design (each chain fails soft into `error: 'rpc unreadable'`), which is precisely why the caller must read the flag.
+
+**Remediation**: Hoist `const unreadable = sections.filter(c => c.error).map(c => c.label);` (currently app/lib/wallet.js:373) above the `!withAssets.length` branch and, when it is non-empty, reply that those chains could not be read instead of that no balances were found. For the total, follow networth.js: when any in-scope chain carries `error`, render the total as unreadable (or state 'partial — N chains unread') rather than a summed number.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→UNCHANGED — Claim (1) is solid. Claim (2) is weaker than stated: the populated branch does name the unreadable chains one line under the total, so it is an omit-with-notice rather than a silent lie — the objection is that networth.js chose GUARD for the same payload. Fix the empty branch first; the total is a consistency argument, not an independent defect.
+
+- refuted=False sev→LOW — Part (2) of this finding is wrong and should be dropped. `p.total_usd` is NOT a sum that includes dead chains' zeros — readWallet computes it as `round2(priced.reduce((a, x) => a + x.usd, 0))` over the flattened ASSET list (wallet.js:289-296), and a dead chain contributes no assets at all, so it adds nothing rather than adding a zero. More importantly the populated branch already discloses the omission on the same reply: `(unreadable.length ? '<br><span class="muted">' + unreadable.join(', ') + ' unreadable right now (RPC).</span>' : '')` (wallet.js:378). That is CLAUDE.md's 'omit with the omission stated' strategy, which is legitimate for a composite view; calling for networth.js-style guard here is a preference, not a defect. Only the empty-branch half survives, and since the same chat surface already tells the user elsewhere, LOW.
+
+**Evidence**:
+
+```
+app/lib/wallet.js:356-365
+    const sections = (p.chains || [])
+      .filter(c => !chainFilter || c.chain === chainFilter);
+    const withAssets = sections.filter(c => c.assets.length);
+    if (!withAssets.length) {
+      const scope = chainFilter
+        ? `on ${sections[0] ? sections[0].label : chainFilter}` : 'across the tracked chains';
+      return {
+        reply_html: `👛 <b>${short}</b> — no balances found ${scope} among the tracked assets.`,
+        intent: 'wallet',
+      };
+    }
+
+The evidence it ignores is computed nine lines later, app/lib/wallet.js:373:
+    const unreadable = sections.filter(c => c.error).map(c => c.label);
+```
+
+## B4-19 [MEDIUM] Idle-yield reports `available: true` with "No priced idle assets found in your wallet" when every chain RPC failed; the wallet-address lookup failing renders as "Link a wallet"
+
+- **Dimension**: honesty-js · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/lib/idle_yield.js:43-63`
+
+**Observed**: Two conflations. (1) All chains unreadable → `available: true, wallet_linked: true, recommendations: []` and the dashboard renders app/public/js/dashboard.js:3609 `<p class="muted">${esc(d.note || 'No idle assets matched a known rate right now.')}</p>` — a confident negative about the user's own holdings. The panel's own comment two lines up (dashboard.js:3595-3598: 'available:false is the scanner FAILING soft inside a 200 … a failure wearing an empty state's clothes') describes precisely the case it is then not protected against. (2) `walletAddressOf` throwing leaves `address = null` → 'Link a wallet (Sign-In with Ethereum)…' shown to a user who has one; app/routes/cross_yield.js:30 spells the same conflation explicitly with `.catch(() => null)`.
+
+**Root cause**: A single `catch` covering two different reads (the DB address lookup and the chain sweep) resets both to their 'nothing here' value, and `holdingsFromWallet` (app/lib/idle_yield.js:20-30) correctly skips unpriced assets but its caller cannot tell 'skipped because unpriced' from 'skipped because unread'.
+
+**Business impact**: A user is told they have no idle capital to put to work when the truth is that nothing could be read; the cross-yield planner separately tells a user with a linked wallet to go link one. Advisory surfaces, so no funds move — but both are confident negatives about the user's own money, and `available: true` is an explicit assertion that the read worked.
+
+**Reachability**: Reachable: `buildIdleYield` is called by the /api/idleyield route and by `maybeHandleIdleYieldChat` (app/lib/idle_yield.js:83), and again by app/routes/cross_yield.js:64. The dashboard panel at app/public/js/dashboard.js:3592-3612 renders it. The failing path was produced by running the module. `getWalletPortfolio` never throws (readChain fails soft), so branch (1) — the all-RPC-down case — is the reachable one; branch (2) requires the users-table read to fail, which is the ordinary DB-outage mode.
+
+**Remediation**: Separate the two try blocks: let a failing `walletAddressOf` produce `available: false` rather than `wallet_linked: false`. Read the per-chain markers from the portfolio (`p.chains.some(c => c.error)`) and return `available: false` (or `partial: true` + `unreadable_chains`) instead of the 'No priced idle assets' note when the emptiness came from failed reads. Apply the same to app/routes/cross_yield.js:30, replacing `.catch(() => null)` with a branch that answers 'could not check whether a wallet is linked'.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→UNCHANGED — None. Additional (same line): getWalletPortfolio returns null for a non-0x address (wallet.js:306), so a Solana-only linked wallet also lands in the 'No priced idle assets' branch — same conflation, another door.
+
+- refuted=False sev→LOW — Branch (2) — 'a throwing walletAddressOf renders as Link a wallet' — is effectively guarded upstream and should be dropped from the finding. walletAddressOf runs `SELECT * FROM users WHERE id = ?` (wallet.js:314-317), and app/auth.js:237-244 has already run `SELECT token_epoch FROM users WHERE id = ?` on the same table for the same request, returning 503 auth_unavailable if it throws; the same applies to app/routes/cross_yield.js:30's `.catch(() => null)`, which sits behind the same authMiddleware. So the users-table read failing while auth's identical read succeeded is a narrow race, not 'the ordinary DB-outage mode'. With only branch (1) surviving on a recommendation-only surface that moves no funds, LOW.
+
+**Evidence**:
+
+```
+app/lib/idle_yield.js:42-62
+  let holdings = [];
+  let address = null;
+  try {
+    address = await wallet.walletAddressOf(userId);
+    if (address) {
+      const p = await wallet.getWalletPortfolio(address);
+      holdings = holdingsFromWallet(p);
+    }
+  } catch (e) {
+    holdings = [];
+  }
+  if (!address) {
+    return { read_only: true, available: true, wallet_linked: false,
+      recommendations: [], note: 'Link a wallet (Sign-In with Ethereum) to '
+        + 'scan your idle on-chain assets for the best non-custodial rate.' };
+  }
+  if (!holdings.length) {
+    return { read_only: true, available: true, wallet_linked: true,
+      recommendations: [], note: 'No priced idle assets found in your wallet '
+        + 'on the tracked chains.' };
+  }
+
+and the same conflation in the planner, app/routes/cross_yield.js:30:
+    const address = await wallet.walletAddressOf(uid).catch(() => null);
+```
+
+## B4-20 [MEDIUM] Agent-picks panel: a failed /api/copy/picks read hides the whole panel, and a failed `signals` query renders as "No live signal matches this agent's gates right now"
+
+- **Dimension**: honesty-js · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/public/js/dashboard.js:6300-6310`
+
+**Observed**: (a) A failed panel read hides the panel with no error state and no Retry. (b) A failed read of the `signals` table renders, per followed agent, 'No live signal matches this agent's gates right now' — a statement about what the engine is currently signalling, produced by a DB failure. The payload carries no marker distinguishing this from a genuinely quiet market.
+
+**Root cause**: `loadAgentPicks` is a direct-innerHTML writer outside `renderPanel`, so it inherits none of the mustRead machinery; and `routes/copy.js` swallows the same `signals` read that `routes/signals.js` was already hardened for.
+
+**Business impact**: A user who follows agents to copy their calls is told, agent by agent, that nothing matched — when the signal stream simply could not be read. Lower severity than the money-reading panels because no position is opened on this evidence, but it is a false negative about the product's core output, and the panel-vanishing path removes the surface entirely without saying so.
+
+**Reachability**: Reachable: `loadAgentPicks` is defined at app/public/js/dashboard.js:6280 and invoked at dashboard.js:6332 and again at 6716; it only runs for users with `_agentFollows.size > 0` (dashboard.js:6296), i.e. users who actually follow an agent — the exact audience the claim misleads. GET /api/copy/picks is a live authed route (app/routes/copy.js:105).
+
+**Remediation**: In app/routes/copy.js, mark the failure: set a `signals_readable: false` flag in the catch at line 118 (or let the route answer 503 as routes/signals.js does) and have `loadAgentPicks` render 'the signal stream could not be read' rather than 'No live signal matches…'. In app/public/js/dashboard.js:6300, distinguish `!r.ok` from an empty list — show an error line with a Retry instead of `panel.hidden = true`.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→UNCHANGED — None. Worth folding in: the route's OUTER catch (app/routes/copy.js:149-151) also answers 200 `{agents: [], note: ''}` on any failure, which the same client line turns into a vanished panel — a second door to the same lie.
+
+- refuted=False sev→MEDIUM — One reachability caveat worth recording: /api/copy/picks calls `followingIds(req.user.user_id)` before the signals query and the outer catch turns a throw into a 500, and authMiddleware already 503s on a dead users table — so the 'No live signal matches this agent's gates right now' lie needs the signals query specifically to fail (statement timeout on the LIMIT 100 scan, a lock, pool exhaustion) while the follows query succeeds. Half (a), the vanishing panel, needs no such condition and is the more reachable of the two.
+
+**Evidence**:
+
+```
+app/public/js/dashboard.js:6299-6310
+      let d = null;
+      try { const r = await fetchJSON('/api/copy/picks', { timeoutMs: 16000 }); d = r.ok ? r.data : null; } catch (_) {}
+      const groups = (d && d.agents) || [];
+      if (!groups.length) { panel.hidden = true; return; }
+      …
+        if (!g.picks || !g.picks.length) {
+          return head + `<p class="small muted">No live signal matches this agent's gates right now${…}</p>`;
+        }
+
+and the server half, app/routes/copy.js:111-118
+    let signals = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
+                entry_price, stop_loss, take_profit, rr, thesis, created_at
+         FROM signals WHERE status = ? ORDER BY created_at DESC LIMIT 100`, ['OPEN']);
+      signals = rows;
+    } catch (e) { /* empty stream is fine */ }
+```
+
+## B4-21 [LOW] Fear & Greed: a non-numeric value is coerced to 0 ("Extreme Fear") instead of being omitted, inside a function that omits every other unreadable input
+
+- **Dimension**: honesty-js · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/macro.js:184-186`
+
+**Observed**: An unreadable sentiment value becomes a measured 0/100. It is then printed as a number in the deterministic brief (app/routes/macro.js:100: `Crypto sentiment is ${fg.classification} at ${fg.value}/100${d}`), given the largest weight in the blended risk score (app/routes/macro.js:197: `if (out.fear_greed) parts.push({ w: 0.62, v: out.fear_greed.value });`), and fed verbatim to the LLM brief prompt (app/routes/macro.js:216). `previous` has the same shape, so a bad previous reading prints 'down 54 from yesterday' from no data.
+
+**Root cause**: `?? 0` re-introduces the zero that `num()` was written to avoid, on the one field in the function that uses it.
+
+**Business impact**: A public macro read would announce 'Risk-Off / Extreme Fear' at 0/100 from a field nobody could parse, and would hand that number to the LLM brief as fact. No funds move on this surface, hence LOW — but it is a market claim manufactured from an absence, on the one page whose sibling (site/src/live.ts) is built entirely around not doing this.
+
+**Reachability**: Reachable: GET /api/macro (app/routes/macro.js:249) is public and unauthenticated, `assembleMacro` is called at app/routes/macro.js:275 and exported at :286. The route's own try/catch around the fetch (app/routes/macro.js:263-267) only degrades on a network/JSON failure — a successful fetch carrying an unparseable `value` is exactly the case this does not cover. I could not demonstrate alternative.me actually returning a non-numeric value, so the trigger is upstream-shape-dependent; the coercion itself is certain.
+
+**Remediation**: Replace with `const v = num(fng.value); if (v != null) { out.fear_greed = { value: clamp(v, 0, 100), … , previous: (() => { const p = num(fng.previous); return p == null ? null : clamp(p, 0, 100); })() }; out.sources.push('fear_greed'); }`. The blend already handles the section being absent.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→UNCHANGED — The coercion is certain; the trigger is not demonstrated and is narrower than implied (an empty string coerces to 0 through Number(), not through the `?? 0`). Treat as a real consistency defect worth a two-line fix, not as an observed failure.
+
+- refuted=False sev→LOW — Confidence HIGH is too strong, and for a reason the finder did not notice: the most plausible garbage input does not even reach the `?? 0`. `num('')` is `Number('') === 0`, which is finite, so an empty-string value yields 0 through `num` itself, not through the `??`; only genuinely non-numeric text ('n/a', an object) takes the `?? 0` arm. Either way the trigger requires alternative.me to change shape, which the finder could not demonstrate. Real and worth the two-line fix, but LOW / MEDIUM-confidence, not a defect anyone has hit.
+
+**Evidence**:
+
+```
+app/routes/macro.js:182-188
+  if (fng && fng.value != null) {
+    out.fear_greed = {
+      value: clamp(num(fng.value) ?? 0, 0, 100),
+      classification: String(fng.classification || '').trim() || 'Unknown',
+      previous: fng.previous != null ? clamp(num(fng.previous) ?? 0, 0, 100) : null,
+    };
+    out.sources.push('fear_greed');
+  }
+
+`num` is defined at app/routes/macro.js:71 as
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+so it already answers null for unreadable — and every other field in the same function keeps that null (app/routes/macro.js:153-160: `market_cap_usd: num(g.mcap_usd)`, `btc_dominance: btcDom`, `structure: btcDom == null ? null : …`).
+```
+
+## B4-22 [CRITICAL] Migration fast path checks TABLE existence only, so all 64 column/index migrations are permanently skipped on any existing deployment
+
+- **Dimension**: data-db · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/db.js:2219-2222`
+
+**Observed**: The fast path answers "is the schema current?" with "do all 38 tables exist?". Every column, unique index and PRIMARY KEY change is invisible to that question, so on any database that already has the tables the migration is a no-op forever. app/test/migration_ddl.test.js pins the fast path against a missing TABLE (`EXPECTED_TABLES matches the DDL exactly`, `the fast path requires EVERY table, not merely some`) and never against a missing COLUMN, so the gap is not covered.
+
+**Root cause**: `schemaIsCurrent()` uses table presence as a proxy for schema version. `EXPECTED_TABLES` is derived from the CREATE TABLE statements only (pinned by app/test/migration_ddl.test.js:109), so the 64 ALTER/CREATE INDEX statements have no representation in the check that gates them.
+
+**Business impact**: On an existing production database this is a silent, permanent divergence between the code's assumptions and the schema. Concretely: the `trades.event_id` UNIQUE index that the code documents as the durable authority for trade-delivery idempotency does not exist, so a bot retry after a lost response double-inserts a trade into the P&L history; and if `users.token_epoch` is absent, every authenticated request 500s because `tokenIsCurrent()` fails closed. Every future column-only release is guaranteed to be a no-op on production while passing CI (which starts from an empty database and therefore always runs the full DDL).
+
+**Reachability**: `migrate()` is the app's boot-time schema step and `schemaIsCurrent()` is only reachable from it (app/db.js:2219). The consequences are on hot paths: `app/auth.js:196-197` runs `SELECT token_epoch FROM users WHERE id = ?` on EVERY authenticated request via `tokenIsCurrent()`, and `app/routes/sync.js:461-497` inserts `event_id` on every bot trade-open/close delivery, treating only ER_DUP_ENTRY as recoverable (`_isDuplicateKey`, app/routes/sync.js:421-424) — an ER_BAD_FIELD_ERROR from a missing column is rethrown and becomes a 500.
+
+**Remediation**: Extend the check past table names. Two low-churn options: (a) add an `EXPECTED_COLUMNS` map (table -> required columns) built beside the DDL and pinned by the same test, and require both sets before taking the fast path; or (b) keep a `schema_migrations` table and record a version, taking the fast path only when the recorded version equals the code's. Either way the ALTERs are already individually idempotent (`try { ... } catch (e) { /* exists */ }`), so running them is cheap — the fast path only needs to stop hiding them.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Retitle to the latent form: 'the fast path uses table presence as a schema version, so the NEXT column-only migration will be skipped on every existing deployment.' The current 64 ALTERs are not in fact missing anywhere — each one landed alongside a later CREATE TABLE that forced the full DDL. Severity CRITICAL -> MEDIUM: no current data or request path is broken; the cost is the next migration, silently. The proposed fix (EXPECTED_COLUMNS pinned by the same test, or a schema_migrations version row) is still the right one and is cheap because the ALTERs are already individually idempotent.
+
+- refuted=False sev→MEDIUM — Retitle to the latent form: 'schemaIsCurrent uses table presence as a schema-version proxy, so a future column-only migration is skipped forever on existing databases.' Drop the claim that all 64 ALTERs are currently skipped and drop the derived claim that auth.js token_epoch and sync.js event_id are missing columns in production today — that would send an engineer hunting a prod schema gap that the evidence does not establish. The proposed fix (EXPECTED_COLUMNS, or a schema_migrations version row) is sound and low-churn.
+
+**Evidence**:
+
+```
+app/db.js:2189-2196 (the check):
+```
+async function schemaIsCurrent() {
+  try {
+    const [rows] = await pool.query(
+      'SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
+    const have = new Set((rows || []).map((r) => String(r.t || r.TABLE_NAME || '').toLowerCase()));
+    return EXPECTED_TABLES.every((t) => have.has(t.toLowerCase()));
+```
+app/db.js:2219-2222 (the skip — it returns before a single ALTER runs):
+```
+    if (await schemaIsCurrent()) {
+      console.log('Schema already current — skipping DDL');
+      return;
+    }
+```
+app/db.js:2923-2924 — the durable trade idempotency key exists ONLY as an ALTER (it is absent from the `CREATE TABLE IF NOT EXISTS trades` block at app/db.js:2350-2371):
+```
+    try { await pool.execute('ALTER TABLE trades ADD COLUMN event_id VARCHAR(64) NULL'); } catch (e) { /* present */ }
+    try { await pool.execute('ALTER TABLE trades ADD UNIQUE INDEX idx_trades_event_id (event_id)'); } catch (e) { /* present */ }
+```
+```
+
+## B4-23 [HIGH] Arena position close has no transaction and no affected-rows claim — concurrent closes write duplicate sealed trade receipts and can double-credit the balance
+
+- **Dimension**: data-db · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/routes/arena.js:753-777`
+
+**Observed**: Two `arena_trades` rows for one position, each with an identical Provable-Calls `trade_key` and `seal`. Both requests return 200 with `ok:true`. Nothing checks that the DELETE actually removed a row, and nothing makes the read-modify-write of `arena_accounts.balance` atomic.
+
+**Root cause**: `closeForUser` (and `settleLiquidations`) does check-then-act across five awaits — including a network fetch (`getTickers()`) — with no transaction, no row lock, and no idempotency key. `arena_trades.trade_key` is indexed but NOT unique (app/db.js:2789-2814: `INDEX idx_arena_tr_key (trade_key)`), so the database does not reject the second receipt either. The balance is written as an absolute value computed from a snapshot read before the writes, so an interleaving where the second request's `loadAccount` lands after the first request's UPDATE credits margin+pnl twice.
+
+**Business impact**: The duplicated row is a sealed Provable-Calls receipt: `computeLeaderboard` (app/routes/arena.js:805-818) publishes `COUNT(*) AS n FROM arena_trades GROUP BY user_id` as the trader's close count and `COUNT(*) ... WHERE seal IS NOT NULL` as the count of verifiable receipts. So the public leaderboard advertises trades that never happened, and advertises them as cryptographically verifiable. The paper win/loss record and the weekly Arena letter (app/routes/arena.js:668-670) are built from the same table. In the wider interleaving the paper balance is credited twice, which is percent-return the ranking is computed from.
+
+**Reachability**: `closeForUser` is reachable from `POST /api/arena/close` (app/routes/arena.js:789, authMiddleware + tradeLimit 20/min — a per-minute cap does not serialize two simultaneous requests) and from the MCP tool surface (app/routes/mcp.js references arena_positions/arena_trades/arena_accounts). `settleLiquidations` runs inside `GET /api/arena/account` (app/routes/arena.js:248, authMiddleware ONLY, no rate limit) — a route the file's own comment at line 120 says "the Arena page and the dashboard's Arena card can both" hit. Both are same-user endpoints, so a double-click or two open tabs is enough; no second account is needed.
+
+**Remediation**: Make the DELETE the claim. Move `DELETE FROM arena_positions WHERE id = ? AND user_id = ?` to the front and only proceed when `res.affectedRows === 1`; the loser returns 404 as it should. That is one atomic statement in MySQL and it also works in the in-memory shim (which returns affectedRows). Then settle the balance with a relative update — `UPDATE arena_accounts SET balance = ROUND(balance + ?, 2) WHERE user_id = ?` — so no snapshot is carried across an await. Apply the same claim to `settleLiquidations` (app/routes/arena.js:227-231) and use a relative update in `openForUser`/`sweepFollows` too.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Severity HIGH -> MEDIUM: this is the paper arena, so the loss is a corrupted virtual balance and a duplicated tamper-evident receipt, not real funds. The proposed fix is sound and minimal — make the DELETE the claim (move it first, proceed only on affectedRows === 1) and switch to a relative `SET balance = ROUND(balance + ?, 2)` so no snapshot crosses an await. Note the same absolute-write-from-snapshot also appears in sweepFollows (arena.js:193).
+
+- refuted=False sev→MEDIUM — Keep the finding and the fix (DELETE-as-claim on affectedRows === 1, then a relative `balance = ROUND(balance + ?, 2)` update). Reframe the impact as record/leaderboard integrity in a virtual-balance arena rather than money loss, and state the outcome as race-dependent — the code shape is CONFIRMED, the duplicate receipt is inferred from it, not observed.
+
+**Evidence**:
+
+```
+app/routes/arena.js:753-777 — SELECT, then a network round trip, then INSERT/DELETE/UPDATE with nothing claiming the position:
+```
+    const [rows] = await pool.execute(
+      'SELECT id, user_id, symbol, ... FROM arena_positions WHERE id = ? AND user_id = ?', [posId, userId]);
+    const p = rows[0];
+    if (!p) return { status: 404, body: { error: 'Position not found' } };
+    let marks;
+    try { marks = await getTickers(); } catch (e) { ... }
+...
+    const acct = await loadAccount(userId);
+    await pool.execute(
+      'INSERT INTO arena_trades (user_id, symbol, ... ) VALUES (...)', [...]);
+    await pool.execute('DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
+    await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
+      [round2(acct.balance + p.margin + pnl), userId]);
+```
+The same shape in the auto-settle sweep, app/routes/arena.js:229-241:
+```
+    await pool.execute(
+      'DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
+    if (exit.reason !== 'liquidated') credit += p.margin + pnl;
+  }
+  if (credit !== 0) {
+    const acct = await loadAccount(userId);
+    await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
+      [round2(acct.balance + credit), userId]);
+```
+`grep -n 'affectedRows' app/routes/arena.js` → no matches. `grep -rn 'getConnection|beginTransaction|START TRANSACTION|commit()|rollback()' app/ --include=*.js` (excluding node_modules) → no matches anywhere in the Node app.
+```
+
+## B4-24 [HIGH] Bot sync acks delete the pending row by user_id unconditionally, silently discarding a control or credential change submitted during the pull→ack window
+
+- **Dimension**: data-db · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/routes/sync.js:1063`
+
+**Observed**: The DELETE is scoped only by user_id, so it retires whatever proposal is sitting in the row at ack time. Because `user_id` is UNIQUE, a change submitted during the window overwrites the pulled row rather than queueing, so it is destroyed rather than merely delayed.
+
+**Root cause**: No optimistic-concurrency token on the queue row. The pull returns `created_at` (which the UPSERTs at app/routes/controls.js:131-135 and 245-251 refresh to CURRENT_TIMESTAMP on every submit) but the ack body never carries it back, so the delete cannot distinguish "the row I applied" from "a newer row".
+
+**Business impact**: For pending_controls: a user's emergency stop, live-trading disable, pause, or margin-cap reduction is acknowledged to them and then silently discarded — the bot keeps trading live under the old cap. For pending_credentials: a user who submits a `disconnect` (revoke my exchange API keys) inside the window has that revocation deleted, and the ack then writes `exchange_status.connected = true` from the ORIGINAL connect action (app/routes/sync.js:1014-1022), so the badge says connected, the keys stay in the bot's Fernet store, and the user believes they revoked them.
+
+**Reachability**: Both endpoints are live and bot-secret authed (`router.use(botAuth)`, app/routes/sync.js:287). The bot half is `bot/utils/control_pull.py:191-203` (`pull_and_apply_controls`), which does pull → per-row apply → ack as three separate steps with two HTTP round trips between them. The writing side is user-facing and unauthenticated by the bot secret: `POST /api/controls` (app/routes/controls.js:128), `POST /api/controls/venues` (:181), `POST /api/controls/stop` (:245). Nothing serialises the two.
+
+**Remediation**: Return `created_at` from the pull into the ack body and scope the delete to it: `DELETE FROM pending_controls WHERE user_id = ? AND created_at <= ?`. No schema change is needed — both tables already carry `created_at` and the pull already selects it. Apply the identical change to the credentials ack at line 1013. Where the ack cannot carry it (an older bot), deleting nothing and letting the next cycle re-apply is the safe direction.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Severity HIGH -> MEDIUM. Real and correctly diagnosed, but the exposure is a one-round-trip window, and the ack's user_controls mirror makes the loss visible to the user rather than silent to them (it is silent to the system). The proposed fix — echo created_at through the ack and scope the DELETE with `AND created_at <= ?` — is correct and needs no schema change.
+
+- refuted=False sev→MEDIUM — Keep the finding and the created_at-scoped delete fix. Lower the severity: the loss window is a single pull round trip, the UI shows the un-applied old state afterwards rather than a false success, and the emergency-stop flatten survives in its own table. Also correct 'the writing side is unauthenticated by the bot secret' — those routes sit behind the user auth middleware; they are simply not serialised against the bot channel, which is the real point.
+
+**Evidence**:
+
+```
+app/routes/sync.js:1059-1063 — the ack deletes whatever is in the row now, not the row that was pulled:
+```
+      const uid = parseInt(a.user_id);
+      if (!Number.isInteger(uid)) continue;
+      await pool.execute('DELETE FROM pending_controls WHERE user_id = ?', [uid]);
+```
+Same shape for exchange credentials, app/routes/sync.js:1013:
+```
+      await pool.execute('DELETE FROM pending_credentials WHERE user_id = ?', [uid]);
+```
+The pull already carries the discriminator it would need — app/routes/sync.js:1037-1040:
+```
+      `SELECT user_id, telegram_id, live_enabled, max_margin, paused, venues, created_at
+       FROM pending_controls ORDER BY created_at ASC LIMIT 200`
+```
+and the queue is one row per user — app/db.js:2670-2672 / 2644-2646: `user_id INT NOT NULL UNIQUE` on both tables, so a new proposal REPLACES the pulled one in place rather than queueing behind it.
+```
+
+## B4-25 [HIGH] Bot portfolio sync deletes all of a user's trades and equity snapshots before re-inserting them, with no transaction — a mid-loop failure leaves a truncated history that renders as a real record
+
+- **Dimension**: data-db · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/routes/sync.js:310-355`
+
+**Observed**: Delete-then-insert across up to N+M separate autocommitted statements. A failure at any point leaves the user's trade history permanently truncated (the bot only heals it on the next successful full sync), and every downstream surface computes a confident percentage over the fragment. Concurrent readers during the window see the same partial state.
+
+**Root cause**: The route was written against a backend abstraction (`pool.execute`) that the in-memory fallback does not implement transactions for, and the code chose ordering-based safety for the single-trade endpoint (`/trade-event`, app/routes/sync.js:466-486, whose comment explicitly reasons about this) but never revisited the replace-all endpoint, where ordering alone cannot help.
+
+**Business impact**: The user's track record — trade count, net P&L, win rate, equity curve — is the product's most load-bearing claim. A failed sync can erase it entirely (all trades deleted, no inserts land) or truncate it, and the dashboard will publish a win rate over the survivors as though it were the whole record. The equity curve is deleted in the same unguarded way whenever a real equity reading is present.
+
+**Reachability**: `POST /api/bot/sync` is live behind `botAuth` (app/routes/sync.js:273-288) and is the bot's normal periodic portfolio push — its own docstring says "Replaces all trade data for the authorized bot user." The readers are `GET /api/portfolio/summary` (app/routes/sync.js:230-260) and app/routes/portfolio.js, both of which query `trades` directly with no notion of sync state.
+
+**Remediation**: Two parts. (a) Make the rebuild atomic where the backend allows it: acquire a connection, `beginTransaction()`, do the deletes and inserts, `commit()`, `rollback()` on error — and for the in-memory shim (which the /trade-event comment correctly notes has no transactions), stage the inserts and swap only on success. (b) Independently of (a), record a per-user sync generation/timestamp on success and have `GET /api/portfolio/summary` refuse to report totals when the last sync for that user failed, rather than summing what is there. (b) alone removes the "partial total printed as whole" half and is the smaller change.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Severity HIGH -> MEDIUM, and the title's 'permanently' is wrong — the next successful sync heals it. Lead with the always-present read window rather than the mid-loop failure: the delete-all/insert-all pattern exposes a partial history to concurrent readers on every single sync, not only on failure. Fix (b) in the finding (a per-user sync generation that readers consult) addresses both halves and does not require transactions the in-memory backend cannot provide.
+
+- refuted=False sev→MEDIUM — Keep the finding; drop 'permanently' (the next periodic full sync heals it) and drop the claim that GET /api/portfolio/summary reads the fragment in the normal case — it serves the previous complete in-memory summary during the window and only falls through to the DB after a restart. Fix (b) from the proposal (a per-user sync generation, and refusing to report totals after a failed sync) is still the right small change; (a) is blocked by the in-memory shim having no transactions.
+
+**Evidence**:
+
+```
+app/routes/sync.js:310-322 — the destructive half runs first, unguarded:
+```
+    // Clear existing trades and snapshots for this user
+    await pool.execute('DELETE FROM trades WHERE user_id = ?', [user_id]);
+...
+    if (eq !== null) {
+      await pool.execute('DELETE FROM equity_snapshots WHERE user_id = ?', [user_id]);
+    }
+
+    // Insert closed trades
+    if (closed_trades && closed_trades.length > 0) {
+      for (const t of closed_trades) {
+        await pool.execute(
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, venue)
+```
+and the only failure handling, app/routes/sync.js:385-388:
+```
+  } catch (err) {
+    console.error('Sync error:', err.stack || err.message);
+    res.status(500).json({ error: 'Sync failed' });
+  }
+```
+There is no rollback because there is no transaction anywhere in the app: `grep -rn 'getConnection|beginTransaction|START TRANSACTION|\.commit()|\.rollback()' app/ --include=*.js` (excluding node_modules) returns nothing.
+```
+
+## B4-26 [MEDIUM] Trade journal writes non-atomically and loads partially in silence — a single malformed row truncates the record permanently and the weekly review reports a confident win rate over the fragment
+
+- **Dimension**: data-db · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/trade_journal.py:296-297`
+
+**Observed**: A single unparseable row silently stops the load at that point; `get_weekly_review()` then computes wins/losses/win_rate/total_pnl over the fragment and returns them as measured facts; and `_save()` writes the fragment back, destroying the unread rows. The only trace is `logger.debug`, below the default level.
+
+**Root cause**: Two separate misses. (1) `_save` uses `open(path,'w')`, which truncates before writing, so a crash or a full disk mid-`json.dump` leaves a truncated file — the exact corruption `bot/utils/atomic_write.py` was written to eliminate. (2) `_load` mutates `self._entries` incrementally inside a broad `try`, so a partial parse is indistinguishable from a complete one to every caller, and the failure is logged below INFO.
+
+**Business impact**: The journal is the bot's own record of every closed trade and the substrate for the weekly performance review an operator reads to decide whether the strategy works. A partial read publishes a specific, wrong win rate (100% in the reproduction) and the next save makes the loss permanent — there is no second copy. The 2026-07-31 incident CLAUDE.md records was exactly this class: published win rates composed from incomplete data.
+
+**Reachability**: `TradeJournal` is instantiated once by the engine (`bot/core/engine.py:650-651: from bot.core.trade_journal import TradeJournal; self.journal = TradeJournal()`), so this is the live journal, not a test fixture. `get_weekly_review` is the data behind the `/journal` command (skill `trade_journal`, bot/skills/skill_registry.py:1323-1324). Single-process, so I am NOT claiming a multi-writer race here — the failure modes are crash-truncation and partial-load, both of which are single-process.
+
+**Remediation**: Three small changes, none of which touch the ratchets. (1) `_save`: `from bot.utils.atomic_write import atomic_write_json` and `atomic_write_json(self._journal_file, data, separators=(",", ":"))` — the helper is already a dependency of 20+ modules. (2) `_load`: parse into a LOCAL list and assign to `self._entries` only after the whole file parses; on failure log at WARNING and set a `self._load_failed = True` flag. (3) `get_weekly_review`: when `_load_failed` is set, return the failure rather than statistics, so `/journal` paints an error state instead of a win rate. Note also that `_max_entries` is 1000 while `_save` writes `self._entries[-500:]` (line 283), so a restart silently halves a full journal — worth aligning while there.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — Fix the reachability line: the caller is bot/skills/telegram_handler.py:10642 (_cmd_journal, admin-gated), not the trade_journal skill at skill_registry.py:1323, which reads portfolio._history instead. Severity MEDIUM -> LOW: the journal is analysis-only and admin-only, the total-failure path is already caught honestly by the _journal_gap_closes branch, and the partial-parse path needs a malformed row that _save cannot write. The two mechanical fixes still stand on their own merits — atomic_write_json in _save, and parsing into a local list before assigning self._entries.
+
+- refuted=False sev→LOW — Fix the reachability sentence: get_weekly_review is reached from `_cmd_journal` at bot/skills/telegram_handler.py:10642 (admin-only), not from the `trade_journal` skill, which reads the executor's `portfolio._history` instead. Note the existing gap-check at telegram_handler.py:10663-10681 already covers the all-empty case honestly, which narrows the exposure to a partial load and drops the severity — this is an admin diagnostic over a secondary store whose own comment says /portfolio and /performance are the authoritative record.
+
+**Evidence**:
+
+```
+bot/core/trade_journal.py:296-299 — truncate-then-write, while 20+ other stores in this repo use `bot.utils.atomic_write`:
+```
+            with open(self._journal_file, "w") as f:
+                json.dump(data, f)
+        except Exception as exc:
+            logger.debug("Journal save failed: %s", exc)
+```
+bot/core/trade_journal.py:307-326 — entries are appended inside the try, so a failure mid-list leaves a partial list and says so only at DEBUG:
+```
+            for d in data:
+                self._entries.append(JournalEntry(
+                    trade_id=d["trade_id"], symbol=d["symbol"],
+...
+            logger.info("Loaded %d journal entries", len(self._entries))
+        except Exception as exc:
+            logger.debug("Journal load failed: %s", exc)
+```
+```
+
+## B4-27 [MEDIUM] Two per-user preference stores fall back to a non-atomic truncate-then-write in clear() only, while their sibling save path uses atomic_write_json
+
+- **Dimension**: data-db · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/user_leverage_store.py:89-91`
+
+**Observed**: One of two mutation paths in each module still truncates in place. Because both stores hold a dict keyed by user id and rewrite the WHOLE dict, a failed `clear()` for one user destroys the preferences of EVERY user in that file, not just the one being cleared.
+
+**Root cause**: Incomplete migration. `tests/test_atomic_write.py::TestTheShapeDoesNotComeBack` scans only for the `path + ".tmp"` / `with_suffix(".tmp")` family (its FORBIDDEN tuple, line 237-243), so a plain truncating write is invisible to the guard that exists to stop exactly this.
+
+**Business impact**: `user_leverage_store` holds a per-user leverage preference that bot/core/leverage.py applies "only ever ... as a reduce vs the operator default" — so losing the file silently restores every BYOK live user to the HIGHER operator default leverage, with no error anywhere (`_load` returns `{}`, `get` returns None, the caller uses the default). That is a silent, global increase in position risk arising from one user clearing their own preference at the wrong moment. `user_strategy_store` losing its file silently un-gates every user's confirm flow.
+
+**Reachability**: Both stores are live per-user preference stores reached from the Telegram/gateway command surface, and both `clear()` functions are the documented revocation path ("Remove a user's preference (→ back to the operator default)", "Revocable is the whole point; clearing always works"). Each is guarded by a module-level `threading.Lock`, so this is NOT a multi-writer race claim — the exposure is crash/ENOSPC during the truncate-write window. I checked the multi-process angle and ruled it out: Dockerfile:68 and docker-compose.yml:99 both now run `--workers 1`.
+
+**Remediation**: Replace both blocks with the helper already imported in each file:
+```
+        try:
+            atomic_write_json(_path(), d, indent=None)
+        except Exception as exc:
+            log.warning("user_leverage clear failed: %s", exc)
+            return False
+```
+And widen `TestTheShapeDoesNotComeBack.FORBIDDEN` (or add a companion assertion) to catch `open(<state path>, "w")` in modules that already import atomic_write, so the next one is caught by the guard rather than by an audit.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — Severity MEDIUM -> LOW. Correct, cheap, and worth doing — but it is an incomplete-migration tidy-up on a preference store, not a money-path defect, and losing the file degrades to the operator default rather than to a wrong trade. The companion suggestion (widen the atomic_write guard to flag open(<state path>, 'w') in modules that already import atomic_write) is the more valuable half, since it is what stops the next one.
+
+- refuted=False sev→LOW — Keep as written; downgrade severity to LOW. The fix is two lines per module plus widening the atomic_write guard's FORBIDDEN set — worth doing precisely because it is cheap, not because the loss is likely.
+
+**Evidence**:
+
+```
+bot/core/user_leverage_store.py:66-72 — `set_pref` was migrated:
+```
+    with _LOCK:
+        d = _load()
+        d[uid] = n
+        try:
+            atomic_write_json(_path(), d, indent=None)
+```
+bot/core/user_leverage_store.py:84-94 — `clear` was not:
+```
+    with _LOCK:
+        d = _load()
+        if uid not in d:
+            return False
+        del d[uid]
+        try:
+            with open(_path(), "w", encoding="utf-8") as f:
+                json.dump(d, f)
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("user_leverage clear failed: %s", exc)
+```
+Identical omission in bot/core/user_strategy_store.py:163-173, whose own `_save` helper at lines 47-53 does use `atomic_write_json`:
+```
+        del d[uid]
+        try:
+            with open(_path(), "w", encoding="utf-8") as f:
+                json.dump(d, f)
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("user_strategy clear failed: %s", exc)
+```
+```
+
+## B4-28 [LOW] siwf_nonces has no retention: an unauthenticated endpoint inserts a permanent row per call and nothing ever deletes one
+
+- **Dimension**: data-db · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `app/routes/farcaster_auth.js:75-78`
+
+**Observed**: Monotonic growth with no ceiling. `siwf_nonces` (app/db.js:2965-2972) is `nonce VARCHAR(64) PRIMARY KEY, created_at, expires_at, used_at` with no additional index and no cleanup path.
+
+**Root cause**: The design decision to mark rather than delete on use ("the row is not deleted on use, so a replayed nonce is DISTINGUISHABLE from one that never existed", app/db.js:2960-2964) is correct and deliberate, but the corresponding retention policy for rows that are long past `expires_at` was never added.
+
+**Business impact**: Slow-burn operational cost rather than a correctness failure: unbounded growth on a serverless/managed MySQL bills for storage and eventually degrades the sign-in path's primary-key lookups. It also gives an unauthenticated caller a cheap, permanent write into the operator's database.
+
+**Reachability**: `POST /api/farcaster/nonce` is mounted and unauthenticated by design (it is the first step of sign-in). The rate limiter at line 40 bounds per-IP rate but not total rows and not the number of IPs. I confirmed there is no cleanup elsewhere: the only other DELETE-style retention in the app is the agent_events prune at app/routes/sync.js:772.
+
+**Remediation**: Add an opportunistic prune on the write path, mirroring wallet_link_store: after a successful INSERT in `issue()`, best-effort `DELETE FROM siwf_nonces WHERE expires_at < ?` with a cutoff well past NONCE_TTL_MS (e.g. 24h) so the replay-vs-never-existed distinction is preserved for any realistic replay window. Add `INDEX idx_siwf_expires (expires_at)` in the same change — but note that as a column-only/index-only migration it will be skipped on existing deployments until the schemaIsCurrent finding is fixed, so land it after that one.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — No correction to the mechanism; LOW is right, arguably INFORMATIONAL. One note on the proposed fix: it says to land the prune after fixing finding 0 because the new INDEX idx_siwf_expires is column/index-only and would be skipped. That sequencing advice is over-cautious — siwf_nonces is the newest table in EXPECTED_TABLES, so any deployment predating it still runs the full DDL; and the prune DELETE itself works without the index at this table size.
+
+- refuted=False sev→LOW — None. Accurate as written, including the sequencing caveat that the accompanying index would itself be skipped on existing deployments until finding 0's fast path is fixed.
+
+**Evidence**:
+
+```
+app/routes/farcaster_auth.js:74-78 — every nonce request writes a row:
+```
+      const nonce = siwf.newNonce();
+      try {
+        await pool.execute(
+          'INSERT INTO siwf_nonces (nonce, created_at, expires_at) VALUES (?, ?, ?)',
+          [nonce, now, new Date(now.getTime() + siwf.NONCE_TTL_MS)]);
+```
+and consumption marks rather than removes — app/routes/farcaster_auth.js:100-102:
+```
+    const [res] = await pool.execute(
+      'UPDATE siwf_nonces SET used_at = ? WHERE nonce = ? AND used_at IS NULL', [now, nonce]);
+```
+`grep -n 'siwf_nonces' app/routes/farcaster_auth.js app/lib/*.js app/*.js` returns only those three statements plus the DDL — there is no DELETE anywhere. Contrast the sibling store, app/lib/wallet_link_store.js:25-27, which does have one:
+```
+async function _prune(table) {
+  try { await _pool().execute(`DELETE FROM ${table} WHERE expires_at < ?`, [_now()]); } catch (_) { /* best-effort */ }
+}
+```
+```
+
+## B4-29 [HIGH] No SIGTERM handler: the entire graceful-shutdown path is unreachable on every deploy and watchdog restart
+
+- **Dimension**: concurrency · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `/home/user/001/bot/main.py:524-545 (the finally block and the run_until_complete that guards it); 18 (signal imported only for os.kill)`
+
+**Observed**: Nothing in that block executes. The process dies at the instant the signal is delivered. python-telegram-bot's own `run_polling()` installs SIGINT/SIGTERM/SIGABRT handlers (site-packages/telegram/ext/_application.py:1038-1044, `loop.add_signal_handler(sig, self._raise_system_exit)`), but bot/main.py deliberately drives `app.initialize()/app.start()/app.updater.start_polling()` by hand (lines ~470-476) and therefore inherits none of that.
+
+**Root cause**: The shutdown sequence was written as a coroutine `finally` block, and nothing ever converts a process signal into the cancellation or exception that would run it. `run_telegram()` imports `signal` only to kill a stale predecessor, never to register `loop.add_signal_handler(signal.SIGTERM, ...)` for itself.
+
+**Business impact**: Every redeploy and every watchdog restart is a hard kill. Concretely: (a) the Telegram long-poll is never released, which is the documented source of the 409 getUpdates conflicts the poller watchdog at bot/main.py:490-506 exists to recover from; (b) `logs/audit_chain.jsonl` is appended with a plain buffered `fh.write` (bot/utils/audit_chain.py:194-195) with no atomic rename, so a kill mid-append truncates a hash-chained record that watchdog.sh:66-70 calls "unrecoverable and indistinguishable from tampering"; (c) a kill between an exchange `create_order` and the local `_save_positions()` leaves a live position the local book does not know about until the next boot's orphan-adoption sweep. The ten-second grace both callers pay for buys nothing.
+
+**Reachability**: Fully reachable on the production path: docker-compose.yml:20 makes `python -m bot.main --mode telegram` PID 1 of the container (so `docker stop` SIGTERMs it directly), and watchdog.sh:71-83 SIGTERMs the same pattern on every restart cycle. The `finally` block itself is reachable ONLY if an exception escapes the try (e.g. `app.initialize()` failing at boot) — never on an operator or supervisor stop. Boot-time reconciliation (engine.py:2792-2825: reconcile_positions / sync_positions_from_exchange / verify_and_fix_sltp) does bound the position-level damage, which is why this is not a BLOCKER.
+
+**Remediation**: In `run_telegram()`, after `asyncio.set_event_loop(loop)`, register handlers that cancel the top-level task so the existing `finally` runs, e.g. hold `main_task = loop.create_task(_run_all())` and for `sig in (signal.SIGTERM, signal.SIGINT): loop.add_signal_handler(sig, main_task.cancel)`, then `loop.run_until_complete(main_task)` catching `asyncio.CancelledError`. Add a `except asyncio.CancelledError: pass` around the `while True` body's `await engine_task` so cancellation reaches the `finally` rather than the restart branch. Wrap the whole shutdown in a bounded `asyncio.wait_for(..., timeout=8)` so it still finishes inside the watchdog's ten-second grace.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→MEDIUM — Severity lowered HIGH->MEDIUM. Nothing in the unreached finally block persists trading state: it stops the alert monitor, cleans the aiohttp dashboard runner, stops the Telegram updater, and closes ccxt/aiohttp sessions — all of which the OS reclaims when the process dies. There is no flush-to-disk of positions or the audit chain in that path, and boot reconciliation (reconcile_positions / sync_positions_from_exchange / verify_and_fix_sltp) bounds the position-level damage, as the finder concedes. The residual real risks are a partially-appended audit_chain.jsonl line and a stale getUpdates poller on the Telegram side (mitigated by drop_pending_updates=True on restart). Real but not HIGH for a money-moving system. The proposed fix is otherwise sound.
+
+- refuted=False sev→MEDIUM — Severity is inflated at HIGH because the finding overstates what the missed shutdown actually costs. I read RuneClawEngine.stop() (bot/core/engine.py:3611-3635) end to end: it sets `_running = False`, stops the WS feed, closes the scanner, stops the dashboard pusher, closes the operator + per-user executors, transitions to IDLE and writes one audit line. It persists NO trading state — there is no book to close, no flush, no position write. On a dying process the OS reclaims every socket the executor `close()` calls would have released, and `app.updater.stop()` is redundant once the process's sockets drop (and the poller watchdog at bot/main.py:487-506 plus `drop_pending_updates=True` recovers a 409 on the next boot). So the real residue is: no orderly Telegram updater stop, and — because atexit also does not run on SIGTERM — the PID file at bot/main.py:400-414 is left stale. Real lifecyc
+
+**Evidence**:
+
+```
+bot/main.py:524-545 —
+        finally:
+            try:
+                poller_state["stopping"] = True
+                watchdog_task.cancel()
+            except NameError:
+                pass  # boot failed before the watchdog was created
+            await handler.stop_monitor()
+            if dashboard_runner:
+                await dashboard_runner.cleanup()
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
+            await engine.stop()
+
+    try:
+        loop.run_until_complete(_run_all())
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+
+The only occurrence of a signal constant in the whole tree outside a test is bot/main.py:385, which is the PID-file guard killing a PREVIOUS instance:
+    os.kill(old_pid, signal.SIGTERM)
+`rg -n "signal\.(SIGTERM|SIGINT)|add_signal_handler|signal\.signal"` over the repo (excluding .venv/node_modules) returns exactly bot/main.py:385 and tests/test_deploy_smoke_guard.py:221 — no handler is ever installed.
+```
+
+## B4-30 [MEDIUM] The autonomous tick never ACQUIRES the scan lock — force_scan's single-flight guard only works in one direction
+
+- **Dimension**: concurrency · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `/home/user/001/bot/core/engine.py:4124 (tick checks the lock) vs 6517-6524 (force_scan is the only holder)`
+
+**Observed**: Mutual exclusion holds only when force_scan wins the race. When the tick starts first — the common case, since the tick runs every 60-90s and its scan phase can occupy minutes — force_scan sees a free lock and runs concurrently with it. The two pipelines then interleave on `_pending_ideas`, `_pending_atr`, `_pending_timing`, `_pending_pyramid` and `_cooldown_until`, and the state machine is driven from two places at once (force_scan ends with `_transition(AgentState.IDLE, "force scan complete")` at 6603 while the tick is still ANALYZING).
+
+**Root cause**: The guard was implemented as a test-only check on the tick side and a test-and-acquire on the force_scan side. A lock that one participant never holds provides no mutual exclusion for the other.
+
+**Business impact**: Doubled exchange/LLM load during a scan (the rate-limiter pressure the semaphore at 4575 exists to avoid); a user's pending idea card silently invalidated mid-flight by the other pipeline's `clear()`; the post-loss cooldown (`_cooldown_until = 0.0`, 6542) cleared out from under a running tick; and on the paper path two same-symbol entries from the two pipelines, since the duplicate-entry re-check in confirm_trade is live-only.
+
+**Reachability**: Both entry points are live: `_tick` is the engine's main loop (`run()` at 2851 calls `_tick_guarded()`), and `force_scan` is called from the Telegram handler's 'Latest Signal' button and /forcescan, which run concurrently because `build_app()` enables `.concurrent_updates(True)` (pinned by tests/test_scan_concurrency_and_killswitch.py:60-64). Mitigation that limits blast radius: `confirm_trade` (engine.py:5634-5636) serialises per symbol, and its duplicate re-check at 5637 catches an already-open live position — but that check is gated on `if (CONFIG.is_live() and ...)`, so the paper path has no equivalent, and neither guard prevents the state-clobbering or the doubled scan/LLM/exchange load the lock exists to prevent.
+
+**Remediation**: Have the tick hold the same lock for its scan section: replace the `if self._scan_lock.locked(): ... return` at 4124 with a non-blocking acquire — keep the early-return when it is already held, then wrap the scan/analyze/auto-confirm block (4129-4373) in `async with self._scan_lock:`. The position-monitoring phase at 4374-4377 must stay OUTSIDE the lock so SL/TP enforcement is never gated on a scan. Add a driven (not source-scanned) test that starts a slow fake tick scan and asserts a concurrent `force_scan()` returns `skipped: scan_already_running`.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→UNCHANGED — No correction. MEDIUM is the right level: the per-symbol entry lock plus the live duplicate re-check prevent the double-order outcome on the live path, so the residual damage is state clobbering of _pending_ideas/_cooldown_until, a state machine driven from two places, and doubled LLM/exchange load. The proposed fix's caveat is important and correct — the position-monitoring phase must stay outside the lock so SL/TP enforcement is never gated on a scan.
+
+- refuted=False sev→UNCHANGED — MEDIUM is right. Note one refinement to the finder's blast-radius claim: the duplicate re-check they call live-only also has the paper path partly covered by the analysis-time duplicate gate, and both concurrent pipelines share the same `_symbol_entry_locks`, so the concrete worst case is clobbered `_pending_ideas`/`_pending_atr`/`_cooldown_until` state, a contradictory AgentState (force_scan's `_transition(AgentState.IDLE, ...)` while the tick is still analyzing), and a doubled LLM/exchange bill — not duplicate live orders.
+
+**Evidence**:
+
+```
+engine.py:4118-4128 — the tick only TESTS the lock and then scans without holding it:
+        # Don't scan while a Telegram-triggered force_scan holds the scan lock —
+        # both mutate _pending_ideas and run auto-confirm. ...
+        # Same-symbol double orders are separately impossible via
+        # the per-symbol entry locks in confirm_trade.
+        if self._scan_lock.locked():
+            self._transition(AgentState.MONITORING, "checking positions (force_scan in progress)")
+            await self._phase(self._check_open_positions(), "positions (scan in progress)")
+            self._transition(AgentState.IDLE, "tick cycle complete (scan in progress)")
+            return
+
+        self._transition(AgentState.SCANNING, "beginning scan cycle")
+
+engine.py:6517-6524 — the only acquire in the file:
+        if self._scan_lock.locked():
+            audit(system_log, "Force scan skipped — scan already in progress", ...)
+            return {... "skipped": "scan_already_running"}
+        async with self._scan_lock:
+            return await self._force_scan_locked(max_symbols=max_symbols, lightweight=lightweight)
+
+`grep -n "_scan_lock" bot/core/engine.py` returns exactly five lines: 525 (construction), 4124 (test), 6517 (test), 6523 (acquire), 6526 (the locked body). There is no `async with self._scan_lock` anywhere in `_tick`.
+```
+
+## B4-31 [MEDIUM] Per-user ccxt/aiohttp sessions are dropped without close(): balance-view executors are never closed anywhere, including at shutdown
+
+- **Dimension**: concurrency · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `/home/user/001/bot/core/engine.py:1966-1981 (invalidate drops both caches), 1908-1916 (view cache rebuilt on credential change), 3628-3633 (shutdown closes only _user_executors)`
+
+**Observed**: `invalidate_user_executor` is a synchronous method that only pops, and `stop()` iterates only `_user_executors`. `grep -rn "_balance_view_executors"` over the repo shows the only non-test references are engine.py:435, 1908, 1916, 1979, 1981 — construction, get, set, and the two pops. No call site ever closes one.
+
+**Root cause**: Two caches were added for two different purposes (order placement vs read-only balance views, deliberately kept in separate dicts per the docstring at 1888-1892), but only one of them was wired into the shutdown sweep, and the invalidation path was written as a plain `def` so it structurally cannot await `close()`.
+
+**Business impact**: Each leaked ccxt client keeps an aiohttp ClientSession and its TCP connections alive for the life of the process, and the bot is designed to run for weeks between restarts. Growth is slow (one per credential rotation per user, plus one per user at shutdown) but unbounded, and aiohttp's 'Unclosed client session' warnings on a live-trading log are the kind of noise that masks real faults.
+
+**Reachability**: `balance_view_executor` is reachable by DEFAULT: its docstring (engine.py:1880-1882) states it deliberately ignores `PER_USER_LIVE_ENABLED` (which is False by default per bot/config.py:2261) because "viewing your own balance is read-only and must work the moment you /connect". So every /connect + /livebalance user creates one. `invalidate_user_executor` has three live callers: telegram_handler.py:6465 and :7660, and engine.py:3937/3954 (the website credential and control pumps). Note the leak only materialises once the executor has actually called `_get_exchange()` — an executor built and never used holds no session.
+
+**Remediation**: Make `invalidate_user_executor` async (or have it schedule closes) and `await ex.close()` for each popped executor before dropping it — with a `try/except` mirroring switch_venue's best-effort close. Note the credential-pull path calls it from a worker thread (engine.py:3936-3937 inside `asyncio.to_thread`), so that call site needs a `run_coroutine_threadsafe` or a queued-close list drained on the loop. Separately, add `for _ex in list(getattr(self, "_balance_view_executors", {}).values()): await _ex.close()` to `RuneClawEngine.stop()` beside the existing `_user_executors` loop.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- refuted=False sev→LOW — Severity lowered MEDIUM->LOW. This is a bounded resource leak with no path to incorrect trading behaviour: view-only executors are excluded from all_executors() by design, the leak only materialises after _get_exchange() has actually been called, and it is driven by human-paced /connect//disconnect//venue events rather than any loop. The shutdown half is nearly free of consequence given the process is exiting (and, per finding 0, usually SIGKILLed anyway). One caveat on the fix: engine.py:3948-3952 carries an explicit comment that the control-pull callbacks run on a worker thread and are safe precisely BECAUSE they "only pop from plain dicts" — making invalidate_user_executor async would invalidate that reasoning at both to_thread call sites (3936-3937 and 3951-3954), so the queued-close variant the finder mentions is the only safe shape.
+
+- refuted=False sev→LOW — Downgrade MEDIUM -> LOW. I traced the invalidation callers to bound the leak: engine.py:3936-3937 and 3951-3954 pass `on_change=self.invalidate_user_executor` to `pull_and_apply` / `pull_and_apply_controls`, and that callback fires only on an actual change (the pull itself is throttled to once per 30s at engine.py:3915-3917), so this is one leaked ClientSession per /connect, /disconnect or web credential change per user — bounded by user actions, not per-tick. And the leak only materialises if that executor already called `_get_exchange()`, which the finding correctly concedes. The shutdown half is cosmetic on top of finding 0: the process usually dies on SIGTERM without running `stop()` at all, and the OS reclaims the sockets either way. Real hygiene defect, no money or availability impact demonstrated.
+
+**Evidence**:
+
+```
+engine.py:1966-1981 — both caches are popped, neither entry is closed (the method is sync, so it cannot await `close()`):
+    def invalidate_user_executor(self, user_id: str) -> None:
+        uid = str(user_id)
+        for k in [k for k in list(self._user_executors)
+                  if k == uid or k.endswith(f"/{uid}")]:
+            self._user_executors.pop(k, None)
+        for k in [k for k in list(self._balance_view_executors)
+                  if k == uid or k.endswith(f"/{uid}")]:
+            self._balance_view_executors.pop(k, None)
+
+engine.py:1908-1916 — the view cache silently replaces an executor when credentials change:
+        ex = self._balance_view_executors.get(key)
+        if ex is None or (ex._credentials or {}) != creds:
+            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue)
+            ex._ws_feed = self.ws_feed
+            self._balance_view_executors[key] = ex
+
+engine.py:3626-3633 — shutdown closes the operator executor and `_user_executors`, and nothing else:
+        if hasattr(self, 'live_executor') and self.live_executor:
+            await self.live_executor.close()
+        for _ex in list(getattr(self, "_user_executors", {}).values()):
+            try:
+                await _ex.close()
+
+The session being leaked is real: live_executor.py:807-820 lazily builds `self._exchange = self._venue.create_exchange(...)` (a `ccxt.async_support` client, which owns an aiohttp ClientSession + TCPConnector), and live_executor.py:1405-1409 is the only thing that closes it:
+    async def close(self) -> None:
+        if self._exchange:
+            await self._exchange.close()
+            self._exchange = None
+There is no `__del__` on LiveExecutor (`grep -n "__del__" bot/core/live_executor.py` → no match).
+```
+
+## Suspected in batch 4 (one verifier refuted)
+
+- **[LOW]** Background tasks are created with no retained reference and no cancellation path (fire-and-forget in the monitor loop and the self-audit spawn) — `/home/user/001/bot/core/proactive_monitor.py:548 and 607 (proactive_monitor); bot/core/self_audit.py:229`
+- **[LOW]** DashboardPusher decides it is configured from live env but starts from import-time constants, and stop() cancels its task without awaiting it — `/home/user/001/bot/core/dashboard_pusher.py:24-26 (import-time constants), 43-44 (call-time check), 55-64 (start reads the constants), 66-70 (stop), 180-183 (_loop reads the constants)`
