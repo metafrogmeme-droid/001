@@ -4625,3 +4625,1220 @@ There is no `__del__` on LiveExecutor (`grep -n "__del__" bot/core/live_executor
 
 - **[LOW]** Background tasks are created with no retained reference and no cancellation path (fire-and-forget in the monitor loop and the self-audit spawn) — `/home/user/001/bot/core/proactive_monitor.py:548 and 607 (proactive_monitor); bot/core/self_audit.py:229`
 - **[LOW]** DashboardPusher decides it is configured from live env but starts from import-time constants, and stop() cancels its task without awaiting it — `/home/user/001/bot/core/dashboard_pusher.py:24-26 (import-time constants), 43-44 (call-time check), 55-64 (start reads the constants), 66-70 (stop), 180-183 (_loop reads the constants)`
+
+
+========================================================================
+
+# Batch 5 — infra-cicd, deps, privacy, observability
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED**
+
+
+## B5-01 [HIGH] CI installs the Solana toolchain by piping an unverified remote script into sh, in the same job that produces and "proves" the deployable staking bytecode
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `.github/workflows/ci.yml:216-219 (staking), 554-557 (token-tooling)`
+
+**Observed**: The installer script is fetched and executed unverified in two jobs. In the `staking` job it installs `cargo-build-sbf`, which then produces `target/deploy/rclaw_staking.so` — the artifact `scripts/build_provenance_gate.py` immediately certifies as reproducible and mint-pinned.
+
+**Root cause**: The workflow applies checksum discipline only to the step it labelled "a supply-chain control" (gitleaks) and not to the two steps that install a compiler for the deployed program. The provenance argument is circular: build_provenance_gate.py's reproducibility check builds twice with the SAME installed toolchain, so a compromised toolchain produces two byte-identical compromised artifacts and the gate reports green.
+
+**Business impact**: A compromise or MITM of the installer endpoint yields arbitrary code execution inside a job that holds GITHUB_TOKEN with undeclared permissions and emits the deployable bytecode of the staking program holding staked $RCLAW. A substituted cargo-build-sbf could strip enforce_pinned_mint while the provenance gate — rebuilding with the same toolchain — still reports reproducible and pinned. build_provenance_gate.py's docstring states the stakes: a verifier "cannot distinguish 'the deployer legitimately set the pin' from 'the deployer stripped the mint check before deploying'."
+
+**Remediation**: Download the Anza release tarball for v1.18.26 to a file, verify a committed SHA256 with `sha256sum -c -` (the pattern already at ci.yml:491), then extract and add to $GITHUB_PATH. Do it in both jobs. While there, pin `cargo install cargo-audit --locked` (ci.yml:259) to an explicit `--version`, since that step installs the SCA gate's own binary at whatever version crates.io serves that day.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — The framing 'produces the deployable staking bytecode' overstates the blast radius. I grepped the whole workflow for `upload-artifact`/`actions/upload` and there is none, and .github/workflows/ ci.yml is the only workflow file — the .so built at :221 is `ls -l`'d and discarded. Nothing is published or released from CI, so a compromised installer buys arbitrary code execution on the runner with GITHUB_TOKEN in scope (which is what F2 is about), NOT a poisoned artifact reaching a chain. Real, worth fixing, but MEDIUM not HIGH.
+
+- sev→MEDIUM — Severity HIGH is inflated for this system, for two reasons the finder under-weighted. (1) The installer URL is itself version-pinned — https://release.anza.xyz/v1.18.26/install, not a floating `stable` endpoint — so this is not the usual `curl|sh` of a moving target; the residual risk is Anza's CDN serving different bytes at a fixed version path. (2) I read the whole staking job (ci.yml:165-296): there is no `actions/upload-artifact`, no release publish, and no deploy step — the SBF build ends at `ls -l target/deploy/rclaw_staking.so` (:221-223). CI never ships the .so anywhere, so a compromised toolchain cannot put bytecode on chain; it can only make CI's reproducibility claim untrustworthy, which a human deployer rebuilding locally would not inherit. That is a real erosion of the provena
+
+**Evidence**:
+
+```
+  .github/workflows/ci.yml:216-219
+      - name: Install the SBF toolchain (pinned to Anchor.toml's solana_version)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+  ...and the next steps are the ones that produce and certify the artifact:
+  .github/workflows/ci.yml:221 and :259-260
+      - name: Build — SBF bytecode (deployable artifact)
+      - name: Build provenance — reproducible, and the mint pin is compiled in
+        run: python3 scripts/build_provenance_gate.py
+
+  Contrast, in the SAME workflow, .github/workflows/ci.yml:479-491:
+      # The binary is pinned and checksum-verified rather than installed from a
+      # floating tag: this step is a supply-chain control, so it must not itself
+      # execute an unverified download.
+      - name: gitleaks (full history)
+        env:
+          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          curl -sSLo "$tarball" ...
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+```
+
+## B5-02 [MEDIUM] Third-party GitHub Actions are referenced by mutable branch/tag, not commit SHA — including a branch ref on the Rust toolchain action
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `.github/workflows/ci.yml:173, 176, 454`
+
+**Observed**: All three third-party actions run whatever the referenced branch or major tag points at on the day the job runs. gitleaks/gitleaks-action@v2 additionally receives secrets.GITHUB_TOKEN explicitly (:456).
+
+**Root cause**: No pinning policy for `uses:` refs and no test enforcing one. The author reasoned about download integrity for the one step labelled "a supply-chain control" and did not extend it to the actions themselves, which execute earlier and with the same privileges.
+
+**Business impact**: A compromise of any of the three action repositories (or of a maintainer account able to move a branch/tag) executes attacker code in this repo's CI. The staking job builds the deployable on-chain artifact; the secrets job is handed GITHUB_TOKEN. Tag/branch hijack of popular actions is a demonstrated real-world attack class.
+
+**Remediation**: Replace each third-party `uses:` with `owner/repo@<40-char-sha> # vX.Y.Z` and add a Dependabot/Renovate github-actions rule so SHAs are bumped deliberately. Optionally add a pytest that parses ci.yml and asserts every non-`actions/*` `uses:` matches `^[^@]+@[0-9a-f]{40}$` — tests/test_preflight_matches_ci.py and tests/test_ci_covers_what_ships.py already parse this file with PyYAML, so the seam exists.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Verbatim at ci.yml:172-176 (`- uses: dtolnay/rust-toolchain@stable` with `components: clippy, rustfmt`, then `- uses: Swatinem/rust-cache@v2`) and :452-457 (`uses: gitleaks/gitleaks-action@v2` under `if: github.event_name == 'pull_request'`, with `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`). `@stable` on dtolnay/rust-toolchain is a branch ref, `@v2` a floating major tag — GitHub re-resolves both at job start. The finding correctly scopes to third-party actions and does not accuse actions/checkout@v4 or actions/setup-node@v4. grep across tests/ for dtolnay/Swatinem/gitleaks-action returns nothing; the only tree-wide hits are docs/TOKEN_SECURITY_AUDIT.md:1627/1630/2796, which are remediation snippets proposing these very steps, not pinning findings — exactly as the finding states.
+
+- sev→LOW — MEDIUM is inflated here. This is a generic hardening recommendation, not a live defect, and the blast radius in THIS repo is small: the workflow triggers are pull_request / push-to-main / workflow_dispatch (:3-7) with no `pull_request_target`, so fork PRs get no repository secrets; the only secret any of these three actions touches is GITHUB_TOKEN; and — as established under finding 0 — no job publishes an artifact, pushes a package, or deploys. A compromised action could poison CI verdicts, which is real, but it cannot exfiltrate a deploy key or ship bytecode. LOW.
+
+**Evidence**:
+
+```
+  .github/workflows/ci.yml:172-176
+      # Toolchain comes from rust-toolchain.toml so CI and a local build agree.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+  .github/workflows/ci.yml:453-456
+        if: github.event_name == 'pull_request'
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## B5-03 [MEDIUM] No workflow-level GITHUB_TOKEN permissions block — least privilege is asserted in a comment but depends on a repository setting the tree cannot pin
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `.github/workflows/ci.yml:1-13 (no permissions key), 405-419`
+
+**Observed**: Seven of eight jobs run with an inherited, tree-invisible token scope. Two of them (staking, token-tooling) execute an unverified remote installer (:218, :556) while that token is live.
+
+**Root cause**: The workflow reasoned about permissions only where a step demanded them (gitleaks needed pull-requests: read), and the resulting comment records the observed default as if it were a guarantee. A default is a setting; a permissions: key is a declaration.
+
+**Business impact**: If the repository or organisation default is read/write (the pre-2023 default, still selectable), a compromised action ref or a compromised toolchain installer in any of the seven undeclared jobs receives a token that can push commits, move tags and create releases on a repository that publishes on-chain program source and a trading bot.
+
+**Remediation**: Add `permissions:\n  contents: read` immediately after the `concurrency:` block. The existing secrets-job block at :417-419 already widens correctly and needs no change. Two lines, zero behaviour change under the current default, and a real control if the default is ever permissive.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Downgrade to LOW. The workflow's own comment records empirical evidence that the repository default is already restrictive: gitleaks-action died on `403 Resource not accessible by integration` asking for pull_requests=read, which is what a contents-only token does. So the missing `permissions:` key is a durability/declaration gap (protects against a future settings change), not a live over-privilege. Two lines, zero behaviour change today — that is hardening, not a defect that moves money.
+
+- sev→LOW — Downgrade to LOW. This is defence-in-depth against a repo setting that the finder concedes they cannot read and that is read-only by GitHub's own default for repositories created after Feb 2023. There is no path in this workflow that uses the token to write — no artifact publish, no release, no `gh` call, no bot commit — so even a permissive default has nothing here to abuse beyond what a compromised third-party action (finding 1) already implies. The two-line fix is worth taking; the impact rating is not MEDIUM on a system that moves real money, because nothing in the money path passes through it.
+
+**Evidence**:
+
+```
+  .github/workflows/ci.yml:1-13 — the entire workflow preamble, with no `permissions:` key:
+    name: CI
+
+    on:
+      pull_request:
+      push:
+        branches: [main]
+      workflow_dispatch:
+
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
+
+    jobs:
+
+  .github/workflows/ci.yml:405-419 — the only permissions declaration in the file:
+      # The workflow declares no permissions, so GITHUB_TOKEN arrives with the
+      # repository default — contents only. gitleaks-action calls
+      # ...
+        permissions:
+          contents: read
+          pull-requests: read
+```
+
+## B5-04 [MEDIUM] The GitLab failover pipeline installs a requirements.txt that does not exist, so all seven of its Python gates abort in before_script
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `.gitlab-ci.yml:33-38`
+
+**Observed**: before_script exits non-zero on all seven jobs. The pipeline whose own header (:6-8) says it exists because "the GitHub account was suspended and six checks went with it ... This restores enforcement on a host that is not the one that went away" enforces nothing.
+
+**Root cause**: The GitLab file was written as a translation of ci.yml without being executed, and the one filename that differs between the two hosts was transcribed from habit rather than from the source file.
+
+**Business impact**: The documented backstop for a repeat of the 2026-08-02 GitHub suspension is inert. If GitHub goes away again, this repository has zero automated enforcement of the ruff floors, the mypy gates, bandit, pip-audit, the baseline test gate and guard_lint — on a codebase that moves real money — while a file at the repo root states the opposite.
+
+**Remediation**: Change .gitlab-ci.yml:37 to `- pip install -q -r requirements-ci.txt`. Then either fix the rest of the file (see the two related findings) or delete it — a failover that cannot run is worse than none, because it is documented as coverage. Add a test that parses .gitlab-ci.yml and asserts every `-r <file>` and every script path it names exists on disk; nothing in tests/ reads this file today.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Downgrade to LOW on impact grounds. `git remote -v` shows only the GitHub origin — no GitLab remote is configured, so nothing runs this file today, and if it ever is adopted the failure is maximally loud: before_script exits non-zero on the first job, red on the first push, impossible to mistake for coverage. That is the opposite of the silent-undercoverage shape this repo actually bleeds from (see finding 4, which is the dangerous one).
+
+- sev→LOW — The facts are exact; the framing overstates impact. A failing `before_script` makes each job RED, not green — GitLab blocks the MR and the pipeline is visibly broken. So this is not the repo's signature failure (a subset reported as the whole, silently); it is a loudly-broken dormant failover. The header's claim at :6-8 that it "restores enforcement" is false, which is a documentation-honesty defect worth fixing, but nothing can be merged on a false green because of it. LOW. Note also this is now the third audit to report it unfixed, which argues for deleting the file rather than repairing it.
+
+**Evidence**:
+
+```
+  .gitlab-ci.yml:33-38
+    .python:
+      image: python:3.11
+      before_script:
+        - pip install -q --upgrade pip
+        - pip install -q -r requirements.txt
+        - pip install -q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov
+```
+
+## B5-05 [MEDIUM] GitLab's token-tooling job runs from the repo root against paths that only exist under token/, and its `rules: changes` list can never match
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `.gitlab-ci.yml:92-99`
+
+**Observed**: The job never tests the token tooling. On the only trigger that can fire it (a root package.json/lock change) it installs the wrong workspace and globs paths that do not exist. It also omits ci.yml's `node scripts/audit_gate.mjs` npm advisory ratchet entirely.
+
+**Root cause**: The translation dropped ci.yml's `working-directory: token` and did not adjust the paths, so the job reads as a correct port while pointing at a directory layout that does not exist.
+
+**Business impact**: On the failover host, the tooling that mints the $RCLAW SPL token and runs the Genesis presale — code that signs privileged Solana transactions — has no test execution and no npm advisory ratchet, while the pipeline lists a job named test:token-tooling. The token tree carries 9 high advisories per token/.audit-baseline.json; nothing on GitLab would print them.
+
+**Remediation**: Rewrite as `script: [cd token, npm ci --no-audit --no-fund, node --test presale/*.test.mjs scripts/*.test.mjs, node scripts/audit_gate.mjs]` with `rules: - changes: [token/**/*]`. Or delete the job and state the omission in the header, which the header (:16-20) promises is the convention.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Two corrections, one of which makes this WORSE. (1) The title says the `rules: changes` list 'can never match', which the finding's own Reachability section correctly contradicts — package.json and package-lock.json exist at root, so it does match. Fix the title, not the body. (2) I tested the runtime behaviour: `node --test nosuch/*.test.mjs` prints `1..0 / # tests 0` and exits 0. So on the trigger that fires it, this job installs the wrong workspace, runs zero tests, and reports GREEN — it is a silently-passing gate, not a loudly-broken one, which is the exact failure shape CLAUDE.md's header paragraph is about. (Confirmed on node v22; the pipeline pins node:20, where the runner's handling of non-existent explicit paths may differ, so treat the silent-green half as HIGH-confidence-not-CO
+
+- sev→LOW — Same correction as finding 3. "A job that runs and tests nothing" implies a silent pass; in fact a non-matching glob passes the literal string to `node --test`, which errors and exits non-zero, so the job goes RED. The defect is a job that can only ever fail, on a pipeline that is already wholly broken by finding 3. Real, documented three audits running, and worth deleting — but LOW impact, not MEDIUM.
+
+**Evidence**:
+
+```
+  .gitlab-ci.yml:92-99
+    test:token-tooling:
+      stage: test
+      image: node:20
+      script:
+        - npm ci --no-audit --no-fund
+        - node --test presale/*.test.mjs scripts/*.test.mjs
+      rules:
+        - changes: [presale/**/*, scripts/*.mjs, package.json, package-lock.json]
+```
+
+## B5-06 [MEDIUM] The GitLab pipeline silently omits nine GitHub gates while its header promises that every omission is stated
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `.gitlab-ci.yml:10-20, 57-62, 81-90`
+
+**Observed**: The header names two omissions (cargo, solidity). Nine further gates are dropped without mention, including both red teams (the gates on the risk engine and on the custody authority gate) and every npm advisory ratchet in the repo.
+
+**Root cause**: The file was written against an earlier ci.yml and never re-derived. CLAUDE.md documents six occasions where a new ci.yml step appeared in the local preflight plan "for free" because preflight PARSES ci.yml; .gitlab-ci.yml restates it by hand, so each of those six additions widened the gap silently.
+
+**Business impact**: A reader of .gitlab-ci.yml is told, in the file itself, that a green pipeline there means what a green pipeline on GitHub meant. It does not: on GitLab the risk engine is never attacked, the custody authority gate is never attacked, no npm tree is advisory-checked, the marketing site is never built, and app/ route files are never parse-checked. That is the precise class of false assurance this repository's guard tests exist to prevent.
+
+**Remediation**: Port the missing steps, or update the NOT-PORTED block to name all of them. Replace `python3 scripts/mypy_gate.py || mypy ...` with the two separate steps ci.yml runs (`python3 scripts/mypy_gate.py`, then the six-target mypy invocation) so the ratchet is blocking and the floor has the same scope. Then add a test that parses BOTH files and asserts every `run:` step in ci.yml is either present in .gitlab-ci.yml or named in its NOT-PORTED list — scripts/preflight.py:100-123 already implements exactly this shape (`uncovered()`) for the local plan and is the model.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — One omission the finder missed, in the same file and the same shape: .gitlab-ci.yml:106 runs `bandit -r bot/ --severity-level high --confidence-level high -q`, while ci.yml:95 runs `bandit -r bot/ api_bridge.py dashboard_api.py scripts/`. ci.yml's comment at :85-94 exists specifically because 'the module the production image RUNS by default was never statically analysed'. The GitLab translation silently reinstates that exact gap. Add it to the list.
+
+- sev→LOW — Downgrade to LOW on the same grounds as 3 and 4: today this pipeline cannot report green at all (four Python jobs abort in before_script, test:token-tooling errors), so the "green here means what green meant there" claim cannot currently mislead anyone. The finding becomes MEDIUM the moment finding 3 is fixed without also fixing this — which is worth saying explicitly in the fix note, because repairing requirements.txt alone would convert a loud failure into precisely the quiet parity lie the header disclaims.
+
+**Evidence**:
+
+```
+  .gitlab-ci.yml:10-20 — the claim:
+    # It is a TRANSLATION of .github/workflows/ci.yml, not a redesign. Same tools,
+    # same flags, same order, so a green pipeline here means the same thing it
+    # meant there. Where a job is omitted it is stated, rather than quietly
+    # dropped — a CI file that silently covers less than it appears to is the
+    # exact failure mode this repo keeps finding elsewhere.
+    #
+    # NOT PORTED YET (both need toolchains heavier than a default runner):
+    #   * Staking program (cargo)  — cargo test / clippy / SBF build / cargo-audit
+    #   * Rune NFT (solidity)      — hardhat suite under contracts/
+
+  .gitlab-ci.yml:57-62 — the mypy gate, weakened and rescoped:
+    lint:mypy:
+      extends: .python
+      stage: lint
+      # Money modules only, ratcheted — matches the GitHub job's scope.
+      script:
+        - python3 scripts/mypy_gate.py || mypy bot/risk bot/core --ignore-missing-imports
+
+  .gitlab-ci.yml:81-87 — the web job, tests only:
+    test:web:
+      stage: test
+      image: node:20
+      script:
+        - cd app && npm ci --no-audit --no-fund && npm test
+```
+
+## B5-07 [MEDIUM] health_check.sh's auto-restart launches a `python` the repo documents the box does not have, never verifies survival, and exits 0 regardless
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `scripts/health_check.sh:42-51`
+
+**Observed**: With RUNECLAW_RESTART=1 the script prints `RESTART: launched (pid N)` and exits 0 for a process that exec-failed a millisecond earlier. A cron job or monitor reading the exit code sees success forever.
+
+**Root cause**: The lesson recorded in verify_bot_alive.sh, watchdog.sh, docker-compose.yml and both systemd units — "starting is not running" — was applied to every other launcher in the repo and never carried across to this one; the same shape as watchdog.sh:36-38's own note about the zombie check not being carried across.
+
+**Business impact**: On a box where auto-restart is enabled, a crashed live-trading bot is never actually restarted (wrong interpreter) and the health check reports success every five minutes. This is the 2026-08-01 failure mode CLAUDE.md documents — a launcher that reports success and leaves nothing running — reproduced in the script whose job is to catch it.
+
+**Remediation**: In scripts/health_check.sh:42-51: resolve `PY="$RUNECLAW_DIR/.venv/bin/python"` with a python3 fallback (copy watchdog.sh:91-92); create the log directory or write to logs/ (which deploy.sh symlinks to the persistent store); capture `NEW_PID=$!` and replace the bare `exit 0` with `scripts/verify_bot_alive.sh --pid "$NEW_PID" || { echo "$STAMP RESTART FAILED"; exit 1; }`.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Minor: the log-directory half of the proposed fix is weaker than stated — data/ is what deploy.sh symlinks into the persistent store per CLAUDE.md, so `$RUNECLAW_DIR/data/logs/bot_restart.log` is already a persistent path, unlike the launcher in finding 8. The interpreter and survival-gate halves are the real content.
+
+- sev→LOW — LOW rather than MEDIUM. Three mitigations compound: the branch is off by default; the alert fires before it; and — the one the finder missed — watchdog.sh at the repo root is the actually-installed cron recovery path (crontab line at watchdog.sh:3, and docs/AUDIT_2026-08-12.md:105 discusses it as such), and it already does the correct venv-preferring, survival-gated restart. health_check.sh's restart branch is a redundant second restarter that nothing in the repo installs with RUNECLAW_RESTART=1. The fix is cheap and should still be made; the exposure is not MEDIUM. Also worth folding into the fix: :47 redirects into `$RUNECLAW_DIR/data/logs/` with no `mkdir -p`, so on a box where that directory is absent the redirect itself fails and the launch never happens, still exiting 0.
+
+**Evidence**:
+
+```
+  scripts/health_check.sh:42-51
+    if [ "$RUNECLAW_RESTART" = "1" ]; then
+      echo "$STAMP RESTART: launching bot.main --mode $RUNECLAW_MODE"
+      cd "$RUNECLAW_DIR"
+      # nohup + disown so the restarted bot survives this cron shell exiting.
+      nohup python -m bot.main --mode "$RUNECLAW_MODE" \
+        >> "$RUNECLAW_DIR/data/logs/bot_restart.log" 2>&1 &
+      disown || true
+      echo "$STAMP RESTART: launched (pid $!)"
+      exit 0
+    fi
+
+  The header states the contract, scripts/health_check.sh:15
+    # Exit code: 0 = healthy (or restarted), 1 = down and not restarted.
+```
+
+## B5-08 [MEDIUM] verify_deploy.sh's bot-box half claims to compare the running commit and compares nothing — it never reads the build field the bot serves for exactly this purpose
+
+- **Dimension**: infra-cicd · **Fix class**: REVIEW_REQUIRED · **File**: `scripts/verify_deploy.sh:175-182`
+
+**Observed**: Any directory that is a git checkout produces `OK  checkout at <sha>` and contributes a pass. `scripts/verify_deploy.sh --box-only` on a box whose bot process is still running last week's code — the restart-did-not-apply case — prints `DEPLOY VERIFIED on every target checked.` (:187).
+
+**Root cause**: The bot half was written as liveness probes plus a printed sha, and the comment describing the intended comparison was written before the comparison existed. bot/utils/build_info.py and dashboard_server.py's `build` field were added specifically to make this comparison possible and were never wired into the script that needs them — the repo's own "a module nothing calls" pattern, one level up.
+
+**Business impact**: The tool CLAUDE.md points operators at for "Verifying a deploy" gives a clean bill of health to the exact failure it was written for. On 2026-08-20 a stale-code deploy passed every check; this script's bot half would pass it again, because printing a local sha and comparing a sha differ by precisely the check that incident needed. An operator then applies new configuration to an engine running old code that manages live positions.
+
+**Remediation**: In scripts/verify_deploy.sh:175-182, curl `$GATEWAY_URL/health`, sed out `"build":"([^"]*)"`, and branch three ways: equal -> ok; different -> fail with live=/expected= notes (mirroring :132-143); field absent or endpoint unreadable -> unk, never ok. The web half at :86-146 is the template and already handles the omitted-field trap correctly.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Verified verbatim at scripts/verify_deploy.sh:175-182: the comment says 'Compared against the local checkout, because a deploy that pulled the wrong commit passes every other check' and the body is `if head="$(cd "$REPO" && git rev-parse --short HEAD ...)"; then ok "checkout at $head"` — it prints one value and compares it to nothing, so any git checkout contributes a pass and worst stays 0, yielding 'DEPLOY VERIFIED on every target checked.' at :187. CHECK_BOX defaults to 1 at :59. bot/web/dashboard_server.py:333-349 is verbatim including the 255-commits-stale paragraph and `return web.json_response({"status": "ok", "build": build_short(), "timestamp": _ts()})`. bot/utils/build_info.py's docstring does say it 'answers the half no pre-launch gate can: AFTER a restart, what is running right
+
+- sev→UNCHANGED — One factual overreach to strike: "bot/utils/build_info.py and dashboard_server.py's build field were... never wired in — the repo's own 'a module nothing calls' pattern." That is wrong. `grep -rn build_short` shows three live non-test callers: bot/main.py:25/46, bot/skills/telegram_handler.py:1274/1282, and bot/web/dashboard_server.py:21/349. The module is thoroughly reachable; it is only THIS script that fails to consume it. Drop the reachability-pattern framing and the finding is otherwise exact. MEDIUM stands: this is the deploy-verification path CLAUDE.md builds a whole section around, the comment asserts a check that does not exist, and `--box-only` prints "DEPLOY VERIFIED" after asking only two liveness probes.
+
+**Evidence**:
+
+```
+  scripts/verify_deploy.sh:175-182
+      # Which code the box is actually on. Compared against the local checkout,
+      # because a deploy that pulled the wrong commit passes every other check —
+      # 2026-08-20, 255 commits stale, everything green.
+      if head="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"; then
+        ok "checkout at $head"
+      else
+        unk "not a git checkout here, so the running commit could not be confirmed."
+      fi
+
+  What the bot already publishes, bot/web/dashboard_server.py:340-349
+      `build` names WHICH COMMIT answered — the machine-readable twin of the web
+      app's /api/version ... On 2026-08-20 the bot could not be asked that at all;
+      a deploy had reset to a mirror 255 commits stale and every other check
+      agreed it was fine.
+      """
+      return web.json_response(
+          {"status": "ok", "build": build_short(), "timestamp": _ts()})
+```
+
+## B5-09 [LOW] The launcher template starts both processes with bare `python` and logs to the repo root, contradicting the two rules the repo wrote after those exact incidents — and a test pins the wrong form
+
+- **Dimension**: infra-cicd · **Fix class**: SAFE_AUTO_FIX · **File**: `scripts/launch_all.sh.template:63-64, 72-73`
+
+**Observed**: On the box the repo describes, the launcher cannot start either process. The failure is loud — verify_bot_alive.sh --pid at :69 and :77 catches it and calls die — so this is LOW, not a silent-success defect. The log-path half is silent: on a box that does have `python`, both logs land in the repo root and are erased by the next `git reset --hard`, which is the redeploy path.
+
+**Root cause**: The launcher template predates the interpreter and log-path rules and was never brought in line; the test written alongside it transcribed the launch line verbatim as a regex, so the regression is now pinned rather than caught.
+
+**Business impact**: A deploy on a box matching the repo's own description cannot start either process, and the tracebacks explaining a failed start are written to a path the next redeploy erases — which is how the 2026-08-01 and 2026-08-25 incidents stayed undiagnosed. Low severity because the failure is loud and the systemd units are the newer, correct path.
+
+**Remediation**: Update scripts/launch_all.sh.template:63-64 and 72-73 to the venv-preferring interpreter and logs/ destinations, and loosen tests/test_launch_all_starts_both.py:59,65 to `nohup [^ ]*python3?` so the assertion pins that BOTH processes are launched (its actual subject, per the file's docstring) rather than the interpreter spelling.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Verified verbatim at scripts/launch_all.sh.template:63-64 (`log "starting bot.main"` / `nohup python -m bot.main --mode telegram >> bot.log 2>&1 &`) and :72-73 (`log "starting api_bridge"` / `nohup python api_bridge.py >> api_bridge.log 2>&1 &`). The documented-correct form at scripts/verify_bot_alive.sh:45-52 is verbatim, including 'python3, not python — the box has no `python`' and the logs/ rationale. The mitigation is real: :69 and :77 call verify_bot_alive.sh --pid and `die` on failure, so the interpreter half fails loudly. The test claim holds — tests/test_launch_all_starts_both.py:59 asserts `re.search(r"nohup python -m bot\.main", code)`, :65 asserts `nohup python api_bridge\.py`, and :166 does `code.index("nohup python")`, so the wrong spelling is pinned. LOW is the right call.
+
+- sev→UNCHANGED — No correction — LOW is the right call and the finder reasoned to it correctly. One addition to the proposed fix: loosening the two regexes to `nohup [^ ]*python3?` also has to cover the ordering assertion at :166, which uses the bare literal `"nohup python"` via str.index and will raise ValueError (not a clean assertion failure) once the launch line changes. And while editing this template, see the far more serious defect in the same file that this finding walked past — item 1 in "missed".
+
+**Evidence**:
+
+```
+  scripts/launch_all.sh.template:63-64 and 72-73
+    log "starting bot.main"
+    nohup python -m bot.main --mode telegram >> bot.log 2>&1 &
+    ...
+    log "starting api_bridge"
+    nohup python api_bridge.py >> api_bridge.log 2>&1 &
+
+  The documented-correct form it is supposed to implement, scripts/verify_bot_alive.sh:45-52
+    # Correct:
+    #     cd ~/runeclaw
+    #     nohup python3 -m bot.main --mode telegram >> logs/bot.log 2>&1 &
+    #     scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
+    #
+    # python3, not python — the box has no `python`. And logs/bot.log, not
+    # bot.log: logs/ is symlinked into the persistent store, the repo root is
+    # not, so a log written there is lost on the next `git reset --hard`.
+```
+
+## B5-10 [HIGH] The production image and `make install` install a manifest that omits three packages `requirements.lock` guarantees present — charts are permanently dead in the container
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `bot/requirements.txt:1-13 (with Dockerfile:21-23 and Makefile:28-29)`
+
+**Observed**: The container and `make install` install a strict subset. `charts_available()` is False for the entire life of the image, `/chart` and every signal card's chart composite silently send text, and the only trace is an INFO log line. This is the 2026-08-17 incident recorded in requirements.lock:29-42 and tests/dep_policy.py:1-16, reproduced verbatim on the containerised path.
+
+**Root cause**: Four Python manifests exist (requirements.lock, requirements-ci.txt, bot/requirements.txt, pyproject.toml). The 2026-08-17 fix added matplotlib/mplfinance/pandas to two of them — the lock and the CI file — and to neither of the two that actually install software on a running box. The guard tests that were written for that incident check only lock↔requirements-ci: tests/test_ci_env_matches_lock.py:70 is `missing = sorted(_dists(LOCK) - _dists(CI) - set(CI_EXEMPT))`, and no test computes `_dists(LOCK) - _dists(BOT_REQS)`.
+
+**Business impact**: The chart is the artefact an operator looks at before approving or rejecting a trade idea. On the container path they get a text message instead and nothing tells them a rendering was attempted and skipped — the same silent degradation that ran undetected for months in the recorded incident.
+
+**Remediation**: Add matplotlib==3.11.1, mplfinance==0.12.10b0 and pandas==3.0.5 to bot/requirements.txt (or make the Dockerfile and Makefile install requirements.lock), and extend tests/test_manifests_agree.py with a set-coverage assertion in the same shape as tests/test_ci_env_matches_lock.py:70 — `_dists(LOCK) - _dists('bot/requirements.txt')` must be empty or carry a written exemption. Do not touch any ratchet baseline; this is a manifest edit plus one new test.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Facts stand; severity is inflated. The blast radius is one display feature — charts silently degrade to text — not order routing, risk or custody. No unguarded import of the three libs exists anywhere in bot/, so nothing crashes. Also worth stating precisely: this is proven for the container and for `make install`/the documented README-and-gitbook setup path; CLAUDE.md's actual bot-box deploy uses `nohup python -m bot.main` against a venv whose provenance is not recorded anywhere, and requirements.lock's own header says to install the lock in production — so whether the LIVE bot has the libs is unknown from the tree, and the finding should say that rather than asserting the whole fleet is affected. MEDIUM.
+
+- sev→MEDIUM — Two scope corrections that lower the impact from HIGH. (1) The bot box, not the container, is the documented live path in CLAUDE.md ('nohup python -m bot.main'), and deploy.sh:28-40 discusses `pip install -r requirements.lock` on that box — so the affected paths are the container build and `make install`, not necessarily the box that trades. (2) The user-visible failure is a downgrade to a text card plus a log line, not a false claim about money — it is feature loss, not a wrong number, so it sits below the pnl-rendering class of defect. Also worth adding to the writeup: the same manifest is missing fastapi and uvicorn, which the Dockerfile and Makefile paper over inline (and see my `missed` item about how badly the Dockerfile does it), and pyproject.toml:33-37 declares the three chart lib
+
+**Evidence**:
+
+```
+bot/requirements.txt:1-13 — the file the Dockerfile COPYs — ends at redis and contains no charting libraries:
+```
+10	cryptography>=48.0.1
+11	Pillow>=10.3.0
+12	# RC-AUD-020: optional — durable JWT revocation store (token_store.py import-guards it).
+13	redis>=5.0.0
+```
+Dockerfile:21-23:
+```
+COPY bot/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    fastapi>=0.110 "uvicorn[standard]>=0.29"
+```
+Makefile:28-29 (`make install`, the documented setup target):
+```
+	$(PYTHON) -m pip install -r bot/requirements.txt
+	$(PYTHON) -m pip install "fastapi>=0.110" "uvicorn[standard]>=0.29"
+```
+requirements.lock:40-42 pins the three that are missing:
+```
+matplotlib==3.11.1
+mplfinance==0.12.10b0
+pandas==3.0.5
+```
+bot/skills/chart_renderer.py:76-88 turns their absence into a boolean, not an error:
+```
+# Optional dependencies — resolved once at import.
+try:
+    import matplotlib
+    ...
+    import mplfinance as mpf
+    import pandas as pd
+    _CHARTS_AVAILABLE = True
+except Exception as exc:  # noqa: BLE001 — any import failure ⇒ graceful text fallback
+    _CHARTS_AVAILABLE = False
+```
+bot/skills/telegram_handler.py:1329-1331:
+```
+            if not chart_renderer.charts_available():
+                system_log.info("chart libs not available, skipping")
+                return
+```
+```
+
+## B5-11 [HIGH] pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `.github/workflows/ci.yml:161-163 (with bot/requirements.txt:10-13, Dockerfile:22-23, tests/test_manifests_agree.py:49)`
+
+**Observed**: `pip-audit` evaluates `cryptography==50.0.0` and `Pillow==12.3.0` while the image installs `cryptography>=48.0.1` and `Pillow>=10.3.0`, resolved at build time with `--no-cache-dir` and no constraints file — so the image's contents are neither reproducible nor audited. `fastapi` and `uvicorn[standard]` are installed from a bare command line in Dockerfile:23 and appear in no manifest, so no gate reads them at all. The agreement test that exists is structurally blind to all of it, because its regex requires `==`.
+
+**Root cause**: `_PIN` at tests/test_manifests_agree.py:49 matches only `==`. Every `>=` line in a manifest is therefore invisible to `test_shared_pins_agree_across_manifests` (:69), which skips any package it sees in fewer than two manifests. cryptography appears as `==50.0.0` in the lock and `>=48.0.1` in the deployed file, so `seen` has length 1 and the check passes vacuously on the one comparison it exists to make.
+
+**Business impact**: The SCA gate reports green for a dependency set the deployed container does not contain. An advisory in the HTTP front door (fastapi/uvicorn/starlette), the image-rendering path (Pillow) or the crypto library used by the secrets vault (cryptography) can be present in the running image with the CI check still green.
+
+**Remediation**: Either (a) make the Dockerfile and Makefile install `requirements.lock` so the audited file is the installed file, or (b) point pip-audit at the shipped set too: `pip-audit -r requirements.lock -r bot/requirements.txt`. Independently, widen `_PIN` to capture `>=`/`~=` and add a check that a package pinned `==` in requirements.lock is not range-pinned below that version in any manifest. Move the Dockerfile's inline `fastapi`/`uvicorn` into bot/requirements.txt so they are covered by test_manifests_agree.py at all.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — The title's headline number — 'its floors carry 27+ known advisories the gate never evaluates' — is unsupported by anything in the finding; no advisory query was run or shown, and the finding's own reachability paragraph concedes the floors are not the versions a build resolves. pip's resolver installs the NEWEST compatible release, so a build today gets cryptography/Pillow/redis at or above the lock's pins; the demonstrated defect is that the image is unreproducible and unaudited, not that 27 advisories ship. Drop the count and retitle to the reproducibility/scope claim. Severity MEDIUM.
+
+- sev→LOW — Two evidence claims in this finding are FALSE and must not reach an engineer. (a) 'fastapi and uvicorn[standard] ... appear in no manifest at all, so no gate reads them' is wrong: requirements.lock:26-27 pins `fastapi==0.141.1` and `uvicorn==0.52.3` — so pip-audit DOES evaluate them — and they also appear in requirements-ci.txt:31-32 and pyproject.toml:20-21. (b) 'its floors carry 27+ known advisories the gate never evaluates' is unverified and mechanically misleading: `pip install 'cryptography>=48.0.1'` with no ceiling and no constraints file resolves to the NEWEST release, not the floor, so the image almost certainly carries a version at or above the audited pin. The finding itself concedes this in its reachability note, which contradicts its own title. Strip the advisory count entirely
+
+**Evidence**:
+
+```
+.github/workflows/ci.yml:161-163 — the only Python SCA gate:
+```
+      - name: SCA — dependency vulnerability audit (pip-audit)
+        if: always()
+        run: pip-audit -r requirements.lock
+```
+The file that is actually installed, bot/requirements.txt:10-13, does not pin those packages:
+```
+cryptography>=48.0.1
+Pillow>=10.3.0
+# RC-AUD-020: optional — durable JWT revocation store (token_store.py import-guards it).
+redis>=5.0.0
+```
+and Dockerfile:22-23 adds two more that appear in no manifest at all:
+```
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    fastapi>=0.110 "uvicorn[standard]>=0.29"
+```
+The test written to close exactly this gap can only see `==` lines — tests/test_manifests_agree.py:49:
+```
+_PIN = re.compile(r'^\s*"?([A-Za-z0-9_.\-]+)==([0-9][^"\s,;]*)', re.M)
+```
+```
+
+## B5-12 [HIGH] The GitLab CI that exists because GitHub was suspended cannot run: it installs a `requirements.txt` that does not exist, and its Node job runs the wrong paths
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `.gitlab-ci.yml:37, 96-99`
+
+**Observed**: No Python job can start. `sca:pip-audit` — the only Python dependency audit on this host — is one of them. Separately, and unstated in the "NOT PORTED YET" list at :16-20, this pipeline has zero npm advisory ratchet for any of the five workspaces and zero cargo-audit, while .github/workflows/ci.yml runs the npm ratchet five times (:333 root, :359 site, :621 token, :653 contracts/rune, :702 app) and cargo_audit_gate.py at :262. `scripts/preflight.py` parses only `.github/workflows/ci.yml` (LOCAL_JOBS at :59-60), so none of this is visible from the local loop, and `grep -rln gitlab tests/ scripts/` returns nothing — no test reads this file.
+
+**Root cause**: The GitLab file was written as a hand translation and never executed against this tree. The root `requirements.txt` it installs is a filename from an older layout (docs/DEEP_AUDIT_2026-08-14.md:437 records the same observation), and the token job was copied without the `token/` working directory that .github/workflows/ci.yml:516-517 supplies.
+
+**Business impact**: The redundancy that was built after losing CI once does not exist. If GitHub goes away again, there is no dependency audit, no lint ratchet, no baseline test gate and no secret scan actually running — only the belief that there is.
+
+**Remediation**: Change :37 to `pip install -q -r requirements-ci.txt` (the file whose contents the known-failures baseline was generated against). Give test:token-tooling `cd token &&` before both commands and change its `changes:` globs to `token/**/*`. Then either port the five npm advisory ratchets and cargo_audit_gate.py, or extend the "NOT PORTED YET" paragraph at :16-20 to name them, since it currently names only cargo and solidity. A test asserting that every `run:` step name in ci.yml has a counterpart in .gitlab-ci.yml or an explicit exemption would keep the two from drifting again.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Severity is inflated to HIGH on a mirror whose pipeline nobody in this tree can show is enabled — the finding says so itself. .github/workflows/ci.yml is intact and is what scripts/preflight.py parses, so the enforcement layer that actually runs is unaffected; what is broken is a standby. The `changes:` globs at :98-99 are a second, independent reason the token job is dead (nothing at those paths ever changes), so the job would be skipped rather than failing loudly — worth stating, since a never-triggered job is quieter than a red one. MEDIUM.
+
+- sev→MEDIUM — Downgrade from HIGH on the failure mode. Every defect here fails LOUDLY — a missing requirements.txt makes before_script exit non-zero and the pipeline goes red, and an unexpandable `presale/*.test.mjs` glob makes `node --test` error. This is not the silent-false-green shape the repo's other supply-chain findings share, and it cannot ship stale or vulnerable code the way Finding 0's manifest gap can. It is also a secondary enforcement layer whose current enablement state is unobservable from here, which the finding correctly admits. The one part that is genuinely quiet is the coverage claim: the header at :16-20 asserts that omissions are stated, and the five npm advisory ratchets plus cargo_audit_gate.py are omitted without being named — a CI file that overstates its own coverage is the r
+
+**Evidence**:
+
+```
+.gitlab-ci.yml:33-38, the base every Python job extends:
+```
+.python:
+  image: python:3.11
+  before_script:
+    - pip install -q --upgrade pip
+    - pip install -q -r requirements.txt
+    - pip install -q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov
+```
+There is no `requirements.txt`. `git ls-files | grep -i requirements` returns exactly: `bot/requirements.txt`, `requirements-ci.txt`, `requirements.lock`, `tests/test_requirements_cover_imports.py`; `ls /home/user/001/requirements.txt` → No such file or directory, and `.gitignore` contains no `requirements` pattern.
+
+.gitlab-ci.yml:93-99:
+```
+test:token-tooling:
+  stage: test
+  image: node:20
+  script:
+    - npm ci --no-audit --no-fund
+    - node --test presale/*.test.mjs scripts/*.test.mjs
+  rules:
+    - changes: [presale/**/*, scripts/*.mjs, package.json, package-lock.json]
+```
+`ls -d presale` and `ls scripts/*.mjs` at the repo root both return "No such file or directory"; the token tests live at `token/presale/*.test.mjs` and `token/scripts/*.test.mjs`.
+```
+
+## B5-13 [MEDIUM] The cargo advisory ratchet never re-checks the `shipped` classification it baselines six advisories on
+
+- **Dimension**: deps · **Fix class**: SAFE_AUTO_FIX · **File**: `scripts/cargo_audit_gate.py:214`
+
+**Observed**: The classification is recorded once at `--update` time and never re-asserted. If a Cargo.toml or Anchor version change moves `ring 0.16.20`, `rustls-webpki 0.101.7` (three advisories) or `quinn-proto 0.10.6` (two) out of `solana-program-test` dev-dependencies and into the normal tree, the gate prints "No new advisories" and exits 0 — the six advisories baselined *because* they were dev-only stay baselined once they no longer are.
+
+**Root cause**: `collect()` (:138) recomputes `shipped` for every advisory on every run, and `main()` discards that recomputation for any id already present in the baseline. The comparison is `set(found) - set(known)`, a set difference over keys, so no per-entry field is ever diffed.
+
+**Business impact**: The deployed staking program's supply chain could acquire a TLS certificate-validation bypass (RUSTSEC-2026-0098/0099) or a reachable CRL-parsing panic (RUSTSEC-2026-0104) with the gate green, because those three were excused on a classification that is never revisited.
+
+**Remediation**: In `main()`, after computing `new_ids`, also compute `promoted = [i for i in found if i in known and known[i].get("shipped") is not True and found[i]["shipped"] is not False]` and fail on it with the same message as a new shipped advisory. This adds no baseline churn: today all nine classifications match, so the check is green on the current tree.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Two corrections. (1) Count: SEVEN of nine baseline entries are `"shipped": false` (ring 0.16.20, quinn-proto 0.10.6 ×2, rustls-webpki 0.101.7 ×3, and h2 0.3.27 — the finding omits h2), not six. (2) Severity: the reclassification is not invisible. Line 226-227 prints `RustSec advisories in Cargo.lock: N (X in the shipped tree, Y dev-only)` on every run, so a dev-only→shipped move changes that printed line even though nothing asserts on it. That plus the narrowness of the trigger (a Cargo.toml/Anchor change moving a crate out of solana-program-test) makes this LOW, not MEDIUM. The proposed `promoted` check is sound and costs no baseline churn.
+
+- sev→LOW — Downgrade MEDIUM→LOW. The trigger is entirely hypothetical — it needs a Cargo.toml/Anchor change that moves ring, rustls-webpki, quinn-proto or h2 from solana-program-test dev-deps into the normal graph, which the repo pins deliberately against (rust-toolchain.toml / Anchor.toml, per the module docstring at :5-13). And it is not fully silent: `shipped_now` is recomputed from the live tree every run and printed as 'RustSec advisories in Cargo.lock: N (X in the shipped tree, ...)', so a promotion changes the number an operator sees on that line — it just does not gate. Correct the count in the writeup: the baseline is 2 shipped / 7 dev-only, not 'six of nine'. The proposed `promoted` check is sound and green on today's tree; note that the `is not False` polarity should be kept so a classific
+
+**Evidence**:
+
+```
+scripts/cargo_audit_gate.py:210-224 — the gate's entire failure condition is the advisory-id set:
+```
+    baseline = json.loads(BASELINE.read_text())
+    known = baseline.get("advisories", {})
+
+    new_ids = sorted(set(found) - set(known))
+    gone_ids = sorted(set(known) - set(found))
+    ...
+    shipped_now = sum(1 for e in found.values() if e["shipped"] is True)
+```
+`shipped_now` is computed and printed but never compared to `known[id]["shipped"]`. The baseline stakes six of nine entries on that field, e.g. .cargo-audit-baseline.json:
+```
+    "RUSTSEC-2026-0098": {
+      "crate": "rustls-webpki",
+      "version": "0.101.7",
+      "title": "Name constraints for URI names were incorrectly accepted",
+      "shipped": false
+    },
+```
+```
+
+## B5-14 [MEDIUM] NOTICE asserts blanket licence compatibility over a dependency set it enumerates 6 of, while the real tree carries LGPL-3.0-only, MPL-2.0 and 17 packages with no declared licence
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `NOTICE:62-72`
+
+**Observed**: A categorical assertion — "All third-party licenses are compatible" — over a set that was never enumerated. It omits the entire npm dependency graph (~950 packages across five workspaces), the entire Rust graph, and 11 of the 17 Python packages in requirements.lock, including Pillow, matplotlib, pandas, cryptography, aiohttp and redis. No licence gate runs anywhere: `.github/workflows/ci.yml` has no licence-check step, and neither does .gitlab-ci.yml.
+
+**Root cause**: The NOTICE was written against an early 6-package Python dependency list and never revisited as the Node, Rust and Solidity workspaces were added. Its own parenthetical, "(see bot/requirements.txt)", points at a file that is itself no longer the full Python set.
+
+**Business impact**: The project sells commercial licences (NOTICE:56-57) and converts to GPL-2.0-or-later in 2030. A commercial licensee relying on the compatibility sentence is relying on a claim nobody has checked, and 17 unlicensed packages in the token-signing path are, by default, all-rights-reserved.
+
+**Remediation**: Generate the third-party list rather than hand-writing it (`npm ls --all --json` per workspace plus `pip-licenses` over requirements.lock and `cargo license`), publish it as a NOTICE appendix or an SBOM, and replace the blanket sentence with the actual findings — in particular that rpc-websockets is LGPL-3.0-only in a runtime path and that 17 token/ packages declare no licence. Add a CI step that fails on a new copyleft or unlicensed package, in the same ratchet shape as token/scripts/audit_gate.mjs.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — One sub-claim is wrong and one is weaker than stated. (a) '17 packages with no declared licence' does not reproduce: I walked every installed node_modules tree reading each package.json — token 380 packages / 3 with no licence field (@wormhole-foundation/sdk-definitions, sdk-definitions-ntt, text-encoding-utf-8), root 183/1, app 144/0, site 111/0, contracts/rune 57/0. Four, not seventeen. Drop or re-derive that number. (b) The compatibility claim is not shown to be FALSE, only unverified: the Change License is GPL-2.0-OR-LATER, under which LGPL-3.0-only combines fine via GPLv3, and MPL-2.0 is file-level copyleft with an explicit GPL secondary-licence compatibility clause. NOTICE already lists python-telegram-bot as LGPL-3.0 itself. So what survives is 'a blanket assertion over a set nobody
+
+- sev→LOW — One number in this finding is fabricated and one line reference is wrong. '17 token/ packages declare no licence' is FALSE: parsing token/package-lock.json, exactly 4 non-root entries lack a `license` field (@wormhole-foundation/sdk-definitions, @wormhole-foundation/sdk-definitions-ntt, eyes, text-encoding-utf-8). Tree-wide it is 7, not 17 — root 2 (eyes, text-encoding-utf-8), token 4, contracts/rune 1 (memorystream, dev-only), app 0, site 0. Anyone acting on '17' will go looking for thirteen packages that do not exist. Also, web-push is at app/package.json:16, not :14 (I confirmed it resolves to MPL-2.0 in app/node_modules). Downgrade MEDIUM→LOW: this is a legal-hygiene documentation defect with no runtime or money impact, node_modules is not vendored so nothing copyleft is actually redis
+
+**Evidence**:
+
+```
+NOTICE:62-72:
+```
+This project uses the following open-source libraries (see bot/requirements.txt):
+  - ccxt (MIT) -- cryptocurrency exchange trading library
+  - openai (Apache-2.0) -- OpenAI Python client
+  - pydantic (MIT) -- data validation using Python type annotations
+  - numpy (BSD-3-Clause) -- numerical computing
+  - python-telegram-bot (LGPL-3.0) -- Telegram Bot API wrapper
+  - python-dotenv (BSD-3-Clause) -- .env file loading
+
+All third-party licenses are compatible with source-available distribution
+under the Business Source License 1.1 and with the GPL v2.0-or-later Change
+License.
+```
+LICENSE:26 sets that Change License: `Change License:       GNU General Public License, version 2.0 or later`.
+```
+
+## B5-15 [LOW] No SBOM is produced for any artefact, including the container image
+
+- **Dimension**: deps · **Fix class**: REVIEW_REQUIRED · **File**: `.github/workflows/ci.yml:1-720 (absence)`
+
+**Observed**: The image records a git SHA and a date. Given Dockerfile:22's unconstrained `pip install` of a range-pinned manifest (see the pip-audit finding above), the git SHA does not determine the dependency versions in the layer, and nothing else records them — so for any given running container the question "which version of cryptography is in it?" has no answer outside the container.
+
+**Root cause**: SBOM generation was never part of the build; provenance work went into the Rust artefact only.
+
+**Business impact**: When the next advisory lands against a transitive Python or npm package, there is no record of which versions any deployed image contains, so the blast radius cannot be determined from artefacts — only re-derived from a manifest that does not pin.
+
+**Remediation**: Add `pip freeze > /app/sbom-python.txt` inside the builder stage and COPY it into the production image (cheap, exact, and it also makes the image's resolved versions auditable), and/or emit a CycloneDX SBOM per workspace in CI with `cyclonedx-py` and `@cyclonedx/cyclonedx-npm`. This adds no ratchet churn.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — None. Accurate as written, correctly scoped as an absence, and correctly rated LOW. Note only that it is the same root cause as finding 1 viewed from the artefact side — the cheap half of the proposed fix (`pip freeze` captured in the builder stage) resolves the 'which cryptography is in this container' question that finding 1 raises, so the two should be fixed together rather than counted as independent work.
+
+- sev→INFORMATIONAL — This is a missing best practice rather than a defect — there is no incorrect behaviour, no wrong number shown to anyone, and nothing to 'fix' so much as to add. Downgrade LOW→INFORMATIONAL. Its supporting argument is also weaker than stated: only 5 of the 17 packages the image installs are range-pinned (cryptography, Pillow, redis, plus the inline fastapi/uvicorn); the other 12 are `==` in bot/requirements.txt, so the git SHA determines most of the dependency set, not none of it. If it is actioned at all, the `pip freeze` into the image is the cheap half and is worth doing precisely because it also records what the unconstrained installs resolved to.
+
+**Evidence**:
+
+```
+`grep -rin "sbom\|cyclonedx\|spdx" .github/ scripts/ Makefile CLAUDE.md docs/` returns no matches, and `find . -maxdepth 3 \( -iname "*sbom*" -o -iname "*cyclonedx*" -o -iname "*spdx*" \) -not -path "*/node_modules/*"` returns nothing. The image records only two labels — Dockerfile:34-36:
+```
+ARG BUILD_SHA=dev
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.revision="${BUILD_SHA}"
+```
+```
+
+## B5-16 [LOW] GitHub Actions are pinned to mutable tags, including a third-party action and a moving `@stable` branch ref
+
+- **Dimension**: deps · **Fix class**: SAFE_AUTO_FIX · **File**: `.github/workflows/ci.yml:173, 176, 454`
+
+**Observed**: Three third-party actions run from refs their maintainers can repoint at any time. The blast radius is genuinely limited here — the gitleaks job scopes its token to `contents: read` / `pull-requests: read` (ci.yml:415-417) and no other job passes a secret — but a repointed tag still executes arbitrary code on a runner with the full checkout, and `Swatinem/rust-cache@v2` writes the cache the `staking` job's builds read.
+
+**Root cause**: Default GitHub Actions idiom; never hardened.
+
+**Business impact**: A compromised action tag runs on a runner with the full source tree of a trading bot at build time.
+
+**Remediation**: Pin each third-party action to a full commit SHA with the tag in a trailing comment (`uses: gitleaks/gitleaks-action@<sha> # v2.3.9`), and enable Dependabot for `github-actions` so the SHAs are bumped deliberately. The `actions/*` first-party ones are lower risk and can follow the same pattern for consistency.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Two counts are off and should be fixed before anyone quotes them: actions/checkout@v4 appears EIGHT times (19, 170, 302, 340, 421, 505, 628, 660), not seven, and actions/setup-node@v4 FIVE times (303, 341, 506, 629, 661), not four; setup-python@v5 appears once (line 21). The substance and the LOW rating are right — a repointed tag on Swatinem/rust-cache or dtolnay/rust-toolchain executes on a runner holding only the default read token, and the one job that receives a secret has it narrowed to read-only.
+
+- sev→LOW — LOW is the right level and I would not move it, but two details tighten the writeup. actions/checkout@v4 appears 8 times, not 7. And the finding's own framing overstates the exposure slightly: the gitleaks job is the only one with an explicit token grant, and it is read-only; the two rust actions run in the `staking` job which handles no secret. The genuine residual risk is arbitrary code execution on a runner holding a full checkout plus a writable rust-cache, which is real but speculative. This is a hardening item, not a live defect — it belongs in a backlog, not ahead of anything in this audit.
+
+**Evidence**:
+
+```
+Third-party actions referenced by mutable ref:
+```
+173:      - uses: dtolnay/rust-toolchain@stable
+176:      - uses: Swatinem/rust-cache@v2
+454:        uses: gitleaks/gitleaks-action@v2
+```
+plus `actions/checkout@v4` (×7), `actions/setup-python@v5` and `actions/setup-node@v4` (×4). No `uses:` line in the workflow carries a commit SHA.
+```
+
+## B5-17 [HIGH] Account deletion never contacts the bot for web-only accounts, so every bot-side store survives a "deleted" account
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `app/auth.js:1725`
+
+**Observed**: A NULL telegram_id is read as "the bot holds nothing for this person". The bot in fact holds, keyed by "web:<uid>": the auto-provisioned UserStore record (bot/web/user_gateway.py:186-189), the agent profile and observed-memory stores, leverage/strategy preferences, the persisted conversation transcript (data/conversations.jsonl), the paper portfolio book (data/portfolio_web<uid>.json), the encrypted third-party LLM provider key and news provider key, and personal ingest notes. None of it is touched, and the user is told their account and its data have been erased.
+
+**Root cause**: The presence of a Telegram id is used as a proxy for "the bot knows this person". That was true before lib/identity.js introduced the "web:<id>" fallback identity; the deletion route was never updated to match, and absent-telegram_id became a confident negative about a store nobody queried.
+
+**Business impact**: A user who only ever used the website is told their account and data are erased while the bot retains their chat transcripts, their pasted personal notes, and their third-party LLM/news API keys indefinitely. Erasure requests are answered with a false confirmation.
+
+**Remediation**: Call /account/purge unconditionally with the identity resolved by resolveBotIdentity(req) (telegram_id when linked, `web:<uid>` otherwise), keeping the existing abort-on-partial behaviour. Change app/test/account_delete_route.test.js:219-228 in the same commit - it currently pins the defect.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — One detail: the on-disk paper book is data/portfolio_web5.json, not portfolio_web:5.json — MultiUserPortfolio._sanitize strips ':' (documented at bot/web/user_gateway.py:83). Cosmetic; does not affect the finding.
+
+- sev→UNCHANGED — None material. Worth adding to the fix: the same branch also skips the purge for a TELEGRAM-LINKED account whenever `gateway.isConfigured()` is false (app/lib/gateway.js:17-19 — `GATEWAY_SECRET.length >= 32`), which silently produces the exact failure the route's own header calls the worst version of the defect.
+
+**Evidence**:
+
+```
+app/auth.js:1724-1730
+    let botStores = null;
+    if (user.telegram_id && gateway.isConfigured()) {
+      let purge;
+      try {
+        purge = await postGateway('/account/purge',
+          { telegram_id: String(user.telegram_id) }, 15000);
+
+app/lib/identity.js:23-27
+  if (u && u.telegram_linked && u.telegram_id) {
+    return { id: String(u.telegram_id), linked: true, email: u.email || '' };
+  }
+  return { id: `web:${uid}`, linked: false, email: (u && u.email) || '' };
+```
+
+## B5-18 [HIGH] handle_account_purge misses the bot's own SQLite database entirely - LLM and news API keys, Telegram chat id/username, paper portfolio and personal ingest notes all survive account deletion
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/web/user_gateway.py:2830`
+
+**Observed**: Six stores are reported and the rollup answers `purged: true`. The SQLite database holding the user's third-party API keys, their Telegram chat id and username, their paper portfolio (positions + trade_history JSON) and up to 50 x 20,000 characters of text they pasted is never consulted, so its absence from the report is indistinguishable from success.
+
+**Root cause**: The per-store enumeration that keeps this list honest (tests/test_account_purge.py::TestNoPerUserStoreOutlivesTheDeletePath) sweeps only `bot/core/*.py` for a module-level `def clear(user_id)`. bot/db/models.py is a different package with a different shape (module-level functions taking an INTEGER uid mapped by settings_user_id), so it is structurally invisible to the guard that exists to catch exactly this.
+
+**Business impact**: A user's own paid third-party API keys (LLM provider, news provider) and the personal text they pasted into their agent are retained indefinitely after they delete their account and are told their data is erased. The keys remain usable by the operator against the user's provider billing.
+
+**Remediation**: Add a bot.db.models purge step to handle_account_purge that resolves uid = settings_user_id(tg_id) and deletes from user_settings, user_news_keys, user_ingest_notes, user_telegram and user_portfolio (and tombstones/deletes the users stub row), reporting each as its own key. Widen the enumeration in tests/test_account_purge.py past bot/core/ so the next store outside that directory cannot be missed.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Note the mitigation the finder omits: user_settings.llm_api_key and ingest note bodies are Fernet-encrypted at rest (bot/db/models.py:372 _encrypt_llm_key, used by add_user_ingest_note). Survival is still real; readability requires the host key.
+
+- sev→UNCHANGED — One nuance to carry into the fix: the ingest-note body is Fernet-encrypted at rest (bot/db/models.py:519-524 via _encrypt_llm_key), so the retained note text is ciphertext under the operator's master key rather than plaintext. That reduces exposure, not retention — the rows still survive an erasure the user was told completed.
+
+**Evidence**:
+
+```
+bot/web/user_gateway.py:2830-2836, 2892-2896 - the complete store list:
+    result: dict = {}
+    # Credentials first: this is the one that matters most if the rest fails.
+    try:
+        from bot.core.exchange_credentials import get_credential_store
+...
+        store = getattr(tg_handler, "users", None)
+...
+            result["user_record"] = "deleted" if store.forget(tg_id) else "none"
+
+The handler imports bot.core.exchange_credentials, user_profile_store, user_memory_store, user_leverage_store, user_strategy_store and tg_handler.users - and nothing from bot.db.models. Meanwhile the SAME file writes personal data there:
+bot/web/user_gateway.py:2758-2767
+    from bot.db.models import (ensure_settings_parent, get_user_settings,
+                               save_user_settings, settings_user_id)
+    ...
+    s.llm_api_key = api_key
+    save_user_settings(s)
+```
+
+## B5-19 [HIGH] Chat transcripts persisted to data/conversations.jsonl are never deleted, and clear_user() only clears memory - a restart restores them
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/nlp/conversation_store.py:200`
+
+**Observed**: No caller anywhere in the product invokes clear_user (only live_e2e_test.py:131 and tests/test_core.py:4643). The verbatim message text - capped at 2000 chars per message - remains in data/conversations.jsonl indefinitely, keyed by telegram id or "web:<uid>", and is reloaded into memory on every restart.
+
+**Root cause**: The store was written as "in-memory with optional JSONL persistence" and clear_user was written against the in-memory half only. It was then given a persist_path in production, which made the file the durable copy while the delete path kept operating on the volatile one - and no delete path ever reached it at all.
+
+**Business impact**: Everything a user typed to the agent - including anything they volunteered about themselves, their holdings or their finances - is retained verbatim on disk forever, with no deletion path, after they delete their account.
+
+**Remediation**: Make clear_user rewrite the JSONL (it already has an atomic_write_text-based compactor at lines 340-357 to reuse), and wire `tg_handler.conversations.clear_user(tg_id)` into handle_account_purge as its own reported store key.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Two qualifications. (a) _maybe_compact (l.339-357) rewrites the JSONL from in-memory state once the file passes 5000 lines, so a cleared user's lines would eventually disappear — incidental, unbounded in time, and not a delete path. (b) The policy does disclose 'stored chat context' in its retention paragraph and does not list chat in the deletion sentence, so the over-promise is weaker than for credentials; the un-deletable content is real, hence MEDIUM rather than HIGH.
+
+- sev→MEDIUM — Severity trimmed from HIGH to MEDIUM: this is retention of local on-host content with no exposure vector and no money path, and the user-facing false-erasure claim it feeds is already counted once in finding 0/1. The technical claim is fully confirmed. Also note the privacy page DOES disclose that chat context is stored indefinitely ('Nothing currently expires or purges account records, trade history or stored chat context on a schedule'), so the undisclosed-collection half of this is weaker than the undeleted half.
+
+**Evidence**:
+
+```
+bot/nlp/conversation_store.py:200-204
+    def clear_user(self, user_id: str) -> None:
+        """Clear all conversation history for a user."""
+        with self._lock:
+            self._conversations.pop(user_id, None)
+            self._user_contexts.pop(user_id, None)
+
+bot/nlp/conversation_store.py:289-290 (the copy that is not popped)
+            with open(self._persist_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+```
+
+## B5-20 [MEDIUM] Per-user paper trading books (data/portfolio_<user>.json plus a .bak copy) have no delete path anywhere, while the privacy policy says deletion removes trades and positions
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/risk/multi_portfolio.py:209`
+
+**Observed**: The privacy page states "It removes your trades, positions, snapshots, alerts, watchlist, strategies, profile, diary, notification subscriptions, wallet links, and any exchange credentials on either side." The MySQL `trades`/`arena_trades`/`equity_snapshots` rows are indeed erased, but the bot's own per-user book - open positions plus complete trade history, keyed by telegram id or web:<uid> in the filename - is not, and neither is its .bak sidecar. No code in bot/ deletes a portfolio file.
+
+**Root cause**: MultiUserPortfolio is a class in bot/risk/, outside the bot/core/*.py module-level `clear(user_id)` shape that the purge-coverage enumeration searches for, so the store was never surfaced as needing a delete path.
+
+**Business impact**: A deleted user's complete trading history stays on disk indefinitely under a filename containing their Telegram id, contradicting an explicit deletion promise on the published policy.
+
+**Remediation**: Add a delete(user_id) to MultiUserPortfolio that drops the in-memory tracker and unlinks data/portfolio_<id>.json, its .json.bak and any .conflict-*.json sidecar (and the data/venue/<venue>/ split copies), wire it into handle_account_purge as its own reported store, and re-check the policy sentence against the result.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Additional supporting fact the finder missed: bot/utils/backup.py:_CRITICAL_GLOBS includes "data/portfolio_*", so these books are also copied into every rotating archive — the same tension finding 7 raises for credentials.
+
+- sev→UNCHANGED — Add to scope: bot/utils/backup.py:61 `_CRITICAL_GLOBS = ['data/learning/*', 'data/portfolio_*', 'data/risk_state_*']` archives these same files, so any delete() added here also needs the backup-window caveat from finding 7.
+
+**Evidence**:
+
+```
+bot/risk/multi_portfolio.py:209-213
+                    self._portfolios[user_id] = PortfolioTracker(
+                        initial_balance=self._default_balance,
+                        on_trade_close=self._make_close_cb(user_id),
+                        state_file=f"data/portfolio_{user_id}.json",
+                        trailing_config=self._trailing_config,
+                    )
+
+bot/risk/portfolio.py:536-539 (what the file holds)
+            "positions": {
+                tid: t.model_dump(mode="json") for tid, t in self._positions.items()
+            },
+            "history": [t.model_dump(mode="json") for t in self._history],
+```
+
+## B5-21 [MEDIUM] The purge-coverage guard sweeps only bot/core/*.py for module-level clear(user_id), so its "no per-user store outlives the delete path" claim is narrower than it reads
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `tests/test_account_purge.py:196`
+
+**Observed**: Its docstring reads "A module in bot/core with a `clear(user_id)` is, by that signature, holding something keyed to a person - if the purge does not name it, either wire it or say here why it does not belong", and the EXEMPT dict is empty. Nothing states that stores outside bot/core, stores exposed as methods, and stores with no clear at all are all outside the sweep. Three such stores exist today and all three are missed by the purge.
+
+**Root cause**: The sweep derives its question from a single implementation shape (module + top-level clear(user_id)) rather than from the property (holds data keyed to a person). Every store that chose a different shape is silently acquitted.
+
+**Business impact**: This is the root cause of the three erasure gaps above; while it stands, the next per-user store added outside bot/core will be missed the same way and the suite will stay green.
+
+**Remediation**: Walk the whole tree rather than bot/core, and include class methods named clear/clear_user/forget/delete taking a user id. Where a store legitimately has no clear (MultiUserPortfolio), the sweep should fail until it is either given one or added to EXEMPT with a reason - which is what the docstring already promises.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — The finding overstates the docstring's dishonesty: the very sentence it quotes states the boundary — 'A module IN BOT/CORE with a clear(user_id)…'. Only the preceding 'the NEXT per-user store cannot be forgotten either' reads wider than the sweep. This is a scope-overclaim in one sentence of a test docstring, not a broken gate; LOW.
+
+- sev→LOW — Downgrade to LOW and correct the premise: the docstring DOES state the bot/core scope; what overreaches is the single clause 'so the NEXT per-user store cannot be forgotten either'. This finding is the meta-form of 1/2/3 and adds no distinct exposure — its value is only that widening the sweep is the cheapest way to keep those three fixed.
+
+**Evidence**:
+
+```
+tests/test_account_purge.py:196-208
+        for f in sorted(pathlib.Path("bot/core").glob("*.py")):
+            ...
+            for node in tree.body:
+                if (isinstance(node, ast.FunctionDef) and node.name == "clear"
+                        and node.args.args
+                        and node.args.args[0].arg in ("user_id", "uid")):
+                    found.append(f.stem)
+```
+
+## B5-22 [MEDIUM] The privacy policy's collection list and deletion list do not match what the code stores: verbatim chat text, personal ingest notes and third-party provider keys are undisclosed and undeleted
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `website/privacy/index.html:28`
+
+**Observed**: Four disclosure gaps and one over-promise, all against a page that is otherwise unusually careful (it correctly discloses cookies, the reversible key encryption, the LLM providers, the surviving users row and the absence of any retention limit).
+
+**Root cause**: privacy_truth.test.js pins the five claims that had already gone false and the shape of the deletion path, but never asks the two questions that would catch drift: what stores exist, and what the purge actually reaches.
+
+**Business impact**: The published policy under-states what is collected and over-states what deletion removes, on the one document a data subject relies on to decide what to share.
+
+**Remediation**: Add bullets for stored chat content, personal ingest notes, and BYO LLM/news provider keys; and correct the deletion paragraph until the code covers what it claims (see the erasure findings above). Extend site/test/privacy_truth.test.js with a ratchet that fails when a store is added that the deletion paragraph does not account for.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — The headline claim 'verbatim chat text … undisclosed' is materially weakened: the retention paragraph says in terms 'Nothing currently expires or purges account records, trade history or stored chat context on a schedule. Chat context is bounded by volume rather than by age.' — chat storage IS disclosed. The 'not the words you typed' phrase scopes the observed-assets bullet, not the conversation store. What genuinely survives is: ingest notes undisclosed, BYO provider keys undisclosed, deletion paragraph over-broad. Downgrade to LOW and drop the chat-text bullet.
+
+- sev→UNCHANGED — Drop the 'verbatim chat text is undisclosed' claim — the retention section discloses stored chat context explicitly, and the 'not the words you typed' sentence is scoped to the observed-assets bullet, not a global denial. What survives: the deletion paragraph over-promises, and ingest notes and BYO LLM/news keys are absent from 'What we collect'. Confidence lowered to HIGH because two of the four asserted gaps do not hold.
+
+**Evidence**:
+
+```
+website/privacy/index.html:28 (published policy text, "What we collect"):
+"Which assets you ask the agent about - not the words you typed, but the ticker the bot itself resolved when it ran a tool for you, kept as a count per symbol over a rolling window of your twelve most recent."
+
+website/privacy/index.html:28 ("Keeping and deleting your data"):
+"It removes your trades, positions, snapshots, alerts, watchlist, strategies, profile, diary, notification subscriptions, wallet links, and any exchange credentials on either side."
+
+bot/nlp/conversation_store.py:281-290 (what is actually written to disk):
+            entry = {
+                "user_id": user_id,
+                "role": msg.role,
+                "content": msg.content[:2000],  # Cap stored content
+```
+
+## B5-23 [MEDIUM] The append-only audit hash chain records the user id as `actor` and is immutable by design, but the policy admits only one surviving record
+
+- **Dimension**: privacy · **Fix class**: MANUAL_ONLY · **File**: `bot/core/engine.py:1360`
+
+**Observed**: The policy's only admission is a highlighted box titled "One row survives, with nothing in it that names you." A second, larger, deliberately un-erasable record exists and is not mentioned; and the purge's own completion is itself appended to it with `data={"user": tg_id}`.
+
+**Root cause**: Tamper-evidence and erasability are in direct tension, and the design resolved it in favour of tamper-evidence without recording the consequence on the policy page.
+
+**Business impact**: An erasure request is answered with a specific, quantified admission ("one row") that is incomplete, on a system whose whole design principle is not making confident claims about unmeasured state.
+
+**Remediation**: Decide and then state it: either write a per-account pseudonym into `actor` whose mapping is destroyed on erasure (breaking linkability without breaking the chain), or add the surviving-audit-chain admission alongside the existing "one row survives" box. Do not silently keep both claims.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — One piece of evidence is misattributed and inverts its own point: bot/web/user_gateway.py:2902-2904 calls `audit(system_log, …)`, which is bot/utils/logger.py:137 — a plain structured log line into logs/system.jsonl through a RotatingFileHandler (10MB, backupCount=5). It is NOT an audit-chain append, so 'the purge writes one too [into the immutable chain]' is false. The actors recorded are opaque numeric/web ids in an operator-local log, so this is a disclosure-completeness gap: LOW.
+
+- sev→LOW — Correct the evidence: the purge's `audit(system_log, ...)` at user_gateway.py:2902 writes a rotating log line via bot/utils/logger.py:137, not an audit_chain entry — the chain is appended only from bot/core/engine.py. Downgraded to LOW: this is a disclosure/linkability gap in an operator-only, on-host, tamper-evident log, and the tension between tamper-evidence and erasure is a legitimate design position — the defect is that the page claims exactly one surviving record.
+
+**Evidence**:
+
+```
+bot/core/engine.py:1360
+            self.audit_chain.append("POLICY_DECISION", payload, actor=str(user_id or "operator"))
+
+bot/utils/audit_chain.py:195-196
+            with self._path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry.to_dict(), sort_keys=False) + "\n")
+
+bot/web/user_gateway.py:2902-2904 (the purge writes one too)
+    audit(system_log, f"Account purge requested: {tg_id}",
+          action="account_purge", result="OK" if ok else "PARTIAL",
+          data={"user": tg_id, "stores": result})
+```
+
+## B5-24 [MEDIUM] Rotating backups retain erased users' encrypted exchange credentials and the whole SQLite user database for up to BACKUP_KEEP archives, contradicting the policy's "rewrites the encrypted file" wording
+
+- **Dimension**: privacy · **Fix class**: REVIEW_REQUIRED · **File**: `bot/utils/backup.py:36`
+
+**Observed**: The policy sentence is true of the live file and false of the archives. The archives also carry the SQLite tables that the purge never clears at all (see the bot/db/models.py finding), so those persist both live and in backup.
+
+**Root cause**: Erasure was designed against live state; the backup set was designed independently and includes the same files.
+
+**Business impact**: Data a user was told is gone remains recoverable from operator backups for up to two weeks, and the SQLite portion remains indefinitely because it was never deleted live either.
+
+**Remediation**: Qualify the policy sentence to the live store and state the backup window (BACKUP_KEEP archives, default 14 at BACKUP_INTERVAL_H=24), or document a backup-expiry commitment. Note the mitigating fact already recorded at bot/utils/backup.py:47-55: data/.exchange_secret.key is deliberately NOT archived, so an off-host archive alone yields unreadable ciphertext.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Severity is inflated. The policy sentence is about the removal mechanism (rewrite vs. append), not a claim that no copy exists anywhere; the Fernet master key data/.exchange_secret.key is deliberately excluded from the archive (documented in the comment at l.44-56), so an archive alone yields unreadable ciphertext; and backups are host-local. This is a wording/retention-window disclosure gap, LOW.
+
+- sev→LOW — Downgrade MEDIUM -> LOW. This is a policy-wording fix (qualify the sentence to the live store and state the BACKUP_KEEP window), not a code defect; the encryption-key exclusion at backup.py:47-55 already bounds the exposure to on-host access, which the live file has anyway.
+
+**Evidence**:
+
+```
+bot/utils/backup.py:36-56 (the archived set)
+    "logs/audit_chain.jsonl",
+    "data/attestation_key.bin",
+    ...
+    "data/runeclaw.db",
+    "data/secrets_vault.enc",
+    ...
+    "data/exchange_creds.enc",
+
+bot/utils/backup.py:90-92
+def _keep() -> int:
+    ...
+        return max(1, int(os.environ.get("BACKUP_KEEP", "14")))
+
+website/privacy/index.html:28 (the claim)
+"You can remove your keys at any time from either surface. Removal rewrites the encrypted file rather than leaving the old ciphertext behind."
+```
+
+## B5-25 [LOW] The policy names only a referral code in localStorage; the app writes at least six more keys including the signed-in user id
+
+- **Dimension**: privacy · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/index.html:1328`
+
+**Observed**: Only rc_ref is named. rc_session stores the authenticated user id, and rc_watchlist stores the user's watchlist - the same watchlist the policy elsewhere lists as collected preference data.
+
+**Root cause**: The Cookies section was written against the cookie module (app/lib/session_cookie.js) and picked up localStorage only where the referral flow was being described.
+
+**Business impact**: Understated disclosure of client-side storage on the document a reader uses to verify the claim in their own browser.
+
+**Remediation**: Name the keys the way the cookies are named, with a one-line purpose each, and extend site/test/privacy_truth.test.js's cookie-naming assertion to cover localStorage keys so the list cannot drift.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→UNCHANGED — Minor nuance: rc_watchlist is written only on the signed-OUT branch of saveUserProfile (`if (!LOGGED_IN)`), so it is a pre-login preference cache rather than the signed-in user's stored watchlist.
+
+- sev→UNCHANGED — Two accuracy fixes: rc_session IS named on the privacy page, listed under Cookies rather than under localStorage; and rc_watchlist is written only when the visitor is signed out (dashboard.js:470 `if (!LOGGED_IN)`), so it is not the signed-in user's saved watchlist. The unnamed set is really rc_watchlist, rc_tts, rc_lang, rc_welcomed and rc_chk_done — all functional, none identifying. LOW is right.
+
+**Evidence**:
+
+```
+website/privacy/index.html:28 (the claim, under "Cookies")
+"Your browser's own localStorage may hold a referral code from a link you followed, so it still applies if you sign up on a later visit."
+
+app/public/index.html:1328
+  localStorage.setItem('rc_session',JSON.stringify({user_id:data.user_id}));
+
+app/public/js/dashboard.js:471
+      if (patch.watchlist) localStorage.setItem('rc_watchlist', JSON.stringify(patch.watchlist));
+```
+
+## B5-26 [MEDIUM] No consent or lawful-basis gate exists in code before chat text, positions and profile are transmitted to third-party LLM providers, and the policy discloses no processing location or transfer safeguard
+
+- **Dimension**: privacy · **Fix class**: MANUAL_ONLY · **File**: `bot/llm/provider.py:62`
+
+**Observed**: Neither exists. The leaderboard feature demonstrates the team can build an opt-in, revocable, documented consent flow (bot/core/engine.py:3690-3701 - "OPT-IN ONLY", "REVOCABLE", "UNLINKABLE"); nothing equivalent gates the LLM transfer, which is the larger and less obvious one.
+
+**Root cause**: The LLM path predates the multi-user product and was disclosed retroactively on the policy page (privacy_truth.test.js records that the old page's "No Telegram user data is included in LLM requests" had gone false) without a corresponding gate being added.
+
+**Business impact**: Chat content plus open positions and stated risk appetite are transmitted to third-party model providers, possibly via a relay, with no recorded basis and no stated transfer safeguard.
+
+**Remediation**: NEEDS_LEGAL_REVIEW to decide the basis. Technically: record a per-user acknowledgement (a timestamped row, revocable, checked before the first _llm_chat transmission) modelled on the leaderboard opt-in, and add a processing-location / transfer paragraph to the policy naming the vendors' regions.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Two problems. (a) Evidence mislabelled: line 175 is a `get_key_url` (where a USER obtains their own key), not an egress endpoint, and the ALIBABA entry's actual base_url is https://hackathon.bitgetops.com/v1 — so 'the egress endpoints' misdescribes one of the four quoted lines. (b) This is a legal-basis judgment, not a defect in code that misreports state: the transfer is disclosed on the policy page in unusually direct terms, and the finder itself marks it NEEDS_LEGAL_REVIEW. Report it as a compliance question at LOW, not a MEDIUM engineering defect.
+
+- sev→LOW — Downgrade to LOW/NEEDS_LEGAL_REVIEW and fix the evidence: line 175 is a get_key_url, not an egress endpoint; the actual Alibaba base_url is the Bitget hackathon relay, which the policy already describes. The page does disclose the transfer and its contents — what is absent is a processing-location/safeguard statement and any recorded acknowledgement. This is a legal-posture item with no code defect behind it, and should not be filed at the same severity as the erasure findings.
+
+**Evidence**:
+
+```
+bot/llm/provider.py:62, 76, 151, 175 (the egress endpoints)
+        "base_url": "https://api.anthropic.com",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "base_url": "https://openrouter.ai/api/v1",
+        "get_key_url": "https://dashscope.console.aliyun.com/apiKey",
+
+website/privacy/index.html:28 (the full disclosure of who receives it)
+"Which provider handles a given request is set by the operator's configuration and can change; possible providers include OpenAI, Anthropic, Google and Alibaba/DashScope, and one configuration routes through a third-party relay rather than the vendor directly."
+```
+
+## B5-27 [CRITICAL] SystemHealthMonitor is never fed: /health, /ready and /metrics can only ever report a fabricated all-clear
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/system_health.py:53, 101-112, 123`
+
+**Observed**: status is pinned to HEALTHY, error_rate_pct to 0.0, api_latency to 0ms and exchange_connected to True forever. Three operator-facing surfaces publish those constants as measurements:
+
+1. Telegram /health - bot/skills/telegram_handler.py:8347 `text = self.engine.health.format_telegram()`
+2. /ready (503 gate) - bot/web/dashboard_server.py:327-330 `_is_ready` returns `exchange_connected and status != 'CRITICAL'`, i.e. it can never return False
+3. /metrics (unauthenticated Prometheus scrape) - bot/web/dashboard_server.py:391-397 emits `runeclaw_exchange_connected 1`, `runeclaw_api_error_rate_pct 0`, `runeclaw_api_calls_total 0`, `runeclaw_ready 1` unconditionally
+
+docs/LIVE_HARDENING_RUNBOOK.md makes this the primary triage instruction - line 13: '**Watch via Telegram:** `/health` (vitals)' and line 36: '**Watch:** run `/health` and `/livepositions`'. And two proactive alerts point the operator straight at it as the follow-up: bot/core/proactive_monitor.py:1811 (WS_DOWN) and :2488 both end '👉 /health — check system vitals'. So the alert fires correctly and then hands the operator a panel that manufactures an all-clear.
+
+**Root cause**: The monitor was written as a push-based collector ('Call record_api_call() after each exchange/LLM API call' - its own docstring, line 38) and the instrumentation at the call sites was never added. A push collector with no producers degrades to its constructor defaults, and every default here points at 'safe': `_exchange_ok = True`, and the empty-sample branch synthesises `err_rate = 0.0` rather than leaving it unknown. This is the exact 'fail-open defaults all pointed at safe' shape CLAUDE.md records for guardian_status.
+
+**Business impact**: The bot's primary vitals panel, its container readiness gate and its Prometheus scrape all report a green system regardless of actual state. An orchestrator or load balancer reading /ready will keep routing to, and never restart, an instance whose exchange connectivity is gone; a Grafana/alertmanager rule on runeclaw_api_error_rate_pct or runeclaw_exchange_connected can never fire. On a bot holding leveraged perpetual positions, the runbook's own Stage-0 instruction ('run /health') will confirm health during an outage.
+
+**Remediation**: Make 'never measured' a first-class state rather than a synthesised zero. Minimum: (a) give HealthSnapshot an `observed: bool` (or make error_rate_pct/api_latency_ms Optional[float] = None) set from `len(recent) > 0`, and have `_exchange_ok` start as None; (b) in format_telegram, print 'Error Rate: not measured' / 'Exchange: ⚪ unknown' when nothing was observed instead of 0.0%/🟢 Connected; (c) in `_is_ready`, treat an unmeasured exchange flag as NOT ready (the docstring already claims it 'fails CLOSED'); (d) omit `runeclaw_api_error_rate_pct` / `runeclaw_exchange_connected` from /metrics when unobserved rather than exporting 0/1. Separately, wire `record_api_call` into the exchange/LLM call path and `set_exchange_status` into the connectivity check, and drop the corresponding lines from tests/unreachable_methods_baseline.txt in the same commit (the ratchet's own rule). Add a test that drives a real SystemHealthMonitor (no test currently does - only tests/test_ops_endpoints.py, which hand-builds HealthSnapshot objects and so cannot see this).
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→HIGH — Downgrade CRITICAL to HIGH. Nothing on the money path consumes this: no risk gate, executor or trade decision reads engine.health (the class docstring's claim that it 'provides a health snapshot for risk engine' is itself unbacked — the only reader outside the display surfaces is set_ws_status). The impact is a misleading operator card, a readiness probe that cannot fail, and three Prometheus series that are constants — severe for triage, not directly loss-causing. Also correct the metrics line range to dashboard_server.py:389-397, and note in the writeup that uptime, ws_connected and the (0/0) counters are genuine.
+
+- sev→HIGH — Factually correct in every particular. Severity CRITICAL is one notch high for this system: the fabricated all-clear misleads triage and can keep an orchestrator routing to a half-up instance, but it does not itself move money or place orders, and the ws_connected field on the same card is real. HIGH.
+
+**Evidence**:
+
+```
+bot/core/system_health.py:53-54
+        self._exchange_ok = True
+        self._ws_ok = False
+
+bot/core/system_health.py:101-112
+            else:
+                avg_lat = 0.0
+                p99_lat = 0.0
+                err_rate = 0.0
+
+            # Determine status
+            if not self._exchange_ok or err_rate > 50:
+                status = "CRITICAL"
+            elif err_rate > 10 or avg_lat > 5000:
+                status = "DEGRADED"
+            else:
+                status = "HEALTHY"
+
+The three methods that would ever move those inputs have no caller anywhere in the tree, and the repo's own ratchet already records it:
+
+tests/unreachable_methods_baseline.txt:160-162
+bot/core/system_health.py:SystemHealthMonitor.record_api_call
+bot/core/system_health.py:SystemHealthMonitor.record_scan
+bot/core/system_health.py:SystemHealthMonitor.set_exchange_status
+
+The only writer that IS wired is the websocket flag, bot/core/engine.py:4059:
+        self.health.set_ws_status(self.ws_feed.is_connected())
+```
+
+## B5-28 [HIGH] verify_deploy.sh reports "DEPLOY VERIFIED" for the bot box after asking nothing about what code the bot box is running
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `scripts/verify_deploy.sh:175-182`
+
+**Observed**: The bot-box half contributes an `ok` line to a verdict about a claim it never tested. The exact 2026-08-20 scenario the comment cites - HEAD sitting 255 commits stale - is not detected either: `git rev-parse HEAD` prints whatever the box is on, and the script has no notion of what it SHOULD be on. Worse, the far more common failure (the pull landed but the process was never restarted, so the running bot is on the old code) is structurally invisible, and that is the same class as the 2026-08-25 incident in this file's own header.
+
+**Root cause**: The web half was built around a content hash the server reports (/api/version), which makes it a real comparison. The bot half has no equivalent - the gateway's /health deliberately returns a fixed body, and the dashboard's /health (bot/web/dashboard_server.py:349-350) DOES return `{"status":"ok","build":build_short(),...}` but this script never calls it. The git rev-parse was substituted as a stand-in and then labelled `ok`.
+
+**Business impact**: The gate an operator runs to confirm a deploy landed will say VERIFIED for a bot box running stale code, which is the precise pair of incidents (2026-08-20 stale checkout, 2026-08-25 half-deploy) documented in this file's own header. On a live trading bot, that means risk-limit or stop-loss fixes reported as deployed while the process enforcing them contains none of them.
+
+**Remediation**: Query the bot box's own build stamp instead of the local checkout: `curl -fsS "$GATEWAY_URL/health"` (the dashboard liveness route registered at bot/web/dashboard_server.py:513, which already returns `build`) and compare its `build` field to `git rev-parse --short HEAD`. Apply the same absent-field discipline the web half already has (lines 105-118): an unparseable or missing `build` is `unk`, not `fail` and not `ok`. If the field is missing, `unk "the bot box did not report which commit it is serving - not verified"` so the run ends INCOMPLETE rather than VERIFIED. Optionally also call scripts/verify_deploy_source.sh, which does the remote-URL comparison correctly.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Downgrade HIGH to MEDIUM and soften the title from 'asking nothing about what code the bot box is running' to 'never comparing the running process's build against this checkout'. Two compensating controls exist in the documented flow: scripts/verify_deploy_source.sh performs the real remote-URL comparison pre-launch (the 255-commit case), and scripts/verify_bot_alive.sh gates DEPLOY_DONE on the process. The residual, real gap is process-vs-checkout drift (pull landed, restart missed) plus the `ok` label overstating a line that measured nothing.
+
+- sev→MEDIUM — Two corrections. (a) The title overstates: the box half does ask two real questions (gateway and bridge reachability) and fails on them; what it never asks is which code is running. (b) The finder names the helper `build_short()`; the actual symbol is `bot.utils.build_info.short`, imported into dashboard_server.py as `n` and rendered as `"build": n()`. Severity HIGH → MEDIUM: the documented deploy flow also runs scripts/verify_deploy_source.sh (which does compare against the remote URL) before starting, and verify_bot_alive.sh after, so this is a weak link in a chain rather than the only check.
+
+**Evidence**:
+
+```
+scripts/verify_deploy.sh:175-182
+  # Which code the box is actually on. Compared against the local checkout,
+  # because a deploy that pulled the wrong commit passes every other check —
+  # 2026-08-20, 255 commits stale, everything green.
+  if head="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"; then
+    ok "checkout at $head"
+  else
+    unk "not a git checkout here, so the running commit could not be confirmed."
+  fi
+
+The comment promises a comparison. The code reads the LOCAL HEAD and prints it, then calls `ok`, which sets no failure. There is no second value to compare it against.
+```
+
+## B5-29 [HIGH] Forensic audit logs (trade/risk/system/scan .jsonl) are written to a cwd-relative directory, and the durable-path ratchet's regex cannot see it
+
+- **Dimension**: observability · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/utils/logger.py:27-28, 115-116`
+
+**Observed**: The four structured audit channels (trade.jsonl, risk.jsonl, system.jsonl, scan.jsonl, built at bot/utils/logger.py:131-134) land in `<cwd>/logs/`. `mkdir(exist_ok=True)` and RotatingFileHandler both CREATE, so a wrong cwd produces a fresh empty log tree in silence - the failure mode bot/utils/paths.py's docstring describes verbatim ('mkdir(exist_ok=True) and sqlite3.connect both create, so a wrong directory produced a brand-new empty database in silence'). deploy.sh:167-178 symlinks the repo-root `logs` to the persistent store precisely so these survive, with a comment stating persistence 'is NOT optional' and calling logs/trade.jsonl 'the forensic record'. A process launched from anywhere else writes outside that symlink and outside backup coverage.
+
+**Root cause**: logger.py predates bot/utils/paths.py and was not migrated with the six modules that were. The ratchet meant to find the stragglers keys on a slash-bearing literal, so a module that builds its relative path from a bare directory name (`Path("logs") / filename`) is invisible to it - a blind spot in the checker, which is exactly what that test's own docstring warns produces 'the reassurance it exists to prevent'.
+
+**Business impact**: On a wrong-cwd launch the entire structured forensic record - every trade idea, every risk decision - is written to a directory nobody backs up (bot/utils/backup.py's _CRITICAL set is joined to rootp_of(), the repo root) and nobody greps during an incident. The logs appear to be working; `logs/` at the repo root simply stays at whatever it held before. Post-mortem evidence for a live trading loss would be missing with no signal that it was ever redirected.
+
+**Remediation**: Two changes, one commit. (1) In bot/utils/logger.py, `from bot.utils.paths import state_path` and `LOG_DIR = state_path("logs")`. (2) Widen the ratchet so a bare directory literal is a finding too - e.g. `_LITERAL = re.compile(r'["\'](?:data|logs)(?:/[^"\']*)?["\']')` - and add any resulting legitimate exemptions to tests/durable_path_baseline.txt with reasons, per that file's two-way ratchet rule. Add a driven assertion in the existing `test_every_durable_path_is_absolute_and_under_the_repo` parametrize list for `bot.utils.logger.LOG_DIR`, since a scan alone is what missed it.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Downgrade HIGH to MEDIUM. Unlike the 2026-08-19 DB incident this cannot make a surface print a false measurement — nothing in bot/ or app/ reads logs/*.jsonl back (the only readers are ollama/generate_training_data*.py, which use hardcoded /workspace paths). The loss is forensic-record continuity under a launcher that does not cd, and the tamper-evident chain that actually matters (logs/audit_chain.jsonl) is already anchored via state_path. The checker blind spot is the more valuable half of this finding and should lead it.
+
+- sev→MEDIUM — Correct, including the blind-spot analysis of the guard. Severity HIGH → MEDIUM: nothing in the codebase READS logs/{trade,risk,system,scan}.jsonl (grep finds only writers plus docs), so the loss is forensic/human, not a wrong decision or a wrong number on a surface — unlike the runeclaw.db incident this rule was written for. It is also latent, not active: today's launchers cd correctly.
+
+**Evidence**:
+
+```
+bot/utils/logger.py:27-28
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+bot/utils/logger.py:115-116
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_DIR / filename, maxBytes=10 * 1024 * 1024, backupCount=5,
+        )
+
+The sibling audit chain does it correctly - bot/utils/audit_chain.py:165: `self._path = state_path(path)`.
+
+The guard that should have caught this cannot match a bare directory name:
+tests/test_durable_paths_are_not_cwd_dependent.py:277
+_LITERAL = re.compile(r'["\'](?:data|logs)/[^"\']*["\']')
+
+The literal in logger.py is `"logs"` with no slash, so `_LITERAL` never fires, and bot/utils/logger.py appears in neither the findings nor tests/durable_path_baseline.txt.
+```
+
+## B5-30 [MEDIUM] The F-08 "tamper-evident and verifiable" log hash chain has no verifier, restarts at GENESIS per process, and is silently truncated by log rotation
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/utils/logger.py:85, 103, 115-116`
+
+**Observed**: Three independent gaps: (1) no code path anywhere verifies these chains, so tampering with logs/trade.jsonl would be detected by nobody; (2) `_prev_hash` is instance state reset to 'GENESIS' in __init__, and each process gets a fresh formatter while the file is opened in append mode - so every restart writes a 'GENESIS' link mid-file, which any future verifier would have to special-case; (3) RotatingFileHandler with backupCount=5 deletes the oldest segment, so the chain is not merely split across files, it is permanently truncated at ~60MB per channel.
+
+**Root cause**: The chain was bolted onto a logging Formatter, which is the wrong seam: a Formatter has no knowledge of file boundaries, cannot persist state across process lifetimes, and produces no artifact anyone was tasked with checking. The parallel implementation in audit_chain.py got all three right (state re-read from the file's tail on every append, no rotation, a reachable verify()), which shows the difference is oversight rather than intent.
+
+**Business impact**: The repository treats a tamper-evident trade log as a real control (deploy.sh goes out of its way to SIGTERM before SIGKILL so an append is not interrupted, watchdog.sh:71-74). For logs/trade.jsonl that control is nominal: nothing would ever notice an edited line, and the oldest evidence is deleted on a size trigger with no record. In a dispute over a live trade the chain would not support the claim made for it.
+
+**Remediation**: Decide which of the two it is and say so. Either (a) add a verifier for logs/*.jsonl (a `verify_log_chain(path)` alongside audit_chain.verify, tolerant of a 'GENESIS' restart marker, plus a preflight/ops command that runs it) and stop deleting segments - set backupCount high enough that a full retention window survives, or archive rotated files rather than dropping them; or (b) if the chain is not actually relied on, delete the prev_hash field and the F-08 docstring claim, so nobody mistakes an unchecked field for an integrity control. Do not leave it as-is: an unverifiable integrity claim in a docstring is what an auditor and an operator will both trust.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→LOW — Downgrade MEDIUM to LOW. Nothing depends on this chain and no operator surface reports on it, so the concrete harm is a docstring making an integrity claim the code does not support — worth resolving in the direction of deleting the claim rather than building a verifier, given the real tamper-evident chain (audit_chain.jsonl, anchored, unrotated, verified from two call sites) already exists beside it.
+
+- sev→MEDIUM — Stands as written. One addition that makes it worse than reported — see 'missed': the bot box runs two processes that both import this module and both append to the same files, so the chains interleave, which no restart-marker tolerance can repair.
+
+**Evidence**:
+
+```
+bot/utils/logger.py:83-85
+    def __init__(self) -> None:
+        super().__init__()
+        self._prev_hash: str = "GENESIS"
+
+bot/utils/logger.py:102-103
+        line = json.dumps(entry, default=str)
+        self._prev_hash = hashlib.sha256(line.encode()).hexdigest()
+
+bot/utils/logger.py:114-116
+        # File handler with rotation (10MB per file, keep 5 backups)
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_DIR / filename, maxBytes=10 * 1024 * 1024, backupCount=5,
+        )
+
+The module docstring claims (bot/utils/logger.py:9-10): 'F-08 FIX: Hash chain -- each JSON line includes prev_hash = sha256(previous line), making the audit trail tamper-evident and verifiable.'
+```
+
+## B5-31 [MEDIUM] Every trade blocks the event loop on four full scans of an audit chain that nothing rotates
+
+- **Dimension**: observability · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/engine.py:1555, 1559, 1646, 1650, 1655`
+
+**Observed**: _sync_flight_records is a synchronous def called from three places on the trading path: bot/core/engine.py:1105 (inside _on_live_position_closed, right after appending the OUTCOME event), :5963 (after a re-check rejection), and :6460 (inside the async `_confirm_trade_inner`, immediately after sealing an EXECUTED_LIVE decision). Only the network send is backgrounded - `sync_flight_records_in_background` at line 1657 - while the four full-file scans happen inline on the caller's thread, which for line 6460 is the event loop. The chain is never rotated: bot/utils/audit_chain.py:59-61 states outright that append was optimised because it iterated 'a file that nothing rotates', but verify() and get_chain_length() were left as forward full scans on the same hot path.
+
+**Root cause**: The append path was correctly optimised to O(1) via `_tail_lines` (audit_chain.py:44-101) when its linear cost was measured, but the two other linear readers on the same call chain were not, and guardian_status duplicates both. The growth assumption ('nothing rotates') was recorded as a fact without a corresponding bound on the readers.
+
+**Business impact**: Cost grows monotonically with the number of decisions the bot has ever made, on the exact code path that runs at trade confirmation and at position close. At ~100k entries this is on the order of seconds of blocked event loop per trade, during which SL/TP monitoring, the WS heartbeat and the Telegram poller do not run - on a leveraged perpetuals book that is the window in which a stop is not being watched. It degrades silently and only on long-lived deployments, which is when it is hardest to attribute.
+
+**Remediation**: Three cheap changes: (1) drop the duplicate work - _sync_flight_records already computes `ok` and `length`, so pass them into guardian_status (or have guardian_status accept a precomputed chain dict) rather than recomputing; (2) replace get_chain_length()'s full scan with the sequence number already on the tail entry (`_tail_state()` returns next_sequence, which IS the length); (3) either move verify() off the trade path (run it on a timer or on demand from /guardian) or run the whole of _sync_flight_records via `asyncio.to_thread` from the async call sites so it cannot block the loop. None of these change the chain format or touch a ratchet baseline.
+
+**Verifier corrections** (these override the finder where they conflict):
+
+- sev→MEDIUM — Severity stands at MEDIUM, but state the today-vs-later split plainly: logs/audit_chain.jsonl is 38 lines on this checkout, so present-day cost is negligible; the defect is that the two linear readers were left on the hot path after the append path was explicitly optimised for the same reason, on a file with no bound. Fix (1) alone — pass the already-computed ok/length into guardian_status — halves it with no behaviour change.
+
+- sev→LOW — Severity MEDIUM → LOW. The finder itself notes the chain is 38 lines (45KB) today, and the chain only grows per decision/outcome — not per scan — so the measured cost is microseconds and the harm is entirely a growth projection. Nothing here is wrong output; it is a latency/altitude issue plus an over-strong docstring.
+
+**Evidence**:
+
+```
+bot/core/engine.py:1643-1655 (_sync_flight_records, a plain `def` at line 1629)
+            entries = self.audit_chain.get_entries(limit=400)
+            records = assemble_flight_records(entries, limit=50)
+            incidents = assemble_incident_records(entries, limit=40)
+            ok, problems = self.audit_chain.verify(str(self.audit_chain._path))
+            tip = entries[-1].entry_hash if entries else ""
+            chain = {
+                "ok": bool(ok),
+                "length": self.audit_chain.get_chain_length(),
+...
+            try:
+                gstatus = self.guardian_status()
+
+and guardian_status repeats both scans, bot/core/engine.py:1555-1560
+            status["chain"]["length"] = self.audit_chain.get_chain_length()
+            entries = self.audit_chain.get_entries(limit=1)
+            status["chain"]["tip"] = entries[-1].entry_hash if entries else ""
+            try:
+                ok, _problems = self.audit_chain.verify(str(self.audit_chain._path))
+
+Both underlying methods read the whole file - audit_chain.py:238-239 `with file_path.open(...) as fh: for line_no, raw_line in enumerate(fh, ...)` and audit_chain.py:225-231 `for line in fh: if line.strip(): count += 1`.
+```
+
+## Suspected in batch 5
+
+- **[INFORMATIONAL]** npm lifecycle install scripts execute unrestricted in every CI workspace install — `.github/workflows/ci.yml:316, 348, 516, 636, 668`
+- **[LOW]** The bot dashboard's /ready leaks raw exception text on an unauthenticated, 0.0.0.0-bound endpoint, contradicting the F-15 coarse-reason rule the web app implements — `bot/web/dashboard_server.py:369-371`

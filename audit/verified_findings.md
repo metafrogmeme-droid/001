@@ -1291,3 +1291,93 @@ is unreachable on every deployment.
 per position; regenerating the published scorecards writes to a directory
 nothing reads; the live↔backtest parity report scores an unpriced live close as
 break-even.
+
+---
+
+# Batch 5 — infra-cicd, deps, privacy, observability
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED.** Confirmed mix: 1 CRITICAL,
+9 HIGH, 17 MEDIUM, 4 LOW. Detail in `audit/workflow_raw_findings.md` as
+**B5-01 … B5-31**.
+
+**The verifiers downgraded 8 of the 10 CRITICAL/HIGH findings.** That is the
+strongest signal yet that the finders systematically inflate severity, and the
+register records the verifiers' number, not the finder's, in every case:
+
+| finder | verifiers | finding |
+|---|---|---|
+| CRITICAL | HIGH | `SystemHealthMonitor` is never fed — `/health`, `/ready`, `/metrics` |
+| HIGH | MEDIUM | CI pipes an unverified installer into `sh` |
+| HIGH | MEDIUM | production image installs a manifest omitting pins |
+| HIGH | LOW/MEDIUM | pip-audit audits a different manifest than the deployed one |
+| HIGH | MEDIUM | the GitLab CI fallback cannot run |
+| HIGH | MEDIUM | chat transcripts never deleted |
+| HIGH | MEDIUM | `verify_deploy.sh` reports VERIFIED after a failure |
+| HIGH | MEDIUM | forensic audit logs written where they are lost |
+
+On the CI installer one, both verifiers independently made the same point and
+they are right: there is **no `actions/upload-artifact` and no release step** in
+the whole workflow — the `.so` is `ls -l`'d and discarded. So a compromised
+toolchain buys code execution on the runner, not bytecode on a chain. The
+installer URL is also already version-pinned (`v1.18.26`, not a floating tag).
+Worth fixing; not HIGH.
+
+## RC-2026-019 — the GDPR purge misses the bot's SQLite database entirely
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **File**: `bot/web/user_gateway.py:2830-2900`
+- **Fix class**: REVIEW_REQUIRED
+
+**This qualifies a fix I already shipped, and I want that stated plainly.**
+
+RC-2026-006 found that `handle_account_purge` probed
+`getattr(tg_handler, "user_store", ...)` — an attribute that does not exist — so
+the bot's user record was never deleted. I fixed that (now `.users`, at
+`:2892`), with a regression test, and it merged in PR #227.
+
+The fix was correct. **The finding was narrower than the real defect.**
+
+The handler imports `exchange_credentials`, `user_profile_store`,
+`user_memory_store`, `user_leverage_store`, `user_strategy_store` and
+`tg_handler.users` — and **nothing from `bot.db.models`**. Verified by reading
+every import and every `result[...]` assignment in the handler. Meanwhile
+`bot/db/models.py` holds, for that same user:
+
+- `username TEXT` (`:84`) and the Telegram chat id via
+  `link_telegram(user_id, chat_id, username)` (`:314-322`)
+- `llm_api_key TEXT` (`:95`) — the user's third-party LLM provider key
+- the paper portfolio and personal ingest notes
+
+None of it is touched, before my fix or after. Six stores are reported and the
+rollup answers `purged: true`, so the database's absence from the report is
+indistinguishable from success — the same shape as the original defect, one
+level up.
+
+**The lesson is the one this audit keeps relearning**: I fixed the store the
+finding named and did not ask which *other* stores the purge should reach.
+CLAUDE.md says to ask which other surface makes the same claim before calling a
+fix done. I applied that to the code and not to the completeness of the store
+list.
+
+## RC-2026-020 — web-only accounts never reach the purge at all
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **File**: `app/auth.js:1724-1730`
+
+```js
+let botStores = null;
+if (user.telegram_id && gateway.isConfigured()) {
+```
+
+A NULL `telegram_id` is read as "the bot holds nothing for this person". But
+`app/lib/identity.js:23-27` provisions web-only users as `web:<uid>`, and the
+bot holds under that key: the auto-provisioned UserStore record, agent profile
+and memory, leverage and strategy preferences, the conversation transcript, the
+paper portfolio book, and the encrypted LLM and news provider keys.
+
+None of it is contacted, and the user is told their account and its data have
+been erased.
+
+Together with RC-2026-019: a Telegram-linked user's erasure misses the SQLite
+database; a web-only user's erasure misses **everything the bot holds**.
+Both surfaces report success.
