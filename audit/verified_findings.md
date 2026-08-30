@@ -1141,3 +1141,50 @@ severe than the findings they were attached to:
 The methodological point is the one worth keeping: the finder-plus-verifier
 shape catches a great deal, but 59 items in 12 dimensions says it does not bound
 what a single finder pass will miss.
+
+---
+
+## RC-2026-017 — a balance payload without `free` clamps every live order to $0 and reports it as a measurement
+
+- **Status**: OPEN · **Severity**: LOW · **Confidence**: CONFIRMED
+- **Category**: absent-is-never-a-measurement, on the pre-execution size clamp
+- **File**: `bot/core/engine.py:6271-6278`
+- **Fix class**: SAFE_AUTO_FIX (proposed, not applied — out of scope for the
+  RC-2026-012 change and I will not widen a risk-engine PR)
+
+Found by tripping over it: while repairing test scaffolding for RC-2026-012 I
+supplied a balance cache of `{"total": …}` and every order silently sized to
+zero.
+
+```python
+live_bal = await self.get_user_live_equity(user_id)
+if live_bal:
+    available = live_bal.get("free", 0.0)
+    if size_usd > available:
+        audit(trade_log,
+              f"Live size clamped: ${size_usd:.2f} -> ${available:.2f} (exchange available)",
+              ...)
+        size_usd = available
+```
+
+`if live_bal:` establishes only that *a* payload came back. `.get("free", 0.0)`
+then treats a **missing** `free` exactly like a measured zero, so the clamp sets
+`size_usd = 0.0`.
+
+The behaviour fails **safe** — no order is placed — which is why this is LOW and
+not higher. The dishonesty is in the reporting: the audit line reads
+
+> Live size clamped: $250.00 -> $0.00 (exchange available)
+
+which states as fact that the exchange had $0 available, when in truth nothing
+was read. An operator diagnosing "why did my $250 trade not go on" is pointed at
+their balance instead of at a payload shape. The block's own docstring is careful
+about the neighbouring case — "Fail-safe: returns None on fetch failure, so the
+clamp is simply skipped" — so `None` is handled; a payload *present but missing
+the key* is not.
+
+Remediation: distinguish the two. `free = live_bal.get("free")`, then skip the
+clamp when it is `None` (matching the documented fetch-failure behaviour) and
+apply it when a real number came back. Bitget's ccxt payload does carry `free`,
+so this is latent rather than active on the current venue — which is exactly why
+it wants a test rather than a comment.
