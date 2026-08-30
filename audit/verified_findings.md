@@ -961,3 +961,97 @@ scanner renders an unreported 24h move as a measured `0.00%`
 
 **Two were refuted** by both verifiers and are recorded as such: the WS-ticker
 local-clock stamping and the repaint-guard bar-timestamp comparison.
+
+---
+
+# Re-anchoring after PR #229, and what it turned up
+
+Another session merged PR #229 into main ("The only pre-trade slippage estimate
+had a reason for being unwired, and it had expired"), adding ~95 lines to
+`bot/core/live_executor.py`. I said I would re-anchor RC-2026-011's line
+references rather than leave a reviewer chasing stale numbers. Doing so found
+two things the original findings missed, both extending a CRITICAL.
+
+## Line drift — RC-2026-011 anchors, corrected
+
+| what | was | now |
+|---|---|---|
+| `_place_sl_tp_v3` | ~5102 | **5158** |
+| `_v3_post` | 5109 | **5202** |
+| `from_config()` inside it | 5116 | **5208** |
+| `place-strategy-order` POST | 5228 | **5321** |
+
+RC-2026-012's anchors are unchanged: `risk_engine.py:1413` and `:1475`.
+
+## RC-2026-011 is broader — there are TWO operator-signed writes, not one
+
+A sweep of every `BitgetV3Client.from_config()` call site in the executor:
+
+| line | verb | endpoint | kind |
+|---|---|---|---|
+| 1390 | GET | `/api/v3/account/settings` | read |
+| 4996 | GET | `/api/v3/position/current-position` | read |
+| **5208** | **POST** | `/api/v3/trade/place-strategy-order` | **write — the SL/TP** |
+| **8765** | **POST** | `/api/v3/trade/close-positions` | **write — the flash close** |
+
+The second write was not in the original finding. `_flash_close_position`
+(`live_executor.py:8734`, an **instance** method, so `self._credentials` is in
+scope) closes a position:
+
+```python
+path = "/api/v3/trade/close-positions"
+body_dict = {"category": "USDT-FUTURES", "symbol": bitget_symbol, "posSide": pos_side}
+result = await asyncio.to_thread(
+    BitgetV3Client.from_config().request, "POST", path, body_dict)
+```
+
+On a per-user executor that is a close request signed with the operator's keys.
+Two failure modes at once, and this one is worse than the stop case: **the
+user's position is not closed**, so they stay exposed; and if the operator holds
+a position on the same symbol and side, **theirs is closed instead**. A flash
+close is what runs when something has already gone wrong.
+
+Both reads are also on the operator's account, which is a correctness problem of
+its own — a per-user executor reconciling against the operator's positions — but
+the writes are the money.
+
+## RC-2026-012 is broader — there are THREE fail-open branches, not two
+
+Every `if live_equity is not None and live_equity > 0` in `risk_engine.py`:
+
+| line | gate | else-branch falls back to |
+|---|---|---|
+| **1033** | **position sizing** | `sizing_equity` = `state.equity_usd` (paper) |
+| 1413 | daily-loss breaker | `state.daily_pnl` (paper) |
+| 1475 | drawdown breaker | `state.current_drawdown_pct` (paper) |
+
+The sizing one at `:1033` was not in the original finding, and its own comment
+states the exact harm:
+
+```python
+# LIVE FIX: In LIVE mode, use actual exchange equity for sizing
+# instead of paper portfolio equity.  This prevents sizing $2K
+# positions against $10K paper when the real account has $50.
+sizing_equity = state.equity_usd
+if live_equity is not None and live_equity > 0:
+    sizing_equity = live_equity
+```
+
+When the equity read fails, `sizing_equity` stays at the paper equity — which
+is precisely the scenario the comment says the fix exists to prevent. So an
+unreadable live equity does not merely stop the breakers tripping; it also
+**sizes real orders against a fictional balance**.
+
+All three share one cause: a two-way branch serving three situations — live and
+readable, live and unreadable, genuinely paper — with the third and second
+collapsed together. Any fix should separate them once, in one place, rather than
+three times.
+
+## Method note
+
+I found these only because PR #229 forced me to re-open the file. The original
+finding named one write and two branches and was correct about both; it was
+incomplete because neither the finder nor I asked *"what else calls this?"*
+before writing it up. CLAUDE.md says to ask which OTHER surface makes the same
+claim before calling a fix done — that applies to a *finding* as much as to a
+fix, and I did not do it the first time.

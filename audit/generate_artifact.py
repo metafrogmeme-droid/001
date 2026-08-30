@@ -104,29 +104,35 @@ F = [
          "with the OPERATOR's credentials",
          status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
          category="cross-account-money-path", component="order-execution",
-         file="bot/core/live_executor.py", line="5109-5116, 5228",
+         file="bot/core/live_executor.py", line="5202-5208, 5321 (SL/TP); 8765 (flash close)",
          fix_class="REVIEW_REQUIRED", standard=["CWE-522", "CWE-863"],
          verified_by="lead-auditor+dimension-agent+2-verifiers",
          reachability="LATENT BY DEFAULT: PER_USER_LIVE_ENABLED defaults False "
                       "(bot/config.py:2261). Live the moment that supported feature is "
                       "enabled; nothing warns that stops land on the wrong account.",
-         note="_v3_post uses BitgetV3Client.from_config() (global CONFIG.exchange) to POST "
-              "/api/v3/trade/place-strategy-order - the SL/TP. It sits inside an instance "
-              "method, so self._credentials is already in scope; the fix is small but "
-              "changes which account a live order reaches."),
+         note="TWO operator-signed writes, not one. _v3_post (5202) POSTs "
+              "/api/v3/trade/place-strategy-order at 5321 (the SL/TP), and "
+              "_flash_close_position (8734) POSTs /api/v3/trade/close-positions at 8765. "
+              "On a per-user executor the flash close is worse: the user's position is NOT "
+              "closed, and if the operator holds the same symbol/side, THEIRS is. Both are "
+              "instance methods, so self._credentials is in scope. The two GET sites (1390, "
+              "4996) also read the operator's account. Line numbers re-anchored after PR "
+              "#229 shifted them by ~93."),
     dict(id="RC-2026-012", title="Unreadable live equity silently reroutes the DAILY-LOSS "
          "and DRAWDOWN breakers to the paper book",
          status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
          category="risk-control-fail-open", component="risk-engine",
-         file="bot/risk/risk_engine.py", line="1413-1418, 1475-1486",
+         file="bot/risk/risk_engine.py", line="1033 (sizing), 1413-1418 (daily loss), 1475-1486 (drawdown)",
          fix_class="REVIEW_REQUIRED",
          standard=["CLAUDE.md-unreadable-is-never-zero", "CWE-754"],
          verified_by="lead-auditor+dimension-agent+2-verifiers",
          reachability="NO FEATURE FLAG NEEDED - applies to the default operator live path.",
-         note="The else branch serves both 'paper mode' and 'live but the equity read "
-              "failed'. Paper daily_pnl is ~0 by construction (the code's own comment says "
-              "so), so both breakers compute ~0% and do not trip. Fails in the direction "
-              "that spends money."),
+         note="THREE fail-open branches, not two. Beyond the daily-loss (1413) and "
+              "drawdown (1475) breakers, position SIZING at 1033 also falls back to paper "
+              "equity - and its own comment says that fix exists to stop 'sizing $2K "
+              "positions against $10K paper when the real account has $50'. So an unreadable "
+              "equity both stops the breakers tripping AND sizes real orders against a "
+              "fictional balance. One cause: a two-way branch serving three situations."),
     dict(id="RC-2026-009", title="/performance paper branch publishes a hardcoded "
          "'Week PnL' of $0.00 in green", status="OPEN", severity="MEDIUM",
          confidence="CONFIRMED", category="display-honesty", component="telegram-bot",
