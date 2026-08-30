@@ -3,7 +3,7 @@
 **Track:** Best Strategy & Risk Award
 **Team:** Humanoid Traders
 **Live Bot:** [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot)
-**Dashboard:** [Live Dashboard](https://pmvc58g2.mule.page/hub.html)
+**Dashboard:** [Live Dashboard](https://pmvc58g2.mule.page/dashboard)
 **Repo:** [GitHub](https://github.com/Humanoid-Traders/RUNECLAW)
 
 ---

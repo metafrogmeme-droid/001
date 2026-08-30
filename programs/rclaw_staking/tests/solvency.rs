@@ -139,6 +139,32 @@ fn stake_ix(owner: &Pubkey, mint: &Pubkey, user_ata: &Pubkey, amount: u64) -> In
     }
 }
 
+/// `stake_for` — same accounts as `stake`, caller-chosen lock duration.
+fn stake_for_ix(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    user_ata: &Pubkey,
+    amount: u64,
+    lock_seconds: i64,
+) -> Instruction {
+    let accounts = rclaw_staking::accounts::Stake {
+        owner: *owner,
+        mint: *mint,
+        stake_account: stake_pda(owner, mint),
+        vault_authority: vault_authority(mint),
+        vault: vault_ata(mint),
+        user_token_account: *user_ata,
+        token_program: spl_token::id(),
+        associated_token_program: spl_associated_token_account::id(),
+        system_program: solana_sdk::system_program::id(),
+    };
+    Instruction {
+        program_id: program_id(),
+        accounts: accounts.to_account_metas(None),
+        data: rclaw_staking::instruction::StakeFor { amount, lock_seconds }.data(),
+    }
+}
+
 fn unstake_ix(owner: &Pubkey, mint: &Pubkey, user_ata: &Pubkey, amount: u64) -> Instruction {
     let accounts = rclaw_staking::accounts::Unstake {
         owner: *owner,
@@ -460,7 +486,41 @@ async fn vault_invariants_hold_under_randomised_traffic() {
             // Deliberately over-range sometimes (the +1 slack and the 0 case) so
             // the rejection paths get exercised alongside the happy path.
             let amount = rng.below(held_before.saturating_add(2));
-            (stake_ix(&owner, &mint, &ata, amount), format!("stake {amount}"))
+            // Half of these go through `stake_for`, at the FLOOR duration —
+            // semantically identical to `stake`, so the vault accounting this
+            // file exists to check is byte-for-byte unchanged. What it buys is
+            // that the new instruction's dispatch, argument decoding and
+            // bounds-pass path run under randomised traffic instead of only in
+            // hand-built transactions.
+            //
+            // It does NOT exercise varied durations, and two failed attempts
+            // are why. Both were caught by this file's own vacuity guards,
+            // which is the strongest argument for keeping them:
+            //
+            //   1. Drawing the choice from `rng` re-rolled the seeded stream —
+            //      every later draw shifted, and no `close` landed in 72 ops.
+            //   2. Deriving it from `op` fixed the draws but not the STATE: the
+            //      deliberately out-of-range locks are rejected, so those
+            //      stakes never landed, and the longer valid locks blocked
+            //      withdrawals that would otherwise have fully exited. No
+            //      `close` again. A 24-month lock silences a (user, mint) pair
+            //      for the rest of the run outright.
+            //
+            // Long locks and withdrawal accounting cannot both be exercised in
+            // one seeded run of OPS operations. Re-tuning the distribution to
+            // make the new thing fit would move coverage the guards were
+            // written to protect, so the bounds and the monotonic rule are
+            // asserted directly in `attack.rs` instead, where a test can set up
+            // exactly the state it needs.
+            if op % 2 == 0 {
+                (
+                    stake_for_ix(&owner, &mint, &ata, amount,
+                                 rclaw_staking::LOCKUP_SECONDS),
+                    format!("stake_for {amount} lock=floor"),
+                )
+            } else {
+                (stake_ix(&owner, &mint, &ata, amount), format!("stake {amount}"))
+            }
         } else if action < 9 {
             // Every third withdrawal attempts a FULL exit. A purely uniform
             // amount almost never lands a record on exactly zero, so without

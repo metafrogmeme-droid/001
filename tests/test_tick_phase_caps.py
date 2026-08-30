@@ -22,8 +22,8 @@ already established:
     catch a hang, so only a cap actually delivers that stated intent.
 """
 
+import ast
 import asyncio
-import re
 from pathlib import Path
 
 import pytest
@@ -48,22 +48,70 @@ def _tick_body() -> str:
     return _SRC[start:nxt]
 
 
+def _tick_node() -> ast.AsyncFunctionDef:
+    r"""_tick as a syntax tree.
+
+    The regex these tests used to share was `self\._phase\([^,]+,\s*"..."`,
+    and `[^,]+` cannot cross a comma — so the moment any phase's first
+    argument grew a second argument of its own, that `_phase` call became
+    invisible and the phase it names silently left the set. It failed exactly
+    that way when `_analyze_signals_batched(signals)` became
+    `_analyze_signals_batched(signals, background=True)`: the call was still
+    bounded and still named "analyze", and the test reported it missing.
+
+    A test that reads code should parse it. Everything below asks the tree.
+    """
+    for node in ast.walk(ast.parse(_SRC)):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_tick":
+            return node
+    raise AssertionError("_tick not found in bot/core/engine.py")
+
+
+def _phase_names() -> set[str]:
+    """Every name passed to self._phase(...) inside _tick."""
+    names = set()
+    for node in ast.walk(_tick_node()):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "_phase"):
+            assert len(node.args) >= 2, "a _phase call has no name argument"
+            name = node.args[1]
+            assert isinstance(name, ast.Constant) and isinstance(name.value, str), (
+                "a phase name is computed rather than literal — the audit line "
+                "must say the same thing every time it fires")
+            names.add(name.value)
+    return names
+
+
+def _is_awaited_directly(attr: str) -> bool:
+    """Is self.<attr>(...) awaited WITHOUT a cap wrapping it?
+
+    Argument-agnostic on purpose. The old string checks named exact call text
+    (`await self._analyze_signals_batched(signals)`), so adding any argument
+    made an unbounded await invisible to the very test written to forbid it.
+    """
+    for node in ast.walk(_tick_node()):
+        if not isinstance(node, ast.Await):
+            continue
+        call = node.value
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr == attr):
+            return True
+    return False
+
+
 def test_every_await_inside_tick_is_bounded():
     """The regression this prevents: adding a new unguarded await to _tick,
     which would reintroduce an unnamed, 900s-to-recover hang."""
-    body = _tick_body()
-    # Every position check inside the tick goes through the cap.
-    assert "await self._check_open_positions()" not in body, \
+    assert not _is_awaited_directly("_check_open_positions"), \
         "an unbounded position check is an unwatched stop-loss during a hang"
-    assert "await self.scanner.scan()" not in body
-    assert "await self._analyze_signals_batched(signals)" not in body
-    assert body.count("await self._phase(") >= 6, \
+    assert not _is_awaited_directly("scan")
+    assert not _is_awaited_directly("_analyze_signals_batched")
+    assert _tick_body().count("await self._phase(") >= 6, \
         "positions (x4 paths), scan and analyze are each bounded"
 
 
 def test_each_phase_is_named():
-    body = _tick_body()
-    named = set(re.findall(r'await self\._phase\([^,]+,\s*"([^"]+)"', body))
+    named = _phase_names()
     assert "scan" in named and "analyze" in named and "positions" in named
     # The position paths are distinguishable — "hung monitoring positions" is
     # useful; knowing WHICH path is more so.
@@ -141,7 +189,6 @@ async def test_zero_disables_the_cap_entirely():
 def test_the_phase_cap_fires_before_the_whole_tick_cap():
     """Ordering is the whole point: the phase names the hang, the whole-tick
     cap remains the last-resort recovery."""
-    from bot.config import CONFIG
     # Re-read defaults from the dataclass rather than a mutated instance.
     import bot.config as cfg_mod
     mon = cfg_mod.MonitoringConfig()

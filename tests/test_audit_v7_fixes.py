@@ -143,7 +143,8 @@ class TestNonFinitePrices:
         # validator) must be rejected by risk check #10.
         from bot.risk.risk_engine import RiskEngine
         from bot.risk.portfolio import PortfolioTracker
-        import os, tempfile
+        import os
+        import tempfile
         idea = TradeIdea.model_construct(
             id="TI-NAN", asset="BTC/USDT", direction=Direction.LONG,
             entry_price=float("nan"), stop_loss=float("nan"), take_profit=float("nan"),
@@ -165,7 +166,8 @@ class TestFutureTimestampGuard:
     def _engine(self):
         from bot.risk.risk_engine import RiskEngine
         from bot.risk.portfolio import PortfolioTracker
-        import os, tempfile
+        import os
+        import tempfile
         return RiskEngine(PortfolioTracker(initial_balance=10_000.0),
                           state_file=os.path.join(tempfile.mkdtemp(), "s.json"))
 
@@ -418,7 +420,8 @@ class TestRedTeamCoverage:
         from bot.core.red_team import RedTeamEngine
         from bot.risk.risk_engine import RiskEngine
         from bot.risk.portfolio import PortfolioTracker
-        import os, tempfile
+        import os
+        import tempfile
         eng = RiskEngine(PortfolioTracker(initial_balance=10_000.0),
                          state_file=os.path.join(tempfile.mkdtemp(), "s.json"))
         rt = RedTeamEngine(eng, PortfolioTracker(initial_balance=10_000.0))

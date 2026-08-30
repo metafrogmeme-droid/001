@@ -129,7 +129,14 @@ test('stats: a count is a count — and an unreadable count is unknown, not zero
   nft.setNftFetcher(rpcStub({ total: 42 }));
   try {
     const s = await nft.readStats();
-    assert.deepEqual(s, { deployed: true, chain_id: 8453, contract: CONTRACT, minted_count: 42 });
+    assert.deepEqual(s, {
+      deployed: true,
+      chain_id: 8453,
+      chain_name: 'Base',
+      explorer: `https://basescan.org/address/${CONTRACT}`,
+      contract: CONTRACT,
+      minted_count: 42,
+    });
   } finally { nft.setNftFetcher(null); }
   nft.setNftFetcher(async () => { throw new Error('down'); });
   try {
@@ -141,6 +148,93 @@ test('stats: a count is a count — and an unreadable count is unknown, not zero
   try {
     assert.deepEqual(await nft.readStats(), { deployed: false });
   } finally { process.env.NFT_CONTRACT_ADDRESS = saved; }
+});
+
+// ── The chain the voucher is signed for ───────────────────────────────────
+// The contract takes its EIP-712 domain from `block.chainid`, so the same
+// bytecode is valid anywhere. The chain id used to be a hardcoded 8453 beside
+// an address that came from an env var, so deploying anywhere else made the
+// two disagree in silence: a voucher signed for the wrong chain reverts, and
+// the revert reads as "bad voucher" — which looks like the USER's fault.
+
+test('the chain id defaults to Base and follows NFT_CHAIN_ID when set', () => {
+  const saved = process.env.NFT_CHAIN_ID;
+  try {
+    delete process.env.NFT_CHAIN_ID;
+    assert.equal(nft.chainId(), 8453, 'unset must mean Base, as it always did');
+    assert.equal(nft.chainConfig().name, 'Base');
+
+    process.env.NFT_CHAIN_ID = '84532';
+    assert.equal(nft.chainId(), 84532);
+    assert.equal(nft.chainConfig().name, 'Base Sepolia');
+  } finally {
+    if (saved === undefined) delete process.env.NFT_CHAIN_ID;
+    else process.env.NFT_CHAIN_ID = saved;
+  }
+});
+
+test('an unknown chain REFUSES — it never falls back to Base', async () => {
+  // The whole point. A silent default would sign a Base voucher for an
+  // operator who deliberately asked for something else, and burn their users'
+  // gas on reverts.
+  const saved = process.env.NFT_CHAIN_ID;
+  try {
+    for (const bad of ['1', '999999', 'base', '84532x', '-1', '0x2105']) {
+      process.env.NFT_CHAIN_ID = bad;
+      assert.equal(nft.chainConfig(), null, `${bad} must not resolve to a chain`);
+
+      const plan = await nft.buildMintPlan(USER);
+      assert.equal(plan.ready, false, `${bad} must not produce a signed voucher`);
+      assert.match(plan.not_ready_reasons.join(' '), /NFT_CHAIN_ID/,
+        'the reason must name the setting that is wrong');
+    }
+  } finally {
+    if (saved === undefined) delete process.env.NFT_CHAIN_ID;
+    else process.env.NFT_CHAIN_ID = saved;
+  }
+});
+
+test('the voucher is signed for the CONFIGURED chain, not a constant', async () => {
+  const saved = process.env.NFT_CHAIN_ID;
+  try {
+    process.env.NFT_CHAIN_ID = '84532';
+    nft.setNftFetcher(rpcStub({ tokenOf: 0 }));
+    const plan = await nft.buildMintPlan(USER);
+    assert.equal(plan.ready, true);
+    assert.equal(plan.chain_id, 84532, 'the plan must report the chain it signed for');
+
+    // Recover the signer from the signature under the Base Sepolia domain: if
+    // the code still signed for 8453, this address will not match. Decode the
+    // calldata properly — `bytes` is offset+length+padding, so slicing the tail
+    // recovers a plausible-looking wrong address rather than failing loudly.
+    const IF = new ethers.Interface(['function mint(bytes sig)']);
+    const [sig] = IF.decodeFunctionData('mint', plan.calldata);
+    const recovered = ethers.verifyTypedData(
+      { name: nft.DOMAIN_NAME, chainId: 84532, verifyingContract: process.env.NFT_CONTRACT_ADDRESS },
+      nft.VOUCHER_TYPES, { to: ethers.getAddress(USER) }, sig);
+    assert.equal(recovered, new ethers.Wallet(KEY).address,
+      'the voucher must verify under the configured chain id');
+  } finally {
+    nft.setNftFetcher(null);
+    if (saved === undefined) delete process.env.NFT_CHAIN_ID;
+    else process.env.NFT_CHAIN_ID = saved;
+  }
+});
+
+test('stats on an unknown chain say so — deployed, but chain and count unknown', async () => {
+  // `deployed: false` would be a false negative: an address IS configured, so
+  // the contract may well be live and we simply cannot say where.
+  const saved = process.env.NFT_CHAIN_ID;
+  try {
+    process.env.NFT_CHAIN_ID = '999999';
+    const s = await nft.readStats();
+    assert.equal(s.deployed, true, 'an address is set — do not deny the deployment');
+    assert.equal(s.chain_id, null, 'the chain is unknown, not Base');
+    assert.equal(s.minted_count, null, 'unreadable is never zero');
+  } finally {
+    if (saved === undefined) delete process.env.NFT_CHAIN_ID;
+    else process.env.NFT_CHAIN_ID = saved;
+  }
 });
 
 test('route wiring: mint-plan is authed, stats is public, unreadable stats are never cached', () => {

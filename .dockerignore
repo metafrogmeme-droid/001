@@ -31,3 +31,33 @@ website/demo-recording.*
 !README.md
 !LICENSE
 !NOTICE
+
+# Bulk that COPY . . was shipping into the image layer. `demo/` and `docs/`
+# were already excluded; these are the rest, measured:
+#   ollama/            ~48 MB of .jsonl fine-tune corpora (33 MB in one file)
+#   benchmark/         61 gzipped OHLCV fixtures, build inputs for backtests
+#   tests/             the suite does not run inside the runtime image
+#   agentbench/, evidence/, marketing/, site/, playbooks/  reports and assets
+# None is read at runtime; all of it was in every pull.
+ollama/
+tests/
+agentbench/
+evidence/
+marketing/
+site/
+app/test/
+website/*.mp4
+website/*.webm
+AUDIT_REPORT*.md
+
+# NOT excluded, though they look like obvious bulk — both are read at runtime,
+# and checking that before deleting is the difference between a smaller image
+# and a broken feature:
+#   benchmark/           11 MB. bot/backtest/snapshot.benchmark_root() reads it
+#                        and bot/api/lab.py runs the Strategy Lab's backtests
+#                        against it in production. It is a build INPUT, which is
+#                        why CLAUDE.md insists it stays tracked.
+#   app/public/mascot/   5.8 MB of .glb, served to browsers at /mascot/agent.glb
+#                        by app/public/js/mascot3d.js. Dropping them leaves the
+#                        agent viewer stuck on "Summoning the agent…".
+#   playbooks/           strategy definitions; small, and loaded by name.

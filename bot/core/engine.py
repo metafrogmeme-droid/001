@@ -22,7 +22,9 @@ from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.system_health import SystemHealthMonitor
+from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
+from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.live_executor import LiveExecutor, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
@@ -34,6 +36,7 @@ from bot.compliance.compliance_engine import ComplianceEngine, Permission, defau
 from bot.learning.orchestrator import LearningOrchestrator
 from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
+from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for  # noqa: F401
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
 from bot.core.dashboard_pusher import (
@@ -325,6 +328,13 @@ class RuneClawEngine:
         self.exchange_flow = ExchangeFlowProvider(
             exchange_factory=self.scanner._get_exchange,
         )
+        # Valuation and spot-perp basis CONTEXT. Both were built, tested by
+        # nothing, and imported by nothing — the two remaining unwired signal
+        # sources on the roadmap's "real-time signal fusion" line. Each carries
+        # its own TTL cache (60s basis, 5min market cap), which is what makes
+        # them affordable on the scan path; see the fetch gather below.
+        self.basis = BasisAnalyzer(exchange_factory=self.scanner._get_exchange)
+        self.market_cap = MarketCapProvider()
         self.macro_calendar = MacroCalendar(
             events=build_2026_calendar(),
             fail_closed_when_stale=CONFIG.risk.macro_calendar_fail_closed_when_stale,
@@ -654,7 +664,21 @@ class RuneClawEngine:
         self._last_vwap: dict[str, float] = {}
 
         # Smart scan scheduling
+        #
+        # _last_scan_time IS READ BY TELEGRAM and was, until now, NEVER WRITTEN.
+        # It is the sole input to the interactive freshness gate — the thing
+        # that lets a "Latest Signal" tap answer instantly from the background
+        # sweep instead of running a 45s re-scan. `_background_scan_is_fresh`
+        # returns False for `last_scan_time <= 0`, so the gate took its
+        # never-scanned branch on every tap, on every deploy, since it shipped.
+        # The feature's own test file calls that case
+        # `test_never_scanned_is_not_fresh`; it was the only branch production
+        # ever reached. See _record_sweep_complete.
         self._last_scan_time: float = 0.0
+        # How long the last COMPLETED sweep took, wall-clock. None until one
+        # finishes — the window that reads it must size itself off measurement
+        # or fall back honestly, never off a guessed rate.
+        self._last_sweep_duration_s: float | None = None
         self._current_scan_interval: float = CONFIG.scan_interval_seconds
         self._recent_atr_values: dict[str, float] = {}  # symbol -> latest ATR
 
@@ -1924,6 +1948,21 @@ class RuneClawEngine:
         fail-closed only on a confirmed failure."""
         return self._live_auth_ok.get(str(user_id or ""), True)
 
+    def live_auth_probed(self, user_id: str = "") -> bool:
+        """Whether ACCOUNT ``user_id`` has ever had its venue auth CHECKED.
+
+        ``live_auth_healthy`` answers True for an account nobody has probed,
+        which is the right default for a DETECTOR (block only on a confirmed
+        failure) and the wrong answer for a READINESS question. The boot
+        credential preflight returns early when SIMULATION_MODE is set, so on a
+        sim-booted bot no key has ever been tried — and 'never tested' read as
+        'healthy' is what let /golive announce live trading over credentials
+        that had never been near the venue.
+
+        Separating the two is the whole fix: see bot/core/live_readiness.py.
+        """
+        return str(user_id or "") in self._live_auth_ok
+
     def invalidate_user_executor(self, user_id: str) -> None:
         """Drop any cached per-user executor (e.g. after /connect or /disconnect)
         so the next trade — and the next balance view — rebuilds it from the
@@ -3041,6 +3080,35 @@ class RuneClawEngine:
                   action="analyze_capacity", result="SHORT", data=rec)
         return rec
 
+    def _record_sweep_complete(self, started: float) -> None:
+        """A background sweep FINISHED. Stamp when, and how long it took.
+
+        Read by the Telegram freshness gate, which decides whether a "Latest
+        Signal" tap can be answered from this sweep or has to run a live
+        re-scan. Both numbers matter and they answer different questions:
+
+          _last_scan_time        when the answer on file was taken
+          _last_sweep_duration_s how far apart consecutive answers are, which
+                                 is what makes "is it stale" answerable at all
+
+        CALLED ON TWO PATHS, because a sweep that found nothing is still a
+        sweep and is in fact the case the gate exists for — an operator taps,
+        nothing is queued, and "we looked 40s ago and the tape is quiet" is the
+        honest instant answer. Recording only after the analyze phase would
+        have missed it entirely.
+
+        NOT CALLED WHEN THE SCAN FAILED. `_phase(..., fatal=False)` returns
+        None on a timeout, and `if not signals:` cannot tell that from an empty
+        list. Stamping a failed scan would make the gate report "the sweep ran
+        and found nothing" when the truth is that nothing was read — a failed
+        read rendered as an empty result, which is the one thing this codebase
+        refuses to do. The caller tests `is None`, not falsiness.
+        """
+        now = time.monotonic()
+        self._last_scan_time = now
+        if started > 0:
+            self._last_sweep_duration_s = max(0.0, now - started)
+
     def _record_analyze_throughput(self, done: int, of: int, elapsed: float) -> None:
         """Remember effective throughput so the NEXT batch can forecast.
 
@@ -4060,6 +4128,12 @@ class RuneClawEngine:
             return
 
         self._transition(AgentState.SCANNING, "beginning scan cycle")
+        # When THIS sweep started. The freshness gate needs the duration, and
+        # the duration is the only honest way to size its window: the smart
+        # interval is derived from ATR volatility and clamped to 60-90s, which
+        # has no relationship to how long a sweep of ~200 symbols actually
+        # takes. See _record_sweep_complete.
+        _sweep_started = time.monotonic()
         # Non-fatal by default: a slow exchange must not take the tick loop
         # down with it. Positions were checked earlier in this same tick, so a
         # skipped scan costs only the chance of a new entry. The timeout is
@@ -4120,6 +4194,14 @@ class RuneClawEngine:
             logger.debug("Autonomous scan summary push skipped: %s", _scan_push_exc)
 
         if not signals:
+            # `is None`, NOT falsiness. A scan that TIMED OUT returns None here
+            # (_phase, fatal=False) and an empty list means the market was read
+            # and nothing passed the filter. Those are opposite facts and only
+            # the second one is a sweep. Stamping the first would let the
+            # freshness gate answer a tap with "swept 30s ago, nothing found"
+            # on the strength of a read that never happened.
+            if signals is not None:
+                self._record_sweep_complete(_sweep_started)
             self._transition(AgentState.IDLE, "no signals found")
             return
 
@@ -4130,14 +4212,32 @@ class RuneClawEngine:
         # gather would fan out hundreds of simultaneous OHLCV/order-flow/MTF
         # fetches and hammer the exchange rate limiter. The semaphore caps
         # in-flight analyses at CONFIG.scan_analysis_concurrency.
+        # background=True is set HERE and nowhere else. This is the autonomous
+        # tick — nobody is waiting on it — so it is the one sweep the
+        # LLM_BACKGROUND_SCANS valve may send to the rule engine. Telegram's
+        # force_scan is a sweep too but a person triggered it and is reading
+        # the answer, so it keeps the LLM; if on-demand sweeps ever need
+        # throttling that is a rate limit, not this valve.
         results = await self._phase(
-            self._analyze_signals_batched(signals), "analyze")
+            self._analyze_signals_batched(signals, background=True), "analyze")
+        # The sweep is done. Stamped here rather than at the end of the tick so
+        # the post-analyze work (position checks, publishing) cannot delay or
+        # skip it — and NOT reached at all when the analyze phase blows its cap,
+        # because _phase re-raises there and a sweep that was cancelled midway
+        # did not produce the answer the gate would be serving.
+        self._record_sweep_complete(_sweep_started)
         _synced_ideas = []
         for idea in results:
             if idea:
                 # Filter: don't present ideas below min_confidence threshold
                 # Prevents user frustration of confirming a trade that gets rejected
-                if idea.confidence < CONFIG.risk.min_confidence:
+                # The floor is asked of ONE place — bot/risk/confidence_floor.py.
+                # This gate read the flat global unconditionally, which is why
+                # PER_STRATEGY_CONFIDENCE_FLOOR_ENABLED could never help a
+                # scanned idea: it discarded the swing (0.50) and position
+                # (0.45) setups the flag exists to save, three gates before
+                # the flag's only reader ever saw them.
+                if not clears_confidence_floor(idea):
                     audit(scan_log,
                           f"Filtered sub-threshold idea: {idea.asset} conf={idea.confidence:.2f} < {CONFIG.risk.min_confidence}",
                           action="filter_idea", result="BELOW_MIN_CONFIDENCE",
@@ -4456,6 +4556,7 @@ class RuneClawEngine:
 
     async def _analyze_signals_batched(
         self, signals, *, timeframe: str = "1h", lightweight: bool = False,
+        background: bool = False,
     ) -> list:
         """Analyze a list of scanner signals with BOUNDED concurrency.
 
@@ -4557,7 +4658,7 @@ class RuneClawEngine:
                 try:
                     _coro = self._analyze_signal(
                         sig, timeframe=timeframe, lightweight=lightweight,
-                        is_admin=_as_admin)
+                        is_admin=_as_admin, background=background)
                     if _cap > 0:
                         _out = await asyncio.wait_for(_coro, timeout=_cap)
                     else:
@@ -4777,7 +4878,7 @@ class RuneClawEngine:
                         "cap_s": _cap, "symbols": _timed_out[:20]})
         return _results
 
-    async def _analyze_signal(self, signal: MarketSignal, *, timeframe: str = "1h", is_admin: bool = False, user_id=None, user_tier=None, lightweight: bool = False) -> Optional[TradeIdea]:
+    async def _analyze_signal(self, signal: MarketSignal, *, timeframe: str = "1h", is_admin: bool = False, user_id=None, user_tier=None, lightweight: bool = False, background: bool = False) -> Optional[TradeIdea]:
         """Run full analysis pipeline on a single signal.
 
         Args:
@@ -4870,7 +4971,8 @@ class RuneClawEngine:
             ohlcv_task = self._cached_ohlcv(exchange, signal.symbol, timeframe, limit=100)
             if lightweight:
                 # Interactive fast path: only the primary OHLCV; skip the 4
-                # order-flow fetches (funding/OI/book/trades).
+                # order-flow fetches (funding/OI/book/trades) — and the two
+                # context fetches below, for the same latency reason.
                 _t0 = time.monotonic()
                 _stage_enter_guarded(self, signal.symbol, "fetch")
                 results = list(await asyncio.gather(ohlcv_task, return_exceptions=True))
@@ -4881,14 +4983,36 @@ class RuneClawEngine:
             else:
                 of_task = self.order_flow.analyze(exchange, signal.symbol,
                                                   derivatives_symbol=of_deriv)
+                # Basis + valuation CONTEXT, in the SAME gather so they add no
+                # serial latency — the stage is bounded by its slowest call,
+                # and these two sit behind 60s/5min TTL caches so most passes
+                # never touch the network at all. Appended LAST so results[0]
+                # and results[1] keep meaning ohlcv and order flow.
+                _ctx_tasks = [
+                    self.basis.get_basis(signal.symbol),
+                    self.market_cap.get_market_cap(signal.symbol),
+                ]
                 _t0 = time.monotonic()
                 _stage_enter_guarded(self, signal.symbol, "fetch")
-                results = list(await asyncio.gather(ohlcv_task, of_task, return_exceptions=True))
+                results = list(await asyncio.gather(
+                    ohlcv_task, of_task, *_ctx_tasks, return_exceptions=True))
                 _fetch_dt = time.monotonic() - _t0
                 self._stage_add("fetch", _fetch_dt)
                 _stage_profile_record(self, "fetch", signal.symbol, _fetch_dt)
             ohlcv = results[0] if not isinstance(results[0], Exception) else None
             of_signal = results[1] if not isinstance(results[1], Exception) else None
+            # Context is best-effort by construction: an exception here is left
+            # as None and the analyzer omits the block. It decides nothing, so
+            # failing it open costs an observation and never a trade.
+            _extra = results[2:]
+
+            def _ctx(idx: int):
+                if len(_extra) <= idx or isinstance(_extra[idx], BaseException):
+                    return None
+                return _extra[idx]
+
+            basis_ctx = _ctx(0)
+            mcap_ctx = _ctx(1)
 
             # Per-CALL attribution for the fetch stage. `_stage_add("fetch")`
             # records ONE duration for five concurrent venue calls, so a
@@ -5014,7 +5138,7 @@ class RuneClawEngine:
 
         _t0 = time.monotonic()
         _stage_enter_guarded(self, signal.symbol, "analyze")
-        idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe)
+        idea = await self.analyzer.analyze(signal, ohlcv, order_flow=of_signal, is_admin=is_admin, user_id=user_id, user_tier=user_tier, mtf_candles=mtf_candles, timeframe=timeframe, background=background, basis=basis_ctx, market_cap=mcap_ctx)
         _an_dt = time.monotonic() - _t0
         self._stage_add("analyze", _an_dt)
         _stage_profile_record(self, "analyze", signal.symbol, _an_dt)
@@ -5228,7 +5352,7 @@ class RuneClawEngine:
         # Regime-aware sizing (gated): set the analyzer's regime for this symbol
         # so the per-regime multiplier applies. No-op when REGIME_SIZING_ENABLED off.
         self._apply_regime_to(self.risk, idea.asset)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open)
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live())
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -5810,7 +5934,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck)
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live())
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.
@@ -5863,7 +5987,7 @@ class RuneClawEngine:
                 audit(trade_log, f"Critique adjusted confidence by {critique_result.confidence_adjustment:+.2f} to {idea.confidence:.3f}",
                       action="critique_adjust", result="ADJUSTED",
                       data={"adjustment": critique_result.confidence_adjustment, "new_confidence": idea.confidence})
-                if idea.confidence < CONFIG.risk.min_confidence:
+                if not clears_confidence_floor(idea):
                     # RC-AUD-025: the "user already confirmed, proceed anyway"
                     # rationale only holds when a REAL human pressed Confirm.
                     # Auto-confirm (user_id="auto") and unattended ("") paths
@@ -6442,7 +6566,7 @@ class RuneClawEngine:
 
         ideas_found = 0
         for idea in results:
-            if idea and idea.confidence >= CONFIG.risk.min_confidence:
+            if idea and clears_confidence_floor(idea):
                 idea_key = normalize_symbol(idea.asset)
                 for eid, eidea in list(self._pending_ideas.items()):
                     if normalize_symbol(eidea.asset) == idea_key:

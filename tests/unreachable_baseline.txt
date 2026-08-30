@@ -28,12 +28,36 @@
 # 213 lines nothing could reach. It was 12/12 the first time it was ever run —
 # a regression guard, not a bug report, exactly as its sibling was.
 #
-# authority_preflight is the remaining uncomfortable one and is NOT the same
-# case. It reconciles a granted envelope against what a key can observably do,
-# which needs a live venue and a real key: there is nothing to gate in CI, and
-# a runner that reported CONFIRMED from no probe would be worse than no runner.
-# Wiring it is a product decision about where posture gets checked, not a
-# cleanup this file can make.
+# authority_preflight LEFT this list, and the note that used to sit here was
+# right in a way it did not know. It said "a runner that reported CONFIRMED from
+# no probe would be worse than no runner". That was not a hypothetical about
+# some future wiring — it was a description of the code as written.
+# probe_posture opened with
+#
+#     "environment":          "demo" if sandbox else "live",
+#     "expected_environment": "demo" if sandbox else "live",
+#
+# both sides of the comparison from the same argument, both set BEFORE the probe
+# ran. The environment dimension could never report VIOLATION and reported
+# CONFIRMED ("key is a live key, matching the bot") off a probe that had failed
+# outright. test_environment_mismatch_is_violation proved the VIOLATION branch
+# worked the whole time; no PRODUCER could reach it. Green test, unreachable
+# branch — the #999 shape one level in, and invisible to any source scan,
+# because the code was not just present, it was correct.
+#
+# The product decision the old note deferred: posture is checked at
+# CREDENTIAL-LINK time, in /connect. That is the moment a user hands over a key,
+# and the question worth asking then is the one nothing in this repo asked —
+# not "can this key read" (three probes already answer that) and not "is it the
+# right environment" (validate_bitget_credentials already diagnoses 40099 with
+# far better messages), but CAN THIS KEY MOVE THE MONEY OUT. Bitget answers it
+# on a read-only endpoint; no withdrawal is ever attempted.
+#
+# The vocabulary that decides it was transcribed from docs and never confirmed
+# against a live key, so bitget_withdraw_scope only answers "off" when it
+# recognises EVERY authority in the response. A wrong or stale vocabulary then
+# degrades to "unknown" — the status quo — instead of reading a response it
+# cannot parse as proof of non-custody.
 #
 # validation_gate LEFT this list. Its own docstring carried the accusation —
 # "the engine does not consult this gate before executing trades" — and it
@@ -45,22 +69,55 @@
 # SYNTHETIC data), the verdict is three-valued, and the risk gate consults it
 # as a tighten-only fail-open hook beside intent_policy and the authority
 # envelope — default OFF, and shadow before enforce.
-bot/guardian/authority_preflight.py
 
 # ── execution paths built and not connected ─────────────────────────────────
 # meme_executor LEFT this list: /memeplan reaches its PLANNER. There was never
 # an execution path to wire — `would_execute` is a hardcoded False and signing
 # is a slice that does not exist — so what became reachable is the fail-closed
 # preflight, not the ability to trade.
-bot/risk/order_router.py
-bot/core/alert_manager.py
-bot/core/performance_tracker.py
-bot/core/feedback_loop.py
+#
+# THREE ENTRIES WERE DELETED RATHER THAN WIRED, after reading each against what
+# is already live. Deleting finished code is not a cleanup's call, so it was
+# put to the operator with the evidence and taken on their answer:
+#
+#   alert_manager.py       a second escalation chain. proactive_monitor.py
+#                          already carries the severity tiers, the dedup cache
+#                          and explicit escalation semantics, and it is the one
+#                          wired to the alerts people actually receive.
+#   performance_tracker.py pushed snapshots to a "Command Hub API" whose URL is
+#                          a constructor argument configured NOWHERE in the
+#                          repo. There is no hub. It could not have worked if
+#                          somebody had wired it.
+#   feedback_loop.py       correlation-based feature importance suggesting
+#                          weight adjustments — which bot/learning/
+#                          voter_weights.py learns, auto_refit.py refits and
+#                          readiness.py gates. Three wired modules to its zero.
+#
+# order_router.py LEFT this list, and the reason it could is worth keeping.
+# The note here used to say the blocker was cost, not doubt: "walking the book
+# before an entry means a fresh fetch_order_book on the live order path, which
+# is a latency and rate-limit decision rather than a wiring job."
+#
+# That was true when it was written and had since gone STALE. The QC-2b
+# order-book wall gate (ENTRY_BOOK_WALL_GATE, default warn) already fetches
+# the book on that exact path, so the call the note was protecting against is
+# one the entry path had been making all along. The slippage estimate now
+# reads that same book — no second call, no added latency, no rate-limit cost
+# — and the fetch is driven by EITHER gate being enabled so neither silently
+# depends on the other's flag.
+#
+# A note explaining why something is unreachable is itself a claim, and it
+# ages against code that keeps moving. Re-read it before trusting it.
 bot/core/swarm.py
 
 # ── the detective's remaining scorer ────────────────────────────────────────
 # The only one here with a known reason: presale_claims has no source, the way
 # deployer_history had none until #54. Same shape, same fix if wanted.
+#
+# swarm.py above is the other keep, and for the opposite reason: it is 428
+# lines of in-process pub/sub scaffolding for the roadmap's "Multi-agent
+# ensemble" row, which is 🔵 Planned. Deleting it would throw away design work
+# for a feature that is scheduled; wiring it is that feature, not a cleanup.
 bot/core/presale_claims.py
 
 # ── bot/learning: NOT here any more, and the reason matters ────────────────
@@ -81,17 +138,45 @@ bot/core/presale_claims.py
 # working", which nothing had imported for a long time. Deleted; zero
 # information lost.
 #
-# The five below are a different thing and deleting them would destroy work
+# The entries below are a different thing and deleting them would destroy work
 # rather than remove rot. Each is finished, coherent code for a feature nobody
 # wired, so the question is "do we want this signal?" and that is not a
-# question a cleanup gets to answer:
+# question a cleanup gets to answer.
 #
-#   basis.py         spot-vs-perp premium; extreme basis + high OI is a
-#                    liquidation-cascade tell. Would feed the analyzer.
-#   market_cap.py    CoinGecko mcap/FDV/supply — large-cap vs small-cap
-#                    context for sizing. Free tier, no auth.
-#   seasonality.py   time-of-day and day-of-week edges from candles already
-#                    fetched.
+# basis.py and market_cap.py LEFT this list — the last two names on the
+# roadmap's "real-time signal fusion" line — and they went the way seasonality
+# did: fixed first, then wired as CONTEXT that votes on nothing.
+#
+# Both carried the defect that comes with never being read. market_cap.py built
+# every number with `.get(k, 0)`, so an unreadable FDV produced
+# `fdv_mcap_ratio = 0.0` on a field documented ">2.0 = high inflation risk" —
+# the SAFEST reading it can carry, and CoinGecko returns a null FDV for every
+# token with no max supply, so that was the normal response for a whole class
+# of asset rendered as an all-clear. An unknown total supply produced
+# `supply_ratio = 0`, which claims none of the supply circulates. basis.py read
+# `ticker.get("last", 0)`, and a ticker whose `last` is NULL answers None, so
+# `None <= 0` raised and a successful fetch of an unpriced ticker was logged as
+# a network failure; its `get_cached()` ignored the TTL that `get_basis()`
+# enforced; and `basis_pct * 365` fabricated an "annualized" yield from an
+# instantaneous premium.
+#
+# Wiring also needed a guard neither had: the engine's exchange factory is a
+# COROUTINE function, and basis.py called it synchronously. bot/core/
+# exchange_flow.py already carries that guard, with a docstring recording the
+# same bug shipping once — "the provider never returned live funding/OI data at
+# all". Wired without it, this module would have been dead in a way no
+# reachability checker can see, because it would have had a caller.
+#
+# seasonality.py LEFT this list, and what it was hiding is the argument for
+# reading this file rather than trusting it. It was not merely unwired: nothing
+# imported it AT ALL, not even a test, and it carried a defect of exactly the
+# shape CLAUDE.md tabulates. Every empty hour/weekday bucket was seeded with
+# 0.0, so with the minimum accepted input — 48 hourly candles, two calendar
+# days — it named WEDNESDAY the best day to trade, from data that had never
+# seen a Wednesday, and scored the verdict NEUTRAL off the same invented zeros.
+# A fabricated 0.0 beats a real negative return. Fixed (absent buckets are
+# None, best/worst range over observed buckets only, a thin bucket is UNKNOWN
+# rather than neutral) and wired into the analyzer as CONTEXT — never a vote.
 #
 # The two RWA research scripts LEFT this list, and the note that put them here
 # was wrong in a way worth keeping. It said they have no `__main__` guard "so
@@ -104,6 +189,3 @@ bot/core/presale_claims.py
 # nobody asked". Both have a main() and a guard now, which is what makes them
 # entry points to the checker and what stops the study being a side effect of
 # reading the file. Pinned by tests/test_research_scripts_are_importable.py.
-bot/core/basis.py
-bot/core/market_cap.py
-bot/core/seasonality.py

@@ -30,7 +30,7 @@ router.get('/:slug', async (req, res) => {
   if (hit && (now - hit.at) < CACHE_MS) return res.json(hit.data);
   try {
     const [rows] = await pool.execute(
-      `SELECT user_id, symbol, direction, margin, pnl, reason, trade_key, sealed_at, closed_at
+      `SELECT user_id, symbol, direction, margin, pnl, reason, source, trade_key, sealed_at, closed_at
        FROM arena_trades WHERE agent_slug = ? ORDER BY closed_at DESC LIMIT 500`, [slug]);
     let openNow = 0;
     try {

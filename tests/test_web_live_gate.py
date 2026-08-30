@@ -76,7 +76,8 @@ def test_g4_checklist_shape():
 
 def test_g5_store_flag_is_separate_and_web_only():
     from bot.utils.user_store import UserStore
-    import tempfile, os
+    import tempfile
+    import os
     fd, path = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     try:

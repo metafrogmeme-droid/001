@@ -44,7 +44,6 @@ Exit: 0 all PASS (or unverified allowed), 1 any FAIL, 2 unverified without the f
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess

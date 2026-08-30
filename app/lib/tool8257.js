@@ -95,6 +95,42 @@ function creatorAddress() {
 }
 
 /**
+ * The manifest hash actually written on-chain, as recorded by the operator
+ * in REGISTERED_MANIFEST_HASH after sending registerTool.
+ *
+ * The plan cannot detect drift from a value it was never told. Without this
+ * the endpoint could serve a hash that no longer matches the registration and
+ * report `ready: true` the whole time — which is the shape of every other
+ * defect this module has already had: correct-looking, well-formed, and wrong
+ * in a way nothing on the surface can distinguish.
+ */
+function registeredHash() {
+  const h = String(process.env.REGISTERED_MANIFEST_HASH || '').trim().toLowerCase();
+  return /^0x[0-9a-f]{64}$/.test(h) ? h : null;
+}
+
+/**
+ * Three-valued, deliberately. `matches` and `drifted` are the two obvious
+ * answers; `not_recorded` is the one that gets dropped, and dropping it is
+ * how a silent break happens — an operator who registers and then forgets to
+ * set the env var would otherwise see the same quiet endpoint as one whose
+ * registration verifies. Absent is never a measurement, so it says so.
+ *
+ * `ready` is NOT set false on drift. Re-registering is exactly what an
+ * operator does about drift, so the plan they need must still be usable; what
+ * changes is that the drift is stated first and stated loudly.
+ */
+function registrationCheck(currentHash) {
+  const recorded = registeredHash();
+  if (!recorded) return { state: 'not_recorded', recorded: null };
+  if (!currentHash) return { state: 'unknown', recorded };
+  return {
+    state: recorded === currentHash.toLowerCase() ? 'matches' : 'drifted',
+    recorded,
+  };
+}
+
+/**
  * The manifest for RUNECLAW's single registered tool: a dispatcher over the
  * public read-only MCP tool set, so the on-chain record and /mcp can never
  * drift — both are generated from the same TOOLS registry at request time.
@@ -207,6 +243,8 @@ function buildRegistrationPlan({ tools }) {
     }
   }
 
+  const check = registrationCheck(hash);
+
   return {
     dry_run: true,
     ready: Boolean(creator && baseUrl() && hash && calldata),
@@ -231,6 +269,36 @@ function buildRegistrationPlan({ tools }) {
     // operator can refute in one command, which is precisely what nobody could
     // do while a stubbed keccak256 was quietly serving SHA-256 here.
     manifest_canonical: canonical,
+    // Does the served manifest still hash to what is ON-CHAIN? Three-valued,
+    // because "we were never told" is not "it matches".
+    //
+    // The old hash_warning below fired ONLY when the creator was unset, so an
+    // address-to-address change — or an APP_BASE_URL change, since endpoint and
+    // metadataURI are inside the hashed bytes — moved the hash in complete
+    // silence. Both happened in one deployment on 2026-08-23: apex to www AND
+    // a new creator, moving the hash twice before anything was registered. Had
+    // a registration existed, verification would have broken with nothing on
+    // this endpoint saying so, and the next person to notice would have been
+    // an ERC-8257 verifier months later.
+    registration_check: check.state,
+    ...(check.recorded ? { registered_manifest_hash: check.recorded } : {}),
+    ...(check.state === 'drifted' ? {
+      registration_drift: 'The manifest served here NO LONGER HASHES to the '
+        + `value registered on-chain (${check.recorded}). Verification of the `
+        + 'existing registration is BROKEN as of now — anything that checks '
+        + 'the on-chain hash against this manifest will fail. Something inside '
+        + 'the hashed bytes changed: APP_BASE_URL (endpoint + metadataURI), '
+        + 'TOOL_CREATOR_ADDRESS (creatorAddress), or the tool set itself. '
+        + 'Either restore the previous values, or re-register with the hash '
+        + 'below and update REGISTERED_MANIFEST_HASH to match.',
+    } : {}),
+    ...(check.state === 'not_recorded' ? {
+      registration_note: 'No REGISTERED_MANIFEST_HASH is recorded, so drift '
+        + 'from an existing registration CANNOT be detected here. If you have '
+        + 'already registered, set it to the hash you sent — otherwise a later '
+        + 'change to APP_BASE_URL, TOOL_CREATOR_ADDRESS or the tool set will '
+        + 'silently break verification.',
+    } : {}),
     // creatorAddress lives INSIDE the hashed manifest. While the env var is
     // unset it hashes as the zero address — so a registration sent from this
     // plan stops verifying the moment TOOL_CREATOR_ADDRESS is set. Say so
@@ -248,6 +316,12 @@ function buildRegistrationPlan({ tools }) {
       + 'docs/INTEROP.md §4.',
     calldata,
     instructions: [
+      ...(check.state === 'drifted' ? [
+        'REGISTRATION DRIFT: the manifest served here no longer hashes to '
+          + `${check.recorded}, the value on-chain. Verification is broken `
+          + 'RIGHT NOW. Restore the previous configuration, or re-register '
+          + 'with the hash below and set REGISTERED_MANIFEST_HASH to match.',
+      ] : []),
       ...(buildFailures.length ? [
         'DO NOT REGISTER. ' + buildFailures.join('; ') + '. A registration is '
           + 'permanent: an unverifiable hash cannot be corrected, only '
@@ -304,6 +378,8 @@ module.exports = {
   TOOL_SLUG,
   jcs,
   manifestHash,
+  registeredHash,
+  registrationCheck,
   buildManifest,
   buildRegistrationPlan,
 };

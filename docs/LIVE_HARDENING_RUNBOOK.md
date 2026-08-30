@@ -608,6 +608,92 @@ apparent trading outage. The vocabulary:
 `ENGINE STATUS UNKNOWN` is a **website** symptom. Check `/readyz` — not the
 bot.
 
+## There are TWO processes, and one of them was never being started
+
+    python -m bot.main    Telegram + engine. Also serves the GATEWAY on :8080
+                          (chat, proof, cards) — this is what every deploy ran.
+    python api_bridge.py  a SEPARATE uvicorn app on :8000. Three dashboard
+                          panels read it: insight, patterns, lab.
+
+On 2026-08-25 the bridge was down for hours. **Nothing crashed — nothing had
+ever started it.** The deploy sequence started the bot, the bot restarted fine,
+the gateway recovered, `/api/public/status` reported the system healthy, and
+`/api/insight/*` and `/api/patterns/*` returned 502 the whole time. It surfaced
+because an operator noticed broken pages.
+
+Two separate defects made that possible, and both are closed:
+
+- **The launcher started one process.** `scripts/launch_all.sh.template` starts
+  both, smoke-tests both, and probes both PORTS — a process can be alive and
+  not serving, and `kill -0` cannot tell those apart. Copy it OUTSIDE the repo
+  before use; `tests/test_launch_all_starts_both.py` pins every guarantee.
+
+- **The status page probed one link.** It reported `bot_gateway: reachable` and
+  called that healthy while half the system was unreachable. A status page that
+  probes one of two links reads as coverage while providing none. `api_bridge`
+  is its own component now and counts toward the overall verdict.
+
+`BOT_API_URL` addresses the bridge; unset reports `not_configured`, not
+`unreachable`. Those are different faults with different fixes — "unreachable"
+sends you hunting a dead process that was never addressed.
+
+## The learning overlays, and why two of them read zero
+
+`/calibration` shows three overlays. On 2026-08-25 it read:
+
+```
+Confidence calibration — SHADOW      calibration: NOT READY (0/30 samples)
+Per-setup expectancy  — SHADOW      55 setups, 81 trades
+Voter-weight learning — SHADOW      NOT READY (0/20 trades)
+```
+
+Three learners over the same trading activity, two with **nothing**. That is
+not a bug, and it is worth understanding before anyone "fixes" it.
+
+**Calibration and voter-weights JOIN a decision row to an outcome row by
+`paper_trade_id`. Setup-expectancy reads outcome rows alone.** A paper close
+writes only an outcome row unless `LEARN_CALIBRATION_FROM_PAPER` is on — so the
+two joiners see nothing while the third sees every paper trade. The counts are
+exactly what the design says they should be.
+
+`LEARN_CALIBRATION_FROM_PAPER` defaults **OFF**, and the reason is sound: those
+two learners feed live confidence and the admin auto-trade gate, so letting
+paper-derived calibration reach live money is an operator decision rather than
+a default.
+
+### What that means in simulation-first operation
+
+You are running a bot whose learners are configured for live-first evidence,
+on a book that is almost entirely paper. They will read zero indefinitely.
+
+The unlock, and it is safe:
+
+```bash
+LEARN_CALIBRATION_FROM_PAPER=true      # paper fills now write a decision row too
+```
+
+All three overlays stay **SHADOW** — computed and logged, never applied — so
+this changes no trading behaviour at all. It only starts accumulating the
+evidence. After ~30 joined samples, `/calibration` can answer the question that
+matters: **does 0.85 confidence actually win 85% of the time?**
+
+Until then it cannot, and neither can you. With 0 samples the calibrator is
+exact identity, so a poor win rate is **not** evidence that the confidence
+numbers are miscalibrated — it is evidence of nothing either way. Do not read
+the two zeroes as a verdict on the model.
+
+Enabling calibration to APPLY (`CONFIDENCE_CALIBRATION_ENABLED=true`) is a
+separate, later, money decision. Collect first, read the curve, then decide.
+
+> **Do not go hunting `LEARN_FROM_PAPER_CLOSES` for this.** It defaults ON and
+> governs the outcome write, not the decision row. Its comment claimed
+> "opt-in, default OFF" until 2026-08-25 and sent this exact investigation at
+> the wrong flag. Four flags carried that stale audit annotation and
+> `LearningConfig`'s docstring carried a worse one — it called
+> `ADAPTIVE_CONFIDENCE_ENABLED` opt-in and default-OFF while the code read
+> `True`, so a nudge that adjusts **live entry confidence** looked inert.
+> `tests/test_flag_prose_matches_default.py` pins all of it now.
+
 ## Standing hazards
 
 **An ephemeral Cloudflare quick tunnel is a single point of failure.** The

@@ -13,7 +13,10 @@ const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
 
 test('wallet_picker is no longer render-blocking (deferred)', () => {
-  assert.match(html, /<script src="\/js\/wallet_picker\.js" defer><\/script>/);
+  // `defer` is the property; the cache-buster is not. See the same note in
+  // dashboard_perf_ui.test.js — both pinned the literal tag including the
+  // absence of a `?v=`, and both failed on adding one.
+  assert.match(html, /<script src="\/js\/wallet_picker\.js(\?v=\d+)?" defer><\/script>/);
 });
 
 test('the 3D hero is not a static eager module script anymore', () => {

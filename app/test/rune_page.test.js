@@ -38,6 +38,34 @@ test('the three forge states are distinct and honest', () => {
   assert.ok(catches >= 3, 'unknown copy covers bad response AND thrown fetch');
 });
 
+test('the chain is read from the API, never written into the page', () => {
+  // The label and the explorer host were the literal strings "Base" and
+  // basescan.org. The contract derives its EIP-712 domain from block.chainid
+  // and the address comes from an env var, so a deploy on any other chain —
+  // Base Sepolia for a rehearsal — left this page naming the wrong network and
+  // linking to an explorer where the address does not exist, while the mint
+  // itself worked. Source-scanned because the state lives in a fetch callback:
+  // this pins the WIRING; lib/nft.js's own tests drive the behaviour.
+  // Comments stripped first. The explanation above the fixed code names the
+  // very host this asserts is absent, and scanning raw text would fail on the
+  // prose describing the fix — the trap CLAUDE.md records misfiring four times.
+  const code = page.split('\n')
+    .filter((ln) => !ln.trim().startsWith('//')).join('\n');
+  assert.match(code, /d\.explorer/, 'the link must use the explorer the API reports');
+  assert.match(code, /d\.chain_name/, 'the network must be named from the API');
+  assert.doesNotMatch(code, /basescan\.org/,
+    'the explorer host must come from the API, not be hardcoded here');
+  // Stripping must not have removed the code along with the prose.
+  assert.match(code, /fetch\('\/api\/nft\/stats'\)/,
+    'the scan found no page code — it would pass vacuously');
+
+  // The translated label carries a slot now rather than a baked-in network.
+  const line = i18n.split('\n').find((l) => l.includes("'rn.s_contract':"));
+  assert.ok(line, 'rn.s_contract still ships');
+  assert.ok(!/Base/.test(line), 'no locale may hardcode the network name');
+  assert.ok((line.split('{chain}').length - 1) >= 14, '{chain} slot in every locale');
+});
+
 test('the five facts carry the §4 posture in copy', () => {
   for (const k of ['rn.i1', 'rn.i2', 'rn.i3', 'rn.i4', 'rn.i5']) {
     assert.ok(page.includes(`data-i18n-html="${k}"`), `fact ${k} is translated`);

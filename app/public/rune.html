@@ -22,7 +22,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=36">
+<link rel="stylesheet" href="/styles.css?v=38">
 <style>
   .rn-wrap { max-width: 900px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -84,7 +84,7 @@
     <p style="margin-top:var(--s3)"><a class="btn btn--primary btn--sm" href="/dashboard" data-i18n="rn.cta_dash">Open the dashboard →</a></p>
   </section>
 </div>
-<script src="/js/i18n.js?v=131"></script>
+<script src="/js/i18n.js?v=135"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script src="/js/ambient.js?v=3" defer></script>
 <script src="/js/reveal.js?v=1" defer></script>
@@ -118,8 +118,24 @@
       el.innerHTML = '🔥 ' + esc(fill(T('rn.s_count', '{n} runes borne — one per wallet, forever.'), { n: d.minted_count }));
     }
     if (d.contract) {
-      el.innerHTML += '<div class="contract">' + esc(T('rn.s_contract', 'Contract on Base:')) + ' '
-        + '<a href="https://basescan.org/address/' + esc(d.contract) + '" target="_blank" rel="noopener">' + esc(d.contract) + '</a></div>';
+      // The chain and its explorer come from the API, which reads them from the
+      // SAME config that signs the mint voucher. They used to be the literal
+      // strings "Base" and basescan.org, so a deployment on any other chain —
+      // Base Sepolia for a rehearsal, say — would name the wrong network and
+      // link to an explorer where this address does not exist, while the mint
+      // itself worked fine. One place to set the chain, one place it is read.
+      var out;
+      if (d.chain_name) {
+        out = esc(fill(T('rn.s_contract', 'Contract on {chain}:'), { chain: d.chain_name })) + ' ';
+        out += d.explorer
+          ? '<a href="' + esc(d.explorer) + '" target="_blank" rel="noopener">' + esc(d.contract) + '</a>'
+          : esc(d.contract);
+      } else {
+        // Chain unknown: name no network and offer no explorer link. The
+        // address is the only thing we can still say truthfully.
+        out = esc(d.contract);
+      }
+      el.innerHTML += '<div class="contract">' + out + '</div>';
     }
   }).catch(function () {
     el.innerHTML = '<span class="muted">' + esc(T('rn.s_unknown', 'The chain would not answer just now — the count is unknown, not zero. Try again shortly.')) + '</span>';

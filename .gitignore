@@ -15,8 +15,13 @@ build/
 .eggs/
 
 # Virtual environments
+# Any name, not just these two: a venv built as `.venv-audit/` was ignored by
+# neither this file nor scripts/guard_lint.py, and the gate then reported
+# matplotlib as an unguarded HTTP surface. Both skips are structural now.
 .venv/
 venv/
+.venv*/
+venv*/
 env/
 ENV/
 
@@ -132,3 +137,4 @@ test-ledger/
 # replaced the real state links with dead ones.
 /data
 /logs
+.preflight_result.txt

@@ -81,16 +81,63 @@ async def test_golive_shows_warning_without_confirm():
 
 
 @pytest.mark.asyncio
-async def test_golive_confirm_enables_live_mode():
-    """/golive CONFIRM sets RUNTIME.live_mode = True."""
+async def test_golive_confirm_enables_live_mode(monkeypatch):
+    """/golive CONFIRM sets RUNTIME.live_mode = True — when it CAN.
+
+    This test used to pass against the default config, which is the defect:
+    SIMULATION_MODE hard-vetoes every order, the chat allow-list was empty and
+    there were no credentials, yet the command armed live mode and replied
+    "Real orders will execute on Bitget". The preconditions are planted here so
+    the test asserts arming, not the absence of a check.
+    """
+    import bot.core.live_readiness as lr
     from bot.config import RUNTIME
+
+    # CONFIG is a frozen dataclass, so the preconditions are planted by
+    # standing in for the readiness read rather than by mutating it. What this
+    # test owns is the ARMING half; whether a given config is ready is decided
+    # and tested in tests/test_live_readiness.py against the real inputs.
+    monkeypatch.setattr(
+        lr, "from_engine",
+        lambda *a, **k: {"can_execute": True, "blockers": [], "unverified": []},
+    )
 
     handler = _make_handler()
     update, ctx = _make_update(text="/golive CONFIRM", args=["CONFIRM"])
     try:
         await handler._cmd_golive(update, ctx)
         assert RUNTIME.live_mode is True
-        assert _any_reply_contains(update, "LIVE TRADING ENABLED")
+        assert _any_reply_contains(update, "LIVE TRADING ARMED")
+    finally:
+        RUNTIME.live_mode = False
+
+
+@pytest.mark.asyncio
+async def test_golive_confirm_refuses_when_no_order_could_execute():
+    """The defect this pins: a green banner over a bot that cannot trade.
+
+    On a default install SIMULATION_MODE=true hard-vetoes every live order
+    "regardless of any runtime flag", TELEGRAM_CHAT_ID is empty so
+    CONFIG.is_live() returns False, and there are no exchange credentials.
+    /golive CONFIRM armed anyway and replied "Real orders will execute on
+    Bitget (USDT-M futures)".
+
+    Nothing may be armed and no permission granted when nothing can execute.
+    """
+    from bot.compliance.compliance_engine import Permission
+    from bot.config import RUNTIME
+
+    handler = _make_handler()
+    handler.engine.compliance_profile.permissions.discard(Permission.LIVE_TRADE)
+    update, ctx = _make_update(text="/golive CONFIRM", args=["CONFIRM"])
+    try:
+        await handler._cmd_golive(update, ctx)
+        assert RUNTIME.live_mode is False, "armed live mode with blockers present"
+        assert Permission.LIVE_TRADE not in handler.engine.compliance_profile.permissions
+        assert _any_reply_contains(update, "NOT ARMED")
+        assert _any_reply_contains(update, "simulation_mode")
+        # The claim that started this: it must not survive anywhere on the card.
+        assert not _any_reply_contains(update, "Real orders will execute")
     finally:
         RUNTIME.live_mode = False
 

@@ -52,7 +52,6 @@ from __future__ import annotations
 import time
 import types
 
-import pytest
 
 from bot.core.proactive_monitor import Alert, ProactiveMonitor
 

@@ -141,10 +141,16 @@ def test_a_failed_close_says_the_position_is_still_open_and_still_protected(tmp_
 
 def test_a_flatten_rests_the_symbol(tmp_path):
     """Sticky leverage does not heal because we closed. Without the rest the
-    engine re-signals and the cycle repeats at a fee per round."""
+    engine re-signals and the cycle repeats at a fee per round.
+
+    Asked under "APT/USDT" — `idea.asset`, the spelling `execute` actually
+    hands `_preflight_check`. This test used to assert the perp string was a
+    key in the map and then read it back with that same string, so it held
+    while the rest was written under one spelling and read under another.
+    """
     ex = _executor(tmp_path, actual_leverage=20)
     _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
-    assert "APT/USDT:USDT" in ex._leverage_blocked_until
+    assert ex._preflight_check(10.0, symbol="APT/USDT") is not None
     assert ex._preflight_check(10.0, symbol="APT/USDT:USDT") is not None
 
 

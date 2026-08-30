@@ -17,12 +17,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from bot.config import CONFIG
 from bot.core.market_scanner import MarketScanner
 from bot.core.analyzer import Analyzer
-from bot.core.engine import RuneClawEngine
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
-from bot.utils.models import MarketSignal, Direction
-from bot.utils.logger import audit, system_log
+from bot.utils.models import MarketSignal
 
 import ccxt.async_support as ccxt
 
@@ -53,8 +51,8 @@ def divider(title=""):
 async def main():
     print(divider("RUNECLAW DEEP LIVE ANALYSIS"))
     print(f"  Timestamp : {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
-    print(f"  Exchange  : Bitget (live)")
-    print(f"  Mode      : SIMULATION (read-only)")
+    print("  Exchange  : Bitget (live)")
+    print("  Mode      : SIMULATION (read-only)")
     print(divider())
 
     # 1. Exchange connection
@@ -154,7 +152,7 @@ async def main():
             continue
 
         # 4d. Exchange flow (funding rate + OI)
-        print(f"\n  --- Exchange Flow ---")
+        print("\n  --- Exchange Flow ---")
         try:
             flow_summary = await flow_provider.get_flow_summary(sig.symbol)
             fr = flow_summary.get("funding_rate")
@@ -176,7 +174,7 @@ async def main():
             flow_summary = {}
 
         # 4e. Run full analyzer (TA + LLM)
-        print(f"\n  --- Technical Analysis + AI ---")
+        print("\n  --- Technical Analysis + AI ---")
 
         # Pre-compute ATR from candles for the risk engine
         import numpy as np
@@ -213,7 +211,7 @@ async def main():
                 print(f"  Source        : {idea.source}")
 
                 # 4f. Risk gate check
-                print(f"\n  --- Risk Gate ---")
+                print("\n  --- Risk Gate ---")
                 risk_result = risk_engine.evaluate(idea, atr=atr_val)
                 passed = risk_result.verdict == "APPROVED"
                 failed = risk_result.checks_failed
@@ -244,7 +242,7 @@ async def main():
                     "source": idea.source,
                 })
             else:
-                print(f"  Result: NO TRADE — conviction too low or filtered by regime")
+                print("  Result: NO TRADE — conviction too low or filtered by regime")
                 results.append({
                     "symbol": sig.symbol,
                     "price": sig.price,
@@ -276,13 +274,13 @@ async def main():
     print(f"  Filtered (low)   : {len(filtered)}")
 
     if tradeable:
-        print(f"\n  ACTIONABLE SIGNALS:")
+        print("\n  ACTIONABLE SIGNALS:")
         for r in tradeable:
             print(f"    {r['symbol']:<16} {r['direction']:<6} conf={r['confidence']:.0%}  "
                   f"R:R={r.get('rr_ratio', 0):.1f}x  squeeze={r.get('squeeze_risk', 'N/A')}")
 
     if blocked:
-        print(f"\n  BLOCKED BY RISK:")
+        print("\n  BLOCKED BY RISK:")
         for r in blocked:
             fails = r.get("risk_failed", [])
             print(f"    {r['symbol']:<16} {r['direction']:<6} — {'; '.join(fails[:2])}")
@@ -291,7 +289,7 @@ async def main():
     report_path = os.path.join(os.path.dirname(__file__), "..", "output_analysis.json")
     with open(report_path, "w") as f:
         json.dump(results, f, indent=2, default=str)
-    print(f"\n  Full report saved to output_analysis.json")
+    print("\n  Full report saved to output_analysis.json")
 
     # Cleanup
     await exchange.close()

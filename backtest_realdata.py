@@ -107,7 +107,7 @@ def print_results(results: list[dict], benchmarks: list[dict | None]):
     print("\n" + "=" * 100)
     print("RUNECLAW REAL-DATA BACKTEST RESULTS")
     print(f"Date: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"Data source: Bitget historical OHLCV (live exchange data)")
+    print("Data source: Bitget historical OHLCV (live exchange data)")
     print("=" * 100)
 
     bnh_map = {}

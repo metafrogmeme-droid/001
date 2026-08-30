@@ -76,10 +76,23 @@ test('the dashboard reads win_rate rather than recomputing it', () => {
   const path = require('node:path');
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
-  const i = src.indexOf("const bars = (rows, key)");
-  assert.ok(i > 0, 'the insights panel must still exist');
-  const block = src.slice(i, i + 700);
-  assert.ok(!/g\.wins \/ g\.n/.test(block),
-    'the panel recomputes the rate instead of reading g.win_rate');
-  assert.match(block, /g\.win_rate != null/);
+  assert.ok(!/g\.wins \/ g\.n/.test(src),
+    'the dashboard recomputes the rate somewhere instead of reading win_rate');
+
+  // AND the property itself, asked of the renderer that now owns it. The rows
+  // moved into public/js/winrate-bar.js when the sample floor was added, and
+  // this assertion went with them — but it stopped being a source scan on the
+  // way, because the property is reachable by calling the function. A scan can
+  // only see that the right characters are present; the question is what the
+  // code DOES with a null.
+  const WR = require('../public/js/winrate-bar');
+
+  // wins/n would be 50%. win_rate is what the server published.
+  assert.strictEqual(
+    WR.classify({ pattern: 'p', win_rate: 61, wins: 10, n: 20 }, 'pattern').rate, 61,
+    'the panel recomputed the rate from wins/n instead of reading win_rate');
+
+  // And an absent rate stays absent rather than becoming 0.
+  assert.strictEqual(
+    WR.classify({ pattern: 'p', win_rate: null, wins: 0, n: 0 }, 'pattern').rate, null);
 });

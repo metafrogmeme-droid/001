@@ -11,6 +11,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
+const { deriveStartEquity } = require('../lib/equity_basis');
 const { computeReputation } = require('../lib/reputation');
 
 const router = express.Router();
@@ -33,9 +34,19 @@ router.get('/', async (req, res) => {
       'SELECT equity FROM equity_snapshots WHERE user_id = ? ORDER BY snapshot_at DESC LIMIT 1',
       [uid]
     );
-    const net = rows.reduce((a, r) => a + (parseFloat(r.pnl) || 0), 0);
-    const startEquity = snap.length > 0 ? Math.max(parseFloat(snap[0].equity) - net, 1) : 10000;
-    res.json(computeReputation(rows, { startEquity }));
+    // The basis and the metrics must agree about which trades exist:
+    // computeReputation filters to rows with a readable pnl, so summing the
+    // unreadable ones as zero here left every percentage biased by exactly
+    // the pnl nobody could read. Unfixable, so declared — see deriveStartEquity.
+    const { start_equity, ...coverage } = deriveStartEquity(
+      rows, snap.length > 0 ? snap[0].equity : null);
+    // `start_equity` is deliberately NOT forwarded. reputation.js opens by
+    // saying it is "leverage-agnostic and dollar-free (every metric is a
+    // ratio) ... stays shareable without exposing amounts", and this route is
+    // where a dollar figure would get bolted onto it. The COVERAGE is the part
+    // a reader needs — how many trades the basis could and could not see — and
+    // it is a count, not an amount.
+    res.json({ ...computeReputation(rows, { startEquity: start_equity }), coverage });
   } catch (err) {
     console.error('Reputation error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to compute reputation' });

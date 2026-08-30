@@ -78,26 +78,87 @@ def _leveraged_pnl_usd(entry: float, last: float, direction: str,
 
 def _background_scan_is_fresh(
     last_scan_time: float, interval: float, grace: float, now: float,
+    sweep_s: float | None = None,
 ) -> tuple[bool, int]:
     """Decide whether the continuous background sweep is recent enough that an
     interactive "Latest Signal" tap should serve its result instantly instead
     of triggering a slow, throttle-exposed re-scan.
 
-    Fresh when a sweep has run (``last_scan_time > 0``), the grace is enabled
-    (``grace > 0``), and its age is within one scan interval plus the grace.
     Returns ``(is_fresh, seconds_until_next_sweep)``. Pure — no I/O — so the
     responsiveness gate is unit-testable without the engine or Telegram.
+
+    THE WINDOW IS THE CADENCE, NOT THE INTERVAL, and getting that wrong made
+    this gate useless even once its input was finally being written.
+
+    Consecutive answers arrive ``sweep_s + interval`` apart: the loop runs a
+    sweep, then sleeps. So a result older than that means a sweep was MISSED —
+    the loop stalled or is throttled — which is the genuine staleness this gate
+    was built to detect. Sizing the window on ``interval`` alone asserts that a
+    sweep is instantaneous.
+
+    It is not. The repo's own recorded rate is ~3.3s per symbol against a
+    universe of ~200, so a sweep is minutes; ``interval`` comes from
+    ``_compute_smart_scan_interval``, which is derived from ATR volatility and
+    clamped to 60-90s and has no relationship to how long a sweep takes. The
+    old window of ``interval + grace`` was therefore 90-120s against a sweep of
+    280-660s: every tap fell through to a live re-scan, which is exactly the
+    slowness the gate was added to remove.
+
+    ``sweep_s`` is None until one sweep has finished. That falls back to the
+    old arithmetic rather than inventing a duration — a guessed rate on this
+    path is a fabricated freshness claim, and the fallback is wrong only for
+    the first tap after a restart.
     """
     if grace <= 0 or last_scan_time <= 0:
         return False, 0
     age = now - last_scan_time
-    if age <= (interval + grace):
+    # `is not None` rather than `or`. Here the two happen to coincide, because
+    # the fallback is 0.0 and a discarded 0.0 lands on 0.0 anyway — so this is
+    # stated intent, not a load-bearing distinction, and saying otherwise would
+    # be inventing a defect to look careful about. It stays spelled this way
+    # because "absent" and "measured zero" stop coinciding the moment the
+    # fallback becomes anything but zero, and a sweep really can measure ~0.
+    cadence = interval + (sweep_s if sweep_s is not None else 0.0)
+    if age <= (cadence + grace):
+        # Time until the next sweep STARTS — the loop is sleeping `interval`
+        # from the moment the last one finished.
         return True, max(0, int(interval - age))
     return False, 0
 
 
 #: How long an analysis-timeout record stays relevant to a slow scan (s).
 ANALYSIS_TIMEOUT_HINT_WINDOW_S = 900.0
+
+
+def _skipped_symbols_note(record: dict | None, now: float) -> str:
+    """" (N of M symbols were skipped)" for a sweep that did not cover them all.
+
+    The all-clear this decorates — "no setups above the confidence line" —
+    means "we looked and there is nothing" to whoever reads it. A sweep that
+    gave up on some symbols has not looked at those, so the same sentence
+    quietly widens from a measurement into a claim about markets nobody read.
+    That is the partial-total shape: a number computed over a subset and
+    printed as though it covered the whole.
+
+    Silent on a clean sweep. A caveat printed every time is a caveat nobody
+    reads, which is how the real one gets skipped.
+
+    Pure, and returns "" for anything it cannot read: absent record, wrong
+    shape, unusable counts, or a record too old to describe this sweep.
+    """
+    if not isinstance(record, dict):
+        return ""
+    try:
+        skipped = int(record.get("skipped") or 0)
+        of = int(record.get("of") or 0)
+        at = float(record.get("at") or 0.0)
+    except (TypeError, ValueError):
+        return ""
+    if skipped <= 0 or of <= 0 or at <= 0:
+        return ""
+    if (now - at) > ANALYSIS_TIMEOUT_HINT_WINDOW_S:
+        return ""
+    return f" <i>({skipped} of {of} symbols were skipped)</i>"
 
 
 
@@ -727,8 +788,14 @@ def guard(command: str = ""):
     return _decorate
 
 
+#: Prompt budget for each half of the user-context line. Bounded separately so
+#: one long section cannot delete another — see resolve_profile_note.
+PROFILE_NOTE_MAX = 300
+MEMORY_NOTE_MAX = 220
+
+
 def resolve_profile_note(profile_note: str, user_id) -> str:
-    """The agent-profile line to attach, preferring what the caller supplied.
+    """The user-context line to attach: what they DECLARED, plus what we SAW.
 
     A SEAM, not a convenience. This was six inline lines inside `_llm_chat`,
     which is async and needs a whole TelegramHandler to reach — so nothing
@@ -737,27 +804,56 @@ def resolve_profile_note(profile_note: str, user_id) -> str:
     rendered ZERO times in production because the code was present and never
     reached. A scan cannot tell those apart; a callable can be called.
 
-    The web supplies `profile_note` on its own requests, so that wins. Telegram
-    supplies nothing, which is the whole gap: `profile_note` defaults to "" and
-    the only callers that ever passed it were three lines in user_gateway.py,
-    so the same person was personalised in the browser and anonymous on
-    Telegram.
+    For the DECLARED half the web supplies `profile_note` on its own requests,
+    so that wins; Telegram supplies nothing, which was the original gap —
+    `profile_note` defaults to "" and the only callers that ever passed it were
+    three lines in user_gateway.py, so the same person was personalised in the
+    browser and anonymous on Telegram.
+
+    The OBSERVED half is added for both surfaces, always. It is what the agent
+    has actually been asked to look at (`user_memory_store`), and it is kept
+    separate from the declared half on purpose: "they say they watch SOL" and
+    "they have asked about SOL eleven times" are different claims, and only one
+    of them is evidence.
 
     Returns "" — never a sentence — when there is nothing to say. An unreadable
-    store and a user who saved nothing are different facts, but the ACTION is
-    the same for both: tell the model nothing. Rendering either as "this user
-    has no watchlist" would be a claim about the user built from no evidence.
+    store, a user who saved nothing, and a user with no history are different
+    facts, but the ACTION is the same for all of them: tell the model nothing.
+    Rendering any of them as "this user has no watchlist" or "they have never
+    asked about anything" would be a claim about the user built from no
+    evidence.
     """
+    # Each part is bounded HERE, not by one cap at the call site. A single
+    # `[:300]` over the joined string cuts whichever section happens to be last
+    # — so a long watchlist would silently delete the entire history sentence,
+    # and the agent would look like it had no memory for exactly the users who
+    # had told it the most. A truncated section is a partial printed as a
+    # whole; a bisected one is worse.
+    parts = []
     if profile_note:
-        return profile_note
-    if not user_id:
-        return ""
-    try:
-        from bot.core import user_profile_store as _ups
-        return _ups.note_for(user_id) or ""
-    except Exception:
-        # A preferences lookup must never take a chat down.
-        return ""
+        parts.append(profile_note[:PROFILE_NOTE_MAX])
+    elif user_id:
+        try:
+            from bot.core import user_profile_store as _ups
+            parts.append((_ups.note_for(user_id) or "")[:PROFILE_NOTE_MAX])
+        except Exception:
+            # A preferences lookup must never take a chat down.
+            pass
+    # OBSERVED history, appended to whichever declared note we ended up with.
+    # It is a SECOND source, not a fallback: the web supplies `profile_note` on
+    # its own requests, and an early `return profile_note` here — which is what
+    # this function used to do — meant the browser got the declared half and
+    # never the observed one. The same person, two doors, two different agents,
+    # which is the exact defect this function was extracted to fix one layer up.
+    if user_id:
+        try:
+            from bot.core import user_memory_store as _ums
+            parts.append((_ums.note_for(user_id) or "")[:MEMORY_NOTE_MAX])
+        except Exception:
+            # Recall is context, never a dependency. A memory fault must not
+            # cost the user the profile line, let alone the conversation.
+            pass
+    return " ".join(p for p in parts if p)
 
 
 class TelegramHandler:
@@ -830,8 +926,11 @@ class TelegramHandler:
             ("portfolio", self._cmd_portfolio), ("trade", self._cmd_trade),
             ("paper", self._cmd_paper),
             ("risk", self._cmd_risk), ("status", self._cmd_status),
+            ("enforcing", self._cmd_enforcing),
             ("rejected", self._cmd_rejected), ("halt", self._cmd_halt),
             ("reset", self._cmd_reset), ("macro", self._cmd_macro),
+            ("eventrisk", self._cmd_eventrisk),
+            ("compliance", self._cmd_compliance),
             ("whynot", self._cmd_whynot),
             ("news", self._cmd_news),
             ("share", self._cmd_share),
@@ -1357,7 +1456,10 @@ class TelegramHandler:
         combined = self.engine.user_portfolios.combined_snapshot() if self.engine.user_portfolios.all_portfolios() else None
         open_pos = self.engine.user_portfolios.total_open_positions() if self.engine.user_portfolios.all_portfolios() else 0
         macro = self.engine.macro_calendar.evaluate()
-        mode = "SIM" if CONFIG.simulation_mode else "LIVE"
+        # Was `"SIM" if simulation_mode else "LIVE"` — which announced LIVE
+        # on a bot with sim off and live never armed. IDLE is that state.
+        from bot.core.live_readiness import mode_label
+        mode = mode_label()
         cb_s = "paused" if cb else ("unknown" if _g["unknown"] else "running")
         macro_s = macro.state.value.replace("_", " ").lower()
         return f"{mode} | {open_pos} open | {cb_s} | macro: {macro_s}"
@@ -1739,11 +1841,23 @@ class TelegramHandler:
                     f"win rate {state.win_rate:.0%}, "
                     f"total trades {state.total_trades}"
                 )
-            cb = self.engine.risk.circuit_breaker_active
-            mode = "LIVE" if not CONFIG.simulation_mode else "PAPER"
+            # This string is handed to the LLM as engine state, so a wrong mode
+            # here is repeated to the user in prose. Three-valued now — it read
+            # `"LIVE" if not CONFIG.simulation_mode else "PAPER"`, which says
+            # LIVE on a bot with simulation off and live never armed.
+            #
+            # Computed BEFORE `cb` on purpose: test_trade_gate_parity pins the
+            # `cb` assignment within 400 characters of the f-string below, so
+            # that nobody can quietly redefine `cb` to something broader than
+            # circuit_breaker_active. Inserting these lines between the two is
+            # what broke it, and the fix is to keep the pair adjacent rather
+            # than to widen the window the test looks in.
+            from bot.core.live_readiness import mode_label
+            mode = mode_label()
             # CB= keeps its exact old meaning: a dozen readers drive alerts and
             # resume logic off `circuit_breaker_active`, and widening the field
             # under them would trade one wrong answer for another.
+            cb = self.engine.risk.circuit_breaker_active
             engine_state = f"{mode} mode, CB={'ON' if cb else 'OFF'}"
             # The claim the LLM actually makes to a user is "you can trade", and
             # CB= answers a narrower question than that. Twice now a gate
@@ -2004,8 +2118,12 @@ class TelegramHandler:
             # we cannot support.
             profile_note = resolve_profile_note(profile_note, user_id)
             if profile_note:
+                # No `[:300]` here any more. resolve_profile_note bounds each
+                # section itself, and re-cutting the join would put back the
+                # exact failure that bound is for: the last section deleted
+                # whenever the first one runs long.
                 system_prompt += (
-                    "\n\nThis user's saved agent profile: " + profile_note[:300])
+                    "\n\nWhat we know about this user: " + profile_note)
 
             # Get conversation history for multi-turn context
             history = []
@@ -2433,6 +2551,10 @@ class TelegramHandler:
         # FIREWALL verdict to the tamper-evident chain and returns it; a message is
         # only refused when the operator has additionally opted into blocking HIGH
         # verdicts. Default OFF (no scan) \u2014 this can never break a chat.
+        # Initialised before the try so the LLM call below can always ask. If
+        # the scan itself failed, the verdict is None and hardening is skipped —
+        # which is the honest reading: nobody looked, so nothing was flagged.
+        fw_verdict = None
         try:
             fw_verdict = self.engine.firewall_scan(text, source="telegram", user_id=str(uid))
             if fw_verdict and fw_verdict.get("risk") == "high" and \
@@ -2643,6 +2765,25 @@ class TelegramHandler:
                 audit(system_log, f"NL intent routed: '{text[:50]}' -> {intent.skill}",
                       action="intent_dispatch", result=intent.skill,
                       data={"confidence": intent.confidence, "source": intent.source})
+                # Per-user recall (bot/core/user_memory_store): remember the ASSET the
+                # router resolved, not the sentence the user typed. Recorded here rather
+                # than at the chat entry point because this is where the bot itself
+                # decided what the message was about — a symbol scraped from prose would
+                # be a guess written into a store that feeds a system prompt.
+                #
+                # This is one of TWO dispatch sites — user_gateway.py has
+                # the web's. Both call observe(); a memory that only remembers
+                # the surface somebody thought of makes the agent inconsistent
+                # about the same person depending on which door they used, which
+                # is how the auth classifier came to be fixed on one path and
+                # left broken on the other.
+                try:
+                    from bot.core import user_memory_store as _user_memory
+                    _user_memory.observe(tg_id, intent.skill, intent.kwargs)
+                except Exception:
+                    # Recall is context, never a dependency. Instrumentation on
+                    # the dispatch path must not be the reason a dispatch fails.
+                    pass
                 # Store intent-routed message in conversation memory
                 self.conversations.append(tg_id, "user", text,
                                            metadata={"intent": intent.skill})
@@ -2773,8 +2914,14 @@ class TelegramHandler:
         _tel_code = getattr(getattr(update, "effective_user", None),
                             "language_code", "") or ""
         _reply_lang = get_user_lang_raw(self.users, tg_id) or _tel_code
+        # Hardened only for the PROMPT, never for `text` itself: the same
+        # variable drives intent parsing and command routing above, and
+        # rewriting it there would change what the bot thinks you asked for.
+        # Ordinary messages come back byte-identical (see defang_if_flagged).
+        from bot.guardian.firewall import defang_if_flagged
+        _prompt_text, _ = defang_if_flagged(text, fw_verdict)
         answer = await self._llm_chat(
-            _sanitize_chat_input(text), user_id=tg_id, user_name=user_name,
+            _sanitize_chat_input(_prompt_text), user_id=tg_id, user_name=user_name,
             is_admin=self._is_admin(update), reply_lang=_reply_lang)
 
         # Store assistant response in conversation memory
@@ -2871,6 +3018,32 @@ class TelegramHandler:
         if not caller_uid:
             return False
         return caller_uid in {s.strip() for s in expected_uid.split(",") if s.strip()}
+
+    @staticmethod
+    def _callback_owner_ok(caller_uid: str | None, expected_uid: str | None) -> bool:
+        """May `caller_uid` act on a trade callback tagged for `expected_uid`?
+
+        `_uid_matches` allows an EMPTY expectation, which is correct for the
+        auto-scan broadcast it was written for: one button, several chat ids,
+        no single owner. It is wrong for a per-user trade button, where every
+        construction site emits the uid — so an untagged payload cannot have
+        come from a real button, and is the crafted/replayed callback the check
+        exists to stop.
+
+        `confirm:` and `reject:` spelled that out inline; `setlimit:` wrote
+        `if expected_uid and not _uid_matches(...)` and the `and` short-circuited
+        on exactly that payload. Behind it sits `engine._pending_ideas`
+        (bot/core/engine.py:508), one global dict keyed by trade id with no
+        owner and no caller filter on the read, so the untagged form disclosed
+        another user's entry, stop and target and armed `_pending_limit_input`
+        against their trade.
+
+        One predicate rather than three hand-written conditions, because the
+        defect was drift between copies of the same rule. `pos_close_` keeps its
+        own fail-open tag check on purpose — there the caller-keyed executor and
+        portfolio lookups are the real isolation, and its comment says so.
+        """
+        return bool(expected_uid) and TelegramHandler._uid_matches(caller_uid, expected_uid)
 
     def _allowlist_ids(self) -> set[str]:
         """Telegram IDs permitted to use the bot (audit F-2).
@@ -3347,7 +3520,8 @@ class TelegramHandler:
 
         # Authorized user — GetClaw ready
         role = record.get("role", "trader")
-        mode_str = "PAPER" if CONFIG.simulation_mode else "LIVE"
+        from bot.core.live_readiness import mode_label
+        mode_str = mode_label()
         user_portfolio = self.engine.user_portfolios.get(tg_id)
         state = user_portfolio.snapshot()
         # The headline answers "would a new entry be accepted", not "is one
@@ -4981,9 +5155,10 @@ class TelegramHandler:
                 await self._send(update,
                     "✅ <b>ANCHOR VERIFIED &amp; RECORDED</b>\n"
                     "The identity card now reads VERIFIED — the on-chain tx "
-                    "was checked (confirmed, correct calldata, sent from the "
-                    "agent wallet). /proof and /agent surfaces update on the "
-                    "next publication tick.")
+                    "was checked (confirmed, calldata exactly the anchor "
+                    "payload, sent from the agent wallet, and to the "
+                    "destination its recorded mode names). /proof and /agent "
+                    "surfaces update on the next publication tick.")
             else:
                 await self._send(update,
                     "🔴 <b>NOT RECORDED</b>\n"
@@ -6134,16 +6309,45 @@ class TelegramHandler:
                 "Use <code>/golive CONFIRM</code> to re-enable.")
             return
 
+        # Readiness is read BEFORE anything is armed, and shown on the preview
+        # as well as the confirm. The preview used to advertise "real order
+        # execution on Bitget" and list leverage limits without checking one
+        # precondition.
+        from bot.core.live_readiness import from_engine as _live_readiness
+        from bot.core.live_readiness import render as _render_readiness
+        readiness = _live_readiness(self.engine)
+
         if not args or args[0].upper() != "CONFIRM":
-            await self._send(update,
-                "\u26a0\ufe0f <b>LIVE TRADING ACTIVATION</b>\n\n"
-                "This will enable <b>real order execution</b> on Bitget.\n\n"
-                f"Safety limits:\n"
+            _limits = (
+                f"\nIf armed, the limits are:\n"
                 f"\u2022 Max {CONFIG.risk.max_open_positions} concurrent positions\n"
                 f"\u2022 Max {CONFIG.risk.max_symbol_exposure_pct:.0f}% per symbol\n"
                 f"\u2022 USDT-M perpetual futures\n"
-                f"\u2022 Default {CONFIG.exchange.default_leverage}x leverage\n\n"
-                "To confirm, type:\n<code>/golive CONFIRM</code>")
+                f"\u2022 Default {CONFIG.exchange.default_leverage}x leverage\n")
+            await self._send(update,
+                "\u26a0\ufe0f <b>LIVE TRADING ACTIVATION</b>\n\n"
+                + _render_readiness(readiness) + "\n"
+                + _limits
+                + ("\nTo confirm, type:\n<code>/golive CONFIRM</code>"
+                   if readiness["can_execute"] else
+                   "\n<i>Clear the blockers above first \u2014 "
+                   "<code>/golive CONFIRM</code> will refuse until they are "
+                   "gone.</i>"))
+            return
+
+        # REFUSE to arm when no order could execute anyway. The old code set
+        # RUNTIME.live_mode, granted Permission.LIVE_TRADE and replied "Real
+        # orders will execute on Bitget" \u2014 on a default install SIMULATION_MODE,
+        # the empty chat allow-list and the absent credentials each made that
+        # false on their own. Granting a real authorization on a false premise
+        # is worse than the wrong message.
+        if not readiness["can_execute"]:
+            audit(system_log, "LIVE TRADING REFUSED via /golive \u2014 preconditions",
+                  action="golive", result="REFUSED",
+                  data={"user": self._get_tg_id(update),
+                        "blockers": [b["code"] for b in readiness["blockers"]]})
+            await self._send(update, _render_readiness(readiness)
+                + "\n\n<i>Nothing was armed and no permission was granted.</i>")
             return
 
         # Enable live mode via RuntimeState (CONFIG is frozen)
@@ -6157,10 +6361,10 @@ class TelegramHandler:
 
         audit(system_log, "LIVE TRADING ENABLED via /golive",
               action="golive", result="ENABLED",
-              data={"user": self._get_tg_id(update)})
+              data={"user": self._get_tg_id(update),
+                    "unverified": [u["code"] for u in readiness["unverified"]]})
         await self._send(update,
-            "\U0001f7e2 <b>LIVE TRADING ENABLED</b>\n\n"
-            "Real orders will execute on Bitget (USDT-M futures).\n"
+            _render_readiness(readiness) + "\n\n"
             f"Limits: {CONFIG.risk.max_open_positions} positions, "
             f"{CONFIG.exchange.default_leverage}x leverage.\n\n"
             "\u2022 <code>/livebalance</code> — check USDT balance\n"
@@ -6261,6 +6465,22 @@ class TelegramHandler:
                 "Check the credentials and their trading permissions.")
             return
 
+        # The balance probe above proves the key can READ. It says nothing about
+        # whether the key can move the money OUT, which is the fact this product's
+        # non-custodial promise actually rests on — and until now nothing in the
+        # codebase asked. Bitget answers it on a read-only endpoint; other venues
+        # have no equivalent yet, so they render the honest "not readable" line
+        # rather than a silence that reads as reassurance.
+        scope: dict = {"withdraw": "unknown", "ip_allowlist": None}
+        if venue == "bitget":
+            try:
+                from bot.core.exchange_credentials import probe_bitget_key_scope
+                scope = await probe_bitget_key_scope(
+                    fields["api_key"], fields["api_secret"], fields["passphrase"],
+                    sandbox=CONFIG.exchange.sandbox)
+            except Exception:
+                pass   # stays "unknown" — the line below says so out loud
+
         tg_id = self._get_tg_id(update)
         store = get_credential_store()
         store.set_venue(tg_id, venue, fields)
@@ -6272,10 +6492,12 @@ class TelegramHandler:
         audit(system_log, f"User linked own {label} account via /connect",
               action="connect", result="OK",
               data={"user": tg_id, "venue": venue, "fingerprint": store.fingerprint(tg_id)})
+        from bot.guardian.authority_preflight import withdraw_notice
         await self._send(update,
             f"🟢 <b>{label} account linked</b>\n\n"
             f"Key: <code>{store.fingerprint(tg_id)}</code>\n"
             f"Balance: {html.escape(detail)}\n\n"
+            f"{withdraw_notice(scope.get('withdraw'))}\n\n"
             "Your keys are encrypted at rest. Per-user live trading is not yet "
             "enabled — you'll be notified when it goes live. Use "
             "<code>/exchange</code> to review or <code>/disconnect</code> to remove.")
@@ -10024,6 +10246,36 @@ class TelegramHandler:
             system_log.debug("risk card render failed: %s", exc)
         await self._send(update, rendered["text"], reply_markup=kb)
 
+    @guard("enforcing")
+    async def _cmd_enforcing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Which controls would refuse a bad trade right now.
+
+        `/risk` shows the drawdown backstop; `/guardian` shows the guardian
+        suite. Neither shows the SET, and the set is the question worth asking
+        before real money: 27 flags live in RiskLimits and no surface listed
+        them together, so "what is enforcing?" was an investigation rather than
+        a glance.
+
+        Read fresh on every call, never cached. A cached enforcement posture is
+        a claim about the past presented as the present, and the whole card is
+        an answer to "right now".
+        """
+        from bot.formatters.gate_card import render_gate_card
+        from bot.guardian.gate_inventory import inventory, refusal_summary
+        try:
+            rows = inventory(getattr(CONFIG, "risk", None))
+            text = render_gate_card(rows, refusal_summary(rows))
+        except Exception as exc:
+            # Never swallow into an empty card. A heading with nothing under it
+            # reads as "nothing to report", which on THIS screen means "nothing
+            # is wrong" — the third thing the guard/omit table warns about.
+            system_log.debug("gate card render failed: %s", exc)
+            text = ("🛡 <b>Enforcement inventory</b>\n\n"
+                    "⚪ Could not read the control configuration, so the "
+                    "posture is unknown. This is NOT the same as 'no controls "
+                    "are active' — it means nobody looked successfully.")
+        await self._send(update, text)
+
     @guard("status")
     async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._get_tg_id(update)
@@ -10041,11 +10293,22 @@ class TelegramHandler:
         blocked_by = "; ".join(_g["reasons"])
         cb = bool(_g["blocked"])
         macro = self.engine.macro_calendar.evaluate()
-        mode = "PAPER" if CONFIG.simulation_mode else "LIVE"
+        # Two different questions, and one expression was answering both.
+        #
+        # WHICH BOOK TO READ is "is this a real exchange account?" — true
+        # whenever simulation is off, including when live is not armed, because
+        # the account can still hold positions from an earlier session.
+        #
+        # WHAT THE CARD SAYS is a different question: `is_live()` also needs the
+        # arm flag and the chat allow-list, so a bot with SIMULATION_MODE=false
+        # and live never armed places nothing while this card announced LIVE.
+        real_account = not CONFIG.simulation_mode
+        from bot.core.live_readiness import mode_label as _mode_label
+        mode = _mode_label()
         # LIVE FIX: show real exchange equity and live position count.
         # Truthful equity: None in LIVE mode means the balance is unreadable —
         # the status card renders "unavailable" rather than the paper baseline.
-        if mode == "LIVE":
+        if real_account:
             equity, _eq_source = await self.engine.resolve_display_equity(user_id)
             executor = self.engine.live_executor
             open_count = len(executor.open_positions)
@@ -10169,7 +10432,9 @@ class TelegramHandler:
             pass
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).
-        if mode == "LIVE":
+        # Keyed on the ACCOUNT, not the armed state — an idle real account
+        # still routes to a venue, and that is worth seeing before arming.
+        if real_account:
             try:
                 _v = self.engine.live_executor._venue
                 msg += (f"\n🏦 Venue: <b>{_v.display_name}</b> "
@@ -10319,6 +10584,52 @@ class TelegramHandler:
     @guard("macro")
     async def _cmd_macro(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         result = await self.registry.dispatch("macro_calendar", self.engine)
+        await self._send(update, result)
+
+    @guard("macro")
+    async def _cmd_eventrisk(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Macro-event risk for one symbol.
+
+        `check_event_risk` was a REGISTERED SKILL NO TRANSPORT DISPATCHED — it
+        advertised `/eventrisk` in its own class body and no handler existed,
+        so the string was documentation of a command that did not run. Being
+        unrunnable is why nobody noticed that every one of macro_skills.py's
+        attribute probes named fields the real objects do not have; those were
+        fixed in #213 against tests, which left the module correct-if-wired.
+
+        `@guard("macro")` rather than a new permission: this is the same
+        read-only macro data /macro already serves, scoped to a symbol, and
+        `macro` is a permission trader and paper already hold. Inventing
+        `eventrisk` here would repeat the exposure/networth/research/rwa
+        mistake recorded in ROLE_PERMISSIONS — a permission string no role
+        holds makes a "user" command admin-only in fact.
+        """
+        args = ctx.args or []
+        if not args:
+            await self._send(update, "Usage: <code>/eventrisk BTC</code>")
+            return
+        result = await self.registry.dispatch(
+            "check_event_risk", self.engine, symbol=str(args[0]))
+        await self._send(update, result)
+
+    @guard("compliance")
+    async def _cmd_compliance(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Restricted jurisdictions and the consent ledger. OPERATOR-ONLY.
+
+        Deliberately not a trader permission. The card summarises the GLOBAL
+        consent ledger — up to 5,000 authorization decisions across every user,
+        with trade ids and the locks each one failed. No subject id is
+        rendered, but a stream of other people's grant/deny outcomes is still
+        operator information, and "read-only" is not the same as "shared".
+
+        `compliance` is therefore held by no role but admin (which holds "*").
+        That is the exposure/networth shape on purpose rather than by accident,
+        and tests/test_command_audience_matches_permission.py is what keeps the
+        catalogue honest about it: the entry is filed under an "admin" group,
+        and that test fails if the permission ever becomes reachable by a
+        normal role without the documentation moving too.
+        """
+        result = await self.registry.dispatch("compliance_status", self.engine)
         await self._send(update, result)
 
     @guard("backtest")
@@ -11117,16 +11428,30 @@ class TelegramHandler:
             _last = float(getattr(self.engine, "_last_scan_time", 0.0) or 0.0)
             _interval = float(getattr(self.engine, "_current_scan_interval", 0.0)
                               or CONFIG.scan_interval_seconds)
+            # How long a sweep actually takes, measured. None until one
+            # finishes. Without it the window is sized as if a sweep were
+            # instantaneous, which is the bug — see _background_scan_is_fresh.
+            _sweep = getattr(self.engine, "_last_sweep_duration_s", None)
+            _sweep = float(_sweep) if _sweep is not None else None
             _fresh, _next_in = _background_scan_is_fresh(
-                _last, _interval, _grace, time.monotonic())
+                _last, _interval, _grace, time.monotonic(), _sweep)
             _age = (time.monotonic() - _last) if _last > 0 else 0
+            _skipped_note = _skipped_symbols_note(
+                getattr(self.engine, "_last_analysis_timeout", None),
+                time.monotonic())
             if _fresh:
                 await self._send(update,
                     f"✅ <b>No setups above {_display_min:.0%} confidence "
                     f"right now.</b>\n\n"
-                    f"\U0001f4e1 Full sweep ran {int(_age)}s ago — next in "
-                    f"~{_next_in}s. The agent watches ~200 pairs continuously; "
-                    f"a quiet tape means no high-conviction edge, not a stall.\n\n"
+                    # NOT "Full sweep". A sweep that skipped symbols on a
+                    # per-symbol analysis timeout still lands here, and calling
+                    # it full asserts coverage nobody measured — the same
+                    # overclaim as printing a partial total as a whole one. The
+                    # skipped count is appended below when there is one.
+                    f"\U0001f4e1 Sweep ran {int(_age)}s ago — next in "
+                    f"~{_next_in}s. The agent watches ~{CONFIG.top_movers_count} "
+                    f"pairs continuously; a quiet tape means no high-conviction "
+                    f"edge, not a stall.{_skipped_note}\n\n"
                     f"Try <code>/fullscan</code> for a deep multi-symbol pass now.")
                 return
             await self._send(update,
@@ -13729,7 +14054,7 @@ class TelegramHandler:
             trade_id = parts[1]
             expected_uid = parts[2] if len(parts) > 2 else None
             caller_uid = str(update.effective_user.id) if update.effective_user else None
-            if expected_uid and not self._uid_matches(caller_uid, expected_uid):
+            if not self._callback_owner_ok(caller_uid, expected_uid):
                 await self._send(update,
                     "\U0001f512 <b>Access denied</b>", edit=True)
                 return
@@ -13788,7 +14113,7 @@ class TelegramHandler:
             # owner tag means a crafted/replayed callback — deny rather than allow.
             expected_uid = parts[2] if len(parts) > 2 else None
             caller_uid = str(update.effective_user.id) if update.effective_user else None
-            if not expected_uid or not self._uid_matches(caller_uid, expected_uid):
+            if not self._callback_owner_ok(caller_uid, expected_uid):
                 await self._send(update,
                     "\U0001f512 <b>Access denied</b>\n\n"
                     "Only the user who requested this trade can approve it.",
@@ -13921,7 +14246,7 @@ class TelegramHandler:
             # callback (legitimate buttons are always "reject:<id>:<uid>").
             expected_uid = parts[2] if len(parts) > 2 else None
             caller_uid = str(update.effective_user.id) if update.effective_user else None
-            if not expected_uid or not self._uid_matches(caller_uid, expected_uid):
+            if not self._callback_owner_ok(caller_uid, expected_uid):
                 await self._send(update,
                     "\U0001f512 <b>Access denied</b>\n\n"
                     "Only the user who requested this trade can reject it.",

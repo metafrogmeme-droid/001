@@ -107,7 +107,8 @@ class TestThePurgeEndpointReportsPerStore:
 
     def test_every_store_answers_and_the_answers_are_returned(self):
         src = __import__("inspect").getsource(self._module().handle_account_purge)
-        for store in ("exchange_credentials", "agent_profile", "user_record"):
+        for store in ("exchange_credentials", "agent_profile", "agent_memory",
+                      "user_record"):
             assert f'result["{store}"]' in src, (
                 f"{store} is not reported separately, so a failure in it is "
                 "indistinguishable from success")
@@ -117,7 +118,7 @@ class TestThePurgeEndpointReportsPerStore:
         """`except Exception: pass` here would turn a vault that refused to
         delete into a purge that reported success."""
         src = __import__("inspect").getsource(self._module().handle_account_purge)
-        assert src.count('= "error"') >= 3, (
+        assert src.count('= "error"') >= 4, (
             "not every store maps its exception onto a reported failure")
         assert 'all(v in ("deleted", "none") for v in result.values())' in src, (
             "the rollup no longer requires every store to have resolved — an "
@@ -150,3 +151,79 @@ class TestThePurgeEndpointReportsPerStore:
         assert "status=200 if ok else 409" in src, (
             "a partial purge answers 200, so the web half deletes the account "
             "over a bot that is still holding credentials")
+
+
+class TestNoPerUserStoreOutlivesTheDeletePath:
+    """The purge listed three stores and a fourth had just started recording.
+
+    `user_memory_store` began keeping what the agent had actually looked at for
+    a person — genuinely useful, and invisible to a deletion that only knew
+    about the profile they typed. A purge that deletes what someone wrote and
+    keeps what was watched has not forgotten them; it has kept the half they
+    never chose to write down.
+
+    Enumerated rather than listed, so the NEXT per-user store cannot be
+    forgotten either. A module in bot/core with a `clear(user_id)` is, by that
+    signature, holding something keyed to a person — if the purge does not name
+    it, either wire it or say here why it does not belong.
+    """
+
+    #: Modules whose `clear(user_id)` is deliberately NOT part of an account
+    #: purge. Empty today. An entry here needs a reason, not a name.
+    EXEMPT: dict = {}
+
+    def _per_user_stores(self):
+        import ast
+        import pathlib
+        found = []
+        for f in sorted(pathlib.Path("bot/core").glob("*.py")):
+            try:
+                tree = ast.parse(f.read_text(encoding="utf-8"))
+            except SyntaxError:                   # pragma: no cover - defensive
+                continue
+            for node in tree.body:
+                if (isinstance(node, ast.FunctionDef) and node.name == "clear"
+                        and node.args.args
+                        and node.args.args[0].arg in ("user_id", "uid")):
+                    found.append(f.stem)
+        return found
+
+    def test_the_sweep_finds_the_stores_it_is_meant_to(self):
+        # An empty sweep passes the assertion below over nothing at all —
+        # absent read as clean, one more time.
+        stores = self._per_user_stores()
+        assert "user_profile_store" in stores and "user_memory_store" in stores, (
+            f"the per-user store sweep found {stores}; it is broken, not empty")
+
+    def _aliases(self, module_name):
+        """`from bot.core import user_profile_store as _profile_store`.
+
+        The handler names the ALIAS, so a scan for the module name alone
+        reports a store that is purged on the very first line it checks — the
+        checker manufacturing the accusation it exists to prevent, which this
+        repo has now watched happen three times.
+        """
+        import ast
+        import inspect
+
+        mod = pytest.importorskip("bot.web.user_gateway")
+        names = {module_name}
+        for node in ast.walk(ast.parse(inspect.getsource(mod))):
+            if isinstance(node, ast.ImportFrom):
+                for a in node.names:
+                    if a.name == module_name and a.asname:
+                        names.add(a.asname)
+        return names
+
+    def test_every_per_user_store_is_named_by_the_purge(self):
+        import inspect
+
+        mod = pytest.importorskip("bot.web.user_gateway")
+        src = inspect.getsource(mod.handle_account_purge)
+        missed = [s for s in self._per_user_stores()
+                  if s not in self.EXEMPT
+                  and not any(a in src for a in self._aliases(s))]
+        assert not missed, (
+            "these hold per-user state and the account purge does not touch "
+            f"them: {missed}\n\nWire each into handle_account_purge, or add it "
+            "to EXEMPT with the reason it is not personal data.")

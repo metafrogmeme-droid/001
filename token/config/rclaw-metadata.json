@@ -3,7 +3,14 @@
   "symbol": "RCLAW",
   "description": "Utility token for the RUNECLAW AI trading-agent platform — access, settlement, and governance for an on-chain agent economy. DRAFT: a gated Vision item; see the token roadmap. Not an offer or financial advice.",
   "image": "https://raw.githubusercontent.com/Humanoid-Traders/RUNECLAW/main/website/app_icon_512.png",
-  "external_url": "https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md",
+  "external_url": "https://www.humanoid-traders.com/",
+  "extensions": {
+    "website": "https://www.humanoid-traders.com/",
+    "twitter": "https://x.com/RUNECLAW_AI",
+    "telegram": "https://t.me/HTRUNECLAW_bot",
+    "github": "https://github.com/Humanoid-Traders/RUNECLAW",
+    "roadmap": "https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md"
+  },
   "attributes": [
     { "trait_type": "status", "value": "draft" },
     { "trait_type": "chain", "value": "solana" },

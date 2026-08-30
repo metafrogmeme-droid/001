@@ -33,7 +33,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
 
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.state_lock import REVISION_KEY, conflict_path, disk_revision, locked

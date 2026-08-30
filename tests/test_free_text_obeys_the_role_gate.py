@@ -348,8 +348,15 @@ class TestFreeTextObeysTheRoleGate:
 class TestTheTableDoesNotDrift:
     def test_the_web_map_is_unchanged_by_the_move(self):
         """The H3 fix moved `_WEB_SKILL_PERMISSION` into a shared module. Moving
-        a security table is exactly when its contents quietly change, so the
-        18 pairs it held are pinned here rather than trusted."""
+        a security table is exactly when its contents quietly change, so every
+        pair is pinned here rather than trusted.
+
+        WRITTEN OUT, NOT DERIVED, and that is the point: this assertion is
+        supposed to fail whenever the table grows. It did, on the two macro
+        cards below, which is a decision being surfaced rather than a
+        regression — a derived assertion would have accepted them in silence,
+        which on a permission table is the whole failure mode.
+        """
         gw = pytest.importorskip("bot.web.user_gateway",
                                  reason="web gateway needs aiohttp")
         assert gw._WEB_SKILL_PERMISSION == {
@@ -361,6 +368,13 @@ class TestTheTableDoesNotDrift:
             "rejected_trades": "rejected", "run_backtest": "backtest",
             "run_strategy": "run", "scan_market": "scan",
             "walk_forward": "walkforward", "whynot": "rejected",
+            # Added when /eventrisk and /compliance were wired. Reachability is
+            # not authorisation: both arrive on web chat and the ROLE gate is
+            # what refuses. `check_event_risk` reuses `macro` (trader and paper
+            # hold it); `compliance_status` takes a permission no role but
+            # admin holds, because the card renders the global consent ledger.
+            "check_event_risk": "macro",
+            "compliance_status": "compliance",
         }
 
     def test_halt_reaches_no_chat_transport(self):

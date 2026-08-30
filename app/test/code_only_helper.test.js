@@ -96,3 +96,124 @@ test('it keeps essentially all of a comment-free file', () => {
   const src = 'const a = 1;\nres.json({ ok: true });\nconst b = "x";\n';
   assert.equal(codeOnly(src), src);
 });
+
+// ── the two desyncs found on 2026-08-23 ──────────────────────────────────
+//
+// Both were found the same way: a new file was written, a guard scanned it,
+// and the guard failed on a string that only appeared in a COMMENT. Chasing
+// that produced a measurement — SIXTEEN of the files the guards scan were
+// desynchronising, `public/js/dashboard.js` (40 comment lines surviving) and
+// `public/js/app.js` (28) among them. Those two are what
+// `panel_failure_honesty.test.js` reads as the structural enforcer of this
+// repo's central rule, and its own docstring records a comment-induced false
+// negative that blanking was installed to prevent. Blanking was running; on
+// those files it stopped a third of the way in.
+//
+// After the fix every guard still passes, which is the part worth saying out
+// loud: the lost coverage was not concealing a defect. It was concealing
+// whether there was one.
+
+test('a quote inside a regex character class does not open a string', () => {
+  // The trigger. `/[&<>"']/g` is the most ordinary line in any HTML escaper,
+  // and the `"` inside it put the scanner into string mode, from where it ran
+  // to whatever quote came next and desynchronised everything after.
+  //
+  // The comment is on the SAME LINE deliberately. String contents survive
+  // `codeOnly` verbatim, so a regex swallowed into a string still MATCHES a
+  // test looking for its text — the first draft of this assertion passed with
+  // regex tracking disabled for exactly that reason. What differs is whether a
+  // trailing comment gets blanked, because the runaway string consumes it.
+  const src = 'const esc = s => s.replace(/[&<>"\']/g, m => m); // blank me\nkeep();\n';
+  const out = codeOnly(src);
+  assert.match(out, /\/\[&<>"'\]\/g/, 'the regex literal itself must survive verbatim');
+  assert.doesNotMatch(out, /blank me/, 'the comment after the regex survived blanking');
+  assert.match(out, /keep\(\);/);
+});
+
+test('a division is not mistaken for a regex', () => {
+  // The opposite error, and the more destructive one: reading `a / b` as a
+  // regex opener swallows code up to the next slash.
+  const src = 'const r = total / count;\nconst q = (a) / (b);\n// blank me\nkeep();\n';
+  const out = codeOnly(src);
+  assert.match(out, /total \/ count/);
+  assert.match(out, /\(a\) \/ \(b\)/);
+  assert.doesNotMatch(out, /blank me/);
+  assert.match(out, /keep\(\);/);
+});
+
+test('a regex after `return` is a regex, not a division', () => {
+  const src = 'function f() { return /ab/.test(x); }\n// blank me\n';
+  const out = codeOnly(src);
+  assert.match(out, /return \/ab\/\.test/);
+  assert.doesNotMatch(out, /blank me/);
+});
+
+test('an unterminated slash is treated as division, not as a file-eating regex', () => {
+  // Failing SAFE: a lone `/` that never closes must cost one character, not
+  // the remainder of the file.
+  const src = 'const a = b /\nconst c = 1;\n// blank me\nkeep();\n';
+  const out = codeOnly(src);
+  assert.match(out, /const c = 1;/);
+  assert.doesNotMatch(out, /blank me/);
+  assert.match(out, /keep\(\);/);
+});
+
+test('a NESTED template literal closes at the right backtick', () => {
+  // The older half of the bug, and the one that cost dashboard.js its
+  // coverage. Treating a backtick like any other quote closes the outer
+  // template on the INNER one, after which template text is scanned as code.
+  const src = 'const h = `<div>${c ? `<span>${x}</span>` : \'\'}</div>`;\n// blank me\nkeep();\n';
+  const out = codeOnly(src);
+  assert.match(out, /<span>/, 'template text must survive verbatim');
+  assert.doesNotMatch(out, /blank me/, 'the comment after a nested template survived');
+  assert.match(out, /keep\(\);/);
+});
+
+test('a comment INSIDE a ${} hole is blanked, because that hole is code', () => {
+  const src = 'const h = `x${ /* gone */ y }z`;\nkeep();\n';
+  const out = codeOnly(src);
+  assert.doesNotMatch(out, /gone/, 'a ${} expression is code and its comments must blank');
+  assert.match(out, /keep\(\);/);
+});
+
+test('braces inside a ${} hole do not close it early', () => {
+  const src = 'const h = `a${ f({ k: 1 }) }b`;\n// blank me\nkeep();\n';
+  const out = codeOnly(src);
+  assert.match(out, /`a\$\{ f\(\{ k: 1 \}\) \}b`/);
+  assert.doesNotMatch(out, /blank me/);
+});
+
+test('a single-quoted string cannot span a line', () => {
+  // One unbalanced apostrophe used to consume the rest of the file looking for
+  // its partner. A real string literal cannot contain a raw newline, so the
+  // scan stops at one and the damage is bounded to that line.
+  const src = "const a = 'it's broken;\nkeep();\n// blank me\n";
+  const out = codeOnly(src);
+  assert.match(out, /keep\(\);/);
+  assert.doesNotMatch(out, /blank me/);
+});
+
+test('every file the guards scan round-trips without desynchronising', () => {
+  // The property, measured over the real corpus rather than over fixtures.
+  // A `//` comment line whose output still holds text means the scanner lost
+  // its place somewhere upstream.
+  const fs2 = require('node:fs');
+  const path2 = require('node:path');
+  const offenders = [];
+  for (const dir of ['public/js', 'routes', 'lib']) {
+    const abs = path2.join(__dirname, '..', dir);
+    for (const f of fs2.readdirSync(abs)) {
+      if (!f.endsWith('.js')) continue;
+      const src = fs2.readFileSync(path2.join(abs, f), 'utf8');
+      const out = codeOnly(src);
+      if (out.length !== src.length) { offenders.push(`${dir}/${f}: length changed`); continue; }
+      const s = src.split('\n');
+      const o = out.split('\n');
+      const survived = s.filter((line, k) => line.trim().startsWith('//') && o[k].trim().length > 0);
+      if (survived.length) offenders.push(`${dir}/${f}: ${survived.length} comment line(s) survived`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'the scanner lost its place in these files, so every guard reading them is '
+    + 'inspecting less than it reports:\n  ' + offenders.join('\n  '));
+});

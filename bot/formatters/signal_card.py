@@ -925,9 +925,16 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     is_live = data.get("is_live", True)
     entry = data.get("entry", 0)
     now_px = data.get("now", 0)
-    pnl_pct = data.get("pnl_pct", 0)
-    pnl_usd = data.get("pnl_usd", 0)
-    net_pnl = data.get("net_pnl", 0)
+    # NO DEFAULT on the three P&L reads. The `pnl_unknown` logic below tests
+    # `is None` — correctly, per "test `is None`, not falsiness" — but a
+    # `.get(key, 0)` default converts an ABSENT key to 0 before that test can
+    # ever see it, so the muted/unknown path was reachable only when a caller
+    # passed an explicit None. An omitted key rendered as a measured
+    # break-even, in green, on a card about real money. The check was right and
+    # the read upstream of it was throwing away the evidence.
+    pnl_pct = data.get("pnl_pct")
+    pnl_usd = data.get("pnl_usd")
+    net_pnl = data.get("net_pnl")
     fees = data.get("fees", 0)
     size_usd = data.get("size_usd", 0)
     leverage = data.get("leverage", 1)

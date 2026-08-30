@@ -1,0 +1,196 @@
+# Public METHODS in bot/ with no caller outside tests.
+#
+# Generated and enforced by tests/test_no_new_unreachable_functions.py
+# (test_no_new_unreachable_methods). This is the THIRD granularity:
+#
+#   unreachable_baseline.txt            a module nobody imports
+#   unreachable_functions_baseline.txt  a module-level def nobody calls
+#   this file                           a METHOD nobody calls
+#
+# The gap was real and had already been paid for. LearningOrchestrator.
+# process_proposals fell through both older checks — bot/learning/orchestrator.py
+# IS imported so the module ratchet passed it, and a method is not a
+# module-level def so the function ratchet never looked. It was public, on a
+# class the engine constructs every run, with no caller, while four surfaces
+# claimed proposals had been 'applied'. A human found it; no gate did.
+#
+# A RATCHET, BOTH DIRECTIONS, same rule as known_failures.txt: a new entry
+# means somebody just wrote a method nobody calls, and an entry that leaves
+# must be deleted in the same commit that wires it.
+#
+# THE SHARED-NAME BLIND SPOT, NOW MEASURED AND PARTLY CLOSED.
+# The identifier sweep cannot tell whose method a name refers to, so
+# `_candidate_methods` drops any name two classes both define. That was an
+# honest lower bound and a far looser one than it read: 60 public method names
+# in bot/ are multiply defined, covering 274 methods nothing checked.
+# ComplianceEngine.format_for_telegram is the worked example — no caller
+# anywhere, never listed here, because seven classes define that name.
+#
+# A second pass now attributes a call `<recv>.<name>()` by resolving the
+# receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
+# call site resolves to. It is SOUND rather than complete: one unresolvable
+# receiver makes the whole name ambiguous, because the alternative is guessing.
+# **31** method names remain ambiguous and are not checked by anything — the
+# number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
+# so it cannot rot into a claim.
+#
+# 33 -> 31 when alert_manager, performance_tracker and feedback_loop were
+# deleted: fewer classes in the tree means fewer shared method names the sweep
+# has to give up on. The four METHOD entries those modules owned went with
+# them, and the stale-entry half of the ratchet is what refused to pass until
+# they did.
+#
+# It was 34 until `observe` left the list, and how it left is worth recording
+# because it looks like the ratchet loosening and is the opposite. Two classes
+# define `observe` — PersonPeak and CatalogWatch — and both are genuinely
+# called (person_peak.py:158, market_scanner.py:295); the name was ambiguous,
+# not unreachable, so nothing was ever being checked about either. Adding
+# # SignalTracker.record_outcome — RECORDED, and the reason is a live defect it
+# already caused rather than a plan to wire it. Signals are recorded
+# (`record_signal` is called); outcomes never are, so `closed` is permanently
+# empty in the running bot. `_pair_stats_locked` computed
+# `len(wins)/len(closed) if closed else 0.0`, so /signals rendered every pair
+# as 0 wins, 0 losses, an all-hollow win-rate bar and 0.0% — a measured record
+# of failure assembled from the absence of one, which is the shape CLAUDE.md
+# names. That display is fixed (win_rate is None over zero closes and the card
+# prints an em dash); the FEED is not, and joining a signal id to its closing
+# trade is a real piece of work, not a wiring line.
+#
+# Its second consumer is worse off still: bot/web/dashboard_server.py reads
+# `engine.signal_tracker`, and the engine has no such attribute — the tracker
+# lives on TelegramHandler. `getattr(..., None)` means /api/signals answers an
+# empty list forever rather than erroring, so nothing ever reported it.
+bot/core/signal_tracker.py:SignalTracker.record_outcome
+# Adding bot/core/user_memory_store.observe as a MODULE-level function gave the sweep
+# a receiver it can resolve without guessing, and the name resolved to
+# reachable in every definition. Verified by hand before re-recording: neither
+# method became "called" by accident, because neither was ever uncalled.
+#
+# Two drafts of that pass manufactured false accusations before this one held,
+# which is the whole argument for the soundness rule. The first collected only
+# `self.x.run()` receivers and reported RuneClawEngine.run dead — bot/main.py
+# calls it as `engine.run()` on a local. The second treated `x = make_thing()`
+# as typing `x`, so a factory bound the name to a function that matches no
+# class, the receiver looked resolved, and CatalogWatch.recent was accused
+# while scan_skill.py calls it. Names assigned from anything that is not a
+# known class are poisoned now.
+#
+# THESE ARE RECORDED, NOT TRIAGED. A fan-out that classified all of them was lost
+# when the container re-provisioned mid-run, and inventing the categories
+# afterwards would be exactly the kind of confident claim from absent
+# evidence this repo has a table about. What follows is grouped by what can
+# be established mechanically — a name shaped like a control, a body
+# carrying a known defect shape — and nothing else is asserted.
+
+# ── DEAD *AND* DEFECTIVE — do not wire as-is ────────────────────────────────
+# Each body carries a shape from CLAUDE.md's table, so wiring it would ship
+# the defect along with the feature. This is the render_pnl_report case, and
+# the seasonality case: bot/core/seasonality.py was in this same state until
+# it was fixed and wired, where an empty bucket seeded with 0.0 made it name
+# a 'best day to trade' from a day it had never observed.
+#
+# basis.py and market_cap.py are the two remaining unwired signal sources on
+# the roadmap's 'real-time signal fusion' line. Fix when wiring, or delete.
+bot/core/live_executor.py:LiveExecutor.status_summary
+
+# ── CONTROL-SHAPED NAMES — read these first ─────────────────────────────────
+# Grouped on the NAME, which is an observation and not a verdict: a method
+# called should_reject / check_all / is_validated / verify_batch is shaped
+# like something that refuses, checks or proves. Whether being uncalled has a
+# consequence is a judgement each one needs, and guessing would be worse than
+# recording — CLAUDE.md's rule for the module list, verbatim.
+#
+# is_validated is the pointed one: BacktestValidationGate is the control whose
+# master switch (VALIDATION_GATE_ENABLED) defaults OFF, so this is a gate that
+# is both disabled AND whose verdict method has no caller.
+bot/core/black_swan.py:BlackSwanDetector.check_all
+bot/core/metrics.py:MetricsEngine.should_skip_symbol
+bot/core/slippage.py:SlippageTracker.should_reject
+bot/core/validation_gate.py:BacktestValidationGate.is_validated
+bot/learning/orchestrator.py:LearningOrchestrator.process_proposals
+bot/risk/risk_engine.py:RiskEngine.get_authority_envelope
+bot/risk/risk_engine.py:RiskEngine.set_authority_envelope
+bot/risk/risk_engine.py:RiskEngine.set_authority_ledger
+bot/utils/attestation.py:AttestationEngine.verify_batch
+
+# ── THE REST, BY SUBSYSTEM ──────────────────────────────────────────────────
+# Untriaged. bot/learning dominates because that subsystem's own documented
+# state is that the loop ends at 'approved' and nothing applies a proposal.
+#
+# ComplianceEngine.get_consent_ledger was the one entry here that had been
+# triaged, and it LEFT — deleted in the commit that gave it a caller, per the
+# rule above. Triaging it is what found the defect: the accessor was dead
+# because the /compliance card asked for the attribute `consent_ledger`, no
+# get_ prefix, which resolved to nothing and printed "No consent ledger
+# available" over a populated ledger. Six more probes in that file were wrong
+# the same way. An unreachable method is worth reading precisely because the
+# reason it has no caller is sometimes a defect in the caller.
+# ── FOUND BY RECEIVER RESOLUTION, not the identifier count ─────────────────
+# Five of the seven classes defining `format_for_telegram`. The only call is
+# telegram_handler.py on `self.signal_tracker`, so every other definition is
+# dead; the seventh (SentimentAnalyzer) is a @staticmethod and stays excluded
+# by the decorator rule. These are renderers with no reader — cheap to wire to
+# a command, and cheaper to delete, but that is a product call either way.
+bot/compliance/compliance_engine.py:ComplianceEngine.format_for_telegram
+bot/core/exchange_flow.py:ExchangeFlowProvider.format_for_telegram
+bot/core/macro_events.py:MacroEventProvider.format_for_telegram
+bot/core/validation_gate.py:BacktestValidationGate.format_for_telegram
+bot/core/ws_feed.py:BitgetWSFeed.format_for_telegram
+
+bot/core/analyzer.py:Analyzer.get_no_trade_reason
+bot/core/black_swan.py:BlackSwanDetector.clear_alerts
+bot/core/cost.py:CostTracker.record_infra
+bot/core/cost.py:CostTracker.snapshot_lifetime
+bot/core/engine.py:RuneClawEngine.get_futures_exchange
+bot/core/engine.py:RuneClawEngine.get_rebalance_signals
+bot/core/engine.py:RuneClawEngine.set_confirmation_callback
+bot/core/exchange_credentials.py:ExchangeCredentialStore.set_active
+bot/core/live_executor.py:LiveExecutor.update_atr
+bot/core/llm_cache.py:SemanticLLMCache.purge_expired
+bot/core/metrics.py:MetricsEngine.record_circuit_breaker_trip
+bot/core/metrics.py:MetricsEngine.record_risk_check
+bot/core/news.py:NewsRadar.for_symbol
+bot/core/signal_tracker.py:SignalTracker.get_pair_stats
+bot/core/signal_tracker.py:SignalTracker.record_signal
+bot/core/smart_exits.py:AdaptiveLimitDistance.optimal_offset
+bot/core/smart_exits.py:TimeOfDayEdge.get_best_hours
+bot/core/smart_exits.py:TimeOfDayEdge.get_edge
+bot/core/swarm.py:SwarmCoordinator.inject_anomaly
+bot/core/swarm.py:SwarmCoordinator.process_signal
+bot/core/system_health.py:SystemHealthMonitor.record_api_call
+bot/core/system_health.py:SystemHealthMonitor.record_scan
+bot/core/system_health.py:SystemHealthMonitor.set_exchange_status
+bot/core/token_optimizer.py:OptimizationStats.record_batch
+bot/core/validation_gate.py:BacktestValidationGate.format_badge
+bot/core/validation_gate.py:BacktestValidationGate.get_all_validations
+bot/core/ws_feed.py:BitgetWSFeed.get_all_ticks
+bot/core/ws_feed.py:BitgetWSFeed.get_tick
+bot/learning/experience.py:ExperienceMemory.get_rejection_patterns
+bot/learning/feedback.py:FeedbackCollector.get_actionable_feedback
+bot/learning/macro_learner.py:MacroLearner.get_risk_context
+bot/learning/macro_learner.py:MacroLearner.record_event
+bot/learning/orchestrator.py:LearningOrchestrator.review_trade
+bot/learning/orchestrator.py:LearningOrchestrator.score_strategy
+bot/learning/prompt_opt.py:PromptOptimizer.get_best_version
+bot/learning/prompt_opt.py:PromptOptimizer.propose_prompt_improvement
+bot/learning/prompt_opt.py:PromptOptimizer.record_human_feedback
+bot/learning/prompt_opt.py:PromptOptimizer.record_usage
+bot/learning/prompt_opt.py:PromptOptimizer.register_version
+bot/learning/store.py:LearningStore.get_reflections
+bot/macro/calendar.py:MacroCalendar.add_events
+bot/mcp/server.py:MCPResponse.to_json
+bot/mcp/server.py:RuneClawMCPServer.call_tool
+bot/mcp/server.py:RuneClawMCPServer.list_tools
+bot/nlp/conversation_store.py:ConversationStore.clear_all
+bot/risk/multi_portfolio.py:MultiUserPortfolio.all_user_ids
+bot/risk/multi_portfolio.py:MultiUserPortfolio.snapshot_all
+bot/risk/multi_portfolio.py:MultiUserPortfolio.venue_portfolios
+bot/risk/order_router.py:SmartOrderRouter.optimal_order_type
+bot/risk/person_peak.py:PersonPeakStore.reseed
+bot/risk/risk_engine.py:RiskEngine.warning_rate_summary
+bot/skills/getclaw_wrapper.py:GetClawAdapter.evaluate_signal
+bot/skills/getclaw_wrapper.py:GetClawAdapter.to_getclaw_format
+bot/skills/user_middleware.py:UserContext.save_portfolio
+bot/utils/user_store.py:UserStore.count_by_tier
+bot/utils/user_store.py:UserStore.get_lang
+bot/utils/user_store.py:UserStore.has_feature
