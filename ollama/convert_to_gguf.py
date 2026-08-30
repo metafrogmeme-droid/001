@@ -201,6 +201,36 @@ def convert_hf_to_gguf(model_name):
     with open(config_path) as f:
         config = json.load(f)
 
+    # THIS WRITER IS LLAMA-ONLY, AND SAYS SO OUT LOUD.
+    #
+    # It used to hardcode arch = "llama" for whatever it was given. Handed a
+    # Qwen2 model it wrote a llama-arch GGUF, silently dropped every q/k/v
+    # attention bias (Qwen2 has them, Llama does not - 48 layers x 3 = the
+    # "Skipped 144 unmapped tensors" line nobody read as fatal), and produced
+    # a model that loads, serves, and answers with garbage. A converter that
+    # discards a third of a tensor class and reports it as a tidy count is
+    # the same defect this repo hunts everywhere else: a partial result
+    # printed as a whole one.
+    #
+    # Refusing is the honest move. llama.cpp's own convert_hf_to_gguf.py
+    # supports Qwen2 (and everything else) properly; there is no reason to
+    # reimplement it here badly.
+    architectures = config.get("architectures") or []
+    model_type = str(config.get("model_type", "")).lower()
+    _SUPPORTED = ("llama",)
+    if model_type and model_type not in _SUPPORTED:
+        print(f"\nERROR: this converter only writes the llama architecture, and "
+              f"the model in {MODEL_DIR} is '{model_type}'"
+              + (f" ({architectures[0]})" if architectures else "") + ".")
+        print("\n  Writing it as llama would drop the tensors llama has no slot")
+        print("  for - Qwen2's attention biases, for one - and the result loads")
+        print("  and answers with garbage rather than failing.")
+        print("\n  Use llama.cpp's official converter instead:")
+        print(f"    python <llama.cpp>/convert_hf_to_gguf.py {MODEL_DIR} \\")
+        print(f"        --outfile {OUTPUT_DIR}/model-f16.gguf --outtype f16")
+        print(f"    <llama.cpp>/llama-quantize model-f16.gguf unsloth.Q4_K_M.gguf Q4_K_M")
+        sys.exit(1)
+
     arch = "llama"
     vocab_size = config.get("vocab_size", 128256)
     hidden_size = config.get("hidden_size", 3072)
@@ -211,8 +241,21 @@ def convert_hf_to_gguf(model_name):
     rms_eps = config.get("rms_norm_eps", 1e-5)
     rope_theta = config.get("rope_theta", 500000.0)
     max_pos = config.get("max_position_embeddings", 131072)
-    bos_id = config.get("bos_token_id", 128000)
-    eos_id = config.get("eos_token_id", 128001)
+    # bos/eos are not reliably scalars: some configs carry null, others a
+    # LIST of ids. Either one reaches struct.pack as a non-integer and dies
+    # deep inside gguf_writer with "required argument is not an integer" -
+    # a stack trace that names the packer, never the field. Resolve here,
+    # where the field still has a name.
+    def _token_id(key, default):
+        raw = config.get(key, default)
+        if isinstance(raw, (list, tuple)):
+            raw = raw[0] if raw else None
+        if raw is None:
+            return None
+        return int(raw)
+
+    bos_id = _token_id("bos_token_id", 128000)
+    eos_id = _token_id("eos_token_id", 128001)
 
     print(f"  Architecture: {arch}")
     print(f"  Layers: {num_layers}, Hidden: {hidden_size}")
@@ -287,8 +330,14 @@ def convert_hf_to_gguf(model_name):
                 writer.add_token_merges(clean_merges)
                 print(f"  BPE merges: {len(clean_merges)}")
 
-            writer.add_bos_token_id(bos_id)
-            writer.add_eos_token_id(eos_id)
+            # A missing id is omitted, never defaulted. Writing some other
+            # model's BOS because this one had none is inventing a value —
+            # and an id is exactly the kind of field where a plausible wrong
+            # answer is worse than an absent one.
+            if bos_id is not None:
+                writer.add_bos_token_id(bos_id)
+            if eos_id is not None:
+                writer.add_eos_token_id(eos_id)
 
             # Chat template
             tc_path = os.path.join(MODEL_DIR, "tokenizer_config.json")
@@ -348,7 +397,23 @@ def convert_hf_to_gguf(model_name):
                     print(f"    {tensor_count} tensors...")
 
     if skipped:
-        print(f"  Skipped {len(skipped)} unmapped tensors")
+        # NOT a warning. A tensor this writer has no name for is a tensor the
+        # served model will not have, and the result of shipping anyway is a
+        # model that loads, runs, and answers with garbage - which is exactly
+        # what happened: a Qwen2 export dropped all 144 q/k/v attention
+        # biases under a cheerful "Skipped 144 unmapped tensors" line, and
+        # the wasted debugging went to the chat template instead.
+        print(f"\nERROR: {len(skipped)} tensors have no mapping in this writer "
+              f"and would be silently dropped:")
+        for name in skipped[:8]:
+            print(f"    {name}")
+        if len(skipped) > 8:
+            print(f"    ... and {len(skipped) - 8} more")
+        print("\n  Refusing to write a model that is missing weights. Use "
+              "llama.cpp's")
+        print("  convert_hf_to_gguf.py, which supports these architectures "
+              "properly.")
+        sys.exit(1)
     print(f"  Total tensors: {tensor_count}")
 
     # ── Finalize ──────────────────────────────────────────
