@@ -671,7 +671,31 @@ def _chat_ret(text: str, cfg, return_meta: bool):
     or (string, meta) when the caller wants model transparency (the web
     gateway shows which model answered). Module-level — several test suites
     invoke _llm_chat with a SimpleNamespace stand-in for self, so this must
-    not live on the class."""
+    not live on the class.
+
+    ALSO the one place a stated risk:reward gets checked against the levels
+    it sits beside. Every return in _llm_chat funnels through here and there
+    are eight-plus callers across two surfaces, so this is the only spot
+    where the correction is reached on all of them — a guard applied at call
+    sites is a guard that is missing from the next one somebody adds.
+
+    v12 approved three trades under the 1.2 floor while printing ratios that
+    clear it (1.17 shown as 1.25, 1.14 as 1.41, 1.18 as 1.40), and a whole
+    training generation aimed at that did not fix it. Division is not a
+    language problem: the levels are in the text, so the number is computed
+    here rather than believed.
+    """
+    try:
+        from bot.nlp.rr_honesty import correct_stated_rr
+        fixed, n = correct_stated_rr(text)
+        if n:
+            text = fixed
+            audit(system_log,
+                  f"Corrected {n} stated risk:reward value(s) the levels contradict",
+                  action="rr_corrected", result="CORRECTED", data={"count": n})
+    except Exception as exc:  # never let a display fix break a reply
+        logger.debug("risk:reward correction skipped: %s", exc)
+
     if not return_meta:
         return text
     meta = ({"provider": cfg.provider.value, "model": cfg.model}
