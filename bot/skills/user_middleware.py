@@ -13,6 +13,7 @@ import asyncio
 import functools
 import json
 import logging
+import os
 import urllib.request
 import urllib.error
 from telegram import Update
@@ -204,6 +205,17 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": "RUNECLAW-Bot/1.0",
+            # RC-2026-001. This call tells the website which Telegram identity
+            # to bind to a web account, and `chat_id` below is the only thing
+            # naming that identity. Without proving the caller is the bot, the
+            # endpoint accepts that claim from anyone — see the gate in
+            # `app/auth.js` (`linkBotAuth`).
+            #
+            # Read from the environment HERE rather than at import time, for
+            # the reason `bot/utils/website_sync.py:104` gives about the same
+            # header: a vault restore or an admin repair should take effect
+            # without restarting the bot.
+            "X-Bot-Secret": os.getenv("BOT_SYNC_SECRET", ""),
         },
         method="POST",
     )
