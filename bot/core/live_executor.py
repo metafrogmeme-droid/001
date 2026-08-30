@@ -804,6 +804,26 @@ class LiveExecutor:
         """Reset API error count on success."""
         self._api_error_count = 0
 
+    def _v3_client(self):
+        """The Bitget v3 client for THIS executor's account.
+
+        The ccxt path below authenticates per-user via
+        ``self._venue.create_exchange(cfg, self._credentials)``. The v3 channel
+        used ``BitgetV3Client.from_config()`` at all four of its call sites,
+        which reads the global ``CONFIG.exchange`` — so a per-user executor's
+        stop-loss (``/api/v3/trade/place-strategy-order``) and flash close
+        (``/api/v3/trade/close-positions``) were signed with the OPERATOR's keys
+        and landed on the operator's account. The user's position kept no stop
+        of its own, and a flash close could shut the operator's matching
+        position instead of theirs.
+
+        Latent while ``PER_USER_LIVE_ENABLED`` is off, since every executor is
+        then the operator executor and ``from_config()`` is the right source —
+        which is exactly why nothing surfaced it.
+        """
+        from bot.core.bitget_v3_client import BitgetV3Client
+        return BitgetV3Client.from_credentials(self._credentials)
+
     async def _get_exchange(self) -> ccxt.Exchange:
         """Get the authenticated exchange instance for this executor's venue."""
         if self._exchange is None:
@@ -1383,11 +1403,10 @@ class LiveExecutor:
 
         # ── Attempt 2: v3 /api/v3/account/settings (UTA accounts) ──
         try:
-            from bot.core.bitget_v3_client import BitgetV3Client
             # AUDIT FIX: offload blocking urlopen to thread to avoid
             # freezing the event loop (dashboard, WS feeds, Telegram).
             resp_data = await asyncio.to_thread(
-                BitgetV3Client.from_config().request, "GET", "/api/v3/account/settings")
+                self._v3_client().request, "GET", "/api/v3/account/settings")
 
             if resp_data.get("code") == "00000":
                 hold_mode = resp_data.get("data", {}).get("holdMode", "")
@@ -4975,7 +4994,7 @@ class LiveExecutor:
         return sl_id, tp_id
 
     @staticmethod
-    def _fetch_v3_positions_raw() -> Optional[list[dict]]:
+    def _fetch_v3_positions_raw(credentials: Optional[dict] = None) -> Optional[list[dict]]:
         """Fetch all open positions from Bitget v3 API.
 
         Returns a list of raw position dicts, ``[]`` when the channel is
@@ -4989,11 +5008,16 @@ class LiveExecutor:
         Handles both response shapes: ``{"data": [...]}`` and
         ``{"data": {"list": [...]}}``. Synchronous — callers must wrap in
         ``asyncio.to_thread``.
+
+        `credentials` is threaded from the calling executor so a per-user
+        account is read with its OWN keys. It is a parameter rather than
+        `self._credentials` because this is a @staticmethod and cannot reach
+        one; `None` keeps the operator behaviour it had before.
         """
         if get_venue().id != "bitget":
             return []
         from bot.core.bitget_v3_client import BitgetV3Client
-        client = BitgetV3Client.from_config()
+        client = BitgetV3Client.from_credentials(credentials)
         if not client.has_credentials:
             return []
         path = "/api/v3/position/current-position?category=USDT-FUTURES"
@@ -5013,14 +5037,14 @@ class LiveExecutor:
             return None
 
     @staticmethod
-    def _fetch_position_margin_mode_v3(bitget_symbol: str) -> Optional[str]:
+    def _fetch_position_margin_mode_v3(bitget_symbol: str, credentials: Optional[dict] = None) -> Optional[str]:
         """Query v3 position API to get the actual marginMode for a specific symbol.
 
         Returns 'crossed' or 'isolated', or None if lookup fails.
         Synchronous — callers must wrap in asyncio.to_thread.
         """
         # None = channel failed → lookup failed, same as symbol-not-found.
-        positions = LiveExecutor._fetch_v3_positions_raw() or []
+        positions = LiveExecutor._fetch_v3_positions_raw(credentials) or []
         for item in positions:
             if item.get("symbol") == bitget_symbol:
                 mm = (item.get("marginMode") or "").lower()
@@ -5049,7 +5073,7 @@ class LiveExecutor:
 
         try:
             v3_positions = await _aio_sync.get_event_loop().run_in_executor(
-                None, LiveExecutor._fetch_v3_positions_raw
+                None, LiveExecutor._fetch_v3_positions_raw, self._credentials
             )
         except Exception as exc:
             audit(trade_log,
@@ -5169,7 +5193,6 @@ class LiveExecutor:
         """
         import json as _json
 
-        from bot.core.bitget_v3_client import BitgetV3Client
 
         sl_id = None
         tp_id = None
@@ -5205,7 +5228,7 @@ class LiveExecutor:
             # loop below branches on the response code, and recover the JSON
             # error body off an HTTPError exactly as before.
             try:
-                return cast(dict, BitgetV3Client.from_config().request("POST", path, body_dict))
+                return cast(dict, self._v3_client().request("POST", path, body_dict))
             except Exception as e:
                 if hasattr(e, 'read'):
                     try:
@@ -5268,7 +5291,8 @@ class LiveExecutor:
         try:
             import asyncio as _aio_mm
             v3_pos_data = await _aio_mm.to_thread(
-                LiveExecutor._fetch_position_margin_mode_v3, bitget_symbol)
+                LiveExecutor._fetch_position_margin_mode_v3, bitget_symbol,
+                self._credentials)
             if v3_pos_data:
                 position_margin_mode = v3_pos_data
         except Exception:
@@ -8742,7 +8766,6 @@ class LiveExecutor:
         """
         import json as _json
 
-        from bot.core.bitget_v3_client import BitgetV3Client
 
         if self._venue.id != "bitget":
             return None  # v3 flash-close is a Bitget channel; caller falls back
@@ -8762,7 +8785,7 @@ class LiveExecutor:
             # on error so the except below recovers the JSON error body off the
             # HTTPError exactly as before).
             result = await asyncio.to_thread(
-                BitgetV3Client.from_config().request, "POST", path, body_dict)
+                self._v3_client().request, "POST", path, body_dict)
         except Exception as e:
             if hasattr(e, 'read'):
                 try:

@@ -54,6 +54,28 @@ class BitgetV3Client:
         cfg = CONFIG.exchange
         return cls(cfg.api_key, cfg.api_secret, cfg.passphrase)
 
+    @classmethod
+    def from_credentials(cls, credentials: Optional[dict] = None) -> "BitgetV3Client":
+        """Build a client from a per-user credential dict, else from CONFIG.
+
+        The ccxt path has done this since per-user live shipped
+        (``bot/core/venues.py:172-177``); the v3 channel never did, so every v3
+        request a per-user executor made — including the stop-loss placement and
+        the flash close — was signed with the OPERATOR's keys and landed on the
+        operator's account.
+
+        Incomplete credentials fall back rather than signing with half a pair: a
+        blank secret is an authentication failure dressed up as a request, and
+        ``venues.py:178`` takes the same position for the same reason.
+        """
+        if credentials:
+            api_key = credentials.get("api_key") or ""
+            api_secret = credentials.get("api_secret") or ""
+            passphrase = credentials.get("passphrase") or ""
+            if api_key and api_secret:
+                return cls(api_key, api_secret, passphrase)
+        return cls.from_config()
+
     @property
     def has_credentials(self) -> bool:
         return bool(self._api_key and self._api_secret)
