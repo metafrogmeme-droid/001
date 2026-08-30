@@ -519,10 +519,17 @@ STANDARDS = [
     (
         "OWASP A07 Identification & Auth",
         "`/validate-token`, 2FA",
-        "RC-2026-001 FIXED; `/api/auth/2fa/disable` has no throttle",
+        # Verified by reading every call site, not from the finding text:
+        # checkRateLimit is invoked at app/auth.js:580, :637, :1151 and :1550,
+        # and NOT at :837 where /2fa/disable is declared.
+        "RC-2026-001 FIXED. `/2fa/disable` (`app/auth.js:837`) takes "
+        "`authMiddleware` and nothing else — `checkRateLimit` fires at :580, "
+        ":637, :1151, :1550 and not at :837",
         "PARTIAL",
-        "no lockout on 2FA disable",
-        "add per-account throttle + lockout",
+        "a stolen session can brute-force a 6-digit TOTP, or the backup codes, "
+        "with no lockout and no attempt counter",
+        "per-account throttle + lockout, matching the per-email login throttle "
+        "already at `auth.js:97`",
     ),
     (
         "OWASP API1/API5 Object & Function Level Authz",
@@ -535,10 +542,17 @@ STANDARDS = [
     (
         "OWASP LLM Top 10 2026 — prompt injection",
         "Guardian firewall",
-        f"dimension `ai-injection`, {N_AI_INJ} findings",
+        # `grep -n firewall_scan bot/web/user_gateway.py` -> exactly one hit,
+        # line 314. handle_contract_studio is declared at line 628.
+        f"dimension `ai-injection`, {N_AI_INJ} findings. `firewall_scan` "
+        "appears once in `bot/web/user_gateway.py`, at :314; "
+        "`handle_contract_studio` begins at :628",
         "PARTIAL",
-        "Contract Studio runs no firewall scan at all",
-        "scan every chat-shaped surface, record the verdict",
+        "Contract Studio is a third chat-shaped surface running no firewall "
+        "scan, so a hostile spec is never even recorded as a FIREWALL verdict "
+        "on the tamper-evident chain",
+        "scan every chat-shaped surface and record the verdict, not only the "
+        "two that already do",
     ),
     (
         "NIST SSDF PS.1 / PW.7",
