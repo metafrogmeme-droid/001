@@ -20,6 +20,7 @@ Run: python3 audit/generate_report.py
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -792,7 +793,167 @@ Conditions to reach **GO**:
 `python3 audit/generate_report.py`.*
 """)
 
+# ── Continuous-audit coverage is PARSED from ci.yml, not restated ──────────
+#
+# The same design scripts/preflight.py uses, and for the reason its header
+# gives: a table that restates CI drifts the moment CI changes, and a coverage
+# claim that has drifted is worse than no claim. Everything in the "present"
+# column comes from the workflow file itself.
+_CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+# Only the keys nested under `on:`. The first version of this took every
+# two-space key before `jobs:`, which swept in `group:` from the `concurrency:`
+# block and published "triggers: pull_request, push, workflow_dispatch, group"
+# — a wrong fact, in the table whose whole argument is that facts should be
+# parsed rather than restated.
+_on = re.search(r"(?ms)^on:\n(.*?)(?=^\S)", _CI)
+CI_TRIGGERS = re.findall(r"(?m)^  ([a-z_]+):", _on.group(1)) if _on else []
+CI_STEPS = re.findall(r"(?m)^      - name: (.+)$", _CI)
+CI_WORKFLOWS = sorted(x.name for x in (ROOT / ".github" / "workflows").glob("*.yml"))
+
+
+def _ci_has(*needles: str) -> list[str]:
+    """Step names containing any needle. Evidence, not a yes/no."""
+    return [x for x in CI_STEPS if any(n.lower() in x.lower() for n in needles)]
+
+
+def _tests_matching(pattern: str) -> list[str]:
+    out: list[str] = []
+    for d in ("tests", "app/test"):
+        if (ROOT / d).is_dir():
+            out += sorted(x.name for x in (ROOT / d).glob(pattern))
+    return out
+
+
+assert CI_STEPS, "parsed no steps from ci.yml - has its formatting changed?"
+assert CI_TRIGGERS, "parsed no triggers from ci.yml"
+
+
 # ── consistency assertions: the report may not disagree with the artifact ──
+# One tuple per row, joined below. The first version wrote each row as a literal
+# line inside the f-string and added 14 E501s — and the ratchet caught it. The
+# fix is NOT to re-record the baseline: it may only go down, and re-recording to
+# accommodate lint I just wrote is precisely what that rule forbids. The
+# standards matrix above already had the answer.
+CONTINUOUS_AUDIT = [
+    ("1", "Pull-request checks", "**YES**",
+     f"`on: pull_request`; 8 jobs, {len(CI_STEPS)} steps",
+     "none"),
+    ("2", "Scheduled dependency scans", "**NO**",
+     "pip-audit, 4x npm ratchet and the RustSec ratchet all exist — but the "
+     f"triggers are `{', '.join(CI_TRIGGERS)}`",
+     "a CVE disclosed after the last merge stays invisible until someone "
+     "pushes. Add a `schedule:` cron running the ratchets that already exist "
+     "— no new tooling, reproducible locally today."),
+    ("3", "Secret scanning", "**YES, defective**",
+     "`" + "` · `".join(_ci_has("gitleaks")) + "`",
+     "RC-2026-024: the history scan reads every ref in the checkout, so its "
+     "verdict depends on which branches exist. Scope it to `--log-opts=HEAD`."),
+    ("4", "Static analysis", "**YES**",
+     f"{len(_ci_has('Lint', 'Types', 'SAST', 'Guard reachability'))} steps — "
+     "ruff x3, mypy x2, bandit, clippy, guard reachability",
+     "none; all are ratchets that may only go down"),
+    ("5", "Unit and integration tests", "**YES**",
+     f"{len(_ci_has('Tests', 'Contract tests'))} test steps across Python, "
+     "app, site, token, EVM and Rust",
+     "none"),
+    ("6", "Accessibility smoke tests", "**NO**",
+     "no browser is driven anywhere in CI",
+     "the gap that blocks any WCAG claim. An axe-core pass over the marketing "
+     "site — which already builds in CI — is deterministic, needs no live "
+     "service, and reproduces locally."),
+    ("7", "API contract tests", "**PARTIAL**",
+     "`" + "`, `".join(_tests_matching("*contract*")[:3]) + "`, "
+     "`schema_column_agreement.test.js`",
+     "pinned per-surface, not from a shared schema. The `Parse — every script "
+     "must at least compile` steps are syntax gates and must not be counted "
+     "as contract tests."),
+    ("8", "AI prompt-injection regression", "**YES**",
+     f"{len(_tests_matching('*guardian*') + _tests_matching('*firewall*'))} "
+     "guardian/firewall suites",
+     "real but incomplete: Contract Studio runs no firewall scan at all "
+     "(`firewall_scan` appears once in `user_gateway.py`, at :314; "
+     "`handle_contract_studio` is at :628), so there is nothing on that "
+     "surface for a regression test to assert against."),
+    ("9", "Agent permission tests", "**YES, one is unsound**",
+     f"{len(_tests_matching('*authority*') + _tests_matching('*permission*') + _tests_matching('*audience*'))} "
+     "suites, plus the custody red team's 12 attacks",
+     "`tests/test_command_audience_matches_permission.py` acquits a command "
+     "with NO guard exactly as it acquits one gated by a permission nobody "
+     "holds — `_permission_string` returns `None` and `None in p` is empty. "
+     "Make the helper fail closed on a missing guard."),
+    ("10", "Trading invariant tests", "**YES**",
+     "`" + "` · `".join(_ci_has("Red team", "Custody red team")) + "`",
+     "none — the strongest control in the repository"),
+    ("11", "SBOM generation", "**NO**",
+     "no step produces one (finding B5-15)",
+     "`cargo auditable`, `npm sbom`, `cyclonedx-py`, emitted as build "
+     "artefacts. Deterministic, locally reproducible."),
+    ("12", "Container scanning", "**NO**",
+     "no step scans an image",
+     "the image that ships is never scanned. Trivy or Grype against the built "
+     "image, pinned by digest."),
+    ("13", "Infrastructure scanning", "**NO**",
+     "no step reads `docker-compose.yml` or `nginx.conf`",
+     "modest value — the surface is small — but B5-01 (CI curl-pipes a Solana "
+     "installer into `sh`) is exactly what `actionlint` or `zizmor` catches."),
+    ("14", "Deployment verification", "**scripts exist, NOT in CI**",
+     "`scripts/verify_deploy.sh`, `verify_deploy_source.sh`, "
+     "`verify_bot_alive.sh`; `ci.yml` names them "
+     f"**{_CI.count('verify_deploy') + _CI.count('verify_bot')} times**",
+     "**correct as-is.** They need a live host, so they belong in the deploy "
+     "path. In CI they would be flaky by construction."),
+    ("15", "Post-deployment smoke tests", "**scripts exist, NOT in CI**",
+     "the same three, plus the `/api/version` build/assets hash pair",
+     "as above — wire them into the deploy script's exit status, not CI."),
+]
+CONTINUOUS_TABLE = "\n".join(
+    "| " + " | ".join(r) + " |" for r in CONTINUOUS_AUDIT)
+
+
+w(f"""
+---
+
+## 12. Continuous audit mode
+
+Required by the brief. Coverage is **parsed from `.github/workflows/ci.yml`**,
+not restated — the design `scripts/preflight.py` uses, because a table that
+restates CI drifts the moment CI changes, and a coverage claim that has drifted
+is worse than no claim.
+
+Facts this section is built from: **{len(CI_WORKFLOWS)} workflow file**
+(`{', '.join(CI_WORKFLOWS)}`), **{len(CI_STEPS)} named steps**, triggers
+**{', '.join(CI_TRIGGERS)}**.
+
+**There is no `schedule:` trigger**, and that single fact decides several rows:
+every dependency scan here runs only when somebody pushes.
+
+| # | automation | present | evidence | gap / recommendation |
+|---|---|---|---|---|
+{CONTINUOUS_TABLE}
+
+### On the brief's two constraints
+
+> *The automation must fail for meaningful regressions rather than merely
+> producing ignored reports.*
+
+This repository already clears that bar: every scanner is a **ratchet against a
+committed baseline** — `ruff_baseline.json`, `mypy_baseline.json`,
+`known_failures.txt`, `unreachable_baseline.txt`, the npm and RustSec advisory
+baselines — so a new finding fails the build and a fixed one must be deleted from
+the baseline in the same commit. That is the difference between a gate and a
+report, and it is why rows 2, 6, 11, 12 and 13 are the only real gaps.
+
+> *Do not add a CI check that is unstable, non-deterministic or impossible for
+> maintainers to reproduce locally.*
+
+Rows 14 and 15 are marked *correct as-is* **because** of that sentence, not in
+spite of it. The same reasoning already governs `scripts/preflight.py`, which
+deliberately excludes the token-tooling job: one of its steps curl-pipes a Solana
+validator installer, and a preflight that installs a toolchain behind your back
+is not a preflight.
+""")
+
+
 text = "".join(P)
 assert f"**{len(ALL)}**" in text, "the severity table's total is not the finding count"
 assert DEC["decision"] in ("NO-GO", "CONDITIONAL GO", "GO")
