@@ -33,14 +33,18 @@ def _exec(tmp_path, fetch_result):
 
 def _patch_fetch(monkeypatch, result):
     # The sync calls the CLASS staticmethod directly — patch at class level.
+    # # `*_` absorbs the credentials argument: the real signature now takes
+    # `credentials` so a per-user executor signs with the user's own
+    # keys (RC-2026-011). These stubs do not care whose account it is —
+    # they replace the channel entirely — so they accept and ignore it.
     if isinstance(result, Exception):
-        def _boom():
+        def _boom(*_):
             raise result
         monkeypatch.setattr(LiveExecutor, "_fetch_v3_positions_raw",
                             staticmethod(_boom))
     else:
         monkeypatch.setattr(LiveExecutor, "_fetch_v3_positions_raw",
-                            staticmethod(lambda: result))
+                            staticmethod(lambda *_: result))
 
 
 def _audits(monkeypatch):
@@ -137,7 +141,7 @@ async def test_no_open_positions_never_fetches(tmp_path, monkeypatch):
     e._positions = {}
     called = {"n": 0}
 
-    def _count():
+    def _count(*_):
         called["n"] += 1
         return []
 
@@ -149,5 +153,5 @@ async def test_no_open_positions_never_fetches(tmp_path, monkeypatch):
 def test_margin_mode_lookup_tolerates_failed_channel(monkeypatch):
     # None from the fetch (channel failed) must read as lookup-failed, not crash.
     monkeypatch.setattr(LiveExecutor, "_fetch_v3_positions_raw",
-                        staticmethod(lambda: None))
+                        staticmethod(lambda *_: None))
     assert LiveExecutor._fetch_position_margin_mode_v3("XPTUSDT") is None

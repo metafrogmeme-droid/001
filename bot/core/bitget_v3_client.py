@@ -54,6 +54,36 @@ class BitgetV3Client:
         cfg = CONFIG.exchange
         return cls(cfg.api_key, cfg.api_secret, cfg.passphrase)
 
+    @classmethod
+    def for_account(cls, credentials: "dict | None") -> "BitgetV3Client":
+        """The client for a SPECIFIC account, falling back to the operator's.
+
+        `from_config()` reads the global `CONFIG.exchange` — the OPERATOR's
+        keys. A per-user `LiveExecutor` is constructed with that user's own
+        credentials and every v3 call ignored them, so the user's stop-loss and
+        their flash close were signed with the operator's keys: the user's
+        position went unprotected (or unclosed) while the operator's account
+        acquired the order, and on a matching symbol/side the operator's own
+        position was closed instead.
+
+        ONE decision point, deliberately. The choice "whose keys is this?" was
+        going to be needed at four call sites across two files, two of them
+        inside `@staticmethod`s that cannot see `self`; writing it four times is
+        how three of them stay right and the fourth drifts.
+
+        Falls back to `from_config()` when credentials are absent or
+        incomplete, which is the operator executor (`credentials=None`) and
+        keeps that path byte-identical.
+        """
+        creds = credentials or {}
+        key = str(creds.get("api_key") or "")
+        secret = str(creds.get("api_secret") or "")
+        # A key without a secret cannot sign; treating a half-filled dict as
+        # usable would send an unsigned request rather than fall back.
+        if key and secret:
+            return cls(key, secret, str(creds.get("passphrase") or ""))
+        return cls.from_config()
+
     @property
     def has_credentials(self) -> bool:
         return bool(self._api_key and self._api_secret)
