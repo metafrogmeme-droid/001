@@ -349,6 +349,19 @@ REFUTED = [
              "tests/test_validation_gate_is_consulted.py:306."),
 ]
 
+#: WHEN each result was measured, and against what. A gate result with no
+#: provenance is a number that cannot go stale visibly — and three of these had
+#: already drifted before anyone noticed: the ruff ratchet read 1258 against a
+#: tree scoring 1257, the app suite read 3593, and the Python suite still said
+#: INCONCLUSIVE after a clean 9,206/0 had superseded it. The numbers were not
+#: wrong when written; nothing said when they were written.
+#:
+#: `measured_at` is the short commit the run was made against. The report
+#: compares it to HEAD and marks anything older as SUPERSEDED rather than
+#: printing it as current, so a stale row is visibly stale instead of quietly
+#: authoritative.
+VALIDATION_MEASURED_AT = "9ffd466c"
+
 VALIDATION = [
     dict(check="ruff strict (E9,F821,F811)",
          cmd="ruff check --select E9,F821,F811 bot/ tests/",
@@ -632,7 +645,7 @@ art = dict(
     findings_unverified_claims=UNVERIFIED_CLAIMS,
     verification=VERIFICATION,
     refuted=REFUTED,
-    validation=VALIDATION,
+    validation=[dict(v, measured_at=VALIDATION_MEASURED_AT) for v in VALIDATION],
     coverage=COVERAGE,
     release_decision=RELEASE_DECISION,
     limitations=[

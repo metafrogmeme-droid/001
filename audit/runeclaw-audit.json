@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "a9dd6de8f3effca98eeb6b5b2cc265ec33ab1f60",
+    "commit": "ddbd1aa878301385cfb04c783b2014736dfbd21e",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -3477,105 +3477,123 @@
     {
       "check": "ruff strict (E9,F821,F811)",
       "cmd": "ruff check --select E9,F821,F811 bot/ tests/",
-      "result": "PASS"
+      "result": "PASS",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "ruff strict (F401,F541)",
       "cmd": "ruff check --select F401,F541 bot/",
-      "result": "PASS"
+      "result": "PASS",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "ruff whole-tree ratchet",
       "cmd": "python3 scripts/ruff_gate.py",
       "result": "PASS",
-      "detail": "1258 findings / 11 rules == baseline"
+      "detail": "1258 findings / 11 rules == baseline",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "mypy whole-tree ratchet",
       "cmd": "python3 scripts/mypy_gate.py",
       "result": "PASS",
-      "detail": "648 errors / 77 files == baseline"
+      "detail": "648 errors / 77 files == baseline",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "mypy money modules",
       "cmd": "mypy bot/risk bot/compliance bot/utils/trailing.py bot/core/bitget_v3_client.py bot/core/position_telemetry.py bot/core/live_executor.py",
       "result": "PASS",
-      "detail": "16 files, no issues"
+      "detail": "16 files, no issues",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "bandit high/high",
       "cmd": "bandit -r bot/ api_bridge.py dashboard_api.py scripts/ --severity-level high --confidence-level high",
       "result": "PASS",
-      "detail": "0 findings"
+      "detail": "0 findings",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "risk red team",
       "cmd": "python3 scripts/red_team.py",
       "result": "PASS",
-      "detail": "30/30 scenarios refused"
+      "detail": "30/30 scenarios refused",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "custody red team",
       "cmd": "python3 scripts/authority_red_team.py",
       "result": "PASS",
-      "detail": "12/12 attacks denied"
+      "detail": "12/12 attacks denied",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "pip-audit",
       "cmd": "pip-audit -r requirements.lock",
       "result": "PASS",
-      "detail": "no known vulnerabilities"
+      "detail": "no known vulnerabilities",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "npm advisory ratchet x4",
       "cmd": "node token/scripts/audit_gate.mjs .",
       "result": "PASS",
-      "detail": "root 6 high + 8 moderate; token/ 9 high + 15 moderate + 11 low; app/ 1 low; site/ 0 - all == baseline"
+      "detail": "root 6 high + 8 moderate; token/ 9 high + 15 moderate + 11 low; app/ 1 low; site/ 0 - all == baseline",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "Anchor typecheck",
       "cmd": "npm run typecheck",
-      "result": "PASS"
+      "result": "PASS",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "site build",
       "cmd": "site: npm run build",
-      "result": "PASS"
+      "result": "PASS",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "site tests",
       "cmd": "site: npm test",
       "result": "PASS",
-      "detail": "59/59"
+      "detail": "59/59",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "committed site == built site",
       "cmd": "git status --porcelain -- website/",
       "result": "PASS",
-      "detail": "clean"
+      "detail": "clean",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "app parse",
       "cmd": "app: node --check over *.js lib/ routes/ public/js/",
-      "result": "PASS"
+      "result": "PASS",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "app tests",
       "cmd": "app: npm test",
       "result": "PASS",
-      "detail": "3593/3593"
+      "detail": "3593/3593",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "guard reachability",
       "cmd": "python3 scripts/guard_lint.py",
       "result": "PASS",
-      "detail": "12/12 rules, after RC-2026-002/003"
+      "detail": "12/12 rules, after RC-2026-002/003",
+      "measured_at": "9ffd466c"
     },
     {
       "check": "python suite (baseline gate)",
       "cmd": "python3 scripts/ci_test_gate.py",
       "result": "INCONCLUSIVE",
-      "detail": "9076 passed, 3 failed - but the gate DISABLED its own flake filter because source changed mid-run. One failure was RC-2026-004 (now fixed); the other two passed in isolation. Needs a clean re-run on a quiescent tree before any number is reported."
+      "detail": "9076 passed, 3 failed - but the gate DISABLED its own flake filter because source changed mid-run. One failure was RC-2026-004 (now fixed); the other two passed in isolation. Needs a clean re-run on a quiescent tree before any number is reported.",
+      "measured_at": "9ffd466c"
     }
   ],
   "coverage": {
