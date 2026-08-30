@@ -207,6 +207,14 @@ class TestTheLoopActuallyOmitsTheField:
             def from_config():
                 return _FakeClient()
 
+            # The v3 channel now builds its client through from_credentials so a
+            # per-user executor signs with its own keys (RC-2026-011). The fake
+            # has to offer the entry point the code actually calls; the
+            # credentials are irrelevant here — this test is about posSide.
+            @staticmethod
+            def from_credentials(_credentials=None):
+                return _FakeClient()
+
             def request(self, _method, _path, body):
                 sent.append(dict(body))
                 return {"code": venue(body), "data": {"orderId": "OID-1"},
@@ -216,7 +224,7 @@ class TestTheLoopActuallyOmitsTheField:
         # has to land on the defining module, not on live_executor.
         monkeypatch.setattr(v3mod, "BitgetV3Client", _FakeClient)
         monkeypatch.setattr(LiveExecutor, "_fetch_position_margin_mode_v3",
-                            staticmethod(lambda _s: "isolated"))
+                            staticmethod(lambda _s, credentials=None: "isolated"))
         monkeypatch.setattr(asyncio, "sleep", _no_sleep)
 
         ex = LiveExecutor.__new__(LiveExecutor)

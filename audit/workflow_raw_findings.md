@@ -7337,3 +7337,582 @@ The repo has already diagnosed this exact shape once, at tests/test_trade_gate_p
         # The real property: the icon is a LOOKUP with no green fallback, so
         # a label the map does not know cannot come out green.
 ```
+
+
+========================================================================
+
+# Batch 7 (final) — frontend-correctness, contracts
+
+**18 raw · 15 CONFIRMED · 1 SUSPECTED · 2 REFUTED**
+
+**This completes all 26 dimensions.**
+
+
+## B7-01 [CRITICAL] Operator live dashboard hardcodes the badge "SIMULATION" and never reads engine.simulation_mode
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/web/dashboard.html:417-419 (markup); 718-771 (updateEngine)`
+
+**Observed**: The badge is amber and reads "SIMULATION" permanently. `grep -n "simulation" bot/web/dashboard.html` returns nothing — the client never reads the field at all. `.badge-live` (line 97) is dead CSS reachable from no code path. The connection dot nested inside the badge *is* updated (green when polling succeeds), so a live-trading engine renders as a green-dot "SIMULATION" badge.
+
+**Root cause**: The RC-AUD-016 fix was applied to the server half (dashboard_server.py:84-96) and the client half was never wired. `updateEngine(eng, ...)` receives the whole `engine` object and uses only `eng.state`.
+
+**Remediation**: In `updateEngine`, set the badge from the payload with three states, not two: `const sim = eng && eng.simulation_mode;` → `sim === true` → SIMULATION/`badge-sim`; `sim === false` → LIVE — REAL MONEY/`badge-live`; anything else (absent/non-boolean, e.g. the `data["engine"] = {"state": "UNKNOWN"}` branch at dashboard_server.py:98-99) → "MODE UNKNOWN" with a neutral class. Add a test in tests/ that plants each of the three payloads and asserts the badge text, in the style of app/test/engine_status_scenarios.test.js.
+
+**Verifier corrections**:
+
+- sev→HIGH — Downgrade CRITICAL to HIGH. The defect is real and the direction is the dangerous one (live money labelled SIMULATION), but this is a display-only operator panel behind a Bearer token, and it is not the only place the operator learns the mode — bot/main.py:47 prints `Mode: SIMULATION|LIVE` at boot and bot/skills/telegram_handler.py:1275 derives LIVE/PAPER/IDLE from CONFIG.is_live() on the Telegram surface. No trading decision is gated on this badge. Fix as described; the three-state treatment (including the dashboard_server.py:98 `{"state": "UNKNOWN"}` branch, which carries no simulation_mode key at all) is correct.
+
+- sev→HIGH — Finding stands as written. Downgrading CRITICAL->HIGH only because this is a display on an operator console, not an execution path: it cannot itself place or block an order, and the same operator has /risk, /portfolio and the Telegram surfaces. The lie points the dangerous way (says 'no real money at stake' while live), so HIGH rather than MEDIUM.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:417-419
+      <span class="header-badge badge-sim" id="modeBadge">
+        <span class="status-dot dot-amber" id="statusDot"></span>
+        SIMULATION
+      </span>
+
+bot/web/dashboard.html:718-721 (updateEngine — the only consumer of `eng`)
+function updateEngine(eng, tiers, cost) {
+  // State badge
+  const s = (eng && eng.state) || 'IDLE';
+  $('stateBadge').textContent = s.toUpperCase();
+
+And the server that feeds it, bot/web/dashboard_server.py:84-97:
+        # RC-AUD-016: report the REAL trading mode, not a hardcoded True.
+        # A hardcoded "simulation_mode": True made the dashboard show paper mode
+        # even while trading live with real capital.
+            _sim_mode = not _engine_cfg.is_live()
+        data["engine"] = { ... "simulation_mode": _sim_mode, ... }
+```
+
+## B7-02 [HIGH] Operator dashboard renders a swallowed positions-read exception as "No open positions" (HTTP 200 with an empty or partial list)
+
+- **Dimension**: frontend-correctness · **Fix class**: REVIEW_REQUIRED · **File**: `bot/web/dashboard_server.py:151-167`
+
+**Observed**: The exception is swallowed and the client says "No open positions" — and `posCount` is set to '0'. Worse, because the `except` wraps the whole accumulation loop, an exception part-way through returns the positions gathered so far as if they were the complete book: a partial position list printed as whole.
+
+**Root cause**: `except Exception: pass` around the accumulation, plus a return that cannot distinguish "nothing open" from "could not look". The client's only failure guard is `res.ok`, which this path deliberately keeps at 200.
+
+**Remediation**: Move the try/except to wrap the whole build and return 503 `{"error": "positions_unavailable"}` on failure — matching `handle_positions` in bot/web/user_gateway.py. Then `fetchAll`'s existing `!posRes.ok` check already routes it to the Disconnected state. Do the same for `handle_signals` (dashboard_server.py:170-190), which has two identical `except Exception: pass` blocks feeding `updateTrades` → "No trade history".
+
+**Verifier corrections**:
+
+- sev→HIGH — None. The partial-book half is the more serious of the two claims and is correctly identified — this is CLAUDE.md's 'sum(...) over a set that includes unreadable rows' shape at the transport layer. The proposed fix (move the try to wrap the whole build, return 503, let the existing `!posRes.ok` check route to Disconnected) is minimal and correct.
+
+- sev→HIGH — Stands. One caveat on the 'partial list printed as whole' half: it requires the exception to be raised mid-iteration (e.g. one user's portfolio raising in get_trailing_status) rather than at all_portfolios(); that is plausible but not demonstrated, so treat the empty-list case as the confirmed one and the partial case as the secondary risk.
+
+**Evidence**:
+
+```
+bot/web/dashboard_server.py:151-167
+async def handle_positions(request: web.Request) -> web.Response:
+    engine = request.app["engine"]
+    positions = []
+    try:
+        for uid, port in engine.user_portfolios.all_portfolios().items():
+            ...
+                positions.append(d)
+    except Exception:
+        pass
+    return web.json_response({"positions": positions})
+
+bot/web/dashboard.html:650-654
+function updatePositions(positions) {
+  const el = $('posBody');
+  if (!positions || !positions.length) {
+    el.innerHTML = '<div class="empty-msg">No open positions</div>';
+```
+
+## B7-03 [HIGH] Operator dashboard paints "CIRCUIT BREAKER: OK" in green from a failed risk read
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/web/dashboard.html:703-712`
+
+**Observed**: A green "CIRCUIT BREAKER: OK" with a glowing green dot, plus "Checks 0 / Rejected 0 / Trips 0 / Loss Streak 0" (bot/web/dashboard.html:710-715 use `(r.total_checks||0)` etc.) — a complete, confident, all-clear risk report assembled from no data.
+
+**Root cause**: The server's fail-safe emits `{}` rather than omitting the key or signalling failure, and every client guard on this page is `if (!x) return` — which `{}` passes. The same file already documents this exact trap two functions down for the cost panel ("`{}` is truthy, so the old `if (cost)` did not stop it either", lines 758-762) but the fix was never carried to `updateRisk` or `updatePortfolio`.
+
+**Remediation**: Have handle_state omit the `risk` key on failure (or set `data["risk"] = None`), and change the client guard to test for the field rather than the object: `if (!r || typeof r.circuit_breaker_active !== 'boolean') { render an explicit "breaker state unreadable" row in the muted/neutral colour; return; }`. Apply the same field-presence test to the four counters.
+
+**Verifier corrections**:
+
+- sev→HIGH — None. This is the strongest of the twelve: a confident all-clear on the control that decides how much real money is lost before the engine halts, assembled from a failed read, in a file whose own comments name the bug two functions below. Fix both halves (omit/None on the server, field-presence test on the client) as proposed.
+
+- sev→HIGH — Stands. Note the failure branch requires the risk read itself to raise (engine.risk missing an attribute / stats raising), so this is a failure-path defect, not the steady state — same class as the cost/tiers defects this same file already fixed.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:703-708
+function updateRisk(r) {
+  if (!r) return;
+  const cb = r.circuit_breaker_active;
+  const breakerHtml = cb
+    ? '...CIRCUIT BREAKER: TRIPPED...'
+    : '<div class="breaker breaker-ok">...color:var(--green);">CIRCUIT BREAKER: OK</div></div></div>';
+
+The payload it guards against, bot/web/dashboard_server.py:64-72:
+    try:
+        data["risk"] = {
+            "circuit_breaker_active": engine.risk.circuit_breaker_active,
+            ...
+        }
+    except Exception:
+        data["risk"] = {}
+```
+
+## B7-04 [HIGH] Operator dashboard shows "Daily: +0.00%" in green, 0 open positions and 0 trades when the portfolio read failed
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `bot/web/dashboard.html:627-641`
+
+**Observed**: "Open 0", "Trades 0", and a green "Daily: +0.00%" beside two honest '--' figures — a mixture that reads as a real, flat, break-even day rather than a failed read.
+
+**Root cause**: `|| 0` coercion on four fields, plus the same `{}`-is-truthy guard gap as updateRisk. The file's own comment at lines 758-762 identifies this exact family for the cost panel and fixes it there only.
+
+**Remediation**: Reuse the file's own `orDash()` helper (bot/web/dashboard.html:779-783), which already implements exactly this rule, for `sOpen` and `sTrades`. For the daily badge: `const dp = (p.daily_pnl === null || p.daily_pnl === undefined || p.daily_pnl === '') ? null : Number(p.daily_pnl);` then render '--' with the dim colour when `dp === null`, and only apply green/red when it is a finite number.
+
+**Verifier corrections**:
+
+- sev→MEDIUM — Downgrade HIGH to MEDIUM. Two mitigating facts the finder itself established: the two dollar figures beside these fields already render '--', so the panel is visibly half-broken rather than confidently whole, and the defect is confined to the `data["portfolio"] = {}` failure branch (PortfolioState always defines daily_pnl on the success path — verified at bot/utils/models.py). Real, worth fixing with the file's own orDash(), but a rung below the circuit-breaker all-clear in finding 2.
+
+- sev→MEDIUM — Stands, but HIGH is inflated relative to findings 1 and 2: half the panel (balance, equity, win rate) already degrades honestly to '--', so the operator sees a visibly mixed panel rather than a coherent false all-clear. The green '+0.00% Daily' is the real defect here; 'Open 0'/'Trades 0' beside two dashes is milder.
+
+**Evidence**:
+
+```
+bot/web/dashboard.html:627-640
+function updatePortfolio(p) {
+  if (!p) return;
+  $('sBalance').textContent = fmtUsd(p.balance_usd);
+  $('sEquity').textContent = fmtUsd(p.equity_usd);
+  $('sOpen').textContent = p.open_positions || 0;
+  $('sTrades').textContent = p.total_trades || 0;
+  ...
+  const dp = p.daily_pnl || 0;
+  $('pnlBadge').textContent = 'Daily: ' + pnlSign(dp) + fmt(dp) + '%';
+  $('pnlBadge').style.color = dp >= 0 ? 'var(--green)' : 'var(--red)';
+
+The payload it guards against, bot/web/dashboard_server.py:54-61:
+    try:
+        ...
+        data["portfolio"] = _safe_dict(snap)
+    except Exception:
+        data["portfolio"] = {}
+```
+
+## B7-05 [MEDIUM] Chat drawer header prints "Today +0.00" in green when daily PnL is null — a value routes/portfolio.js explicitly returns
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/js/chat.js:272-280`
+
+**Observed**: A green "+0.00" labelled "Today", indistinguishable from a genuine measured break-even day. Note that the line directly above handles the same problem correctly for equity: `const eq = (d.equity == null) ? '—' : ...`.
+
+**Root cause**: `Number(x || 0)` upstream of two helpers that were written to handle null correctly, plus a hand-rolled `dp >= 0 ? 'up' : 'down'` instead of the repo's `pnlClass`, which deliberately returns '' for unknown.
+
+**Remediation**: `const dp = (d.daily_pnl == null) ? null : Number(d.daily_pnl);` then omit the Today cell entirely when `dp === null` (the omit strategy the rest of this function already uses — the whole strip hides on a failed read), or render `signed(dp)` with `class="${pnlClass(dp)}"` so unknown gets no colour.
+
+**Verifier corrections**:
+
+- sev→MEDIUM — None; if anything under-stated. The finder cites only the operator sync path (portfolio.js:144); dbFallback omits daily_pnl entirely, so every non-operator user on a gateway outage also gets a green '+0.00' labelled Today.
+
+- sev→MEDIUM — Stands as written, and the reachability is broader than the finder stated: the dbFallback shape omits daily_pnl entirely, so every fallback response also renders the fabricated green +0.00.
+
+**Evidence**:
+
+```
+app/public/js/chat.js:272-280
+    const dp = Number(d.daily_pnl || 0);
+    const dpTxt = signed ? signed(dp) : (dp >= 0 ? '+' + fmt(dp, 2) : fmt(dp, 2));
+    const openN = (d.open_positions || []).length;
+    const modeCls = d.mode === 'LIVE' ? 'mode-badge--live' : 'mode-badge--paper';
+    metaEl.innerHTML =
+      `<span class="mode-badge ${modeCls}">${esc(d.mode || 'PAPER')}</span>` +
+      `<span class="chat-meta-item"><span class="k">Equity</span><b>${eq}</b></span>` +
+      `<span class="chat-meta-item"><span class="k">Today</span><b class="${dp >= 0 ? 'up' : 'down'}">${dpTxt}</b></span>` +
+
+The producer, app/routes/portfolio.js:144:
+    daily_pnl: null, // not tracked on the sync path
+```
+
+## B7-06 [HIGH] Chat drawer stamps a confident PAPER badge on the /api/portfolio fallback that the dashboard's own mode chip refuses to trust
+
+- **Dimension**: frontend-correctness · **Fix class**: REVIEW_REQUIRED · **File**: `app/public/js/chat.js:275-277`
+
+**Observed**: The chat drawer header shows a PAPER badge (amber, `.mode-badge--paper`, app/public/styles.css:529) while the dashboard's own top chip on the same page shows "MODE ?". `loadMeta` never reads `d.stale` or `d.source` at all. Two surfaces in one tab give two different answers about whether real money is at stake — the same 'one session, two answers' class of bug app/test/cache_buster_ratchet.test.js was written about.
+
+**Root cause**: The mode-unknown distinction was added to `updateModeChip` in dashboard.js and never carried to the chat drawer, which consumes the identical `/api/portfolio` payload.
+
+**Remediation**: Extract the mode verdict into a shared pure model (as the repo did for `engine-status-model.js` and `panel-error-model.js`) and call it from both `updateModeChip` and `loadMeta`, so the two cannot drift. Minimum fix: in loadMeta, `if (d.stale && d.source !== 'sync') render a neutral 'MODE ?' badge` before the LIVE/PAPER branch.
+
+**Verifier corrections**:
+
+- sev→MEDIUM — Downgrade HIGH to MEDIUM. The failure direction is the safer one: it asserts PAPER when the mode is unknown, so it under-claims risk rather than over-claiming it, and the authoritative chip on the same page already says MODE ?. Worth fixing (the two-surfaces-one-answer drift is exactly what the shared-model pattern exists for), but it does not tell a user their real money is safe when it is not.
+
+- sev→MEDIUM — Stands, but HIGH overstates it. The server is the one asserting mode:'PAPER' on the fallback, and the sibling chip on the same page simultaneously shows 'MODE ?', so the user gets a visible contradiction rather than a silent false all-clear; and no action is taken from this badge (the trade-confirm card computes its own mode from _trade_mode, which the finder correctly excluded). MEDIUM.
+
+**Evidence**:
+
+```
+app/public/js/chat.js:275-277
+    const modeCls = d.mode === 'LIVE' ? 'mode-badge--live' : 'mode-badge--paper';
+    metaEl.innerHTML =
+      `<span class="mode-badge ${modeCls}">${esc(d.mode || 'PAPER')}</span>` + ...
+
+The fallback it renders, app/routes/portfolio.js:234-259:
+    if (!gateway.isConfigured()) {
+      const fb = await dbFallback(userId);
+      return res.json({ ...fb, mode: 'PAPER' });
+    }
+    ...
+    if (r.status !== 200) {
+      const fb = await dbFallback(userId);
+      return res.json({ ...fb, mode: 'PAPER' });
+    }
+
+The sibling that gets it right, app/public/js/dashboard.js:248-258:
+  function updateModeChip(pf) {
+    ...
+    if (pf.stale && pf.source !== 'sync') {
+      // Bot unreachable and no live feed: mode is unknown — don't assert PAPER.
+      el.textContent = 'MODE ?';
+```
+
+## B7-07 [MEDIUM] Public trader card tells a visitor the trader does not exist when the server returned 500/429/503
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/trader.html:167-170`
+
+**Observed**: A shared public link to a real trader renders "No trader by that handle — the board awaits." The correct copy exists three lines further down and is unreachable for HTTP failures because `r.ok ? r.json() : null` collapses them into the absence branch before the catch can see them.
+
+**Root cause**: `r.ok ? r.json() : null` conflates 'server refused' with 'server said no such row'.
+
+**Remediation**: Replace line 168 with the pattern page_failure_honesty.test.js already pins for strategy.html: `.then(function (r) { if (r.status === 404) return null; if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })`, and keep `if (!d)` for the genuine-404 copy. The existing `.catch` at line 237 then paints the unavailable state. Add trader.html to app/test/page_failure_honesty.test.js.
+
+**Verifier corrections**:
+
+- sev→MEDIUM — None. This is the cheapest fix of the twelve and the repo has already written both the pattern and the test that would pin it; adding trader.html to page_failure_honesty.test.js is the right move.
+
+- sev→LOW — Stands. Downgrading MEDIUM->LOW: this is a public, read-only marketing card. No money, no operator decision and no user action depends on it; the cost is a shared link reading 'no such trader' during an outage. Still a clean instance of the repo's own rule and cheap to fix by adding trader.html to page_failure_honesty.test.js.
+
+**Evidence**:
+
+```
+app/public/trader.html:167-170
+  fetch('/api/arena/trader/' + encodeURIComponent(handle), { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d) { root.innerHTML = '<div class="empty">No trader by that handle — the board awaits. <a href="/arena">Enter the Arena →</a></div>'; return; }
+
+The route's failure answers, app/routes/arena.js:958-961:
+  } catch (err) {
+    console.error('Arena trader error:', err.stack || err.message);
+    res.status(500).json({ error: 'Trader card unavailable' });
+  }
+```
+
+## B7-08 [MEDIUM] i18n.js ships 1.91 MB (765 KB gzipped) of 14 language dictionaries as a render-blocking script on 37 pages
+
+- **Dimension**: frontend-correctness · **Fix class**: REVIEW_REQUIRED · **File**: `app/public/js/i18n.js:1 (whole file; tag e.g. app/public/index.html:930, dashboard.html:94)`
+
+**Observed**: Every visitor to any of 37 pages downloads all 14 dictionaries synchronously. For the English default the module then does literally nothing (`if (current !== 'en') apply(...)`). This is by a wide margin the largest asset the platform ships: 3.4× `dashboard.js` and ~13× the whole three.js bundle the perf pass went to the trouble of deferring.
+
+**Root cause**: One monolithic dictionary bundled with the (correct, well-documented) requirement that the language be resolved at parse time. The parse-time requirement applies only to `resolveCurrent()` — a few dozen lines — not to the 1.9 MB of strings.
+
+**Remediation**: Split the module: keep the tiny language-resolution + `<html lang/dir>` half inline or in a small synchronous file, and load only the resolved language's dictionary (`/js/i18n/<lang>.js?v=N`) — for `en` load nothing, since the English text is already the markup. Add a byte-budget test for app/public/js/*.js modelled on site/test/payload_budget.test.js so this cannot regress. Note app/package.json declares no compression middleware and app/server.js:288-294 does not add one, so whether the 1.91 MB or the 765 KB figure is what a visitor pays depends on the front proxy, which is not in this repo (the nginx.conf here proxies api_bridge and the bot, not the Express app).
+
+**Verifier corrections**:
+
+- sev→LOW — Downgrade MEDIUM to LOW, and drop the 'render-blocking' framing. The tags sit at the END of <body> (index.html:930 of ~940), so they block DOMContentLoaded and the scripts after them, not first paint. This is a payload/latency issue with no correctness consequence — nothing renders wrong, nothing lies to a user — so it sits outside the frontend-correctness dimension proper. Real and worth a byte budget, but it should not outrank any of findings 0-6.
+
+- sev→MEDIUM — Stands. Two wording corrections: it is not 'render-blocking' in the head sense — both tags sit at the end of <body>, so it blocks the parser tail, the three scripts after it (including app.js) and DOMContentLoaded, not first paint. And the page count is 40 script references, not 37 pages. This is a performance finding rather than a correctness one; MEDIUM is defensible on mobile but do not let it outrank the honesty findings.
+
+**Evidence**:
+
+```
+app/public/index.html:930
+<script src="/js/i18n.js?v=135"></script>
+<script src="/js/icons.js?v=5"></script>
+<script src="/js/panel-error-model.js?v=1"></script>
+<script src="/js/app.js?v=13"></script>
+
+Measured: `ls -la app/public/js/i18n.js` → 1,958,667 bytes; `gzip -c i18n.js | wc -c` → 765,344 bytes. Loading the module under node: 14 languages (en,es,zh,pt,fr,de,nl,ja,ko,ru,tr,it,hi,ar) × 1,783 keys.
+
+And the module's own last line, app/public/js/i18n.js (tail):
+    if (current !== 'en') apply(document, current);
+```
+
+## B7-09 [LOW] "Today for you" buckets by the browser's local day while the PnL calendar buckets by UTC day — same data, two answers
+
+- **Dimension**: frontend-correctness · **Fix class**: REVIEW_REQUIRED · **File**: `app/public/js/dashboard.js:886-887 (local) vs 3897 and 3902 (UTC)`
+
+**Observed**: Two panels in the same app, reading the same `/api/trades/history` payload, disagree about which day a close belongs to for any user not on UTC. Neither surface labels its timezone: the calendar's footnote reads only "One cell per day, newest bottom-right. + profit · − loss."
+
+**Root cause**: `toDateString()` (local calendar day) in one panel and `toISOString().slice(0,10)` (UTC day) in the other, written independently.
+
+**Remediation**: Pick one boundary (UTC, matching the rest of the product) and use it in both: replace line 886-887 with `const todayStr = new Date().toISOString().slice(0,10); const today = rows.filter(t => t.closed_at && new Date(t.closed_at).toISOString().slice(0,10) === todayStr);`. Then label it — 'Today (UTC)' on the card and in the calendar footnote — so a user in UTC+13 is not left reconciling two numbers.
+
+**Verifier corrections**:
+
+- sev→LOW — None. LOW is the right severity: it produces two reconcilable-but-unlabelled numbers for off-UTC users, no false all-clear and no money at risk. Note for whoever fixes it that the Today card was deliberately routed through self.TradeStats.summaryCells (dashboard.js:889-899, with a comment about not duplicating pnlClass's contract), so the change should be confined to the filter predicate at 886-887 and not reach into the stats helper.
+
+- sev→LOW — Stands at LOW. Real but narrow: it only diverges for closes near midnight for non-UTC users, and neither number is used for anything but display. Note the finder's proposed fix silently changes 'Today for you' from the user's own day to UTC — that is a product choice, so label whichever is chosen on the surface rather than swapping it quietly.
+
+**Evidence**:
+
+```
+app/public/js/dashboard.js:885-887 (Home card, "Today for you")
+        const rows = hist?.data?.trades || hist?.data?.rows || [];
+        const todayStr = new Date().toDateString();
+        const today = rows.filter(t => t.closed_at && new Date(t.closed_at).toDateString() === todayStr);
+
+app/public/js/dashboard.js:3894-3903 (Journal, daily PnL calendar — same /api/trades/history source)
+      trades.forEach(t => {
+        const v = parseFloat(t.pnl);
+        if (!Number.isFinite(v)) return;
+        const d = new Date(t.closed_at).toISOString().slice(0, 10);
+        byDay[d] = (byDay[d] || 0) + v;
+      });
+      for (let i = 27; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+```
+
+## B7-10 [LOW] Trade-confirm modal leaves the Confirm button enabled for the whole 35-second request, unlike the chat card that shares the same endpoint
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `app/public/js/dashboard.js:3070-3082`
+
+**Observed**: Up to the rate limit (app/routes/webtrade.js:31, 10 requests/minute per user) concurrent confirms are sent. On success each returns 200; the handler closes the modal and toasts 'Trade confirmed.' per response, so a user who double-tapped on a slow connection sees the success toast more than once for one trade.
+
+**Root cause**: No `disabled` state and no in-flight sentinel on the confirm handler; the guard was implemented in chat.js and not carried to the dashboard modal.
+
+**Remediation**: Disable both modal buttons at the top of the handler and re-enable them on the failure branch, matching app/public/js/chat.js:201-211: `const okB = document.getElementById('tradeModalConfirm'), noB = document.getElementById('tradeModalCancel'); okB.disabled = noB.disabled = true;` … re-enable in the `if (!r.ok)` branch.
+
+**Verifier corrections**:
+
+- sev→LOW — None. The finder did the reachability work the brief asks for, verified the server-side serialisation before reporting, and set severity to match — this is a duplicated success toast, not a double execution. Fix is three lines mirroring chat.js:201/210.
+
+- sev→LOW — Stands at LOW, and credit where due: the finder verified the server-side serialisation before reporting and set severity accordingly rather than claiming double execution. Minor: the duplicate success toast requires two responses to arrive after `close()`, which is possible but needs a genuine double-tap during the in-flight window.
+
+**Evidence**:
+
+```
+app/public/js/dashboard.js:3070-3072
+    document.getElementById('tradeModalConfirm').onclick = async () => {
+      msg.textContent = 'Executing…';
+      const r = await RC.postWithStepUp('/api/trade/confirm', { trade_id: pt.trade_id }, { timeoutMs: 35000 });
+
+The sibling that does disable, app/public/js/chat.js:201-203:
+    okBtn.onclick = async () => {
+      okBtn.disabled = noBtn.disabled = true;
+      const r = await postWithStepUp('/api/trade/confirm', { trade_id: pt.trade_id }, { timeoutMs: 35000 });
+```
+
+## B7-11 [INFORMATIONAL] Cache-busted assets are served with a one-day max-age, and the 985 KB 3D model falls through to one hour
+
+- **Dimension**: frontend-correctness · **Fix class**: SAFE_AUTO_FIX · **File**: `app/server.js:288-294`
+
+**Observed**: Versioned `.js`/`.css` get 86400 without `immutable`, so every returning visitor revalidates ~10 script URLs daily; the versioned 985 KB `.glb` revalidates hourly. Because express.static sets ETag/Last-Modified by default these are 304 round-trips rather than re-downloads — the cost is latency, not bytes — which is why this is filed as informational rather than a defect of substance.
+
+**Root cause**: The extension allow-list in `setHeaders` predates the `.glb` asset and does not include it; and the long-cache opportunity the `?v=` discipline creates was never taken.
+
+**Remediation**: Serve any request carrying a `?v=` query with `public, max-age=31536000, immutable`, and extend the extension list to cover `glb|png|svg|jpg`. Both are safe given the ratchet in app/test/cache_buster_ratchet.test.js, which already fails a build where a changed bundle keeps its version.
+
+**Verifier corrections**:
+
+- sev→INFORMATIONAL — None. Correctly filed as informational, with the 304-not-redownload nuance stated rather than hidden. One caution for the fix: `immutable` on a `?v=`-keyed URL is only safe while the ratchet holds, so the extension-list widening and the immutable switch should land together with a test on the static headers.
+
+- sev→INFORMATIONAL — Stands at INFORMATIONAL, which is the right level — the cost is a handful of 304 round-trips, not bytes. Caution on the proposed fix: serving anything with a ?v= as `immutable` for a year is only safe while every referencing page bumps its ?v= on change, which CLAUDE.md's 'bump it in every page that references a changed bundle' says has been missed before; the ratchet checks values are distinct, not that every referencing page was updated.
+
+**Evidence**:
+
+```
+app/server.js:288-294
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    else if (/\.(css|js|woff2)$/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=86400');
+  },
+}));
+
+The asset it does not cover, app/public/js/mascot3d.js:61:
+const MODEL_URL = '/mascot/RUNECLAW_Command_Core_Mascot_Premium.glb?v=1';
+```
+
+## B7-12 [HIGH] Solana delegate scan queries only the legacy SPL Token program, then reports itself "complete for token delegates" — every Token-2022 delegate (including $RCLAW's own program) is invisible and counted as clean
+
+- **Dimension**: contracts · **Fix class**: REVIEW_REQUIRED · **File**: `app/lib/solana.js:22, 176-177, 220-225`
+
+**Observed**: A wallet with an unlimited Token-2022 delegate gets a response asserting `unreadable_pairs: 0` and 'Every SPL token account of this owner was scanned ... this is complete for token delegates'. The completeness claim is false and the omission is not counted anywhere.
+
+**Root cause**: `TOKEN_PROGRAM` is a single hardcoded constant for the legacy program, written when only legacy SPL mints were in the curated list, and `readDelegates` reuses the portfolio reader's filter verbatim (the same constant is used at line 107 for `readSolana`). The prose was written to describe the intent ('all token accounts') rather than the filter that was actually sent.
+
+**Remediation**: Add `const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';` and issue a second `getTokenAccountsByOwner` for it, merging the results and incrementing `unreadable_pairs` if either call fails (today a failure of the single call already returns the honest 'unknown, not clean' body at lines 205-211 — keep that shape per-program). Update `spenders_checked` to name both programs, and extend `app/test/solana_delegates.test.js` (whose docstring currently asserts 'ALL token accounts are scanned') with a Token-2022 account fixture.
+
+**Verifier corrections**:
+
+- sev→MEDIUM — Holds on every factual point. Severity lowered from HIGH to MEDIUM: this is a read-only, unauthenticated advisory endpoint — it moves no funds and signs nothing (the module header and the note both say the revoke plan is a command the owner runs). The harm is a false all-clear on a security X-ray, which is a real instance of the repo's own rule, but it is one step removed from money. The minimal honest fix is the cheaper half of the proposal: change `spenders_checked` and the note to name the legacy SPL Token program specifically, rather than claiming completeness.
+
+- sev→MEDIUM — Severity HIGH is inflated: this is a read-only, non-signing informational X-ray, the false 'complete' prose is not rendered on the page, and the page already tells the user a clean result is never a guarantee. What survives is the `spenders_checked` label 'SPL delegates (all token accounts)' plus the API `note`, both of which assert a completeness the query cannot deliver for the project's own token standard. MEDIUM.
+
+**Evidence**:
+
+```
+app/lib/solana.js:22
+  const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+app/lib/solana.js:176-177 (readDelegates)
+    const res = await rpcCall('getTokenAccountsByOwner',
+      [address, { programId: TOKEN_PROGRAM }, { encoding: 'jsonParsed' }]);
+
+app/lib/solana.js:212-225 (the answer it returns)
+    spenders_checked: ['SPL delegates (all token accounts)'],
+    findings,
+    zero_pairs: scanned - findings.length,
+    unreadable_pairs: 0,
+    note: 'Every SPL token account of this owner was scanned for a set '
+      + 'delegate — unlike the EVM check this is complete for token '
+      + 'delegates, but Solana programs can hold OTHER powers (PDAs, '
+      + 'program ownership) this scan does not see.'
+```
+
+## B7-13 [MEDIUM] Presale unsold-token rollover is computed, printed to the operator as applied, and then never sent when `raisedSolToLiquidityBps` is 0 — the exact condition the config says strands ~120,000,000 tokens permanently
+
+- **Dimension**: contracts · **Fix class**: REVIEW_REQUIRED · **File**: `token/presale/genesis_presale.mjs:537-538, 558-575, 683-697, 1121-1124`
+
+**Observed**: The operator is told the rollover was configured; on chain it does not exist; and the command that would execute it declines. Per the config's own `_unsoldRolloverNote`, the consequence is that the unsold presale remainder is 'stranded permanently' — 'roughly 120,000,000 tokens, 12% of supply, frozen in an account nobody can reach' — because `withdrawUnsoldPresaleV1` is V1-only and rejects a V2 genesis account (0x2f).
+
+**Root cause**: Two independent on-chain behaviors (quote split and unsold rollover) share one `endBehaviors` array and one send, but the send and the trigger are both conditioned on the quote split's parameter alone. The rollover was added later (its `push` at line 564 is unconditional) without widening the two `bps > 0` conditions, and the operator-facing `console.log` sits next to the push rather than next to the send.
+
+**Remediation**: Change line 683 to `if (endBehaviors.length)` and line 686's log to name every behavior being sent; change line 1121 to gate on the presence of ANY end behavior (re-read the bucket, as `assertEncodedSplitOnChain` already does, rather than trusting `a.quoteSplitBps`); and record the rollover in the artifact alongside `quoteSplitBps` so `presale:liquidity`/`presale:verify` can check it. Add a `rollover.test.mjs` case asserting the rollover behavior survives `raisedSolToLiquidityBps = 0`.
+
+**Verifier corrections**:
+
+- sev→LOW — Holds, but severity lowered from MEDIUM to LOW. It is doubly latent: the committed config carries raisedSolToLiquidityBps 6667 (metaplex-genesis.config.json) and derive_params.test.mjs:174-179 pins it >0, and a bps=0 config is a broken configuration that cmdPlan and cmdLiquidity both refuse (parityLpBaseUnitsForRaise throws), so an operator who set it would be stopped before the LP step — though only AFTER the presale bucket is immutable. The genuinely valuable half of the fix is cheap and worth doing: gate the send on `endBehaviors.length` and stop printing a behavior that was not sent.
+
+- sev→LOW — MEDIUM is too high. Devnet-only tooling, a committed config pinned >0 by an existing test, and a downstream hard refusal (parityLpBaseUnitsForRaise throws on bps=0) mean no realistic path reaches the stranded-tokens outcome without first tripping another gate. The one-line hardening (`if (endBehaviors.length)` at :683, and gating cmdTrigger on the presence of any end behavior) is still worth taking, and so is removing the console.log that announces an unsent behavior.
+
+**Evidence**:
+
+```
+token/presale/genesis_presale.mjs:537-538 — the array is created empty when bps is 0
+  const bps = Number(cfg.liquidity.raisedSolToLiquidityBps ?? 0);
+  const endBehaviors = bps > 0
+    ? [ behavior('SendQuoteTokenPercentage', { ... }) ]
+    : [];
+
+:558-575 — the rollover is pushed onto it unconditionally and announced
+  const rollover = deriveUnsoldRollover(cfg);
+  if (rollover) {
+    ...
+    endBehaviors.push(
+      behavior('BaseTokenRollover', { processed: false,
+        percentageBps: rollover.percentageBps, padding: [0,0,0,0],
+        destinationBucket: destination[0] }));
+    console.log(
+      `    unsold rollover: ${rollover.percentageBps / 100}% of unsold presale tokens -> ` +
+      `"${rollover.name}" bucket [${rollover.bucketIndex}] ${destination[0]}`);
+
+:683-697 — but the ONLY send of endBehaviors is gated on the quote split
+  if (bps > 0) {
+    await step('setPresaleBucketV2Behaviors',
+      () => setPresaleBucketV2Behaviors(umi, { ..., endBehaviors }), ...);
+  } else {
+    console.log('[4/4] No quote split configured (raisedSolToLiquidityBps is 0).');
+  }
+
+:1121-1124 — and the executor refuses for the same reason
+  if (!a.quoteSplitBps) {
+    console.log('This presale encodes no end behaviors — nothing to trigger.');
+    return;
+  }
+```
+
+## B7-14 [MEDIUM] `meme_preflight.preflight` never supplies `radar_risk`, so the meme buy gate's `risk_tier` check fails on every production call — /memeplan can never report a ready plan and the entire Jupiter swap-build/signing slice is unreachable
+
+- **Dimension**: contracts · **Fix class**: REVIEW_REQUIRED · **File**: `bot/core/meme_preflight.py:112-116`
+
+**Observed**: `grep -rn radar_risk --include=*.py .` shows the parameter is supplied only in tests (tests/test_meme_gate.py, tests/test_meme_executor.py). The two production callers — bot/skills/telegram_handler.py:5395 (`/memeplan`) and bot/web/user_gateway.py:964 (`POST /meme/swap/build`) — both go through `preflight`, which omits it. `meme_swap.build_swap`, `intent_id`, `terms_expired`, `app/public/js/swap-sign-model.js` and the `signTransaction` path in `app/public/js/solana_wallet.js` are consequently unreachable in production.
+
+**Root cause**: `plan_swap` was designed with `radar_risk` as an injected input (bot/core/meme_executor.py:53) and the shared preflight extracted later (per its own docstring, to stop /memeplan and the gateway keeping two copies) gathers only the DexScreener features and `assess_token` output. The radar read was never wired into the extracted path, and because the omission fails CLOSED it produces a plausible denial rather than an error.
+
+**Remediation**: Either (a) compute a radar tier inside `preflight` from the features already gathered and pass it to `plan_swap`, or (b) if no radar source exists yet, remove the `risk_tier` check from `evaluate_meme_buy` and record the removal, rather than shipping a precondition no caller can satisfy. Then add a test that drives `preflight` with a good market and asserts `allowed is True` when `MEME_TRADING_ENABLED` is on — the absence of such a test is what let this stand.
+
+**Verifier corrections**:
+
+- sev→MEDIUM — Stands as reported. One nuance worth keeping in the writeup: the failure is honest and fail-closed — the gate renders 'no risk read (fail-closed)' and the gateway returns build:null with 'plan not allowed — nothing was built', so nothing is misrepresented to a user and no money is at risk. MEDIUM is right for a shipped feature with no reachable success path; it is not higher because the failure mode is refusal.
+
+- sev→LOW — The defect is confirmed exactly as described — this is the 'precondition no caller can satisfy / tests were the only caller' pattern. Severity should be LOW rather than MEDIUM on a money scale: the failure is fail-CLOSED (it blocks trades, never permits one), MEME_TRADING_ENABLED is default-OFF, and the rendered reason ('no risk read (fail-closed)') is honest rather than a false all-clear. The cost is a permanently dead feature slice, not lost funds.
+
+**Evidence**:
+
+```
+bot/core/meme_preflight.py:112-116 — every production plan is built without radar_risk
+    plan = meme_executor.plan_swap(
+        intent={"side": side, "token_mint": mint, "size_usd": size_usd},
+        safety_report=assess_token(feats),
+        market=market,
+        envelope_authorized=auth)
+
+bot/core/meme_gate.py:104-106 — which makes this check unconditionally false
+    tier = (radar_risk or {}).get("tier")
+    add("risk_tier", bool(tier is not None and tier != "extreme"),
+        f"risk tier: {tier}" if tier else "no risk read (fail-closed)")
+
+bot/web/user_gateway.py:990-995 — and therefore no transaction is ever built
+    if plan.get("allowed") is not True:
+        payload["build"] = None
+        payload["reason"] = "plan not allowed — nothing was built"
+        return web.json_response(payload)
+```
+
+## B7-15 [INFORMATIONAL] `close_stake_account` is the only instruction that does not check `StakeAccount.version` before acting on the record, breaking the layout contract the program states in its own header
+
+- **Dimension**: contracts · **Fix class**: SAFE_AUTO_FIX · **File**: `programs/rclaw_staking/src/lib.rs:280-286, 492-501`
+
+**Observed**: The header comment at lines 44-46 states the contract — 'The leading `version` byte exists so a future layout change is detectable rather than silently misparsed: any reader that does not recognise the value must refuse to interpret the rest of the account' — and one of the three instructions does not honour it. The instruction that does not honour it is the destructive one.
+
+**Root cause**: The version byte and `UnsupportedAccountVersion` were added to `unstake` and `stake_inner` (both of which move tokens) and the close path, which moves only rent, was not revisited. It is nonetheless the instruction that permanently destroys a record.
+
+**Remediation**: Add the version constraint to the `CloseStake` accounts struct. One line, no behaviour change today, and it closes the contract.
+
+**Verifier corrections**:
+
+- sev→INFORMATIONAL — Accurate and correctly labelled INFORMATIONAL/prospective by the finder. Worth noting alongside it that StakeAccount::RESERVED (:525-528) is 64 bytes of headroom explicitly provided so a future field can be added in place — which is exactly the scenario in which the missing guard would matter, and which strengthens the one-line fix. No severity change; it is a one-line consistency close, not a live bug.
+
+- sev→INFORMATIONAL — No correction. Accurate, honestly scoped, correctly labelled INFORMATIONAL, and the one-line constraint is a free hardening on a program that is not deployed.
+
+**Evidence**:
+
+```
+programs/rclaw_staking/src/lib.rs:280-286 — no version check
+    pub fn close_stake_account(ctx: Context<CloseStake>) -> Result<()> {
+        emit!(StakeAccountClosed {
+            owner: ctx.accounts.stake_account.owner,
+            mint: ctx.accounts.stake_account.mint,
+        });
+        Ok(())
+    }
+
+:492-501 — the accounts struct checks amount but not version
+    #[account(
+        mut,
+        seeds = [b"stake", owner.key().as_ref(), mint.key().as_ref()],
+        bump = stake_account.bump,
+        has_one = owner @ StakeError::WrongOwner,
+        has_one = mint @ StakeError::WrongMint,
+        constraint = stake_account.amount == 0 @ StakeError::StakeNotEmpty,
+        close = owner,
+    )]
+
+Contrast :208-211 (unstake) which does check:
+        require!(
+            ctx.accounts.stake_account.version == StakeAccount::CURRENT_VERSION,
+            StakeError::UnsupportedAccountVersion
+        );
+```
+
+## Refuted in batch 7 (both verifiers)
+
+- **Authority Envelope applies NO notional ceiling to `transfer`/`withdraw` — the only value-moving action in the live signing slice — while the signer's own precondition text tells the operator the envelope "caps ... every on-chain action"** — `bot/guardian/authority.py:281-294`
+  - The code is quoted accurately (bot/guardian/authority.py:281-294) and the exfil branch does return before the ceiling block at :338-356. But the omission is the module's DOCUMENTED design, stated in the same file the finder read: lines 40-43 say 'Only ``trade`` is ever fund-*bounded* rather than fund-*moving-out*; withdraw and transfer move value OUT of the account and are denied unless doubly opted in', and the docstring at :22-23 defines the exfil control as 'Withdrawal is denied by default an
+- **`reject_hazardous_extensions` is a DENY-list with a catch-all `_ => {}`, so any Token-2022 mint extension the pinned crate does not name — including future ones such as Pausable — is silently accepted into the stake vault** — `programs/rclaw_staking/src/lib.rs:154-180`
+  - The code shape is real — programs/rclaw_staking/src/lib.rs:154-180 is verbatim, a six-arm deny match with `_ => {}` — but the DEFECT claim is unsubstantiated and its one concrete example is wrong. Cargo.toml pins anchor-lang/anchor-spl 0.30.1, whose spl-token-2022 (3.x) ExtensionType has no Pausable variant at all; Pausable arrives in a much later crate line, so the named hazard cannot be present. I looked for a currently-accepted hazard the list misses and could not name one: MintCloseAuthority

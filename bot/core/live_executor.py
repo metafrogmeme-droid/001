@@ -822,7 +822,11 @@ class LiveExecutor:
         which is exactly why nothing surfaced it.
         """
         from bot.core.bitget_v3_client import BitgetV3Client
-        return BitgetV3Client.from_credentials(self._credentials)
+        # getattr, not self._credentials: this class is constructed with
+        # `LiveExecutor.__new__(LiveExecutor)` in several tests, which skips
+        # __init__ entirely. A missing attribute means no per-user credentials,
+        # which is exactly the operator path and exactly the old behaviour.
+        return BitgetV3Client.from_credentials(getattr(self, "_credentials", None))
 
     async def _get_exchange(self) -> ccxt.Exchange:
         """Get the authenticated exchange instance for this executor's venue."""

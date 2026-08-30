@@ -1472,3 +1472,78 @@ manifest, and its own engine.
 
 I am recording nine rather than three because I ran the count. The finding was
 right and understated.
+
+---
+
+# Batch 7 (final) — frontend-correctness, contracts
+
+**18 raw · 15 CONFIRMED · 1 SUSPECTED · 2 REFUTED.** Mix: 1 CRITICAL (verifiers
+say HIGH), 5 HIGH, 5 MEDIUM, 2 LOW, 2 INFORMATIONAL. **This completes all 26
+dimensions.**
+
+Two findings were refuted by both verifiers and are recorded as such: the claim
+that the Authority Envelope applies no notional ceiling to `transfer`/`withdraw`,
+and that `reject_hazardous_extensions` is a deny-list with a catch-all.
+
+## RC-2026-023 — the operator's live dashboard says SIMULATION while trading live
+
+- **Status**: OPEN · **Severity**: HIGH (finder said CRITICAL; both verifiers
+  downgraded, and I agree with them)
+- **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/web/dashboard.html:417-419` (markup), `:718-771` (`updateEngine`)
+
+The badge is hardcoded:
+
+```html
+<span class="header-badge badge-sim" id="modeBadge">
+  <span class="status-dot dot-amber" id="statusDot"></span>
+  SIMULATION
+</span>
+```
+
+`grep -n "simulation" bot/web/dashboard.html` returns nothing — the client never
+reads the field. `.badge-live` exists in the CSS at `:97-101` and is reachable
+from no code path.
+
+**The server half was already fixed.** `dashboard_server.py:84-97` carries an
+`RC-AUD-016` comment saying exactly this: *"report the REAL trading mode, not a
+hardcoded True. A hardcoded `simulation_mode: True` made the dashboard show
+paper mode even while trading live with real capital."* It now sends
+`simulation_mode: false` correctly. The client was never wired to it.
+
+So the fix is present in the payload and unreachable from the UI — which, by
+this repo's own reachability rule, is indistinguishable from not being there.
+And the connection dot nested *inside* the badge does update, so a live engine
+renders as a **green-dot "SIMULATION"** badge: the colour says healthy, the word
+says no money at risk, and both are wrong together.
+
+**Why HIGH and not CRITICAL** — both verifiers made the same point independently
+and it is correct: this is a display-only operator console behind a Bearer
+token, no trading decision is gated on it, and the operator learns the mode
+elsewhere (`bot/main.py:47` prints it at boot; `telegram_handler.py:1275`
+derives LIVE/PAPER/IDLE from `CONFIG.is_live()`). The lie points the dangerous
+way, so HIGH rather than MEDIUM.
+
+The remediation needs **three** states, not two, because
+`dashboard_server.py:98-99` has a branch emitting `{"state": "UNKNOWN"}` with no
+`simulation_mode` key at all: `true` → SIMULATION, `false` → LIVE, anything else
+→ MODE UNKNOWN with a neutral colour.
+
+## The other confirmed HIGHs — all the same defect class
+
+Every one is the repo's own rule on the operator's own console:
+
+- **A swallowed positions-read exception renders as "No open positions"**
+  (`dashboard_server.py:151-167` — `except Exception: pass`, then HTTP 200 with
+  `[]`). `user_gateway.py:1667-1670` returns `503 positions_unavailable` for the
+  same data, so the correct pattern exists in the codebase already.
+- **"CIRCUIT BREAKER: OK" painted green from an absent reading.**
+- **"Daily: +0.00%" in green with 0 open positions** from unreadable data.
+- **The chat drawer stamps a confident PAPER badge** on a portfolio payload it
+  could not classify.
+- `contracts`: the Solana delegate scan queries only the legacy SPL Token
+  program, missing Token-2022 delegates (verifiers: MEDIUM).
+
+Five of the six HIGHs in the final batch are the same shape — *unreadable
+rendered as a confident value* — on the screen an operator watches while real
+money moves.
