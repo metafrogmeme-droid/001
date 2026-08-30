@@ -1891,3 +1891,99 @@ recount from.
 **Not corrected:** commit `97476bd`'s message. It is pushed and merged into this
 branch's history, and rewriting published history to fix a figure would cost
 more than the figure is worth. This entry is the correction of record.
+
+---
+
+# RC-2026-001, corrected — the attack needs no leaked token at all
+
+I wrote RC-2026-001 up as: someone who obtains a live link token can bind their
+Telegram to that account, and stated the exposure as *"every path by which a
+10-minute token reaches a second pair of eyes"*. That is true and it is the
+smaller half. The raw finding for the same route (`W-09`, from the first
+rate-limited batch, which I had not read when I wrote mine) has the direction
+right and I had it backwards.
+
+**The attacker uses their OWN token.** `POST /link-token` is authenticated and
+mints a token for the caller's own account — entirely legitimately. The attacker
+then posts `{their_own_token, THE OPERATOR'S chat_id}` to the anonymous
+`/validate-token`. The route looks the row up by *token* and writes `telegram_id`
+from the *body*, so it writes the operator's Telegram id onto the attacker's row
+and sets `telegram_linked = TRUE`.
+
+No token has to leak. No race is needed. The attacker needs a free account.
+
+**What that buys, verified in the code rather than taken from the claim:**
+
+`app/lib/identity.js` resolves the bot identity for gateway-backed routes:
+
+```js
+const [rows] = await pool.execute(
+  'SELECT telegram_id, telegram_linked, email FROM users WHERE id = ?', [uid]);
+if (u && u.telegram_linked && u.telegram_id) return { id: String(u.telegram_id), ... };
+```
+
+Its docstring says:
+
+> The identity is always resolved server-side from the DB — the browser can
+> never choose who it acts as.
+
+**That sentence is true of the read and false of the write.** The browser could
+not choose an identity in the request; it could write one into the column the
+read trusts, one route away. A server-side resolution is only as trustworthy as
+every path that writes the column it reads, and nothing connected the two.
+
+`resolveBotIdentity` is imported by a dozen routers. The `telegram_required`
+gates (`credentials.js:81-83`, `controls.js:78-80`) are satisfied because
+`/validate-token` also sets `telegram_linked = TRUE` — the same write.
+
+**And the 2FA step-up does not stop it**, `app/routes/staking.js:55-66`:
+
+```js
+const [rows] = await pool.execute(
+  'SELECT totp_enabled, totp_secret FROM users WHERE id = ?', [req.user.user_id]);
+const blk = stepUpBlock(u.totp_enabled, u.totp_secret, b.totp_code, ...);
+if (blk) return res.status(blk.status).json(blk.body);
+const ident = await resolveBotIdentity(req);
+const r = await gateway.postGateway('/staking/fixed', { telegram_id: ident.id, ... });
+```
+
+The step-up is evaluated against the **caller's own row** — an attacker who has
+enrolled no 2FA passes it trivially — and the action is then performed as the
+**resolved identity**. Guard and action address different subjects, two lines
+apart, on a money move.
+
+**Severity is unchanged at CRITICAL and the fix is unchanged**; what was wrong
+was my account of how it is reached, which made it sound like it needed bad luck.
+It needed a signup. Both halves of the fix independently block it: `botAuth`
+means the attacker cannot call the route at all, and the 409 means that even
+holding the bot secret, a chat_id already on another row is refused.
+
+## RC-2026-025 — the step-up and the action address different subjects
+
+- **Status**: OPEN · **Severity**: MEDIUM (latent — see reachability)
+- **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/routes/staking.js:55-66`, and the same shape wherever
+  `stepUpBlock` precedes `resolveBotIdentity`
+- **Standard**: CWE-863 (Incorrect Authorization); ASVS V4.2.1
+
+Found while verifying the correction above, and reported separately because it
+**survives the RC-2026-001 fix**. The 2FA check reads the caller's row; the
+money move is executed as whatever identity `resolveBotIdentity` returns. Those
+are the same subject only while nothing can put another account's `telegram_id`
+on your row.
+
+**Reachability: latent, not live.** With RC-2026-001 fixed, `telegram_id` is
+written only by an authenticated bot-secret request that refuses an id already
+on another row, and `idx_users_telegram_id` makes the collision impossible at
+the storage layer too. So there is no path today. It is recorded because the
+property the code depends on is stated nowhere near the code that depends on
+it — the next route that writes `telegram_id`, or a migration that repairs rows
+by hand, re-opens a 2FA bypass on a money path with nothing to catch it.
+
+**Remediation**: read the step-up factors for the identity the action will be
+performed as, not for `req.user.user_id` — or assert the two agree and refuse if
+they do not. The second is cheaper and states the invariant out loud.
+
+**Test**: plant a row whose `telegram_id` belongs to another account, with 2FA
+disabled on the caller and enabled on the identity, and assert `/staking/fixed`
+refuses. That test fails today and passes under either remediation.

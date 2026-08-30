@@ -39,14 +39,23 @@ F = [
               "from 'could not create'; and the guard_lint exemption DELETED, not "
               "reworded. bot/skills/user_middleware.py sends X-Bot-Secret. "
               "DEPLOY ORDER: bot first, then app - reversed, every /link returns 403. "
-              "4 mutations killed, including moving the 409 after the write."),
+              "4 mutations killed, including moving the 409 after the write. "
+              "EXPLOIT PATH CORRECTED: this needs NO leaked token. The attacker mints "
+              "a link token for their OWN account via the authenticated /link-token, "
+              "then posts {own_token, VICTIM's chat_id} - the route looks the row up "
+              "by token and writes telegram_id from the body, so the victim's Telegram "
+              "id lands on the attacker's row with telegram_linked=TRUE. "
+              "app/lib/identity.js then resolves the bot identity from that column, "
+              "and its docstring's promise that 'the browser can never choose who it "
+              "acts as' was true of the read and false of the write. My first write-up "
+              "described the weaker token-leak path; severity and fix are unchanged."),
     dict(id="RC-2026-023", title="The operator's live dashboard header badge is hardcoded "
          "SIMULATION and never reads the mode the server sends",
          status="OPEN", severity="HIGH", confidence="CONFIRMED",
          category="operator-display-honesty", component="bot/web/dashboard",
          file="bot/web/dashboard.html", line="417-419 (markup), 718-771 (updateEngine)",
          fix_class="SAFE_AUTO_FIX", standard=["CWE-1007"],
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         raw_id="B7-01", verified_by="lead-auditor+dimension-agent+2-verifiers",
          note="Finder said CRITICAL; both verifiers independently downgraded to HIGH and "
               "the lead took their number - display-only console behind a Bearer token, "
               "no trade gated on it, mode also printed at boot (bot/main.py:47) and on "
@@ -56,6 +65,24 @@ F = [
               "engine renders as a green-dot SIMULATION. Needs three states, not two: "
               "dashboard_server.py:98 emits {'state': 'UNKNOWN'} with no simulation_mode "
               "key at all."),
+    dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the "
+         "money move executes as the resolved bot identity",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="incorrect-authorization", component="web-app/staking",
+         file="app/routes/staking.js", line="55-66", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-863", "ASVS-4.2.1"], verified_by="lead-auditor",
+         reachability="LATENT, not live. stepUpBlock reads totp_enabled/totp_secret "
+                      "FROM users WHERE id = req.user.user_id, then the action is "
+                      "performed as resolveBotIdentity(req).id. Same subject only "
+                      "while nothing can put another account's telegram_id on your "
+                      "row - which RC-2026-001 could, and no longer can (bot-secret "
+                      "gate, 409 on an id already bound, and idx_users_telegram_id "
+                      "makes the collision impossible at the storage layer).",
+         note="Recorded because the invariant it depends on is stated nowhere near "
+              "the code depending on it: the next route that writes telegram_id, or "
+              "a hand migration repairing rows, re-opens a 2FA bypass on a money path "
+              "with nothing to catch it. Fix: read the step-up factors for the "
+              "identity the action runs as, or assert the two agree and refuse if not."),
     dict(id="RC-2026-024", title="The full-history gitleaks step scans every ref in the "
          "checkout, so another branch's leak fails the check on every open PR",
          status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
@@ -155,7 +182,7 @@ F = [
          category="cross-account-money-path", component="order-execution",
          file="bot/core/live_executor.py", line="5202-5208, 5321 (SL/TP); 8765 (flash close)",
          fix_class="REVIEW_REQUIRED", standard=["CWE-522", "CWE-863"],
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         raw_id="M-06", verified_by="lead-auditor+dimension-agent+2-verifiers",
          reachability="LATENT BY DEFAULT: PER_USER_LIVE_ENABLED defaults False "
                       "(bot/config.py:2261). Live the moment that supported feature is "
                       "enabled; nothing warns that stops land on the wrong account.",
@@ -180,7 +207,7 @@ F = [
          file="bot/risk/risk_engine.py", line="1033 (sizing), 1413-1418 (daily loss), 1475-1486 (drawdown)",
          fix_class="REVIEW_REQUIRED",
          standard=["CLAUDE.md-unreadable-is-never-zero", "CWE-754"],
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         raw_id="M-14", verified_by="lead-auditor+dimension-agent+2-verifiers",
          reachability="NO FEATURE FLAG NEEDED - applies to the default operator live path.",
          note="THREE fail-open branches, not two. Beyond the daily-loss (1413) and "
               "drawdown (1475) breakers, position SIZING at 1033 also falls back to paper "
@@ -350,6 +377,91 @@ COVERAGE = dict(
     ),
 )
 
+# ── The 162 verified findings are INGESTED, not retyped ────────────────────
+#
+# F above is the lead-auditor register: the subset re-read by hand, with
+# reachability established from outside the file and a fix or a proposed patch.
+# It is 14 entries. The audit has 162 confirmed findings, and for a while this
+# artifact carried only the 14 while its release decision spoke for the whole
+# audit — a verdict computed over a curated subset and presented as covering
+# everything, which is the defect this file exists to expose.
+#
+# They are parsed from the markdown rather than transcribed, so the two cannot
+# drift: workflow_raw_findings.md is the single source and this is a view of it.
+_RAW_MD = ROOT / "audit" / "workflow_raw_findings.md"
+_raw_text = _RAW_MD.read_text(encoding="utf-8")
+
+
+def _parse_verified_findings(text: str) -> list[dict]:
+    """Every `## <ID> [SEV] <title>` block, with its metadata line."""
+    out: list[dict] = []
+    for block in re.split(r"(?m)^## (?=[A-Za-z0-9-]+ \[[A-Z]+\])", text)[1:]:
+        head, body = block.split("\n", 1)
+        m = re.match(r"^([A-Za-z0-9-]+) \[([A-Z]+)\] (.+)$", head)
+        if not m:
+            continue
+        fid, claimed, title = m.groups()
+        meta = "\n".join(ln for ln in body.splitlines()[:6] if ln.startswith("- **"))
+
+        def field(name: str):
+            f = re.search(r"\*\*" + name + r"\*\*:\s*`?([^·`\n]+)`?", meta)
+            return f.group(1).strip().rstrip("`").strip() if f else None
+
+        # Both verifiers may correct the severity. Where they agree I took their
+        # number; where they disagree the claim stands and the dispute is
+        # recorded rather than resolved by picking the one I prefer.
+        corrections = re.findall(r"(?m)^- sev→([A-Z]+)", block)
+        agreed = len(set(corrections)) == 1 if corrections else False
+        out.append(dict(
+            id=fid,
+            title=title.strip(),
+            severity=(corrections[0] if agreed else claimed),
+            severity_claimed=claimed,
+            severity_verifier=sorted(set(corrections)) or None,
+            severity_disputed=bool(corrections) and not agreed,
+            status="OPEN",
+            confidence=field("Confidence") or "CONFIRMED",
+            dimension=field("Dimension"),
+            fix_class=field("Fix class"),
+            file=field("File"),
+            verified_by="dimension-agent+2-verifiers",
+            source="audit/workflow_raw_findings.md",
+        ))
+    return out
+
+
+VERIFIED_FINDINGS = _parse_verified_findings(_raw_text)
+
+# A gate whose coverage is overstated is the failure this repository spends its
+# guard tests preventing, so the parse is checked against the batch summaries
+# the file states independently. If a batch is added and the parser misses its
+# blocks, this raises instead of quietly reporting a smaller audit.
+_BATCH_SUMS = re.findall(
+    r"\*\*(\d+) raw · (\d+) CONFIRMED · (\d+) SUSPECTED · (\d+) REFUTED", _raw_text)
+_declared = [sum(int(g[i]) for g in _BATCH_SUMS) for i in range(4)]
+assert _BATCH_SUMS, "no batch summaries found — has workflow_raw_findings.md moved?"
+assert len(VERIFIED_FINDINGS) == _declared[1], (
+    f"parsed {len(VERIFIED_FINDINGS)} finding blocks but the batch summaries "
+    f"declare {_declared[1]} CONFIRMED. Only CONFIRMED findings get a block, so "
+    "these must agree; one of the two is wrong.")
+assert all(f["dimension"] and f["fix_class"] and f["file"] for f in VERIFIED_FINDINGS), (
+    "a finding block is missing dimension, fix class or file")
+
+# The first, rate-limited run. Its two verifiers per dimension died before the
+# refutation pass, so these are claims and are kept apart from the 162.
+UNVERIFIED_CLAIMS = [
+    dict(id=m.group(1), title=m.group(2).strip(), verification="UNVERIFIED",
+         note="First run; the adversarial verifiers died on the session rate "
+              "limit before judging these. Treat as SUSPECTED.")
+    for m in re.finditer(r"(?m)^## (W-\d+) — (.+)$", _raw_text)
+]
+
+# Where a register entry supersedes a raw one, the register wins: it carries the
+# hand-verification and the fix status. Counting both would inflate the total
+# and, worse, would count a FIXED finding as open.
+_SUPERSEDED = {f.get("raw_id") for f in F if f.get("raw_id")}
+ALL_FINDINGS = F + [f for f in VERIFIED_FINDINGS if f["id"] not in _SUPERSEDED]
+
 # ── The release decision is DERIVED, not restated ──────────────────────────
 #
 # It used to be a literal, and it drifted: it named RC-2026-011 and RC-2026-012
@@ -360,8 +472,10 @@ COVERAGE = dict(
 # one place moves the verdict.
 _OPEN = {"OPEN", "PARTIALLY_FIXED"}
 _BLOCKING = {"BLOCKER", "CRITICAL"}
-OPEN_BLOCKERS = [f for f in F if f["status"] in _OPEN and f["severity"] in _BLOCKING]
-OPEN_HIGH = [f for f in F if f["status"] in _OPEN and f["severity"] == "HIGH"]
+OPEN_BLOCKERS = [f for f in ALL_FINDINGS
+                 if f["status"] in _OPEN and f["severity"] in _BLOCKING]
+OPEN_HIGH = [f for f in ALL_FINDINGS
+             if f["status"] in _OPEN and f["severity"] == "HIGH"]
 
 # The brief prohibits GO with ANY unresolved BLOCKER or CRITICAL. Below that bar
 # the open HIGHs still bear on the decision, so it is CONDITIONAL GO rather than
@@ -420,6 +534,8 @@ art = dict(
              "declared as intended scope, not as assessed.",
     ),
     findings=F,
+    findings_verified=VERIFIED_FINDINGS,
+    findings_unverified_claims=UNVERIFIED_CLAIMS,
     verification=VERIFICATION,
     refuted=REFUTED,
     validation=VALIDATION,
