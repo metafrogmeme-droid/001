@@ -1655,6 +1655,43 @@ push protection covers the push itself.
 
 **Rollback.** Delete the `--log-opts` line. One line, no state.
 
+## Confirmed by the experiment I could not run at the time
+
+The finding above was written from a local reproduction plus an inference: that
+the 40 extra commits came from refs the runner held at 08:17 and no longer
+holds. CI has now run the identical check on the same branch, and the inference
+is confirmed.
+
+| run | head | commits | bytes | verdict |
+|---|---|---|---|---|
+| 08:17 | `97476bd` | 1,079 | 86,367,776 | **leaks found: 1** → exit 1 |
+| 11:37 | `ec6b977` | **1,081** | **86,427,022** | **no leaks found** |
+
+Nothing about the scanner changed between them: same pinned 8.28.0, same
+`.gitleaks.toml`, same `--baseline-path`, same runner image, same `git 2.55.0`.
+Nothing about the branch's own history was removed — it **grew** by two commits,
+and the second run scanned 2 more commits and 59 KB more content than the one
+that failed.
+
+So the scan that saw MORE was clean and the scan that saw LESS was not. That is
+only possible if the offending content was never in the set under test, and the
+whole delta is what else happened to be in the runner's checkout at the time.
+The mechanism is no longer an inference: **this check's verdict depends on which
+branches exist when it runs.**
+
+It also settles the direction. A green result here is not evidence that the
+history is clean — it is evidence that whatever tripped the scanner at 08:17 is
+no longer reachable from any ref the runner fetched. Those are different claims,
+and the check reports them identically. **The caveat above therefore stands
+unchanged**: the leak was never identified, the fingerprint is not in the
+baseline, and a credential briefly pushed on a branch survives in that branch's
+objects until GitHub garbage-collects them. A gate that goes green because
+evidence became unreachable is the same shape as every other finding in this
+audit — absent read as clean.
+
+Confidence on the mechanism: **CONFIRMED**. Confidence on the specific leak:
+unchanged at `NEEDS_RUNTIME_VALIDATION`, and no longer obtainable from CI.
+
 ---
 
 # RC-2026-001 — `/api/auth/validate-token` is unauthenticated and it WRITES

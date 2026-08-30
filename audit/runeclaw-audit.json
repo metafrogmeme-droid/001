@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "ec6b977c5f39391a1376196e0bb349544eeb6126",
+    "commit": "548c0c7980060aa7b4f23262c796e195f93ceaf5",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -91,7 +91,7 @@
         "NIST-SSDF-PW.7"
       ],
       "verified_by": "lead-auditor",
-      "note": "Mechanism CONFIRMED by local reproduction with CI's own pinned, checksum-verified binary: scoping to one tip gives 1037 commits, letting it see all refs gives 1039 - exactly the two then-unmerged commits on an unrelated branch. CI's main run reported 1039/86,080,867 bytes, byte-identical to the local run. The specific leak is NOT identified (redacted output, fingerprint absent from the baseline, the refs are gone) and this is NOT an all-clear: a credential briefly pushed on a branch remains in that branch's objects until GitHub collects them. Remediation is --log-opts=HEAD plus an all-refs sweep on a schedule."
+      "note": "Mechanism CONFIRMED by local reproduction with CI's own pinned, checksum-verified binary: scoping to one tip gives 1037 commits, letting it see all refs gives 1039 - exactly the two then-unmerged commits on an unrelated branch. CI's main run reported 1039/86,080,867 bytes, byte-identical to the local run. The specific leak is NOT identified (redacted output, fingerprint absent from the baseline, the refs are gone) and this is NOT an all-clear: a credential briefly pushed on a branch remains in that branch's objects until GitHub collects them. CONFIRMED EXPERIMENTALLY: CI re-ran the identical check on the same branch at 11:37 and passed, scanning 1081 commits / 86,427,022 bytes - MORE than the 1079 / 86,367,776 of the run that failed at 08:17, with no change to scanner, config, baseline or runner. The scan that saw more was clean and the scan that saw less was not, which is only possible if the offending content was never in the set under test. A green result here means the trigger is no longer reachable from any fetched ref, not that history is clean; the check reports both identically. Remediation is --log-opts=HEAD plus an all-refs sweep on a schedule."
     },
     {
       "id": "RC-2026-002",

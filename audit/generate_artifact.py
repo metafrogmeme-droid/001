@@ -71,7 +71,16 @@ F = [
               "(redacted output, fingerprint absent from the baseline, the refs are "
               "gone) and this is NOT an all-clear: a credential briefly pushed on a "
               "branch remains in that branch's objects until GitHub collects them. "
-              "Remediation is --log-opts=HEAD plus an all-refs sweep on a schedule."),
+              "CONFIRMED EXPERIMENTALLY: CI re-ran the identical check on the same "
+              "branch at 11:37 and passed, scanning 1081 commits / 86,427,022 bytes "
+              "- MORE than the 1079 / 86,367,776 of the run that failed at 08:17, "
+              "with no change to scanner, config, baseline or runner. The scan that "
+              "saw more was clean and the scan that saw less was not, which is only "
+              "possible if the offending content was never in the set under test. "
+              "A green result here means the trigger is no longer reachable from any "
+              "fetched ref, not that history is clean; the check reports both "
+              "identically. Remediation is --log-opts=HEAD plus an all-refs sweep on "
+              "a schedule."),
     dict(id="RC-2026-002", title="guard_lint accuses third-party code in any virtualenv "
          "not named .venv", status="FIXED", severity="MEDIUM", confidence="CONFIRMED",
          category="gate-integrity", component="tooling",
