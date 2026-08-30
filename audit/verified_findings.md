@@ -1188,3 +1188,106 @@ clamp when it is `None` (matching the documented fetch-failure behaviour) and
 apply it when a real number came back. Bitget's ccxt payload does carry `free`,
 so this is latent rather than active on the current venue — which is exactly why
 it wants a test rather than a comment.
+
+---
+
+# Batch 4 — backtest, honesty-js, data-db, concurrency
+
+**33 raw · 31 CONFIRMED · 2 SUSPECTED · 0 REFUTED.** Severity mix of the
+confirmed: 1 BLOCKER (downgraded — see below), 4 CRITICAL, 10 HIGH, 12 MEDIUM,
+4 LOW. Full detail in `audit/workflow_raw_findings.md` as **B4-01 … B4-31**,
+including each finding's verifier notes.
+
+## RC-2026-018 — the default backtest fills entries at prices the market never traded
+
+- **Status**: OPEN · **Severity**: **CRITICAL** (the finder said BLOCKER; see the correction)
+- **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/backtest/engine.py:593`
+
+`CONFIG.limit_orders` defaults to `enabled=True` with
+`default_order_type="limit"` (`config.py:1982-1984`), so the analyzer sets
+`idea.entry_price` to a pullback level up to 1 ATR below the close. The
+backtest has **no order-type model at all** — `bot/backtest/` contains zero
+references to `order_type` — so `_execute_fill` books the position at that limit
+price unconditionally on the signal bar, whether or not any bar ever traded
+there. The engine captures exactly the entries a real limit order would have
+missed: the ones that ran away favourably.
+
+`bot/backtest/models.py:52-57` states the discipline this violates: *"Run both
+and compare: a large edge gap between them means the strategy's backtested edge
+lives in the fill assumption, not the signal."* Nothing runs that comparison.
+
+### The verifiers corrected this, and the corrections are the important part
+
+I am recording the corrected version, not the finder's.
+
+**1. Severity: BLOCKER → CRITICAL.** No live order path is affected and no money
+moves on this code. It corrupts measurement, which is severe, but it is not
+ship-stopping in the way a live-trading defect is.
+
+**2. The blast radius is much smaller than claimed — I verified this myself.**
+The finder implied every published figure is tainted. It is not:
+
+```python
+# bot/backtest/runner.py:546-548
+if getattr(args, "honest", False):
+    args.strict_data = True
+    args.fill_mode = "next_open"
+```
+
+and `--honest` is what the published paths actually use — `bot/api/lab.py:164`
+passes `"--honest", "--strict-data"`, and `docs/FROZEN_BENCHMARK.md:11,36` runs
+`--honest --walk-forward 6`. So the **frozen benchmark and the marketplace
+scorecards are NOT affected.**
+
+What *is* affected is everything run in the default `fill_mode="close"`
+(`models.py:50`) — including the committed **`backtest_deep_results.json`**, and
+the `/backtest` and `/walk_forward` Telegram cards.
+
+**3. I am not quoting the fill percentage.** The finder reported "73% of fills
+(35 of 48)"; one verifier re-ran it and measured "21 of 36 (58%)"; the other did
+not re-run at all and said so. Two measurements that disagree, neither
+reproduced by me. The *mechanism* is proven from source — a limit up to 1 ATR
+below the close, filled without being touched — and that is what I am asserting.
+A number I have not reproduced does not go in a register that exists to be
+trusted.
+
+**Remediation**: honour `idea.order_type` in `_execute_fill` — queue a limit and
+fill only when a later bar's low (LONG) / high (SHORT) reaches it, expiring per
+`CONFIG.limit_orders.expire_seconds` and cancelling on `price_drift_cancel_pct`.
+Add a test asserting every recorded entry price lies within some bar's
+`[low, high]` at or after the signal bar. Until then, **no default-mode artifact
+should be quoted as a performance figure** — `backtest_deep_results.json`
+included.
+
+## The other confirmed CRITICALs
+
+- **`buildDefiPositions` returns an all-clear on Aave liquidation risk when
+  every check failed** (`honesty-js`). The repo's own rule, on a liquidation
+  warning.
+- **The migration fast path checks TABLE existence only**, so all 64
+  column/index migrations are skipped on an existing database (`data-db`).
+- **`/walk_forward`'s out-of-sample window is shorter than the indicator
+  warmup** (`backtest`).
+- **Under `--honest`, positions open at the next bar's open while [exit logic
+  still uses the signal bar]** (`backtest`) — the honest mode has its own
+  asymmetry.
+
+## HIGHs worth naming (reported, not fixed, per your scope decision)
+
+`data-db`: arena position close has no transaction and no affected-rows check;
+bot sync acks delete the pending row by `user_id` unconditionally, discarding
+concurrent writes; portfolio sync deletes all of a user's trades and equity
+snapshots before reinserting.
+
+`concurrency`: **no SIGTERM handler at all** — the entire graceful-shutdown path
+is unreachable on every deployment.
+
+`honesty-js`: `buildExposure` renders a failed `trades` query as a flat book
+("No directional exposure"); the escape planner reads a 502 wallet response as
+"No linked wallet found".
+
+`backtest`: `--honest` win rate and trade count are per scale-out **leg**, not
+per position; regenerating the published scorecards writes to a directory
+nothing reads; the live↔backtest parity report scores an unpriced live close as
+break-even.
