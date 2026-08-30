@@ -3,32 +3,52 @@ r"""
 RUNECLAW - Convert Merged Model to GGUF (Fully Offline)
 =========================================================
 Uses the gguf pip package (v0.19+) for correct GGUF encoding.
-Pins to a compatible version to avoid format mismatches.
+
+THE FAILURE THIS GUARDS AGAINST
+
+This script converts whatever ./runeclaw-model-merged/ holds — and four
+times (30-7 and 9-8-2026) that folder held a stale June 8B merge while a
+freshly trained 3B sat unread in its checkpoint dir. The 8B GGUF shipped
+under the 3B's name, once to the public registry. Conversion now refuses
+to run when the merge's manifest is missing, older than the newest
+checkpoint on disk, or inconsistent with the weights actually present —
+and the finished GGUF's size must match the parameter count before the
+script will call it done.
 
 Usage:
-  python convert_to_gguf.py
+  python convert_to_gguf.py               # gated; refuses stale input
+  python convert_to_gguf.py --no-quant    # keep F16, skip Q4_K_M
+  python convert_to_gguf.py --force       # bypass gates (prints why loudly)
 
 Requires:
-  - ./runeclaw-model-merged/  (from export_model.py)
+  - ./runeclaw-model-merged/  (from export_model.py, which writes the manifest)
   - pip packages: gguf>=0.19, safetensors, numpy
 
 Output:
-  ./runeclaw-model/model-f16.gguf
+  ./runeclaw-model/unsloth.Q4_K_M.gguf  (or model-f16.gguf with --no-quant)
   ./runeclaw-model/Modelfile
 """
 
-import os
-import sys
+import argparse
+import glob
 import json
-import struct
-import shutil
+import os
 import platform
 import subprocess
+import sys
+
 import numpy as np
 
 MODEL_DIR = "./runeclaw-model-merged"
 OUTPUT_DIR = "./runeclaw-model"
 LLAMA_CPP_DIR = "./llama-cpp-tools"
+MANIFEST_NAME = "EXPORT_MANIFEST.json"
+
+ADAPTER_WEIGHT_NAMES = ("adapter_model.safetensors", "adapter_model.bin")
+
+# Empirical GGUF bytes per parameter: Q4_K_M mixes q4/q6 tensors,
+# F16 is exactly 2. Used only for the ±tolerance size gate.
+BYTES_PER_PARAM = {"q4_k_m": 0.62, "f16": 2.0}
 
 SYSTEM_PROMPT = (
     "You are RUNECLAW, an AI trading analyst. You analyze cryptocurrency "
@@ -58,6 +78,98 @@ LAYER_TENSOR_MAP = {
 }
 
 
+# ── Freshness / identity gates ────────────────────────────────────
+
+
+def load_manifest(model_dir):
+    """The EXPORT_MANIFEST.json written by export_model.py, or None."""
+    path = os.path.join(model_dir, MANIFEST_NAME)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def newest_adapter_mtime(root="."):
+    """mtime of the newest adapter weight file under any *checkpoints* dir,
+    or None when no checkpoints exist. (Mirrors export_model.py's discovery;
+    kept inline so this script stays copyable as a single file.)"""
+    patterns = [
+        os.path.join(root, "*checkpoints*", "final-adapter"),
+        os.path.join(root, "*checkpoints*", "checkpoint-*"),
+        os.path.join(root, "runeclaw-model", "checkpoint-*"),
+    ]
+    newest = None
+    for pattern in patterns:
+        for ckpt_dir in glob.glob(pattern):
+            for name in ADAPTER_WEIGHT_NAMES:
+                path = os.path.join(ckpt_dir, name)
+                if os.path.exists(path):
+                    mtime = os.path.getmtime(path)
+                    if newest is None or mtime > newest:
+                        newest = mtime
+    return newest
+
+
+def detect_params_from_merged(model_dir):
+    """Parameter count implied by the merged weights on disk (fp16 = 2
+    bytes/param), from the shard index or the file sizes. None if unreadable
+    — and None must stay None; it is not zero."""
+    index_path = os.path.join(model_dir, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r") as f:
+                total = json.load(f).get("metadata", {}).get("total_size")
+            if total:
+                return int(total // 2)
+        except (OSError, json.JSONDecodeError):
+            pass
+    try:
+        st_bytes = sum(
+            os.path.getsize(os.path.join(model_dir, f))
+            for f in os.listdir(model_dir)
+            if f.endswith(".safetensors")
+        )
+    except OSError:
+        return None
+    return int(st_bytes // 2) if st_bytes else None
+
+
+def stale_reason(model_dir, root="."):
+    """Why this merge must NOT be converted, or None if it is safe.
+
+    Fail-closed: no manifest is itself a refusal — an unverifiable merge is
+    treated as stale, not trusted.
+    """
+    manifest = load_manifest(model_dir)
+    if manifest is None:
+        return (f"{model_dir} has no {MANIFEST_NAME} — this merge predates the guarded "
+                "export and cannot prove which checkpoint it came from. Re-run the "
+                "updated export_model.py.")
+
+    newest = newest_adapter_mtime(root)
+    if newest is not None and newest > manifest.get("adapter_mtime", 0) + 1.0:
+        return ("a checkpoint NEWER than this merge exists on disk — the merge is stale. "
+                "Re-run export_model.py so the newest training result is what gets converted.")
+
+    detected = detect_params_from_merged(model_dir)
+    declared = manifest.get("param_count")
+    if detected and declared and abs(detected - declared) / declared > 0.2:
+        return (f"the weights on disk (~{detected / 1e9:.2f}B) do not match the manifest "
+                f"({declared / 1e9:.2f}B) — the folder was modified after export. "
+                "Re-run export_model.py.")
+    return None
+
+
+def gguf_size_ok(n_params, size_bytes, quantized):
+    """Is the finished GGUF the size this parameter count demands?"""
+    expected = n_params * BYTES_PER_PARAM["q4_k_m" if quantized else "f16"]
+    return 0.75 * expected <= size_bytes <= 1.3 * expected
+
+
 def map_tensor_name(hf_name):
     """Map HuggingFace tensor name to GGUF name."""
     if hf_name in TENSOR_MAP:
@@ -78,9 +190,9 @@ def map_tensor_name(hf_name):
     return None
 
 
-def convert_hf_to_gguf():
+def convert_hf_to_gguf(model_name):
     """Convert HuggingFace safetensors model to F16 GGUF using gguf package."""
-    from gguf import GGUFWriter, GGMLQuantizationType
+    from gguf import GGMLQuantizationType, GGUFWriter
     from safetensors import safe_open
 
     print("\n[1/2] Reading model config...")
@@ -88,6 +200,36 @@ def convert_hf_to_gguf():
     config_path = os.path.join(MODEL_DIR, "config.json")
     with open(config_path) as f:
         config = json.load(f)
+
+    # THIS WRITER IS LLAMA-ONLY, AND SAYS SO OUT LOUD.
+    #
+    # It used to hardcode arch = "llama" for whatever it was given. Handed a
+    # Qwen2 model it wrote a llama-arch GGUF, silently dropped every q/k/v
+    # attention bias (Qwen2 has them, Llama does not - 48 layers x 3 = the
+    # "Skipped 144 unmapped tensors" line nobody read as fatal), and produced
+    # a model that loads, serves, and answers with garbage. A converter that
+    # discards a third of a tensor class and reports it as a tidy count is
+    # the same defect this repo hunts everywhere else: a partial result
+    # printed as a whole one.
+    #
+    # Refusing is the honest move. llama.cpp's own convert_hf_to_gguf.py
+    # supports Qwen2 (and everything else) properly; there is no reason to
+    # reimplement it here badly.
+    architectures = config.get("architectures") or []
+    model_type = str(config.get("model_type", "")).lower()
+    _SUPPORTED = ("llama",)
+    if model_type and model_type not in _SUPPORTED:
+        print(f"\nERROR: this converter only writes the llama architecture, and "
+              f"the model in {MODEL_DIR} is '{model_type}'"
+              + (f" ({architectures[0]})" if architectures else "") + ".")
+        print("\n  Writing it as llama would drop the tensors llama has no slot")
+        print("  for - Qwen2's attention biases, for one - and the result loads")
+        print("  and answers with garbage rather than failing.")
+        print("\n  Use llama.cpp's official converter instead:")
+        print(f"    python <llama.cpp>/convert_hf_to_gguf.py {MODEL_DIR} \\")
+        print(f"        --outfile {OUTPUT_DIR}/model-f16.gguf --outtype f16")
+        print(f"    <llama.cpp>/llama-quantize model-f16.gguf unsloth.Q4_K_M.gguf Q4_K_M")
+        sys.exit(1)
 
     arch = "llama"
     vocab_size = config.get("vocab_size", 128256)
@@ -99,8 +241,21 @@ def convert_hf_to_gguf():
     rms_eps = config.get("rms_norm_eps", 1e-5)
     rope_theta = config.get("rope_theta", 500000.0)
     max_pos = config.get("max_position_embeddings", 131072)
-    bos_id = config.get("bos_token_id", 128000)
-    eos_id = config.get("eos_token_id", 128001)
+    # bos/eos are not reliably scalars: some configs carry null, others a
+    # LIST of ids. Either one reaches struct.pack as a non-integer and dies
+    # deep inside gguf_writer with "required argument is not an integer" -
+    # a stack trace that names the packer, never the field. Resolve here,
+    # where the field still has a name.
+    def _token_id(key, default):
+        raw = config.get(key, default)
+        if isinstance(raw, (list, tuple)):
+            raw = raw[0] if raw else None
+        if raw is None:
+            return None
+        return int(raw)
+
+    bos_id = _token_id("bos_token_id", 128000)
+    eos_id = _token_id("eos_token_id", 128001)
 
     print(f"  Architecture: {arch}")
     print(f"  Layers: {num_layers}, Hidden: {hidden_size}")
@@ -122,7 +277,7 @@ def convert_hf_to_gguf():
     writer = GGUFWriter(f16_path, arch)
 
     # Write metadata
-    writer.add_name("runeclaw-3b")
+    writer.add_name(model_name)
     writer.add_block_count(num_layers)
     writer.add_context_length(max_pos)
     writer.add_embedding_length(hidden_size)
@@ -175,8 +330,14 @@ def convert_hf_to_gguf():
                 writer.add_token_merges(clean_merges)
                 print(f"  BPE merges: {len(clean_merges)}")
 
-            writer.add_bos_token_id(bos_id)
-            writer.add_eos_token_id(eos_id)
+            # A missing id is omitted, never defaulted. Writing some other
+            # model's BOS because this one had none is inventing a value —
+            # and an id is exactly the kind of field where a plausible wrong
+            # answer is worse than an absent one.
+            if bos_id is not None:
+                writer.add_bos_token_id(bos_id)
+            if eos_id is not None:
+                writer.add_eos_token_id(eos_id)
 
             # Chat template
             tc_path = os.path.join(MODEL_DIR, "tokenizer_config.json")
@@ -220,7 +381,13 @@ def convert_hf_to_gguf():
                 seen.add(gguf_name)
 
                 tensor = sf.get_tensor(hf_name)
-                if tensor.dtype != np.float16:
+                # llama.cpp requires 1-D tensors (norms) in F32 — writing
+                # them F16 loads cleanly but asserts at inference time
+                # (binary_op: unsupported types f32+f16). Weights stay F16.
+                if tensor.ndim == 1:
+                    if tensor.dtype != np.float32:
+                        tensor = tensor.astype(np.float32)
+                elif tensor.dtype != np.float16:
                     tensor = tensor.astype(np.float16)
 
                 writer.add_tensor(gguf_name, tensor)
@@ -230,7 +397,23 @@ def convert_hf_to_gguf():
                     print(f"    {tensor_count} tensors...")
 
     if skipped:
-        print(f"  Skipped {len(skipped)} unmapped tensors")
+        # NOT a warning. A tensor this writer has no name for is a tensor the
+        # served model will not have, and the result of shipping anyway is a
+        # model that loads, runs, and answers with garbage - which is exactly
+        # what happened: a Qwen2 export dropped all 144 q/k/v attention
+        # biases under a cheerful "Skipped 144 unmapped tensors" line, and
+        # the wasted debugging went to the chat template instead.
+        print(f"\nERROR: {len(skipped)} tensors have no mapping in this writer "
+              f"and would be silently dropped:")
+        for name in skipped[:8]:
+            print(f"    {name}")
+        if len(skipped) > 8:
+            print(f"    ... and {len(skipped) - 8} more")
+        print("\n  Refusing to write a model that is missing weights. Use "
+              "llama.cpp's")
+        print("  convert_hf_to_gguf.py, which supports these architectures "
+              "properly.")
+        sys.exit(1)
     print(f"  Total tensors: {tensor_count}")
 
     # ── Finalize ──────────────────────────────────────────
@@ -258,7 +441,7 @@ def quantize(f16_path):
     quantize_name = "llama-quantize.exe" if platform.system() == "Windows" else "llama-quantize"
     quantize_bin = None
 
-    for root, dirs, files in os.walk(LLAMA_CPP_DIR):
+    for root, _dirs, files in os.walk(LLAMA_CPP_DIR):
         for f in files:
             if f == quantize_name:
                 quantize_bin = os.path.join(root, f)
@@ -270,7 +453,7 @@ def quantize(f16_path):
 
     if not quantize_bin or not os.path.exists(quantize_bin):
         print(f"  WARNING: {quantize_name} not found in {LLAMA_CPP_DIR}/")
-        print(f"  Using F16 GGUF directly.")
+        print("  Using F16 GGUF directly.")
         return f16_path
 
     if platform.system() != "Windows":
@@ -287,7 +470,7 @@ def quantize(f16_path):
     if result.returncode == 0 and os.path.exists(q4_path):
         size_gb = os.path.getsize(q4_path) / 1024**3
         print(f"  Q4_K_M: {size_gb:.1f} GB")
-        print(f"  Removing intermediate F16...")
+        print("  Removing intermediate F16...")
         os.remove(f16_path)
         return q4_path
 
@@ -310,6 +493,13 @@ def create_modelfile(gguf_filename):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Convert the merged model to GGUF, refusing stale input")
+    parser.add_argument("--force", action="store_true",
+                        help="bypass the freshness/manifest gates (announces itself loudly)")
+    parser.add_argument("--no-quant", action="store_true",
+                        help="keep the F16 GGUF instead of quantizing to Q4_K_M")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("RUNECLAW - Convert to GGUF")
     print("=" * 60)
@@ -319,9 +509,31 @@ def main():
         print("Run export_model.py first.")
         sys.exit(1)
 
+    # ── The gate that four exports needed ──────────────────
+    reason = stale_reason(MODEL_DIR, ".")
+    if reason is not None:
+        if args.force:
+            print(f"\nWARNING (bypassed with --force): {reason}")
+        else:
+            print(f"\nERROR: refusing to convert — {reason}")
+            sys.exit(1)
+
+    manifest = load_manifest(MODEL_DIR)
+    n_params = manifest.get("param_count") if manifest else None
+    if n_params is None:
+        n_params = detect_params_from_merged(MODEL_DIR)
+    if n_params is None:
+        print("\nERROR: cannot determine the merged model's parameter count — "
+              "an unverifiable model must not be shipped.")
+        sys.exit(1)
+
+    if manifest:
+        print(f"\nConverting: {manifest.get('checkpoint', '?')}")
+        print(f"  Base:       {manifest.get('base_model', '?')}")
+    print(f"  Parameters: {n_params / 1e9:.2f}B")
+
     # Install/upgrade gguf to known-good version
     print("\nChecking dependencies...")
-    print("  Upgrading gguf package to compatible version...")
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "gguf>=0.19", "--upgrade", "-q"],
         check=False,
@@ -335,7 +547,7 @@ def main():
         sys.exit(1)
 
     try:
-        from safetensors import safe_open
+        from safetensors import safe_open  # noqa: F401
         print("  safetensors: OK")
     except ImportError:
         subprocess.run([sys.executable, "-m", "pip", "install", "safetensors", "-q"])
@@ -349,28 +561,41 @@ def main():
     print("\nCleaning old Ollama model...")
     subprocess.run(["ollama", "rm", "runeclaw"], capture_output=True, text=True)
 
-    # Convert
-    f16_path = convert_hf_to_gguf()
+    model_name = f"runeclaw-{n_params / 1e9:.1f}b"
+    f16_path = convert_hf_to_gguf(model_name)
 
-    # Skip quantization — test F16 directly with Ollama first
-    # (llama-quantize may be corrupting tensor dimensions)
-    final_path = f16_path
+    final_path = f16_path if args.no_quant else quantize(f16_path)
     final_name = os.path.basename(final_path)
+    quantized = "Q4_K_M" in final_name
+
+    # ── Final size gate: the GGUF must weigh what its params demand ──
+    size_bytes = os.path.getsize(final_path)
+    size_gb = size_bytes / 1024**3
+    expected_gb = n_params * BYTES_PER_PARAM["q4_k_m" if quantized else "f16"] / 1024**3
+    if not gguf_size_ok(n_params, size_bytes, quantized):
+        print(f"\nERROR: the finished GGUF is {size_gb:.1f} GB but a {n_params / 1e9:.2f}B model "
+              f"at {'Q4_K_M' if quantized else 'F16'} should be ~{expected_gb:.1f} GB.")
+        print("The wrong weights were converted. Do NOT create or push this file.")
+        sys.exit(1)
+    print(f"\n  Size check OK: {size_gb:.1f} GB (~{expected_gb:.1f} GB expected "
+          f"for {n_params / 1e9:.2f}B)")
 
     # Modelfile
     create_modelfile(final_name)
 
     print(f"\n{'=' * 60}")
-    print("DONE! GGUF conversion complete.")
+    print(f"DONE! GGUF conversion complete: {n_params / 1e9:.2f}B, {size_gb:.1f} GB.")
     print(f"{'=' * 60}")
     print(f"""
-Next steps:
+Next steps (run `ollama show` BEFORE any push — it reads the GGUF's own
+metadata and is the check that catches a wrong model):
 
   cd {OUTPUT_DIR}
   ollama create runeclaw -f Modelfile
+  ollama show runeclaw            <-- parameters must read ~{n_params / 1e9:.1f}B
   ollama run runeclaw "Scan BTC/USDT for trade setups"
 
-To push to registry:
+Then, and only then:
   ollama cp runeclaw pbdes2022/humanoid-traders
   ollama push pbdes2022/humanoid-traders
 """)
