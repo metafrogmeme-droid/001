@@ -308,12 +308,21 @@ def _generator_entry(fid: str) -> str:
     return src[i:i + 600] if i >= 0 else ""
 
 
-#: Fields the artifact CANNOT hold a current value for, and the reason is not a
-#: shortcut. `commit` records the git HEAD the generator ran at, so the artifact
-#: would have to contain the hash of the commit that contains it. A currency
-#: check that ignored this would be unsatisfiable; one that ignored too much
-#: would pass on a stale file. This is the exact set that is self-referential.
-_SELF_REFERENTIAL = ("commit",)
+#: Fields no committed artifact can match on regeneration, each for its own
+#: reason. Kept to exactly these two: a check that ignored less would be
+#: unsatisfiable, and one that ignored more would pass on a stale file.
+#:
+#:   commit  self-referential. It records the git HEAD the generator ran at, so
+#:           the artifact would have to contain the hash of the commit that
+#:           contains it. The committed value is always one commit behind.
+#:   branch  environment-dependent. CI checks out the PR's MERGE REF in detached
+#:           HEAD, where `git rev-parse --abbrev-ref HEAD` answers the literal
+#:           string "HEAD" rather than a branch name. Verified by running the
+#:           generator in a detached worktree, which wrote branch: "HEAD" — so
+#:           without this the test would have failed in CI for a reason with
+#:           nothing to do with the artifact being stale, which is the false
+#:           accusation this file exists to avoid making.
+_SELF_REFERENTIAL = ("commit", "branch")
 
 
 def test_the_committed_artifact_is_the_generated_artifact():
