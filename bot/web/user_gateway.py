@@ -671,9 +671,34 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
     from bot.nlp.sanitize import sanitize_chat_input
     prompt = build_generation_prompt(sanitize_chat_input(spec), license=lic,
                                      pragma=pragma)
-    answer, meta = await tg_handler._llm_chat(
-        prompt, user_id=tg_id, user_name=name, is_admin=_is_admin,
-        profile_note="", reply_lang="", return_meta=True)
+
+    # Two-box split: when a dedicated smart-contract model is configured
+    # (RUNECLAW_SC_BASE_URL + RUNECLAW_SC_MODEL), drafting routes there — a
+    # code-base fine-tune drafts better Solidity than the trading model ever
+    # will. Unset = inert: the chat tier serves exactly as before. On SC
+    # failure the fallback to the chat tier is HONEST, not silent — the
+    # response's provider field names whoever actually answered.
+    answer = None
+    meta: dict = {}
+    from bot.llm.provider import sc_config
+    _sc = sc_config()
+    if _sc is not None:
+        try:
+            from bot.llm.provider import create_llm_client, llm_complete
+            _sc_client = create_llm_client(_sc)
+            answer = await llm_complete(
+                _sc_client, _sc,
+                "You are the Solidity engineer behind RUNECLAW Contract Studio.",
+                prompt)
+            meta = {"provider": "runeclaw-sc", "model": _sc.model}
+        except Exception as exc:
+            system_log.warning(
+                "Contract Studio SC model failed (%s); falling back to chat tier", exc)
+            answer = None
+    if answer is None:
+        answer, meta = await tg_handler._llm_chat(
+            prompt, user_id=tg_id, user_name=name, is_admin=_is_admin,
+            profile_note="", reply_lang="", return_meta=True)
 
     # Heuristic security pass over the model's own output — flags to review,
     # never a verdict. Serialised for the client.

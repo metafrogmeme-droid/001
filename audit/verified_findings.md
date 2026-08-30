@@ -9,7 +9,7 @@ what stuck cannot be checked.
 ## RC-2026-001 — Unauthenticated `/api/auth/validate-token` allows binding any
 ## Telegram identity to an attacker's own web account
 
-- **Status**: OPEN · **Severity**: CRITICAL · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: CRITICAL · **Confidence**: CONFIRMED
 - **Category**: Broken authentication / authorization (OWASP A01, API2; CWE-287, CWE-639)
 - **Component**: web app — auth + bot linking
 - **File**: `app/auth.js:867-889`
@@ -92,26 +92,87 @@ everywhere else: `BOT_SYNC_SECRET` via an `X-Bot-Secret` header
 `sync.js:534,578,699,786`). `/validate-token` is the one bot-channel endpoint
 that does not use it.
 
-### Remediation (proposed — NOT applied)
+### Remediation — APPLIED, in three layers
 
-Two-sided, and the ORDER matters or every `/link` breaks:
+**1. Bot half.** `bot/skills/user_middleware.py` sends
+`"X-Bot-Secret": os.getenv("BOT_SYNC_SECRET", "")` on the `/validate-token`
+call, read per request rather than at import — the reason
+`bot/utils/website_sync.py:104` gives for the same header: a vault restore or
+an admin repair must not need a bot restart to take effect.
 
-1. **Bot first.** `bot/skills/user_middleware.py:200-208` currently sends only
-   `Content-Type`, `Accept`, `User-Agent`. Add
-   `"X-Bot-Secret": os.getenv("BOT_SYNC_SECRET", "")`.
-2. **Then the server.** Gate `/validate-token` on the same constant-time
-   comparison `sync.js` uses, refusing when `BOT_SYNC_SECRET` is unset — the
-   fail-closed shape `/diagz` already models (`app/server.js:252-262`).
+**2. Server half.** `linkBotAuth` gates the route on the constant-time compare
+`sync.js:273` uses, with the length pre-check that keeps a wrong-length secret
+a clean 403 instead of a crash to 500.
 
-Deploying the server half first rejects every real link attempt, so this must
-not be applied as a single atomic change. That is why it is REVIEW_REQUIRED
-rather than an auto-fix.
+`linkBotSecretVerdict` is three-valued, and the third value is the point:
+`unconfigured` is neither `bad` nor `ok`. A server with no `BOT_SYNC_SECRET`
+has not *checked* anything — passing would be "absent is a measurement", and a
+403 would send an operator hunting a mismatch that does not exist. It answers
+503 `link_not_configured`, and a bad secret answers 403 `invalid_bot_secret`:
+coarse codes from a fixed vocabulary, the `/readyz` rule.
+
+The deploy-ordering constraint that made this REVIEW_REQUIRED is handled by an
+observe-first ladder, `LINK_BOT_SECRET_GATE` ∈ `off|warn|block`, **defaulting
+to `block`**. A ladder defaulting to `warn` would leave the CRITICAL open on
+every deployment that never sets the variable — which is every deployment that
+exists. `warn` remains available for an operator who must go web-first and
+wants the transition window visible; it is a choice they make, not a state they
+land in. An unrecognised value falls to `block`, so a typo in an `.env` cannot
+disable an auth gate.
+
+**DEPLOY THE BOT BOX FIRST.** With `block` as the default, a web-first deploy
+refuses every `/link` until the bot half follows.
+
+**3. The layer that does not depend on deploy order.** A `chat_id` already held
+by a *different* row is refused 409 `telegram_already_linked`, before any
+write. This needs no secret and no bot-side change, so it holds at every rung
+including `off` — a deployment part-way through the two-sided rollout is still
+protected from the takeover, which is the one outcome a victim cannot undo.
+`id != ?` and not a bare match, so a user re-linking their own id still works.
+
+`app/db.js` adds a unique index on `users.telegram_id` for the race the
+application check cannot close (two concurrent calls both reading "unclaimed").
+Its catch **distinguishes** where the surrounding ones say `/* present */`:
+reporting "there are duplicates, so the index was not created" as "already
+installed" would report a security control as present on precisely the
+deployment where it could not be.
+
+**4.** `scripts/guard_lint.py`'s exemption note — which recorded the reasoning
+that let this through, "the token IS the credential being checked" — is
+corrected. The route stays exempt from `express-route-auth`, because it
+genuinely cannot carry a session, and the note now says what does gate it.
+
+### Verification
+
+The route had **zero** tests. It has 22 now:
+`app/test/link_token_identity_binding.test.js` (15) drives the nine
+rung×verdict cases directly and then runs the finding's own reproduction
+through the real router, reading the **victim's row** afterwards — the 403 is
+not the claim, the claim is that the identity did not move.
+`tests/test_link_sends_bot_secret.py` (7) drives `cmd_link` and reads the
+headers off the request object it actually constructs, because
+`os.getenv(...)` appearing in a dict literal proves the line exists and not
+that the dict is the one that gets sent (#999).
+
+Ten mutations, all killed: default rung `block`→`warn`; dropping the
+`timingSafeEqual` length pre-check; scoring `unconfigured` as `ok`; dropping
+`AND id != ?`; unmounting the gate from the route; letting an unknown rung fall
+open; reverting the shim fix below; removing the header; capturing the secret
+at import time; sending a placeholder.
+
+One defect was found *by* this work, in the test double rather than the code:
+`MemoryDB`'s `FROM USERS WHERE TELEGRAM_ID` branch answered `telegram_id = ?`
+alone, so `AND id != ?` matched the row it names to exclude. The shim was
+**less** correct than the statement it was handed — the worse direction, since
+MySQL honours the clause and only the test lied. Fixed, and it is the same
+lesson the `siwf_nonces` branch four hundred lines below already records.
 
 ### Residual risk
 
-Any `telegram_id` already mis-bound by this route stays mis-bound; the fix
-does not clean existing rows. A one-off audit of `users` for duplicate or
-unexpected `telegram_id` values is a separate operator action.
+Any `telegram_id` already mis-bound by this route stays mis-bound; the fix does
+not clean existing rows. If duplicates exist, the unique index will not install
+and `app/db.js` prints the query that finds them. A one-off audit of `users` is
+still a separate operator action.
 
 ---
 
@@ -1079,21 +1140,36 @@ verified normally; only the delivery was lost.
 Full detail in `audit/workflow_raw_findings.md` as **B3-01 … B3-22**. The four
 at HIGH:
 
-**RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment.**
+## RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: browser-sec · **Raw**: `B3-01`
+
 That token carries trade-confirm, close and halt authority. A URL fragment
 survives in browser history, is readable by any script on the page, and leaks
 through anything that reflects `location`. `browser-sec`, HIGH.
 
-**RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready`
-and `/metrics` publish a permanent HEALTHY.** A monitor with no input reporting
+## RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready` and `/metrics` publish a permanent HEALTHY
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py · **Raw**: `B5-27`
+ A monitor with no input reporting
 the good state is the exact failure CLAUDE.md's rule describes, on the endpoints
 an operator and any uptime checker consult first. `honesty-py`, HIGH.
 
-**RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a
-complete $0.00 account statement** — cash, equity and the rest, presented as a
+## RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a complete $0.00 account statement
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py
+ — cash, equity and the rest, presented as a
 measurement. `honesty-py`, HIGH.
 
-**RC-2026-016 — the web gateway reports `unprotected: false` for a live position
+## RC-2026-016 — the web gateway reports `unprotected: false` for a live position
+
+- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py
+
+
 that has no stop at all.** This is the inverse of the finding CLAUDE.md already
 records about `sl_order` being three-valued: there, an unreadable stop rendered
 as "SL None" and alarmed the operator wrongly; here a genuinely absent stop
@@ -1561,7 +1637,7 @@ money moves.
 
 ---
 
-# RC-2026-024 — the secret scanner reports another branch's leak as this PR's
+## RC-2026-024 — the secret scanner reports another branch's leak as this PR's
 
 - **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED (mechanism)
   / NEEDS_RUNTIME_VALIDATION (the specific leak)
@@ -1846,7 +1922,7 @@ it (`DROP INDEX idx_users_telegram_id ON users`) is separate and optional.
 
 ---
 
-# Correction — the confirmed-finding count was 177 and it is 162
+## Correction — the confirmed-finding count was 177 and it is 162
 
 I reported **177 confirmed findings** in the batch-7 commit message
 (`97476bd`), in the PR description, and in every status update after batch 7.
@@ -1894,7 +1970,7 @@ more than the figure is worth. This entry is the correction of record.
 
 ---
 
-# RC-2026-001, corrected — the attack needs no leaked token at all
+## RC-2026-001, corrected — the attack needs no leaked token at all
 
 I wrote RC-2026-001 up as: someone who obtains a live link token can bind their
 Telegram to that account, and stated the exposure as *"every path by which a

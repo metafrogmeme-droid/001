@@ -198,34 +198,25 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Validate token via website API (tokens live in MySQL, not local SQLite)
     api_url = f"{WEBSITE_URL}/api/auth/validate-token"
     payload = json.dumps({"token": token, "chat_id": chat_id}).encode()
-    # X-Bot-Secret. This endpoint no longer answers an anonymous caller: it
-    # consumes the link token AND binds telegram_id to the account, which is a
-    # write, and the bot is its only legitimate caller. Same header and same
-    # variable as every other bot->web call (bot/utils/website_sync.py).
-    #
-    # Sent unconditionally. An old server ignores an unknown header, which is
-    # why the deploy order is bot FIRST; reversed, every /link gets a 403.
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "RUNECLAW-Bot/1.0",
-    }
-    bot_secret = os.getenv("BOT_SYNC_SECRET", "")
-    if bot_secret:
-        headers["X-Bot-Secret"] = bot_secret
-    else:
-        # Named, not silent, and the header is omitted rather than sent blank.
-        # A blank secret fails the constant-time comparison exactly like a wrong
-        # one, so the operator would read "invalid bot secret" for what is
-        # really "this bot has none configured" — and the user would be told
-        # their token is bad, which is the one thing that is fine.
-        log.error("BOT_SYNC_SECRET is not set, so /link will be refused by the "
-                  "website with 403. This is a bot configuration fault, not a "
-                  "bad token.")
     req_obj = urllib.request.Request(
         api_url,
         data=payload,
-        headers=headers,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "RUNECLAW-Bot/1.0",
+            # RC-2026-001. This call tells the website which Telegram identity
+            # to bind to a web account, and `chat_id` below is the only thing
+            # naming that identity. Without proving the caller is the bot, the
+            # endpoint accepts that claim from anyone — see the gate in
+            # `app/auth.js` (`linkBotAuth`).
+            #
+            # Read from the environment HERE rather than at import time, for
+            # the reason `bot/utils/website_sync.py:104` gives about the same
+            # header: a vault restore or an admin repair should take effect
+            # without restarting the bot.
+            "X-Bot-Secret": os.getenv("BOT_SYNC_SECRET", ""),
+        },
         method="POST",
     )
     def _validate_token():

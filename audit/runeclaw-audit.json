@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "4bd706879e884797be7b1b562621aa3727f96764",
+    "commit": "a9dd6de8f3effca98eeb6b5b2cc265ec33ab1f60",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -55,8 +55,180 @@
         "ASVS-4.1.1"
       ],
       "verified_by": "lead-auditor+dimension-agent",
-      "test": "app/test/link_binding_is_bot_authenticated.test.js, tests/test_link_sends_the_bot_secret.py",
-      "note": "Fixed in four parts: botAuth extracted to app/lib/bot_auth.js and applied as route middleware; a 409 when the chat_id is already on another row, raised BEFORE the write so a refusal does not burn the token; a unique index on telegram_id whose failure path distinguishes 'already created' from 'could not create'; and the guard_lint exemption DELETED, not reworded. bot/skills/user_middleware.py sends X-Bot-Secret. DEPLOY ORDER: bot first, then app - reversed, every /link returns 403. 4 mutations killed, including moving the 409 after the write. EXPLOIT PATH CORRECTED: this needs NO leaked token. The attacker mints a link token for their OWN account via the authenticated /link-token, then posts {own_token, VICTIM's chat_id} - the route looks the row up by token and writes telegram_id from the body, so the victim's Telegram id lands on the attacker's row with telegram_linked=TRUE. app/lib/identity.js then resolves the bot identity from that column, and its docstring's promise that 'the browser can never choose who it acts as' was true of the read and false of the write. My first write-up described the weaker token-leak path; severity and fix are unchanged."
+      "note": "Fixed in three layers. (1) Bot sends X-Bot-Secret from BOT_SYNC_SECRET, read per request. (2) linkBotAuth gates the route on a constant-time compare behind LINK_BOT_SECRET_GATE (off|warn|block, DEFAULT block; an unrecognised value falls to block), answering 503 rather than passing when the server has no secret to compare against. (3) Independently of the ladder and of deploy order, a chat_id already held by another row is refused 409, plus a unique index on users.telegram_id for the race the application check cannot close. guard_lint.py's exemption note - which recorded the reasoning that let this through - is corrected. The route had ZERO tests; app/test/link_token_identity_binding.test.js (15) and tests/test_link_sends_bot_secret.py (7) now cover it, all 10 mutations killed. DEPLOY THE BOT HALF FIRST: with block as the default, a web-first deploy refuses every /link until the bot follows."
+    },
+    {
+      "id": "RC-2026-013",
+      "title": "Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "credential-exposure",
+      "component": "bot/web/dashboard",
+      "file": "bot/web/dashboard.html",
+      "line": "see B3-01",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-522",
+        "OWASP-A02:2021"
+      ],
+      "raw_id": "B3-01",
+      "verified_by": "dimension-agent+2-verifiers",
+      "note": "A URL fragment survives in browser history, is readable by any script on the page, and leaks through anything that reflects location. The page is served with no CSP, no X-Frame-Options and no nosniff."
+    },
+    {
+      "id": "RC-2026-014",
+      "title": "SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "honesty-fail-open",
+      "component": "observability",
+      "file": "bot/core/health.py",
+      "line": "see B3/B5-27",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-754"
+      ],
+      "raw_id": "B5-27",
+      "verified_by": "dimension-agent+2-verifiers",
+      "note": "A monitor with no input reporting the good state, on the endpoints an operator and any uptime checker consult first."
+    },
+    {
+      "id": "RC-2026-015",
+      "title": "/livebalance renders a FAILED exchange balance read as a complete $0.00 account statement",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "honesty-fail-open",
+      "component": "telegram",
+      "file": "bot/skills/telegram_handler.py",
+      "line": "see B3",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-754"
+      ],
+      "verified_by": "dimension-agent+2-verifiers",
+      "note": "Cash, equity and the rest presented as a measurement. CLAUDE.md's first rule, on the account-value card."
+    },
+    {
+      "id": "RC-2026-016",
+      "title": "The web gateway reports unprotected: false for a live position whose stop could not be read",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "honesty-fail-open",
+      "component": "bot/web/user_gateway",
+      "file": "bot/web/user_gateway.py",
+      "line": "see B3",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-754"
+      ],
+      "verified_by": "dimension-agent+2-verifiers",
+      "note": "'This position has a stop' asserted from a read that failed."
+    },
+    {
+      "id": "RC-2026-017",
+      "title": "A balance payload without `free` clamps every live order to $0 and reports it as a measurement",
+      "status": "OPEN",
+      "severity": "LOW",
+      "confidence": "CONFIRMED",
+      "category": "honesty-fail-open",
+      "component": "order-execution",
+      "file": "bot/core/engine.py",
+      "line": "6271-6278",
+      "fix_class": "SAFE_AUTO_FIX",
+      "standard": [
+        "CWE-754"
+      ],
+      "verified_by": "lead-auditor"
+    },
+    {
+      "id": "RC-2026-018",
+      "title": "The default backtest fills entries at prices the market never traded",
+      "status": "OPEN",
+      "severity": "CRITICAL",
+      "confidence": "CONFIRMED",
+      "category": "backtest-integrity",
+      "component": "backtest",
+      "file": "bot/backtest/engine.py",
+      "line": "593",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-1041"
+      ],
+      "raw_id": "B4-01",
+      "verified_by": "lead-auditor+dimension-agent+2-verifiers",
+      "note": "CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ has no order-type model at all. The finder said BLOCKER; recorded CRITICAL after the correction. Every published backtest number rests on this."
+    },
+    {
+      "id": "RC-2026-019",
+      "title": "The GDPR purge misses the bot's SQLite database entirely",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "privacy-erasure",
+      "component": "bot/web/user_gateway",
+      "file": "bot/web/user_gateway.py",
+      "line": "2830-2900",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "GDPR-Art.17"
+      ],
+      "verified_by": "lead-auditor",
+      "note": "NEEDS_LEGAL_REVIEW. Wider than RC-2026-006, which fixed only the attribute probe: bot.db.models is not reached by the purge at all."
+    },
+    {
+      "id": "RC-2026-020",
+      "title": "Web-only accounts never reach the purge at all",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "privacy-erasure",
+      "component": "web-app/auth",
+      "file": "app/auth.js",
+      "line": "1724-1730",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "GDPR-Art.17"
+      ],
+      "verified_by": "lead-auditor",
+      "note": "NEEDS_LEGAL_REVIEW. `if (user.telegram_id && gateway.isConfigured())` gates the bot-side purge, so an account that never linked Telegram has its bot-side state skipped silently."
+    },
+    {
+      "id": "RC-2026-021",
+      "title": "SECURITY.md promises human-in-the-loop confirmation that the default configuration does not provide",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "docs-vs-default",
+      "component": "documentation",
+      "file": "SECURITY.md",
+      "line": "29",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-1059"
+      ],
+      "verified_by": "lead-auditor",
+      "note": "The one HIGH in its batch neither verifier downgraded, and I verified it directly. Documentation vs default is a product decision, so REVIEW_REQUIRED rather than a doc edit."
+    },
+    {
+      "id": "RC-2026-022",
+      "title": "The public /risk page asserts a categorical guarantee the code does not provide",
+      "status": "OPEN",
+      "severity": "MEDIUM",
+      "confidence": "CONFIRMED",
+      "category": "public-claim-honesty",
+      "component": "marketing-site",
+      "file": "site/src/routes/risk.tsx",
+      "line": "82",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-1059"
+      ],
+      "verified_by": "lead-auditor",
+      "note": "Severity verifier-corrected from HIGH. Published to website/risk/index.html: 'There is no path where a check that could not be evaluated is treated as a check that passed' - CLAUDE.md's own rule asserted to the public as a product guarantee."
     },
     {
       "id": "RC-2026-023",
@@ -74,26 +246,7 @@
       ],
       "raw_id": "B7-01",
       "verified_by": "lead-auditor+dimension-agent+2-verifiers",
-      "note": "Finder said CRITICAL; both verifiers independently downgraded to HIGH and the lead took their number - display-only console behind a Bearer token, no trade gated on it, mode also printed at boot (bot/main.py:47) and on Telegram. The SERVER half was already fixed (dashboard_server.py:84-97, RC-AUD-016); the client was never wired to it, so the fix is unreachable from the UI. The connection dot inside the badge DOES update, so a live engine renders as a green-dot SIMULATION. Needs three states, not two: dashboard_server.py:98 emits {'state': 'UNKNOWN'} with no simulation_mode key at all."
-    },
-    {
-      "id": "RC-2026-025",
-      "title": "The 2FA step-up reads the caller's row while the money move executes as the resolved bot identity",
-      "status": "OPEN",
-      "severity": "MEDIUM",
-      "confidence": "CONFIRMED",
-      "category": "incorrect-authorization",
-      "component": "web-app/staking",
-      "file": "app/routes/staking.js",
-      "line": "55-66",
-      "fix_class": "REVIEW_REQUIRED",
-      "standard": [
-        "CWE-863",
-        "ASVS-4.2.1"
-      ],
-      "verified_by": "lead-auditor",
-      "reachability": "LATENT, not live. stepUpBlock reads totp_enabled/totp_secret FROM users WHERE id = req.user.user_id, then the action is performed as resolveBotIdentity(req).id. Same subject only while nothing can put another account's telegram_id on your row - which RC-2026-001 could, and no longer can (bot-secret gate, 409 on an id already bound, and idx_users_telegram_id makes the collision impossible at the storage layer).",
-      "note": "Recorded because the invariant it depends on is stated nowhere near the code depending on it: the next route that writes telegram_id, or a hand migration repairing rows, re-opens a 2FA bypass on a money path with nothing to catch it. Fix: read the step-up factors for the identity the action runs as, or assert the two agree and refuse if not."
+      "note": "Finder said CRITICAL; both verifiers independently said HIGH and I took their number - display-only console behind a Bearer token, no trade gated on it. The SERVER half was already fixed (dashboard_server.py:84-97, RC-AUD-016); the client was never wired to it, so the fix sits in the payload and is unreachable from the UI. The connection dot INSIDE the badge does update, so a live engine renders as a green-dot SIMULATION. Needs three states: dashboard_server.py:98 emits {'state': 'UNKNOWN'} with no simulation_mode key at all."
     },
     {
       "id": "RC-2026-024",
@@ -111,7 +264,26 @@
         "NIST-SSDF-PW.7"
       ],
       "verified_by": "lead-auditor",
-      "note": "Mechanism CONFIRMED by local reproduction with CI's own pinned, checksum-verified binary: scoping to one tip gives 1037 commits, letting it see all refs gives 1039 - exactly the two then-unmerged commits on an unrelated branch. CI's main run reported 1039/86,080,867 bytes, byte-identical to the local run. The specific leak is NOT identified (redacted output, fingerprint absent from the baseline, the refs are gone) and this is NOT an all-clear: a credential briefly pushed on a branch remains in that branch's objects until GitHub collects them. CONFIRMED EXPERIMENTALLY: CI re-ran the identical check on the same branch at 11:37 and passed, scanning 1081 commits / 86,427,022 bytes - MORE than the 1079 / 86,367,776 of the run that failed at 08:17, with no change to scanner, config, baseline or runner. The scan that saw more was clean and the scan that saw less was not, which is only possible if the offending content was never in the set under test. A green result here means the trigger is no longer reachable from any fetched ref, not that history is clean; the check reports both identically. Remediation is --log-opts=HEAD plus an all-refs sweep on a schedule."
+      "note": "Reproduced with CI's own pinned, checksum-verified binary: scoping to one tip gives 1037 commits, all refs gives 1039 - exactly the two then-unmerged commits on an unrelated branch. CONFIRMED EXPERIMENTALLY: CI re-ran the identical check on the same branch and passed, scanning 1081 commits / 86,427,022 bytes, MORE than the 1079 / 86,367,776 of the run that failed, with no change to scanner, config, baseline or runner. The scan that saw more was clean and the scan that saw less was not. A green result therefore means the trigger is no longer reachable from any fetched ref, NOT that history is clean - the check reports both identically. NOT AN ALL-CLEAR: the leak was never identified and a credential briefly pushed on a branch survives in that branch's objects until GitHub collects them. Remediation: --log-opts=HEAD, with the all-refs sweep moved to a schedule."
+    },
+    {
+      "id": "RC-2026-025",
+      "title": "The 2FA step-up reads the caller's row while the money move executes as the resolved bot identity",
+      "status": "OPEN",
+      "severity": "MEDIUM",
+      "confidence": "CONFIRMED",
+      "category": "incorrect-authorization",
+      "component": "web-app/staking",
+      "file": "app/routes/staking.js",
+      "line": "55-66",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "CWE-863",
+        "ASVS-4.2.1"
+      ],
+      "verified_by": "lead-auditor",
+      "reachability": "LATENT, not live. stepUpBlock reads totp_enabled/totp_secret FROM users WHERE id = req.user.user_id, then the action runs as resolveBotIdentity(req).id. Same subject only while nothing can put another account's telegram_id on your row - which RC-2026-001 could and no longer can (bot-secret gate, 409, and uniq_users_telegram_id closing the race at the storage layer).",
+      "note": "Recorded because the invariant it depends on is stated nowhere near the code depending on it: the next route that writes telegram_id, or a hand migration repairing rows, re-opens a 2FA bypass on a money path. Fix: read the step-up factors for the identity the action runs as, or assert the two agree and refuse if not."
     },
     {
       "id": "RC-2026-002",
@@ -1029,8 +1201,11 @@
       "title": "Default backtest fills every entry at an un-touched limit price \u2014 73% of fills are at a price the decision bar never traded",
       "severity": "BLOCKER",
       "severity_claimed": "BLOCKER",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "CRITICAL",
+        "HIGH"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "backtest",
@@ -1042,9 +1217,12 @@
     {
       "id": "B4-02",
       "title": "/walk_forward's out-of-sample window is shorter than the indicator warmup, so every fold reports an unrun test as a measured +0.00% and 0% consistency",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "severity_claimed": "CRITICAL",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "HIGH",
+        "HIGH"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1059,8 +1237,11 @@
       "title": "Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them",
       "severity": "CRITICAL",
       "severity_claimed": "CRITICAL",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "MEDIUM",
+        "HIGH"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "backtest",
@@ -1074,7 +1255,10 @@
       "title": "--honest win rate and trade count are per scale-out LEG, not per position, inflating every published scorecard win rate",
       "severity": "HIGH",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "HIGH",
+        "HIGH"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1087,9 +1271,12 @@
     {
       "id": "B4-05",
       "title": "Regenerating the published agent scorecards writes to a directory nothing reads, so stale marketplace performance figures can never be refreshed",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1102,9 +1289,12 @@
     {
       "id": "B4-06",
       "title": "backtest_realdata.py \u2014 the README's 'real-data strategy validation' harness \u2014 raises AttributeError on every run",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1117,9 +1307,12 @@
     {
       "id": "B4-07",
       "title": "Live\u2194backtest parity report scores an unpriced live close as break-even, counting unscorable trades as losses in the win rate and as zeros in the printed total",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1134,7 +1327,10 @@
       "title": "run_deep_backtest_full.py and backtest_audit.py still average the PF_UNDEFINED sentinel into 'avg profit factor' \u2014 the exact bug, and key name, bot/backtest/metrics.py was written to kill",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1149,7 +1345,10 @@
       "title": "Deep-backtest aggregate means fold zero-trade runs in as 0.0, and avg_win_rate is published rounded to one decimal",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1164,8 +1363,11 @@
       "title": "backtest_deep_results.json carries no data provenance \u2014 500 synthetic GBM runs stamped with real ticker names and realistic prices",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "MEDIUM",
+        "LOW"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "backtest",
@@ -1177,9 +1379,12 @@
     {
       "id": "B4-11",
       "title": "The parity report prints a hardcoded benchmark the frozen-benchmark doc explicitly marks as superseded",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1194,7 +1399,10 @@
       "title": "Portfolio backtests report the preset-rejection, per-gate and entry-timing counters for only the first symbol",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1209,7 +1417,10 @@
       "title": "PF_UNDEFINED_FLOOR reclassifies a genuine profit factor as 'had no losing trades' \u2014 the committed artifact overstates the undefined count",
       "severity": "LOW",
       "severity_claimed": "LOW",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1224,7 +1435,10 @@
       "title": "run_realdata_backtest.py records signals and rejection counts as 0 from three field names BacktestResult does not have",
       "severity": "LOW",
       "severity_claimed": "LOW",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1237,9 +1451,12 @@
     {
       "id": "B4-15",
       "title": "buildDefiPositions returns an all-clear on Aave liquidation risk when every chain RPC is dead \u2014 no marker distinguishes it from a position-free wallet",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "severity_claimed": "CRITICAL",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "HIGH",
+        "HIGH"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1254,8 +1471,11 @@
       "title": "buildExposure renders a failed `trades` query as a flat book \u2014 \"No directional exposure found \u2014 no open positions\" and $0 net/gross",
       "severity": "HIGH",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "UNCHANGED",
+        "MEDIUM"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "honesty-js",
@@ -1267,9 +1487,12 @@
     {
       "id": "B4-17",
       "title": "Escape planner reads a 502 wallet response as \"No linked wallet found\", and an all-RPC-down wallet as \"no priced balances, so there is no book to build\"",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1284,8 +1507,11 @@
       "title": "Wallet chat reply says \"no balances found across the tracked chains\" when every chain reported `rpc unreadable`, and sums dead chains' zeros into a printed total",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "UNCHANGED",
+        "LOW"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "honesty-js",
@@ -1299,8 +1525,11 @@
       "title": "Idle-yield reports `available: true` with \"No priced idle assets found in your wallet\" when every chain RPC failed; the wallet-address lookup failing renders as \"Link a wallet\"",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "UNCHANGED",
+        "LOW"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "honesty-js",
@@ -1314,8 +1543,11 @@
       "title": "Agent-picks panel: a failed /api/copy/picks read hides the whole panel, and a failed `signals` query renders as \"No live signal matches this agent's gates right now\"",
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "UNCHANGED",
+        "MEDIUM"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "honesty-js",
@@ -1329,8 +1561,11 @@
       "title": "Fear & Greed: a non-numeric value is coerced to 0 (\"Extreme Fear\") instead of being omitted, inside a function that omits every other unreadable input",
       "severity": "LOW",
       "severity_claimed": "LOW",
-      "severity_verifier": null,
-      "severity_disputed": false,
+      "severity_verifier": [
+        "UNCHANGED",
+        "LOW"
+      ],
+      "severity_disputed": true,
       "status": "OPEN",
       "confidence": "HIGH",
       "dimension": "honesty-js",
@@ -1342,9 +1577,12 @@
     {
       "id": "B4-22",
       "title": "Migration fast path checks TABLE existence only, so all 64 column/index migrations are permanently skipped on any existing deployment",
-      "severity": "CRITICAL",
+      "severity": "MEDIUM",
       "severity_claimed": "CRITICAL",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1357,9 +1595,12 @@
     {
       "id": "B4-23",
       "title": "Arena position close has no transaction and no affected-rows claim \u2014 concurrent closes write duplicate sealed trade receipts and can double-credit the balance",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1372,9 +1613,12 @@
     {
       "id": "B4-24",
       "title": "Bot sync acks delete the pending row by user_id unconditionally, silently discarding a control or credential change submitted during the pull\u2192ack window",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "HIGH",
@@ -1387,9 +1631,12 @@
     {
       "id": "B4-25",
       "title": "Bot portfolio sync deletes all of a user's trades and equity snapshots before re-inserting them, with no transaction \u2014 a mid-loop failure leaves a truncated history that renders as a real record",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "HIGH",
@@ -1402,9 +1649,12 @@
     {
       "id": "B4-26",
       "title": "Trade journal writes non-atomically and loads partially in silence \u2014 a single malformed row truncates the record permanently and the weekly review reports a confident win rate over the fragment",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1417,9 +1667,12 @@
     {
       "id": "B4-27",
       "title": "Two per-user preference stores fall back to a non-atomic truncate-then-write in clear() only, while their sibling save path uses atomic_write_json",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1434,7 +1687,10 @@
       "title": "siwf_nonces has no retention: an unauthenticated endpoint inserts a permanent row per call and nothing ever deletes one",
       "severity": "LOW",
       "severity_claimed": "LOW",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1447,9 +1703,12 @@
     {
       "id": "B4-29",
       "title": "No SIGTERM handler: the entire graceful-shutdown path is unreachable on every deploy and watchdog restart",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "MEDIUM",
+        "MEDIUM"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1462,9 +1721,12 @@
     {
       "id": "B4-30",
       "title": "The autonomous tick never ACQUIRES the scan lock \u2014 force_scan's single-flight guard only works in one direction",
-      "severity": "MEDIUM",
+      "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "UNCHANGED",
+        "UNCHANGED"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1477,9 +1739,12 @@
     {
       "id": "B4-31",
       "title": "Per-user ccxt/aiohttp sessions are dropped without close(): balance-view executors are never closed anywhere, including at shutdown",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
-      "severity_verifier": null,
+      "severity_verifier": [
+        "LOW",
+        "LOW"
+      ],
       "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
@@ -1495,6 +1760,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -1512,8 +1778,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -1530,6 +1796,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1547,6 +1814,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1564,8 +1832,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -1582,8 +1850,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -1600,8 +1868,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -1618,6 +1886,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -1635,6 +1904,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -1652,6 +1922,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -1669,8 +1940,8 @@
       "severity": "HIGH",
       "severity_claimed": "HIGH",
       "severity_verifier": [
-        "LOW",
-        "MEDIUM"
+        "MEDIUM",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -1687,6 +1958,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -1704,6 +1976,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1721,6 +1994,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1738,8 +2012,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "INFORMATIONAL",
-        "LOW"
+        "LOW",
+        "INFORMATIONAL"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -1756,6 +2030,7 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1773,6 +2048,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -1790,6 +2066,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -1807,6 +2084,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -1824,6 +2102,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -1841,6 +2120,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1876,6 +2156,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1893,6 +2174,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1910,6 +2192,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -1927,6 +2210,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -1944,6 +2228,7 @@
       "severity": "HIGH",
       "severity_claimed": "CRITICAL",
       "severity_verifier": [
+        "HIGH",
         "HIGH"
       ],
       "severity_disputed": false,
@@ -1961,6 +2246,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -1978,6 +2264,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2013,8 +2300,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "MEDIUM"
+        "MEDIUM",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2031,6 +2318,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2048,8 +2336,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2066,6 +2354,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2083,6 +2372,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2100,8 +2390,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "MEDIUM",
-        "UNCHANGED"
+        "UNCHANGED",
+        "MEDIUM"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2118,6 +2408,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2135,6 +2426,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2152,6 +2444,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2169,8 +2462,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2187,8 +2480,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2205,8 +2498,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2223,6 +2516,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2240,8 +2534,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2258,6 +2552,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2275,8 +2570,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2293,8 +2588,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2311,6 +2606,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2328,8 +2624,8 @@
       "severity": "INFORMATIONAL",
       "severity_claimed": "INFORMATIONAL",
       "severity_verifier": [
-        "INFORMATIONAL",
-        "UNCHANGED"
+        "UNCHANGED",
+        "INFORMATIONAL"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2346,6 +2642,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2363,6 +2660,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2380,6 +2678,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2397,6 +2696,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2432,6 +2732,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2449,6 +2750,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2466,6 +2768,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2483,6 +2786,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2500,6 +2804,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2517,6 +2822,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2534,6 +2840,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2551,6 +2858,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2568,6 +2876,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2585,6 +2894,7 @@
       "severity": "UNCHANGED",
       "severity_claimed": "INFORMATIONAL",
       "severity_verifier": [
+        "UNCHANGED",
         "UNCHANGED"
       ],
       "severity_disputed": false,
@@ -2602,6 +2912,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2619,6 +2930,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2636,8 +2948,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "MEDIUM",
-        "UNCHANGED"
+        "UNCHANGED",
+        "MEDIUM"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2654,8 +2966,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2672,8 +2984,8 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
-        "LOW",
-        "UNCHANGED"
+        "UNCHANGED",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2690,6 +3002,7 @@
       "severity": "HIGH",
       "severity_claimed": "CRITICAL",
       "severity_verifier": [
+        "HIGH",
         "HIGH"
       ],
       "severity_disputed": false,
@@ -2707,6 +3020,7 @@
       "severity": "HIGH",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "HIGH",
         "HIGH"
       ],
       "severity_disputed": false,
@@ -2724,6 +3038,7 @@
       "severity": "HIGH",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "HIGH",
         "HIGH"
       ],
       "severity_disputed": false,
@@ -2741,6 +3056,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2758,6 +3074,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2775,6 +3092,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2792,8 +3110,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "MEDIUM"
+        "MEDIUM",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2828,6 +3146,7 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2845,6 +3164,7 @@
       "severity": "LOW",
       "severity_claimed": "LOW",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2862,6 +3182,7 @@
       "severity": "INFORMATIONAL",
       "severity_claimed": "INFORMATIONAL",
       "severity_verifier": [
+        "INFORMATIONAL",
         "INFORMATIONAL"
       ],
       "severity_disputed": false,
@@ -2879,6 +3200,7 @@
       "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
+        "MEDIUM",
         "MEDIUM"
       ],
       "severity_disputed": false,
@@ -2896,6 +3218,7 @@
       "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
+        "LOW",
         "LOW"
       ],
       "severity_disputed": false,
@@ -2913,8 +3236,8 @@
       "severity": "MEDIUM",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
-        "LOW",
-        "MEDIUM"
+        "MEDIUM",
+        "LOW"
       ],
       "severity_disputed": true,
       "status": "OPEN",
@@ -2931,6 +3254,7 @@
       "severity": "INFORMATIONAL",
       "severity_claimed": "INFORMATIONAL",
       "severity_verifier": [
+        "INFORMATIONAL",
         "INFORMATIONAL"
       ],
       "severity_disputed": false,
@@ -3295,15 +3619,19 @@
   },
   "release_decision": {
     "decision": "NO-GO",
-    "basis": "5 unresolved BLOCKER/CRITICAL findings. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
+    "basis": "2 unresolved BLOCKER/CRITICAL findings. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
     "blockers": [
-      "B4-01 Default backtest fills every entry at an un-touched limit price \u2014 73% of fills are at a price the decision bar never traded",
-      "B4-02 /walk_forward's out-of-sample window is shorter than the indicator warmup, so every fold reports an unrun test as a measured +0.00% and 0% consistency",
-      "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them",
-      "B4-15 buildDefiPositions returns an all-clear on Aave liquidation risk when every chain RPC is dead \u2014 no marker distinguishes it from a position-free wallet",
-      "B4-22 Migration fast path checks TABLE existence only, so all 64 column/index migrations are permanently skipped on any existing deployment"
+      "RC-2026-018 The default backtest fills entries at prices the market never traded",
+      "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them"
     ],
     "open_high": [
+      "RC-2026-013 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
+      "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
+      "RC-2026-015 /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement",
+      "RC-2026-016 The web gateway reports unprotected: false for a live position whose stop could not be read",
+      "RC-2026-019 The GDPR purge misses the bot's SQLite database entirely",
+      "RC-2026-020 Web-only accounts never reach the purge at all",
+      "RC-2026-021 SECURITY.md promises human-in-the-loop confirmation that the default configuration does not provide",
       "RC-2026-023 The operator's live dashboard header badge is hardcoded SIMULATION and never reads the mode the server sends",
       "RC-2026-008 Backups omit the per-user credential store, and the master key that opens what they do archive",
       "M-01 Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id=\"auto\", bypassing every per-user gate",
@@ -3312,22 +3640,14 @@
       "M-15 The LIVE daily-loss accumulator is dropped by the combined-state restore that production actually uses \u2014 the daily-loss breaker gets a full fresh budget on every restart",
       "M-16 Correlation, portfolio-exposure, symbol-exposure, PCA-concentration and VaR gates measure the paper portfolio, which is never populated in LIVE-ONLY mode \u2014 five of the 23 caps report measured passes over an empty book",
       "M-21 US stock-perp trading window is 11 hours wrong \u2014 `is_market_open('Stock')` reports OPEN overnight and CLOSED during the real US session, widening stops 40% and forcing limit orders on live equity-perp trades",
-      "B3-01 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage on a page served with no CSP, no X-Frame-Options and no nosniff",
       "B3-15 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY / \"Exchange: \ud83d\udfe2 Connected\" / \"0.0% error\" all-clear manufactured from zero measurements",
       "B3-16 /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement \u2014 Cash, Equity and NET all \"$0.00\"",
       "B3-17 The web gateway reports `unprotected: false` for a live position that has NO stop at all, and the dashboard paints it \"\ud83e\udd16 bot-managed\" under a \"\ud83d\udee1\ufe0f All positions have their stop-loss on the exchange\" banner",
+      "B4-02 /walk_forward's out-of-sample window is shorter than the indicator warmup, so every fold reports an unrun test as a measured +0.00% and 0% consistency",
       "B4-04 --honest win rate and trade count are per scale-out LEG, not per position, inflating every published scorecard win rate",
-      "B4-05 Regenerating the published agent scorecards writes to a directory nothing reads, so stale marketplace performance figures can never be refreshed",
-      "B4-06 backtest_realdata.py \u2014 the README's 'real-data strategy validation' harness \u2014 raises AttributeError on every run",
-      "B4-07 Live\u2194backtest parity report scores an unpriced live close as break-even, counting unscorable trades as losses in the win rate and as zeros in the printed total",
+      "B4-15 buildDefiPositions returns an all-clear on Aave liquidation risk when every chain RPC is dead \u2014 no marker distinguishes it from a position-free wallet",
       "B4-16 buildExposure renders a failed `trades` query as a flat book \u2014 \"No directional exposure found \u2014 no open positions\" and $0 net/gross",
-      "B4-17 Escape planner reads a 502 wallet response as \"No linked wallet found\", and an all-RPC-down wallet as \"no priced balances, so there is no book to build\"",
-      "B4-23 Arena position close has no transaction and no affected-rows claim \u2014 concurrent closes write duplicate sealed trade receipts and can double-credit the balance",
-      "B4-24 Bot sync acks delete the pending row by user_id unconditionally, silently discarding a control or credential change submitted during the pull\u2192ack window",
-      "B4-25 Bot portfolio sync deletes all of a user's trades and equity snapshots before re-inserting them, with no transaction \u2014 a mid-loop failure leaves a truncated history that renders as a real record",
-      "B4-29 No SIGTERM handler: the entire graceful-shutdown path is unreachable on every deploy and watchdog restart",
       "B5-11 pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates",
-      "B5-27 SystemHealthMonitor is never fed: /health, /ready and /metrics can only ever report a fabricated all-clear",
       "B7-02 Operator dashboard renders a swallowed positions-read exception as \"No open positions\" (HTTP 200 with an empty or partial list)",
       "B7-03 Operator dashboard paints \"CIRCUIT BREAKER: OK\" in green from a failed risk read"
     ],

@@ -1489,7 +1489,22 @@ class MemoryDB {
     }
 
     if (cmd.includes('FROM USERS WHERE TELEGRAM_ID')) {
-      return [this.users.filter(u => String(u.telegram_id) === String(params[0])), []];
+      // HONOUR THE WHERE CLAUSE WE WERE ACTUALLY GIVEN — the lesson the
+      // siwf_nonces UPDATE below records, running the other way.
+      //
+      // This branch answered `telegram_id = ?` and nothing else, so
+      // `... AND id != ?` (auth.js /validate-token, RC-2026-001) matched the
+      // very row it names to EXCLUDE. The shim was LESS correct than the
+      // statement it was handed, which is the worse direction of the two: a
+      // user re-linking their own Telegram id was told it belonged to someone
+      // else, in tests only, because MySQL honours the clause. The double
+      // disagreed with production and the TEST was the thing lying.
+      //
+      // Found by a test that expected 200 and got 409 — not by reading this.
+      const excludeId = cmd.includes('AND ID != ?') || cmd.includes('AND ID <> ?');
+      return [this.users.filter(u =>
+        String(u.telegram_id) === String(params[0])
+        && (!excludeId || String(u.id) !== String(params[1]))), []];
     }
 
     if (cmd.includes('FROM USERS WHERE DISCORD_ID')) {
@@ -2350,36 +2365,6 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP NULL DEFAULT NULL');
     } catch (e) { /* exists */ }
-    // A Telegram account belongs to at most one RUNECLAW account — the rule
-    // wallet_address, referral_code and leaderboard_handle already carry.
-    // telegram_id never had it, so two rows could hold the same chat_id while
-    // every `WHERE telegram_id = ?` lookup resolves to whichever came first.
-    // MySQL exempts NULL from UNIQUE, so unlinked rows are unaffected.
-    //
-    // NOT wrapped in the bare `catch (e) { /* exists */ }` the migrations above
-    // use, and that is the point: on a live table that ALREADY holds duplicates
-    // this fails with ER_DUP_ENTRY, and swallowing it leaves no index while the
-    // code reads as though there is one. An absent constraint reported as a
-    // present one is the failure this codebase spends its guard tests
-    // preventing.
-    try {
-      await pool.execute('CREATE UNIQUE INDEX idx_users_telegram_id ON users (telegram_id)');
-    } catch (e) {
-      if (e && (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061)) {
-        /* created by an earlier migrate() — nothing to do */
-      } else if (e && (e.code === 'ER_DUP_ENTRY' || e.errno === 1062)) {
-        console.error(
-          'MIGRATION INCOMPLETE: idx_users_telegram_id was NOT created — the '
-          + 'users table already holds more than one row with the same '
-          + 'telegram_id. Reconcile them by hand (decide which account owns the '
-          + 'chat_id, NULL the others) and re-run migrate(). Until then the '
-          + 'check in POST /api/auth/validate-token is the only thing stopping a '
-          + 'NEW duplicate, and the existing ones remain.');
-      } else {
-        console.error('MIGRATION: idx_users_telegram_id could not be created:',
-          (e && (e.stack || e.message)) || e);
-      }
-    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS trades (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2952,6 +2937,37 @@ async function migrate() {
     // backfill, no rewrite of history.
     try { await pool.execute('ALTER TABLE trades ADD COLUMN event_id VARCHAR(64) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE trades ADD UNIQUE INDEX idx_trades_event_id (event_id)'); } catch (e) { /* present */ }
+    // RC-2026-001, the race the application-level check in
+    // `app/auth.js` /validate-token cannot close on its own: two concurrent
+    // calls can both read "this telegram_id is unclaimed" before either
+    // writes. A unique index makes the second one lose at the database.
+    // NULLs are unconstrained in a MySQL unique index, so the many accounts
+    // that have never linked are untouched.
+    //
+    // This catch DISTINGUISHES where the ones around it deliberately do not,
+    // and the difference matters here. `/* present */` reads every failure as
+    // "the index is already there" — which, for an index whose job is to stop
+    // an account takeover, would report a security control as installed on
+    // exactly the deployment where it could not be. The two outcomes need
+    // different words because they need different actions from an operator.
+    try {
+      await pool.execute(
+        'ALTER TABLE users ADD UNIQUE INDEX uniq_users_telegram_id (telegram_id)');
+    } catch (e) {
+      const msg = (e && e.message) || '';
+      if (e && e.code === 'ER_DUP_KEYNAME') {
+        /* already installed by an earlier boot */
+      } else if (e && e.code === 'ER_DUP_ENTRY') {
+        console.error(
+          'SECURITY: users.telegram_id holds DUPLICATE values, so the unique index ' +
+          'was NOT installed. Two web accounts share one Telegram identity — which ' +
+          'is the RC-2026-001 outcome. Find them with: SELECT telegram_id, ' +
+          'COUNT(*) c FROM users WHERE telegram_id IS NOT NULL GROUP BY telegram_id ' +
+          'HAVING c > 1; resolve, then restart to install the index.');
+      } else {
+        console.error('users.telegram_id unique index NOT installed:', msg);
+      }
+    }
     // Provable Calls v2 — the seal rides the position onto the closed trade.
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN trade_key VARCHAR(40) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_trades ADD COLUMN seal VARCHAR(64) NULL'); } catch (e) { /* present */ }

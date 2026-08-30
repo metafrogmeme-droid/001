@@ -533,6 +533,21 @@ RULES: list[Rule] = [
             "auth.js:POST /verify-email",
             "auth.js:POST /telegram", "auth.js:POST /google",
             "auth.js:GET /oauth/:provider/start", "auth.js:GET /oauth/:provider/callback",
+            # Still exempt from express-route-auth, and for a narrower reason
+            # than the one that used to be written here. The old note read
+            # "the token IS the credential being checked" — true of the token,
+            # and it was read as though it covered the request. It did not:
+            # `chat_id` sat beside the token, named the identity being bound,
+            # and nothing authenticated it (RC-2026-001).
+            #
+            # This route genuinely cannot carry a SESSION — the caller is the
+            # Telegram bot, which has none — so express-route-auth is the wrong
+            # rule for it. It is now gated by `linkBotAuth` on X-Bot-Secret
+            # instead, the same mechanism every other bot-channel endpoint uses,
+            # and `app/test/link_token_identity_binding.test.js` holds that gate
+            # in place. An exemption from one rule is not an exemption from all
+            # of them.
+            "auth.js:POST /validate-token",
             "auth.js:GET /config",            # which sign-in providers are enabled
             "auth.js:POST /wallet/nonce",     # issues a nonce to sign; binds nothing
             "auth.js:POST /wallet/verify",    # proves wallet control, no account write

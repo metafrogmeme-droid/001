@@ -30,84 +30,158 @@ F = [
          standard=["OWASP-A01:2021", "OWASP-API1:2023", "OWASP-API5:2023",
                    "CWE-287", "CWE-306", "CWE-639", "ASVS-4.1.1"],
          verified_by="lead-auditor+dimension-agent",
-         test="app/test/link_binding_is_bot_authenticated.test.js, "
-              "tests/test_link_sends_the_bot_secret.py",
-         note="Fixed in four parts: botAuth extracted to app/lib/bot_auth.js and applied "
-              "as route middleware; a 409 when the chat_id is already on another row, "
-              "raised BEFORE the write so a refusal does not burn the token; a unique "
-              "index on telegram_id whose failure path distinguishes 'already created' "
-              "from 'could not create'; and the guard_lint exemption DELETED, not "
-              "reworded. bot/skills/user_middleware.py sends X-Bot-Secret. "
-              "DEPLOY ORDER: bot first, then app - reversed, every /link returns 403. "
-              "4 mutations killed, including moving the 409 after the write. "
-              "EXPLOIT PATH CORRECTED: this needs NO leaked token. The attacker mints "
-              "a link token for their OWN account via the authenticated /link-token, "
-              "then posts {own_token, VICTIM's chat_id} - the route looks the row up "
-              "by token and writes telegram_id from the body, so the victim's Telegram "
-              "id lands on the attacker's row with telegram_linked=TRUE. "
-              "app/lib/identity.js then resolves the bot identity from that column, "
-              "and its docstring's promise that 'the browser can never choose who it "
-              "acts as' was true of the read and false of the write. My first write-up "
-              "described the weaker token-leak path; severity and fix are unchanged."),
+         note="Fixed in three layers. (1) Bot sends X-Bot-Secret from BOT_SYNC_SECRET, "
+              "read per request. (2) linkBotAuth gates the route on a constant-time "
+              "compare behind LINK_BOT_SECRET_GATE (off|warn|block, DEFAULT block; an "
+              "unrecognised value falls to block), answering 503 rather than passing "
+              "when the server has no secret to compare against. (3) Independently of "
+              "the ladder and of deploy order, a chat_id already held by another row is "
+              "refused 409, plus a unique index on users.telegram_id for the race the "
+              "application check cannot close. guard_lint.py's exemption note - which "
+              "recorded the reasoning that let this through - is corrected. The route "
+              "had ZERO tests; app/test/link_token_identity_binding.test.js (15) and "
+              "tests/test_link_sends_bot_secret.py (7) now cover it, all 10 mutations "
+              "killed. DEPLOY THE BOT HALF FIRST: with block as the default, a web-first "
+              "deploy refuses every /link until the bot follows."),
+    # ── Batch 3's four HIGHs. Written narratively in the register (no status
+    # block), which is why the ratchet counted the gap as ten rather than six.
+    dict(id="RC-2026-013", title="Operator DASHBOARD_TOKEN (trade-confirm / close / halt "
+         "authority) is read from the URL fragment and persisted to localStorage",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="credential-exposure", component="bot/web/dashboard",
+         file="bot/web/dashboard.html", line="see B3-01", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-522", "OWASP-A02:2021"], raw_id="B3-01",
+         verified_by="dimension-agent+2-verifiers",
+         note="A URL fragment survives in browser history, is readable by any script on "
+              "the page, and leaks through anything that reflects location. The page is "
+              "served with no CSP, no X-Frame-Options and no nosniff."),
+    dict(id="RC-2026-014", title="SystemHealthMonitor is fed by nothing, so /health, "
+         "/ready and /metrics publish a permanent HEALTHY",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="honesty-fail-open", component="observability",
+         file="bot/core/health.py", line="see B3/B5-27", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-754"], raw_id="B5-27",
+         verified_by="dimension-agent+2-verifiers",
+         note="A monitor with no input reporting the good state, on the endpoints an "
+              "operator and any uptime checker consult first."),
+    dict(id="RC-2026-015", title="/livebalance renders a FAILED exchange balance read as "
+         "a complete $0.00 account statement",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="honesty-fail-open", component="telegram",
+         file="bot/skills/telegram_handler.py", line="see B3", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
+         note="Cash, equity and the rest presented as a measurement. CLAUDE.md's first "
+              "rule, on the account-value card."),
+    dict(id="RC-2026-016", title="The web gateway reports unprotected: false for a live "
+         "position whose stop could not be read",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="honesty-fail-open", component="bot/web/user_gateway",
+         file="bot/web/user_gateway.py", line="see B3", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
+         note="'This position has a stop' asserted from a read that failed."),
+    dict(id="RC-2026-017", title="A balance payload without `free` clamps every live "
+         "order to $0 and reports it as a measurement",
+         status="OPEN", severity="LOW", confidence="CONFIRMED",
+         category="honesty-fail-open", component="order-execution",
+         file="bot/core/engine.py", line="6271-6278", fix_class="SAFE_AUTO_FIX",
+         standard=["CWE-754"], verified_by="lead-auditor"),
+    dict(id="RC-2026-018", title="The default backtest fills entries at prices the market "
+         "never traded",
+         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         category="backtest-integrity", component="backtest",
+         file="bot/backtest/engine.py", line="593", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-1041"], raw_id="B4-01",
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         note="CONFIG.limit_orders defaults enabled with default_order_type='limit' "
+              "(config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback "
+              "up to 1 ATR below the close, and bot/backtest/ has no order-type model at "
+              "all. The finder said BLOCKER; recorded CRITICAL after the correction. "
+              "Every published backtest number rests on this."),
+    dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="privacy-erasure", component="bot/web/user_gateway",
+         file="bot/web/user_gateway.py", line="2830-2900", fix_class="REVIEW_REQUIRED",
+         standard=["GDPR-Art.17"], verified_by="lead-auditor",
+         note="NEEDS_LEGAL_REVIEW. Wider than RC-2026-006, which fixed only the "
+              "attribute probe: bot.db.models is not reached by the purge at all."),
+    dict(id="RC-2026-020", title="Web-only accounts never reach the purge at all",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="privacy-erasure", component="web-app/auth",
+         file="app/auth.js", line="1724-1730", fix_class="REVIEW_REQUIRED",
+         standard=["GDPR-Art.17"], verified_by="lead-auditor",
+         note="NEEDS_LEGAL_REVIEW. `if (user.telegram_id && gateway.isConfigured())` "
+              "gates the bot-side purge, so an account that never linked Telegram has "
+              "its bot-side state skipped silently."),
+    dict(id="RC-2026-021", title="SECURITY.md promises human-in-the-loop confirmation "
+         "that the default configuration does not provide",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="docs-vs-default", component="documentation",
+         file="SECURITY.md", line="29", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-1059"], verified_by="lead-auditor",
+         note="The one HIGH in its batch neither verifier downgraded, and I verified it "
+              "directly. Documentation vs default is a product decision, so "
+              "REVIEW_REQUIRED rather than a doc edit."),
+    dict(id="RC-2026-022", title="The public /risk page asserts a categorical guarantee "
+         "the code does not provide",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="public-claim-honesty", component="marketing-site",
+         file="site/src/routes/risk.tsx", line="82", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-1059"], verified_by="lead-auditor",
+         note="Severity verifier-corrected from HIGH. Published to "
+              "website/risk/index.html: 'There is no path where a check that could not "
+              "be evaluated is treated as a check that passed' - CLAUDE.md's own rule "
+              "asserted to the public as a product guarantee."),
     dict(id="RC-2026-023", title="The operator's live dashboard header badge is hardcoded "
          "SIMULATION and never reads the mode the server sends",
          status="OPEN", severity="HIGH", confidence="CONFIRMED",
          category="operator-display-honesty", component="bot/web/dashboard",
          file="bot/web/dashboard.html", line="417-419 (markup), 718-771 (updateEngine)",
-         fix_class="SAFE_AUTO_FIX", standard=["CWE-1007"],
-         raw_id="B7-01", verified_by="lead-auditor+dimension-agent+2-verifiers",
-         note="Finder said CRITICAL; both verifiers independently downgraded to HIGH and "
-              "the lead took their number - display-only console behind a Bearer token, "
-              "no trade gated on it, mode also printed at boot (bot/main.py:47) and on "
-              "Telegram. The SERVER half was already fixed (dashboard_server.py:84-97, "
-              "RC-AUD-016); the client was never wired to it, so the fix is unreachable "
-              "from the UI. The connection dot inside the badge DOES update, so a live "
-              "engine renders as a green-dot SIMULATION. Needs three states, not two: "
-              "dashboard_server.py:98 emits {'state': 'UNKNOWN'} with no simulation_mode "
-              "key at all."),
-    dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the "
-         "money move executes as the resolved bot identity",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
-         category="incorrect-authorization", component="web-app/staking",
-         file="app/routes/staking.js", line="55-66", fix_class="REVIEW_REQUIRED",
-         standard=["CWE-863", "ASVS-4.2.1"], verified_by="lead-auditor",
-         reachability="LATENT, not live. stepUpBlock reads totp_enabled/totp_secret "
-                      "FROM users WHERE id = req.user.user_id, then the action is "
-                      "performed as resolveBotIdentity(req).id. Same subject only "
-                      "while nothing can put another account's telegram_id on your "
-                      "row - which RC-2026-001 could, and no longer can (bot-secret "
-                      "gate, 409 on an id already bound, and idx_users_telegram_id "
-                      "makes the collision impossible at the storage layer).",
-         note="Recorded because the invariant it depends on is stated nowhere near "
-              "the code depending on it: the next route that writes telegram_id, or "
-              "a hand migration repairing rows, re-opens a 2FA bypass on a money path "
-              "with nothing to catch it. Fix: read the step-up factors for the "
-              "identity the action runs as, or assert the two agree and refuse if not."),
+         fix_class="SAFE_AUTO_FIX", standard=["CWE-1007"], raw_id="B7-01",
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         note="Finder said CRITICAL; both verifiers independently said HIGH and I took "
+              "their number - display-only console behind a Bearer token, no trade gated "
+              "on it. The SERVER half was already fixed (dashboard_server.py:84-97, "
+              "RC-AUD-016); the client was never wired to it, so the fix sits in the "
+              "payload and is unreachable from the UI. The connection dot INSIDE the "
+              "badge does update, so a live engine renders as a green-dot SIMULATION. "
+              "Needs three states: dashboard_server.py:98 emits {'state': 'UNKNOWN'} "
+              "with no simulation_mode key at all."),
     dict(id="RC-2026-024", title="The full-history gitleaks step scans every ref in the "
          "checkout, so another branch's leak fails the check on every open PR",
          status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
          category="gate-integrity", component="ci",
          file=".github/workflows/ci.yml", line="482-500", fix_class="REVIEW_REQUIRED",
-         standard=["NIST-SSDF-PS.1", "NIST-SSDF-PW.7"],
-         verified_by="lead-auditor",
-         note="Mechanism CONFIRMED by local reproduction with CI's own pinned, "
-              "checksum-verified binary: scoping to one tip gives 1037 commits, letting "
-              "it see all refs gives 1039 - exactly the two then-unmerged commits on an "
-              "unrelated branch. CI's main run reported 1039/86,080,867 bytes, "
-              "byte-identical to the local run. The specific leak is NOT identified "
-              "(redacted output, fingerprint absent from the baseline, the refs are "
-              "gone) and this is NOT an all-clear: a credential briefly pushed on a "
-              "branch remains in that branch's objects until GitHub collects them. "
-              "CONFIRMED EXPERIMENTALLY: CI re-ran the identical check on the same "
-              "branch at 11:37 and passed, scanning 1081 commits / 86,427,022 bytes "
-              "- MORE than the 1079 / 86,367,776 of the run that failed at 08:17, "
-              "with no change to scanner, config, baseline or runner. The scan that "
-              "saw more was clean and the scan that saw less was not, which is only "
-              "possible if the offending content was never in the set under test. "
-              "A green result here means the trigger is no longer reachable from any "
-              "fetched ref, not that history is clean; the check reports both "
-              "identically. Remediation is --log-opts=HEAD plus an all-refs sweep on "
-              "a schedule."),
+         standard=["NIST-SSDF-PS.1", "NIST-SSDF-PW.7"], verified_by="lead-auditor",
+         note="Reproduced with CI's own pinned, checksum-verified binary: scoping to one "
+              "tip gives 1037 commits, all refs gives 1039 - exactly the two then-"
+              "unmerged commits on an unrelated branch. CONFIRMED EXPERIMENTALLY: CI "
+              "re-ran the identical check on the same branch and passed, scanning 1081 "
+              "commits / 86,427,022 bytes, MORE than the 1079 / 86,367,776 of the run "
+              "that failed, with no change to scanner, config, baseline or runner. The "
+              "scan that saw more was clean and the scan that saw less was not. A green "
+              "result therefore means the trigger is no longer reachable from any "
+              "fetched ref, NOT that history is clean - the check reports both "
+              "identically. NOT AN ALL-CLEAR: the leak was never identified and a "
+              "credential briefly pushed on a branch survives in that branch's objects "
+              "until GitHub collects them. Remediation: --log-opts=HEAD, with the "
+              "all-refs sweep moved to a schedule."),
+    dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the money "
+         "move executes as the resolved bot identity",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="incorrect-authorization", component="web-app/staking",
+         file="app/routes/staking.js", line="55-66", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-863", "ASVS-4.2.1"], verified_by="lead-auditor",
+         reachability="LATENT, not live. stepUpBlock reads totp_enabled/totp_secret FROM "
+                      "users WHERE id = req.user.user_id, then the action runs as "
+                      "resolveBotIdentity(req).id. Same subject only while nothing can "
+                      "put another account's telegram_id on your row - which RC-2026-001 "
+                      "could and no longer can (bot-secret gate, 409, and "
+                      "uniq_users_telegram_id closing the race at the storage layer).",
+         note="Recorded because the invariant it depends on is stated nowhere near the "
+              "code depending on it: the next route that writes telegram_id, or a hand "
+              "migration repairing rows, re-opens a 2FA bypass on a money path. Fix: "
+              "read the step-up factors for the identity the action runs as, or assert "
+              "the two agree and refuse if not."),
     dict(id="RC-2026-002", title="guard_lint accuses third-party code in any virtualenv "
          "not named .venv", status="FIXED", severity="MEDIUM", confidence="CONFIRMED",
          category="gate-integrity", component="tooling",
@@ -410,14 +484,27 @@ def _parse_verified_findings(text: str) -> list[dict]:
         # Both verifiers may correct the severity. Where they agree I took their
         # number; where they disagree the claim stands and the dispute is
         # recorded rather than resolved by picking the one I prefer.
-        corrections = re.findall(r"(?m)^- sev→([A-Z]+)", block)
+        # `^- sev→X` misses `^- refuted=False sev→X`, which is 62 of the 230
+        # correction lines in the file — and every one of those was a verifier
+        # LOWERING a severity, so the strict pattern inflated the audit and put
+        # at least one MEDIUM into the release decision's blocker list as a
+        # CRITICAL. Found by reading B4-22, whose two verifiers both said
+        # MEDIUM while the artifact called it a blocker. A parser that silently
+        # matches a subset is the same defect as a gate that scans a subset;
+        # the count assertion below could not see it, because the number of
+        # BLOCKS was right and only their severities were wrong.
+        corrections = re.findall(r"(?m)^- (?:[\w=]+ )?sev→([A-Z]+)", block)
         agreed = len(set(corrections)) == 1 if corrections else False
         out.append(dict(
             id=fid,
             title=title.strip(),
             severity=(corrections[0] if agreed else claimed),
             severity_claimed=claimed,
-            severity_verifier=sorted(set(corrections)) or None,
+            # BOTH votes, in order, not a set. The set was for display and it
+            # made the assertion below compare 148 deduped corrections against
+            # 230 real ones. Two verifiers agreeing on MEDIUM is a different
+            # fact from one verifier saying it, and collapsing them lost that.
+            severity_verifier=corrections or None,
             severity_disputed=bool(corrections) and not agreed,
             status="OPEN",
             confidence=field("Confidence") or "CONFIRMED",
@@ -444,6 +531,13 @@ assert len(VERIFIED_FINDINGS) == _declared[1], (
     f"parsed {len(VERIFIED_FINDINGS)} finding blocks but the batch summaries "
     f"declare {_declared[1]} CONFIRMED. Only CONFIRMED findings get a block, so "
     "these must agree; one of the two is wrong.")
+_DECLARED_CORRECTIONS = len(re.findall(r"(?m)^- (?:[\w=]+ )?sev→[A-Z]+", _raw_text))
+_PARSED_CORRECTIONS = sum(len(f["severity_verifier"] or []) for f in VERIFIED_FINDINGS)
+assert _PARSED_CORRECTIONS == _DECLARED_CORRECTIONS, (
+    f"parsed {_PARSED_CORRECTIONS} verifier severity corrections but the file "
+    f"contains {_DECLARED_CORRECTIONS}. Every one that is missed keeps a "
+    "finder's severity the verifiers had lowered, which inflates the audit and "
+    "can put a MEDIUM in the blocker list.")
 assert all(f["dimension"] and f["fix_class"] and f["file"] for f in VERIFIED_FINDINGS), (
     "a finding block is missing dimension, fix class or file")
 

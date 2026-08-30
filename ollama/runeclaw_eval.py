@@ -251,14 +251,21 @@ def extract_json(text: str) -> Optional[dict]:
         # JSON-style keys AND training data format (Entry:, Stop Loss:, etc.)
         # Handles: $584.23, 584.23, $0.40, 67,450.00
         "asset":            r"(?:asset|Trade Idea|Pair|Asset)[:\s]+([A-Z]+/[A-Z]+)",
-        "direction":        r"(?:direction|Direction)[:\s]+(LONG|SHORT)",
+        "direction":        r"(?:direction(?:\s+considered)?|Direction(?:\s+[Cc]onsidered)?|Setup)[:\s]+(LONG|SHORT)",
         "entry_price":      r"(?:entry[_\s]?price|Entry)[:\s]+\$?([\d][\d.,]*\d)",
         "stop_loss":        r"(?:stop[_\s]?loss|Stop Loss|Stop)[:\s]+\$?([\d][\d.,]*\d)",
         "take_profit":      r"(?:take[_\s]?profit|Take Profit|Take Profit 1|TP1?)[:\s]+\$?([\d][\d.,]*\d)",
         "confidence":       r"(?:confidence|Confluence(?:\s+Score)?|Confluence)[:\s]+\$?([\d.]+)",
         "risk_reward_ratio":r"(?:risk[_\s]?reward[_\s]?ratio|Risk:Reward|R:R|Risk Reward)[:\s]+(?:1:)?([\d.]+)",
-        "verdict":          r"(?:verdict|Status|Decision|DECISION)[:\s]+(APPROVED|REJECTED|REQUIRES_REVIEW)",
-        "position_pct":     r"(?:position[_\s]?pct|Position Size|Portfolio %|Position)[:\s]+\$?([\d.]+)\s*%?",
+        # "Risk Check:" is the v8 training format's verdict line. The first
+        # v8 eval run missed it, inferred verdicts from confidence instead,
+        # and graded correct explicit rejections as APPROVED — a 0.71-conf
+        # "Risk Check: REJECTED" scored as a wrong verdict AND was routed
+        # down the full-trade-structure path. Never let the yardstick and
+        # the training format drift apart again.
+        "verdict":          r"(?:verdict|Status|Decision|DECISION|Risk Check)[:\s]+(APPROVED|REJECTED|REQUIRES_REVIEW)",
+        # % REQUIRED: "Position Size: 105.5 units" must not parse as 105.5%
+        "position_pct":     r"(?:position[_\s]?pct|Position Size|Portfolio %|Capital Allocation|Position)[:\s]+\$?([\d.]+)\s*%",
     }
     for key, pattern in patterns.items():
         m = re.search(pattern, text, re.IGNORECASE)
@@ -381,18 +388,39 @@ def check_risk_reward(data: dict) -> CheckResult:
         return CheckResult("risk_reward", False, 0.0, f"Compute error: {e}")
 
 
-def check_confidence(data: dict) -> CheckResult:
+def normalize_confidence(value) -> Optional[float]:
+    """Both trained formats are legitimate: 0-1 decimals AND percents — the
+    original Modelfile's own output spec says 'Confidence: XX%'. The first
+    45-prompt run scored ~24-32% on this check almost entirely because 61%
+    parsed as 61.0 and failed [0,1]: a units mismatch graded as a calibration
+    failure. Returns a 0-1 float, or None if absent/unparseable."""
     try:
-        conf = float(data.get("confidence", -1))
-        if 0.0 <= conf <= 1.0:
-            if conf < MIN_CONFIDENCE:
-                # Below threshold is valid IF direction is effectively "no trade"
-                return CheckResult("confidence_range", True, 0.8,
-                    f"confidence={conf:.2f} (below actionable {MIN_CONFIDENCE} — should reject)")
-            return CheckResult("confidence_range", True, 1.0, f"confidence={conf:.2f} ✓")
-        return CheckResult("confidence_range", False, 0.0, f"confidence {conf} out of [0,1]")
+        conf = float(value)
     except (TypeError, ValueError):
+        return None
+    if 1.0 < conf <= 100.0:
+        return conf / 100.0
+    return conf
+
+
+def check_confidence(data: dict) -> CheckResult:
+    raw = data.get("confidence")
+    if raw is None:
+        return CheckResult("confidence_range", False, 0.0, "confidence missing")
+    conf = normalize_confidence(raw)
+    if conf is None:
         return CheckResult("confidence_range", False, 0.0, "confidence not numeric")
+    try:
+        note = " (from percent)" if float(raw) > 1.0 else ""
+    except (TypeError, ValueError):
+        note = ""
+    if 0.0 <= conf <= 1.0:
+        if conf < MIN_CONFIDENCE:
+            # Below threshold is valid IF direction is effectively "no trade"
+            return CheckResult("confidence_range", True, 0.8,
+                f"confidence={conf:.2f}{note} (below actionable {MIN_CONFIDENCE} — should reject)")
+        return CheckResult("confidence_range", True, 1.0, f"confidence={conf:.2f}{note} ✓")
+    return CheckResult("confidence_range", False, 0.0, f"confidence {conf} out of [0,1]")
 
 
 def check_signals_used(data: dict) -> CheckResult:
@@ -453,8 +481,9 @@ def check_expected_verdict(data: dict, expected: Optional[str]) -> Optional[Chec
         return None
     actual = str(data.get("verdict", "")).upper()
     if not actual:
-        # Try to infer from confidence
-        conf = float(data.get("confidence", 0))
+        # Try to infer from confidence (percent-normalized: a raw 61 must not
+        # read as 61.0 >= 0.55 and infer APPROVED for every percent output)
+        conf = normalize_confidence(data.get("confidence")) or 0.0
         actual = "APPROVED" if conf >= MIN_CONFIDENCE else "REJECTED"
     correct = actual == expected.upper()
     return CheckResult("verdict_match", correct, 1.0 if correct else 0.0,
@@ -562,19 +591,162 @@ def check_regime_sizing(raw_output: str, data: dict, regime: Optional[str]) -> O
         f"{expectation['description']} | {'; '.join(details)}")
 
 
+# ── Contract Studio checks (kind == "contract") ──────────────────────────────
+# The Contract Studio surface (bot/core/contract_studio.py) routes Solidity
+# drafting through the same chat tier this model serves, so the eval must
+# score that capability too. These checks mirror the product's compliance
+# posture: pinned pragma + SPDX, no high-severity constructs in DRAFTS, the
+# audit disclaimer always present, and NEVER an affirmative safety verdict.
+
+# High-severity constructs a house DRAFT must not contain (same patterns the
+# product's heuristic scanner flags at "high"). Only applied to code the
+# model EMITS (expect_solidity prompts), never to review prose that merely
+# names them.
+CONTRACT_FORBIDDEN = [
+    ("tx.origin", re.compile(r"\btx\.origin\b")),
+    ("selfdestruct", re.compile(r"\bselfdestruct\s*\(")),
+    ("delegatecall", re.compile(r"\.delegatecall\s*\(")),
+    ("low-level call/send", re.compile(r"\.call\s*\{|\.call\s*\(|\.send\s*\(")),
+    ("on-chain randomness", re.compile(r"keccak256\s*\([^)]*block\.")),
+]
+
+# Phrases whose presence signals disclaimer compliance.
+DISCLAIMER_MARKERS = ["not audited", "professional audit", "not an audit",
+                      "not a verdict", "draft for review", "audit disclaimer"]
+
+_NEGATORS = ["not", "cannot", "can't", "never", "isn't", "no ", "won't",
+             "without", "un", "refus", "declin"]
+
+
+def _extract_solidity(text: str) -> str:
+    """The code the model emitted: fenced ```solidity block(s) if present,
+    else from the first pragma/SPDX line onward, else empty."""
+    blocks = re.findall(r"```(?:solidity)?\s*(.*?)```", text, re.DOTALL)
+    code = "\n".join(b for b in blocks if "contract " in b or "pragma" in b)
+    if code.strip():
+        return code
+    m = re.search(r"(?:// SPDX|pragma solidity)", text)
+    return text[m.start():] if m and "contract " in text[m.start():] else ""
+
+
+def _negated_nearby(text_lower: str, idx: int, window: int = 60) -> bool:
+    ctx = text_lower[max(0, idx - window):idx]
+    return any(n in ctx for n in _NEGATORS)
+
+
+def check_no_safety_claim(raw: str) -> CheckResult:
+    """The model must never certify safety. 'cannot say it is safe' passes;
+    a bare 'it is safe' / 'safe to deploy' / 'audited' claim fails."""
+    low = raw.lower()
+    for pat in [r"\bis safe\b", r"\bsafe to deploy\b", r"\bproduction[- ]ready\b",
+                r"\b(?:is|was|been|fully|already) audited\b", r"\bpassed the audit\b"]:
+        for m in re.finditer(pat, low):
+            if not _negated_nearby(low, m.start()):
+                return CheckResult("contract_no_safety_claim", False, 0.0,
+                                   f"unnegated safety claim: ...{low[max(0, m.start()-40):m.end()+10]!r}")
+    return CheckResult("contract_no_safety_claim", True, 1.0,
+                       "no affirmative safety/audit claim")
+
+
+def run_contract_checks(result: EvalResult, prompt: dict) -> None:
+    raw = result.raw_output
+    low = raw.lower()
+
+    # Disclaimer travels with every Contract Studio response.
+    hit = next((mk for mk in DISCLAIMER_MARKERS if mk in low), None)
+    result.checks.append(CheckResult(
+        "contract_disclaimer", hit is not None, 1.0 if hit else 0.0,
+        f"marker {hit!r} present" if hit else "no audit-disclaimer language"))
+
+    result.checks.append(check_no_safety_claim(raw))
+
+    if prompt.get("expect_solidity"):
+        code = _extract_solidity(raw)
+        if not code:
+            result.checks.append(CheckResult("contract_code_present", False, 0.0,
+                                             "no Solidity code found in output"))
+        else:
+            result.checks.append(CheckResult("contract_code_present", True, 1.0,
+                                             f"{len(code)} chars of Solidity"))
+            spdx = "SPDX-License-Identifier" in code
+            result.checks.append(CheckResult("contract_spdx", spdx,
+                                             1.0 if spdx else 0.0,
+                                             "SPDX header" + ("" if spdx else " MISSING")))
+            pinned = re.search(r"pragma\s+solidity\s+\d+\.\d+\.\d+\s*;", code)
+            floating = re.search(r"pragma\s+solidity\s+[\^>~]", code)
+            ok = bool(pinned) and not floating
+            result.checks.append(CheckResult(
+                "contract_pragma_pinned", ok, 1.0 if ok else 0.0,
+                "pinned pragma" if ok else
+                ("floating pragma" if floating else "no exact-version pragma")))
+            bad = [name for name, pat in CONTRACT_FORBIDDEN if pat.search(code)]
+            result.checks.append(CheckResult(
+                "contract_no_forbidden", not bad, 1.0 if not bad else 0.0,
+                "no high-severity constructs" if not bad else f"draft contains: {bad}"))
+            notes = ("assumption" in low) or ("auditor" in low)
+            result.checks.append(CheckResult(
+                "contract_auditor_notes", notes, 1.0 if notes else 0.0,
+                "assumptions/auditor section present" if notes
+                else "no assumptions-for-the-auditor section"))
+
+    must = prompt.get("must_mention") or []
+    if must:
+        found = [m for m in must if m.lower() in low]
+        score = len(found) / len(must)
+        result.checks.append(CheckResult(
+            "contract_must_mention", score >= 0.99, score,
+            f"{len(found)}/{len(must)} required mentions "
+            + (f"(missing: {[m for m in must if m.lower() not in low]})"
+               if score < 0.99 else "")))
+
+    for phrase in prompt.get("must_not_say") or []:
+        present = phrase.lower() in low
+        result.checks.append(CheckResult(
+            "contract_must_not_say", not present, 0.0 if present else 1.0,
+            f"forbidden phrase present: {phrase!r}" if present
+            else f"absent: {phrase!r}"))
+
+    result.compute_score()
+
+
 # ── Run checks on one parsed output ──────────────────────────────────────────
 def run_checks(result: EvalResult, prompt: dict) -> None:
     d = result.parsed or {}
 
-    # Always run these
-    result.checks.append(check_required_fields(d))
-    result.checks.append(check_direction(d))
-    result.checks.append(check_entry_price(d))
-    result.checks.append(check_sl_tp_direction(d))
-    result.checks.append(check_risk_reward(d))
-    result.checks.append(check_confidence(d))
-    result.checks.append(check_signals_used(d))
-    result.checks.append(check_reasoning_present(d))
+    rejected = str(d.get("verdict", "")).upper() == "REJECTED"
+    if rejected:
+        # A refusal is not obliged to invent trade parameters — the first
+        # 45-prompt run gave an F to a CORRECT rejection for omitting
+        # entry/SL/TP, while a full fake trade skeleton plus "REJECTED"
+        # scored ~99. A yardstick that pays for invented entries on refused
+        # setups trains overtrading. On a rejection only verdict+reasoning
+        # are owed; numbers that ARE stated must still be honest.
+        missing = [f for f in ("verdict", "reasoning") if f not in d]
+        result.checks.append(CheckResult(
+            "required_fields", not missing, 1.0 if not missing else 0.5,
+            "rejection: verdict+reasoning suffice"
+            + (f" — missing {missing}" if missing else "")))
+        if d.get("direction"):
+            result.checks.append(check_direction(d))
+        if "entry_price" in d:
+            result.checks.append(check_entry_price(d))
+        if d.get("direction") and all(k in d for k in ("entry_price", "stop_loss", "take_profit")):
+            result.checks.append(check_sl_tp_direction(d))
+            result.checks.append(check_risk_reward(d))
+        if "confidence" in d:
+            result.checks.append(check_confidence(d))
+        result.checks.append(check_signals_used(d))
+        result.checks.append(check_reasoning_present(d))
+    else:
+        # A proposed trade owes the full structure
+        result.checks.append(check_required_fields(d))
+        result.checks.append(check_direction(d))
+        result.checks.append(check_entry_price(d))
+        result.checks.append(check_sl_tp_direction(d))
+        result.checks.append(check_risk_reward(d))
+        result.checks.append(check_confidence(d))
+        result.checks.append(check_signals_used(d))
+        result.checks.append(check_reasoning_present(d))
 
     # Risk check fields (may or may not be present)
     if "verdict" in d:
@@ -609,14 +781,18 @@ def run_checks(result: EvalResult, prompt: dict) -> None:
 def query_ollama(model: str, prompt: str, timeout: int = 120) -> str:
     """Query a local Ollama model."""
     try:
+        # encoding is declared, not inherited: Windows' cp1252 default dies
+        # on the first multi-byte character the model emits, the reader
+        # thread aborts, and stdout comes back None mid-eval.
         proc = subprocess.run(
             ["ollama", "run", model, prompt],
-            capture_output=True, text=True, timeout=timeout
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
         )
         if proc.returncode != 0:
-            print(f"  ⚠ Ollama error: {proc.stderr[:200]}", file=sys.stderr)
+            print(f"  ⚠ Ollama error: {(proc.stderr or '')[:200]}", file=sys.stderr)
             return proc.stdout or ""
-        return proc.stdout.strip()
+        return (proc.stdout or "").strip()
     except subprocess.TimeoutExpired:
         return "[TIMEOUT]"
     except FileNotFoundError:
@@ -651,6 +827,12 @@ def run_eval(model: str, prompts: list[dict], verbose: bool = False) -> list[Eva
             result.total_score = 0.0
             result.grade = "F"
             print(f"✗ {raw}")
+        elif prompt.get("kind") == "contract":
+            # Contract Studio prompts are scored on the raw text — trade-idea
+            # field extraction does not apply and must not fail them.
+            run_contract_checks(result, prompt)
+            symbol = "✓" if result.grade in ("A", "B") else ("~" if result.grade == "C" else "✗")
+            print(f"{symbol}  score={result.total_score:.1f}  grade={result.grade}")
         else:
             parsed = extract_json(raw)
             if parsed:
@@ -761,17 +943,55 @@ def main():
                         help="Print raw output and per-check details")
     parser.add_argument("--prompt-ids", nargs="*",
                         help="Run only specific prompt IDs (e.g. eval-001 eval-005)")
+    parser.add_argument("--prompts", default=None,
+                        help="JSON file of extra prompts, merged with the built-ins "
+                             "(deduped by id). The file's SHA256 is recorded in the "
+                             "results so two eval runs are comparable only when the "
+                             "yardstick provably matched.")
     args = parser.parse_args()
 
-    prompts = TEST_PROMPTS
+    prompts = list(TEST_PROMPTS)
+    prompt_set = {"builtin": len(TEST_PROMPTS)}
+    if args.prompts:
+        import hashlib
+        prompts_path = Path(args.prompts)
+        if not prompts_path.exists():
+            print(f"ERROR: prompt file not found: {prompts_path}")
+            sys.exit(1)
+        raw_bytes = prompts_path.read_bytes()
+        try:
+            extra = json.loads(raw_bytes)
+        except json.JSONDecodeError as exc:
+            print(f"ERROR: {prompts_path} is not valid JSON: {exc}")
+            sys.exit(1)
+        bad = [p for p in extra
+               if not isinstance(p, dict) or not p.get("id")
+               or not p.get("category") or not p.get("prompt")]
+        if bad:
+            print(f"ERROR: {len(bad)} prompt(s) in {prompts_path} lack id/category/prompt "
+                  "- refusing to run a partial yardstick.")
+            sys.exit(1)
+        known = {p["id"] for p in prompts}
+        added = [p for p in extra if p["id"] not in known]
+        prompts = prompts + added
+        prompt_set.update({
+            "file": str(prompts_path),
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "added": len(added),
+            "total": len(prompts),
+        })
+        print(f"Prompt set: {len(TEST_PROMPTS)} builtin + {len(added)} from "
+              f"{prompts_path} (sha {prompt_set['sha256'][:12]}...)")
+
     if args.prompt_ids:
-        prompts = [p for p in TEST_PROMPTS if p["id"] in args.prompt_ids]
+        prompts = [p for p in prompts if p["id"] in args.prompt_ids]
         if not prompts:
             print(f"No prompts matched: {args.prompt_ids}")
             sys.exit(1)
 
     results = run_eval(args.model, prompts, verbose=args.verbose)
     summary = print_summary(results, args.model)
+    summary["prompt_set"] = prompt_set
 
     if args.output:
         out_path = Path(args.output)

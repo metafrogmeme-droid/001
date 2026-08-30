@@ -8,7 +8,6 @@ const oauth2 = require('./lib/oauth2');
 const { VENUES } = require('./lib/venues');
 const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
 const { stepUpBlock } = require('./lib/stepup');
-const { botAuth } = require('./lib/bot_auth');
 const { postGateway, isConfigured } = require('./lib/gateway');
 const gateway = { isConfigured };
 const { erasurePlan } = require('./lib/account_erasure');
@@ -903,33 +902,99 @@ router.post('/link-token', authMiddleware, async (req, res) => {
 
 // -- Validate link token (called by the Telegram bot) --
 //
-// AUTHENTICATED AS THE BOT, and that is a change. This route does not merely
-// ANSWER "is this token valid" — it WRITES: it consumes the link token, binds
-// `telegram_id` to the account, and returns the account's email. guard_lint's
-// exemption list justified leaving it open on the read ("the token IS the
-// credential being checked"), which is true of a lookup and false of a bind, so
-// that exemption is deleted in the same commit as this gate.
+// RC-2026-001. This route binds a Telegram identity to a web account, and the
+// identity it binds is `chat_id`, read verbatim from the request body. The
+// `link_token` proves which WEB ACCOUNT is being linked. It proves nothing
+// whatsoever about the chat_id beside it, and `/link-token` mints a valid
+// token for the caller's OWN row on request — so any registered user could
+// bind any Telegram id they liked to their own account, and
+// `resolveBotIdentity` would hand them that person's bot identity thereafter.
+// The module doing the handing (`app/lib/identity.js`) opens by promising
+// "the browser can never choose who it acts as". It was resolving server-side
+// from a row whose contents the browser had chosen.
 //
-// The bot is the only legitimate caller (bot/skills/user_middleware.py). It
-// already holds BOT_SYNC_SECRET, and bot/utils/website_sync.py has been sending
-// X-Bot-Secret on every other bot->web call all along, so this reuses that
-// answer rather than inventing a second one.
+// `scripts/guard_lint.py` exempts this route from `express-route-auth` with
+// the note "the token IS the credential being checked". True of the token, and
+// read as though it covered the request. A second, wholly unauthenticated
+// parameter was sitting next to it.
 //
-// `botAuth` is named as middleware rather than open-coded because guard_lint's
-// `express-mixed-module-routes` rule recognises `authMiddleware|optionalAuth|
-// botAuth`. Naming it is what lets the exemption be REMOVED instead of
-// reworded, and a rule that still called this route covered would be the defect
-// wearing a different hat.
-//
-// DEPLOY ORDER: bot FIRST, then app. A new bot against an old server sends a
-// header the old server ignores, which is harmless. Reversed, every /link gets
-// a 403.
-router.post('/validate-token', botAuth, async (req, res) => {
+// The fix is the mechanism every other bot-channel endpoint in this app
+// already uses: X-Bot-Secret, compared in constant time
+// (`app/routes/sync.js:273`).
+
+/**
+ * Three-valued, and the third value is the entire reason this is a function.
+ *
+ * `unconfigured` is not `bad` and it is certainly not `ok`. A server with no
+ * BOT_SYNC_SECRET has not CHECKED anything: reporting that as a pass is
+ * "absent is never a measurement", and reporting it as a wrong secret sends an
+ * operator hunting a mismatch that does not exist. The two failures need
+ * different responses (503 vs 403) because they need different actions.
+ *
+ * @returns {'ok'|'bad'|'unconfigured'}
+ */
+function linkBotSecretVerdict(given, expected) {
+  const want = String(expected || '');
+  if (want.length < 32) return 'unconfigured';
+  const a = Buffer.from(String(given || ''));
+  const b = Buffer.from(want);
+  // timingSafeEqual THROWS on unequal-length buffers. The length check is what
+  // keeps a wrong-length secret a clean 403 instead of a crash to 500 — the
+  // same trap botAuth documents at sync.js:280.
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return 'bad';
+  return 'ok';
+}
+
+/**
+ * Observe-first ladder, because this is a TWO-SIDED change across TWO DEPLOY
+ * TARGETS. The bot box and the web container deploy separately — that is the
+ * 2026-08-25 incident in one line ("the bot box never serves `app/`"). If the
+ * server half lands first, every real /link is refused until the bot half
+ * follows.
+ *
+ *   block  (default)  refuse anything without a valid secret
+ *   warn              allow, but log every request that WOULD have been refused
+ *   off               no check
+ *
+ * The default is `block`. A CRITICAL that stays open until somebody remembers
+ * to flip a flag is an open CRITICAL, and the deploy-order problem is solved
+ * by deploying the bot first — which costs one ordering note. `warn` exists
+ * for an operator who must go web-first and wants the transition window
+ * visible; it is a choice they make deliberately, not a state they land in.
+ *
+ * Read per request rather than at module scope so a change takes effect
+ * without a restart, for the reason `bot/utils/website_sync.py:104` gives
+ * about its own header: a vault restore or an admin repair should not need one.
+ */
+function linkBotAuth(req, res, next) {
+  const gate = String(process.env.LINK_BOT_SECRET_GATE || 'block').toLowerCase();
+  if (gate === 'off') return next();
+
+  const verdict = linkBotSecretVerdict(
+    req.headers['x-bot-secret'], process.env.BOT_SYNC_SECRET);
+  if (verdict === 'ok') return next();
+
+  if (gate === 'warn') {
+    console.warn(
+      `link-gate WARN: /validate-token would be refused (${verdict}). ` +
+      'Set LINK_BOT_SECRET_GATE=block once the bot half is deployed.');
+    try { secLog('link_gate_warn', req, { verdict }); } catch (e) { /* never block the route */ }
+    return next();
+  }
+
+  // Coarse codes from a fixed vocabulary — the /readyz rule. The caller learns
+  // which ACTION is needed (configure the server vs fix the secret) and nothing
+  // about the secret itself.
+  if (verdict === 'unconfigured') {
+    return res.status(503).json({ error: 'link_not_configured' });
+  }
+  return res.status(403).json({ error: 'invalid_bot_secret' });
+}
+
+router.post('/validate-token', linkBotAuth, async (req, res) => {
   try {
     const { token, chat_id } = req.body;
     if (!token || !chat_id) return res.status(400).json({ error: 'token and chat_id required' });
-
-    const chatId = String(chat_id).slice(0, 32);
 
     // Find user with this token that hasn't expired
     const [rows] = await pool.execute(
@@ -942,27 +1007,31 @@ router.post('/validate-token', botAuth, async (req, res) => {
     }
 
     const user = rows[0];
+    const tgId = String(chat_id).slice(0, 32);
 
-    // A Telegram account identifies at most one RUNECLAW account — the same
-    // rule, and the same shape, as the wallet check in POST /wallet/link
-    // below ("A wallet identifies at most one account").
+    // The half of RC-2026-001 that does not depend on the deploy order.
     //
-    // Without it two rows could carry the same telegram_id, and every lookup
-    // that resolves a chat_id to an account takes the FIRST match — so which
-    // account a user's tier, trades and exchange credentials attach to would
-    // depend on row order. Refused BEFORE the write, so a rejection does not
-    // burn the token and the legitimate owner can retry.
-    const [bound] = await pool.execute(
-      'SELECT id FROM users WHERE telegram_id = ? LIMIT 1', [chatId]);
-    if (bound.length && bound[0].id !== user.id) {
-      return res.status(409).json({ error: 'That Telegram account is already linked to another account.' });
+    // Even with the bot channel authenticated above, moving a chat_id that
+    // already belongs to a DIFFERENT row is the takeover itself, and it is the
+    // one outcome the victim cannot undo — their bot identity simply starts
+    // resolving to somebody else's account. Refusing it needs no secret and no
+    // bot-side change, so it holds at every rung of the ladder, including `off`.
+    //
+    // `id != ?` and not a bare match: re-linking the SAME Telegram id to the
+    // SAME account is an ordinary re-link (a user who ran /link twice) and must
+    // keep working.
+    const [claimed] = await pool.execute(
+      'SELECT id FROM users WHERE telegram_id = ? AND id != ?', [tgId, user.id]);
+    if (claimed.length > 0) {
+      secLog('link_telegram_id_already_claimed', req, { user_id: user.id });
+      return res.status(409).json({ error: 'telegram_already_linked' });
     }
 
     // Consume the token, mark telegram linked, and RECORD the telegram id so the
     // website can attach exchange-credential submissions to the right bot account.
     await pool.execute(
       'UPDATE users SET link_token = NULL, link_token_expires = NULL, telegram_linked = TRUE, telegram_id = ? WHERE id = ?',
-      [chatId, user.id]
+      [tgId, user.id]
     );
 
     res.json({ user_id: user.id, email: user.email, plan: user.plan });
@@ -1839,4 +1908,8 @@ module.exports = {
   // itself. What a tier PROMISES is the load-bearing part, and it cannot be
   // pinned through the endpoint without registering twenty-five accounts.
   REFERRAL_TIERS, referralTier,
+  // RC-2026-001. Exported so the ladder can be driven directly: the three
+  // verdicts and the three rungs are nine cases, and routing all nine through
+  // HTTP would test the router more than the decision.
+  linkBotSecretVerdict, linkBotAuth,
 };
