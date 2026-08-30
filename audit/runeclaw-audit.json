@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "0b3515e93d61b251500d7782fb97bc6b02aee656",
+    "commit": "990ef73f0a8493f3b4c702aa7fd7a864e98d8a4c",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -37,7 +37,7 @@
     {
       "id": "RC-2026-001",
       "title": "Unauthenticated POST /api/auth/validate-token binds an attacker-chosen Telegram id to the attacker's own web account",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "CRITICAL",
       "confidence": "CONFIRMED",
       "category": "broken-authentication",
@@ -54,7 +54,7 @@
         "ASVS-4.2.1"
       ],
       "verified_by": "lead-auditor+dimension-agent",
-      "note": "Two-sided fix; bot must send X-Bot-Secret before the server enforces it, or every /link breaks. guard_lint.py:536 exempts this exact route. telegram_id has no unique index (app/db.js:2230)."
+      "note": "Fixed in three layers. (1) Bot sends X-Bot-Secret from BOT_SYNC_SECRET, read per request. (2) linkBotAuth gates the route on a constant-time compare behind LINK_BOT_SECRET_GATE (off|warn|block, DEFAULT block; an unrecognised value falls to block), answering 503 rather than passing when the server has no secret to compare against. (3) Independently of the ladder and of deploy order, a chat_id already held by another row is refused 409, plus a unique index on users.telegram_id for the race the application check cannot close. guard_lint.py's exemption note - which recorded the reasoning that let this through - is corrected. The route had ZERO tests; app/test/link_token_identity_binding.test.js (15) and tests/test_link_sends_bot_secret.py (7) now cover it, all 10 mutations killed. DEPLOY THE BOT HALF FIRST: with block as the default, a web-first deploy refuses every /link until the bot follows."
     },
     {
       "id": "RC-2026-002",
@@ -472,12 +472,16 @@
   },
   "release_decision": {
     "decision": "NO-GO",
-    "basis": "RC-2026-001 is an unresolved CRITICAL. The brief prohibits GO with any unresolved BLOCKER or CRITICAL finding.",
+    "basis": "RC-2026-018 is an unresolved CRITICAL - the default backtest fills entries at prices the market never traded (bot/backtest/engine.py:593). The brief prohibits GO with any unresolved BLOCKER or CRITICAL finding, and that prohibition still bites. The three CRITICALs this artifact used to list (001, 011, 012) are all fixed; 018 is not, and it was not being counted because it is one of TEN findings the register documents and this generator does not carry - see artifact_undercount below. A decision computed over 12 of 22 findings is a decision over the ones that happened to be transcribed.",
     "blockers": [
-      "RC-2026-001 validate-token identity binding",
-      "RC-2026-011 per-user stops signed with operator credentials (latent until PER_USER_LIVE_ENABLED)",
-      "RC-2026-012 breakers fall back to the paper book when live equity is unreadable"
+      "RC-2026-018 backtest fills at prices that never traded (OPEN CRITICAL, documented in verified_findings.md, absent from this artifact)",
+      "RC-2026-013..016 four HIGHs from Batch 3, likewise unpublished here",
+      "RC-2026-019/020 GDPR purge misses the bot SQLite DB and web-only accounts entirely (HIGH, unpublished here)",
+      "RC-2026-021 SECURITY.md promises human-in-the-loop the default config does not provide (HIGH, unpublished here)",
+      "RC-2026-008 PARTIALLY_FIXED - see its entry for the remaining half",
+      "18 of 26 dimensions unrun (see completeness_caveat)"
     ],
+    "artifact_undercount": "This findings list carries RC-2026-001..012. The register in verified_findings.md documents RC-2026-001..022, and workflow_raw_findings.md holds Batch 3 as B3-01..B3-22. So this file under-reports the audit by ten findings, one of them an OPEN CRITICAL. Found by tests/test_audit_register_agrees_with_itself.py on its first run; the gap is pinned there as a two-way ratchet so it cannot grow or be silently closed. Transcribing the ten is outstanding work, not a formatting task - it needs the auditor's severity and standard mappings, which are not mine to invent.",
     "completeness_caveat": "This decision rests on 8 of 26 planned dimensions. It is a floor, not a full assessment - 18 remain unrun, accessibility has not been assessed at all, and the money-path batch alone produced two further CRITICALs. More may exist."
   },
   "limitations": [
