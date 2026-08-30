@@ -222,23 +222,19 @@ def _release_decision() -> dict:
 
     This used to grep the generator for `release_decision=dict(...)`. That
     worked while the decision was a literal and stopped working the moment it
-    became derived — which was the fix for the drift this whole file exists to
-    catch. Its own assertion message said "this test has drifted", and it was
-    right: a source scan cannot see a computed value, so it could only ever
-    check a decision written the one way it knew.
+    became derived — which was the fix for the drift this whole file is about.
+    Its own assertion said "this test has drifted", and it was right: a source
+    scan cannot see a computed value, so it could only ever check a decision
+    written the one way it knew.
 
     Reading the artifact is also the better question. What ships to a reader is
     runeclaw-audit.json; how generate_artifact.py spells it is an implementation
-    detail. The generator is executed here rather than trusting a possibly stale
-    committed JSON, so the test cannot pass against an artifact nobody has
-    regenerated.
+    detail. Currency of that file is a separate concern and is asserted
+    separately below, so this can read the committed bytes without a subprocess
+    and without writing anything.
     """
     import json
-    import subprocess
-    import sys
 
-    subprocess.run([sys.executable, str(GENERATOR)], check=True,
-                   capture_output=True, cwd=str(GENERATOR.parent.parent))
     artifact = GENERATOR.parent / "runeclaw-audit.json"
     return json.loads(artifact.read_text(encoding="utf-8"))["release_decision"]
 
@@ -310,3 +306,57 @@ def _generator_entry(fid: str) -> str:
     src = GENERATOR.read_text(encoding="utf-8")
     i = src.find(f'id="{fid}"')
     return src[i:i + 600] if i >= 0 else ""
+
+
+#: Fields the artifact CANNOT hold a current value for, and the reason is not a
+#: shortcut. `commit` records the git HEAD the generator ran at, so the artifact
+#: would have to contain the hash of the commit that contains it. A currency
+#: check that ignored this would be unsatisfiable; one that ignored too much
+#: would pass on a stale file. This is the exact set that is self-referential.
+_SELF_REFERENTIAL = ("commit",)
+
+
+def test_the_committed_artifact_is_the_generated_artifact():
+    """Regenerating must change nothing that could have been current.
+
+    `runeclaw-audit.json` is generated but committed, so it goes stale the
+    moment a finding's status changes and nobody re-runs the generator — and a
+    stale artifact is the drift the rest of this file is about, one level down.
+    A reader takes the committed JSON at face value and nothing else checks it
+    is what the generator would produce today.
+
+    Same shape as CI's "The committed site is the built site" step. The
+    regenerated file is written and then RESTORED, so running the suite never
+    leaves the tree dirty.
+    """
+    import json
+    import subprocess
+    import sys
+
+    root = GENERATOR.parent.parent
+    artifact = GENERATOR.parent / "runeclaw-audit.json"
+    committed = artifact.read_bytes()
+    try:
+        subprocess.run([sys.executable, str(GENERATOR)], check=True,
+                       capture_output=True, cwd=str(root))
+        regenerated = artifact.read_bytes()
+    finally:
+        artifact.write_bytes(committed)
+
+    def _strip(raw: bytes) -> dict:
+        d = json.loads(raw.decode("utf-8"))
+        for k in _SELF_REFERENTIAL:
+            d.get("audit", d).pop(k, None)
+            d.pop(k, None)
+        return d
+
+    a, b = _strip(committed), _strip(regenerated)
+    if a == b:
+        return
+    differing = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    raise AssertionError(
+        "audit/runeclaw-audit.json is not what audit/generate_artifact.py "
+        f"produces from the current register — {differing} differ. "
+        "Regenerate it and commit the result:\n"
+        "  python3 audit/generate_artifact.py"
+    )
