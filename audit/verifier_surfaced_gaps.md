@@ -1,25 +1,85 @@
 # Defects the VERIFIERS found that the finders missed
 
-## Status: UNTRIAGED. Do not read these as findings.
+## Status: TRIAGE INCOMPLETE — 36 of 59 examined, 15 of those adversarially judged
 
-Each dimension's findings were judged by two adversarial verifiers. Those
-verifiers were also asked to name any real defect in their dimension that
-the finder had failed to report. This file is that list, verbatim.
+A session limit ended the triage mid-run. **55 agents failed with `You've hit
+your session limit`** — 18 in the 16-30 batch, 17 in 31-45, 20 in 46-59; the
+1-15 batch completed all 43 of its agents with no errors. What follows is
+exactly what was and was not covered; nothing here is rounded up.
 
-**59 items across 12 dimensions.**
+> The first draft of this paragraph said **28**, which was the count of
+> *successful* refutation verdicts in batch 1 — I read the wrong variable and
+> published it as a failure count, in the sentence establishing how much to
+> trust the rest of the section. Corrected by recounting from each run's
+> `agents_error`. It is the same defect this whole audit keeps finding, and the
+> reason the numbers in this file are now computed rather than typed.
 
-None has been verified by me. They are recorded here rather than promoted
-because a verifier saying a defect exists is exactly the kind of claim this
-audit refuses to take on trust — the same standard applied to the finders.
-Several nonetheless read more severe than the findings they were attached
-to, which is itself worth knowing: the finder-plus-verifier shape catches
-things, but it does not bound what a single finder pass will miss.
+| coverage | items | what was done |
+|---|---|---|
+| **full** — verified **and** put to two adversarial refuters | 15 | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 |
+| **single-pass** — verified, **no refutation** | 21 | 16, 17, 18, 19, 20, 21, 22, 23, 24, 31, 32, 33, 34, 35, 36, 46, 47, 48, 49, 50, 51 |
+| **not examined at all** | 23 | 25, 26, 27, 28, 29, 30, 37, 38, 39, 40, 41, 42, 43, 44, 45, 52, 53, 54, 55, 56, 57, 58, 59 |
 
-Triage plan: after the remaining dimensions complete, each item gets the
-treatment the CRITICALs got — read the code, establish reachability, check
-for an existing test — and is then confirmed, refuted, or dropped.
+The single-pass items are **not** confirmed findings. One agent reading a claim
+and agreeing with it is the same evidentiary standard that produced the claim.
+The whole point of this file is that a verifier asserting a defect gets the same
+skepticism as a finder, and that standard has been met for 15 items only.
+
+### What the completed work found
+
+Of the 36 examined, **30 hold** and **6 did not**
+(#14, #18, #20, #23, #33, #36). Every one of the 30
+holding claims was **reproduced by execution**, not by reading — the agents ran
+the code, planted state, and pasted real output.
+
+| severity (of the 30 that hold) | count |
+|---|---|
+| HIGH | 9 |
+| MEDIUM | 12 |
+| LOW | 9 |
+
+Duplicate pairs found: #2≡#3, #4≡#5, #6≡#7, #49≡#50. So the
+30 holding claims describe **26** distinct defects.
+
+For items 1-15, 4 of 28 refutation
+verdicts came back `refuted`.
+
+### The two most consequential results so far
+
+**#1 — `/broadcast` and `/channel` carry no `@guard` at all.** The agent executed
+the real handler with a stub caller whose `_is_admin` returns False and whose
+`get_chat_member` returns `status="creator"`, and got a message delivered to four
+operator groups. Worse, it found that
+`tests/test_command_audience_matches_permission.py` **acquits both commands
+vacuously**: `_permission_string` returns `None` when there is no guard, and the
+reachability comprehension then evaluates `None in p`, which is empty — so
+"gated by nothing" scores identically to "gated by a permission nobody holds".
+A false acquittal, in the direction CLAUDE.md names as the dangerous one.
+
+**#16 — the claim was wrong in the direction that matters.** It said an attacker
+rebinding a push endpoint "receives (and can decrypt) what was destined for that
+browser". The agent reproduced the rebind and showed the opposite: the delivery
+target is the endpoint, which is the *victim's* browser, so the attacker receives
+nothing and the victim gets undecryptable ciphertext. Integrity/availability, not
+confidentiality — and the claim's own suggested alternative fix (`(user_id,
+endpoint)` unique key) is strictly worse than the defect. Recorded because a
+triage that only ever escalates is not a triage.
+
+### Resuming
+
+Each batch is resumable with its cached agents intact:
+
+```
+Workflow({scriptPath: '.../runeclaw-gap-triage-wf_5d946506-2db.js',
+          resumeFromRunId: '<run id>', args: {ids: [...]}})
+```
+
+Run ids: `wf_bd8757c2-47a` (16-30), `wf_d1e64367-bbf` (31-45),
+`wf_509e4b8f-345` (46-59). Completed agents replay from cache; only the failed
+ones re-run.
 
 ---
+
 
 1. /broadcast lets a Telegram group admin who is not on the bot allowlist post to EVERY registered marketing group. bot/skills/telegram_handler.py:4105-4118:
 
