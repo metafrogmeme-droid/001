@@ -1926,16 +1926,93 @@
     return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="${T('aria.recent_band', 'Recent 4h price with pattern high/low band')}" style="display:block">${out}</svg>`;
   }
 
-  const _miniCandles = new Map(); // "SYMUSDT" -> { ts, rows }
+  const _miniCandles = new Map(); // "SYMUSDT|granularity" -> { ts, rows }
   let _miniIO = null;
-  async function _fetchMiniCandles(sym) {
-    const hit = _miniCandles.get(sym);
-    if (hit && Date.now() - hit.ts < 120000) return hit.rows;
-    const r = await fetchJSON(`/api/market/candles/${encodeURIComponent(sym)}?granularity=4h&limit=48`,
+  // Keyed by granularity as well as symbol. It used to key on the symbol alone,
+  // which was correct while one caller existed and becomes a bug the moment a
+  // second asks for a different timeframe: the first 4h answer would be served
+  // to a 1h request forever. The same shape as a cooldown keyed one way and
+  // read another, one file over.
+  async function _fetchMiniCandles(sym, opts) {
+    opts = opts || {};
+    const gran = opts.granularity || '4h';
+    const limit = opts.limit || 48;
+    // Signals refresh on a 30s cycle, so a 120s client cache would show a
+    // "live" chart three refreshes stale. The route caches 15s server-side
+    // anyway, so a shorter TTL here costs little.
+    const ttl = opts.ttlMs != null ? opts.ttlMs : 120000;
+    const key = `${sym}|${gran}|${limit}`;
+    const hit = _miniCandles.get(key);
+    if (hit && Date.now() - hit.ts < ttl) return hit.rows;
+    const r = await fetchJSON(
+      `/api/market/candles/${encodeURIComponent(sym)}?granularity=${encodeURIComponent(gran)}&limit=${limit}`,
       { auth: false, timeoutMs: 10000 });
     const rows = (r && r.data && r.data.data) || [];
-    _miniCandles.set(sym, { ts: Date.now(), rows });
+    _miniCandles.set(key, { ts: Date.now(), rows });
     return rows;
+  }
+
+  /* ── live per-signal charts ──────────────────────────────────────────────
+   *
+   * A signal row published `entry 63,200 · stop 61,900 / target 66,000` and
+   * left the reader to do the geometry. These draw it: recent bars with the
+   * signal's own three levels and the live mark on the same axis.
+   *
+   * Rendering is `RCSignalChart.buildSignalChart`, a pure function with its own
+   * tests, because the chart this replaces could only be exercised by loading
+   * the dashboard and its entire failure path was `el.style.display = 'none'`
+   * — an unreadable chart that VANISHED, which a reader cannot tell from one
+   * that was never offered.
+   */
+  let _scIO = null;
+  function mountSignalCharts() {
+    const nodes = document.querySelectorAll('.sc-slot[data-sc-sym]:not([data-sc-done])');
+    if (!nodes.length) return;
+    if (_scIO) { _scIO.disconnect(); _scIO = null; }
+    if (!('IntersectionObserver' in window)) {
+      nodes.forEach(el => _drawSignalChart(el));
+      return;
+    }
+    _scIO = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        _scIO.unobserve(e.target);
+        _drawSignalChart(e.target);
+      }
+    }, { rootMargin: '160px' });
+    nodes.forEach(el => _scIO.observe(el));
+  }
+
+  async function _drawSignalChart(el) {
+    if (!el || el.getAttribute('data-sc-done')) return;
+    el.setAttribute('data-sc-done', '1');
+    const SC = window.RCSignalChart;
+    // No library is not "no chart": leave the skeleton rather than assert an
+    // empty market. The script tag failing to load is an operator fault and
+    // should look like one.
+    if (!SC) return;
+    const sym = el.getAttribute('data-sc-sym') || '';
+    // The readable leg, for the chart's title. `data-sc-sym` is the CONTRACT
+    // symbol the route is asked about and reads as `LABUSDT`; labelling the
+    // chart with it would put venue notation in front of the reader. Falls
+    // back to the fetch symbol so an older slot without the attribute still
+    // titles itself rather than rendering blank.
+    const label = el.getAttribute('data-sc-label') || sym;
+    let geo = {};
+    try { geo = JSON.parse(el.getAttribute('data-sc-geo') || '{}') || {}; } catch (_) { geo = {}; }
+    try {
+      // 1h bars: a signal's stop and target sit within hours of entry, and 4h
+      // context makes both levels crowd the same pixel row.
+      const rows = await _fetchMiniCandles(sym, { granularity: '1h', limit: 60, ttlMs: 25000 });
+      if (!el.isConnected) return;
+      const r = SC.buildSignalChart(rows, geo, { label: label });
+      el.innerHTML = r.ok ? r.svg : SC.placeholderHtml(r.reason);
+    } catch (_) {
+      if (!el.isConnected) return;
+      // The slot KEEPS its space and says which failure this was. It does not
+      // hide, and it does not paint a flat line at zero.
+      el.innerHTML = SC.placeholderHtml(SC.REASONS.UNREADABLE);
+    }
   }
   // Lazily draw the mini-chart in every un-rendered .ds-mini as it scrolls into
   // view. Idempotent and re-run after each render that emits deep-scan cards;
@@ -1962,11 +2039,24 @@
     el.setAttribute('data-mini-done', '1');
     const sym = el.getAttribute('data-mini-sym');
     const bias = el.getAttribute('data-mini-bias') || 'neutral';
+    // The failure path used to be `el.style.display = 'none'` on both branches:
+    // an unreadable chart VANISHED, which a reader cannot tell from one that was
+    // never offered. The drawing is unchanged — miniCandleSvg is the right
+    // renderer for a pattern card, with its swing high/low band — but the
+    // outcome vocabulary is now RCSignalChart's, so a failure keeps the slot and
+    // says which failure it was.
+    const SC = window.RCSignalChart;
+    const fail = (reason) => {
+      if (!el.isConnected) return;
+      if (SC) el.innerHTML = SC.placeholderHtml(reason || SC.REASONS.UNREADABLE);
+    };
     _fetchMiniCandles(sym).then((rows) => {
       if (!el.isConnected) return;
-      const svg = rows && rows.length >= 3 ? miniCandleSvg(rows, { bias }) : '';
-      if (svg) el.innerHTML = svg; else el.style.display = 'none';
-    }).catch(() => { el.style.display = 'none'; });
+      if (!rows || !rows.length) return fail(SC && SC.REASONS.NO_CANDLES);
+      const svg = rows.length >= 3 ? miniCandleSvg(rows, { bias }) : '';
+      if (svg) el.innerHTML = svg;
+      else fail(SC && SC.REASONS.TOO_FEW);
+    }).catch(() => fail(SC && SC.REASONS.UNREADABLE));
   }
 
   /* ═══════════════ SIGNALS ═══════════════ */
@@ -2053,7 +2143,10 @@
               <td data-label="Signal" data-sym="${esc(dsBase(s.symbol))}"
                   data-geo='${esc(JSON.stringify({ e: s.entry_price, sl: s.stop_loss, tp: s.take_profit, d: s.direction }))}'
                   role="button" tabindex="0" title="Chart with this signal's levels"
-                  style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div></td>
+                  style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div>
+                  <div class="sc-slot" data-sc-sym="${esc(dsContract(s.symbol))}" data-sc-label="${esc(dsBase(s.symbol))}"
+                       data-sc-geo='${esc(JSON.stringify({ entry: s.entry_price, stop: s.stop_loss, target: s.take_profit, direction: s.direction }))}'
+                       aria-busy="true"><div class="skel skel--sc"></div></div></td>
               <td data-label="Conf." class="r num">${Math.round((s.confidence || 0) * 100)}%</td>
               <td data-label="Entry" class="r num">${fmtPrice(s.entry_price)}</td>
               <td data-label="Stop / Target" class="r num muted">${fmtPrice(s.stop_loss)} / ${fmtPrice(s.take_profit)}</td>
@@ -2063,7 +2156,12 @@
               <td data-label="" class="r">${tradeBtn}${arenaBtn}</td>
             </tr>`;
           }).join('')}</tbody></table></div>`;
-      }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } });
+      }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } })
+        // AFTER the panel resolves, not beside it: renderPanel replaces the
+        // container's contents, so mounting earlier would observe nodes it is
+        // about to discard and the charts would never draw. The same ordering
+        // mistake the deep-scan minis make is avoided here by chaining.
+        .then(mountSignalCharts);
     }
 
     renderPanel(C('sinsights'), async () => {
@@ -2071,15 +2169,15 @@
       mustRead(r);
       const a = r.data;
       if (!a || !(a.by_pattern?.length || a.by_symbol?.length)) return null;
-      const bars = (rows, key) => rows.slice(0, 6).map(g => {
-        // `: 0` then `wr >= 50 ? 'pos' : 'neg'` painted an unmeasured group
-        // RED at 0% — the worst reading there is, for a group with nothing
-        // resolved. Unknown gets a muted dash and no colour.
-        const wr = g.win_rate != null ? Math.round(g.win_rate) : null;
-        const cls = wr === null ? 'muted' : (wr >= 50 ? 'pos' : 'neg');
-        return `<div class="kv-row"><span>${esc(g[key] || '(none)')} <span class="muted small">×${g.n}</span></span>
-          <b class="${cls}">${wr === null ? '—' : wr + '%'}</b></div>`;
-      }).join('');
+      // `: 0` then `wr >= 50 ? 'pos' : 'neg'` painted an unmeasured group RED
+      // at 0% — the worst reading there is, for a group with nothing resolved.
+      // That half was fixed here; the SAMPLE half was not, and `wr >= 50`
+      // painted a single winning trade GREEN at 100%, above a pattern with 47
+      // trades at 61%. RCWinRate carries both rules and a sample floor that is
+      // the learner's own (setup_expectancy's min_samples), so the dashboard
+      // and the learner cannot disagree about what counts as evidence.
+      const WRB = window.RCWinRate;
+      const bars = (rows, key) => (WRB ? WRB.buildRows(rows, key) : '');
       return `<div class="grid grid-2">
         <div><div class="stat mb-2"><div class="k">By pattern</div></div>${bars(a.by_pattern || [], 'pattern') || '<p class="muted small">No data.</p>'}</div>
         <div><div class="stat mb-2"><div class="k">By symbol</div></div>${bars(a.by_symbol || [], 'symbol') || '<p class="muted small">No data.</p>'}</div>
@@ -2108,6 +2206,28 @@
   // to universe rows and signal symbols so the pattern read follows the symbol.
   function dsBase(sym) {
     return String(sym || '').toUpperCase().replace('/USDT', '').replace(':USDT', '').replace(/USDT$/, '').replace(/[^A-Z0-9]/g, '');
+  }
+  /**
+   * The CONTRACT symbol — what /api/market/candles is asked about.
+   *
+   * dsBase produces a DISPLAY name (`LAB`) and doubles as the deep-scan index
+   * key, so it is right for both of those and wrong for a fetch: the route
+   * relays Bitget, which knows `LABUSDT` and answers 502 for `LAB`. The signal
+   * stream handed it the display name and every row rendered "No price history
+   * returned for this symbol" — a claim about the MARKET, manufactured from a
+   * request that could never have succeeded.
+   *
+   * The identical defect shipped on /embed/signals and was fixed there first.
+   * This is the surface that made the same claim and was not checked — the
+   * corollary in CLAUDE.md, arriving exactly as advertised.
+   *
+   * Defined in terms of dsBase so the two cannot drift; the `base + 'USDT'`
+   * spelled inline at the deep-scan and pattern cards is this, and they were
+   * already correct.
+   */
+  function dsContract(sym) {
+    const b = dsBase(sym);
+    return b ? b + 'USDT' : '';
   }
   // The synced deep-scan hits indexed by base ticker (empty until a deep scan
   // has synced). Shared by the Deep Scan, Markets, and Signals views.
@@ -4371,7 +4491,10 @@
                       + 'Free — the only cost is Base gas (well under a cent). Soulbound: a badge, not an investment.'))}</p>
                     <button class="btn btn--primary btn--sm" id="runeMint" type="button"
                       data-linked="${esc(d.address)}" data-contract="${esc(p.contract)}"
-                      data-calldata="${esc(p.calldata)}" data-chain="${esc(String(p.chain_id))}">⚔ ${esc(
+                      data-calldata="${esc(p.calldata)}" data-chain="${esc(String(p.chain_id))}"
+                      data-chain-name="${esc(p.chain_name || '')}"
+                      data-rpcs="${esc(JSON.stringify(p.rpc_urls || []))}"
+                      data-explorer="${esc(p.explorer || '')}">⚔ ${esc(
                         T('dd.r_btn', 'Mint your Rune — free, gas only'))}</button>
                     <p class="small muted" id="runeStep" hidden></p></div>`;
             }
@@ -4562,15 +4685,33 @@
             return;
           }
           const chainHex = '0x' + Number(btn.getAttribute('data-chain')).toString(16);
-          rstep(T('dd.r_chain', 'Switching your wallet to Base…'));
+          // Network details come from the mint plan, which reads them from the
+          // same config that signed the voucher. They were literals here —
+          // chainName 'Base' and the mainnet RPC — beside a chainId taken from
+          // the payload, so a deployment on any other chain would ask the
+          // wallet to ADD that chain id under Base's name and Base's RPC.
+          const chainName = btn.getAttribute('data-chain-name') || '';
+          const explorer = btn.getAttribute('data-explorer') || '';
+          let rpcUrls = [];
+          // A malformed attribute must not throw out of the click handler: an
+          // exception here would surface as a generic mint failure, blaming the
+          // mint for a problem in the network hint beside it.
+          try { rpcUrls = JSON.parse(btn.getAttribute('data-rpcs') || '[]') || []; }
+          catch (e) { rpcUrls = []; }
+          rstep(TF('dd.r_chain', 'Switching your wallet to {chain}…',
+            { chain: chainName || chainHex }));
           try {
             await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainHex }] });
           } catch (sw) {
             if (sw && sw.code === 4902) {
+              // Only offer to ADD a network we can actually describe. Without
+              // a name and an RPC the wallet would be handed a half-built
+              // entry; failing here says so instead.
+              if (!chainName || !rpcUrls.length) throw sw;
               await eth.request({ method: 'wallet_addEthereumChain', params: [{
-                chainId: chainHex, chainName: 'Base',
+                chainId: chainHex, chainName,
                 nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-                rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'],
+                rpcUrls, ...(explorer ? { blockExplorerUrls: [explorer] } : {}),
               }] });
             } else { throw sw; }
           }
@@ -5412,6 +5553,20 @@
     };
     function clamp01(v) { return Math.max(0, Math.min(100, v)); }
 
+    // Max drawdown above is a ratio to a STARTING BALANCE this account did not
+    // hand us — it is reconstructed by subtracting summed P&L from the latest
+    // equity snapshot. A close with no recorded P&L subtracts as zero while the
+    // real equity already contains it, and with no snapshot at all the basis is
+    // a flat default. Both leave the percentage biased by an amount nobody can
+    // recover, so the card says which of its numbers are estimates rather than
+    // printing them at the same confidence as the ratios (win rate, profit
+    // factor) that need no basis. Empty string on a clean, fully-priced window.
+    const basisNote = (d) => {
+      const note = window.BasisNote ? BasisNote.coverageNote(d && d.coverage) : '';
+      return note
+        ? `<p class="small muted" style="margin-top:var(--s2)">${esc(note)}</p>` : '';
+    };
+
     let data = null;
     const r = await fetchJSON('/api/reputation');
     data = r.ok ? r.data : null;
@@ -5469,7 +5624,7 @@
             <tr><td class="muted">Max drawdown</td><td class="r num">${m.max_drawdown_pct == null ? '—' : m.max_drawdown_pct + '%'}</td></tr>
             <tr><td class="muted">Fee drag</td><td class="r num">${m.fee_drag_pct == null ? '—' : m.fee_drag_pct + '%'}</td></tr>
             <tr><td class="muted">Positive months</td><td class="r num">${m.positive_months}/${m.total_months}</td></tr>
-          </tbody></table></div>`;
+          </tbody></table></div>${basisNote(data)}`;
       }
     }
 

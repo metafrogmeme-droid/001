@@ -5,7 +5,8 @@ parsed "MTF:1h=UP" strings from signals_used that nothing ever produced, so it
 skipped every trade. This suite pins the revived, direction-aware behaviour and
 the byte-identical OFF path.
 """
-import os, tempfile
+import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime
 

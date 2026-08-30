@@ -35,7 +35,6 @@ import datetime as _dt
 import pathlib
 import re
 
-import pytest
 
 from bot.core.ws_feed import PriceTick
 from bot.skills.telegram_handler import TelegramHandler

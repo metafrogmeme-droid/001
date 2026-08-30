@@ -98,7 +98,18 @@ REGIME_SIZING_ENABLED=1            # apply regime→sizing multipliers, fills _c
 PER_STRATEGY_NOTIONAL_CAP_ENABLED=1  # size cap + POSITION_SIZE check use the per-strategy
                                      # notional ceiling (scalp 8% / intraday 10% / swing 13% /
                                      # position 15%) instead of the global 13% (default ON)
+USER_RISK_PREF_SIZING_ENABLED=1    # a user's own declared risk appetite scales THEIR size
+                                   # (default OFF, shadow-audited while off)
 ```
+
+`USER_RISK_PREF_SIZING_ENABLED` is tighten-only: `conservative` multiplies by
+0.70, `balanced` and `aggressive` change nothing, and an unreadable profile
+changes nothing either — a size nobody chose, decided by a failed file read,
+is worse than no adjustment. It touches only the PER-USER engines; the shared
+operator engine carries no identity, so auto-trade and the operator account are
+byte-identical to before. While it is off the engine still computes the
+would-be multiplier and audits it with `result="SHADOW"`, so read that delta
+before turning it on.
 
 ## 5. Backtest fidelity (backtest runs only — no live effect)
 

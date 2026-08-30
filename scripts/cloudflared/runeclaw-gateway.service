@@ -19,6 +19,25 @@ Description=RUNECLAW bot gateway (Cloudflare named tunnel)
 After=network-online.target
 Wants=network-online.target
 
+# THIS LINE WAS IN [Service] AND SYSTEMD WAS THROWING IT AWAY.
+#
+# Verified against systemd 255 with `systemd-analyze verify`:
+#
+#   Unknown key name 'StartLimitIntervalSec' in section 'Service', ignoring.
+#
+# So the tunnel that says below "an unattended tunnel that gives up after five
+# attempts is the failure this unit exists to prevent" gave up after five
+# attempts — the default burst limit applied in full, on the unit written to
+# disable it. A directive in the wrong section is not a syntax error; it is
+# silently discarded, which is the same shape as a guard that is present and
+# never reached.
+#
+# Found while writing the bot/bridge units, by asking which OTHER unit makes
+# the same claim before calling the new ones done. Reinstall to apply:
+#   sudo cp runeclaw-gateway.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl restart runeclaw-gateway
+StartLimitIntervalSec=0
+
 [Service]
 Type=notify
 User=mulerun
@@ -27,7 +46,6 @@ ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config /home/mulerun/.clo
 # gives up after five attempts is the failure this unit exists to prevent.
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=0
 # The tunnel needs no privileges beyond a socket to localhost.
 NoNewPrivileges=true
 PrivateTmp=true

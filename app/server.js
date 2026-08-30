@@ -138,11 +138,34 @@ process.on('uncaughtException', (err) => {
 const app = express();
 
 // Behind the deployment's reverse proxy, req.ip is the proxy's address unless
-// Express is told to trust the X-Forwarded-For hop. Without this, every
-// per-IP rate limiter (public market data, /mcp, login attempts) collapses
-// into ONE shared bucket for all visitors — a single client can exhaust the
-// global budget, and abuse can't be attributed to a source address.
-app.set('trust proxy', 1);
+// Express is told to trust the X-Forwarded-For hop. Without that, every per-IP
+// rate limiter (public market data, /mcp, login attempts) collapses into ONE
+// shared bucket for all visitors — a single client can exhaust the global
+// budget, and abuse can't be attributed to a source address.
+//
+// This was `app.set('trust proxy', 1)`, and the 1 is the problem: it is a hop
+// COUNT, so express takes the entry one place from the right of
+// X-Forwarded-For no matter WHO connected. Reach this server off-proxy and
+// req.ip is whatever the caller typed — including on the failed-login limiter
+// at auth.js:589, where rotating one header per request buys a fresh bucket
+// every time. bot/utils/client_ip.py already restored the missing premise on
+// the Python side and states the rule: headers describing the caller are
+// evidence only when the connection arrived from a hop we trust to have
+// written them.
+//
+// Same TRUSTED_PROXY variable, so one setting configures both halves.
+// docker-compose.yml pins the bridge subnet for exactly this
+// (TRUSTED_PROXY=172.28.0.0/16). Unset means trust nothing: coarse limiting,
+// never forgeable limiting.
+const { trustProxyFrom } = require('./lib/trusted_proxy');
+const _trustProxy = trustProxyFrom(process.env.TRUSTED_PROXY);
+app.set('trust proxy', _trustProxy);
+if (_trustProxy === false) {
+  console.log(
+    'TRUSTED_PROXY not set — X-Forwarded-For is ignored and req.ip is the '
+    + 'peer address. Behind a proxy, set it (e.g. TRUSTED_PROXY=172.28.0.0/16) '
+    + 'or every visitor shares one rate-limit bucket.');
+}
 
 // Security headers — BEFORE the static handler so every response (including
 // static-served HTML) carries them.
@@ -251,6 +274,13 @@ app.get('/diagz', (req, res) => {
 // parser below skips the already-parsed body; every other route stays at 1mb.
 app.use('/api/chat', express.json({ limit: '7mb' }));
 app.use(express.json({ limit: '1mb' })); // Cap payload size
+// Embeddable surfaces — mounted AHEAD of express.static because they serve
+// their own HTML and, uniquely in this app, their own frame policy. The global
+// middleware above has already set `X-Frame-Options: DENY` and
+// `frame-ancestors 'none'`; the router replaces both, per response, for its
+// own paths only. Nothing under /embed reads a cookie or performs an action —
+// that is what makes framing it safe, and routes/embed.js says so at length.
+app.use('/embed', require('./routes/embed'));
 // Cache policy: HTML must never be cached (deploys ship new markup that
 // references version-tagged assets, e.g. /styles.css?v=2) — a cached HTML +
 // stale-CSS mix renders the dashboard completely unstyled. Assets get a
@@ -314,6 +344,14 @@ app.use('/api/public/flight', require('./routes/public_flight'));
 app.use('/api/public/user-strategies', require('./routes/public_user_strategies'));
 app.use('/api/public/strategy-templates', require('./routes/strategy_templates'));
 app.use('/api/public/agent-record', require('./routes/agent_record'));
+// '/api/public/agent' below is a string prefix of this path, which looks like a
+// shadowing hazard and is not one: Express matches a mount at SEGMENT
+// boundaries, so '/api/public/agent' only claims '/api/public/agent' and
+// '/api/public/agent/...'. Checked on express 4.22 by mounting them in the
+// dangerous order and confirming this route still answers — recorded here
+// because the next person will wonder too, and the intuition is wrong.
+app.use('/api/public/agent-identity', require('./routes/public_agent_identity'));
+app.use('/api/agents', require('./routes/agents'));
 app.use('/api/bot-strategy', require('./routes/botstrategy'));
 app.use('/api/public/leaderboard', require('./routes/public_leaderboard'));
 app.use('/api/public/strategies', require('./routes/public_strategies'));
@@ -343,6 +381,14 @@ app.use('/api/authority', require('./routes/authority'));
 app.use('/api/sentry', require('./routes/sentry'));
 app.use('/api/positions', require('./routes/positions'));
 app.use('/api/arena', require('./routes/arena'));
+// Sign In With Farcaster. Unauthenticated by definition — it is how a Mini App
+// GETS a session — and rate-limited inside the router. Mounted beside /api/arena
+// because the session it mints is for the arena's authenticated routes.
+app.use('/api/farcaster', require('./routes/farcaster_auth'));
+// The AUTHENTICATED Mini App surface. Framable like /embed, but it holds a
+// session and can act — so it is its own router with the trade-off argued in
+// one place rather than smuggled into the actionless one.
+app.use('/miniapp', require('./routes/miniapp'));
 app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
@@ -585,9 +631,28 @@ app.get('/reset', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); re
 app.get('/verify', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'verify.html')); });
 app.get('/agent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent.html')); });
 app.get('/agent/:address', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent-card.html')); });
+// One claimed agent's public page — the link an agent puts in its own README.
+// Short on purpose. NOT under /agent/, which is already the ERC-8004 identity
+// card keyed by 0x-address; a slug there would be served the card page and die
+// on its address regex.
+// The index. Order against /a/:slug does NOT matter and this comment used to
+// say it did — `/a/:slug` requires a second segment, so it cannot capture bare
+// `/a` from any position. Checked by registering the param route first and
+// watching /a still reach the index.
+//
+// The distinction is worth stating because a REAL ordering constraint lives
+// twelve lines below (/agents/compare vs /agents/:slug, both two-segment) and
+// the two look identical in a diff.
+app.get('/a', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agents-claimed.html')); });
+app.get('/a/:slug', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent-profile.html')); });
 // Public, shareable Strategy-Agent directory + per-agent profile (marketplace
-// slugs, e.g. /agents and /agents/dip-sniper). Bare /agents must precede the
-// parametised route so it isn't captured as a slug.
+// slugs, e.g. /agents and /agents/dip-sniper).
+//
+// This said bare /agents "must precede the parametised route so it isn't
+// captured as a slug". It does not: `/agents/:slug` requires a second segment
+// and cannot match `/agents` from any position — verified by registering them
+// the other way round. The line below it, about /agents/compare, IS true and
+// the two claims read the same, which is how the wrong model spreads.
 app.get('/agents', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agents.html')); });
 // Literal path registered BEFORE /agents/:slug below — Express matches in
 // order, so this line moving under the param route would turn /agents/compare
@@ -696,6 +761,23 @@ app.get('/agents/:slug', async (req, res) => {
   } catch (_) { /* fall back to the generic card */ }
   res.type('html').send(agentSeo.injectAgentMeta(strategyHtml(), agent, originFrom(req), slug));
 });
+
+// Terminal 404 — MUST stay last, directly above the error handler.
+//
+// Without it, anything unmatched fell through to the hosting layer, which
+// answered with its own 12,628-byte branded page. `GET /api/market/overview`
+// came back as `content-type: text/html`: a JSON client got twelve kilobytes
+// of somebody else's HTML and a parse error instead of a 404 it could read.
+//
+// PLACEMENT IS THE WHOLE RISK. Registered anywhere above the routes this
+// swallows the entire site — every page, every endpoint, one line, total, and
+// invisible in review. `app/test/not_found.test.js` asserts it sits after the
+// last route registration rather than trusting the diff to keep it here.
+//
+// Route-level 404s are untouched. `/api/public/agent` still answers
+// `{"error":"unknown_agent"}` for an address it does not know — a measured
+// absence, not an unmatched path.
+app.use(require('./lib/not_found').handler);
 
 // Error handler
 app.use((err, req, res, next) => {

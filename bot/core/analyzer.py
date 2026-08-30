@@ -852,7 +852,9 @@ class Analyzer:
                        candles_4h=None, candles_1d=None, is_admin: bool = False,
                        as_of: Optional[datetime] = None, user_id=None, user_tier=None,
                        mtf_candles: Optional[dict] = None,
-                       timeframe: str = "1h") -> Optional[TradeIdea]:
+                       timeframe: str = "1h",
+                       background: bool = False,
+                       basis=None, market_cap=None) -> Optional[TradeIdea]:
         """
         Full analysis pipeline:
         1. Compute technical indicators from OHLCV candles.
@@ -1255,12 +1257,79 @@ class Analyzer:
         indicators["regime"] = regime.value
         indicators["confluence"] = confluence
 
+        # Seasonality CONTEXT — observation only, never a vote.
+        #
+        # Deliberately NOT gated behind a flag, unlike the cross-asset block
+        # above. That one is gated because it feeds a voter, and its own
+        # comment records the cost: "the dark voter's data source", inert and
+        # therefore unexercised. Gating an observation that decides nothing
+        # would recreate exactly the darkness this wiring exists to end —
+        # bot/core/seasonality.py had no caller and no test at all.
+        #
+        # It changes no score: `confluence` is already computed above and is
+        # not revisited. The candles are the ones analyse already holds, so
+        # this adds no fetch, and `as_of` keeps it deterministic under test.
+        # Fails open to absent — a context that cannot be computed is left out
+        # rather than filled in.
+        try:
+            from bot.core.seasonality import analyze_seasonality
+            _seas = analyze_seasonality(candles, as_of)
+            if _seas is not None:
+                indicators["seasonality"] = _seas
+        except Exception as _seas_exc:
+            system_log.debug("Seasonality context skipped: %s", _seas_exc)
+
+        # Spot-perp BASIS and VALUATION context — observation only, no vote.
+        #
+        # Same contract as seasonality above: computed, attached, and never
+        # revisited by `confluence`, which is already decided. Unlike
+        # seasonality these cost network calls, so the ENGINE fetches them —
+        # concurrently, in the same gather as OHLCV and order flow, behind
+        # their own TTL caches — and injects the result. That is the
+        # `order_flow` pattern, and it keeps the analyzer free of I/O.
+        #
+        # Absent stays absent. `None` reaches here whenever the venue could not
+        # be read, the symbol has no perp listed, or CoinGecko does not map the
+        # asset (28 symbols do), and the block is simply left out rather than
+        # filled with a zero — which is precisely how both of these modules
+        # came to be defective while nothing called them.
+        if basis is not None:
+            try:
+                indicators["basis"] = {
+                    "basis_pct": basis.basis_pct,
+                    "sentiment": basis.sentiment,
+                    "extreme": basis.extreme,
+                    "stale": basis.stale,
+                }
+            except Exception as _b_exc:
+                system_log.debug("Basis context skipped: %s", _b_exc)
+
+        if market_cap is not None:
+            try:
+                # Only the fields that were actually read. A None here means
+                # CoinGecko did not report it — an unreadable FDV used to
+                # arrive as fdv_mcap_ratio 0.0, the safest possible number on
+                # a field documented ">2.0 = high inflation risk".
+                _mc = {
+                    k: v for k, v in (
+                        ("cap_tier", market_cap.cap_tier),
+                        ("market_cap_usd", market_cap.market_cap_usd),
+                        ("fdv_mcap_ratio", market_cap.fdv_mcap_ratio),
+                        ("supply_ratio", market_cap.supply_ratio),
+                        ("stale", market_cap.stale),
+                    ) if v is not None
+                }
+                if _mc:
+                    indicators["market_cap"] = _mc
+            except Exception as _mc_exc:
+                system_log.debug("Market cap context skipped: %s", _mc_exc)
+
         # SIGNAL QUALITY: multi-timeframe SMA50 trend alignment
         sma50 = float(np.mean(closes[-CONFIG.analyzer.sma_period:])) if len(closes) >= CONFIG.analyzer.sma_period else None
         if sma50 is not None:
             indicators["sma50"] = round(sma50, 6)
 
-        thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of)
+        thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background)
 
         if thesis is None:
             self._last_rejection_diag = {
@@ -3801,7 +3870,7 @@ class Analyzer:
 
     # -- LLM Reasoning --
 
-    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None) -> Optional[dict]:
+    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None, background: bool = False) -> Optional[dict]:
         """Ask the LLM for a directional call with reasoning.
 
         Token optimization pipeline:
@@ -3867,6 +3936,36 @@ class Analyzer:
         # Stats tracked by cache internally -- no double-count
 
         # ── Optimization 2: Adaptive Frequency ──
+        # ── The background-sweep valve ──
+        # LLM_BACKGROUND_SCANS=off sends the autonomous sweep to the rule
+        # engine and leaves every user-invoked analysis on the LLM. See
+        # CONFIG.analyzer.llm_background_scans for why (a sweep is 12 analyses
+        # in flight against one serving GPU; the queue blows the 90s per-symbol
+        # budget, the 300s phase cap cancels the rest, and the exhausted-
+        # providers path flaps the brain OFFLINE).
+        #
+        # KEYED ON AN EXPLICIT FLAG, NOT ON `user_id is None`. That was the
+        # first draft and it does not discriminate: four USER-INVOKED paths
+        # reach here with no user_id — scan_skill._scan_single (the Telegram
+        # /scan handler), skill_registry._run_symbol_scan, and two skill
+        # execute() bodies. Keying on the absent id would have downgraded all
+        # four to the rule engine while the comment above it promised it kept
+        # user-invoked analyses on the LLM, and nothing in the reply would have
+        # said so. `background` is set in exactly one place — the tick's
+        # analyze phase — so what it means is checkable rather than inferred.
+        #
+        # This returns BEFORE the LLM is attempted, so it deliberately does not
+        # touch _llm_degraded_streak: rule-engine-by-design is not a provider
+        # failure, and counting it as one would report the brain offline
+        # because we told it to stay quiet.
+        if background and not CONFIG.analyzer.llm_background_scans:
+            self._opt_stats.record_adaptive_skip()
+            result = self._rule_based_thesis(signal, indicators)
+            if result is None:
+                return None
+            result["source"] = "RULE_ENGINE_BG_THROTTLE"
+            return result
+
         if not AdaptiveFrequency.should_use_llm(signal, indicators):
             self._opt_stats.record_adaptive_skip()
             result = self._rule_based_thesis(signal, indicators)
@@ -4315,6 +4414,19 @@ class Analyzer:
                 (now - self._llm_last_ok_monotonic)
                 if self._llm_last_ok_monotonic > 0 else None),
             "last_error": self._llm_last_error,
+            # A DIFFERENT CLAIM from the four above, deliberately reported
+            # alongside them rather than folded in. The streak answers "is the
+            # brain answering"; this answers "is the autonomous sweep ASKING".
+            # With the valve off the sweep never calls the LLM, so a user
+            # analysis can keep the streak at 0 and last_ok fresh — perfectly
+            # HEALTHY — while every background signal is rule-only. Nothing in
+            # the four fields above can say that, and proactive_monitor's
+            # "RUNNING ON RULES" alert cannot fire for it by design (the valve
+            # returns before any provider is attempted, so it never touches the
+            # streak). Reported here so a surface can say it out loud instead
+            # of the state being true and invisible.
+            "background_scans_llm": bool(
+                getattr(CONFIG.analyzer, "llm_background_scans", True)),
         }
 
     async def _try_llm_fallback(

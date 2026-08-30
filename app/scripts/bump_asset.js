@@ -33,7 +33,35 @@ const argv = process.argv.slice(2);
 const dry = argv.includes('--dry');
 const only = argv.filter((a) => !a.startsWith('--'));
 
-const pages = fs.readdirSync(PUB).filter((f) => f.endsWith('.html'));
+/**
+ * Every place a versioned asset is referenced — html on disk AND the route
+ * modules that assemble pages and send them.
+ *
+ * This read only `public/*.html`, which is the blind spot
+ * `test/cache_buster_ratchet.test.js` already fixed in its own scan and
+ * documented at length: `/embed/signals` and `/miniapp` are pages like any
+ * other, they just live in `routes/embed.js` and `routes/miniapp.js` rather
+ * than on disk. So for a bundle referenced only from a route module, this
+ * script updated the manifest, edited NOTHING, and printed "in 0 page(s)" as
+ * an ordinary note — leaving the manifest claiming v2 while every served page
+ * still asked for v1. That is the split-version bug this script exists to
+ * prevent, manufactured by the script itself.
+ *
+ * Caught by running it against embed-arena-view.js, whose only two call sites
+ * are route modules.
+ */
+function referencingSources() {
+  const out = [];
+  for (const f of fs.readdirSync(PUB).filter((x) => x.endsWith('.html'))) {
+    out.push(path.join(PUB, f));
+  }
+  const ROUTES = path.join(APP, 'routes');
+  for (const f of fs.readdirSync(ROUTES).filter((x) => x.endsWith('.js'))) {
+    out.push(path.join(ROUTES, f));
+  }
+  return out;
+}
+const pages = referencingSources();
 const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
 const sha = (p) => crypto.createHash('sha256')
   .update(fs.readFileSync(p)).digest('hex').slice(0, 16);
@@ -62,8 +90,7 @@ for (const t of targets) {
   let touched = 0;
   const before = new RegExp(`/${t.asset.replace(/[.]/g, '\\.')}\\?v=(\\d+)`, 'g');
   const seen = new Set();
-  for (const f of pages) {
-    const p = path.join(PUB, f);
+  for (const p of pages) {
     const src = fs.readFileSync(p, 'utf8');
     let hit = false;
     const out = src.replace(before, (m, v) => { seen.add(v); hit = true; return `/${t.asset}?v=${t.to}`; });
@@ -79,13 +106,35 @@ for (const t of targets) {
       + 'before this run — that split was live; check what shipped');
     process.exitCode = 1;
   }
+  // ZERO references is a failure, not a note. Recording v2 in the manifest
+  // while every page still requests v1 IS the split this script prevents, and
+  // printing "in 0 page(s)" alongside "manifest updated" reads like success.
+  // The manifest is left alone so the ratchet still reports the real drift.
+  if (touched === 0) {
+    console.error(`! ${t.asset}: content changed but NOTHING references it with a ?v= — `
+      + 'manifest left unchanged. Either the reference scan cannot see its call '
+      + 'site, or the bundle is referenced without a version at all.');
+    process.exitCode = 1;
+    continue;
+  }
   console.log(`${dry ? '[dry] ' : ''}${t.asset}: v${t.from} -> v${t.to} in ${touched} page(s)`);
   manifest[t.asset] = { sha: t.sha, v: t.to };
 }
 
 if (!dry) {
-  const sorted = Object.fromEntries(Object.keys(manifest).sort().map((k) => [k, manifest[k]]));
-  fs.writeFileSync(MANIFEST, JSON.stringify(sorted, null, 1) + '\n');
+  // Written to match the file already on disk: two-space indent, `v` before
+  // `sha`. It used to emit one-space indent with the keys the other way round,
+  // which reformatted all 220 entries on every run — so bumping TWO assets
+  // produced a 440-line diff.
+  //
+  // That is not cosmetic. A ratchet file's diff is how a reviewer sees which
+  // hashes moved, and a blanket refresh of every sha (which is how this
+  // ratchet gets defeated — an asset updated without its `?v=`) looks
+  // identical to reformatting noise when the whole file rewrites anyway.
+  // Small diffs are what make the dangerous change visible.
+  const sorted = Object.fromEntries(Object.keys(manifest).sort()
+    .map((k) => [k, { v: manifest[k].v, sha: manifest[k].sha }]));
+  fs.writeFileSync(MANIFEST, JSON.stringify(sorted, null, 2) + '\n');
   console.log(`manifest updated: ${path.relative(process.cwd(), MANIFEST)}`);
   console.log('now run: node --test app/test/cache_buster_ratchet.test.js');
 }

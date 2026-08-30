@@ -143,12 +143,30 @@ async def _credential_preflight(engine, bot) -> None:
     try:
         if CONFIG.simulation_mode or not CONFIG.live_trading_enabled:
             return  # paper/sim: no venue auth to check
-        if not (CONFIG.exchange.api_key and CONFIG.exchange.api_secret):
-            _msg = ("\U0001f6a8 <b>STARTUP: no exchange API key configured</b>\n"
-                    "Live trading is enabled but BITGET_API_KEY / "
-                    "BITGET_API_SECRET are empty — the bot cannot place or "
-                    "protect live orders. Check your .env.")
-            engine.set_live_auth_status(False, "no API key configured")
+        # The passphrase counts. Bitget rejects a request without one, and this
+        # check used to read only key and secret — so an EMPTY passphrase fell
+        # through to the venue call below and came back classified as
+        # "Passphrase mismatch. BITGET_PASSPHRASE must match the one set when
+        # the key was created." That sends an operator to compare a value
+        # against Bitget when the actual fault is that the value is gone: the
+        # exact case a redeploy that wipes .env produces, and the case the
+        # secrets vault produces when it cannot decrypt with a stale master key
+        # (it logs a warning and OMITS the key, so the config reads empty).
+        # Missing and mismatched need different fixes, so they get different
+        # messages.
+        _missing = [n for n, v in (("BITGET_API_KEY", CONFIG.exchange.api_key),
+                                   ("BITGET_API_SECRET", CONFIG.exchange.api_secret),
+                                   ("BITGET_PASSPHRASE", CONFIG.exchange.passphrase))
+                    if not str(v or "").strip()]
+        if _missing:
+            _names = ", ".join(_missing)
+            _msg = ("\U0001f6a8 <b>STARTUP: exchange credentials incomplete</b>\n"
+                    f"Live trading is enabled but <code>{_names}</code> "
+                    f"{'is' if len(_missing) == 1 else 'are'} EMPTY — the bot "
+                    "cannot place or protect live orders.\n\n"
+                    "Set them in .env, or re-enter them with "
+                    "<code>/setexchange</code> if a redeploy wiped it.")
+            engine.set_live_auth_status(False, f"missing credentials: {_names}")
         else:
             # Call fetch_balance DIRECTLY — get_live_equity swallows the venue
             # error and returns None, so its exception (and this function's

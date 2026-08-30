@@ -28,7 +28,24 @@ services:
       api_bridge:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'bot.main' > /dev/null"]
+      # NOT `pgrep -f 'bot.main'`. CMD-SHELL runs the check as
+      # `/bin/sh -c "pgrep -f 'bot.main' > /dev/null"`, and THAT shell's own
+      # /proc/<pid>/cmdline contains the string `bot.main` — so pgrep matched
+      # itself and the check could never fail. Reproduced with no bot running:
+      # it returned the checker's own wrapper and reported healthy. A dead
+      # live-trading bot showed green in `docker ps` indefinitely, and
+      # api_bridge's `depends_on: service_healthy` was satisfied by nothing.
+      # CLAUDE.md records the same bug being found and fixed in
+      # scripts/verify_bot_alive.sh; it was never carried across to here.
+      #
+      # `command:` above makes the bot PID 1 of this container, so reading
+      # /proc/1/cmdline asks about the bot and nothing else. The checker's
+      # shell is never PID 1, so this cannot self-match BY CONSTRUCTION rather
+      # than by choosing a cleverer pattern — a `[b]ot` bracket trick still
+      # breaks the moment any ancestor's cmdline happens to carry the string.
+      # `bot[.]main` keeps the dot literal without needing a backslash through
+      # YAML quoting.
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'bot[.]main'"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -114,8 +131,11 @@ services:
       --appendonly yes
       --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     healthcheck:
-      test: ["CMD", "redis-cli",
-             "-a", "${REDIS_PASSWORD}", "ping"]
+      # REDISCLI_AUTH, not `-a`: an argv password is visible to every process
+      # on the host via `ps`, and to anyone who can run `docker inspect` on the
+      # container. redis-cli reads this variable for exactly this reason and
+      # stops warning about the insecure form as a side benefit.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -128,7 +148,7 @@ services:
 
   # -- Nginx TLS reverse proxy ------------------------------------------------
   # Serves dashboard on 443, proxies /api/* -> api_bridge:8000
-  # Requires: certbot certs at /etc/letsencrypt/live/YOUR_DOMAIN/
+  # Requires: certbot certs at /etc/letsencrypt/live/$RUNECLAW_DOMAIN/
   # To skip TLS in dev: comment out nginx and expose api_bridge:8000 directly
   nginx:
     image: nginx:1.27-alpine
@@ -137,10 +157,19 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # nginx.conf is a TEMPLATE, mounted where the nginx:1.27-alpine entrypoint
+    # runs envsubst over it before nginx parses anything. It used to be mounted
+    # directly as conf.d/default.conf while still containing the literal
+    # YOUR_DOMAIN in its certificate paths — a stack that could not start.
+    # RUNECLAW_DOMAIN comes from .env (see .env.example).
+    environment:
+      RUNECLAW_DOMAIN: ${RUNECLAW_DOMAIN:?RUNECLAW_DOMAIN must be set in .env}
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
       - ./website:/usr/share/nginx/html:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./data/certbot:/var/www/certbot:ro
     depends_on:
       api_bridge:
         condition: service_healthy

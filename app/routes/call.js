@@ -46,6 +46,39 @@ async function findArena(key) {
 async function lookupCall(key) {
   {
     if (!KEY_RE.test(key)) return { code: 400, body: { error: 'Invalid call id' } };
+    // A PRE-SIGNATURE scan receipt. Unlike every other receipt here, the thing
+    // it commits to is not ours — it is a hash of calldata or text the caller
+    // sent and we never kept. So there is no "current" row to compare against
+    // and no drift check to run: the payload IS the record, and a holder of
+    // the original input is the only party who can tie it to a transaction.
+    if (key.startsWith('sc_')) {
+      const row = await require('../lib/scan_seal').byKey(key);
+      if (!row) {
+        return { code: 404, body: { error: 'No sealed scan with that id. Receipts exist only for scans run with an Arena key — an anonymous scan stores nothing, by design.' } };
+      }
+      let p = null;
+      try { p = JSON.parse(row.seal_payload); } catch (e) { p = null; }
+      return { code: 200, body: {
+        kind: 'presign_scan',
+        scan_key: row.scan_key,
+        tool: row.tool,
+        agent_slug: row.agent_slug,
+        sealed_at: row.sealed_at,
+        seal: row.seal,
+        seal_payload: row.seal_payload,
+        // Lifted out of the payload so a reader does not have to parse it to
+        // reach the two facts that decide how much this receipt is worth.
+        deterministic: p ? !!p.deterministic : null,
+        unknown: p && 'unknown' in p ? p.unknown : null,
+        proves: p && p.deterministic
+          ? 'what this calldata MEANS — a decode is reproducible, so anyone holding the original bytes can re-run it and get these same actions.'
+          : 'what this scan SAID at this time. It is a heuristic, so it does not prove the verdict was right.',
+        does_not_prove: 'that the transaction was ever signed, or that acting on this was safe. A flag is not a verdict and a clean result is not a guarantee.',
+        // The input was never stored. Said here rather than left to be noticed.
+        input_note: 'The scanned bytes were never stored — the payload commits to their sha256. Whoever holds the original can prove this receipt is about it; nobody else can learn what it was.',
+        verify: 'sha256 over the UTF-8 bytes of seal_payload, verbatim, is `seal`. The seal is a leaf in that day\'s Merkle root — see /api/roots.',
+      } };
+    }
     if (key.startsWith('arena:')) {
       const found = await findArena(key);
       if (!found) {

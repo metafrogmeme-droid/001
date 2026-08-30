@@ -22,19 +22,19 @@ Every sealed call: seal = sha256(utf8(seal_payload)). Daily roots: leaves
 are the day's seals deduped + sorted ascending; parent = sha256(utf8(leftHex
 + rightHex)). Base anchor calldata = hex(utf8("RCROOT1:<day>:<root>")) in a
 zero-value transaction. Full third-party contract with copy-paste snippets:
-https://pmvc58g2.mule.page/provable
+https://www.humanoid-traders.com/provable
 
 ## Agent-to-agent (machine surfaces)
 
 - MCP server (JSON-RPC 2.0, Streamable HTTP, read-only tools):
-  https://pmvc58g2.mule.page/mcp
+  https://www.humanoid-traders.com/mcp
 - ERC-8257 tool manifest (families split machine-readably into
   published-data vs caller-input tools):
-  https://pmvc58g2.mule.page/.well-known/ai-tool/runeclaw-intel.json
-- ERC-8004 public agent directory: GET https://pmvc58g2.mule.page/api/public/agent/<address>
+  https://www.humanoid-traders.com/.well-known/ai-tool/runeclaw-intel.json
+- ERC-8004 public agent directory: GET https://www.humanoid-traders.com/api/public/agent/<address>
   (any registered agent's identity card by address — ours included)
-- Proof-of-PnL statement (re-derivable hashes): GET https://pmvc58g2.mule.page/api/proofofpnl
-- Single-endpoint tool dispatcher: POST https://pmvc58g2.mule.page/api/tool/invoke
+- Proof-of-PnL statement (re-derivable hashes): GET https://www.humanoid-traders.com/api/proofofpnl
+- Single-endpoint tool dispatcher: POST https://www.humanoid-traders.com/api/tool/invoke
 
 ## Public APIs (no key, no account, rate-limited)
 

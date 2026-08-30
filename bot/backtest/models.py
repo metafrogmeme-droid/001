@@ -164,6 +164,21 @@ class BacktestResult(BaseModel):
     total_ideas_rejected_risk: int
     total_ideas_rejected_confidence: int
 
+    # THE STAGES THAT WERE COUNTED AND NEVER REPORTED.
+    #
+    # The engine already tracked all of these; none of them reached this model,
+    # so no surface could show them. The /backtest card therefore printed
+    # Ideas 55 and Risk Reject 26 next to 15 trades — a reader does that
+    # subtraction, gets 29, and has nothing telling them where 14 ideas went.
+    #
+    # `timing_unfilled` is the sum of the three ways an entry-timing ARMED setup
+    # ends without a fill: its stop was touched while waiting (invalidated), it
+    # timed out (expired), or the run ended with it still armed. Armings that
+    # FIRED are not here — they became trades and are counted as such.
+    total_ideas_rejected_preset: int = 0
+    total_ideas_timing_unfilled: int = 0
+    total_entries_pending_at_end: int = 0
+
     # Per-gate risk-rejection tally (gate name -> count) so an A/B diff can SEE
     # which gates diverged. `stateful_rejections` sums the path-dependent gates
     # (breaker / governor / loss-streak / cooldown / daily-loss / drawdown) whose

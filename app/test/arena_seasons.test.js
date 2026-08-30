@@ -210,3 +210,34 @@ test('the Arena speaks six languages — localizer wired, keys complete', () => 
   const ledeBlock = i18n.slice(ledeIdx, ledeIdx + 4000);
   for (const loc of ['en:', 'es:', 'zh:', 'pt:', 'fr:', 'ar:']) assert.ok(ledeBlock.includes(loc), `lede has ${loc}`);
 });
+
+test('an empty board reports WHY: closes counted separately from ranked entries', async () => {
+  // The case a member actually hit: they joined, traded, closed — and the
+  // Farcaster board still said "No one has joined this season yet".
+  //
+  // Nothing joins a season. The board is derived from trades CLOSED in the
+  // window and then filtered to opted-in handles, so `rows: []` has two
+  // unrelated causes and the payload used to carry neither. A renderer given
+  // only `rows` cannot tell "nobody has closed a trade" from "several people
+  // have and none shows a public handle", and it was announcing a third thing
+  // that is never measured here.
+  const reg = await req('POST', '/api/auth/register',
+    { body: { email: 'nohandle@example.com', password: 'longenough1' } });
+  await pool.execute(
+    'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, opened_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [reg.data.user_id, 'ETHUSDT', 'LONG', 100, 90, 1000, 5, -500, 'manual', new Date(), new Date()]);
+  // deliberately NO leaderboard_handle for this user
+
+  const s = await req('GET', '/api/arena/season');
+  assert.equal(s.status, 200);
+  assert.equal(typeof s.data.closes_in_window, 'number',
+    'the payload cannot distinguish an empty board without a close count');
+  assert.equal(typeof s.data.ranked_total, 'number');
+  assert.ok(s.data.closes_in_window >= 1,
+    'a trade closed inside the window was not counted');
+  // This user is invisible on the board but their close is counted, which is
+  // exactly the distinction the renderer needs.
+  assert.ok(!(s.data.rows || []).some((r) => r.handle === undefined));
+  assert.ok(s.data.ranked_total <= s.data.closes_in_window);
+  assert.ok(!/balance|equity|email/i.test(JSON.stringify(s.data)), '§4');
+});

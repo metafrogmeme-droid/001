@@ -91,13 +91,37 @@ test('it does not claim keys stay in an operator env var, because a vault holds 
 
 test('it does not deny sending user data to AI providers, because the bot sends it', () => {
   const th = repo('bot', 'skills', 'telegram_handler.py')
-  assert.match(th, /saved agent profile/,
-    'the profile note stopped reaching the prompt — recheck the page')
+  // Anchored on the SEAM, not on the sentence the prompt happens to use. The
+  // first version matched the literal `saved agent profile`, which is the
+  // label the system prompt printed — renaming that label failed this test
+  // with the message "the profile note stopped reaching the prompt" while the
+  // note reached it perfectly well. A wording anchor over a wiring question.
+  assert.match(th, /resolve_profile_note\(profile_note, user_id\)/,
+    'the user-context note stopped reaching the prompt — recheck the page')
+  assert.match(th, /user_profile_store/,
+    'the declared half stopped reaching the prompt')
   const t = text().toLowerCase()
   assert.ok(!/no (telegram )?user data is included/.test(t))
   assert.ok(!/market data only/.test(t))
   assert.match(t, /watchlist|risk appetite/,
     'the page must say what user context reaches a provider')
+})
+
+test('the page discloses the OBSERVED half, because that reaches a provider too', () => {
+  // The profile is what a user typed. `user_memory_store` is what the agent
+  // watched them do, and it lands in the same system prompt — a second kind of
+  // personal data leaving for a third party, disclosed by nothing when it
+  // shipped. Same ratchet as the four claims above: the code moved, so the
+  // page has to move with it.
+  const th = repo('bot', 'skills', 'telegram_handler.py')
+  assert.match(th, /user_memory_store/,
+    'observed history no longer reaches the prompt — this test and the page '
+    + 'both need revisiting')
+  const t = text().toLowerCase()
+  assert.match(t, /assets you ask the agent about/,
+    'the page must say that what you ask about is recorded')
+  assert.match(t, /recently asked the agent about/,
+    'the AI-providers section must name it as something that is sent')
 })
 
 // ── absences stated as absences ───────────────────────────────────────────

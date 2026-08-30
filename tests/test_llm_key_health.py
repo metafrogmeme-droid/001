@@ -193,7 +193,8 @@ def test_validator_classifies_auth_error(monkeypatch):
             def create(**kw):
                 raise Exception(
                     "Error code: 401 - {'type': 'authentication_error'}")
-    import sys, types
+    import sys
+    import types
     fake = types.ModuleType("anthropic")
     fake.Anthropic = lambda **kw: _Boom()
     _Boom.messages = _Boom.messages
@@ -210,7 +211,8 @@ def test_validator_transient_error_not_condemned(monkeypatch):
             @staticmethod
             def create(**kw):
                 raise Exception("connection timed out")
-    import sys, types
+    import sys
+    import types
     fake = types.ModuleType("anthropic")
     fake.Anthropic = lambda **kw: _Net()
     monkeypatch.setitem(sys.modules, "anthropic", fake)
@@ -226,7 +228,8 @@ def test_validator_success_marks_valid(monkeypatch):
             @staticmethod
             def create(**kw):
                 return object()
-    import sys, types
+    import sys
+    import types
     fake = types.ModuleType("anthropic")
     fake.Anthropic = lambda **kw: _OK()
     monkeypatch.setitem(sys.modules, "anthropic", fake)

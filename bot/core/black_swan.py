@@ -128,6 +128,75 @@ _HALT_SEVERITY = 0.8
 # Detector
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Off-hours attenuation
+# ---------------------------------------------------------------------------
+# A tokenized equity outside its market's hours has almost no liquidity: the
+# spread widens, volume collapses, prints go stale and gappy, and correlations
+# against a 24/7 crypto peer break because one side of the pair is frozen. All
+# four of this module's checks fire on that, and none of it is an emergency —
+# it is what the instrument does when its market is shut.
+#
+# THIS WAS DIAGNOSED ONCE AND ANSWERED WITH A NUMBER. `_check_spread_widening`
+# carries the note: the 2026-08-19 flood was BBSTOCK at 8.4x and RTXSTOCK at
+# 10.6x, "tokenized equities outside their market's hours", and the fix was to
+# raise the severity ceiling 8x -> 20x so they would land mid-scale. On
+# 2026-08-30 (a Sunday) META reached 47.2x, DFEN 25.8x and COIN 22.6x — back
+# through the new ceiling, saturating at 1.00, paging again, 78 symbols in one
+# pass. The ratio is unbounded precisely BECAUSE the condition is unbounded,
+# so no ceiling holds; the comment even predicts its own next move ("this
+# number is the one to move").
+#
+# ATTENUATE, DO NOT SUPPRESS. The alert is still detected, still recorded and
+# still appears in the digest — it simply stops claiming to be a market
+# emergency worth waking someone for. Hiding it would be the opposite defect:
+# a quiet channel that is not a claim the market is calm.
+#
+# Crypto is untouched — `is_market_open("Crypto")` is always True — so a real
+# crypto liquidity failure still reaches 1.00 and still pages.
+_OFF_HOURS_SEVERITY_CAP = _HALT_SEVERITY - 0.01
+
+
+def off_hours_reason(symbol: str, now: Optional[datetime] = None) -> str:
+    """Why this symbol's market is shut right now, or "" if it is open.
+
+    FAIL-OPEN by construction: any classification or calendar fault returns
+    "" (treated as open), so a symbol we cannot place is never quietly
+    demoted. Missing an attenuation costs noise; a wrong one costs a page
+    nobody sends.
+    """
+    try:
+        from bot.core.market_scanner import _classify_symbol
+        from bot.core.order_rules import is_market_open
+        asset_class = _classify_symbol(symbol)
+        is_open, reason = is_market_open(asset_class, now)
+        if is_open:
+            return ""
+        return reason or f"{asset_class} market is closed"
+    except Exception:
+        return ""
+
+
+def attenuate_off_hours(alert: "AnomalyAlert",
+                        now: Optional[datetime] = None) -> "AnomalyAlert":
+    """Scale an off-hours alert below the paging threshold and say why.
+
+    SCALED, not clamped. `min(severity, cap)` would flatten 47x and 22x onto
+    the same number and lose the ordering the digest sorts by; multiplying
+    keeps the loudest one loudest while putting the whole set under
+    `_HALT_SEVERITY`.
+    """
+    reason = off_hours_reason(alert.symbol, now)
+    if not reason:
+        return alert
+    return alert.model_copy(update={
+        "severity": round(alert.severity * _OFF_HOURS_SEVERITY_CAP, 4),
+        "recommended_action": "MONITOR",
+        "description": f"{alert.description} — {reason}; expected off-hours "
+                       f"behaviour, not a liquidity emergency",
+    })
+
+
 class BlackSwanDetector:
     """Statistical anomaly detector that pre-empts the circuit breaker.
 
@@ -210,7 +279,11 @@ class BlackSwanDetector:
         ):
             alert = check(symbol)
             if alert is not None:
-                new_alerts.append(alert)
+                # Attenuated HERE as well as in check_all(). Both run the same
+                # five checks independently — this is the live per-update path
+                # and check_all() is the periodic sweep — so covering only one
+                # would leave the other paging on a shut market.
+                new_alerts.append(attenuate_off_hours(alert))
 
         # 3. Merge into active alerts
         self._active_alerts.extend(new_alerts)
@@ -238,7 +311,7 @@ class BlackSwanDetector:
             ):
                 alert = check(symbol)
                 if alert is not None:
-                    new_alerts.append(alert)
+                    new_alerts.append(attenuate_off_hours(alert))
 
         self._active_alerts.extend(new_alerts)
         if any(a.severity >= _HALT_SEVERITY for a in new_alerts):

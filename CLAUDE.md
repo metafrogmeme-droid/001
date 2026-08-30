@@ -8,19 +8,38 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Fifteen gates: two ruff passes, mypy, bandit, pip-audit, the
-baseline test gate, the red team, the custody red team, the web app's parse
-check, its npm advisory ratchet, its suite, the marketing site's build, its
-published-output honesty tests, the check that the committed site is the built
-site, and guard reachability. ~14 minutes.
+step for free. Twenty gates: two strict ruff passes, the whole-tree ruff
+ratchet, mypy on the money modules, the whole-tree mypy ratchet, bandit,
+pip-audit, the baseline test gate, the red team, the custody red team, the web
+app's parse check, its npm advisory ratchet, its suite, the marketing site's
+build, its npm advisory ratchet, its published-output honesty tests, the check
+that the committed site is the built site, the Anchor workspace's typecheck, its
+npm advisory ratchet, and guard reachability. ~14 minutes.
 
-That "for free" is literal and has now been collected four times: the app parse
+That "for free" is literal and has now been collected six times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
-plan with no change to `preflight.py`, and the two red-team gates each did the
-same. This paragraph's own gate count is pinned by
+plan with no change to `preflight.py`, the two red-team gates each did the
+same, the marketing site's advisory ratchet did it again, and the two lint/type
+ratchets did it a sixth time. This paragraph's own gate count is pinned by
 `tests/test_claude_md_accuracy.py`, which failed the moment each of them landed
 — including on the sentence you are reading, which said "Ten" until the risk
-red team made it eleven and the custody one made it fifteen.
+red team made it eleven, the custody one made it fifteen, the audit's
+npm-coverage fix made it eighteen, and its lint/type ratchets made it twenty.
+
+**Two gates per tool, and the pairing is the point.** The strict steps are
+FLOORS over a narrow scope — those rules, those directories, zero tolerance —
+and they say nothing about anything outside it. `pyproject.toml` declared
+`select = ["E","F","W","I"]` while CI ran a subset, so both strict steps passed
+green against a tree the declared config scored at 1,361; `mypy` gated six
+modules while the other 272 carried 390 unmeasured errors. `scripts/ruff_gate.py`
+and `scripts/mypy_gate.py` cover the remainder as ratchets against
+`tests/ruff_baseline.json` and `tests/mypy_baseline.json`: a rule may only go
+DOWN, and a class that improves must be re-recorded in the same commit, same
+rule as `known_failures.txt`. Neither backlog is swept, and both refusals are
+deliberate — `I001` is an UNSAFE fix in a repo whose imports run `load_dotenv`
+and the vault restore, and the `operator`/`union-attr` errors were sampled and
+found to be mypy NARROWING false positives, where rewriting correct code to
+satisfy the analyser buries real defects in cosmetic diff.
 
 **"For free" covers a new STEP, not a new JOB.** `LOCAL_JOBS` is a deliberate
 allow-list — token tooling is excluded because one of its steps curl-pipes a
@@ -29,6 +48,16 @@ your back is not a preflight. So `Marketing site (vite)` needed one line added
 there, and a job that is added to `ci.yml` and not to that tuple runs in CI
 while `--list` reports it under "NOT covered locally". That line is the honest
 half of the design and worth reading before trusting a green preflight.
+
+`Anchor workspace (node)` is the second job to need that line, and it is worth
+saying why it qualifies where token tooling does not: it runs `tsc` and the
+advisory ratchet, and neither installs anything beyond the lockfile. It
+deliberately does **not** run `anchor test` — that needs a local validator,
+which is the exact thing keeping token tooling out. The root `package.json` had
+been installed by no job at all: five workspaces, four `npm ci`s, and a
+2,277-line lockfile carrying six high advisories that nothing had ever printed.
+`contracts/rune` and `site` were installed but never advisory-checked for the
+same reason — only `token/` and `app/` ran the ratchet. All five do now.
 
 ```bash
 python3 scripts/preflight.py --fast   # tight loop; drops only the network gates
@@ -153,6 +182,32 @@ The pair is the diagnosis:
 ```bash
 node -e "const v=require('./app/lib/version').buildInfo(); console.log(v.build, v.assets)"
 ```
+
+That prints what *should* be live. `scripts/verify_deploy.sh` compares it to
+what *is* live, on **both** deploy targets:
+
+```bash
+scripts/verify_deploy.sh              # web container + bot box
+scripts/verify_deploy.sh --web-only   # after a web republish
+WEB_URL=https://host scripts/verify_deploy.sh --web-only
+```
+
+The two-target part is the point. On 2026-08-25 a deploy pulled the right
+commit onto the bot box, passed `verify_deploy_source.sh`, restarted cleanly,
+and reported success — while sign-in stayed broken all day, because the fix was
+in `app/lib/siwf.js` and **the bot box never serves `app/`**. A checker that
+asks about one half cannot report the other.
+
+Three outcomes, not two: `0` verified, `1` a real mismatch, **`3` could not be
+checked**. The header says why — "reporting an unreachable endpoint as a failed
+deploy sends an operator to roll back a deploy that landed perfectly."
+
+`3` also covers a hash the server did not *send*. `version.js` **omits**
+`build`/`assets` rather than nulling them, so the sed that parses them yields
+`""`, and `""` is never equal to the expected hash — which for a while printed
+`FAIL: serving DIFFERENT code` with `live=` in the detail line, a verdict
+manufactured from an absence. A proxy error page landed on the same false FAIL.
+Unreadable is not a measurement, here as everywhere else.
 
 A moved `assets` still is not a *fetched* file — browsers cache on the `?v=`
 in the script tag. **Bump it in every page that references a changed bundle.**
@@ -320,11 +375,31 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**10** modules today). It is a ratchet in
+`tests/unreachable_baseline.txt` (**2** modules today). It is a ratchet in
 both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same
 reason.
+
+**Fix before you wire, and the fixing is most of the work.** `basis.py` and
+`market_cap.py` were the last two names on the roadmap's signal-fusion line,
+and each was defective in exactly the way a module nothing reads becomes
+defective. `market_cap` built every number with `.get(k, 0)`, so an unreadable
+FDV produced `fdv_mcap_ratio = 0.0` on a field documented ">2.0 = high
+inflation risk" — the *safest* value it can carry, arrived at from no data, and
+CoinGecko returns a null FDV for every token with no max supply, so that was
+the ordinary response for a whole class of asset rendered as an all-clear.
+`basis` read `ticker.get("last", 0)`, and a null `last` answers `None`, so
+`None <= 0` raised and a successful fetch of an unpriced ticker was logged as a
+network failure.
+
+The trap was in the wiring rather than the code: the engine's exchange factory
+is a **coroutine function**, and `basis.py` called it synchronously. That fails
+into the broad handler as an `AttributeError`, so the provider would have
+returned `None` forever — wired, called, and dead, which no reachability
+checker can see because it *has* a caller. `exchange_flow.py` already carries
+the `inspect.isawaitable` guard, and its docstring records the same bug
+shipping once before.
 
 Both halves fired on their first real use, one commit later. `integrity_veto`
 — veto-only, `off/shadow/enforce`, described in `docs/token_safety.md` as the
@@ -347,6 +422,64 @@ DISPLAY, and the two were the same function until something finally called it;
 > a blind spot manufactures exactly the accusation it exists to prevent**, so
 > the sweep now reads every `.py` in the tree and entry points are excluded by
 > their `__main__` guard.
+
+**Registration is not reachability, and it is a fourth granularity.** Module,
+module-level def, method — and then the thing that dispatches. `permission_for()`
+is fail-closed and says so: "a skill added later is unreachable from chat until
+somebody decides what it needs". Correct, and *silent* — nothing ever reported
+the pending decision, so the backlog reached 9 of 30 registered skills
+(`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
+were in `bot/skills/macro_skills.py`, each advertising a slash command —
+`/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
+reached. The backlog is **7** of 30 registered skills now: `/eventrisk` and
+`/compliance` are wired, and the deciding question was never "can it run" but
+*who should be able to run it*. `/eventrisk` reuses `macro`, a permission
+trader and paper already hold;
+`/compliance` summarises the GLOBAL consent ledger, so it took a permission no
+role but admin holds. The three left are a product call and two are arguments
+against themselves — `kill_switch` would be a SECOND emergency halt beside
+`/halt`, which is a hazard in an emergency, and `request_live_approval` needs
+an `approval_manager` that does not exist.
+
+Neither older ratchet could see them: the module *is* imported and its
+`build_v2_skills()` *is* called, and every skill body is an `execute` override
+on a subclass, which the method sweep declines by design. And unrunnable is
+precisely *why* all seven of that module's attribute probes named fields that
+never existed — `upcoming_events` for `get_upcoming_events`, `consent_ledger`
+for `get_consent_ledger`, a `circuit_breaker` for a halt that lives on
+`engine.risk`. Every miss rendered as a confident negative: **"No upcoming
+events loaded"** over a calendar holding 40 events with NFP a week out, on a
+fail-closed macro system where that exact sentence means *the calendar is
+gone*. Tests were never the only caller here — there was no caller at all.
+
+> The methods ratchet had a blind spot in the *other* direction, and the other
+> direction is the dangerous one because it is quiet. It counts identifiers, so
+> it cannot tell whose method a name means and drops any name two classes both
+> define — 60 names covering **274** methods nothing checked.
+> `ComplianceEngine.format_for_telegram` has no caller anywhere and never
+> appeared in the baseline, because seven classes define that name. A false
+> accusation is loud and gets fixed; a false acquittal just sits there.
+>
+> A second pass now attributes `<recv>.<name>()` by resolving the receiver
+> through `self.x = Foo()` and `x = Foo()`. **Sound, not complete**: one
+> unresolvable receiver makes the whole name ambiguous, and the 34 names that
+> stay ambiguous are stated in the baseline and pinned by a test, because a
+> gate whose coverage is overstated is the failure this file exists to prevent.
+>
+> **Two drafts of it accused live code, which is the argument for that rule.**
+> The first collected only `self.x.run()` receivers, concluded every receiver
+> had resolved, and reported `RuneClawEngine.run` dead — `bot/main.py:434`
+> calls it as `engine.run()` on a local. The second treated `x = make_thing()`
+> as typing `x`, so a factory bound the name to a function matching no class,
+> the receiver *looked* resolved, and `CatalogWatch.recent` was accused while
+> `scan_skill.py` calls it. Names assigned from anything that is not a known
+> class are poisoned now.
+>
+> And the guard against those two was itself worthless at first: asserting
+> `CatalogWatch.recent` is not accused PASSED under both mutations, because a
+> different receiver of `recent` poisons the name anyway. A real-tree assertion
+> can pass for a reason unrelated to the rule. The guards are planted trees
+> where the rule is the only thing in play.
 
 **Plant the state, assert what the card says.** `tests/test_surface_scenarios.py`
 and `app/test/engine_status_scenarios.test.js` hold the pattern: MUST_SAY,

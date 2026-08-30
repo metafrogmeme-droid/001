@@ -9,7 +9,12 @@ Every incoming message passes through require_registered().
 """
 
 from __future__ import annotations
-import asyncio, functools, json, logging, urllib.request, urllib.error
+import asyncio
+import functools
+import json
+import logging
+import urllib.request
+import urllib.error
 from telegram import Update
 from telegram.ext import ContextTypes
 

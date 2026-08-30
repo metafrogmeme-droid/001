@@ -39,6 +39,22 @@ _CRITICAL = [
     "data/proofofpnl_publication.json",
     "data/runeclaw.db",
     "data/secrets_vault.enc",
+    # Every linked user's exchange api_key/api_secret/passphrase and their
+    # Hyperliquid/Paradex agent private keys (bot/core/exchange_credentials.py
+    # `_CREDS_FILE`). Written on every /connect and every website credential
+    # pull. It was absent while `secrets_vault.enc` — the operator's own
+    # encrypted secrets, the same shape of file — was present, so a restore
+    # came back with the operator's keys and none of the users'.
+    #
+    # NOT SUFFICIENT ON ITS OWN, and deliberately left that way: the Fernet
+    # master key that opens BOTH files is `data/.exchange_secret.key`
+    # (exchange_credentials.py `_KEY_FILE`, and secrets_vault.py
+    # `_MASTER_KEY_BASENAME` — one key, both stores), and it is still not
+    # archived. An off-host restore therefore yields ciphertext nothing can
+    # read. Putting the key in the same archive as the data it opens is a
+    # security trade-off for a human to make, not an audit fix — see
+    # audit/verified_findings.md RC-2026-008.
+    "data/exchange_creds.enc",
     "data/shadow_book.json",
     "data/proactive_watch.json",
     "data/venue_override.json",

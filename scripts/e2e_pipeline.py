@@ -7,7 +7,11 @@ Exercises the COMPLETE loop against live Bitget data:
 
 Reports every decision point with raw data so we can find weak links.
 """
-import asyncio, sys, os, time, json
+import asyncio
+import sys
+import os
+import time
+import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
@@ -17,8 +21,7 @@ from bot.core.analyzer import Analyzer
 from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.skills.skill_registry import build_default_registry
-from bot.utils.models import MarketSignal, Direction
-from bot.utils.logger import audit, system_log
+from bot.utils.models import MarketSignal
 import ccxt.async_support as ccxt
 
 
@@ -40,7 +43,7 @@ def usd(v):
 async def main():
     print(div("RUNECLAW END-TO-END LIVE PIPELINE"))
     print(f"  {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
-    print(f"  Exchange: Bitget (LIVE read-only)  |  Mode: PAPER SIMULATION")
+    print("  Exchange: Bitget (LIVE read-only)  |  Mode: PAPER SIMULATION")
     print(div())
 
     engine = RuneClawEngine()
@@ -105,7 +108,7 @@ async def main():
             print(f"  OHLCV fetch error: {e}")
 
         if len(candles_1h) < 30:
-            print(f"  SKIP: insufficient data")
+            print("  SKIP: insufficient data")
             diag["status"] = "SKIP_DATA"
             all_diagnostics.append(diag)
             continue
@@ -139,7 +142,7 @@ async def main():
         diag["vol_ratio"] = round(vol_ratio, 2)
 
         # 2c. Order flow
-        print(f"  --- Order Flow ---")
+        print("  --- Order Flow ---")
         of_signal = None
         try:
             of_signal = await order_flow.analyze(exchange, sig.symbol)
@@ -155,7 +158,7 @@ async def main():
             print(f"  Order flow error: {e}")
 
         # 2d. Exchange flow (funding + OI)
-        print(f"  --- Exchange Flow ---")
+        print("  --- Exchange Flow ---")
         try:
             flow_data = await flow.get_flow_summary(sig.symbol)
             fr = flow_data.get("funding_rate")
@@ -173,7 +176,7 @@ async def main():
             print(f"  Exchange flow error: {e}")
 
         # 2e. Full analyzer (TA + LLM)
-        print(f"  --- Analyzer ---")
+        print("  --- Analyzer ---")
         try:
             idea = await analyzer.analyze(
                 sig, candles_1h,
@@ -193,7 +196,7 @@ async def main():
                 }
 
                 # 2f. Risk gate
-                print(f"  --- Risk Gate ---")
+                print("  --- Risk Gate ---")
                 risk_result = engine.risk.evaluate(idea, atr=atr)
                 verdict = risk_result.verdict
                 pos_usd = risk_result.position_size_usd
@@ -210,7 +213,7 @@ async def main():
                 if verdict == "APPROVED":
                     all_ideas.append((idea, atr, sig, diag))
             else:
-                print(f"  NO TRADE — filtered by regime or low confluence")
+                print("  NO TRADE — filtered by regime or low confluence")
                 diag["status"] = "FILTERED"
         except Exception as e:
             print(f"  Analyzer error: {e}")
@@ -237,7 +240,7 @@ async def main():
                     executed.append((idea, pos))
                     diag["executed"] = True
                 else:
-                    print(f"  FAILED to open position")
+                    print("  FAILED to open position")
                     diag["executed"] = False
             except Exception as e:
                 print(f"  Execution error: {e}")
@@ -296,7 +299,7 @@ async def main():
 
     # Also run quant on BTC if not already
     if not any(p.asset == "BTC/USDT" for _, p in executed):
-        print(f"\n  --- BTC/USDT (benchmark) ---")
+        print("\n  --- BTC/USDT (benchmark) ---")
         qout = await quant_skill.execute(engine, symbol="BTC/USDT")
         for line in qout.split('\n'):
             if any(k in line for k in ['Regime', 'ADX', 'Hurst', 'GARCH', 'Score', 'GATE']):
@@ -333,7 +336,7 @@ async def main():
     print(f"  Trades executed  : {len(executed)}")
 
     if approved:
-        print(f"\n  APPROVED TRADES:")
+        print("\n  APPROVED TRADES:")
         for d in approved:
             idea = d.get("idea", {})
             risk = d.get("risk", {})
@@ -343,18 +346,18 @@ async def main():
                   f"squeeze={ef.get('squeeze_risk','N/A')}")
 
     if rejected:
-        print(f"\n  REJECTED BY RISK:")
+        print("\n  REJECTED BY RISK:")
         for d in rejected:
             fails = d.get("risk", {}).get("failed", [])
             print(f"    {d['symbol']:<16} — {'; '.join(fails[:2])}")
 
     if filtered:
-        print(f"\n  FILTERED (regime/confidence):")
+        print("\n  FILTERED (regime/confidence):")
         for d in filtered:
             print(f"    {d['symbol']:<16} RSI={d.get('rsi','?')}  ATR={d.get('atr_pct','?')}%  VolR={d.get('vol_ratio','?')}")
 
     # Weakness analysis
-    print(f"\n  WEAKNESS ANALYSIS:")
+    print("\n  WEAKNESS ANALYSIS:")
     filter_reasons = []
     if len(filtered) > len(targets) * 0.6:
         filter_reasons.append("HIGH FILTER RATE — most symbols filtered by regime/confluence")
@@ -369,7 +372,7 @@ async def main():
     for r in filter_reasons:
         print(f"    ⚠ {r}")
     if not filter_reasons:
-        print(f"    ✓ No major weaknesses detected")
+        print("    ✓ No major weaknesses detected")
 
     # Save full report
     report = {
@@ -385,7 +388,7 @@ async def main():
     }
     with open("e2e_report.json", "w") as f:
         json.dump(report, f, indent=2, default=str)
-    print(f"\n  Full report saved to e2e_report.json")
+    print("\n  Full report saved to e2e_report.json")
 
     await engine.stop()
     print(div())

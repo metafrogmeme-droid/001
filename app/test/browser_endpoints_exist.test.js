@@ -107,6 +107,22 @@ function routePaths() {
       paths.add(m[1]);
     }
   }
+  // app.use(router) with NO prefix — the router declares full paths itself.
+  // Missing this made every route in routes/tool8257.js and routes/discovery.js
+  // invisible to this scan, so a page fetching a real, live endpoint was
+  // reported as calling one the server does not define. The scanner's blind
+  // spot became an accusation, which is the same shape as the guard tests that
+  // read _tick as text and could not see a phase they themselves required.
+  for (const m of server.matchAll(
+    /app\.use\(\s*(?:require\(\s*['"]\.\/([\w/.-]+)['"]\s*\)|(\w+))\s*\)/g)) {
+    const file = m[1] ? norm(m[1]) : varToFile.get(m[2]);
+    const src = file && files.get(file);
+    if (!src) continue;
+    for (const r of src.matchAll(
+      /router\.(?:get|post|put|delete|patch|all)\(\s*['"](\/api[^'"]*)['"]/g)) {
+      paths.add(r[1].replace(/\/+$/, '') || '/');
+    }
+  }
   // app.use('/api/x', router) — variable or inline require — expanded.
   for (const m of server.matchAll(
     /app\.use\(\s*['"](\/api[\w/-]*)['"]\s*,\s*(?:require\(\s*['"]\.\/([\w/.-]+)['"]\s*\)|(\w+))/g)) {

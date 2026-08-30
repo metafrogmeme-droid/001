@@ -487,6 +487,133 @@ async def _bitget_balance_probe(api_key: str, api_secret: str,
                 pass
 
 
+# ── key SCOPE: what a key is PERMITTED to do, not what it holds ──────────────
+#
+# Every probe above answers "can this key read the account". None of them answer
+# the question a non-custodial product actually rests on: CAN THIS KEY MOVE THE
+# MONEY OUT? Bitget's `GET /api/v2/spot/account/info` returns the calling key's
+# granted permissions in `authorities` (and its IP pinning in `ips`), which is
+# the only endpoint in ccxt's bitget surface that describes the CALLING key —
+# every other apikey endpoint there is broker/sub-account management, acts on
+# other keys, and needs broker privileges.
+
+# Transcribed from Bitget's API documentation. NOT confirmed against a live key
+# from inside this repository — nobody here holds one — and the rule below is
+# shaped entirely around that fact.
+_BITGET_WITHDRAW_AUTHORITIES = frozenset({"withdraw"})
+_BITGET_KNOWN_AUTHORITIES = frozenset({
+    "readonly", "spot_trade", "contract_trade", "margin_trade",
+    "wallet_transfer", "transfer", "withdraw",
+})
+
+
+def bitget_withdraw_scope(authorities: Any) -> str:
+    """``"on"`` | ``"off"`` | ``"unknown"`` — a Bitget key's withdraw permission.
+
+    THE ASYMMETRY HERE IS THE WHOLE POINT. ``"off"`` renders downstream as
+    "key has no withdraw permission — non-custodial, as intended", which is a
+    confident all-clear about somebody's money. So it is only ever returned when
+    EVERY authority in the response is one this function recognises: if we do not
+    understand the entire permission set, we do not get to conclude that a
+    permission is absent from it.
+
+    That makes a wrong or stale vocabulary degrade in the safe direction. If
+    Bitget renames a scope, or adds one, or spells withdrawal something this set
+    does not contain, every real response carries an unrecognised token and the
+    answer becomes ``"unknown"`` — which is precisely the status quo before this
+    function existed. The failure mode it cannot have is the other one: reading
+    an unrecognised response as proof of non-custody.
+
+    ``"on"`` is the one verdict that survives an unknown token, because a
+    recognised withdraw authority is positive evidence regardless of what else
+    sits beside it.
+    """
+    if not isinstance(authorities, (list, tuple, set, frozenset)):
+        return "unknown"          # absent or a shape we did not expect
+    tokens = [str(a).strip().lower() for a in authorities if str(a).strip()]
+    if not tokens:
+        # An empty list is not "no permissions" — a key with no permissions
+        # could not have authenticated to ask the question in the first place.
+        return "unknown"
+    if any(t in _BITGET_WITHDRAW_AUTHORITIES for t in tokens):
+        return "on"
+    if all(t in _BITGET_KNOWN_AUTHORITIES for t in tokens):
+        return "off"
+    return "unknown"
+
+
+def bitget_ip_allowlist(info: Any) -> Optional[list]:
+    """The IPs a Bitget key is pinned to, or ``None`` when that is not readable.
+
+    Bitget returns ``ips`` as a comma-separated string. ``None`` and ``[]`` are
+    different answers and both are real: ``[]`` means the venue told us the key
+    is NOT IP-restricted, ``None`` means nobody could look.
+    """
+    if not isinstance(info, dict) or "ips" not in info:
+        return None
+    raw = info.get("ips")
+    if raw is None:
+        return None
+    if isinstance(raw, (list, tuple)):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    if isinstance(raw, str):
+        return [p.strip() for p in raw.split(",") if p.strip()]
+    return None
+
+
+async def probe_bitget_key_scope(api_key: str, api_secret: str, passphrase: str,
+                                 sandbox: bool = False) -> dict:
+    """Observe a Bitget key's granted scope. READ-ONLY, and never raises.
+
+    Returns ``{"withdraw": "on"|"off"|"unknown", "ip_allowlist": [...]|None}``.
+    No withdrawal is attempted and no order is placed — the scope is *asked for*,
+    never *tested*. Every failure path (ccxt missing, endpoint absent on this
+    ccxt version, HTTP error, a response shape we do not recognise) lands on
+    ``"unknown"``/``None``, so the worst case is exactly the information we had
+    before calling it.
+    """
+    out: dict = {"withdraw": "unknown", "ip_allowlist": None}
+    client = None
+    try:
+        import ccxt.async_support as ccxt
+    except Exception:
+        return out
+    try:
+        client = ccxt.bitget({
+            "apiKey": api_key,
+            "secret": api_secret,
+            "password": passphrase,
+            "timeout": 15000,
+            "enableRateLimit": True,
+        })
+        try:
+            client.set_sandbox_mode(sandbox)
+        except Exception:
+            if sandbox:
+                return out
+        fetch = getattr(client, "privateSpotGetV2SpotAccountInfo", None)
+        if fetch is None:
+            return out          # ccxt version without the endpoint — not a failure
+        resp = await fetch({})
+        data = resp.get("data") if isinstance(resp, dict) else None
+        if not isinstance(data, dict):
+            return out
+        out["withdraw"] = bitget_withdraw_scope(data.get("authorities"))
+        out["ip_allowlist"] = bitget_ip_allowlist(data)
+        return out
+    except Exception:
+        # A key without spot-account read permission answers 401/403 here while
+        # being a perfectly good futures key. That is "we could not look", not
+        # "it cannot withdraw".
+        return out
+    finally:
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+
 async def validate_bitget_credentials(
     api_key: str, api_secret: str, passphrase: str, sandbox: bool = False
 ) -> tuple[bool, str]:

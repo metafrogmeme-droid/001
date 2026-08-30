@@ -245,6 +245,36 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return default
 
 
+def _env_switch(key: str, default: bool = False) -> bool:
+    """An on/off switch, for env vars an operator writes as on/off.
+
+    `_env_bool` exists and is NOT this. Its false-vocabulary is
+    ("", "false", "0", "no"); "off" is not in it and never has been, so
+    `_env_bool("X", True)` reads `X=off` as **True** and logs it as
+    unrecognised. A safety switch that reads "off" as on is the worst kind of
+    flag — the operator sets it, restarts, sees no error, and the thing they
+    turned off keeps running.
+
+    So: a switch whose documented vocabulary is on/off is read here, where
+    both vocabularies are accepted, and an unrecognised value falls back to
+    the default with a warning rather than being guessed at.
+    """
+    raw = _env(key, "").strip().lower()
+    if key not in os.environ or raw == "":
+        return default
+    if raw in ("off", "false", "0", "no", "disabled"):
+        return False
+    if raw in ("on", "true", "1", "yes", "enabled"):
+        return True
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "Unrecognised switch env var %s=%r — using default %s. "
+        "Accepted: on/off, true/false, 1/0, yes/no, enabled/disabled.",
+        key, raw, default,
+    )
+    return default
+
+
 def _env_float(key: str, default: float = 0.0) -> float:
     try:
         val = float(_env(key, str(default)))
@@ -314,8 +344,12 @@ class RiskLimits:
     # Self-scaling: on a funded account the % cap dominates (5% of $10k = $500),
     # so any small floor is a no-op and protection is unchanged.
     daily_loss_breaker_min_usd: float = _env_float_bounded("DAILY_LOSS_BREAKER_MIN_USD", 0.0, 0.0, 1_000_000)
-    # Auto-reset a DAILY-LOSS circuit-breaker trip at UTC day rollover (opt-in,
-    # default OFF; deep-audit medium). The daily-loss limit is a per-day guard,
+    # Auto-reset a DAILY-LOSS circuit-breaker trip at UTC day rollover.
+    # DEFAULT ON. This comment used to open with a stale audit annotation
+    # asserting the reverse, while its last line already said "Default ON" —
+    # boilerplate nobody updated when the default flipped. On a CIRCUIT
+    # BREAKER, the half an operator reads first is the half that matters.
+    # The daily-loss limit is a per-day guard,
     # but the breaker is a single latch with no record of why it tripped, so a
     # single bad day halts trading until a human runs /reset — even after
     # daily_pnl rolls back to ~0. When ON, ONLY a daily-loss-caused trip is
@@ -724,6 +758,16 @@ class RiskLimits:
     equity_throttle_min_samples: int = int(_env_float_bounded("EQUITY_THROTTLE_MIN_SAMPLES", 10, 2, 100000))
     equity_throttle_pf_full: float = _env_float_bounded("EQUITY_THROTTLE_PF_FULL", 1.2, 0.1, 10.0)
     equity_throttle_pf_floor: float = _env_float_bounded("EQUITY_THROTTLE_PF_FLOOR", 0.8, 0.0, 10.0)
+
+    # Per-user declared risk appetite -> position size (bot/core/user_sizing.py).
+    # TIGHTEN-ONLY: `conservative` shrinks, `balanced`/`aggressive` change
+    # nothing, and an unreadable profile changes nothing either — a size nobody
+    # chose, from a file read that failed, is worse than no adjustment.
+    # Default OFF, and SHADOW when off: the engine still computes the would-be
+    # multiplier and audits the delta with result="SHADOW", so the effect is
+    # measurable before it is enabled. Shadow that only reaches logger.debug is
+    # shadow nobody can see — see tests/test_shadow_deltas_observable.py.
+    user_risk_pref_sizing_enabled: bool = _env_bool("USER_RISK_PREF_SIZING_ENABLED", False)
     equity_throttle_floor_mult: float = _env_float_bounded("EQUITY_THROTTLE_FLOOR_MULT", 0.25, 0.05, 1.0)
     # Fable-5 round 5 — funding-clock gate (default ON). Blocks an entry
     # ONLY when it would enter on the PAYING side of an extreme funding
@@ -1094,8 +1138,11 @@ class LLMConfig:
     max_rpm: int = int(_env_float("LLM_MAX_RPM", 40))
     daily_budget_usd: float = _env_float("LLM_DAILY_BUDGET_USD", 1.0)  # fail to rules if exceeded
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection
-    # Account cascading-fallback LLM calls against the daily budgets (opt-in,
-    # default OFF; deep-audit medium). The primary-provider path increments the
+    # Account cascading-fallback LLM calls against the daily budgets.
+    # DEFAULT ON. This opened with a stale audit annotation asserting the
+    # reverse, while its closing line said the budgets actually bind on live
+    # money. Both cannot be true, and the wrong one came first.
+    # The primary-provider path increments the
     # daily call counter and records token/dollar cost, but the cascading
     # fallback (_try_llm_fallback) makes real billable calls — including the
     # priciest provider, Anthropic Sonnet — without touching either counter. So
@@ -1165,7 +1212,9 @@ class AnalyzerConfig:
     # (per_user_llm_enabled / BYOK) takes precedence over their tier. Fail-open to
     # default routing. Default OFF → byte-identical until enabled.
     per_user_llm_tiers_enabled: bool = _env_bool("PER_USER_LLM_TIERS_ENABLED", False)
-    # Scoped semantic-LLM-cache key (opt-in, default OFF; deep-audit medium). The
+    # Scoped semantic-LLM-cache key. DEFAULT ON. This opened with the same
+    # stale audit annotation as three of its neighbours, asserting the reverse
+    # of its own closing line. The
     # semantic cache keys on bucketed market conditions only, NOT on which model
     # answers — but the answering model depends on the pipeline tier (rule vs
     # scan vs thesis), the admin/basic boundary, a user's BYOK key, and their
@@ -1476,6 +1525,27 @@ class AnalyzerConfig:
     # error. Set false to restore the old fast heuristic.
     scan_use_analyzer_engine: bool = _env_bool("SCAN_USE_ANALYZER_ENGINE", True)
 
+    # Background-sweep LLM valve (default ON — historical behaviour).
+    #
+    # A full autonomous sweep analyses the scanner's universe with
+    # SCAN_ANALYSIS_CONCURRENCY (12) analyses in flight, each wanting an LLM
+    # thesis. Against a single serving GPU — more so with training sharing the
+    # card — that is more volume than the provider absorbs: requests queue,
+    # each one blows ANALYSIS_TIMEOUT_SEC (90s), the tick's 300s analyze phase
+    # cancels the rest, and the all-providers-exhausted path raises
+    # _llm_degraded_streak and flaps the brain OFFLINE/online. Set off and
+    # background sweeps take the rule engine (milliseconds per symbol) while
+    # every user-invoked analysis keeps the LLM to itself.
+    #
+    # Read with _env_switch, NOT _env_bool, and that is deliberate: _env_bool's
+    # false-vocabulary is ("", "false", "0", "no") — it does NOT include "off".
+    # The operator vocabulary for this valve is on/off, so _env_bool would read
+    # LLM_BACKGROUND_SCANS=off as TRUE and the valve would be silently inert —
+    # the same shape as the multi-venue flag that lived on the wrong dataclass
+    # and could never be turned on. tests/test_bg_scan_valve.py sets the env var
+    # to each spelling and asserts the flag actually moves.
+    llm_background_scans: bool = _env_switch("LLM_BACKGROUND_SCANS", True)
+
     # Direction-aware Fibonacci (default ON; audit fix #4). The legacy fib
     # module force-fit every market into a bullish low->high retracement and
     # its voter could only lean long. When ON, the dominant leg is inferred
@@ -1551,15 +1621,35 @@ class LearningConfig:
 
     The orchestrator already LOGS every decision + outcome; this controls whether
     that accumulated experience is read back to nudge new-trade confidence.
-    Default OFF: it changes live entry behavior, so it is opt-in. The nudge is
-    small, capped, asymmetric (penalize historically-losing setups more than it
-    rewards winners), additive only, and never overrides the 23 risk checks.
+
+    ADAPTIVE_CONFIDENCE_ENABLED DEFAULTS **ON**. This docstring said "Default
+    OFF: it changes live entry behavior, so it is opt-in" until 2026-08-25, and
+    the code beneath it has read `True` for as long as anyone can trace. The
+    sentence was the more dangerous half of the pair: an operator reading it
+    would believe the nudge was inert until they switched it on, while it was
+    adjusting live entry confidence on every trade. A number in prose is the
+    part that rots first, and this one rotted on the flag that moves money.
+
+    What makes that survivable rather than alarming is the nudge's own shape,
+    which the old sentence described accurately: small, capped, asymmetric
+    (penalize historically-losing setups more than it rewards winners),
+    additive only, and never able to override the 23 risk checks. It also does
+    nothing at all below ADAPTIVE_CONFIDENCE_MIN_SAMPLES similar closed setups,
+    so on thin history it is identity.
+
+    Set ADAPTIVE_CONFIDENCE_ENABLED=false to turn it off.
     """
     adaptive_confidence_enabled: bool = _env_bool("ADAPTIVE_CONFIDENCE_ENABLED", True)
-    # Feed PAPER/sim closes into the learning loop's write side (opt-in, default
-    # OFF; deep-audit medium). Today record_closed_outcome fires only on LIVE
-    # closes, so in simulation-first operation the learners (calibration / voter
-    # weights / setup expectancy) see almost no data. When ON, each paper close
+    # Feed PAPER/sim closes into the learning loop's write side.
+    # DEFAULT ON. Fourth instance of the same stale audit annotation asserting
+    # the reverse of its own closing line — and the one that cost the most
+    # time: while chasing why calibration had 0 samples, this comment pointed
+    # at the wrong flag entirely. The real gate is
+    # LEARN_CALIBRATION_FROM_PAPER, immediately below.
+    #
+    # Without it record_closed_outcome fires only on LIVE closes, so in
+    # simulation-first operation the learners (calibration / voter weights /
+    # setup expectancy) see almost no data. When ON, each paper close
     # also records an outcome tagged source="paper_outcome" (live stays
     # "live_outcome"), so similar-setup lookups and calibration accumulate from
     # the abundant paper history. The records are LABELLED so live vs paper can
@@ -2406,12 +2496,23 @@ class AppConfig:
     # can never hang unbounded; on timeout we show whatever pending ideas exist.
     interactive_scan_timeout_sec: int = int(_env_float("INTERACTIVE_SCAN_TIMEOUT_SEC", 45))
     # Responsiveness: when a "Latest Signal" tap finds nothing queued, DON'T
-    # re-scan if the continuous background sweep ran within (scan_interval +
-    # this grace) seconds — its emptiness IS the current answer, so re-scanning
-    # only re-confirms "nothing" after another slow, throttle-exposed pass.
-    # Serve an instant honest status instead; only fall back to a live re-scan
-    # when the background data is genuinely stale (loop stalled/throttled).
-    # 0 restores the always-rescan behavior.
+    # re-scan if the continuous background sweep is still current — its
+    # emptiness IS the current answer, so re-scanning only re-confirms
+    # "nothing" after another slow, throttle-exposed pass. Serve an instant
+    # honest status instead; only fall back to a live re-scan when the data is
+    # genuinely stale (loop stalled/throttled). 0 restores always-rescan.
+    #
+    # The window is (MEASURED SWEEP DURATION + scan_interval + this grace),
+    # not scan_interval + grace as this comment said until 2026-08-25. That
+    # older arithmetic asserted a sweep is instantaneous: consecutive answers
+    # arrive one sweep plus one sleep apart, and a sweep of ~200 symbols at the
+    # recorded ~3.3s/symbol is minutes, against a scan_interval clamped to
+    # 60-90s by ATR. So the window was 90-120s for an event that could not
+    # happen more often than every ~5 minutes, and the gate never once opened.
+    #
+    # It also never had an input: engine._last_scan_time was initialised to 0.0
+    # and assigned nowhere, and the gate refuses `last_scan_time <= 0`. Both
+    # halves are fixed together because either alone leaves it shut.
     interactive_scan_fresh_grace_sec: int = int(_env_float("INTERACTIVE_SCAN_FRESH_GRACE_SEC", 30))
     # All-markets slot allocation for the non-Crypto (TradFi) categories.
     # When full-coverage is ON (default), EVERY present TradFi perp (metals,

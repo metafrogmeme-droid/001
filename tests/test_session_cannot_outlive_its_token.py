@@ -190,7 +190,6 @@ def test_the_read_path_did_not_inherit_the_write_path_posture():
     """If verification started failing closed on a Redis blip, every user would
     be logged out by an infrastructure hiccup. The asymmetry is the design, not
     an oversight — pinned so a later tidy-up does not 'make it consistent'."""
-    import inspect
 
     from bot.api import token_store as ts
     assert "RevocationNotDurable" not in code_only(ts.TokenStore.get_epoch)

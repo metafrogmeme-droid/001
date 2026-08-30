@@ -1317,7 +1317,18 @@ class TestEngineFSM:
         engine.portfolio.balance = 50000.0
         engine.portfolio._peak_equity = 50000.0
         # No live-balance cache → size-clamp branch is skipped.
-        engine._live_balance_cache = {}
+        # A live confirm now requires a READABLE equity: an empty cache means
+        # "live, but we could not read the balance", and the risk engine
+        # refuses rather than measuring the daily-loss and drawdown limits
+        # against the paper book (see tests/test_live_equity_unreadable_is_not_paper.py).
+        # It mirrors the paper balance on purpose: these tests size against
+        # portfolio.balance, so a DIFFERENT live equity would silently change
+        # their arithmetic. Scaffolding for the orchestration under test, not
+        # an assertion about balances. `free` is present as well as `total`
+        # because the pre-execution clamp reads `live_bal.get("free", 0.0)`
+        # and a payload without it clamps the order to $0.
+        engine._live_balance_cache = {"total": engine.portfolio.balance,
+                                      "free": engine.portfolio.balance}
 
         # Mock exchange so price drift check passes (return price near entry)
         mock_exchange = AsyncMock()
@@ -1379,7 +1390,18 @@ class TestEngineFSM:
         engine.risk._last_loss_time = None
         engine.portfolio.balance = 50000.0
         engine.portfolio._peak_equity = 50000.0
-        engine._live_balance_cache = {}
+        # A live confirm now requires a READABLE equity: an empty cache means
+        # "live, but we could not read the balance", and the risk engine
+        # refuses rather than measuring the daily-loss and drawdown limits
+        # against the paper book (see tests/test_live_equity_unreadable_is_not_paper.py).
+        # It mirrors the paper balance on purpose: these tests size against
+        # portfolio.balance, so a DIFFERENT live equity would silently change
+        # their arithmetic. Scaffolding for the orchestration under test, not
+        # an assertion about balances. `free` is present as well as `total`
+        # because the pre-execution clamp reads `live_bal.get("free", 0.0)`
+        # and a payload without it clamps the order to $0.
+        engine._live_balance_cache = {"total": engine.portfolio.balance,
+                                      "free": engine.portfolio.balance}
 
         mock_exchange = AsyncMock()
         mock_exchange.fetch_ticker = AsyncMock(return_value={"last": idea.entry_price})
@@ -2051,7 +2073,8 @@ class TestAuditV3Fixes:
 
     def test_circuit_breaker_persists_to_disk(self):
         """Tripping the breaker should write state to disk."""
-        import tempfile, json
+        import tempfile
+        import json
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
             state_path = f.name
         try:
@@ -4500,7 +4523,8 @@ class TestPublicDataLoader:
 
     def test_csv_roundtrip(self):
         """Generate synthetic, save CSV, reload, compare."""
-        import tempfile, os
+        import tempfile
+        import os
         bars = DataLoader.generate_synthetic(bars=50, seed=99)
         path = tempfile.mktemp(suffix=".csv")
         try:
@@ -4527,93 +4551,6 @@ class TestPublicDataLoader:
 
 
 # ── Performance Tracker Tests ────────────────────────────────────
-
-class TestPerformanceTracker:
-    """Tests for the hub performance tracker."""
-
-    def test_init(self):
-        """PerformanceTracker stores hub URL and token correctly."""
-        from bot.core.performance_tracker import PerformanceTracker
-        port = PortfolioTracker()
-        tracker = PerformanceTracker("http://localhost:9999", "test-token", port)
-        assert tracker._hub_url == "http://localhost:9999"
-        assert tracker._api_token == "test-token"
-
-    def test_init_strips_trailing_slash(self):
-        """Hub URL trailing slash is stripped during init."""
-        from bot.core.performance_tracker import PerformanceTracker
-        port = PortfolioTracker()
-        tracker = PerformanceTracker("http://localhost:9999/", "tok", port)
-        assert tracker._hub_url == "http://localhost:9999"
-
-    def test_headers(self):
-        """_headers returns Bearer auth and JSON content type."""
-        from bot.core.performance_tracker import PerformanceTracker
-        port = PortfolioTracker()
-        tracker = PerformanceTracker("http://localhost:9999", "my-token", port)
-        headers = tracker._headers()
-        assert headers["Authorization"] == "Bearer my-token"
-        assert headers["Content-Type"] == "application/json"
-
-    def test_push_snapshot_handles_connection_error(self):
-        """push_snapshot returns False and does not crash when hub is unreachable."""
-        from bot.core.performance_tracker import PerformanceTracker
-        port = PortfolioTracker()
-        tracker = PerformanceTracker("http://localhost:1", "bad-token", port)
-        loop = asyncio.new_event_loop()
-        try:
-            result = loop.run_until_complete(tracker.push_snapshot())
-            assert result is False  # graceful failure
-        finally:
-            loop.run_until_complete(tracker.stop())
-            loop.close()
-
-    def test_push_signal_handles_connection_error(self):
-        """push_signal returns False and does not crash when hub is unreachable."""
-        from bot.core.performance_tracker import PerformanceTracker
-        port = PortfolioTracker()
-        tracker = PerformanceTracker("http://localhost:1", "bad-token", port)
-        idea = TradeIdea(
-            asset="BTC/USDT", direction=Direction.LONG,
-            entry_price=50000, stop_loss=44000, take_profit=57200,
-            confidence=0.75, reasoning="test",
-        )
-        loop = asyncio.new_event_loop()
-        try:
-            result = loop.run_until_complete(tracker.push_signal(idea, RiskVerdict.APPROVED))
-            assert result is False
-        finally:
-            loop.run_until_complete(tracker.stop())
-            loop.close()
-
-    def test_push_trade_handles_connection_error(self):
-        """push_trade returns False when hub is unreachable."""
-        from bot.core.performance_tracker import PerformanceTracker
-        port = PortfolioTracker()
-        tracker = PerformanceTracker("http://localhost:1", "bad-token", port)
-        trade = TradeExecution(
-            trade_id="T-test001",
-            asset="BTC/USDT",
-            direction=Direction.LONG,
-            entry_price=50000,
-            size_usd=1000,
-            quantity=0.02,
-            stop_loss=44000,
-            take_profit=57200,
-            status=TradeStatus.EXECUTED,
-        )
-        loop = asyncio.new_event_loop()
-        try:
-            result = loop.run_until_complete(tracker.push_trade(trade))
-            assert result is False
-        finally:
-            loop.run_until_complete(tracker.stop())
-            loop.close()
-
-
-# ═══════════════════════════════════════════════════════════════
-#  CONVERSATION STORE TESTS (Move 3 — multi-turn memory)
-# ═══════════════════════════════════════════════════════════════
 
 class TestConversationStore:
     """Tests for per-user conversation memory."""

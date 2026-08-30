@@ -11,6 +11,7 @@ const { stepUpBlock } = require('./lib/stepup');
 const { postGateway, isConfigured } = require('./lib/gateway');
 const gateway = { isConfigured };
 const { erasurePlan } = require('./lib/account_erasure');
+const { aggregateStats } = require('./public/js/trade-stats');
 const { secLog } = require('./lib/seclog');
 
 // Self-custody sign-in verifier — optional dependency. Lazy so the app still
@@ -49,6 +50,15 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 // Default to a generous 30d so day-to-day use stays signed in; operators who
 // want shorter-lived tokens can set JWT_EXPIRY (e.g. '12h', '7d') in the env.
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '30d';
+
+// Pin the algorithm on VERIFY, not just on sign.
+//
+// jsonwebtoken v9 already rejects `alg: none` when a key is supplied, and the
+// secret here is symmetric, so the classic RS256->HS256 confusion does not
+// apply — this is not a live hole. It is one line of defence-in-depth on the
+// session boundary, and it stops the question having to be re-derived by the
+// next reader: the token is HS256 or it is not a token.
+const JWT_VERIFY_OPTS = { algorithms: ['HS256'] };
 
 // OAuth providers (optional; each endpoint 503s cleanly when its secret is
 // unset, so the site runs fine with only email/password until configured).
@@ -220,7 +230,7 @@ async function authMiddleware(req, res, next) {
   }
   let payload;
   try {
-    payload = jwt.verify(raw, JWT_SECRET);
+    payload = jwt.verify(raw, JWT_SECRET, JWT_VERIFY_OPTS);
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
@@ -254,7 +264,7 @@ async function optionalAuth(req, _res, next) {
   const raw = tokenFromRequest(req);
   if (raw) {
     try {
-      const payload = jwt.verify(raw, JWT_SECRET);
+      const payload = jwt.verify(raw, JWT_SECRET, JWT_VERIFY_OPTS);
       // A revoked token identifies nobody. Degrading to anonymous rather than
       // refusing is this function's whole contract — but it must degrade, not
       // sail through: `req.user` only ever ADDS to a response, and a logged-out
@@ -294,6 +304,10 @@ async function revokeUserTokens(userId) {
   return rows.length ? Number(rows[0].token_epoch) || 0 : 0;
 }
 
+// The standard paper starting stake, same constant routes/leaderboard.js
+// scores percentages against.
+const PAPER_BASE = 10000;
+
 async function getUserEquity(userId) {
   // Use latest synced equity snapshot if available
   const [snapRows] = await pool.execute(
@@ -301,7 +315,11 @@ async function getUserEquity(userId) {
     [userId]
   );
   if (snapRows.length > 0) {
-    return parseFloat(snapRows[0].equity);
+    // A row can exist with an unparseable equity; parseFloat would hand back
+    // NaN, which survives arithmetic and JSON-serializes to null anyway. Say
+    // null deliberately instead of arriving there by accident.
+    const e = parseFloat(snapRows[0].equity);
+    return Number.isFinite(e) ? e : null;
   }
   // The operator (BOT_USER_ID) trades LIVE — there is no paper baseline to fall
   // back to. If no real synced snapshot exists, the honest answer is null
@@ -309,13 +327,42 @@ async function getUserEquity(userId) {
   // paper baseline, which is correct for them.
   const BOT_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
   if (userId === BOT_USER_ID) return null;
-  // Fallback: compute from trade PnL (paper users who haven't synced yet start
-  // from the $10k paper baseline).
-  const [rows] = await pool.execute(
-    'SELECT COALESCE(SUM(pnl), 0) as total_pnl FROM trades WHERE user_id = ? AND status = ?',
-    [userId, 'CLOSED']
-  );
-  return 10000 + parseFloat(rows[0].total_pnl || 0);
+
+  // Paper users: baseline + realized P&L — but only over a book we can READ.
+  // This was `COALESCE(SUM(pnl), 0)` plus a second `|| 0` in JS, so a paper
+  // user whose closed trades were all unpriced read exactly $10,000.00: the
+  // same number as a brand-new account and as one traded to precise
+  // break-even. `trades.pnl` is nullable and a CLOSED row with no recorded
+  // P&L genuinely occurs (routes/sync.js forwards the gateway's `pnl`
+  // uncoerced), so that was not a hypothetical.
+  //
+  // routes/portfolio.js, routes/leaderboard.js, routes/sync.js and
+  // routes/trades.js were each rewritten to score the priced rows explicitly.
+  // This function was the fourth path and was missed for the same reason
+  // portfolio.js's own comment gives for having been missed: nobody was
+  // reading it while auditing the trade routes. Same query, same reader
+  // (aggregateStats), so the paths cannot drift apart again.
+  const [pnlRows] = await pool.execute(
+    "SELECT COUNT(*) AS total, " +
+    "SUM(CASE WHEN pnl IS NOT NULL THEN 1 ELSE 0 END) AS scored, " +
+    "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, " +
+    "SUM(pnl) AS net_pnl " +
+    "FROM trades WHERE user_id = ? AND status = ?",
+    [userId, 'CLOSED']);
+  const closed = aggregateStats(pnlRows[0]);
+
+  // No closed trades at all is a READING, not an absence: a paper account that
+  // has not closed anything holds exactly the starting stake.
+  if (closed.total === 0) return PAPER_BASE;
+
+  // Any unpriced row makes the sum PARTIAL, and a partial total printed as a
+  // whole one is the row of CLAUDE.md's table this function was sitting on.
+  // Equity is a single scalar with nowhere to carry a caveat, so it guards
+  // rather than omits. null is already a value this endpoint returns (the
+  // operator branch above), so every consumer already handles it.
+  if (closed.unpriced > 0 || closed.net_pnl === null) return null;
+
+  return PAPER_BASE + closed.net_pnl;
 }
 
 // The single place that turns a user into the session JSON the SPA stores after
@@ -895,6 +942,10 @@ const _PROVIDER_ID_COLUMN = {
   discord: 'discord_id',
   x: 'x_id',
   wallet: 'wallet_address',
+  // Farcaster fids arrive from SIWF (lib/siwf.js), verified before they reach
+  // here. Stored as a string like every other provider id so the shared
+  // find-or-create path needs no special case.
+  farcaster: 'farcaster_fid',
 };
 
 async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl }) {

@@ -6,7 +6,7 @@
 <title>Provable Call — RUNECLAW</title>
 <meta name="description" content="A cryptographically sealed trading call — re-derive the hash in your own browser. Don't trust the screenshot. Verify the call.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/styles.css?v=36">
+<link rel="stylesheet" href="/styles.css?v=38">
 <style>
   .call-wrap { max-width: 720px; margin: 0 auto; padding: var(--s5) var(--s4); }
   .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); }
@@ -89,6 +89,7 @@ function sameAfterStorage(key, sealed, live) {
 <!-- Loaded BEFORE the renderer, not deferred: the receipt reads it inside a
      fetch callback, and "usually resolved by then" is a race, not an order. -->
 <script src="/js/thesis-model.js?v=1"></script>
+<script src="/js/anchor_cell.js?v=1"></script>
 <script>
 (function () {
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -102,6 +103,54 @@ function sameAfterStorage(key, sealed, live) {
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (buf) {
       return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
     });
+  }
+
+  /**
+   * The on-chain leg of the receipt — a claim about Base, so only Base makes it.
+   *
+   * This said "<b>This root is anchored on Base.</b>" whenever our own
+   * anchor_tx column was non-empty. It handed the reader the exact payload to
+   * compare, which is why it was the milder of the two instances — but it was
+   * still our database asserting a fact about a chain, and it would have kept
+   * asserting it through a reorg or a replaced transaction.
+   *
+   * Same four states and the same pure, unit-tested decider as /roots
+   * (RCAnchorCell.anchorState), so the two pages cannot disagree about the same
+   * day. Found by asking which OTHER surface makes the same claim, before
+   * calling the /roots fix done.
+   */
+  function anchorLeg(a, verdict) {
+    var small = 'margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)';
+    var state = window.RCAnchorCell
+      ? RCAnchorCell.anchorState({ anchor_tx: a.anchor_tx }, verdict)
+      // Module missing: say the state is unreadable rather than silently
+      // falling back to the database claim this function exists to retire.
+      : 'unknown';
+    var compare = '<a href="https://basescan.org/tx/' + esc(a.anchor_tx || '')
+      + '" target="_blank" rel="noopener">view the transaction</a> and compare its calldata to '
+      + '<code style="word-break:break-all">RCROOT1:' + esc(a.day) + ':' + esc(a.root)
+      + '</code> (hex-encoded) yourself.';
+
+    if (state === 'unanchored') {
+      return '<div style="' + small + '">This day’s root is not yet anchored on-chain — until it is '
+        + '(or you mirror it), the day’s timestamp rests on the published feed.</div>';
+    }
+    if (state === 'verified') {
+      var when = verdict && verdict.block_time
+        ? ' (' + esc(String(verdict.block_time).slice(0, 19).replace('T', ' ')) + ' UTC)' : '';
+      return '<div style="margin-top:6px">⛓ <b>This root is anchored on Base</b>, confirmed against the '
+        + 'chain just now. The block timestamp' + when + ' is an independent upper bound on every seal '
+        + 'in the day — ' + compare + '</div>';
+    }
+    if (state === 'mismatch') {
+      return '<div style="margin-top:6px;color:var(--down)">⚠ <b>The anchor transaction recorded for this '
+        + 'day does NOT match this root.</b> Treat the day’s on-chain timestamp as unproven until this is '
+        + 'resolved — ' + compare + '</div>';
+    }
+    // Recorded, not confirmed. Never phrased as a settled fact.
+    return '<div style="margin-top:6px">⛓ An anchor transaction is recorded for this day, but Base could '
+      + 'not be reached to confirm it just now. Until it is confirmed the day’s timestamp rests on the '
+      + 'published feed — ' + compare + '</div>';
   }
 
   // v3 — replay the Merkle proof: seal → … → the published daily root.
@@ -123,14 +172,24 @@ function sameAfterStorage(key, sealed, live) {
         ? '<div class="big">🌳 Anchored in the ' + esc(d.anchor.day) + ' daily seal root</div>'
           + 'One of ' + (Number(d.anchor.seal_count) || 0) + ' seals folded into that day’s Merkle root — your browser just replayed the proof.'
           + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
-          + (d.anchor.anchor_tx
-            ? '<div style="margin-top:6px">⛓ <b>This root is anchored on Base.</b> The block timestamp is an independent upper bound on every seal in the day — '
-              + '<a href="https://basescan.org/tx/' + esc(d.anchor.anchor_tx) + '" target="_blank" rel="noopener">view the transaction</a> and compare its calldata to '
-              + '<code style="word-break:break-all">RCROOT1:' + esc(d.anchor.day) + ':' + esc(d.anchor.root) + '</code> (hex-encoded) yourself.</div>'
-            : '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">This day’s root is not yet anchored on-chain — until it is (or you mirror it), the day’s timestamp rests on the published feed.</div>')
+          + '<div class="anchor-leg">' + anchorLeg(d.anchor, null) + '</div>'
           + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror it from the <a href="/roots">daily roots page</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
         : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
       out.appendChild(el);
+
+      // Ask the chain, and repaint. Only for a day that HAS a recorded anchor:
+      // an unanchored day has nothing to confirm and the request would be
+      // noise. A failed lookup leaves the "recorded, not confirmed" wording
+      // exactly as drawn — it must never fall through to the settled claim.
+      if (ok && d.anchor.anchor_tx) {
+        fetch('/api/roots/verify/' + encodeURIComponent(d.anchor.day), { headers: { Accept: 'application/json' } })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (v) {
+            var leg = el.querySelector('.anchor-leg');
+            if (leg) leg.innerHTML = anchorLeg(d.anchor, v);
+          })
+          .catch(function () { /* stays unconfirmed, which is the truth */ });
+      }
     }).catch(function () { /* anchor stays un-rendered — the seal verdict above stands alone */ });
   }
 
@@ -268,7 +327,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n.js?v=131"></script>
+<script src="/js/i18n.js?v=135"></script>
   <script>
   (function () {
     // The share payload is the receipt URL + an honest line. No numbers ride

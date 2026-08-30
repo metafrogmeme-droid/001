@@ -41,6 +41,8 @@ from bot.core.order_rules import (
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
+from bot.core.order_state import pending_cancel_verdict, position_presence
+from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
 from bot.utils.atomic_write import atomic_write_json
 
@@ -729,8 +731,21 @@ class LiveExecutor:
                 pass  # risk engine itself is broken — don't recurse
 
     def update_atr(self, symbol: str, atr_pct: float) -> None:
-        """Update ATR ratio for dynamic leverage calculation."""
-        self._last_atr_pct[symbol] = atr_pct
+        """Record an ATR/price RATIO (0.04 = 4%) for dynamic leverage.
+
+        Keyed through `normalize_symbol` because the reader is: it looked up
+        `normalize_symbol(symbol)` while this wrote whatever spelling the
+        caller held, so a reading filed under "BTC/USDT:USDT" could not be
+        found under "BTC". The same mismatch the leverage rest had.
+
+        NOTE: this has no caller outside tests today, so the map is empty in
+        production and `_compute_target_leverage` takes its no-reading branch.
+        Wiring it needs a UNIT decision as well as a call site — `quant_skill`
+        reports `atr_pct` as a percentage (2.5 means 2.5%) and this wants the
+        ratio (0.025) — and DYNAMIC_LEVERAGE_ENABLED is off by operator
+        directive, so nothing here turns it on.
+        """
+        self._last_atr_pct[normalize_symbol(symbol)] = atr_pct
 
     def check_degradation(self) -> str:
         """Check if execution should be degraded. Returns mode: 'normal', 'reduce_only', 'paused'."""
@@ -842,7 +857,34 @@ class LiveExecutor:
             return default_lev
         try:
             sym_base = normalize_symbol(symbol)
-            atr_pct = self._last_atr_pct.get(sym_base, 0.02)
+            atr_pct = self._last_atr_pct.get(sym_base)
+            if atr_pct is None:
+                # NOT 0.02. `.get(sym_base, 0.02)` printed "ATR=2.000%" into
+                # the audit record for a reading that was never taken, and 2%
+                # sits in the calm band — so an unmeasured symbol was granted
+                # the FULL standard leverage and the trail said its volatility
+                # had been checked and found normal.
+                #
+                # It was every symbol, always: `update_atr` is the only writer
+                # of this map and it has no callers outside tests, so with the
+                # flag on the map is empty and every audit line was that
+                # fabricated 2%. `tests/test_dynamic_leverage_dedup.py` plants
+                # a dict whose `.get` ignores the key, which is why neither
+                # half was visible from the suite.
+                #
+                # Behaviour is unchanged — an unscaled symbol still gets the
+                # standard leverage, which is what the disabled flag gives it
+                # too. Only the claim changes, and it changes from a
+                # measurement to the absence of one.
+                audit(trade_log,
+                      f"Dynamic leverage for {symbol}: no ATR reading on "
+                      f"record — left at {default_lev}x, NOT scaled for "
+                      f"volatility",
+                      action="dynamic_leverage", result="NO_ATR",
+                      level=logging.WARNING,
+                      data={"symbol": symbol, "leverage": default_lev,
+                            "atr_readings_held": len(self._last_atr_pct)})
+                return default_lev
             min_lev = int(getattr(cfg, "min_leverage", 1))
             lev = default_lev
             if atr_pct > 0.04:        # high vol (>4% ATR) → halve
@@ -1368,6 +1410,48 @@ class LiveExecutor:
 
     # ── Pre-flight checks ────────────────────────────────────────
 
+    def _rest_key(self, symbol: Any) -> str:
+        """The ONE key a leverage rest is stored and read under.
+
+        It was two keys. `execute` reassigns `symbol` to
+        `self._venue.swap_symbol(idea.asset)` for the futures order path — a
+        correct change made ~1200 lines above, because the perp tick grid is
+        coarser than the spot one and a spot-rounded price is rejected with
+        45115 — and the rest inherited that spelling, storing "APT/USDT:USDT".
+        `_preflight_check` is called with `idea.asset`, so it looked up
+        "APT/USDT". The rest was set, was correct, and could never be found.
+
+        The fill path rests `pos.symbol`, which is `idea.asset` for a position
+        this bot opened and the VENUE's own perp form for one adopted off the
+        exchange, so the same map held both spellings and the reader knew one.
+
+        `normalize_symbol` was already the answer — `_recent_local_opens` and
+        `_last_sltp_error` both key through it for exactly this reason. It
+        reduces to the bare base, so a rest is per ASSET: "APT/USDC" rests too.
+        Deliberate. The sticky setting that caused the incident is the venue's
+        leverage for that asset, a rest lasts an hour, and it follows a
+        CONFIRMED over-levered fill — over-resting costs one entry, and
+        under-resting costs the fee-pump loop the rest exists to stop.
+
+        Blank in, blank out: `normalize_symbol("   ")` is a perfectly good
+        dict key, and a rest stored under whitespace would match every later
+        check made with whitespace.
+        """
+        return normalize_symbol(str(symbol or "").strip())
+
+    def _rest_symbol(self, symbol: Any,
+                     seconds: float = _LEVERAGE_BLOCK_SECONDS) -> None:
+        """Refuse new entries on `symbol` for `seconds`.
+
+        The only writer. Two call sites formed the key themselves and diverged;
+        a third would too, and would look fine, because whoever writes it reads
+        it back with the same string in their own test.
+        """
+        key = self._rest_key(symbol)
+        if not key:
+            return
+        self._leverage_blocked_until[key] = time.monotonic() + seconds
+
     def _preflight_check(self, size_usd: float, symbol: str = "") -> Optional[str]:
         """Run micro-test safety checks. Returns error string or None."""
         # A symbol the overshoot guard just flattened is refused until its block
@@ -1377,9 +1461,11 @@ class LiveExecutor:
         #
         # The message says how long is left and why, because "BLOCKED" with no
         # duration is indistinguishable from a permanently broken symbol — and
-        # an operator who cannot tell those apart disables the guard.
-        if symbol:
-            _blocked_until = self._leverage_blocked_until.get(symbol)
+        # an operator who cannot tell those apart disables the guard. It names
+        # the symbol the CALLER asked about, not the internal key.
+        _rest = self._rest_key(symbol)
+        if _rest:
+            _blocked_until = self._leverage_blocked_until.get(_rest)
             if _blocked_until is not None:
                 _left = _blocked_until - time.monotonic()
                 if _left > 0:
@@ -1389,8 +1475,9 @@ class LiveExecutor:
                         f"Fix the symbol's leverage on the venue, or wait."
                     )
                 # Expired — drop it rather than let the map grow for the process
-                # lifetime and keep re-computing a negative remainder.
-                self._leverage_blocked_until.pop(symbol, None)
+                # lifetime and keep re-computing a negative remainder. Same key
+                # it was stored under, or it never leaves.
+                self._leverage_blocked_until.pop(_rest, None)
 
         # Cap position size
         if size_usd > MICRO_MAX_POSITION_USD:
@@ -1840,8 +1927,9 @@ class LiveExecutor:
                 # Same rest as the market path: Bitget's sticky per-symbol
                 # leverage does not heal because we closed, so without this the
                 # engine re-signals and the cycle repeats at a fee per round.
-                self._leverage_blocked_until[pos.symbol] = (
-                    time.monotonic() + _LEVERAGE_BLOCK_SECONDS)
+                # Through the helper: pos.symbol is idea.asset for a position
+                # this bot opened and the venue's perp form for an adopted one.
+                self._rest_symbol(pos.symbol)
                 return (
                     f"⚠️ <b>POSITION CLOSED — {pos.symbol}</b>\n"
                     f"The venue filled at <b>{got}x</b> against a {want}x target "
@@ -2847,47 +2935,78 @@ class LiveExecutor:
         # ── GETCLAW: Funding rate awareness ──────────────────────────
         # Negative funding = longs get paid (favorable for longs)
         # Positive funding = longs pay (unfavorable, factor into R:R)
-        # 0% funding on metals/stocks = market likely closed
+        # 0% funding on metals/stocks = market likely closed — which is why
+        # this used to be wrong. It read
+        #     funding_rate = float(funding_info.get("fundingRate", 0) or 0)
+        #     if funding_rate != 0:
+        # so an absent field, a null, an empty string and a REAL 0.0 all
+        # collapsed to 0.0 and skipped the check. In this domain 0 is not a
+        # neutral filler: the line above says what it means. An unreadable rate
+        # was impersonating "the market is closed", silently.
+        #
+        # `read_funding_rate` is null-preserving, so the three cases separate,
+        # and a fetch that failed is AUDITED rather than swallowed — WARN-only
+        # either way; funding has never blocked an entry here.
+        _funding_rate = None
         try:
             exchange_pre = await self._get_exchange()
             funding_info = await exchange_pre.fetch_funding_rate(idea.asset)
-            funding_rate = float(funding_info.get("fundingRate", 0) or 0)
-            if funding_rate != 0:
+            _funding_rate = read_funding_rate(funding_info)
+            if _funding_rate is None:
+                audit(trade_log,
+                      f"Funding rate unreadable for {idea.asset} — the venue "
+                      "answered without a usable rate",
+                      action="funding_check", result="UNREADABLE",
+                      data={"asset": idea.asset})
+            elif _funding_rate != 0:
                 direction_favored = (
-                    (idea.direction == Direction.LONG and funding_rate < 0) or
-                    (idea.direction == Direction.SHORT and funding_rate > 0)
+                    (idea.direction == Direction.LONG and _funding_rate < 0) or
+                    (idea.direction == Direction.SHORT and _funding_rate > 0)
                 )
-                if not direction_favored and abs(funding_rate) > 0.001:
+                if not direction_favored and abs(_funding_rate) > 0.001:
                     # Funding > 0.1% against us — log warning but don't block
                     audit(trade_log,
-                          f"Funding rate {funding_rate*100:.3f}% unfavorable for "
+                          f"Funding rate {_funding_rate*100:.3f}% unfavorable for "
                           f"{idea.direction.value} {idea.asset}",
                           action="funding_check", result="WARN",
-                          data={"funding_rate": funding_rate, "direction": idea.direction.value})
-        except Exception:
-            pass  # Non-critical — don't block trade on funding fetch failure
+                          data={"funding_rate": _funding_rate,
+                                "direction": idea.direction.value})
+        except Exception as _fund_exc:
+            # Still non-critical — but `pass` made a failed fetch and a neutral
+            # market the same event in the record, which is the reason nobody
+            # could tell how often this check actually ran.
+            audit(trade_log,
+                  f"Funding rate fetch failed for {idea.asset}: {_fund_exc}",
+                  action="funding_check", result="FETCH_FAILED",
+                  data={"asset": idea.asset})
 
         # ── GETCLAW: Funding settlement clock guard ──────────────────
-        # Funding settles at 00:00 / 08:00 / 16:00 UTC.
-        # Opening a position within 5 minutes BEFORE settlement means
-        # you pay funding almost immediately. Warn and log.
+        # Opening a position minutes BEFORE settlement means paying funding
+        # almost immediately. Warn and log; never block.
+        #
+        # THROUGH THE SHARED CLOCK, not a second copy of the calendar. This
+        # hand-rolled `settlement_times = [0, 480, 960]` while
+        # bot/risk/funding_clock.seconds_to_settlement() computes the same
+        # thing — and the risk engine, scan_skill and the analyzer all already
+        # call it. Four users, one of them with its own arithmetic, is how the
+        # 8h assumption drifts in exactly one place; this audit event is even
+        # named `funding_clock` after the module it was not using.
         try:
-            now_utc = datetime.now(UTC)
-            minutes_in_day = now_utc.hour * 60 + now_utc.minute
-            # Settlement times in minutes: 0, 480, 960
-            settlement_times = [0, 480, 960]
-            for st in settlement_times:
-                mins_until = (st - minutes_in_day) % 1440
-                if 0 < mins_until <= 5:  # within 5 minutes before settlement (exclude exact moment)
-                    audit(trade_log,
-                          f"Funding settlement in {mins_until}m — entry will incur "
-                          f"immediate funding charge on {idea.asset}",
-                          action="funding_clock", result="WARN",
-                          data={"mins_until_settlement": mins_until,
-                                "direction": idea.direction.value})
-                    break
-        except Exception:
-            pass  # Non-critical timing check
+            _secs_to_settle = seconds_to_settlement(datetime.now(UTC).timestamp())
+            _mins_until = _secs_to_settle / 60.0
+            if 0 < _mins_until <= 5:
+                audit(trade_log,
+                      f"Funding settlement in {_mins_until:.0f}m — entry will "
+                      f"incur immediate funding charge on {idea.asset}",
+                      action="funding_clock", result="WARN",
+                      data={"mins_until_settlement": round(_mins_until, 1),
+                            "direction": idea.direction.value})
+        except Exception as _clock_exc:
+            audit(trade_log,
+                  f"Funding settlement clock unreadable for {idea.asset}: "
+                  f"{_clock_exc}",
+                  action="funding_clock", result="UNREADABLE",
+                  data={"asset": idea.asset})
 
         # Pre-flight
         preflight_err = self._preflight_check(size_usd, symbol=idea.asset)
@@ -3019,69 +3138,91 @@ class LiveExecutor:
                 return f"EXECUTION FAILED: exchange returned no price for {symbol}"
             current_price = float(_last_raw)
 
-            # ── QC-2 SAFEGUARD 0a: stale-ticker guard ──
-            # Thin TradFi perps have gone 40+ minutes without a tick (the
-            # position-monitor path already special-cases that) — but ENTERING
-            # on a stale price sizes and gates the trade against a market that
-            # may no longer exist. One refetch, then abort.
-            # ENTRY_TICKER_MAX_AGE_SEC (default 120; 0 disables).
-            _max_age = float(os.environ.get("ENTRY_TICKER_MAX_AGE_SEC", "120"))
-            _tk_ts = ticker.get("timestamp") if isinstance(ticker, dict) else None
-            if _max_age > 0 and _tk_ts:
-                try:
-                    _age = time.time() - float(_tk_ts) / 1000.0
-                except (TypeError, ValueError):
-                    _age = 0.0
-                if _age > _max_age:
-                    try:
-                        ticker = await active_exchange.fetch_ticker(symbol)
-                        _tk_ts2 = ticker.get("timestamp")
-                        if _tk_ts2:
-                            _age = time.time() - float(_tk_ts2) / 1000.0
-                        _last2 = ticker.get("last")
-                        if _last2 is not None:
-                            current_price = float(_last2)
-                    except Exception:
-                        pass
-                    if _age > _max_age:
-                        audit(trade_log,
-                              f"BLOCKED: {symbol} ticker is {_age:.0f}s old — "
-                              "not entering on a stale price",
-                              action="live_execute", result="BLOCKED_STALE_TICKER",
-                              data={"asset": symbol, "age_sec": round(_age, 1),
-                                    "max_age_sec": _max_age})
-                        return (f"EXECUTION BLOCKED: {symbol} last tick is "
-                                f"{_age:.0f}s old (max {_max_age:.0f}s) — the "
-                                "market may have moved; nothing was placed.")
-
-            # ── QC-2 SAFEGUARD 0b: spread gate ──
-            # The entire entry path keys off `last`; on a wide book `last`
-            # can sit far from where an order actually fills. When the venue
-            # reports bid/ask, refuse entries on spreads wider than the
-            # ceiling from entry_max_spread_pct(): ENTRY_MAX_SPREAD_PCT when
-            # set (0 disables), otherwise 2x the analysis-layer liquidity
-            # guard (OF_MAX_SPREAD_BPS) so the two gates move together.
+            # ── QC-2 SAFEGUARDS 0a/0b: stale ticker, wide spread ──
+            # The DECISIONS moved to bot/core/entry_quality.py (pure, no clock,
+            # no I/O). This half keeps what only the executor can do: the one
+            # refetch, and the audit/return. Inline, neither gate could be
+            # driven by a test, and both had the same defect — an unreadable
+            # reading fell into the same branch as a clean one and proceeded.
+            # `except (TypeError, ValueError): _age = 0.0` was the sharpest of
+            # them: 0.0 is the FRESHEST possible age, invented for the one case
+            # where the guard knew least.
+            #
+            # ENTRY_UNREADABLE_MARKET_GATE = off | warn | block (default warn)
+            # decides what an *unreadable* reading does. warn keeps today's
+            # trading behaviour byte-for-byte and makes the blind spot visible
+            # first — the observe-first house rule the book-wall gate below
+            # already follows.
+            from bot.core.entry_quality import spread_verdict, ticker_age_verdict
             from bot.core.order_flow import entry_max_spread_pct
-            _max_spread = entry_max_spread_pct()
-            if _max_spread > 0 and isinstance(ticker, dict):
+
+            _unreadable_mode = os.environ.get(
+                "ENTRY_UNREADABLE_MARKET_GATE", "warn").strip().lower()
+
+            def _unreadable_block(kind: str, reason: str) -> Optional[str]:
+                """Audit an unreadable market reading; block only on 'block'."""
+                if _unreadable_mode == "off":
+                    return None
+                audit(trade_log,
+                      f"{symbol} {kind} could not be read: {reason} "
+                      f"(mode={_unreadable_mode})",
+                      action="entry_market_unreadable",
+                      result="BLOCKED" if _unreadable_mode == "block" else "WARN",
+                      data={"asset": symbol, "check": kind, "reason": reason})
+                if _unreadable_mode != "block":
+                    return None
+                return (f"EXECUTION BLOCKED: {symbol} {kind} could not be read "
+                        f"({reason}) — entering on a market reading this thin "
+                        "is the thing the gate exists to stop; nothing was "
+                        "placed.")
+
+            _max_age = float(os.environ.get("ENTRY_TICKER_MAX_AGE_SEC", "120"))
+            _age_v = ticker_age_verdict(ticker, _max_age, time.time())
+            if _age_v["state"] == "stale":
+                # One refetch, then re-judge — unchanged behaviour.
                 try:
-                    _bid = float(ticker.get("bid") or 0)
-                    _ask = float(ticker.get("ask") or 0)
-                except (TypeError, ValueError):
-                    _bid = _ask = 0.0
-                if _ask > _bid > 0:
-                    _spread_pct = (_ask - _bid) / ((_ask + _bid) / 2.0) * 100.0
-                    if _spread_pct > _max_spread:
-                        audit(trade_log,
-                              f"BLOCKED: {symbol} spread {_spread_pct:.2f}% > "
-                              f"{_max_spread:.2f}% — book too wide to enter",
-                              action="live_execute", result="BLOCKED_WIDE_SPREAD",
-                              data={"asset": symbol, "bid": _bid, "ask": _ask,
-                                    "spread_pct": round(_spread_pct, 3)})
-                        return (f"EXECUTION BLOCKED: {symbol} bid/ask spread is "
-                                f"{_spread_pct:.2f}% (max {_max_spread:.2f}%) — "
-                                "entering into a book this wide gives away the "
-                                "edge; nothing was placed.")
+                    ticker = await active_exchange.fetch_ticker(symbol)
+                    _last2 = ticker.get("last")
+                    if _last2 is not None:
+                        current_price = float(_last2)
+                except Exception:
+                    pass
+                _age_v = ticker_age_verdict(ticker, _max_age, time.time())
+                # A refetch that comes back UNREADABLE does not clear a
+                # staleness we already measured. Absent is not fresher.
+                if _age_v["state"] == "unreadable":
+                    _age_v = {"state": "stale", "age_sec": None,
+                              "reason": "still stale after a refetch that "
+                                        "returned no readable timestamp"}
+            if _age_v["state"] == "stale":
+                audit(trade_log,
+                      f"BLOCKED: {symbol} ticker is stale — {_age_v['reason']}",
+                      action="live_execute", result="BLOCKED_STALE_TICKER",
+                      data={"asset": symbol, "age_sec": _age_v["age_sec"],
+                            "max_age_sec": _max_age})
+                return (f"EXECUTION BLOCKED: {symbol} {_age_v['reason']} — the "
+                        "market may have moved; nothing was placed.")
+            if _age_v["state"] == "unreadable":
+                _blocked = _unreadable_block("ticker age", _age_v["reason"])
+                if _blocked:
+                    return _blocked
+
+            _max_spread = entry_max_spread_pct()
+            _sp_v = spread_verdict(ticker, _max_spread)
+            if _sp_v["state"] == "too_wide":
+                audit(trade_log,
+                      f"BLOCKED: {symbol} {_sp_v['reason']} — book too wide to enter",
+                      action="live_execute", result="BLOCKED_WIDE_SPREAD",
+                      data={"asset": symbol, "bid": _sp_v["bid"],
+                            "ask": _sp_v["ask"],
+                            "spread_pct": round(_sp_v["spread_pct"], 3)})
+                return (f"EXECUTION BLOCKED: {symbol} bid/ask {_sp_v['reason']} — "
+                        "entering into a book this wide gives away the edge; "
+                        "nothing was placed.")
+            if _sp_v["state"] == "unreadable":
+                _blocked = _unreadable_block("bid/ask spread", _sp_v["reason"])
+                if _blocked:
+                    return _blocked
 
             # ── QC-2b SAFEGUARD 0c: order-book wall gate ──
             # A dominant opposing wall in the entry→TP path (a level far larger
@@ -3095,10 +3236,26 @@ class LiveExecutor:
             # error, or a malformed verdict must NEVER block a trade. Set
             # ENTRY_BOOK_WALL_GATE=off to opt out of the observing fetch.
             _wall_mode = os.environ.get("ENTRY_BOOK_WALL_GATE", "warn").strip().lower()
+            _slip_mode = os.environ.get("ENTRY_SLIPPAGE_GATE", "warn").strip().lower()
+            # ONE fetch serves both book gates. The slippage gate below reads
+            # `_entry_book` rather than fetching its own, so enabling it costs
+            # no extra call, no extra latency and no extra rate-limit budget on
+            # the live entry path. It is also why the fetch is driven by EITHER
+            # gate being on: making the slippage estimate depend on the WALL
+            # gate's flag would be a coupling nobody could see from its own
+            # config. `None` means the book was never read — distinct from a
+            # book that was read and came back empty.
+            _entry_book = None
+            if _wall_mode in ("warn", "block") or _slip_mode in ("warn", "block"):
+                try:
+                    _entry_book = await active_exchange.fetch_order_book(symbol, limit=25)
+                except Exception as _ob_exc:
+                    trade_log.debug("entry order-book fetch failed for %s: %s",
+                                    symbol, _ob_exc)
             if _wall_mode in ("warn", "block"):
                 try:
                     from bot.core.entry_quality import book_wall_verdict
-                    _ob = await active_exchange.fetch_order_book(symbol, limit=25)
+                    _ob = _entry_book
                     _verdict = book_wall_verdict(
                         idea.direction.value if hasattr(idea.direction, "value")
                         else str(idea.direction),
@@ -3163,6 +3320,83 @@ class LiveExecutor:
                 except (TypeError, ValueError):
                     pass
             quantity = (size_usd * leverage_mult) / current_price
+
+            # ── QC-2c SAFEGUARD 0d: pre-trade slippage estimate ──
+            # The only PRE-trade slippage reading in the codebase.
+            # `live_executor`'s wired guard is post-FILL: it compares what
+            # filled against the approved entry and complains afterwards, which
+            # cannot prevent a bad fill. This walks the book before the order
+            # exists.
+            #
+            # WHY HERE AND NOT BESIDE THE WALL GATE ABOVE. `size_usd` is the
+            # MARGIN, not the notional — `quantity = size_usd * leverage /
+            # price` two lines up. At the wall gate `leverage_mult` still holds
+            # CONFIG's default; the real value is only resolved just above.
+            # Estimating on the margin, or on the default leverage, would size
+            # the walk at a fraction of the real order and report a slippage
+            # for a trade nobody is placing. The book is the one fetched above,
+            # so this costs no second call.
+            #
+            # OBSERVE-FIRST: off | warn | block, default warn — logs and
+            # gathers evidence with zero trade impact. Fail-open at every
+            # layer; an unreadable book reports None and never blocks.
+            # Names are prefixed `_pre_slip*` deliberately. `_slip` and
+            # `_notional` are both ALREADY BOUND later in this same
+            # function — `_slip` to a float by the POST-FILL slippage
+            # guard, `_notional` by the notional check — and a function
+            # scope has one binding per name across 1,700 lines. The
+            # first draft reused both; the type ratchet caught it as
+            # `dict` assigned where `float` was expected. Harmless only
+            # because of statement order, which is not a property worth
+            # relying on.
+            if _slip_mode in ("warn", "block"):
+                try:
+                    from bot.risk.order_router import SmartOrderRouter
+                    # Buys eat the asks, sells eat the bids.
+                    _pre_slip_levels = ((_entry_book or {}).get("asks")
+                                    if idea.direction == Direction.LONG
+                                    else (_entry_book or {}).get("bids"))
+                    _pre_slip_notional = abs(quantity * current_price)
+                    _pre_slip = SmartOrderRouter().estimate_slippage(
+                        symbol, _pre_slip_notional, _pre_slip_levels)
+                    _pre_slip_pct = _pre_slip.get("slippage_pct")
+                    if _pre_slip_pct is None:
+                        # Not measured. Recorded as such rather than as 0.0,
+                        # which is the best slippage there is and the whole
+                        # reason this module was fixed before being wired.
+                        audit(trade_log,
+                              f"{symbol} pre-trade slippage UNREADABLE: "
+                              f"{_pre_slip.get('warning')} (mode={_slip_mode})",
+                              action="entry_slippage", result="UNREADABLE",
+                              data={"asset": symbol, "notional_usd": _pre_slip_notional,
+                                    "reason": _pre_slip.get("warning")})
+                    elif _pre_slip_pct > SmartOrderRouter.REJECT_THRESHOLD_PCT:
+                        audit(trade_log,
+                              f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% on "
+                              f"${_pre_slip_notional:,.0f} notional (mode={_slip_mode})",
+                              action="entry_slippage",
+                              result="BLOCKED" if _slip_mode == "block" else "WARN",
+                              data={"asset": symbol, "slippage_pct": _pre_slip_pct,
+                                    "notional_usd": _pre_slip_notional,
+                                    "order_type": _pre_slip.get("order_type"),
+                                    "warning": _pre_slip.get("warning")})
+                        if _slip_mode == "block":
+                            return (f"EXECUTION BLOCKED: {symbol} order book is too "
+                                    f"thin for ${_pre_slip_notional:,.0f} — a market order "
+                                    f"would slip ~{_pre_slip_pct:.2f}%; nothing was "
+                                    "placed.")
+                    else:
+                        audit(trade_log,
+                              f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% "
+                              f"on ${_pre_slip_notional:,.0f} notional",
+                              action="entry_slippage", result="OK",
+                              data={"asset": symbol, "slippage_pct": _pre_slip_pct,
+                                    "notional_usd": _pre_slip_notional,
+                                    "order_type": _pre_slip.get("order_type")})
+                except Exception as _pre_slip_exc:
+                    # Fail-open: a slippage read must never take a trade down.
+                    trade_log.debug("slippage gate skipped for %s: %s",
+                                    symbol, _pre_slip_exc)
 
             # Determine side
             side = "buy" if idea.direction == Direction.LONG else "sell"
@@ -4185,8 +4419,13 @@ class LiveExecutor:
                             # outside, exactly like the bot trading badly. The
                             # cooldown is the difference between a guard and a
                             # fee pump.
-                            self._leverage_blocked_until[symbol] = (
-                                time.monotonic() + _LEVERAGE_BLOCK_SECONDS)
+                            #
+                            # Through the helper, and that is the whole fix:
+                            # `symbol` is the PERP form by here, while the
+                            # check that reads this rest is called with
+                            # `idea.asset`. Keyed raw, the rest was unfindable
+                            # on the futures path — which is every path.
+                            self._rest_symbol(symbol)
                             return (
                                 f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
                                 f"The venue filled at <b>{_lev_got}x</b> against a "
@@ -5494,6 +5733,42 @@ class LiveExecutor:
         except Exception:
             return False
 
+    def _mark_stop_absent(self, pos, trade_id: str, *, had_stop: bool,
+                          why: str = "") -> None:
+        """Record that this position has NO exchange stop.
+
+        Called only where an existing stop was cancelled and its replacement
+        did not land. Nulls the id so nothing downstream reads a dead order as
+        protection, sets the `unprotected` marker the alarm surfaces read, and
+        says so at a level an operator sees — the failure used to be a single
+        `logger.debug` line.
+
+        Never raises: this runs inside the position loop and a bookkeeping
+        fault must not cost the rest of the tick.
+        """
+        try:
+            pos.sl_order_id = ""
+            setattr(pos, "unprotected", True)
+            self._save_positions()
+            if not had_stop:
+                # It never had an exchange stop, so nothing was lost here. The
+                # throttled UNPROTECTED escalation below already covers the
+                # standing state; repeating it every tick would bury the one
+                # event that IS news.
+                return
+            audit(trade_log,
+                  f"{pos.symbol} has NO exchange stop: the existing one was "
+                  f"cancelled and the replacement was refused"
+                  + (f" ({why})" if why else "")
+                  + " — local SL monitoring is now the only protection",
+                  action="sltp_retry", result="STOP_ABSENT",
+                  level=logging.WARNING,
+                  data={"trade_id": trade_id, "symbol": pos.symbol,
+                        "had_exchange_stop": had_stop,
+                        "stop_loss": pos.stop_loss})
+        except Exception as exc:
+            trade_log.error("could not mark %s unprotected: %s", pos.symbol, exc)
+
     async def check_positions(self) -> list[str]:
         """Check open positions against current prices. Returns list of close/update messages.
 
@@ -5535,78 +5810,299 @@ class LiveExecutor:
                     self._ticker_failure_count.pop(sym, None)
 
             for trade_id, pos in list(self._positions.items()):
-                # ── Handle pending limit orders ──
-                if pos.status == "pending_fill":
-                    msg = await self._check_pending_limit(exchange, trade_id, pos)
-                    if msg:
-                        closed_messages.append(msg)
-                    continue
+                # ONE POSITION'S FAULT COSTS ONLY THAT POSITION. Without this,
+                # any exception in the ~400 lines below unwound to the
+                # loop-wide handler and every remaining position went
+                # unmonitored for the tick — a stop-loss that should have
+                # fired simply did not, leaving one `Position check error`
+                # line behind. The composite-view rule in CLAUDE.md: one dead
+                # source must not blank the rest.
+                try:
+                    # ── Handle pending limit orders ──
+                    if pos.status == "pending_fill":
+                        msg = await self._check_pending_limit(exchange, trade_id, pos)
+                        if msg:
+                            closed_messages.append(msg)
+                        continue
 
-                if pos.status != "open":
-                    continue
+                    if pos.status != "open":
+                        continue
 
-                # ── Duplicate-record guard (live incident 2026-07-07) ──
-                # A second internal record for an already-booked close (adoption
-                # sweeps mint different trade_ids for one exchange position) must
-                # be suppressed BEFORE local SL/TP monitoring: otherwise its SL
-                # breach fires a close against a flat book → 25227 → a second
-                # booking with a second notification, double-counted PnL, and a
-                # double-fed learning store. Silent by design (audit-logged).
-                if self._is_duplicate_close_booking(pos):
-                    self._suppress_duplicate_record(pos)
-                    continue
+                    # ── Duplicate-record guard (live incident 2026-07-07) ──
+                    # A second internal record for an already-booked close (adoption
+                    # sweeps mint different trade_ids for one exchange position) must
+                    # be suppressed BEFORE local SL/TP monitoring: otherwise its SL
+                    # breach fires a close against a flat book → 25227 → a second
+                    # booking with a second notification, double-counted PnL, and a
+                    # double-fed learning store. Silent by design (audit-logged).
+                    if self._is_duplicate_close_booking(pos):
+                        self._suppress_duplicate_record(pos)
+                        continue
 
-                # ── Defer startup-recovered "closing" positions to reconcile ──
-                # This position's true state is ambiguous (see
-                # _recovered_from_closing's docstring) -- a close order may
-                # have already reached the exchange before the process died
-                # mid-close. Placing a SECOND close here, priced off a
-                # possibly-stale local ticker, is exactly the duplicate-close
-                # incident this guards against. reconcile_positions() (called
-                # right after check_positions() every tick) queries the
-                # exchange directly and resolves this authoritatively.
-                if trade_id in self._recovered_from_closing:
-                    continue
+                    # ── Defer startup-recovered "closing" positions to reconcile ──
+                    # This position's true state is ambiguous (see
+                    # _recovered_from_closing's docstring) -- a close order may
+                    # have already reached the exchange before the process died
+                    # mid-close. Placing a SECOND close here, priced off a
+                    # possibly-stale local ticker, is exactly the duplicate-close
+                    # incident this guards against. reconcile_positions() (called
+                    # right after check_positions() every tick) queries the
+                    # exchange directly and resolves this authoritatively.
+                    if trade_id in self._recovered_from_closing:
+                        continue
 
-                # ── Clear a stale "unprotected" alarm ──
-                # `unprotected` is a runtime marker set when an exchange stop
-                # could not be placed (adoption / emergency / residual). It was
-                # never cleared, so a position stayed flagged forever even after
-                # a later retry (grace, grace-guard, or the per-tick retry below)
-                # got the stop on. Clear it the moment an exchange stop exists,
-                # on whichever path placed it.
-                if getattr(pos, "unprotected", False) and pos.sl_order_id:
-                    setattr(pos, "unprotected", False)
-                    audit(trade_log,
-                          f"Position {pos.symbol} now protected — clearing unprotected marker",
-                          action="unprotected_cleared", result="PROTECTED",
-                          data={"trade_id": trade_id, "symbol": pos.symbol,
-                                "sl_id": pos.sl_order_id})
+                    # ── Clear a stale "unprotected" alarm ──
+                    # `unprotected` is a runtime marker set when an exchange stop
+                    # could not be placed (adoption / emergency / residual). It was
+                    # never cleared, so a position stayed flagged forever even after
+                    # a later retry (grace, grace-guard, or the per-tick retry below)
+                    # got the stop on. Clear it the moment an exchange stop exists,
+                    # on whichever path placed it.
+                    if getattr(pos, "unprotected", False) and pos.sl_order_id:
+                        setattr(pos, "unprotected", False)
+                        audit(trade_log,
+                              f"Position {pos.symbol} now protected — clearing unprotected marker",
+                              action="unprotected_cleared", result="PROTECTED",
+                              data={"trade_id": trade_id, "symbol": pos.symbol,
+                                    "sl_id": pos.sl_order_id})
 
-                # ── SAFEGUARD 2: Grace period after open ──
-                # Skip local SL/TP monitoring for the first 90 seconds after a
-                # position opens. This gives the exchange SL/TP orders time to be
-                # placed and prevents instant stop-outs from stale price data.
-                #
-                # Audit F-4: the grace skip must apply ONLY to positions that
-                # actually have an exchange stop in place. Emergency positions
-                # (post-order-crash) and adopted orphans can be `open` with
-                # sl_order_id=None and a fresh opened_at — for those, skipping
-                # local monitoring left them with NO protection at all for the
-                # full 90s on a leveraged perp. If no exchange SL exists after we
-                # attempt placement below, we fall through to local monitoring.
-                # Grace age is measured from when the position ACTUALLY became
-                # live: for market entries that's opened_at, but a limit order
-                # can rest for hours before filling, so the fill paths stamp
-                # `filled_at` and the gate prefers it. Without this, opened_at
-                # (placement time) was always >90s stale by fill time and the
-                # grace machinery NEVER engaged for limit fills.
-                _grace_ref = getattr(pos, "filled_at", None) or pos.opened_at
-                age_secs = (datetime.now(UTC) - _grace_ref).total_seconds() if _grace_ref else 999
-                if age_secs < 90:
-                    # ── SAFEGUARD 3: Wait for SL/TP confirmation ──
-                    # During the grace period, still attempt to place SL/TP if missing,
-                    # but don't run local SL/TP monitoring until orders are confirmed.
+                    # ── SAFEGUARD 2: Grace period after open ──
+                    # Skip local SL/TP monitoring for the first 90 seconds after a
+                    # position opens. This gives the exchange SL/TP orders time to be
+                    # placed and prevents instant stop-outs from stale price data.
+                    #
+                    # Audit F-4: the grace skip must apply ONLY to positions that
+                    # actually have an exchange stop in place. Emergency positions
+                    # (post-order-crash) and adopted orphans can be `open` with
+                    # sl_order_id=None and a fresh opened_at — for those, skipping
+                    # local monitoring left them with NO protection at all for the
+                    # full 90s on a leveraged perp. If no exchange SL exists after we
+                    # attempt placement below, we fall through to local monitoring.
+                    # Grace age is measured from when the position ACTUALLY became
+                    # live: for market entries that's opened_at, but a limit order
+                    # can rest for hours before filling, so the fill paths stamp
+                    # `filled_at` and the gate prefers it. Without this, opened_at
+                    # (placement time) was always >90s stale by fill time and the
+                    # grace machinery NEVER engaged for limit fills.
+                    _grace_ref = getattr(pos, "filled_at", None) or pos.opened_at
+                    age_secs = (datetime.now(UTC) - _grace_ref).total_seconds() if _grace_ref else 999
+                    if age_secs < 90:
+                        # ── SAFEGUARD 3: Wait for SL/TP confirmation ──
+                        # During the grace period, still attempt to place SL/TP if missing,
+                        # but don't run local SL/TP monitoring until orders are confirmed.
+                        if (not pos.sl_order_id or not pos.tp_order_id) and pos.stop_loss > 0 and pos.take_profit > 0:
+                            try:
+                                direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
+                                sl_id, tp_id = await self._place_sl_tp(
+                                    exchange, pos.symbol, direction,
+                                    pos.quantity, pos.stop_loss, pos.take_profit
+                                )
+                                if sl_id and not pos.sl_order_id:
+                                    pos.sl_order_id = sl_id
+                                if tp_id and not pos.tp_order_id:
+                                    pos.tp_order_id = tp_id
+                                if sl_id or tp_id:
+                                    self._save_positions()
+                                    audit(trade_log,
+                                          f"SL/TP placed during grace period: {pos.symbol}",
+                                          action="sltp_grace", result="PLACED",
+                                          data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id,
+                                                "age_secs": round(age_secs, 1)})
+                            except Exception as exc:
+                                logger.debug("SL/TP grace placement failed for %s: %s", pos.symbol, exc)
+                        # Audit F-4: only skip local monitoring when an exchange stop
+                        # is actually in place. A still-unprotected position (no
+                        # sl_order_id) must be monitored locally NOW rather than left
+                        # exposed for the rest of the grace window.
+                        if pos.sl_order_id:
+                            continue  # protected by exchange SL — skip local check
+                        # Still unprotected within grace. Don't wait for the next scan
+                        # tick (~10-60s of blind exposure on a leveraged perp): run a
+                        # tight, bounded local sub-loop NOW to place the stop or close
+                        # on breach (audit F-4 / roadmap risk-depth #1).
+                        guard_msg = await self._guard_unprotected_grace(exchange, pos)
+                        if guard_msg:
+                            closed_messages.append(guard_msg)
+                            continue  # sub-loop flattened it
+                        if pos.sl_order_id:
+                            continue  # sub-loop got the exchange stop on — protected
+                        logger.warning(
+                            "Position %s still has NO exchange stop at %.0fs into grace "
+                            "— running local SL monitoring immediately (audit F-4)",
+                            pos.symbol, age_secs)
+                        audit(trade_log,
+                              f"Unprotected position {pos.symbol} monitored locally during grace",
+                              action="grace_unprotected_monitor", result="LOCAL_SL_ACTIVE",
+                              data={"trade_id": trade_id, "age_secs": round(age_secs, 1)})
+
+                    # `.get("last", 0)` returns the DEFAULT only when the key is
+                    # absent. ccxt returns {"last": None} for a market with no
+                    # trades, and float(None) raises — inside the loop-wide try
+                    # below, which meant one thin symbol stopped SL/TP monitoring
+                    # for every position after it. An unreadable price is an
+                    # unknown, handled exactly like a failed fetch: skip. Never
+                    # coerced to 0.0 — for a LONG that reads as a price below
+                    # every stop, which is unreadable rendered as catastrophic.
+                    _last = (tickers.get(pos.symbol) or {}).get("last")
+                    if _last is None:
+                        continue
+                    try:
+                        price = float(_last)
+                    except (TypeError, ValueError):
+                        continue
+                    if price <= 0:
+                        continue
+
+                    # ── Staleness guard ──
+                    # A frozen/old REST `last` must not drive a trailing tighten or a
+                    # local stop-out. If the ticker is stale, skip local monitoring for
+                    # this symbol this cycle — the exchange-side stop remains the
+                    # protection. (Pairs with the WS staleness guard; this covers the
+                    # REST path the WS guard does not.)
+                    if self._ticker_too_old(
+                        tickers.get(pos.symbol), CONFIG.execution.live_ticker_max_age_sec, time.time()
+                    ):
+                        _ts = (tickers.get(pos.symbol) or {}).get("timestamp")
+                        _age = time.time() - float(_ts) / 1000.0 if _ts else -1.0
+                        if pos.sl_order_id:
+                            audit(trade_log,
+                                  f"Stale ticker for {pos.symbol} ({_age:.0f}s old) — skipping "
+                                  f"local SL/TP this cycle; exchange stop still active",
+                                  action="ticker_stale", result="SKIPPED", level=logging.WARNING,
+                                  data={"symbol": pos.symbol, "age_sec": round(_age, 1),
+                                        "max_age": CONFIG.execution.live_ticker_max_age_sec})
+                            continue
+                        # UNPROTECTED position (no exchange stop): skipping on a
+                        # stale ticker leaves it with NO protection at all. Thin
+                        # TradFi perps trade sparsely, so their tickers are stale
+                        # most cycles — live incident XPD: the venue rejected the
+                        # stop as already-breached (25588) and this skip kept the
+                        # local backstop from ever running while price sat past
+                        # the stop for 40+ minutes. A stale price is a better
+                        # guardian than no price — monitor anyway.
+                        audit(trade_log,
+                              f"Stale ticker for {pos.symbol} ({_age:.0f}s old) but position "
+                              f"is UNPROTECTED — running local SL/TP on the stale price",
+                              action="ticker_stale", result="MONITORING_UNPROTECTED",
+                              level=logging.WARNING,
+                              data={"symbol": pos.symbol, "age_sec": round(_age, 1),
+                                    "max_age": CONFIG.execution.live_ticker_max_age_sec})
+
+                    # ── Trailing stop update ──
+                    if CONFIG.trailing.enabled and pos.trailing_state is not None:
+                        old_sl = pos.stop_loss
+                        pos_strategy = getattr(pos, 'strategy_type', 'swing')
+                        trail_mult = CONFIG.strategy_types.get_trailing_atr_mult(pos_strategy)
+                        new_sl, trailing_active = update_trailing_stop(
+                            pos.trailing_state, price, pos.stop_loss, pos.direction,
+                            trail_atr_mult=trail_mult,
+                            rule=CONFIG.trailing.trail_rule,
+                            playbook_atr_mult=CONFIG.trailing.playbook_atr_mult,
+                        )
+                        # Wave-anchored ratchet (mirrors the backtest): once
+                        # trailing is active, tighten behind the newest CONFIRMED
+                        # ZigZag wave pivot of the SUB-DEGREE of this setup (a
+                        # swing entered on 4h waves exits leg-by-leg on 1h
+                        # sub-wave pivots). Takes precedence over the fractal
+                        # structure ratchet. Closed candles only, cached, fail-open.
+                        if (CONFIG.trailing.wave_trail_enabled and trailing_active):
+                            try:
+                                from bot.core.elliott import subdegree_timeframe
+                                _tf = subdegree_timeframe(pos_strategy)
+                                _hlc = await self._struct_candles(
+                                    exchange, pos.symbol, _tf)
+                                if _hlc:
+                                    from bot.utils.trailing import wave_ratchet
+                                    _buf = (CONFIG.trailing.structure_trail_buffer_atr
+                                            * float(pos.trailing_state.get("atr") or 0.0))
+                                    new_sl = wave_ratchet(
+                                        _hlc[0], _hlc[1], _hlc[2], pos.direction,
+                                        new_sl, _buf,
+                                        zigzag_atr_mult=CONFIG.trailing.wave_trail_zigzag_atr_mult)
+                            except Exception as _wv_exc:
+                                logger.debug("wave ratchet skipped for %s: %s",
+                                             pos.symbol, _wv_exc)
+                        # Structure ratchet (mirrors the backtest): once trailing
+                        # is active, tighten behind the newest CONFIRMED 1h swing.
+                        # Closed candles only, cached 5 min, fail-open.
+                        elif (CONFIG.trailing.structure_trail_enabled and trailing_active):
+                            try:
+                                _hl = await self._struct_candles(exchange, pos.symbol)
+                                if _hl:
+                                    from bot.utils.trailing import structure_ratchet
+                                    _buf = (CONFIG.trailing.structure_trail_buffer_atr
+                                            * float(pos.trailing_state.get("atr") or 0.0))
+                                    new_sl = structure_ratchet(
+                                        _hl[0], _hl[1], pos.direction, new_sl, _buf)
+                            except Exception as _st_exc:
+                                logger.debug("structure ratchet skipped for %s: %s",
+                                             pos.symbol, _st_exc)
+                        if new_sl != old_sl:
+                            # Check if the SL moved enough to update on exchange
+                            sl_change_pct = abs(new_sl - old_sl) / old_sl * 100 if old_sl > 0 else 100
+                            if sl_change_pct >= CONFIG.trailing.min_sl_update_pct:
+                                # M-02 FIX (completed): advance the LOCAL stop only after
+                                # the exchange confirms the tighter stop. _update_exchange_sl
+                                # is best-effort; on failure the LOOSER old stop stays live
+                                # on the exchange. Persisting new_sl locally first (the old
+                                # behaviour) made the position display/enforce more protection
+                                # than the exchange actually holds — a silent over-report that
+                                # bites during any monitor downtime, when only the exchange
+                                # stop protects. Gate the local write on the real outcome.
+                                sl_applied = await self._update_exchange_sl(
+                                    exchange, pos, new_sl
+                                )
+                                if sl_applied:
+                                    pos.stop_loss = new_sl
+                                    self._save_positions()
+                                    audit(trade_log,
+                                          f"Trailing SL updated: {pos.symbol} SL ${old_sl:.4f} -> ${new_sl:.4f}",
+                                          action="trailing_sl", result="UPDATED",
+                                          data={"trade_id": trade_id, "old_sl": old_sl,
+                                                "new_sl": new_sl, "price": price,
+                                                "trailing_active": trailing_active})
+                                    # Public mind-stream: operator executor only
+                                    # (per-user executors carry a non-empty user_id).
+                                    try:
+                                        from bot.core.agent_feed import FEED
+                                        if not getattr(self, "user_id", ""):
+                                            FEED.emit(
+                                                "sl_move",
+                                                f"Trailing stop moved — {pos.symbol}",
+                                                body=f"${old_sl:,.4f} → ${new_sl:,.4f}",
+                                                symbol=pos.symbol,
+                                                data={"old_sl": old_sl,
+                                                      "new_sl": new_sl})
+                                    except Exception as _feed_exc:
+                                        logger.debug(
+                                            "Agent feed sl_move skipped: %s", _feed_exc)
+                                else:
+                                    # Exchange refused the tighter stop — keep the local
+                                    # stop equal to what the exchange is actually holding
+                                    # (old_sl). Never claim protection we don't have.
+                                    audit(trade_log,
+                                          f"Trailing SL NOT applied for {pos.symbol}: exchange "
+                                          f"update failed, local stop preserved at ${old_sl:.4f} "
+                                          f"(wanted ${new_sl:.4f}) — no over-report",
+                                          action="trailing_sl", result="EXCHANGE_UPDATE_FAILED",
+                                          level=logging.WARNING,
+                                          data={"trade_id": trade_id, "old_sl": old_sl,
+                                                "wanted_sl": new_sl, "price": price,
+                                                "trailing_active": trailing_active})
+
+                    # ── Partial take-profit ladder ──
+                    # Banks 50% at 1.5R (SL→breakeven), 30% at 2.5R (lock 1R), runner
+                    # rides the ratcheted stop. Additive overlay on the exchange SL/TP
+                    # (reduceOnly backstops clamp to the shrinking position). The
+                    # runner's exit is the existing static SL/TP check below.
+                    if CONFIG.partial_tp.enabled and pos.status == "open" and pos.quantity > 0:
+                        try:
+                            await self._run_partial_tp(exchange, pos, price)
+                        except Exception as _ptp_exc:
+                            logger.warning("Partial-TP check failed for %s: %s",
+                                           pos.symbol, _ptp_exc)
+
+                    # ── Retry SL/TP placement if missing ──
                     if (not pos.sl_order_id or not pos.tp_order_id) and pos.stop_loss > 0 and pos.take_profit > 0:
                         try:
                             direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
@@ -5614,359 +6110,191 @@ class LiveExecutor:
                                 exchange, pos.symbol, direction,
                                 pos.quantity, pos.stop_loss, pos.take_profit
                             )
-                            if sl_id and not pos.sl_order_id:
-                                pos.sl_order_id = sl_id
-                            if tp_id and not pos.tp_order_id:
-                                pos.tp_order_id = tp_id
+                            _had_stop = bool(pos.sl_order_id)
                             if sl_id or tp_id:
+                                # AUDIT-FIX: Only update missing order IDs to avoid
+                                # orphaning existing exchange orders
+                                if sl_id and not pos.sl_order_id:
+                                    pos.sl_order_id = sl_id
+                                if tp_id and not pos.tp_order_id:
+                                    pos.tp_order_id = tp_id
                                 self._save_positions()
                                 audit(trade_log,
-                                      f"SL/TP placed during grace period: {pos.symbol}",
-                                      action="sltp_grace", result="PLACED",
-                                      data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id,
-                                            "age_secs": round(age_secs, 1)})
+                                      f"SL/TP retry succeeded: {pos.symbol} SL={pos.stop_loss:.4f} TP={pos.take_profit:.4f}",
+                                      action="sltp_retry", result="PLACED",
+                                      data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id})
+                            if not sl_id:
+                                # _place_sl_tp CANCELS every existing plan order
+                                # before it places, so reaching here means the
+                                # working stop is gone and its replacement was
+                                # refused. Leaving sl_order_id naming the
+                                # cancelled order made every downstream signal
+                                # read "protected": the grace skip trusts it
+                                # outright, the stale-ticker skip logs "exchange
+                                # stop still active", and the `unprotected`
+                                # alarm is CLEARED because clearing is gated on
+                                # this id being truthy. A cancelled stop that
+                                # could not be replaced is an ABSENT stop, and
+                                # the field has to say so.
+                                #
+                                # The static SL/TP check still closes on breach
+                                # once past grace, so this is not a naked
+                                # position — it is a position whose protection
+                                # is local-only, and the difference has to be
+                                # visible to the code and to the operator.
+                                self._mark_stop_absent(pos, trade_id,
+                                                       had_stop=_had_stop)
                         except Exception as exc:
-                            logger.debug("SL/TP grace placement failed for %s: %s", pos.symbol, exc)
-                    # Audit F-4: only skip local monitoring when an exchange stop
-                    # is actually in place. A still-unprotected position (no
-                    # sl_order_id) must be monitored locally NOW rather than left
-                    # exposed for the rest of the grace window.
-                    if pos.sl_order_id:
-                        continue  # protected by exchange SL — skip local check
-                    # Still unprotected within grace. Don't wait for the next scan
-                    # tick (~10-60s of blind exposure on a leveraged perp): run a
-                    # tight, bounded local sub-loop NOW to place the stop or close
-                    # on breach (audit F-4 / roadmap risk-depth #1).
-                    guard_msg = await self._guard_unprotected_grace(exchange, pos)
-                    if guard_msg:
-                        closed_messages.append(guard_msg)
-                        continue  # sub-loop flattened it
-                    if pos.sl_order_id:
-                        continue  # sub-loop got the exchange stop on — protected
-                    logger.warning(
-                        "Position %s still has NO exchange stop at %.0fs into grace "
-                        "— running local SL monitoring immediately (audit F-4)",
-                        pos.symbol, age_secs)
-                    audit(trade_log,
-                          f"Unprotected position {pos.symbol} monitored locally during grace",
-                          action="grace_unprotected_monitor", result="LOCAL_SL_ACTIVE",
-                          data={"trade_id": trade_id, "age_secs": round(age_secs, 1)})
+                            # The re-place raised AFTER the cancel, which is the
+                            # same outcome by a different door.
+                            self._mark_stop_absent(pos, trade_id,
+                                                   had_stop=bool(pos.sl_order_id),
+                                                   why=str(exc)[:120])
 
-                price = float(tickers.get(pos.symbol, {}).get("last", 0))
-                if price <= 0:
-                    continue
-
-                # ── Staleness guard ──
-                # A frozen/old REST `last` must not drive a trailing tighten or a
-                # local stop-out. If the ticker is stale, skip local monitoring for
-                # this symbol this cycle — the exchange-side stop remains the
-                # protection. (Pairs with the WS staleness guard; this covers the
-                # REST path the WS guard does not.)
-                if self._ticker_too_old(
-                    tickers.get(pos.symbol), CONFIG.execution.live_ticker_max_age_sec, time.time()
-                ):
-                    _ts = (tickers.get(pos.symbol) or {}).get("timestamp")
-                    _age = time.time() - float(_ts) / 1000.0 if _ts else -1.0
-                    if pos.sl_order_id:
-                        audit(trade_log,
-                              f"Stale ticker for {pos.symbol} ({_age:.0f}s old) — skipping "
-                              f"local SL/TP this cycle; exchange stop still active",
-                              action="ticker_stale", result="SKIPPED", level=logging.WARNING,
-                              data={"symbol": pos.symbol, "age_sec": round(_age, 1),
-                                    "max_age": CONFIG.execution.live_ticker_max_age_sec})
-                        continue
-                    # UNPROTECTED position (no exchange stop): skipping on a
-                    # stale ticker leaves it with NO protection at all. Thin
-                    # TradFi perps trade sparsely, so their tickers are stale
-                    # most cycles — live incident XPD: the venue rejected the
-                    # stop as already-breached (25588) and this skip kept the
-                    # local backstop from ever running while price sat past
-                    # the stop for 40+ minutes. A stale price is a better
-                    # guardian than no price — monitor anyway.
-                    audit(trade_log,
-                          f"Stale ticker for {pos.symbol} ({_age:.0f}s old) but position "
-                          f"is UNPROTECTED — running local SL/TP on the stale price",
-                          action="ticker_stale", result="MONITORING_UNPROTECTED",
-                          level=logging.WARNING,
-                          data={"symbol": pos.symbol, "age_sec": round(_age, 1),
-                                "max_age": CONFIG.execution.live_ticker_max_age_sec})
-
-                # ── Trailing stop update ──
-                if CONFIG.trailing.enabled and pos.trailing_state is not None:
-                    old_sl = pos.stop_loss
-                    pos_strategy = getattr(pos, 'strategy_type', 'swing')
-                    trail_mult = CONFIG.strategy_types.get_trailing_atr_mult(pos_strategy)
-                    new_sl, trailing_active = update_trailing_stop(
-                        pos.trailing_state, price, pos.stop_loss, pos.direction,
-                        trail_atr_mult=trail_mult,
-                        rule=CONFIG.trailing.trail_rule,
-                        playbook_atr_mult=CONFIG.trailing.playbook_atr_mult,
-                    )
-                    # Wave-anchored ratchet (mirrors the backtest): once
-                    # trailing is active, tighten behind the newest CONFIRMED
-                    # ZigZag wave pivot of the SUB-DEGREE of this setup (a
-                    # swing entered on 4h waves exits leg-by-leg on 1h
-                    # sub-wave pivots). Takes precedence over the fractal
-                    # structure ratchet. Closed candles only, cached, fail-open.
-                    if (CONFIG.trailing.wave_trail_enabled and trailing_active):
-                        try:
-                            from bot.core.elliott import subdegree_timeframe
-                            _tf = subdegree_timeframe(pos_strategy)
-                            _hlc = await self._struct_candles(
-                                exchange, pos.symbol, _tf)
-                            if _hlc:
-                                from bot.utils.trailing import wave_ratchet
-                                _buf = (CONFIG.trailing.structure_trail_buffer_atr
-                                        * float(pos.trailing_state.get("atr") or 0.0))
-                                new_sl = wave_ratchet(
-                                    _hlc[0], _hlc[1], _hlc[2], pos.direction,
-                                    new_sl, _buf,
-                                    zigzag_atr_mult=CONFIG.trailing.wave_trail_zigzag_atr_mult)
-                        except Exception as _wv_exc:
-                            logger.debug("wave ratchet skipped for %s: %s",
-                                         pos.symbol, _wv_exc)
-                    # Structure ratchet (mirrors the backtest): once trailing
-                    # is active, tighten behind the newest CONFIRMED 1h swing.
-                    # Closed candles only, cached 5 min, fail-open.
-                    elif (CONFIG.trailing.structure_trail_enabled and trailing_active):
-                        try:
-                            _hl = await self._struct_candles(exchange, pos.symbol)
-                            if _hl:
-                                from bot.utils.trailing import structure_ratchet
-                                _buf = (CONFIG.trailing.structure_trail_buffer_atr
-                                        * float(pos.trailing_state.get("atr") or 0.0))
-                                new_sl = structure_ratchet(
-                                    _hl[0], _hl[1], pos.direction, new_sl, _buf)
-                        except Exception as _st_exc:
-                            logger.debug("structure ratchet skipped for %s: %s",
-                                         pos.symbol, _st_exc)
-                    if new_sl != old_sl:
-                        # Check if the SL moved enough to update on exchange
-                        sl_change_pct = abs(new_sl - old_sl) / old_sl * 100 if old_sl > 0 else 100
-                        if sl_change_pct >= CONFIG.trailing.min_sl_update_pct:
-                            # M-02 FIX (completed): advance the LOCAL stop only after
-                            # the exchange confirms the tighter stop. _update_exchange_sl
-                            # is best-effort; on failure the LOOSER old stop stays live
-                            # on the exchange. Persisting new_sl locally first (the old
-                            # behaviour) made the position display/enforce more protection
-                            # than the exchange actually holds — a silent over-report that
-                            # bites during any monitor downtime, when only the exchange
-                            # stop protects. Gate the local write on the real outcome.
-                            sl_applied = await self._update_exchange_sl(
-                                exchange, pos, new_sl
-                            )
-                            if sl_applied:
-                                pos.stop_loss = new_sl
-                                self._save_positions()
-                                audit(trade_log,
-                                      f"Trailing SL updated: {pos.symbol} SL ${old_sl:.4f} -> ${new_sl:.4f}",
-                                      action="trailing_sl", result="UPDATED",
-                                      data={"trade_id": trade_id, "old_sl": old_sl,
-                                            "new_sl": new_sl, "price": price,
-                                            "trailing_active": trailing_active})
-                                # Public mind-stream: operator executor only
-                                # (per-user executors carry a non-empty user_id).
-                                try:
-                                    from bot.core.agent_feed import FEED
-                                    if not getattr(self, "user_id", ""):
-                                        FEED.emit(
-                                            "sl_move",
-                                            f"Trailing stop moved — {pos.symbol}",
-                                            body=f"${old_sl:,.4f} → ${new_sl:,.4f}",
-                                            symbol=pos.symbol,
-                                            data={"old_sl": old_sl,
-                                                  "new_sl": new_sl})
-                                except Exception as _feed_exc:
-                                    logger.debug(
-                                        "Agent feed sl_move skipped: %s", _feed_exc)
-                            else:
-                                # Exchange refused the tighter stop — keep the local
-                                # stop equal to what the exchange is actually holding
-                                # (old_sl). Never claim protection we don't have.
-                                audit(trade_log,
-                                      f"Trailing SL NOT applied for {pos.symbol}: exchange "
-                                      f"update failed, local stop preserved at ${old_sl:.4f} "
-                                      f"(wanted ${new_sl:.4f}) — no over-report",
-                                      action="trailing_sl", result="EXCHANGE_UPDATE_FAILED",
-                                      level=logging.WARNING,
-                                      data={"trade_id": trade_id, "old_sl": old_sl,
-                                            "wanted_sl": new_sl, "price": price,
-                                            "trailing_active": trailing_active})
-
-                # ── Partial take-profit ladder ──
-                # Banks 50% at 1.5R (SL→breakeven), 30% at 2.5R (lock 1R), runner
-                # rides the ratcheted stop. Additive overlay on the exchange SL/TP
-                # (reduceOnly backstops clamp to the shrinking position). The
-                # runner's exit is the existing static SL/TP check below.
-                if CONFIG.partial_tp.enabled and pos.status == "open" and pos.quantity > 0:
-                    try:
-                        await self._run_partial_tp(exchange, pos, price)
-                    except Exception as _ptp_exc:
-                        logger.warning("Partial-TP check failed for %s: %s",
-                                       pos.symbol, _ptp_exc)
-
-                # ── Retry SL/TP placement if missing ──
-                if (not pos.sl_order_id or not pos.tp_order_id) and pos.stop_loss > 0 and pos.take_profit > 0:
-                    try:
-                        direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
-                        sl_id, tp_id = await self._place_sl_tp(
-                            exchange, pos.symbol, direction,
-                            pos.quantity, pos.stop_loss, pos.take_profit
-                        )
-                        if sl_id or tp_id:
-                            # AUDIT-FIX: Only update missing order IDs to avoid
-                            # orphaning existing exchange orders
-                            if sl_id and not pos.sl_order_id:
-                                pos.sl_order_id = sl_id
-                            if tp_id and not pos.tp_order_id:
-                                pos.tp_order_id = tp_id
-                            self._save_positions()
+                    # ── Breach-by-rejection: the venue just TOLD us the stop is hit ──
+                    # When the retry above still could not place the stop and the
+                    # recorded rejection is the 25588 family ("trigger price must
+                    # be greater/less than the latest price"), the market is
+                    # ALREADY past the stop level — the venue validated against a
+                    # fresher price than our ticker. Close as a stop hit NOW
+                    # instead of retrying a placement that can never succeed
+                    # (live incident XPD: 40+ minutes past the stop, unprotected,
+                    # while placement was retried every tick).
+                    if not pos.sl_order_id and pos.stop_loss > 0:
+                        _rej = self._last_sltp_reason(pos.symbol)
+                        if self._sl_reject_means_breached(_rej):
+                            _trail = bool(pos.trailing_state
+                                          and pos.trailing_state.get("trailing_active"))
+                            reason = stop_exit_label(
+                                pos.direction == "LONG", pos.entry_price,
+                                pos.stop_loss, exit_price=price,
+                                trailing_active=_trail)
                             audit(trade_log,
-                                  f"SL/TP retry succeeded: {pos.symbol} SL={pos.stop_loss:.4f} TP={pos.take_profit:.4f}",
-                                  action="sltp_retry", result="PLACED",
-                                  data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id})
-                    except Exception as exc:
-                        logger.debug("SL/TP retry failed for %s: %s", pos.symbol, exc)
+                                  f"Stop breach confirmed by venue rejection for {pos.symbol}: "
+                                  f"closing as {reason} (rejection: {_rej[:120]})",
+                                  action="sl_reject_breach_close", result="CLOSING",
+                                  data={"trade_id": trade_id, "symbol": pos.symbol,
+                                        "stop_loss": pos.stop_loss, "price": price,
+                                        "rejection": _rej[:180]})
+                            msg = await self.close_position(trade_id, reason, price)
+                            closed_messages.append(msg)
+                            continue
 
-                # ── Breach-by-rejection: the venue just TOLD us the stop is hit ──
-                # When the retry above still could not place the stop and the
-                # recorded rejection is the 25588 family ("trigger price must
-                # be greater/less than the latest price"), the market is
-                # ALREADY past the stop level — the venue validated against a
-                # fresher price than our ticker. Close as a stop hit NOW
-                # instead of retrying a placement that can never succeed
-                # (live incident XPD: 40+ minutes past the stop, unprotected,
-                # while placement was retried every tick).
-                if not pos.sl_order_id and pos.stop_loss > 0:
-                    _rej = self._last_sltp_reason(pos.symbol)
-                    if self._sl_reject_means_breached(_rej):
-                        _trail = bool(pos.trailing_state
-                                      and pos.trailing_state.get("trailing_active"))
-                        reason = stop_exit_label(
-                            pos.direction == "LONG", pos.entry_price,
-                            pos.stop_loss, exit_price=price,
-                            trailing_active=_trail)
-                        audit(trade_log,
-                              f"Stop breach confirmed by venue rejection for {pos.symbol}: "
-                              f"closing as {reason} (rejection: {_rej[:120]})",
-                              action="sl_reject_breach_close", result="CLOSING",
-                              data={"trade_id": trade_id, "symbol": pos.symbol,
-                                    "stop_loss": pos.stop_loss, "price": price,
-                                    "rejection": _rej[:180]})
+                    # ── Escalate a persistently-unprotected position ──
+                    # If the per-tick retry above STILL could not place an exchange
+                    # stop, the position is live with no venue-side protection (it is
+                    # only price-monitored locally by the static check below). The
+                    # operator was alerted once at adoption and then went silent —
+                    # re-alert on a throttle until the stop lands. Alert only; an
+                    # adopted position is never force-closed (it may be intentional).
+                    if (CONFIG.execution.unprotected_escalation_enabled
+                            and not pos.sl_order_id and pos.stop_loss > 0):
+                        _now_ts = time.time()
+                        _last_alert = getattr(pos, "_unprotected_alert_at", 0.0) or 0.0
+                        if _now_ts - _last_alert >= CONFIG.execution.unprotected_alert_interval_s:
+                            setattr(pos, "_unprotected_alert_at", _now_ts)
+                            setattr(pos, "unprotected", True)
+                            logger.critical(
+                                "UNPROTECTED POSITION (%s %s): no exchange stop-loss after "
+                                "retry — live with NO venue stop (price-monitored locally). "
+                                "Place a stop on Bitget manually.", pos.symbol, pos.direction)
+                            audit(trade_log,
+                                  f"UNPROTECTED position {pos.symbol} still has no exchange stop "
+                                  f"after retry — operator re-alerted",
+                                  action="unprotected_escalation", result="UNPROTECTED",
+                                  data={"trade_id": trade_id, "symbol": pos.symbol,
+                                        "stop_loss": pos.stop_loss, "price": price})
+                            self._record_warning("unprotected_persist")
+                            _why = self._last_sltp_reason(pos.symbol)
+                            _why_line = f"\nVenue reason: <code>{_why}</code>" if _why else ""
+                            closed_messages.append(
+                                f"🚨 <b>UNPROTECTED POSITION — {pos.symbol} {pos.direction}</b>\n"
+                                f"No exchange stop-loss could be placed (still retrying each "
+                                f"scan; price-monitored locally as a backstop).{_why_line}\n"
+                                f"Stop level: <code>${pos.stop_loss:.4f}</code> — place a stop "
+                                f"on Bitget manually."
+                            )
+
+                    # ── GETCLAW: Time-stop check (Rules 6/17) ──
+                    # Uses per-strategy-type thresholds from StrategyTypeConfig
+                    if CONFIG.time_stop.enabled:
+                        hold_hours = (datetime.now(UTC) - pos.opened_at).total_seconds() / 3600
+                        # Get strategy-type-aware thresholds
+                        pos_strategy = getattr(pos, 'strategy_type', 'intraday')
+                        close_threshold = CONFIG.strategy_types.get_time_close_hours(pos_strategy)
+                        warn_threshold = CONFIG.strategy_types.get_time_warn_hours(pos_strategy)
+                        if hold_hours >= close_threshold:
+                            # Check if position clears round-trip COSTS, not just
+                            # gross entry. A position up a sub-fee fraction was
+                            # treated as "in profit" and held indefinitely even
+                            # though it's a net loser after entry+exit taker fees
+                            # (audit exits, 2026-07-21). Require the mark to clear a
+                            # round-trip fee buffer before the time-stop spares it.
+                            _rt_fee = (CONFIG.risk.taker_fee_pct / 100.0) * 2.0  # in/out
+                            _buf = pos.entry_price * _rt_fee
+                            if pos.direction == "LONG":
+                                in_profit = price > pos.entry_price + _buf
+                            else:
+                                in_profit = price < pos.entry_price - _buf
+                            if not in_profit:
+                                # Time-stop: no profit after threshold → close
+                                # :g keeps sub-hour thresholds honest — scalp's
+                                # 0.5h rendered "0h max" under :.0f (parity report
+                                # confusion, 2026-07-14).
+                                msg = await self.close_position(
+                                    trade_id, f"TIME_STOP ({hold_hours:.1f}h/{close_threshold:g}h max, {pos_strategy}, no profit)", price)
+                                closed_messages.append(msg)
+                                audit(trade_log,
+                                      f"Time-stop triggered: {pos.symbol} held {hold_hours:.1f}h ({pos_strategy} max={close_threshold:.0f}h) with no profit",
+                                      action="time_stop", result="CLOSED",
+                                      data={"trade_id": trade_id, "hold_hours": hold_hours,
+                                            "strategy_type": pos_strategy,
+                                            "close_threshold": close_threshold,
+                                            "entry": pos.entry_price, "current": price})
+                                continue  # Skip SL/TP check — already closing
+                        elif hold_hours >= warn_threshold:
+                            # Approaching time-stop — log warning (once per cycle is fine)
+                            remaining = close_threshold - hold_hours
+                            logger.debug("Time-stop warning: %s (%s) held %.1fh, %.1fh until auto-close",
+                                         pos.symbol, pos_strategy, hold_hours, remaining)
+
+                    # ── Static SL/TP check ──
+                    should_close = False
+                    reason = ""
+
+                    _trail_on = bool(pos.trailing_state
+                                     and pos.trailing_state.get("trailing_active"))
+                    if pos.direction == "LONG":
+                        if price <= pos.stop_loss:
+                            should_close = True
+                            reason = stop_exit_label(True, pos.entry_price,
+                                                     pos.stop_loss, exit_price=price,
+                                                     trailing_active=_trail_on)
+                        elif price >= pos.take_profit:
+                            should_close = True
+                            reason = "TP HIT"
+                    else:  # SHORT
+                        if price >= pos.stop_loss:
+                            should_close = True
+                            reason = stop_exit_label(False, pos.entry_price,
+                                                     pos.stop_loss, exit_price=price,
+                                                     trailing_active=_trail_on)
+                        elif price <= pos.take_profit:
+                            should_close = True
+                            reason = "TP HIT"
+
+                    if should_close:
+                        # Close manually if no exchange SL/TP, or if SL/TP exists but
+                        # price has blown through the level (exchange SL/TP may have
+                        # been cancelled or failed).
                         msg = await self.close_position(trade_id, reason, price)
                         closed_messages.append(msg)
-                        continue
 
-                # ── Escalate a persistently-unprotected position ──
-                # If the per-tick retry above STILL could not place an exchange
-                # stop, the position is live with no venue-side protection (it is
-                # only price-monitored locally by the static check below). The
-                # operator was alerted once at adoption and then went silent —
-                # re-alert on a throttle until the stop lands. Alert only; an
-                # adopted position is never force-closed (it may be intentional).
-                if (CONFIG.execution.unprotected_escalation_enabled
-                        and not pos.sl_order_id and pos.stop_loss > 0):
-                    _now_ts = time.time()
-                    _last_alert = getattr(pos, "_unprotected_alert_at", 0.0) or 0.0
-                    if _now_ts - _last_alert >= CONFIG.execution.unprotected_alert_interval_s:
-                        setattr(pos, "_unprotected_alert_at", _now_ts)
-                        setattr(pos, "unprotected", True)
-                        logger.critical(
-                            "UNPROTECTED POSITION (%s %s): no exchange stop-loss after "
-                            "retry — live with NO venue stop (price-monitored locally). "
-                            "Place a stop on Bitget manually.", pos.symbol, pos.direction)
-                        audit(trade_log,
-                              f"UNPROTECTED position {pos.symbol} still has no exchange stop "
-                              f"after retry — operator re-alerted",
-                              action="unprotected_escalation", result="UNPROTECTED",
-                              data={"trade_id": trade_id, "symbol": pos.symbol,
-                                    "stop_loss": pos.stop_loss, "price": price})
-                        self._record_warning("unprotected_persist")
-                        _why = self._last_sltp_reason(pos.symbol)
-                        _why_line = f"\nVenue reason: <code>{_why}</code>" if _why else ""
-                        closed_messages.append(
-                            f"🚨 <b>UNPROTECTED POSITION — {pos.symbol} {pos.direction}</b>\n"
-                            f"No exchange stop-loss could be placed (still retrying each "
-                            f"scan; price-monitored locally as a backstop).{_why_line}\n"
-                            f"Stop level: <code>${pos.stop_loss:.4f}</code> — place a stop "
-                            f"on Bitget manually."
-                        )
-
-                # ── GETCLAW: Time-stop check (Rules 6/17) ──
-                # Uses per-strategy-type thresholds from StrategyTypeConfig
-                if CONFIG.time_stop.enabled:
-                    hold_hours = (datetime.now(UTC) - pos.opened_at).total_seconds() / 3600
-                    # Get strategy-type-aware thresholds
-                    pos_strategy = getattr(pos, 'strategy_type', 'intraday')
-                    close_threshold = CONFIG.strategy_types.get_time_close_hours(pos_strategy)
-                    warn_threshold = CONFIG.strategy_types.get_time_warn_hours(pos_strategy)
-                    if hold_hours >= close_threshold:
-                        # Check if position clears round-trip COSTS, not just
-                        # gross entry. A position up a sub-fee fraction was
-                        # treated as "in profit" and held indefinitely even
-                        # though it's a net loser after entry+exit taker fees
-                        # (audit exits, 2026-07-21). Require the mark to clear a
-                        # round-trip fee buffer before the time-stop spares it.
-                        _rt_fee = (CONFIG.risk.taker_fee_pct / 100.0) * 2.0  # in/out
-                        _buf = pos.entry_price * _rt_fee
-                        if pos.direction == "LONG":
-                            in_profit = price > pos.entry_price + _buf
-                        else:
-                            in_profit = price < pos.entry_price - _buf
-                        if not in_profit:
-                            # Time-stop: no profit after threshold → close
-                            # :g keeps sub-hour thresholds honest — scalp's
-                            # 0.5h rendered "0h max" under :.0f (parity report
-                            # confusion, 2026-07-14).
-                            msg = await self.close_position(
-                                trade_id, f"TIME_STOP ({hold_hours:.1f}h/{close_threshold:g}h max, {pos_strategy}, no profit)", price)
-                            closed_messages.append(msg)
-                            audit(trade_log,
-                                  f"Time-stop triggered: {pos.symbol} held {hold_hours:.1f}h ({pos_strategy} max={close_threshold:.0f}h) with no profit",
-                                  action="time_stop", result="CLOSED",
-                                  data={"trade_id": trade_id, "hold_hours": hold_hours,
-                                        "strategy_type": pos_strategy,
-                                        "close_threshold": close_threshold,
-                                        "entry": pos.entry_price, "current": price})
-                            continue  # Skip SL/TP check — already closing
-                    elif hold_hours >= warn_threshold:
-                        # Approaching time-stop — log warning (once per cycle is fine)
-                        remaining = close_threshold - hold_hours
-                        logger.debug("Time-stop warning: %s (%s) held %.1fh, %.1fh until auto-close",
-                                     pos.symbol, pos_strategy, hold_hours, remaining)
-
-                # ── Static SL/TP check ──
-                should_close = False
-                reason = ""
-
-                _trail_on = bool(pos.trailing_state
-                                 and pos.trailing_state.get("trailing_active"))
-                if pos.direction == "LONG":
-                    if price <= pos.stop_loss:
-                        should_close = True
-                        reason = stop_exit_label(True, pos.entry_price,
-                                                 pos.stop_loss, exit_price=price,
-                                                 trailing_active=_trail_on)
-                    elif price >= pos.take_profit:
-                        should_close = True
-                        reason = "TP HIT"
-                else:  # SHORT
-                    if price >= pos.stop_loss:
-                        should_close = True
-                        reason = stop_exit_label(False, pos.entry_price,
-                                                 pos.stop_loss, exit_price=price,
-                                                 trailing_active=_trail_on)
-                    elif price <= pos.take_profit:
-                        should_close = True
-                        reason = "TP HIT"
-
-                if should_close:
-                    # Close manually if no exchange SL/TP, or if SL/TP exists but
-                    # price has blown through the level (exchange SL/TP may have
-                    # been cancelled or failed).
-                    msg = await self.close_position(trade_id, reason, price)
-                    closed_messages.append(msg)
-
+                except Exception as _pos_exc:
+                    trade_log.error(
+                        "position check failed for %s (%s) — other positions "
+                        "still checked: %s", pos.symbol, trade_id, _pos_exc)
+                    continue
         except Exception as exc:
             logger.warning("Position check error: %s", exc)
 
@@ -7070,26 +7398,41 @@ class LiveExecutor:
                 exchange = await self._get_exchange()
                 await exchange.cancel_order(pos.limit_order_id, self._venue.order_symbol(pos.symbol))
 
-                # Verify the order is actually cancelled
-                cancelled = False
+                # Verify the order is actually cancelled. THREE-valued:
+                # True cancelled, False still resting, None nobody could tell.
+                # `cancel_order` returning without raising is not a confirmation
+                # — the "cancel didn't work" branch below exists precisely
+                # because it can fail to take — so an unreadable check must
+                # not borrow its result and delete a position from the book.
+                cancelled: Optional[bool] = None
+                _cancel_detail = "verification did not run"
                 try:
                     order_info = await exchange.fetch_order(
                         pos.limit_order_id, pos.symbol,
                         params=self._venue.futures_params())
-                    status = (order_info.get("status") or "").lower()
-                    filled = float(order_info.get("filled") or 0)
-                    if status in ("canceled", "cancelled", "expired", "closed"):
+                    _verdict = pending_cancel_verdict(order_info)
+                    _state = _verdict["state"]
+                    _cancel_detail = _verdict["detail"]
+                    filled = _verdict["filled_qty"]
+                    if _state == "cancelled":
                         cancelled = True
-                    elif filled > 0:
+                    elif _state == "still_open":
+                        cancelled = False
+                    elif _state == "filled":
                         # It filled while we were cancelling — handle as a fill
                         audit(trade_log,
                               f"Limit order {pos.limit_order_id} filled during cancel for {pos.symbol}",
                               action="cancel_pending", result="FILLED_DURING_CANCEL")
                         pos.status = "open"
-                        pos.quantity = filled          # true up to actual fill
-                        if pos.entry_price > 0:        # keep margin math consistent
-                            pos.cost_usd = (pos.entry_price * filled
-                                            / (pos.leverage or 1))
+                        # Only true up when the venue actually STATED a size. A
+                        # terminal fill status with no `filled` field is still a
+                        # fill; writing 0 there would zero a live position's size
+                        # and, with it, every margin and PnL number built on it.
+                        if filled is not None and filled > 0:
+                            pos.quantity = filled      # true up to actual fill
+                            if pos.entry_price > 0:    # keep margin math consistent
+                                pos.cost_usd = (pos.entry_price * filled
+                                                / (pos.leverage or 1))
                         # Stamp fill time + protect NOW: this transition previously
                         # placed NO exchange stop at all — the position sat naked
                         # until a later monitor tick. Best-effort placement here
@@ -7119,11 +7462,20 @@ class LiveExecutor:
                         self._save_positions()
                         return (f"Limit order for {pos.symbol} filled while cancelling. "
                                 f"Position is now open — use Close to exit.{_sl_note}")
-                except Exception:
-                    # fetch_order failed — assume cancel worked if cancel_order didn't throw
-                    cancelled = True
+                except Exception as _verify_exc:
+                    # fetch_order failed. This USED to assume the cancel worked
+                    # ("if cancel_order didn't throw"), which deleted the position
+                    # from the book on the strength of a read that never happened.
+                    cancelled = None
+                    _cancel_detail = str(_verify_exc)[:120]
+                    audit(trade_log,
+                          f"Could not verify cancel of {pos.limit_order_id} for "
+                          f"{pos.symbol}: {_cancel_detail}",
+                          action="cancel_pending", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "order_id": pos.limit_order_id,
+                                "symbol": pos.symbol})
 
-                if cancelled:
+                if cancelled is True:
                     pos.status = "closed"
                     pos.close_reason = reason
                     pos.closed_at = datetime.now(UTC)
@@ -7134,33 +7486,59 @@ class LiveExecutor:
                     del self._positions[trade_id]
                     self._save_positions()
 
+                    # `_cancel_detail` distinguishes a cancel the venue fully
+                    # described from one where it named the status but never
+                    # stated a fill quantity. The delete is accepted either way
+                    # — refusing it would make cancelling impossible on a venue
+                    # that omits the field, and the 8h hard timeout would then
+                    # book a flat close on a position that might be live — but
+                    # the weaker of the two is now countable instead of silent.
                     audit(trade_log,
-                          f"Cancelled pending limit order for {pos.symbol} (order {pos.limit_order_id})",
+                          f"Cancelled pending limit order for {pos.symbol} "
+                          f"(order {pos.limit_order_id}): {_cancel_detail}",
                           action="cancel_pending", result="CANCELLED",
                           data={"trade_id": trade_id, "order_id": pos.limit_order_id,
-                                "symbol": pos.symbol, "reason": reason})
+                                "symbol": pos.symbol, "reason": reason,
+                                "verdict": _cancel_detail})
                     return f"CANCELLED pending {pos.direction} {pos.symbol} limit order"
-                else:
+                elif cancelled is False:
                     # Cancel didn't work — revert status
                     pos.status = "pending_fill"
                     self._save_positions()
                     return (f"Failed to cancel limit order for {pos.symbol} — "
                             f"order may still be active on exchange. Please cancel manually on Bitget.")
+                else:
+                    # Nobody could tell. Keep tracking it: `_check_pending_limit`
+                    # reads this same order every monitor tick and reads "closed"
+                    # the right way round, and its 2x-expiry hard timeout closes
+                    # the record if the order really is gone. Dropping it here is
+                    # the one move that cannot be undone by a later tick.
+                    pos.status = "pending_fill"
+                    self._save_positions()
+                    return (f"Could NOT verify the cancel of {pos.symbol}'s limit order — "
+                            f"the exchange did not answer. Still tracking it; the monitor "
+                            f"will re-check. Confirm on Bitget before assuming either way.")
 
             except Exception as exc:
                 exc_str = str(exc)
                 # 25204 = order doesn't exist (already cancelled or filled)
                 if "25204" in exc_str or "Order does not exist" in exc_str:
-                    # Check if it filled
+                    # Check if it filled. `_book_state` starts UNREADABLE and is
+                    # only lowered to "flat" by a position list we actually read:
+                    # the delete below is gated on that word, so every way of not
+                    # finding out — a throw, a payload with no sizes — keeps the
+                    # position tracked instead of erasing it.
+                    _book_state = "unreadable"
+                    _book_detail = "position check did not run"
                     try:
                         exchange = await self._get_exchange()
                         ccxt_sym = self._venue.swap_symbol(pos.symbol)
                         ex_positions = await exchange.fetch_positions(
                             [ccxt_sym], params=self._venue.futures_params())
-                        has_pos = any(
-                            abs(float(p.get("contracts", 0) or 0)) > 0 for p in ex_positions
-                        )
-                        if has_pos:
+                        _presence = position_presence(ex_positions)
+                        _book_state = _presence["state"]
+                        _book_detail = _presence["detail"]
+                        if _book_state == "present":
                             pos.status = "open"
                             # Same naked-transition fix as the fill-during-cancel
                             # race above: stamp fill time and best-effort place the
@@ -7192,14 +7570,35 @@ class LiveExecutor:
                     except Exception as _pos_chk_exc:
                         logger.warning("Position check during pending cancel failed for %s: %s",
                                        pos.symbol, _pos_chk_exc)
+                        _book_state = "unreadable"
+                        _book_detail = str(_pos_chk_exc)[:120]
 
-                    # Order doesn't exist and no position — already cancelled
-                    del self._positions[trade_id]
+                    if _book_state == "flat":
+                        # Order doesn't exist and the venue showed us an empty
+                        # book — already cancelled.
+                        del self._positions[trade_id]
+                        self._save_positions()
+                        audit(trade_log,
+                              f"Pending limit order already gone for {pos.symbol}: {exc_str}",
+                              action="cancel_pending", result="ALREADY_GONE")
+                        return f"CANCELLED pending {pos.direction} {pos.symbol} (order already gone)"
+
+                    # The order is gone and we could not read whether a position
+                    # took its place. Those are the two halves of the same
+                    # question and only one of them was answered, so keep the
+                    # record: the monitor re-checks it, and its hard timeout
+                    # closes it if the order really did vanish for nothing.
+                    pos.status = "pending_fill"
                     self._save_positions()
                     audit(trade_log,
-                          f"Pending limit order already gone for {pos.symbol}: {exc_str}",
-                          action="cancel_pending", result="ALREADY_GONE")
-                    return f"CANCELLED pending {pos.direction} {pos.symbol} (order already gone)"
+                          f"Pending limit order gone for {pos.symbol} but the book was "
+                          f"unreadable ({_book_detail}) — still tracking",
+                          action="cancel_pending", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "order_id": pos.limit_order_id,
+                                "symbol": pos.symbol, "book_state": _book_state})
+                    return (f"{pos.symbol}'s limit order is gone, but the exchange did "
+                            f"not tell us whether it FILLED first. Still tracking the "
+                            f"position — check Bitget before assuming it is flat.")
                 else:
                     pos.status = "pending_fill"
                     self._save_positions()

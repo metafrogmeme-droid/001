@@ -289,12 +289,42 @@ def render_news_digest(recent, standdown_recs, now, limit=6,
     return "\n".join(lines)
 
 
+# An `<!ENTITY ...>` declaration anywhere in the document's prolog. Only the
+# head is scanned: a DOCTYPE is only legal before the root element, so a match
+# further in is content rather than a declaration, and scanning a 10 MB feed for
+# it on every poll is work with no answer in it.
+_ENTITY_DECL = re.compile(r"<!ENTITY\b", re.IGNORECASE)
+_DOCTYPE_SCAN_BYTES = 64 * 1024
+
+
 def parse_rss(xml_text: str, source: str, symbols: Iterable[str], now: float) -> list[NewsItem]:
     """Parse an RSS/Atom document into scored NewsItems. Tolerant of the two
     common shapes (RSS <item> and Atom <entry>); returns [] on any parse error
     so a malformed feed never breaks the radar."""
     syms = list(symbols)
     out: list[NewsItem] = []
+
+    # Refuse a document that declares internal entities, BEFORE parsing it.
+    #
+    # xml.etree.ElementTree does not resolve EXTERNAL entities — a
+    # `file:///etc/passwd` entity raises "undefined entity", verified — so
+    # there is no XXE here. Internal entity expansion is a different matter and
+    # is live: a four-level "billion laughs" document expands to 30,000
+    # characters in this parser in under a millisecond, and each further level
+    # multiplies by ten. Nine levels is a gigabyte of RAM from a few hundred
+    # bytes of feed.
+    #
+    # The feeds are third-party URLs, so the input is untrusted by definition.
+    # Rejecting DOCTYPE outright rather than reaching for defusedxml keeps this
+    # dependency-free, and costs nothing real: an RSS or Atom feed has no
+    # legitimate reason to declare entities, and the handful that carry a bare
+    # DOCTYPE with no ENTITY are matched more narrowly than that.
+    if _ENTITY_DECL.search(xml_text[:_DOCTYPE_SCAN_BYTES]):
+        system_log.warning(
+            "news: refusing %s — the document declares XML entities, which is "
+            "an expansion-bomb shape and never needed by a real feed", source)
+        return out
+
     try:
         root = ET.fromstring(xml_text)
     except Exception as exc:

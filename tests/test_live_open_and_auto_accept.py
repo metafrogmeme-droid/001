@@ -28,7 +28,6 @@ from __future__ import annotations
 import dataclasses
 import types
 
-import pytest
 
 import bot.config as cfg_mod
 from bot.config import CONFIG

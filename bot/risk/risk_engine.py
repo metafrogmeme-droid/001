@@ -295,6 +295,14 @@ class RiskEngine:
         # peak back to 0.0 — the restore ran, audited PEAK_RESTORED, and had
         # no effect. Init-after-load is invisible in review; a test caught it.
         self._live_equity_peak: float = 0.0  # high-water mark for live drawdown
+        # LIVE daily-loss accumulator. Its comment used to read "in-memory
+        # (rebuild after restart is safe — a fresh day starts flat)". A fresh
+        # DAY starts flat; a restart is not a fresh day. Lose 4.5% against a
+        # 5% cap, redeploy, lose 4.5% again, and the gate reads 4.5% while the
+        # day is really 9.0% — the breaker that exists to stop exactly that
+        # never trips, and this deployment redeploys often.
+        self._live_daily_pnl: float = 0.0
+        self._live_daily_day: str = ""      # "YYYY-MM-DD" the accumulator is for
         # F-01: reload persisted safety state so restarts don't clear the breaker
         self._load_state()
         # Feature: Equity curve circuit breaker
@@ -317,8 +325,9 @@ class RiskEngine:
         # close callback) and the LIVE equity high-water mark, so the same
         # breakers protect a live account. UTC-day reset; in-memory (rebuild
         # after restart is safe — a fresh day starts flat).
-        self._live_daily_pnl: float = 0.0
-        self._live_daily_day: str = ""      # "YYYY-MM-DD" the accumulator is for
+        # _live_daily_pnl / _live_daily_day are initialised ABOVE _load_state()
+        # for the same reason _live_equity_peak is — see there. They are
+        # RESTORED from disk now, so an init here would stomp the restore.
         # _live_equity_peak is initialised ABOVE _load_state() — see there.
         # Last live equity seen by evaluate(). Only ever set in LIVE mode, so
         # None means "no live evaluation yet" and the reporter says paper.
@@ -966,7 +975,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None) -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -974,11 +983,15 @@ class RiskEngine:
         Pass live_equity= to override paper equity for sizing in LIVE mode.
         Pass max_position_usd= to cap sizing at execution limit (e.g. micro-test $10).
         Pass live_open_count= to override paper open position count in LIVE mode.
+        Pass live_mode=True when this is a LIVE evaluation, so that an
+        unreadable `live_equity` is refused instead of silently falling back
+        to the paper book. Defaults False: only the caller knows whether a
+        `live_equity=None` means "paper" or "live, read failed".
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None) -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False) -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -993,6 +1006,44 @@ class RiskEngine:
                 verdict=RiskVerdict.REJECTED,
                 reason=f"Portfolio state unavailable: {exc}",
                 checks_failed=[f"PORTFOLIO_STATE: {exc}"],
+                timestamp=datetime.now(UTC),
+            )
+
+        # LIVE EQUITY MUST BE READABLE BEFORE ANY GATE MEASURES ANYTHING.
+        #
+        # `live_equity=None` carried two meanings and could not be told apart:
+        # "paper mode" and "live, but the balance read failed". Three gates
+        # branched on `if live_equity is not None and live_equity > 0` and sent
+        # BOTH to the paper book — position sizing, the daily-loss breaker and
+        # the drawdown breaker.
+        #
+        # On a live account that is worthless in the direction that spends
+        # money. The comment above the daily-loss branch says why: "the paper
+        # snapshot's daily_pnl is ~0 because live fills never touch the paper
+        # portfolio". ~0 PnL over paper equity is ~0% loss and the paper
+        # drawdown is ~0%, so neither breaker trips however the real account is
+        # doing, while sizing keeps sizing against paper equity — the exact
+        # thing its own comment says the live fix exists to prevent.
+        #
+        # So the caller now states which situation it is in, because only the
+        # caller knows, and a LIVE evaluation with no readable equity is
+        # REFUSED. An unmeasurable drawdown is not a passing one. This mirrors
+        # the `Portfolio state unavailable` rejection directly above: the same
+        # answer, for the same reason, one input further out.
+        #
+        # `> 0` rather than `is not None`: the gates below test `> 0`, so a
+        # venue answering a zero balance, or a cache whose `.get("total", 0.0)`
+        # found no total, reaches the same else. Refusing on a genuinely-zero
+        # live balance is correct anyway — there is nothing to size against.
+        if live_mode and (live_equity is None or live_equity <= 0):
+            self._total_rejections += 1
+            return RiskCheck(
+                trade_id=idea.id,
+                verdict=RiskVerdict.REJECTED,
+                reason=("Live equity could not be read, so the daily-loss and "
+                        "drawdown limits cannot be measured. Refusing rather "
+                        "than evaluating this live trade against the paper book."),
+                checks_failed=["LIVE_EQUITY: unreadable"],
                 timestamp=datetime.now(UTC),
             )
 
@@ -1155,6 +1206,34 @@ class RiskEngine:
                 passed.append(f"EQUITY_THROTTLE: size×{_thr_mult:.2f} "
                               "(rolling PF below full-size band)")
 
+        # Per-user declared risk appetite. TIGHTEN-ONLY, like every multiplier
+        # above it: `conservative` shrinks, and nothing a user can type into a
+        # web form is ever allowed to make a position larger.
+        #
+        # Only the PER-USER engines carry an identity — the shared operator
+        # engine's `_person_user_id` is "", which resolves to 1.0 — so an
+        # operator or auto-trade path is byte-identical to before.
+        #
+        # Resolved HERE and applied in two places: this pre-cap multiply, and
+        # the notional cap further down. See the cap site for why one without
+        # the other is a no-op.
+        _pref_mult, _pref_why = 1.0, "not evaluated"
+        try:
+            from bot.core.user_sizing import multiplier_for_user
+            _pref_mult, _pref_why = multiplier_for_user(
+                getattr(self, "_person_user_id", ""))
+            if _pref_mult < 1.0 and CONFIG.risk.user_risk_pref_sizing_enabled:
+                position_usd *= _pref_mult
+                passed.append(f"USER_RISK_PREF: size x{_pref_mult:.2f} ({_pref_why})")
+        except Exception as _pref_exc:
+            # A preferences lookup must never affect a trade. Unlike the
+            # session sizer above it, this one does NOT fall back to a
+            # conservative reduction: that guard exists because a missing
+            # session read leaves a real liquidity risk unmeasured, whereas a
+            # missing preference leaves nothing unmeasured at all.
+            _pref_mult = 1.0
+            passed.append(f"USER_RISK_PREF: skipped (error: {_pref_exc})")
+
         # Drawdown recovery mode: require higher confidence, reduce size
         if self._in_drawdown_recovery:
             if idea.confidence < CONFIG.risk.drawdown_recovery_conf_min:
@@ -1244,8 +1323,32 @@ class RiskEngine:
             _thr_cap_mult = self.equity_throttle_multiplier
             if _thr_cap_mult < 1.0:
                 max_notional_usd *= _thr_cap_mult
+        # Per-user risk preference tightens the CAP as well as the pre-cap
+        # size, for the reason spelled out for regime_mult and the equity
+        # throttle immediately above: the cap binds on ~every crypto trade, so
+        # a pre-cap multiplication alone is clamped straight back to the same
+        # number. The first version of this feature did only the pre-cap half
+        # and its own behavioural test caught it — a conservative user came out
+        # at 1300.0, byte-identical to an aggressive one, with the reduction
+        # sitting right there in checks_passed saying it had been applied.
+        # A tighten-only rule that tightens nothing is the original defect
+        # wearing a flag.
+        if CONFIG.risk.user_risk_pref_sizing_enabled and _pref_mult < 1.0:
+            max_notional_usd *= _pref_mult
         if max_notional_usd > 0 and position_usd > max_notional_usd:
             position_usd = max_notional_usd
+        # SHADOW, audited here rather than at the resolve site because the
+        # would-be number is only knowable after the cap. #36 is the precedent
+        # for the CHANNEL: two shadow deltas went to logger.debug, which has no
+        # handler, so shadow mode was indistinguishable from not being built.
+        if _pref_mult < 1.0 and not CONFIG.risk.user_risk_pref_sizing_enabled:
+            audit(risk_log,
+                  f"User risk-preference sizing shadow: would apply "
+                  f"x{_pref_mult:.2f} ({_pref_why})",
+                  action="user_risk_pref_sizing", result="SHADOW",
+                  data={"multiplier": _pref_mult, "reason": _pref_why,
+                        "current_usd": round(position_usd, 2),
+                        "would_be_usd": round(position_usd * _pref_mult, 2)})
 
         # Auto-reset a DAILY-LOSS breaker trip once the UTC day has rolled over
         # (opt-in, default OFF). Without it a single bad day latches the breaker
@@ -1596,11 +1699,12 @@ class RiskEngine:
                 # analyzer already gated idea generation on this same per-type
                 # floor; this stops it being silently overridden by a flat
                 # global re-gate), else the single global min_confidence.
-                if CONFIG.risk.per_strategy_confidence_floor_enabled:
-                    _conf_strategy = getattr(idea, "strategy_type", "swing")
-                    min_conf = CONFIG.strategy_types.get_min_confidence(_conf_strategy)
-                else:
-                    min_conf = CONFIG.risk.min_confidence
+                # One rule, one place — bot/risk/confidence_floor.py. This
+                # was the flag's ONLY reader while three gates in engine.py
+                # applied the flat global first, so it decided a question that
+                # had already been answered.
+                from bot.risk.confidence_floor import min_confidence_for
+                min_conf = min_confidence_for(idea)
                 if idea.confidence < min_conf:
                     failed.append(f"CONFIDENCE: {idea.confidence} < {min_conf} minimum")
                 else:
@@ -1889,13 +1993,18 @@ class RiskEngine:
         except Exception as exc:
             failed.append(f"MTF_ALIGNMENT: evaluation error ({exc})")
 
-        # 20. Portfolio concentration / PCA (Feature #4) — graceful skip if no data
+        # 20. Portfolio concentration / PCA (Feature #4)
+        # "OK or skipped (no data)" was one string for two opposite facts: a
+        # measured pass and a check that never ran. On the line that decides
+        # whether a book is dangerously correlated, that is the defect CLAUDE.md
+        # names most often — absent rendered as a measurement. _check_concentration
+        # now returns its own detail and the three outcomes stay distinct.
         try:
-            conc_result = self._check_concentration()
+            conc_result, conc_detail = self._check_concentration()
             if conc_result is not None:
                 failed.append(conc_result)
             else:
-                passed.append("CONCENTRATION_PCA: OK or skipped (no data)")
+                passed.append(f"CONCENTRATION_PCA: {conc_detail}")
         except Exception as exc:
             failed.append(f"CONCENTRATION_PCA: evaluation error ({exc})")
 
@@ -2118,6 +2227,31 @@ class RiskEngine:
                                 f"('{_strat}' {_why})")
                     else:
                         passed.append(f"VALIDATION: '{_strat}' {_verdict}")
+                    # `validation_result` was built here and then DISCARDED
+                    # (ruff F841). That made a promise the product prints
+                    # elsewhere untrue: /gates renders a shadow gate as one
+                    # that "records what it would reject, refuses nothing" —
+                    # and this one refused nothing and recorded nothing.
+                    #
+                    # A gate ships off -> shadow -> enforce on EVIDENCE, and
+                    # the evidence for promoting this one is the count of
+                    # trades it would have stopped. With the dict thrown away
+                    # that count did not exist, so shadow was not a stage on
+                    # the way to enforce; it was where the gate stayed.
+                    #
+                    # The audit chain is the right home rather than a new
+                    # tally surface: it is already durable, already read, and
+                    # a module nobody calls is the failure mode this file's
+                    # neighbours keep being fixed for. Recording-only — this
+                    # block cannot touch `passed` or `failed`.
+                    audit(risk_log,
+                          f"VALIDATION {_vmode}: '{_strat}' {_verdict}"
+                          + (" (would reject)" if _would_reject else ""),
+                          action="validation_gate",
+                          result=("WOULD_REJECT" if _would_reject
+                                  else "ALLOW") if _vmode != "enforce"
+                                 else ("REJECTED" if _would_reject else "ALLOW"),
+                          data=validation_result)
             except Exception as _vge:
                 # A validation fault must NEVER affect a trade.
                 passed.append(f"VALIDATION: skipped (error: {_vge})")
@@ -2583,21 +2717,67 @@ class RiskEngine:
             )
         return True, f"PC1 explains {pc1_explained:.1%} — diversification OK"
 
-    def _check_concentration(self) -> Optional[str]:
-        """Internal check for portfolio concentration in risk flow.
+    def _check_concentration(self) -> tuple[Optional[str], str]:
+        """Is the book we are HOLDING concentrated? Returns (failure, detail).
 
-        Builds a returns matrix from trade history. Gracefully skips when
-        insufficient data is available.
+        THE MATRIX DESCRIBED A DIFFERENT PORTFOLIO THAN THE ONE BEING CHECKED.
+        This gated on `len(open_positions) < 2` and then built its returns
+        matrix out of CLOSED-TRADE history — so it could score PC1 over last
+        month's BTC and ETH round-trips while the open book was five correlated
+        alt-longs, and report the diversification of a portfolio nobody holds.
+        The two sets need not share a single asset.
+
+        It also required five closed trades and two assets with three closes
+        each, so it returned "no data" for the whole early life of an account —
+        exactly when concentration is most likely and least survivable. A fresh
+        book is not a diversified one.
+
+        LIVE HOLDINGS FIRST, and from the same aligned price series the
+        covariance VaR uses (`_aligned_returns`, #49): a common timestamp grid,
+        so a symbol that missed ticks is not paired positionally against a
+        fresher one. Price returns also mean the check works on a book that has
+        closed nothing at all.
+
+        FALL BACK, NEVER SILENTLY DOWNGRADE — the rule
+        `_compute_portfolio_var_covariance` already follows. When the open book
+        has no usable price history the closed-trade matrix is still better than
+        nothing, but the caller is TOLD which one answered, because "PC1 over
+        what you hold" and "PC1 over what you used to hold" are different
+        claims and only one of them is about current risk.
+
+        The second element is that detail string. `None` as the first element
+        means "no failure", which is not the same as "checked and fine" — the
+        caller renders those differently now.
         """
         positions = self._portfolio.open_positions
         if len(positions) < 2:
-            return None  # Not enough positions to check
+            return None, "fewer than 2 open positions — not applicable"
 
+        # ── the book actually held ──────────────────────────────────────
+        held: dict[str, float] = {}
+        for pos in positions:
+            notional = pos.entry_price * pos.quantity
+            if notional > 0:
+                held[pos.asset] = held.get(pos.asset, 0.0) + notional
+        assets = sorted(held)
+        if len(assets) >= 2:
+            min_points = CONFIG.risk.var_covariance_min_points
+            try:
+                aligned = self._aligned_returns(assets, min_points)
+            except Exception:
+                aligned = None
+            if aligned:
+                ok, reason = self.check_portfolio_concentration(
+                    [aligned[a] for a in assets])
+                detail = f"{reason} (live book, {len(assets)} assets)"
+                return (None if ok else f"CONCENTRATION_PCA: {detail}"), detail
+
+        # ── fallback: closed-trade history, named as such ───────────────
         history = self._portfolio.trade_history
         if len(history) < 5:
-            return None  # Not enough history
+            return None, ("could not measure — no aligned price history for the "
+                          "open book and fewer than 5 closed trades")
 
-        # Group closed trades by asset to build return series
         asset_returns: dict[str, list[float]] = {}
         for t in history:
             if t.exit_price is not None and t.entry_price > 0:
@@ -2606,16 +2786,16 @@ class RiskEngine:
                     ret = -ret
                 asset_returns.setdefault(t.asset, []).append(ret)
 
-        # Need at least 2 assets with 3+ returns each
         valid = {a: rets for a, rets in asset_returns.items() if len(rets) >= 3}
         if len(valid) < 2:
-            return None  # Graceful skip
+            return None, ("could not measure — no aligned price history for the "
+                          "open book and too few closed trades per asset")
 
-        returns_matrix = list(valid.values())
-        ok, reason = self.check_portfolio_concentration(returns_matrix)
-        if not ok:
-            return f"CONCENTRATION_PCA: {reason}"
-        return None
+        ok, reason = self.check_portfolio_concentration(list(valid.values()))
+        # Named, because this matrix is about assets the book may no longer
+        # hold. An operator reading a pass here should know what passed.
+        detail = f"{reason} (CLOSED-TRADE history, not the open book)"
+        return (None if ok else f"CONCENTRATION_PCA: {detail}"), detail
 
     def _compute_portfolio_var(self, position_usd: float, confidence_level: float = 0.95,
                                idea: Optional[TradeIdea] = None) -> VarResult:
@@ -3141,6 +3321,36 @@ class RiskEngine:
 
     # -- Persistence (F-01) --
 
+    def _restore_live_daily(self, data: dict) -> None:
+        """Restore the live daily-loss accumulator, but ONLY for today.
+
+        Three-way, because two of the outcomes are silent:
+          * stored day == today  -> restore; the redeploy keeps the day's loss
+          * stored day is other  -> start flat; carrying it forward would trip
+            the breaker on a day that has lost nothing
+          * unreadable           -> start flat, which is the same as the
+            behaviour before this existed
+
+        A non-numeric total is treated as unreadable rather than coerced:
+        float("lots") raising inside _load_state would be caught by the
+        fail-closed handler and assume a TRIPPED breaker, which is a large
+        consequence for a corrupt field.
+        """
+        try:
+            day = data.get("live_daily_day")
+            if not isinstance(day, str) or not day:
+                return
+            today = time.strftime("%Y-%m-%d", time.gmtime(int(self._now())))
+            if day != today:
+                return
+            pnl = data.get("live_daily_pnl")
+            if not isinstance(pnl, (int, float)) or isinstance(pnl, bool):
+                return
+            self._live_daily_pnl = float(pnl)
+            self._live_daily_day = day
+        except Exception:
+            return
+
     def _load_state(self) -> None:
         """Restore safety state from disk.
         Fix 3 (fail-closed persistence):
@@ -3164,6 +3374,7 @@ class RiskEngine:
             self._circuit_trip_cause = data.get("circuit_trip_cause", "")
             self._circuit_trip_day = data.get("circuit_trip_day", "")
             self._restore_dd_override(data)
+            self._restore_live_daily(data)
             self._restore_live_peak(data)
             if self._circuit_open:
                 audit(risk_log, "Circuit breaker state restored from disk: ACTIVE",
@@ -3284,6 +3495,13 @@ class RiskEngine:
             # restart without a "first restart writes, second restores" lag.
             "live_equity_peak": (float(self._live_equity_peak)
                                  if self._live_equity_peak > 0 else None),
+            # The day's realized LIVE loss, and the UTC day it belongs to. The
+            # day is written alongside deliberately: restoring the number
+            # without it would carry yesterday's loss into today and trip the
+            # breaker on a day that has lost nothing — the opposite error, and
+            # just as wrong.
+            "live_daily_pnl": float(self._live_daily_pnl),
+            "live_daily_day": self._live_daily_day,
             "saved_at": datetime.now(UTC).isoformat(),
         }
 

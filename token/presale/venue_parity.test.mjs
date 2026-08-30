@@ -162,3 +162,90 @@ test('every published term is compared, so this file cannot silently go stale', 
     `only ${published.length} fields found in smithii.config.json — the shape ` +
     'changed and this test is no longer reading it');
 });
+
+// ── the surface a buyer actually reads ──────────────────────────────────────
+//
+// Everything above compares two config files an OPERATOR reads. The GitBook is
+// what a BUYER reads, and it had drifted: it said "60% of raised SOL → DEX
+// liquidity" while both configs and TOKEN_ROADMAP.md §7 said 66.67%, which is
+// the value Genesis actually encodes on-chain as `raisedSolToLiquidityBps:
+// 6667`. Six-and-two-thirds points of the raise, decided by which document
+// someone happened to read.
+//
+// It survived precisely because this file compares configs to each other. The
+// repo's own recurring lesson — ask which OTHER surface makes the same claim —
+// pointed one layer further out than the parity list reached.
+const DOCS = path.resolve(HERE, '..', '..', 'docs');
+const gitbook = fs.readFileSync(path.join(DOCS, 'gitbook', 'token-roadmap.md'), 'utf8');
+const roadmap = fs.readFileSync(path.join(DOCS, 'TOKEN_ROADMAP.md'), 'utf8');
+
+test('the published liquidity share matches the on-chain parameter', () => {
+  const pct = genesis.liquidity.raisedSolToLiquidityBps / 100;   // 66.67
+  const needle = `${pct}% of raised SOL`;
+  assert.ok(gitbook.includes(needle),
+    `the GitBook does not state "${needle}". A buyer reads that page; ` +
+    'raisedSolToLiquidityBps is what the chain enforces. They have to agree.');
+
+  // And nothing anywhere still states the superseded figure.
+  for (const [name, text] of [['gitbook', gitbook], ['TOKEN_ROADMAP.md', roadmap]]) {
+    assert.ok(!/60% of raised SOL/.test(text),
+      `${name} still says "60% of raised SOL" — superseded by ${pct}%`);
+  }
+});
+
+test('the published caps and contribution bounds match the sale config', () => {
+  // Same reasoning, applied to every number a buyer could act on. Written as a
+  // loop over (label, value, pattern) so adding a term is one line rather than
+  // a new test that someone forgets to write.
+  const TERMS = [
+    ['soft cap', genesis.sale.softCapSol, /Soft cap \*\*([\d,]+) SOL\*\*/],
+    ['hard cap', genesis.sale.hardCapSol, /hard cap \*\*([\d,]+) SOL\*\*/],
+    ['min contribution', genesis.sale.minContributionSol, /Min \*\*([\d.]+) SOL\*\*/],
+    ['max contribution', genesis.sale.maxContributionSol, /max \*\*([\d.]+) SOL\*\* per wallet/],
+  ];
+  const mismatched = [];
+  for (const [label, value, pattern] of TERMS) {
+    const m = gitbook.match(pattern);
+    if (!m) { mismatched.push(`${label}: not stated in the GitBook at all`); continue; }
+    const published = Number(m[1].replace(/,/g, ''));
+    if (published !== value) {
+      mismatched.push(`${label}: GitBook says ${published}, config says ${value}`);
+    }
+  }
+  assert.deepEqual(mismatched, [],
+    'the published sale terms disagree with the config that drives the sale:\n  '
+    + mismatched.join('\n  '));
+});
+
+test('the GitBook says the soft cap is enforced operationally, not refunded', () => {
+  // POSITIVE first. The first draft of this test asserted that no sentence
+  // containing "refund" existed beyond an allow-list, and it failed on three
+  // TRUE statements: "permanently and with no refund" (the absence of one),
+  // "withdraw/refund" naming Genesis instructions in the repo, and the
+  // two-line sentence its own allow-list was meant to cover, split by a
+  // newline the line-anchored pattern could not cross.
+  //
+  // That is the failure mode CLAUDE.md documents — asserting a short string is
+  // ABSENT keeps matching prose that says the opposite of the thing forbidden.
+  // Asserting what the page MUST say cannot misfire that way, and it fails for
+  // the right reason if someone rewrites the section to promise a refund.
+  assert.match(gitbook, /no native soft-cap\/refund/,
+    'the GitBook no longer states that the venue has no native soft-cap/refund '
+    + 'field. If the venue changed, the refund capability must be EXECUTED on '
+    + 'devnet and the transaction published before this page may say otherwise.');
+
+  // And a narrow negative, on the shape of the CLAIM rather than the word.
+  // Genesis has no refund instruction for a V2 presale (0x2f, proven on devnet)
+  // and nothing in this repo has read or run Smithii's.
+  const PROMISES = [
+    /automatic(ally)? refund/i,
+    /refunds? (are |is )?(automatic|guaranteed)/i,
+    /refunded automatically/i,
+    /contributions are refundable/i,
+    /refund(s|ed)? if the soft cap is missed/i,
+  ];
+  const found = PROMISES.filter((re) => re.test(gitbook)).map(String);
+  assert.deepEqual(found, [],
+    'the GitBook promises a refund. No refund path has been executed at either '
+    + 'venue. Execute it and publish the transaction first.');
+});

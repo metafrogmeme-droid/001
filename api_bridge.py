@@ -340,10 +340,24 @@ app = FastAPI(
 _cors_env = os.getenv("DASHBOARD_CORS_ORIGIN", os.getenv("CORS_ORIGINS", "")).strip()
 _allowed_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
 
+# Credentials ride only on a single, non-wildcard origin — the browser refuses
+# `Allow-Origin: *` with credentials, and echoing one of several origins back
+# is a decision this middleware cannot make safely on its own.
+#
+# SAY SO when it turns them off. Configuring a second origin silently disables
+# credentialed requests, and the symptom — "login works from A, and adding B
+# broke it" — points at CORS in general rather than at this line.
+_allow_credentials = len(_allowed_origins) == 1 and _allowed_origins[0] != "*"
+if _allowed_origins and not _allow_credentials:
+    print(
+        f"CORS: {len(_allowed_origins)} origins configured ({', '.join(_allowed_origins)}) "
+        f"— credentialed cross-origin requests are DISABLED. Credentials require "
+        f"exactly one non-wildcard origin.")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=len(_allowed_origins) == 1 and _allowed_origins[0] != "*",
+    allow_credentials=_allow_credentials,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )

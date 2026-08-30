@@ -68,6 +68,48 @@ function toolCounts() {
   return { total: readOnly + requiresKey, read_only: readOnly, requires_key: requiresKey };
 }
 
+/**
+ * The Farcaster Mini App manifest.
+ *
+ * Sits beside the other discovery documents because it is the same kind of
+ * thing: a file a client reads BEFORE it has any relationship with us, to
+ * decide what we are. The difference is that this one carries a claim only the
+ * Farcaster account owner can make — see lib/farcaster_manifest.js — so an
+ * unsigned manifest omits `accountAssociation` entirely rather than shipping a
+ * placeholder that would read as configured.
+ *
+ * 503 rather than a partial 200 when a REQUIRED field cannot be built. A
+ * manifest missing `iconUrl` is not a smaller manifest; it is one Warpcast
+ * rejects with an error the operator never sees, and answering 200 would put
+ * that failure on the far side of a wall.
+ */
+router.get('/.well-known/farcaster.json', limited, (req, res) => {
+  const fc = require('../lib/farcaster_manifest');
+  const doc = fc.manifest(req);
+  if (!doc) {
+    const st = fc.status(req);
+    return res.status(503).json({
+      error: 'manifest_not_ready',
+      not_ready_reasons: st.not_ready_reasons,
+      problems: st.problems,
+    });
+  }
+  res.set('Cache-Control', 'public, max-age=300');
+  return res.json(doc);
+});
+
+/**
+ * Whether the Mini App is publishable, and what a signed one still needs.
+ *
+ * Separate from the manifest because the manifest cannot say "I am unsigned" —
+ * it says it by an ABSENT key, which is correct for the consumer and useless
+ * for the operator. This is the surface that answers "why is Warpcast not
+ * accepting it", in the same shape /api/tool/registration-plan already uses.
+ */
+router.get('/api/farcaster/status', limited, (req, res) => {
+  res.json(require('../lib/farcaster_manifest').status(req));
+});
+
 router.get('/.well-known/mcp.json', limited, (req, res) => {
   const m = mcp();
   const base = origin(req);

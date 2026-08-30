@@ -9,12 +9,19 @@
  * IT REACHES THE PAPER ARENA AND NOTHING ELSE.
  *
  * Not "it is intended for the Arena": it is structurally incapable of anything
- * more. `verify()` returns a bare user id, the MCP tools are the only callers,
- * and each of those calls `openForUser` / `closeForUser` — functions that touch
+ * more. `verify()` returns a user id and an optional agent slug — nothing that
+ * names a capability — the MCP tools are the only callers, and each of those
+ * calls `openForUser` / `closeForUser` — functions that touch
  * `arena_positions`, `arena_trades` and `arena_accounts` and nothing else. It
  * is not a session, `authMiddleware` will not accept it, and there is no code
  * path from one of these keys to a live order, an exchange credential, a
  * wallet, or another user's row.
+ *
+ * (It returned a bare integer until the slug was added. The sentence above
+ * said so, and the shape was part of the argument — so it is restated rather
+ * than left describing the old return. The argument is unchanged: a slug is a
+ * LABEL, not a permission, and `bindAgent` only accepts one the key's owner
+ * has already claimed.)
  *
  * The blast radius of a stolen key is therefore: somebody can lose your
  * VIRTUAL money and put bad trades on your public paper record. That is a real
@@ -88,18 +95,22 @@ async function mint(userId, label = '') {
 }
 
 /**
- * The user this key belongs to, or null.
+ * `{ userId, agentSlug }` for this key, or null.
  *
  * Null for every failure — unknown, revoked, malformed, or a database that
  * could not be read. A key that cannot be checked is not a valid key, and the
  * caller must not be able to tell those cases apart: "revoked" and "never
  * existed" are the same answer to whoever is holding it.
+ *
+ * `agentSlug` is null for an unbound key, which is every key minted before
+ * binding existed. Null means "trades as its owner, attributed to nobody" —
+ * the per-agent record only ever sees a slug somebody deliberately bound.
  */
 async function verify(raw) {
   if (!looksLikeKey(raw)) return null;
   try {
     const [rows] = await pool.execute(
-      'SELECT id, user_id, key_hash FROM arena_api_keys WHERE key_hash = ? AND revoked_at IS NULL',
+      'SELECT id, user_id, key_hash, agent_slug FROM arena_api_keys WHERE key_hash = ? AND revoked_at IS NULL',
       [hash(raw)]);
     const row = rows && rows[0];
     if (!row) return null;
@@ -111,17 +122,51 @@ async function verify(raw) {
     // Best-effort: a failed touch must never cost a valid caller their call.
     pool.execute('UPDATE arena_api_keys SET last_used_at = ? WHERE id = ?',
       [new Date(), row.id]).catch(() => {});
-    return Number(row.user_id);
+    return { userId: Number(row.user_id), agentSlug: row.agent_slug || null };
   } catch (err) {
     console.error('[arena_keys] verify failed:', err.stack || err.message);
     return null;
   }
 }
 
+/**
+ * Bind a key to an agent slug its owner has claimed, or unbind with null.
+ *
+ * The ownership check is the whole function. A slug on a key decides which
+ * public record this key's trades are published under, so binding to a slug
+ * somebody else claimed would let anyone write into anyone's track record —
+ * which is the failure the `agents` table was introduced to close, arriving
+ * one layer up. `agents.ownedBy` fails CLOSED on an unreadable database, so a
+ * bind cannot slip through a fault.
+ *
+ * @returns `{ ok }` or `{ ok: false, error, code }`.
+ */
+async function bindAgent(userId, keyId, slug) {
+  const [rows] = await pool.execute(
+    'SELECT id FROM arena_api_keys WHERE id = ? AND user_id = ? AND revoked_at IS NULL',
+    [keyId, userId]);
+  if (!rows || !rows.length) {
+    return { ok: false, code: 'no_key', error: 'No such active key on this account.' };
+  }
+  if (slug != null) {
+    const s = String(slug).toLowerCase();
+    if (!await require('./agents').ownedBy(userId, s)) {
+      return { ok: false, code: 'not_yours',
+        error: 'You have not claimed that agent slug. Claim it first at POST /api/agents.' };
+    }
+    await pool.execute('UPDATE arena_api_keys SET agent_slug = ? WHERE id = ? AND user_id = ?',
+      [s, keyId, userId]);
+    return { ok: true, agent_slug: s };
+  }
+  await pool.execute('UPDATE arena_api_keys SET agent_slug = NULL WHERE id = ? AND user_id = ?',
+    [keyId, userId]);
+  return { ok: true, agent_slug: null };
+}
+
 /** Keys a user holds. Never returns a hash — there is nothing to show. */
 async function list(userId) {
   const [rows] = await pool.execute(
-    'SELECT id, label, created_at, last_used_at FROM arena_api_keys '
+    'SELECT id, label, created_at, last_used_at, agent_slug FROM arena_api_keys '
     + 'WHERE user_id = ? AND revoked_at IS NULL ORDER BY id DESC',
     [userId]);
   return (rows || []).map((r) => ({
@@ -131,6 +176,8 @@ async function list(userId) {
     // `null`, not "never" and not a date: absent is not a measurement, and a
     // key that has never been used is a different fact from one used long ago.
     last_used_at: r.last_used_at || null,
+    // Which identity this key trades as. null = its owner, attributed to nobody.
+    agent_slug: r.agent_slug || null,
   }));
 }
 
@@ -153,5 +200,5 @@ function bearerFrom(req) {
 
 module.exports = {
   PREFIX, MAX_KEYS_PER_USER,
-  mint, verify, list, revoke, bearerFrom, looksLikeKey,
+  mint, verify, list, revoke, bindAgent, bearerFrom, looksLikeKey,
 };

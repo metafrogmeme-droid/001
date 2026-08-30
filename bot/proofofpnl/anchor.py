@@ -10,8 +10,11 @@ the bot EVER holding a signing key:
    cost estimate via public RPC.
 2. The operator signs and broadcasts it themselves. Nothing here executes.
 3. ``confirm_anchor(tx_hash)`` — verifies ON-CHAIN via RPC that the tx is
-   confirmed, was sent FROM the agent address (proving key control), and its
-   calldata contains the commitment — only then records the anchor.
+   confirmed, was sent FROM the agent address (proving key control), went TO
+   the destination whose ``mode`` it will then be published under, and that its
+   calldata is EXACTLY the anchor payload — only then records the anchor.
+   Every one of those is a claim the identity card makes out loud, so every one
+   is read off the transaction rather than off our own configuration.
 4. ``anchor_for_card()`` — the card's anchor section upgrades to VERIFIED only
    while the recorded commitment still matches the card's current identity;
    a rotated key honestly reads STALE, never silently VERIFIED.
@@ -76,6 +79,31 @@ def anchor_calldata(commitment: str) -> str:
     return "0x" + _MAGIC + commitment.lower()
 
 
+def destination_mode(to: Any, agent_address: str) -> str | None:
+    """Which anchor mode a transaction's DESTINATION actually demonstrates.
+
+    ``None`` means neither — there is no honest name for where it went, so
+    nothing is recorded.
+
+    ``mode`` is a published claim (``anchor_for_card`` puts it on the identity
+    card) about WHERE the anchor lives, and it was being written from
+    ``ANCHOR_REGISTRY_ADDRESS`` **at confirm time** rather than from the
+    transaction. Setting that variable after sending a self-send relabelled it
+    ``registry`` — the card then asserted a third-party contract holds the
+    registration, on evidence that never left the operator's own wallet.
+    Nothing read ``tx["to"]`` at all, so nothing could contradict it.
+    """
+    dest = str(to or "").strip().lower()
+    if not dest:
+        return None  # contract creation — no destination to match
+    registry = _env("ANCHOR_REGISTRY_ADDRESS").lower()
+    if registry and dest == registry:
+        return "registry"
+    if dest == str(agent_address or "").strip().lower():
+        return "calldata-commitment"
+    return None
+
+
 # ── RPC (urllib, fail-soft, no deps) ─────────────────────────────────────────
 
 def _rpc(method: str, params: list) -> Any:
@@ -97,7 +125,7 @@ def build_anchor_tx(agent_address: str, pubkey_hex: str) -> dict:
     commitment = identity_commitment(agent_address, pubkey_hex)
     data = anchor_calldata(commitment)
     chain = _chain_id()
-    registry = _env("ANCHOR_REGISTRY_ADDRESS")
+    registry = _env("ANCHOR_REGISTRY_ADDRESS").lower()
     to = registry or str(agent_address).lower()
 
     est: dict = {"available": False}
@@ -164,13 +192,34 @@ def confirm_anchor(tx_hash: str, agent_address: str, pubkey_hex: str) -> tuple[b
         return False, ["transaction not yet mined — try again after confirmation"]
     if str(rcpt.get("status", "")).lower() != "0x1":
         problems.append("transaction FAILED on-chain (status != 0x1)")
-    if commitment not in str(tx.get("input", "")).lower():
-        problems.append("calldata does not contain the identity commitment")
+    # EQUALITY, not containment — and the equality carries the _MAGIC prefix,
+    # which this function never checked. ``verify.py``'s _reverify_anchor, the
+    # tool a skeptic runs against the PUBLISHED statement, has always required
+    # that prefix. So the recorder was looser than the auditor: a transaction
+    # from the agent wallet with the commitment loose in some other call's
+    # arguments was recorded, `anchor_for_card` published VERIFIED, and
+    # verify.py refused the very same transaction. The two surfaces disagreed
+    # about a public claim and the operator only ever saw the permissive one.
+    # (The sibling app/lib/root_anchor.js already carries the reasoning in a
+    # comment: "includes() would accept a payload buried in unrelated calldata
+    # — exact equality is the claim being made.")
+    if str(tx.get("input") or "").strip().lower() != anchor_calldata(commitment):
+        problems.append(
+            "calldata is not exactly the anchor payload (RUNECLAW prefix + "
+            "commitment) — a commitment sitting inside some other "
+            "transaction's arguments is not an anchor")
     sender = str(tx.get("from", "")).lower()
     if sender != str(agent_address).lower():
         problems.append(
             f"sent from {sender or 'unknown'}, not the agent address — "
             "the anchor must prove control of the agent wallet")
+    mode = destination_mode(tx.get("to"), agent_address)
+    if mode is None:
+        problems.append(
+            f"sent to {str(tx.get('to') or '').strip().lower() or 'nothing (contract creation)'}"
+            " — neither the agent address nor ANCHOR_REGISTRY_ADDRESS, so the "
+            "mode this anchor would be published under cannot be read off the "
+            "transaction")
     if problems:
         return False, problems
 
@@ -181,7 +230,8 @@ def confirm_anchor(tx_hash: str, agent_address: str, pubkey_hex: str) -> tuple[b
         "commitment": commitment,
         "agent_address": str(agent_address).lower(),
         "ed25519_pubkey": str(pubkey_hex or "").lower(),
-        "mode": "registry" if _env("ANCHOR_REGISTRY_ADDRESS") else "calldata-commitment",
+        # From the transaction's destination, never from the environment.
+        "mode": mode,
     }
     state = read_anchor_state()
     state[str(record["chain_id"])] = record

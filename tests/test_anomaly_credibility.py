@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from bot.core.black_swan import (
-    _CORRELATION_BASELINE, _CORRELATION_THRESHOLD, _CORRELATION_WINDOW,
+    _CORRELATION_THRESHOLD, _CORRELATION_WINDOW,
     AnomalyAlert, AnomalyType, BlackSwanDetector,
 )
 

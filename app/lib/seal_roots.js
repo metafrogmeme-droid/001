@@ -28,6 +28,18 @@ async function sealsForDay(day) {
     'SELECT seal FROM signals WHERE sealed_at >= ? AND sealed_at < ?',
     'SELECT seal FROM arena_positions WHERE sealed_at >= ? AND sealed_at < ?',
     'SELECT seal FROM arena_trades WHERE sealed_at >= ? AND sealed_at < ?',
+    // An agent claim is a dated public fact like any other: including it here
+    // is what makes "this agent existed on this date" rest on a Base block
+    // timestamp instead of on our own `created_at` column. Adding a surface
+    // cannot disturb an existing root — a completed day's root is stored
+    // immutably the first time it is asked for, and no agent row can carry a
+    // `sealed_at` earlier than this table.
+    'SELECT seal FROM agents WHERE sealed_at >= ? AND sealed_at < ?',
+    // A pre-signature scan is the one seal whose whole value is its TIME: the
+    // claim is "this agent was told this before it signed", and without the
+    // day's root anchored on Base that ordering rests on our own clock —
+    // exactly the thing it is being offered as evidence against.
+    'SELECT seal FROM scan_seals WHERE sealed_at >= ? AND sealed_at < ?',
   ];
   for (const q of QUERIES) {
     try {

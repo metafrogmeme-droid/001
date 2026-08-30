@@ -1,0 +1,309 @@
+/* Embeddable signal board.
+ *
+ * Its own stylesheet rather than the app's: the embed CSP is `style-src 'self'`
+ * with no `unsafe-inline`, the page runs inside a stranger's document, and
+ * shipping 1800 lines of dashboard CSS into someone else's layout would be
+ * rude as well as slow.
+ *
+ * Colours are declared for both schemes and inherit nothing from the host page,
+ * so the board reads the same whatever it is dropped into. */
+
+:root {
+  --e-bg: #0b0d12;
+  --e-surface: #12151d;
+  --e-line: #232838;
+  --e-text: #e7eaf0;
+  --e-text-2: #9aa4b8;
+  --e-text-3: #6b7488;
+  --e-up: #31c48d;
+  --e-down: #f05252;
+  --e-info: #4db6ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--e-bg);
+  color: var(--e-text);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { padding: 12px; }
+
+.e-list { display: flex; flex-direction: column; gap: 10px; }
+
+.e-row {
+  background: var(--e-surface);
+  border: 1px solid var(--e-line);
+  border-radius: 12px;
+  padding: 12px 13px 11px;
+}
+
+.e-head { display: flex; align-items: baseline; gap: 8px; }
+.e-sym { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+
+/* Confidence is a measurement, so it is set in the same tabular figures as the
+   price levels and given no colour: a green 76% would read as "this one is
+   winning", which is not something a confidence score says. */
+.e-conf {
+  margin-left: auto; color: var(--e-text-2);
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+
+/* Quote leg, regime and age — context, deliberately quiet. Every part of this
+   line is omitted when unreadable, so an empty line means we knew none of it
+   and the card simply closes up rather than printing placeholders. */
+.e-meta {
+  margin: 3px 0 9px; color: var(--e-text-3);
+  font-size: 11.5px; letter-spacing: .01em;
+}
+
+/* Direction is the one thing on the row that gets colour: it is a fact the
+   signal asserts about itself. Whether the trade is WINNING is not something
+   this board knows, and a green row would say that it does. */
+.e-dir {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: 5px; border: 1px solid currentColor;
+}
+.e-long  { color: var(--e-up); }
+.e-short { color: var(--e-down); }
+.e-flat  { color: var(--e-text-3); }
+
+.e-chart { min-height: 72px; margin-bottom: 8px; }
+
+/* The levels sit on one row and share the width, so entry/stop/target line up
+   across cards even when the numbers differ in length — the eye compares them
+   down the column. R:R is present only when it could be read, so the row has
+   three or four cells and must not reserve a gap for a cell that never comes. */
+.e-lv { display: flex; gap: 0; margin: 0; }
+.e-lv div { display: flex; flex-direction: column; gap: 2px; flex: 1 1 0; min-width: 0; }
+.e-lv dt {
+  color: var(--e-text-3); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.e-lv dd {
+  margin: 0; font-variant-numeric: tabular-nums;
+  font-size: 13.5px; letter-spacing: -.01em;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* The share button sits quiet by default. It is an offer, not the point of the
+   card — the signal is — so it carries no accent colour until touched. */
+.e-act { display: flex; justify-content: flex-end; margin-top: 10px; }
+.e-share {
+  font: inherit; font-size: 12px; font-weight: 550;
+  color: var(--e-text-2);
+  background: transparent;
+  border: 1px solid var(--e-line);
+  border-radius: 7px;
+  padding: 5px 12px;
+  cursor: pointer;
+  /* 32px of touch target on a phone without 32px of visual weight. */
+  min-height: 30px;
+  transition: color .12s ease, border-color .12s ease;
+}
+.e-share:hover, .e-share:focus-visible { color: var(--e-text); border-color: var(--e-text-3); }
+.e-share:focus-visible { outline: 2px solid var(--e-info); outline-offset: 2px; }
+/* Disabled while the composer is open — the tap registered and a second one
+   would stack a second composer. Dimmed rather than hidden so the button does
+   not vanish under the thumb that just pressed it. */
+.e-share[disabled] { opacity: .5; cursor: default; }
+
+.e-load, .e-state { color: var(--e-text-2); text-align: center; padding: 18px 10px; }
+.e-state p { margin: 0 0 6px; }
+.e-state .e-sub { color: var(--e-text-3); font-size: 12.5px; }
+.e-src { color: var(--e-text-3); font-size: 11.5px; text-align: center; margin: 10px 0 0; }
+.e-src a { color: var(--e-info); }
+
+/* The honest no-chart state, matching the dashboard's: it occupies the slot and
+   names the failure rather than hiding. */
+.sc-none {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 72px; padding: 8px;
+  border: 1px dashed var(--e-line); border-radius: 8px;
+  color: var(--e-text-3); font-size: 11.5px; text-align: center;
+}
+.sc { overflow: visible; display: block; }
+.sc .sc-up   { fill: var(--e-up);   stroke: var(--e-up); }
+.sc .sc-down { fill: var(--e-down); stroke: var(--e-down); }
+.sc .sc-lvl { stroke-width: 1; stroke-dasharray: 3 3; }
+.sc .sc-lvl--entry  { stroke: var(--e-text-3); stroke-opacity: .85; }
+.sc .sc-lvl--stop   { stroke: var(--e-down);   stroke-opacity: .75; }
+.sc .sc-lvl--target { stroke: var(--e-up);     stroke-opacity: .75; }
+.sc .sc-mark { stroke: var(--e-info); stroke-width: 1; stroke-dasharray: 2 2; stroke-opacity: .9; }
+
+/* NO `prefers-color-scheme` OVERRIDE, AND THAT IS THE POINT.
+ *
+ * There was one here, flipping the board to a white palette. It made the header
+ * comment above a lie — the board did NOT read the same wherever it was dropped,
+ * it read however the VIEWER'S PHONE was set — and the place that broke was the
+ * one this page now exists for. A Farcaster Mini App renders inside Warpcast,
+ * whose chrome is dark always; a phone set to light mode put a white board in a
+ * black frame, which looks like a page that failed to load its own styling
+ * rather than a product.
+ *
+ * The host's scheme is not knowable from in here (the webview reports the OS
+ * preference, not Warpcast's), so following it is guessing with extra steps.
+ * This is a branded artifact — a trading board with its own palette, like a
+ * video player — and it carries that palette everywhere. */
+
+
+/* ── the arena board ─────────────────────────────────────────────────────
+   Shares the palette and the honesty rules with the signal board above: a
+   value that could not be read is muted, never green. */
+
+.a-season { margin: 2px 0 14px; }
+.a-season h1 {
+  margin: 0; font-size: 19px; font-weight: 680; letter-spacing: -.02em;
+}
+.a-sub { margin: 5px 0 0; display: flex; align-items: center; gap: 8px; }
+
+.a-badge {
+  font-size: 10px; font-weight: 650; letter-spacing: .08em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid currentColor;
+}
+/* Only `live` gets an accent. An upcoming or ended season is a fact, not an
+   event, and colouring all three would make the word carry no information. */
+.a-badge--live { color: var(--e-up); }
+.a-badge--upcoming, .a-badge--ended { color: var(--e-text-3); }
+.a-left { color: var(--e-text-2); font-size: 12px; }
+
+.a-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.a-row {
+  display: flex; align-items: baseline; gap: 10px;
+  background: var(--e-surface);
+  border: 1px solid var(--e-line);
+  padding: 10px 12px;
+}
+.a-row:first-child { border-radius: 10px 10px 0 0; }
+.a-row:last-child { border-radius: 0 0 10px 10px; }
+.a-row:only-child { border-radius: 10px; }
+
+.a-rank {
+  min-width: 20px; color: var(--e-text-3);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.a-handle { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; }
+.a-trades { color: var(--e-text-3); font-size: 11.5px; }
+.a-ret {
+  margin-left: auto; font-size: 14px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colour is a claim, and these four are four different claims. `a-flat` is the
+   unreadable one and is deliberately the same muted tone as body text — a
+   return we could not read has not won. */
+.a-up   { color: var(--e-up); }
+.a-down { color: var(--e-down); }
+.a-even { color: var(--e-text-2); }
+.a-flat { color: var(--e-text-3); }
+
+.a-empty {
+  color: var(--e-text-2); text-align: center; font-size: 13px;
+  padding: 20px 10px; border: 1px dashed var(--e-line); border-radius: 10px;
+}
+
+.a-tape { margin-top: 18px; }
+.a-tape h2 {
+  margin: 0 0 8px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3);
+}
+.a-ticks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.a-tick { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.a-tick-dir {
+  font-size: 9.5px; font-weight: 650; letter-spacing: .06em;
+  padding: 1px 5px; border-radius: 4px; border: 1px solid currentColor;
+}
+.a-long  { color: var(--e-up); }
+.a-short { color: var(--e-down); }
+.a-tick-sym { font-weight: 600; }
+.a-tick-who { color: var(--e-text-3); overflow: hidden; text-overflow: ellipsis; }
+.a-tick-pct { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ── the authenticated Mini App ──────────────────────────────────────────
+   Same palette and the same honesty rules. The one thing this surface may do
+   that no public board can is show an AMOUNT — it is a private per-user view
+   of a virtual stake (§4 permits it there and only there). */
+
+.m-gate { text-align: center; padding: 22px 8px 8px; }
+.m-gate-lead { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.m-gate-sub { margin: 0 0 18px; color: var(--e-text-2); font-size: 12.5px; line-height: 1.55; }
+.m-signin {
+  font: inherit; font-size: 14px; font-weight: 600;
+  color: var(--e-bg); background: var(--e-info);
+  border: 0; border-radius: 9px; padding: 11px 20px; cursor: pointer;
+  min-height: 44px;      /* a real touch target on a phone */
+}
+.m-signin:focus-visible { outline: 2px solid var(--e-text); outline-offset: 2px; }
+
+.m-acct { margin: 4px 0 12px; }
+.m-eq { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.m-eq-label {
+  color: var(--e-text-3); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.m-eq-val { font-size: 24px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.m-eq-unit { color: var(--e-text-3); font-size: 11.5px; }
+.m-eq-ret { margin-left: auto; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.m-free { margin: 3px 0 0; color: var(--e-text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+.m-pos-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.m-pos {
+  background: var(--e-surface); border: 1px solid var(--e-line);
+  border-radius: 10px; padding: 10px 11px;
+}
+.m-pos-head { display: flex; align-items: baseline; gap: 8px; }
+.m-pos-sym { font-size: 14px; font-weight: 650; }
+.m-pos-lev { color: var(--e-text-3); font-size: 11px; }
+.m-pos-pnl { margin-left: auto; font-size: 14px; font-weight: 620; font-variant-numeric: tabular-nums; }
+.m-pos-foot {
+  display: flex; align-items: center; gap: 10px; margin-top: 7px;
+  color: var(--e-text-3); font-size: 11px; font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+.m-close {
+  margin-left: auto; font: inherit; font-size: 11.5px; font-weight: 550;
+  color: var(--e-text-2); background: transparent;
+  border: 1px solid var(--e-line); border-radius: 6px;
+  padding: 5px 12px; min-height: 30px; cursor: pointer;
+}
+.m-close:hover, .m-close:focus-visible { color: var(--e-down); border-color: var(--e-down); }
+.m-none {
+  color: var(--e-text-3); text-align: center; font-size: 12.5px;
+  padding: 16px 10px; border: 1px dashed var(--e-line); border-radius: 10px;
+  margin: 0 0 14px;
+}
+
+.m-open { border-top: 1px solid var(--e-line); padding-top: 14px; }
+.m-open h2 {
+  margin: 0 0 9px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3);
+}
+.m-row { display: flex; gap: 7px; margin-bottom: 8px; }
+.m-row input {
+  font: inherit; font-size: 13.5px; min-width: 0; flex: 1 1 0;
+  color: var(--e-text); background: var(--e-bg);
+  border: 1px solid var(--e-line); border-radius: 7px;
+  padding: 10px; min-height: 42px;
+}
+.m-sym { flex: 2 1 0 !important; text-transform: uppercase; }
+.m-row input:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+.m-row--go button {
+  font: inherit; font-size: 14px; font-weight: 620; flex: 1 1 0;
+  border-radius: 8px; padding: 11px; min-height: 44px; cursor: pointer;
+  background: transparent; border: 1px solid currentColor;
+}
+.m-long { color: var(--e-up); }
+.m-short { color: var(--e-down); }
+.m-open-note { margin: 6px 0 0; color: var(--e-text-3); font-size: 11px; text-align: center; }
+
+/* A cancelled sign-in gets the muted tone: nothing went wrong. Only a real
+   fault is coloured, and neither is ever green. */
+.m-problem { margin: 0 0 12px; font-size: 12.5px; text-align: center; padding: 9px 10px; border-radius: 8px; }
+.m-problem--note { color: var(--e-text-3); border: 1px dashed var(--e-line); }
+.m-problem--warn { color: var(--e-down); border: 1px solid var(--e-line); }
+.m-problem--ok   { color: var(--e-text-2); border: 1px dashed var(--e-line); }

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Register tool — RUNECLAW</title>
+<link rel="stylesheet" href="/styles.css?v=38">
+<style>
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--muted, #9aa4b2); margin: 0 0 24px; font-size: .92rem; }
+  .card { border: 1px solid var(--line, #232a35); border-radius: 12px;
+          padding: 16px; margin: 0 0 16px; background: var(--panel, #11151c); }
+  .card h2 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase;
+             color: var(--muted, #9aa4b2); margin: 0 0 12px; }
+  .v { display: block; padding: 6px 0; font-size: .92rem; line-height: 1.45; }
+  .v.fail { color: var(--down, #ff6b6b); }
+  .v.pass { color: var(--up, #38d39f); }
+  .v.unknown { color: var(--muted, #9aa4b2); }
+  dl { margin: 0; display: grid; grid-template-columns: minmax(0,auto) minmax(0,1fr);
+       gap: 8px 14px; align-items: baseline; }
+  dt { color: var(--muted, #9aa4b2); font-size: .82rem; white-space: nowrap; }
+  dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+       font-size: .8rem; word-break: break-all; }
+  button { font: inherit; padding: 12px 18px; border-radius: 10px; cursor: pointer;
+           border: 1px solid var(--line, #232a35); background: var(--panel2, #182029);
+           color: inherit; }
+  #send { background: var(--gold, #3fb6ff); color: #04121c; border-color: transparent;
+          font-weight: 600; width: 100%; margin-top: 4px; }
+  #send:disabled { background: var(--panel2, #182029); color: var(--muted, #9aa4b2);
+                   cursor: not-allowed; border-color: var(--line, #232a35); }
+  #why, #status { font-size: .88rem; color: var(--muted, #9aa4b2); margin-top: 10px;
+                  line-height: 1.5; }
+  code { font-size: .8rem; word-break: break-all; }
+  .note { font-size: .85rem; line-height: 1.55; color: var(--muted, #9aa4b2); }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Register the ERC-8257 tool</h1>
+  <p class="sub">Your wallet signs. This server holds no key and never broadcasts —
+     the page builds the transaction and hands it over.</p>
+
+  <section class="card">
+    <h2>Checks</h2>
+    <span class="v unknown" id="vFetch">⚪ not checked</span>
+    <span class="v unknown" id="vHash">⚪ manifest hash — not checked</span>
+    <span class="v unknown" id="vCalldata">⚪ calldata — not checked</span>
+    <span class="v unknown" id="vReady">⚪ plan readiness — not checked</span>
+    <span class="v unknown" id="vDrift">⚪ prior registration — not checked</span>
+    <p class="note" style="margin:12px 0 0">
+      The hash is recomputed <strong>in this browser</strong> from the published
+      preimage, not taken on trust. This endpoint once served plain SHA-256 in a
+      field labelled keccak256 — the two are indistinguishable by eye, and the
+      wrong one is permanent once written.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>What will be sent</h2>
+    <dl>
+      <dt>to</dt><dd id="fRegistry">—</dd>
+      <dt>chain</dt><dd>Base (8453) · value 0</dd>
+      <dt>manifest hash</dt><dd id="fHash">—</dd>
+      <dt>metadata URI</dt><dd id="fUri">—</dd>
+      <dt>creator</dt><dd id="fCreator">—</dd>
+      <dt>endpoint</dt><dd id="fEndpoint">—</dd>
+      <dt>access predicate</dt><dd id="fPredicate">—</dd>
+      <dt>calldata</dt><dd id="fCalldata">—</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <button id="send" disabled>Send registerTool from my wallet</button>
+    <p id="why">Checking…</p>
+    <p id="status"></p>
+    <p><button id="reload">Re-check</button></p>
+  </section>
+
+  <section class="card" id="afterSend" hidden>
+    <h2>One step left</h2>
+    <p class="note">Record what you registered, so a later change to
+      <code>APP_BASE_URL</code>, <code>TOOL_CREATOR_ADDRESS</code> or the tool set
+      is reported as drift instead of silently breaking verification:</p>
+    <p><code id="recordCmd"></code></p>
+    <p class="note">Set that in the persist env, republish, and this page's
+      prior-registration row will read <em>matches</em>.</p>
+  </section>
+
+  <p class="note">Open this page in your wallet’s in-app browser (Phantom, Rainbow,
+     MetaMask) or with a wallet extension installed. Confirming costs Base gas and
+     nothing else.</p>
+</main>
+
+<script src="/js/keccak256.js?v=1"></script>
+<script src="/js/register-tool.js?v=1"></script>
+</body>
+</html>

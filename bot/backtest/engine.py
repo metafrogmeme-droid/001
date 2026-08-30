@@ -16,6 +16,7 @@ import numpy as np
 from bot.backtest.models import (
     BacktestBar, BacktestConfig, BacktestResult, BacktestTrade, EquityPoint,
 )
+from bot.backtest.metrics import PF_UNDEFINED
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.risk.risk_engine import RiskEngine
@@ -172,6 +173,11 @@ class BacktestEngine:
         # closed-bar window (the run TF doubles as the trigger series here)
         # + audit counters for the A/B report.
         self._armed_setups: list[dict] = []
+        # Initialised HERE as well as in run(). The result builder reports
+        # whether an entry was still queued when the run ended, and two tests
+        # construct an engine and reach that builder without calling run() —
+        # so a run()-only attribute made the card's own honesty field raise.
+        self._pending_entry: tuple | None = None
         self._et_bar_win: list[tuple[float, float, float, float]] = []
         self._et_armed = 0
         self._et_fired = 0
@@ -1309,8 +1315,25 @@ class BacktestEngine:
             if dd_usd > max_dd_usd:
                 max_dd_usd = dd_usd
 
-        # Profit factor
-        profit_factor = (net_profit / net_loss) if net_loss > 0 else (999.99 if net_profit > 0 else 0)
+        # Profit factor.
+        #
+        # PF_UNDEFINED (999.99) IS A SENTINEL, NOT A SCORE. It means "this run
+        # had no losing trades", so gross-loss is zero and the ratio does not
+        # exist. It is emphatically NOT "an outstanding profit factor of 999".
+        #
+        # That distinction was lost the moment anyone averaged it. In
+        # backtest_deep_results.json (2026-08-07), 9 of 485 runs — 1.9% — sat at
+        # the sentinel, and a plain mean reported `avg_profit_factor: 19.17`
+        # while the median run scored 0.45 and only 23% of runs were profitable
+        # at all. The headline number a reader checks first said "spectacular
+        # edge"; every other figure in the same summary said the strategy loses
+        # money. A 30x distortion out of 2% of rows.
+        #
+        # Aggregate with backtest.metrics.profit_factor_summary, which excludes
+        # the sentinel from the mean, reports the MEDIAN as the headline (this
+        # is a ratio — means of ratios mislead even without sentinels), and
+        # states the undefined count separately rather than folding it in.
+        profit_factor = (net_profit / net_loss) if net_loss > 0 else (PF_UNDEFINED if net_profit > 0 else 0)
 
         # Sharpe, Sortino, Calmar from equity curve returns
         sharpe = self._compute_sharpe()
@@ -1375,6 +1398,17 @@ class BacktestEngine:
             total_ideas_generated=self._ideas_generated,
             total_ideas_rejected_risk=self._ideas_rejected_risk,
             total_ideas_rejected_confidence=self._ideas_rejected_confidence,
+            total_ideas_rejected_preset=self._ideas_rejected_preset,
+            # The three ways an ARMED setup ends without a fill. `_et_armed`
+            # itself is deliberately NOT reported: an arming that later FIRED
+            # became a trade, so publishing the arming count beside the trade
+            # count would double-count it. What a reader needs is the number of
+            # ideas that left the pipeline here, which is exactly these three.
+            total_ideas_timing_unfilled=(
+                self._et_disarmed_invalidated
+                + self._et_disarmed_expired
+                + len(self._armed_setups)),
+            total_entries_pending_at_end=(1 if self._pending_entry is not None else 0),
             rejections_by_gate=dict(self._rejections_by_gate),
             stateful_rejections=sum(
                 c for g, c in self._rejections_by_gate.items()

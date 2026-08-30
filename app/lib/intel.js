@@ -120,4 +120,32 @@ async function getUserIntel(userId) {
   return computeIntel(await loadIntelTrades(userId));
 }
 
-module.exports = { computeIntel, loadIntelTrades, getUserIntel };
+/**
+ * The same intel with every dollar magnitude removed, for PUBLIC surfaces.
+ *
+ * `getUserIntel` is read by two callers and only one of them may show money:
+ * routes/portfolio.js serves `req.user.user_id` — authenticated, per-user, and
+ * dollars are explicitly permitted there. routes/mcp.js serves
+ * `get_alpha_intel`, which has no `requiresKey` and is reached by
+ * POST /api/tool/invoke, the endpoint the published ERC-8257 manifest names.
+ * That one may carry percent, ratio and count only.
+ *
+ * So the strip happens HERE, at the boundary, not in computeIntel. Removing
+ * the fields at the source would have broken the private surface that is
+ * entitled to them — the rule is about WHO IS READING, not about the number.
+ *
+ * Key-shape based (`_usd` suffix) rather than a hand-listed set, because a
+ * hand-listed set is a denylist over a field list that grows, and the next
+ * `*_usd` added to computeIntel would walk straight onto the public wire.
+ */
+function publicIntel(intel) {
+  if (!intel || typeof intel !== 'object') return intel;
+  const out = {};
+  for (const [k, v] of Object.entries(intel)) {
+    if (/_usd$/.test(k)) continue;
+    out[k] = (v && typeof v === 'object' && !Array.isArray(v)) ? publicIntel(v) : v;
+  }
+  return out;
+}
+
+module.exports = { computeIntel, loadIntelTrades, getUserIntel, publicIntel };

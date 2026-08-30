@@ -61,7 +61,7 @@ to an on-chain agent economy."**
 fundraise for its own sake.** It exists to do three concrete jobs the platform already needs
 a primitive for:
 
-- **Access** — gate premium capability (scan tiers, higher live limits, priority agents)
+- **Access** — gate premium capability (scan tiers, compute allowances, priority agents)
   behind stake rather than a subscription silo.
 - **Settlement** — meter agent-to-agent calls to the Shield risk engine (exposed as an MCP
   server and an on-chain tool) and split marketplace/copy-trading revenue.
@@ -109,7 +109,7 @@ existing platform rather than inventing generic use-cases.
 
 | Utility | What it unlocks | Wires into (existing) |
 |---|---|---|
-| **Staking tiers** | Premium scan modes (`/scalp`, `/intraday`, `/swing`), higher per-user live limits, priority agent queue | `ROADMAP.md` §3 "$RCLAW staking"; scan commands in `bot/skills`; per-user gateway `bot/web/user_gateway.py` |
+| **Staking tiers** | Premium scan modes (`/scalp`, `/intraday`, `/swing`), larger compute allowances (deep scans, concurrent agents, backtest hours), priority agent queue — **not** live trading limits, see [`TIER_MODEL.md`](./TIER_MODEL.md) §6 | `ROADMAP.md` §3 "$RCLAW staking"; scan commands in `bot/skills`; per-user gateway `bot/web/user_gateway.py` |
 | **Fee discount + pay-in-token** | Pay platform / performance fees in `$RCLAW` at a discount; fees fund **buyback-and-burn** | `ROADMAP.md` §3/§5 revenue share |
 | **MCP tool-call metering** | Settle agent-to-agent calls to the Shield risk engine (per-call, x402-style) | `bot/mcp/server.py`; ERC-8257 tool registry + x402 in [`ONCHAIN_GOLIVE.md`](./ONCHAIN_GOLIVE.md) |
 | **Governance** | Vote on risk params, new venues, promoted strategies, fee splits | `ROADMAP.md` §3 "DAO governance", §5 compliance tiers |
@@ -121,6 +121,16 @@ existing platform rather than inventing generic use-cases.
 a promise of return. Staking rewards are framed as protocol-fee sharing and emissions with
 clear caps and disclosures (see §10), and **patterns/tokens may never override the risk
 engine** — the same rule enforced in the AI learning system today.
+
+**How tiers are earned:** the shipped gate (`bot/token/tier_gate.py`) uses flat token
+thresholds, which are plutocratic and get ~25× harder to reach as the token appreciates.
+[`TIER_MODEL.md`](./TIER_MODEL.md) specs the proposed replacement — a two-axis
+`√(staked) × lock_multiplier × standing` weight with relative percentile bands and
+compute-credit entitlements, plus a phased implementation plan. It also records why **live
+trading limits, position size, and leverage stay tied to KYC/compliance tiers and are never
+gated on holdings** (§10). The weight function itself ships in `bot/token/tier_weight.py`
+behind `RCLAW_TIER_WEIGHT_ENABLED` (default off) — computed and inspectable before it is
+allowed to decide anything.
 
 ---
 
@@ -408,7 +418,7 @@ Clear the existing Guardrails gate before anything is minted.
 - **Exit:** liquidity live, LP locked, tokens claimable, contract addresses published.
 
 ### Phase 3 — Utility activation
-- Staking tiers live in bot/app: fee discounts, higher live limits, priority agents.
+- Staking tiers live in bot/app: fee discounts, compute allowances, priority agents.
 - Governance snapshot voting online (risk params, venues, strategies).
 - **Buyback-and-burn** from platform/performance fees begins, on a published cadence.
 - **Exit:** staking + governance usable end-to-end; first buyback executed and verifiable.

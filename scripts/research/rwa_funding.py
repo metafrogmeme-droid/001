@@ -6,7 +6,9 @@
 expresses in funding, closed-hours prints should differ from the in-session
 print, and funding should correlate with the accumulated gap.
 """
-import json, time, subprocess, statistics, math
+import json
+import time
+import subprocess
 from datetime import datetime, timezone
 
 SYMS = ['TSLAUSDT', 'NVDAUSDT', 'AAPLUSDT', 'MSFTUSDT', 'AMZNUSDT', 'GOOGLUSDT', 'METAUSDT', 'QQQUSDT']

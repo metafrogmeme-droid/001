@@ -13,6 +13,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const { blockBetween } = require('./helpers/block');
 const fs = require('fs');
 const path = require('path');
 
@@ -53,7 +54,11 @@ test('hero eyebrow is honest about LIVE vs PAPER', () => {
 });
 
 test('hero proof strip uses recorded percent/count fields only', () => {
-  const strip = landing.slice(landing.indexOf('Honest hero'), landing.indexOf('heroStats'.repeat(1)) + 4000);
+  // Same reversed-marker bug: 'Honest hero' is at 81368 and 'heroStats' at
+  // 12663, so this was slice(81368, 16663) -> "". The strip lives around
+  // heroStats; blockBetween refuses to return an empty region.
+  const strip = blockBetween(landing, 'hero-stat', 'heroStats',
+    { pad: 4000, label: 'hero proof strip' });
   assert.match(landing, /win_rate_pct/);
   assert.match(landing, /profit_factor/);
   assert.match(landing, /max_drawdown_pct/);

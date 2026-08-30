@@ -303,12 +303,16 @@ class MemoryDB {
     this._nextDuelRoundId = 1;
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
     this._nextDuelPickId = 1;
-    // Nothing in this shim writes arena_api_keys — the arena key routes are
-    // not implemented here at all. The array exists so that erasing an account
-    // can honestly delete from the table (there is provably nothing in it)
-    // rather than fall through to the unimplemented throw, and so that key
-    // storage, if it is ever added here, is already covered by erasure.
+    // The arena key routes ARE implemented here now — see the ARENA API KEYS
+    // branches below. They were not, which left mint/verify/bind/revoke
+    // reachable only by source scan while the MCP write tools authenticate
+    // through them.
     this.arenaApiKeys = [];
+    this._nextArenaKeyId = 1;
+    this.agents = [];         // { id, slug, user_id, display_name, seal, seal_payload, sealed_at }
+    this._nextAgentId = 1;
+    this.scanSeals = [];      // { id, scan_key, user_id, agent_slug, tool, seal, seal_payload, sealed_at }
+    this._nextScanSealId = 1;
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
@@ -878,6 +882,9 @@ class MemoryDB {
         closed_at: sealed ? params[14] : params[10],
         signal_key: cmd.includes('AGENT_SLUG') ? params[15] : null,
         agent_slug: cmd.includes('AGENT_SLUG') ? params[16] : null,
+        // Appended LAST in the column list so every position above is
+        // unchanged and the two older shapes keep working untouched.
+        source: cmd.includes('SOURCE') ? (params[17] || 'manual') : 'manual',
       });
       return [{ affectedRows: 1, insertId: this._nextArenaTradeId - 1 }, []];
     }
@@ -1007,6 +1014,164 @@ class MemoryDB {
       }
       const rows = this.sealRoots.slice().sort((a, b) => (a.day < b.day ? 1 : -1));
       return [rows.map(r => ({ ...r })), []];
+    }
+
+    // -- ARENA API KEYS --
+    //
+    // These branches did not exist. `lib/arena_keys.js` was therefore
+    // unreachable under the shim, so mint/verify/bind/revoke — the entire
+    // credential path an autonomous agent authenticates with — had never been
+    // exercised by a test, only source-scanned. That is the distinction
+    // CLAUDE.md draws between code being PRESENT and code being REACHED, and
+    // the arena_open MCP tool sits behind it.
+    //
+    // Ordered specific-first: the UPDATEs share a table name, so a looser
+    // branch above a tighter one would shadow it.
+    if (cmd.includes('INSERT INTO ARENA_API_KEYS')) {
+      // params: user_id, key_hash, label, created_at
+      if (this.arenaApiKeys.some((k) => k.key_hash === params[1])) {
+        const err = new Error("Duplicate entry for key 'uniq_arena_key_hash'");
+        err.code = 'ER_DUP_ENTRY';
+        throw err;
+      }
+      this.arenaApiKeys.push({
+        id: this._nextArenaKeyId++, user_id: params[0], key_hash: params[1],
+        label: params[2] || '', created_at: params[3],
+        last_used_at: null, revoked_at: null, agent_slug: null,
+      });
+      return [{ affectedRows: 1, insertId: this._nextArenaKeyId - 1 }, []];
+    }
+    if (cmd.includes('UPDATE ARENA_API_KEYS')) {
+      const live = (k) => k.revoked_at == null;
+      if (cmd.includes('SET LAST_USED_AT')) {
+        const k = this.arenaApiKeys.find((x) => x.id === params[1]);
+        if (k) k.last_used_at = params[0];
+        return [{ affectedRows: k ? 1 : 0 }, []];
+      }
+      if (cmd.includes('SET AGENT_SLUG = NULL')) {
+        const k = this.arenaApiKeys.find((x) => x.id === params[0] && x.user_id === params[1]);
+        if (k) k.agent_slug = null;
+        return [{ affectedRows: k ? 1 : 0 }, []];
+      }
+      if (cmd.includes('SET AGENT_SLUG')) {
+        const k = this.arenaApiKeys.find((x) => x.id === params[1] && x.user_id === params[2]);
+        if (k) k.agent_slug = params[0];
+        return [{ affectedRows: k ? 1 : 0 }, []];
+      }
+      if (cmd.includes('SET REVOKED_AT')) {
+        const k = this.arenaApiKeys.find(
+          (x) => x.id === params[1] && x.user_id === params[2] && live(x));
+        if (k) k.revoked_at = params[0];
+        return [{ affectedRows: k ? 1 : 0 }, []];
+      }
+      return [{ affectedRows: 0 }, []];
+    }
+    if (cmd.includes('FROM ARENA_API_KEYS')) {
+      const live = this.arenaApiKeys.filter((k) => k.revoked_at == null);
+      if (cmd.includes('COUNT(*)')) {
+        return [[{ n: live.filter((k) => k.user_id === params[0]).length }], []];
+      }
+      if (cmd.includes('WHERE KEY_HASH')) {
+        return [live.filter((k) => k.key_hash === params[0]).map((k) => ({ ...k })), []];
+      }
+      if (cmd.includes('WHERE ID = ? AND USER_ID')) {
+        return [live.filter((k) => k.id === params[0] && k.user_id === params[1])
+          .map((k) => ({ ...k })), []];
+      }
+      if (cmd.includes('WHERE USER_ID')) {
+        return [live.filter((k) => k.user_id === params[0])
+          .sort((a, b) => b.id - a.id).map((k) => ({ ...k })), []];
+      }
+      return [live.map((k) => ({ ...k })), []];
+    }
+
+    // -- SCAN SEALS (pre-signature receipts; UNIQUE on scan_key) --
+    if (cmd.includes('INSERT INTO SCAN_SEALS')) {
+      // params: scan_key, user_id, agent_slug, tool, seal, seal_payload, sealed_at
+      if (this.scanSeals.some((s) => s.scan_key === params[0])) {
+        const err = new Error("Duplicate entry for key 'uniq_scan_key'");
+        err.code = 'ER_DUP_ENTRY';
+        throw err;
+      }
+      this.scanSeals.push({
+        id: this._nextScanSealId++, scan_key: params[0],
+        user_id: params[1] == null ? null : params[1],
+        agent_slug: params[2] == null ? null : params[2],
+        tool: params[3], seal: params[4], seal_payload: params[5],
+        sealed_at: params[6],
+      });
+      return [{ affectedRows: 1, insertId: this._nextScanSealId - 1 }, []];
+    }
+    if (cmd.includes('FROM SCAN_SEALS')) {
+      if (cmd.includes('WHERE SCAN_KEY')) {
+        return [this.scanSeals.filter((s) => s.scan_key === params[0])
+          .map((s) => ({ ...s })), []];
+      }
+      // The daily sweep: SELECT seal ... WHERE sealed_at >= ? AND < ?
+      if (cmd.includes('WHERE SEALED_AT')) {
+        const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+        return [this.scanSeals
+          .filter((s) => s.sealed_at && new Date(s.sealed_at).getTime() >= lo
+                      && new Date(s.sealed_at).getTime() < hi)
+          .map((s) => ({ seal: s.seal })), []];
+      }
+      if (cmd.includes('WHERE AGENT_SLUG')) {
+        return [this.scanSeals.filter((s) => s.agent_slug === params[0])
+          .sort((a, b) => b.id - a.id).map((s) => ({ ...s })), []];
+      }
+      if (cmd.includes('WHERE USER_ID')) {
+        return [this.scanSeals.filter((s) => s.user_id === params[0])
+          .sort((a, b) => b.id - a.id).map((s) => ({ ...s })), []];
+      }
+      return [this.scanSeals.map((s) => ({ ...s })), []];
+    }
+
+    // -- AGENTS (claimed slugs; UNIQUE on slug) --
+    //
+    // The UNIQUE index is modelled rather than assumed. lib/agents.js checks
+    // availability and then inserts, and relies on the index to arbitrate two
+    // concurrent claims — a shim that accepted the second write would let a
+    // test pass against a race that production refuses, which is exactly the
+    // blindfold the LIMIT branch above exists to prevent.
+    if (cmd.includes('INSERT INTO AGENTS')) {
+      // params: slug, user_id, display_name, seal, seal_payload, sealed_at, created_at
+      if (this.agents.some((a) => a.slug === params[0])) {
+        const err = new Error("Duplicate entry for key 'uniq_agent_slug'");
+        err.code = 'ER_DUP_ENTRY';
+        throw err;
+      }
+      this.agents.push({
+        id: this._nextAgentId++, slug: params[0], user_id: params[1],
+        display_name: params[2] == null ? null : params[2], seal: params[3],
+        seal_payload: params[4], sealed_at: params[5], created_at: params[6],
+      });
+      return [{ affectedRows: 1, insertId: this._nextAgentId - 1 }, []];
+    }
+    if (cmd.includes('FROM AGENTS')) {
+      if (cmd.includes('COUNT(*)')) {
+        return [[{ n: this.agents.filter((a) => a.user_id === params[0]).length }], []];
+      }
+      // The ownership question — slug AND user together, never either alone.
+      if (cmd.includes('WHERE SLUG = ? AND USER_ID')) {
+        return [this.agents.filter((a) => a.slug === params[0] && a.user_id === params[1])
+          .map((a) => ({ ...a })), []];
+      }
+      if (cmd.includes('WHERE SLUG')) {
+        return [this.agents.filter((a) => a.slug === params[0]).map((a) => ({ ...a })), []];
+      }
+      if (cmd.includes('WHERE USER_ID')) {
+        return [this.agents.filter((a) => a.user_id === params[0])
+          .sort((a, b) => b.id - a.id).map((a) => ({ ...a })), []];
+      }
+      // seal_roots' daily sweep: SELECT seal FROM agents WHERE sealed_at >= ? AND < ?
+      if (cmd.includes('WHERE SEALED_AT')) {
+        const lo = new Date(params[0]).getTime(), hi = new Date(params[1]).getTime();
+        return [this.agents
+          .filter((a) => a.sealed_at && new Date(a.sealed_at).getTime() >= lo
+                      && new Date(a.sealed_at).getTime() < hi)
+          .map((a) => ({ seal: a.seal })), []];
+      }
+      return [this.agents.map((a) => ({ ...a })), []];
     }
 
     // -- PUSH SUBSCRIPTIONS (web push; UPSERT by endpoint) --
@@ -1885,6 +2050,47 @@ class MemoryDB {
       return [rows.map(p => ({ ...p })), []];
     }
 
+    // ── siwf_nonces: single-use sign-in nonces ────────────────────────────
+    // Implemented rather than left to fall through, because the property under
+    // test is that a nonce is spendable EXACTLY ONCE — and a shim that
+    // answered empty rows would report every nonce as unknown, which passes a
+    // "replay is refused" test for entirely the wrong reason.
+    if (cmd.startsWith('INSERT INTO SIWF_NONCES')) {
+      this.siwfNonces = this.siwfNonces || [];
+      this.siwfNonces.push({
+        nonce: params[0], created_at: params[1], expires_at: params[2], used_at: null,
+      });
+      return [{ affectedRows: 1 }, []];
+    }
+    // Matched on the TABLE, not an exact column list. The shim's job here is
+    // to model the row, and pinning the projection would make it answer one
+    // caller and throw at the next — which reads as "unimplemented" for a
+    // statement that is merely spelled differently.
+    if (cmd.startsWith('SELECT') && cmd.includes('FROM SIWF_NONCES')) {
+      this.siwfNonces = this.siwfNonces || [];
+      const hit = this.siwfNonces.filter(n => n.nonce === params[0]);
+      return [hit.map(n => ({ ...n })), []];
+    }
+    if (cmd.startsWith('UPDATE SIWF_NONCES SET USED_AT')) {
+      // The `AND used_at IS NULL` condition is the whole point: it is what
+      // makes two concurrent consumers of one nonce resolve to one winner.
+      // Dropping it here would make the race test pass against a shim that
+      // does not model the thing being tested.
+      this.siwfNonces = this.siwfNonces || [];
+      // HONOUR THE WHERE CLAUSE WE WERE ACTUALLY GIVEN. The first version
+      // applied `used_at IS NULL` unconditionally, which made the shim MORE
+      // correct than the statement it was handed — so deleting that condition
+      // from the real SQL changed nothing here and the race test went on
+      // passing. A mutation is what said so: the guard was in the double, not
+      // in the code under test.
+      const guarded = cmd.includes('USED_AT IS NULL');
+      const row = this.siwfNonces.find(n =>
+        n.nonce === params[1] && (!guarded || n.used_at == null));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.used_at = params[0];
+      return [{ affectedRows: 1 }, []];
+    }
+
     // NO BRANCH MATCHED. This used to `return [[], []]` — the shim inventing
     // an answer it does not have, in the one shape this repository treats as
     // the founding defect: a failed read rendering as an empty result.
@@ -1953,6 +2159,8 @@ const EXPECTED_TABLES = Object.freeze([
   'arena_trades',
   'arena_api_keys',
   'arena_envelopes',
+  'agents',
+  'scan_seals',
   'learn_diary',
   'learn_progress',
   'seal_roots',
@@ -1961,6 +2169,7 @@ const EXPECTED_TABLES = Object.freeze([
   'user_watchlist',
   'duel_rounds',
   'duel_picks',
+  'siwf_nonces',
 ]);
 
 /**
@@ -2596,11 +2805,20 @@ async function migrate() {
         agent_slug VARCHAR(64) NULL,
         opened_at TIMESTAMP NULL,
         closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        source VARCHAR(10) NOT NULL DEFAULT 'manual',
         INDEX idx_arena_tr_user (user_id),
         INDEX idx_arena_tr_key (trade_key),
         INDEX idx_arena_trades_agent (agent_slug)
       )
     `);
+    // Provenance, carried from the position on close. `arena_positions` has
+    // had `source` all along; the closed row did not, and the per-agent record
+    // is built from CLOSED rows — so without this the record cannot tell a
+    // trade the agent made itself from one a member copied, and would publish
+    // the two summed under a heading that means only the second.
+    try {
+      await pool.execute("ALTER TABLE arena_trades ADD COLUMN source VARCHAR(10) NOT NULL DEFAULT 'manual'");
+    } catch (e) { /* already present */ }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_api_keys (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2610,8 +2828,56 @@ async function migrate() {
         created_at TIMESTAMP NULL,
         last_used_at TIMESTAMP NULL,
         revoked_at TIMESTAMP NULL,
+        agent_slug VARCHAR(64) NULL,
         UNIQUE KEY uniq_arena_key_hash (key_hash),
         KEY idx_arena_keys_user (user_id)
+      )
+    `);
+    // The identity this key trades as. NULL means "trades as its owner", which
+    // is every key that existed before this column — the agent record only
+    // ever sees a slug that was deliberately bound.
+    try {
+      await pool.execute('ALTER TABLE arena_api_keys ADD COLUMN agent_slug VARCHAR(64) NULL');
+    } catch (e) { /* already present */ }
+    // Pre-signature scan receipts. The INPUT IS NEVER STORED — only its
+    // sha256, inside `seal_payload`. Both scanners promise callers that
+    // nothing they send is kept, and sealing must not quietly break that
+    // promise: what is retained is a commitment to the bytes, which is
+    // checkable by whoever holds them and inert to everyone else.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scan_seals (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        scan_key VARCHAR(40) NOT NULL,
+        user_id INT NULL,
+        agent_slug VARCHAR(64) NULL,
+        tool VARCHAR(32) NOT NULL,
+        seal CHAR(64) NOT NULL,
+        seal_payload TEXT NOT NULL,
+        sealed_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_scan_key (scan_key),
+        KEY idx_scan_seals_user (user_id),
+        KEY idx_scan_seals_agent (agent_slug),
+        KEY idx_scan_seals_sealed (sealed_at)
+      )
+    `);
+    // Agent identity — a slug that belongs to someone. `seal`/`sealed_at`
+    // are not decoration: lib/seal_roots.js selects seals by `sealed_at`
+    // across every sealed surface, so a claim rides into that day's Merkle
+    // root and is anchored on Base with the trades. "This agent existed on
+    // this date" then rests on a block timestamp rather than on this column.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agents (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        slug VARCHAR(64) NOT NULL,
+        user_id INT NOT NULL,
+        display_name VARCHAR(80) NULL,
+        seal CHAR(64) NOT NULL,
+        seal_payload TEXT NOT NULL,
+        sealed_at TIMESTAMP NULL,
+        created_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_agent_slug (slug),
+        KEY idx_agents_user (user_id),
+        KEY idx_agents_sealed (sealed_at)
       )
     `);
     await pool.query(`
@@ -2688,6 +2954,30 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // Sign In With Farcaster: server-issued, SINGLE-USE nonces.
+    //
+    // In a table rather than in memory because the web app may run more than
+    // one replica: an in-process Set would issue a nonce on one and fail to
+    // find it on the next, so sign-in would work or not depending on which
+    // container answered. `used_at` is what makes replay impossible — the row
+    // is not deleted on use, so a replayed nonce is DISTINGUISHABLE from one
+    // that never existed, and the logs can tell those apart.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS siwf_nonces (
+        nonce VARCHAR(64) PRIMARY KEY,
+        created_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP NULL
+      )
+    `);
+    // Farcaster identity, joining google_id / telegram_id / discord_id / x_id
+    // on the same find-or-create path (auth.js `_PROVIDER_ID_COLUMN`).
+    try {
+      await pool.query('ALTER TABLE users ADD COLUMN farcaster_fid VARCHAR(32) DEFAULT NULL');
+    } catch (e) { /* column already exists */ }
+    try {
+      await pool.query('CREATE UNIQUE INDEX idx_users_farcaster_fid ON users (farcaster_fid)');
+    } catch (e) { /* index already exists */ }
     // Ceremony flags back-fill for pre-existing deployments.
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_live TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_end TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }

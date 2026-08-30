@@ -19,7 +19,7 @@
 
 const express = require('express');
 const { authMiddleware } = require('../auth');
-const { rateLimit, userKey } = require('../lib/rate_limit');
+const { rateLimit, userKey, ipKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
 const { getTickers, getTickersWithin, FILL_MAX_AGE_MS } = require('../lib/tickers');
 const arena = require('../lib/arena');
@@ -64,6 +64,52 @@ function sealedOpen(handle, { symbol, direction, entry, leverage, tp, sl, opened
 }
 
 const tradeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
+
+/**
+ * The five PUBLIC arena routes had no limiter of any kind.
+ *
+ * That was survivable while their only caller was a logged-in dashboard tab.
+ * It stops being survivable the moment a Mini App points at them: /embed
+ * refreshes itself every 30 seconds, and a board people leave open on a phone
+ * is a poller, not a visitor. `routes/embed.js` has capped its own traffic at
+ * 120/min per IP since it was written; these are the endpoints that board would
+ * be reading, and they were the uncapped half of the same path.
+ *
+ * Bucketed by IP rather than user because there is no user here — that is the
+ * whole point of these routes. Generous, because a legitimate board polling
+ * every 30s uses four of these per minute and a shared NAT holds many phones.
+ */
+const publicBoardLimit = rateLimit({ windowMs: 60000, max: 120, key: ipKey });
+
+/*
+ * THE QUERY COST HERE IS KNOWN AND DELIBERATELY NOT CACHED. Recorded because
+ * the obvious two fixes are both wrong, and the second one was written, tested
+ * and reverted rather than guessed at.
+ *
+ * `computeLeaderboard` runs five unbounded queries per request: every arena
+ * account, every open position, every opted-in handle, and two GROUP BYs over
+ * the whole trade table.
+ *
+ * A `LIMIT` is the wrong fix. A leaderboard ranks by comparing everybody, so
+ * capping the input silently drops traders and returns a ranking that is
+ * confidently incorrect — nobody reading rank 3 would know it came from a
+ * truncated field.
+ *
+ * A TTL CACHE IS ALSO THE WRONG FIX, which is less obvious. It was implemented
+ * with a 20s window and `test/arena.test.js` failed immediately, on the one
+ * sequence that matters most: opt in with a handle, then look at the board.
+ * The cached copy predates the opt-in, so a person who has just joined is told
+ * they are not on the leaderboard — at the exact moment a competition is
+ * trying to recruit them. Twenty seconds of that is not a stale read, it is a
+ * wrong answer to "did it work". Invalidating properly needs the opt-in path in
+ * routes/leaderboard.js to reach into this module, which is real coupling
+ * bought for a load problem nothing has demonstrated: the table has two rows.
+ *
+ * The rate limiter above is the fix that was actually needed — it bounds the
+ * abuse case, which is the one a public Mini App creates. If aggregate load
+ * ever becomes real, the answer is a materialised board updated on write, not
+ * a memo that lies to whoever just joined.
+ */
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -119,8 +165,8 @@ async function sweepFollows(userId, positions, marks) {
   // already advanced, so a non-compliant signal is skipped, never replayed.
   let seasonRow = null;
   try {
-    const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-    seasonRow = srows[0] || null;
+    const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+    seasonRow = pickCurrentSeason(srows, new Date());
   } catch (e) { /* no season read → no constraint */ }
   const followHandle = plan.opens.length ? await handleFor(userId) : null;
   for (const o of plan.opens) {
@@ -175,11 +221,17 @@ async function settleLiquidations(userId, positions, marks) {
     if (!exit) { alive.push(p); continue; }
     const pnl = exit.reason === 'liquidated' ? -p.margin : arena.posPnl(p, exit.price);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, round2(exit.price),
         p.margin, p.leverage, round2(pnl), exit.reason,
         p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
-        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null]);
+        // Provenance rides from the position onto the closed row. Both close
+        // paths carry it — this sweep and the manual close below — because
+        // otherwise which record a trade lands in would depend on HOW it
+        // closed, and a stopped-out agent trade would file itself under its
+        // copiers.
+        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null,
+        p.source || 'manual']);
     await pool.execute(
       'DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     if (exit.reason !== 'liquidated') credit += p.margin + pnl;
@@ -374,7 +426,7 @@ router.delete('/envelope', authMiddleware, async (req, res) => {
  * Returns `{ status, body }` instead of touching `res`, because a caller that
  * is not an HTTP request still needs the status to know what happened.
  */
-async function openForUser(userId, body) {
+async function openForUser(userId, body, opts = {}) {
   try {
     const acct = await loadAccount(userId);
     let marks;
@@ -388,8 +440,9 @@ async function openForUser(userId, body) {
     // Season rule variants: a LIVE season may constrain opens (e.g. "max 5×,
     // majors only"). Enforced server-side; the refusal names the season.
     try {
-      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-      const sr = require('../lib/arena_seasons').checkSeasonRules(srows[0], v.data);
+      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+      const sr = require('../lib/arena_seasons').checkSeasonRules(
+        pickCurrentSeason(srows, new Date()), v.data);
       if (!sr.ok) return { status: 400, body: { error: sr.error } };
     } catch (e) { /* season read failure never blocks an open */ }
     // The armed Authority Envelope, enforced deterministically. Unlike the
@@ -424,10 +477,18 @@ async function openForUser(userId, body) {
     const rc = sealedOpen(await handleFor(userId), {
       symbol: v.data.symbol, direction: v.data.direction, entry: price,
       leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, opened_at: openedAt });
+    // The agent identity this open is made under, when the caller's Arena key
+    // is bound to a claimed slug. It is NOT taken from the request: an agent
+    // cannot name itself on a trade, the binding on its key does. `openForUser`
+    // wrote no `agent_slug` at all before this and stamped every row 'manual',
+    // which is why an autonomous agent's trades were invisible to
+    // /api/public/agent-record/:slug — the record selects on that column.
+    const agentSlug = (opts && opts.agentSlug) || null;
     await pool.execute(
-      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [userId, v.data.symbol, v.data.direction, price, v.data.margin, v.data.leverage, 'manual', ts.data.tp, ts.data.sl,
-        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt]);
+      'INSERT INTO arena_positions (user_id, symbol, direction, entry, margin, leverage, source, tp, sl, trade_key, seal, seal_payload, sealed_at, opened_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, v.data.symbol, v.data.direction, price, v.data.margin, v.data.leverage,
+        agentSlug ? 'agent' : 'manual', ts.data.tp, ts.data.sl,
+        rc.trade_key, rc.seal, rc.seal_payload, rc.sealed_at, openedAt, null, agentSlug]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance - v.data.margin), userId]);
     return { status: 200, body: { ok: true, filled: { symbol: v.data.symbol, direction: v.data.direction, entry: price, margin: v.data.margin, leverage: v.data.leverage, tp: ts.data.tp, sl: ts.data.sl, key: rc.trade_key } } };
@@ -522,8 +583,9 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     // A live season constrains a signal open exactly as it constrains a manual
     // one — the engine's name on the call does not exempt it from the rules.
     try {
-      const [seasons] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-      const sr = require('../lib/arena_seasons').checkSeasonRules(seasons[0], d);
+      const [srows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+      const sr = require('../lib/arena_seasons').checkSeasonRules(
+        pickCurrentSeason(srows, new Date()), d);
       if (!sr.ok) return res.status(400).json({ error: sr.error });
     } catch (e) { /* season read failure never blocks an open */ }
 
@@ -704,11 +766,12 @@ async function closeForUser(userId, positionId) {
     const pnl = liquidated ? -p.margin : arena.posPnl(p, mark);
     const acct = await loadAccount(userId);
     await pool.execute(
-      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO arena_trades (user_id, symbol, direction, entry, exit_price, margin, leverage, pnl, reason, trade_key, seal, seal_payload, sealed_at, opened_at, closed_at, signal_key, agent_slug, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userId, p.symbol, p.direction, p.entry, exitPrice, p.margin, p.leverage,
         round2(pnl), liquidated ? 'liquidated' : 'manual',
         p.trade_key || null, p.seal || null, p.seal_payload || null, p.sealed_at || null,
-        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null]);
+        p.opened_at, new Date(), p.signal_key || null, p.agent_slug || null,
+        p.source || 'manual']);
     await pool.execute('DELETE FROM arena_positions WHERE id = ? AND user_id = ?', [p.id, userId]);
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?',
       [round2(acct.balance + p.margin + pnl), userId]);
@@ -780,7 +843,7 @@ async function computeLeaderboard() {
   return { rows, ranked_total: rows.length, virtual: true };
 }
 
-router.get('/leaderboard', async (req, res) => {
+router.get('/leaderboard', publicBoardLimit, async (req, res) => {
   try {
     res.json(await computeLeaderboard());
   } catch (err) {
@@ -793,7 +856,7 @@ router.get('/leaderboard', async (req, res) => {
 // closed paper trades from opted-in handles, newest first. §4: percent return
 // on margin only — no dollar amounts (not even virtual ones), no balances, no
 // user ids. Traders without a leaderboard handle never appear.
-router.get('/tape', async (req, res) => {
+router.get('/tape', publicBoardLimit, async (req, res) => {
   try {
     const [trades] = await pool.execute(
       'SELECT id, user_id, symbol, direction, margin, pnl, reason, trade_key, seal, closed_at FROM arena_trades ORDER BY id DESC LIMIT 40');
@@ -876,7 +939,7 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
 // GET /api/arena/trader/:handle — PUBLIC trader card for an opted-in handle.
 // §4: percent / count / badges only — never an amount, not even virtual.
 const traderLib = require('../lib/arena_trader');
-router.get('/trader/:handle', async (req, res) => {
+router.get('/trader/:handle', publicBoardLimit, async (req, res) => {
   try {
     const handle = String(req.params.handle || '').trim();
     if (!traderLib.HANDLE_RE.test(handle)) return res.status(400).json({ error: 'Invalid handle' });
@@ -903,10 +966,31 @@ const seasons = require('../lib/arena_seasons');
 // GET /api/arena/season — PUBLIC. The most recently authored season with its
 // live status and (once it has started) the in-window standings. A season is
 // a time window, never a reset — the all-time board keeps running.
-router.get('/season', async (req, res) => {
+/**
+ * Which row is "the" season.
+ *
+ * This was `SELECT ... FROM arena_seasons LIMIT 1` with NO ORDER BY, which is
+ * only correct while exactly one season has ever existed. MySQL is free to
+ * return any row for an unordered LIMIT 1, and the in-memory shim used in tests
+ * sorts newest-first — so the two disagree by construction and the bug is
+ * invisible until a second season is authored. Genesis ends 2026-09-24; the
+ * second season is not hypothetical, it is scheduled.
+ *
+ * A public board naming the WRONG season, with the wrong standings under it,
+ * is not a degraded read — it is a confident answer to a question nobody asked.
+ * Live wins; otherwise the most recent by start, so an ended season keeps
+ * showing until its successor begins rather than blinking to null.
+ */
+function pickCurrentSeason(rows, now) {
+  if (!rows || !rows.length) return null;
+  const byNewest = rows.slice().sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+  return byNewest.find((s) => seasons.seasonStatus(s, now) === 'live') || byNewest[0];
+}
+
+router.get('/season', publicBoardLimit, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons LIMIT 1');
-    const season = rows[0];
+    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at, rules FROM arena_seasons');
+    const season = pickCurrentSeason(rows, new Date());
     if (!season) return res.json({ season: null });
     const status = seasons.seasonStatus(season, new Date());
     let rules = season.rules;
@@ -922,7 +1006,21 @@ router.get('/season', async (req, res) => {
         [season.starts_at, season.ends_at]);
       const [handles] = await pool.execute(
         'SELECT id, leaderboard_handle FROM users WHERE leaderboard_handle IS NOT NULL');
-      out.rows = seasons.seasonRanking(trades, new Map(handles.map((h) => [h.id, h.leaderboard_handle])));
+      const handleMap = new Map(handles.map((h) => [h.id, h.leaderboard_handle]));
+      out.rows = seasons.seasonRanking(trades, handleMap);
+      // Two counts, because an empty board has two unrelated causes and the
+      // renderer was announcing a third thing that is never measured here:
+      // "no one has joined this season". Nothing joins a season — the board is
+      // derived from trades CLOSED inside the window, and `seasonRanking` then
+      // drops every user without an opt-in handle (§4). So a board can be
+      // empty because nobody has closed a trade yet, OR because several people
+      // have and none of them shows a public handle. The leaderboard endpoint
+      // has sent `ranked_total` for exactly this reason all along, and
+      // embed-arena-view.js documents what it means at the top of the file;
+      // this endpoint simply never sent it.
+      out.closes_in_window = trades.length;
+      out.ranked_total = new Set(
+        trades.filter((t) => handleMap.get(t.user_id)).map((t) => t.user_id)).size;
     }
     res.json(out);
   } catch (err) {
@@ -935,7 +1033,7 @@ router.get('/season', async (req, res) => {
 // its final podium (top 3). §4: opt-in handles + percent only, same as every
 // arena board. Ended standings are immutable (the window is closed), so this
 // is the permanent record.
-router.get('/seasons', async (req, res) => {
+router.get('/seasons', publicBoardLimit, async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at FROM arena_seasons');
     const now = new Date();
@@ -962,12 +1060,122 @@ router.get('/seasons', async (req, res) => {
 });
 
 // POST /api/arena/season { name, starts_at, ends_at } — operator only.
+/**
+ * Is this caller the operator? Answers the row or null; never throws.
+ *
+ * Lifted out of POST /season because three admin routes now need it and three
+ * copies of an authorisation check is three chances to relax one.
+ */
+async function adminOnly(req, res) {
+  const [u] = await pool.execute('SELECT plan FROM users WHERE id = ?', [req.user.user_id]);
+  if (!u[0] || String(u[0].plan) !== 'admin') {
+    res.status(403).json({ error: 'admin_required', detail: 'Only the operator can manage seasons.' });
+    return null;
+  }
+  return u[0];
+}
+
+/**
+ * GET /api/arena/seasons/all — every season, with its status. ADMIN.
+ *
+ * THE OPERATOR AUTHORED A SEASON AND HAD NO WAY TO SEE IT. `/season` returns
+ * only the current pick and `/seasons` lists only ENDED ones, so a season that
+ * is upcoming — or one whose dates came out wrong — is invisible on every
+ * surface including to the person who created it. The report was "I made a new
+ * one and started today, I don't see it", and nothing in the API could have
+ * answered whether it existed, when it runs, or why it was not winning.
+ *
+ * A create endpoint with no read is a write into the dark. This is the read.
+ *
+ * Admin-only because it exposes upcoming seasons, which are an unannounced
+ * product decision until they start; the public surfaces stay as they were.
+ */
+router.get('/seasons/all', authMiddleware, async (req, res) => {
+  try {
+    if (!await adminOnly(req, res)) return;
+    const [rows] = await pool.execute(
+      'SELECT id, name, starts_at, ends_at, rules, created_at FROM arena_seasons');
+    const now = new Date();
+    const current = pickCurrentSeason(rows, now);
+    const out = rows
+      .slice()
+      .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+      .map((r) => {
+        let rules = r.rules;
+        if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch (e) { rules = null; } }
+        return {
+          id: r.id,
+          name: r.name,
+          starts_at: r.starts_at,
+          ends_at: r.ends_at,
+          status: seasons.seasonStatus(r, now),
+          // Which one the board and the trade gate are actually using. Without
+          // it an operator looking at two live seasons cannot tell which is in
+          // force, which is the question that brought them here.
+          is_current: !!(current && Number(current.id) === Number(r.id)),
+          rules: rules || null,
+          created_at: r.created_at,
+        };
+      });
+    res.json({ seasons: out, count: out.length });
+  } catch (err) {
+    console.error('Arena seasons/all error:', err.stack || err.message);
+    // 503, not an empty list. "No seasons exist" and "we could not read them"
+    // are different answers, and the empty one would send the operator to
+    // create a duplicate of a season that is already there.
+    res.status(503).json({ error: 'seasons_unavailable' });
+  }
+});
+
+/**
+ * DELETE /api/arena/seasons/:id — remove a season. ADMIN.
+ *
+ * Deletes the SEASON ROW ONLY. Trades are not touched and are not season-owned:
+ * `arena_trades` carries no season id, and every ranking is computed by
+ * matching `closed_at` against a season's window. So removing a mis-authored
+ * season removes a WINDOW, and the trades that fell inside it keep existing and
+ * keep counting toward whichever season's window still contains them.
+ *
+ * That is the honest behaviour and worth stating, because "delete season" reads
+ * like it might discard results. It does not, and it cannot: there is nothing
+ * on a trade that says which season it belonged to.
+ *
+ * Refuses to delete the LIVE season. Doing so would silently change which rules
+ * gate every open — the exact confusion this pair of endpoints exists to end —
+ * and the operator can end it deliberately by editing its window instead.
+ */
+router.delete('/seasons/:id', authMiddleware, async (req, res) => {
+  try {
+    if (!await adminOnly(req, res)) return;
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'bad_id' });
+    }
+    const [rows] = await pool.execute(
+      'SELECT id, name, starts_at, ends_at FROM arena_seasons WHERE id = ? LIMIT 1', [id]);
+    const row = rows[0];
+    // 404 over a silent success: reporting "deleted" for a row that was never
+    // there tells the operator their mistake is cleaned up when it is not.
+    if (!row) return res.status(404).json({ error: 'no_such_season' });
+
+    const status = seasons.seasonStatus(row, new Date());
+    if (status === 'live') {
+      return res.status(409).json({
+        error: 'season_is_live',
+        detail: 'This season is running and gates every open. Change its window instead.',
+      });
+    }
+    await pool.execute('DELETE FROM arena_seasons WHERE id = ?', [id]);
+    res.json({ deleted: { id: row.id, name: row.name, status } });
+  } catch (err) {
+    console.error('Arena season delete error:', err.stack || err.message);
+    res.status(503).json({ error: 'delete_failed' });
+  }
+});
+
 router.post('/season', authMiddleware, async (req, res) => {
   try {
-    const [u] = await pool.execute('SELECT plan FROM users WHERE id = ?', [req.user.user_id]);
-    if (!u[0] || String(u[0].plan) !== 'admin') {
-      return res.status(403).json({ error: 'admin_required', detail: 'Only the operator can author a season.' });
-    }
+    if (!await adminOnly(req, res)) return;
     const v = seasons.validateSeason(req.body);
     if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
     await pool.execute(
@@ -1054,8 +1262,31 @@ router.post('/keys/revoke', authMiddleware, tradeLimit, async (req, res) => {
   }
 });
 
+// POST /api/arena/keys/agent  { id, agent_slug }  — bind a key to a claimed
+// agent identity, or send agent_slug: null to unbind.
+//
+// This is what makes an autonomous agent's trades appear under its OWN public
+// record instead of under its owner's account. The slug lives on the KEY and
+// never in a tool's arguments: an agent that could name itself per-trade could
+// write into any record whose slug it can spell.
+router.post('/keys/agent', authMiddleware, tradeLimit, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const slug = body.agent_slug == null ? null : String(body.agent_slug);
+    const r = await arenaKeys.bindAgent(req.user.user_id, body.id, slug);
+    if (!r.ok) {
+      return res.status(r.code === 'no_key' ? 404 : 403).json({ error: r.error, code: r.code });
+    }
+    res.json({ ok: true, agent_slug: r.agent_slug });
+  } catch (err) {
+    console.error('Arena key bind error:', err.stack || err.message);
+    res.status(503).json({ error: 'Could not bind that key' });
+  }
+});
+
 module.exports = router;
 module.exports.computeLeaderboard = computeLeaderboard;
+module.exports.pickCurrentSeason = pickCurrentSeason;
 // Exported so the MCP Arena tools ride the SAME open/close path the
 // browser does, rather than growing a second, weaker door.
 module.exports.openForUser = openForUser;

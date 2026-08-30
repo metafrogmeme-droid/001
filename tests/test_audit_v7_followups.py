@@ -67,7 +67,18 @@ class TestManualMarginDoubleLeverage:
         idea = _pending_manual_idea(engine)
         engine.portfolio.balance = 50000.0
         engine.portfolio._peak_equity = 50000.0
-        engine._live_balance_cache = {}
+        # A live confirm now requires a READABLE equity: an empty cache means
+        # "live, but we could not read the balance", and the risk engine
+        # refuses rather than measuring the daily-loss and drawdown limits
+        # against the paper book (see tests/test_live_equity_unreadable_is_not_paper.py).
+        # It mirrors the paper balance on purpose: these tests size against
+        # portfolio.balance, so a DIFFERENT live equity would silently change
+        # their arithmetic. Scaffolding for the orchestration under test, not
+        # an assertion about balances. `free` is present as well as `total`
+        # because the pre-execution clamp reads `live_bal.get("free", 0.0)`
+        # and a payload without it clamps the order to $0.
+        engine._live_balance_cache = {"total": engine.portfolio.balance,
+                                      "free": engine.portfolio.balance}
         # Operator sets a manual margin of $250.
         engine._manual_margin_override = {idea.id: 250.0}
 
@@ -110,7 +121,8 @@ class TestNotionalVisibility:
     def test_risk_audit_logs_leverage_and_notional(self):
         """Every evaluation logs the margin->notional relationship explicitly."""
         import logging
-        import os, tempfile
+        import os
+        import tempfile
         from bot.risk.risk_engine import RiskEngine
         from bot.risk.portfolio import PortfolioTracker
         from bot.config import CONFIG

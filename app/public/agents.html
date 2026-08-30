@@ -20,7 +20,7 @@
 <meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta name="theme-color" content="#0a0b10">
-<link rel="stylesheet" href="/styles.css?v=36">
+<link rel="stylesheet" href="/styles.css?v=38">
 <style>
   .ag-wrap { max-width: 980px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -72,6 +72,11 @@
   <nav class="topnav">
     <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
     <span class="spacer"></span>
+    <!-- The other agent namespace. A slug is a marketplace strategy OR a
+         claimed agent, never both — `slugTaken` refuses a claim on any slug
+         already in this directory — so the two lists are disjoint and neither
+         is reachable from the other without this link. -->
+    <a href="/a" data-i18n="nav.claimed_agents">Claimed agents</a>
     <a href="/dashboard#agents" data-i18n="ag.open_in_app">Open in app</a>
     <a href="/leaderboard" data-i18n="vh.leaderboard.title">Leaderboard</a>
     <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
@@ -298,7 +303,7 @@
     });
 })();
 </script>
-<script src="/js/i18n.js?v=131"></script>
+<script src="/js/i18n.js?v=135"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>
