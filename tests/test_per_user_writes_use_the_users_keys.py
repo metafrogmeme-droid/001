@@ -181,8 +181,8 @@ def test_the_operator_executor_still_signs_with_the_operator_keys(
 def test_the_positions_read_asks_for_the_named_account(monkeypatch):
     # A @staticmethod cannot see self, so the credentials must arrive as an
     # argument or the read silently returns the OPERATOR's book.
-    from bot.core.live_executor import LiveExecutor
     import bot.core.bitget_v3_client as v3mod
+    from bot.core.live_executor import LiveExecutor
     seen = {}
 
     class _Spy(BitgetV3Client):
