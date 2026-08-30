@@ -804,30 +804,6 @@ class LiveExecutor:
         """Reset API error count on success."""
         self._api_error_count = 0
 
-    def _v3_client(self):
-        """The Bitget v3 client for THIS executor's account.
-
-        The ccxt path below authenticates per-user via
-        ``self._venue.create_exchange(cfg, self._credentials)``. The v3 channel
-        used ``BitgetV3Client.from_config()`` at all four of its call sites,
-        which reads the global ``CONFIG.exchange`` — so a per-user executor's
-        stop-loss (``/api/v3/trade/place-strategy-order``) and flash close
-        (``/api/v3/trade/close-positions``) were signed with the OPERATOR's keys
-        and landed on the operator's account. The user's position kept no stop
-        of its own, and a flash close could shut the operator's matching
-        position instead of theirs.
-
-        Latent while ``PER_USER_LIVE_ENABLED`` is off, since every executor is
-        then the operator executor and ``from_config()`` is the right source —
-        which is exactly why nothing surfaced it.
-        """
-        from bot.core.bitget_v3_client import BitgetV3Client
-        # getattr, not self._credentials: this class is constructed with
-        # `LiveExecutor.__new__(LiveExecutor)` in several tests, which skips
-        # __init__ entirely. A missing attribute means no per-user credentials,
-        # which is exactly the operator path and exactly the old behaviour.
-        return BitgetV3Client.from_credentials(getattr(self, "_credentials", None))
-
     async def _get_exchange(self) -> ccxt.Exchange:
         """Get the authenticated exchange instance for this executor's venue."""
         if self._exchange is None:
@@ -1407,10 +1383,12 @@ class LiveExecutor:
 
         # ── Attempt 2: v3 /api/v3/account/settings (UTA accounts) ──
         try:
+            from bot.core.bitget_v3_client import BitgetV3Client
             # AUDIT FIX: offload blocking urlopen to thread to avoid
             # freezing the event loop (dashboard, WS feeds, Telegram).
             resp_data = await asyncio.to_thread(
-                self._v3_client().request, "GET", "/api/v3/account/settings")
+                BitgetV3Client.for_account(self._credentials).request,
+                "GET", "/api/v3/account/settings")
 
             if resp_data.get("code") == "00000":
                 hold_mode = resp_data.get("data", {}).get("holdMode", "")
@@ -4998,8 +4976,16 @@ class LiveExecutor:
         return sl_id, tp_id
 
     @staticmethod
-    def _fetch_v3_positions_raw(credentials: Optional[dict] = None) -> Optional[list[dict]]:
+    def _fetch_v3_positions_raw(
+            credentials: Optional[dict] = None) -> Optional[list[dict]]:
         """Fetch all open positions from Bitget v3 API.
+
+        `credentials` names WHOSE positions. This is a @staticmethod, so it
+        cannot reach `self._credentials` and the caller must hand them over —
+        without that it read the OPERATOR's book, so a per-user executor
+        reconciled its user against positions that were never theirs.
+        Defaults to None, which falls back to the operator's keys and keeps
+        the operator path unchanged.
 
         Returns a list of raw position dicts, ``[]`` when the channel is
         NOT APPLICABLE (non-Bitget venue, no v3 credentials — permanent
@@ -5012,16 +4998,11 @@ class LiveExecutor:
         Handles both response shapes: ``{"data": [...]}`` and
         ``{"data": {"list": [...]}}``. Synchronous — callers must wrap in
         ``asyncio.to_thread``.
-
-        `credentials` is threaded from the calling executor so a per-user
-        account is read with its OWN keys. It is a parameter rather than
-        `self._credentials` because this is a @staticmethod and cannot reach
-        one; `None` keeps the operator behaviour it had before.
         """
         if get_venue().id != "bitget":
             return []
         from bot.core.bitget_v3_client import BitgetV3Client
-        client = BitgetV3Client.from_credentials(credentials)
+        client = BitgetV3Client.for_account(credentials)
         if not client.has_credentials:
             return []
         path = "/api/v3/position/current-position?category=USDT-FUTURES"
@@ -5041,7 +5022,9 @@ class LiveExecutor:
             return None
 
     @staticmethod
-    def _fetch_position_margin_mode_v3(bitget_symbol: str, credentials: Optional[dict] = None) -> Optional[str]:
+    def _fetch_position_margin_mode_v3(
+            bitget_symbol: str,
+            credentials: Optional[dict] = None) -> Optional[str]:
         """Query v3 position API to get the actual marginMode for a specific symbol.
 
         Returns 'crossed' or 'isolated', or None if lookup fails.
@@ -5197,6 +5180,7 @@ class LiveExecutor:
         """
         import json as _json
 
+        from bot.core.bitget_v3_client import BitgetV3Client
 
         sl_id = None
         tp_id = None
@@ -5232,7 +5216,12 @@ class LiveExecutor:
             # loop below branches on the response code, and recover the JSON
             # error body off an HTTPError exactly as before.
             try:
-                return cast(dict, self._v3_client().request("POST", path, body_dict))
+                # THE STOP-LOSS. from_config() signed this with the OPERATOR's
+                # keys on a per-user executor: the user's position carried no
+                # stop on their own account, and the operator's account
+                # acquired a strategy order for a position it does not hold.
+                return cast(dict, BitgetV3Client.for_account(
+                    self._credentials).request("POST", path, body_dict))
             except Exception as e:
                 if hasattr(e, 'read'):
                     try:
@@ -8770,6 +8759,7 @@ class LiveExecutor:
         """
         import json as _json
 
+        from bot.core.bitget_v3_client import BitgetV3Client
 
         if self._venue.id != "bitget":
             return None  # v3 flash-close is a Bitget channel; caller falls back
@@ -8789,7 +8779,13 @@ class LiveExecutor:
             # on error so the except below recovers the JSON error body off the
             # HTTPError exactly as before).
             result = await asyncio.to_thread(
-                self._v3_client().request, "POST", path, body_dict)
+                # THE FLASH CLOSE, and worse than the stop: signed with the
+                # operator's keys the user's position is NOT closed and they
+                # stay exposed, while an operator position on the same symbol
+                # and side is closed instead. This runs when something has
+                # already gone wrong.
+                BitgetV3Client.for_account(self._credentials).request,
+                "POST", path, body_dict)
         except Exception as e:
             if hasattr(e, 'read'):
                 try:

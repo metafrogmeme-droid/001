@@ -4,8 +4,8 @@
     "target": "RUNECLAW by HUMANOID TRADERS",
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
-    "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "1c61ca368881853f16a217ff2b3e87c67ccb6841",
+    "branch": "claude/new-session-fk85gd",
+    "commit": "0b3515e93d61b251500d7782fb97bc6b02aee656",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -190,7 +190,7 @@
     {
       "id": "RC-2026-011",
       "title": "Stop-loss orders for a per-user account are signed with the OPERATOR's credentials",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "CRITICAL",
       "confidence": "CONFIRMED",
       "category": "cross-account-money-path",
@@ -204,12 +204,12 @@
       ],
       "verified_by": "lead-auditor+dimension-agent+2-verifiers",
       "reachability": "LATENT BY DEFAULT: PER_USER_LIVE_ENABLED defaults False (bot/config.py:2261). Live the moment that supported feature is enabled; nothing warns that stops land on the wrong account.",
-      "note": "TWO operator-signed writes, not one. _v3_post (5202) POSTs /api/v3/trade/place-strategy-order at 5321 (the SL/TP), and _flash_close_position (8734) POSTs /api/v3/trade/close-positions at 8765. On a per-user executor the flash close is worse: the user's position is NOT closed, and if the operator holds the same symbol/side, THEIRS is. Both are instance methods, so self._credentials is in scope. The two GET sites (1390, 4996) also read the operator's account. Line numbers re-anchored after PR #229 shifted them by ~93."
+      "note": "TWO operator-signed writes, not one. _v3_post (5202) POSTs /api/v3/trade/place-strategy-order at 5321 (the SL/TP), and _flash_close_position (8734) POSTs /api/v3/trade/close-positions at 8765. On a per-user executor the flash close is worse: the user's position is NOT closed, and if the operator holds the same symbol/side, THEIRS is. Both are instance methods, so self._credentials is in scope. The two GET sites (1390, 4996) also read the operator's account. Line numbers re-anchored after PR #229 shifted them by ~93. FIXED: BitgetV3Client.for_account(credentials) is now the single place that answers 'whose keys is this?', replacing from_config() at all four sites. _fetch_v3_positions_raw and _fetch_position_margin_mode_v3 are @staticmethod and cannot see self, so credentials are threaded as a parameter from their instance callers. A half-filled credential dict falls back to the operator rather than signing with a key and no secret."
     },
     {
       "id": "RC-2026-012",
       "title": "Unreadable live equity silently reroutes the DAILY-LOSS and DRAWDOWN breakers to the paper book",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "CRITICAL",
       "confidence": "CONFIRMED",
       "category": "risk-control-fail-open",
