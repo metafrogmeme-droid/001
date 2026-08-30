@@ -2350,6 +2350,36 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP NULL DEFAULT NULL');
     } catch (e) { /* exists */ }
+    // A Telegram account belongs to at most one RUNECLAW account — the rule
+    // wallet_address, referral_code and leaderboard_handle already carry.
+    // telegram_id never had it, so two rows could hold the same chat_id while
+    // every `WHERE telegram_id = ?` lookup resolves to whichever came first.
+    // MySQL exempts NULL from UNIQUE, so unlinked rows are unaffected.
+    //
+    // NOT wrapped in the bare `catch (e) { /* exists */ }` the migrations above
+    // use, and that is the point: on a live table that ALREADY holds duplicates
+    // this fails with ER_DUP_ENTRY, and swallowing it leaves no index while the
+    // code reads as though there is one. An absent constraint reported as a
+    // present one is the failure this codebase spends its guard tests
+    // preventing.
+    try {
+      await pool.execute('CREATE UNIQUE INDEX idx_users_telegram_id ON users (telegram_id)');
+    } catch (e) {
+      if (e && (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061)) {
+        /* created by an earlier migrate() — nothing to do */
+      } else if (e && (e.code === 'ER_DUP_ENTRY' || e.errno === 1062)) {
+        console.error(
+          'MIGRATION INCOMPLETE: idx_users_telegram_id was NOT created — the '
+          + 'users table already holds more than one row with the same '
+          + 'telegram_id. Reconcile them by hand (decide which account owns the '
+          + 'chat_id, NULL the others) and re-run migrate(). Until then the '
+          + 'check in POST /api/auth/validate-token is the only thing stopping a '
+          + 'NEW duplicate, and the existing ones remain.');
+      } else {
+        console.error('MIGRATION: idx_users_telegram_id could not be created:',
+          (e && (e.stack || e.message)) || e);
+      }
+    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS trades (
         id INT AUTO_INCREMENT PRIMARY KEY,

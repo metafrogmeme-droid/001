@@ -4,8 +4,8 @@
     "target": "RUNECLAW by HUMANOID TRADERS",
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
-    "branch": "claude/new-session-fk85gd",
-    "commit": "0b3515e93d61b251500d7782fb97bc6b02aee656",
+    "branch": "claude/runeclaw-full-audit-8ks0k3",
+    "commit": "ec6b977c5f39391a1376196e0bb349544eeb6126",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -37,24 +37,61 @@
     {
       "id": "RC-2026-001",
       "title": "Unauthenticated POST /api/auth/validate-token binds an attacker-chosen Telegram id to the attacker's own web account",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "CRITICAL",
       "confidence": "CONFIRMED",
       "category": "broken-authentication",
       "component": "web-app/auth",
       "file": "app/auth.js",
-      "line": "867-889",
+      "line": "903-935",
       "fix_class": "REVIEW_REQUIRED",
       "standard": [
         "OWASP-A01:2021",
         "OWASP-API1:2023",
         "OWASP-API5:2023",
         "CWE-287",
+        "CWE-306",
         "CWE-639",
-        "ASVS-4.2.1"
+        "ASVS-4.1.1"
       ],
       "verified_by": "lead-auditor+dimension-agent",
-      "note": "Two-sided fix; bot must send X-Bot-Secret before the server enforces it, or every /link breaks. guard_lint.py:536 exempts this exact route. telegram_id has no unique index (app/db.js:2230)."
+      "test": "app/test/link_binding_is_bot_authenticated.test.js, tests/test_link_sends_the_bot_secret.py",
+      "note": "Fixed in four parts: botAuth extracted to app/lib/bot_auth.js and applied as route middleware; a 409 when the chat_id is already on another row, raised BEFORE the write so a refusal does not burn the token; a unique index on telegram_id whose failure path distinguishes 'already created' from 'could not create'; and the guard_lint exemption DELETED, not reworded. bot/skills/user_middleware.py sends X-Bot-Secret. DEPLOY ORDER: bot first, then app - reversed, every /link returns 403. 4 mutations killed, including moving the 409 after the write."
+    },
+    {
+      "id": "RC-2026-023",
+      "title": "The operator's live dashboard header badge is hardcoded SIMULATION and never reads the mode the server sends",
+      "status": "OPEN",
+      "severity": "HIGH",
+      "confidence": "CONFIRMED",
+      "category": "operator-display-honesty",
+      "component": "bot/web/dashboard",
+      "file": "bot/web/dashboard.html",
+      "line": "417-419 (markup), 718-771 (updateEngine)",
+      "fix_class": "SAFE_AUTO_FIX",
+      "standard": [
+        "CWE-1007"
+      ],
+      "verified_by": "lead-auditor+dimension-agent+2-verifiers",
+      "note": "Finder said CRITICAL; both verifiers independently downgraded to HIGH and the lead took their number - display-only console behind a Bearer token, no trade gated on it, mode also printed at boot (bot/main.py:47) and on Telegram. The SERVER half was already fixed (dashboard_server.py:84-97, RC-AUD-016); the client was never wired to it, so the fix is unreachable from the UI. The connection dot inside the badge DOES update, so a live engine renders as a green-dot SIMULATION. Needs three states, not two: dashboard_server.py:98 emits {'state': 'UNKNOWN'} with no simulation_mode key at all."
+    },
+    {
+      "id": "RC-2026-024",
+      "title": "The full-history gitleaks step scans every ref in the checkout, so another branch's leak fails the check on every open PR",
+      "status": "OPEN",
+      "severity": "MEDIUM",
+      "confidence": "CONFIRMED",
+      "category": "gate-integrity",
+      "component": "ci",
+      "file": ".github/workflows/ci.yml",
+      "line": "482-500",
+      "fix_class": "REVIEW_REQUIRED",
+      "standard": [
+        "NIST-SSDF-PS.1",
+        "NIST-SSDF-PW.7"
+      ],
+      "verified_by": "lead-auditor",
+      "note": "Mechanism CONFIRMED by local reproduction with CI's own pinned, checksum-verified binary: scoping to one tip gives 1037 commits, letting it see all refs gives 1039 - exactly the two then-unmerged commits on an unrelated branch. CI's main run reported 1039/86,080,867 bytes, byte-identical to the local run. The specific leak is NOT identified (redacted output, fingerprint absent from the baseline, the refs are gone) and this is NOT an all-clear: a credential briefly pushed on a branch remains in that branch's objects until GitHub collects them. Remediation is --log-opts=HEAD plus an all-refs sweep on a schedule."
     },
     {
       "id": "RC-2026-002",
@@ -446,46 +483,52 @@
       "ai-to-money",
       "order-exec",
       "risk-engine",
-      "market-data"
-    ],
-    "dimensions_not_run": [
+      "market-data",
+      "ai-injection",
       "injection",
       "browser-sec",
-      "ai-injection",
-      "backtest",
       "honesty-py",
       "honesty-js",
       "data-db",
       "concurrency",
+      "backtest",
       "infra-cicd",
       "deps",
-      "a11y",
       "privacy",
       "observability",
+      "a11y",
       "reachability",
       "docs-consistency",
       "tests",
       "frontend-correctness",
       "contracts"
     ],
-    "adversarial_verification": "COMPLETE for the 8 dimensions run: 49 raw findings, 40 CONFIRMED, 6 SUSPECTED, 3 REFUTED, 0 unverified. Two verifiers per finding, both defaulting to refute."
+    "dimensions_not_run": [],
+    "adversarial_verification": "COMPLETE for all 26 dimensions. Two independent verifiers per finding, each given a different lens and both instructed to default to refuted. A finding refuted by both is recorded REFUTED, by one SUSPECTED, by neither CONFIRMED.",
+    "verifier_surfaced_gaps": {
+      "count": 59,
+      "status": "TRIAGE IN PROGRESS",
+      "note": "Defect claims the verifiers raised that their own finders had missed. They are NOT findings and are NOT counted as such: a verifier asserting a defect gets the same skepticism as a finder. Each is being re-read against the code, checked for reachability from outside its file, reproduced where reproduction is cheap, and then put to two adversarial refuters like any other claim.",
+      "file": "audit/verifier_surfaced_gaps.md"
+    }
   },
   "release_decision": {
-    "decision": "NO-GO",
-    "basis": "RC-2026-001 is an unresolved CRITICAL. The brief prohibits GO with any unresolved BLOCKER or CRITICAL finding.",
-    "blockers": [
-      "RC-2026-001 validate-token identity binding",
-      "RC-2026-011 per-user stops signed with operator credentials (latent until PER_USER_LIVE_ENABLED)",
-      "RC-2026-012 breakers fall back to the paper book when live equity is unreadable"
+    "decision": "CONDITIONAL GO",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 2 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "blockers": [],
+    "open_high": [
+      "RC-2026-023 The operator's live dashboard header badge is hardcoded SIMULATION and never reads the mode the server sends",
+      "RC-2026-008 Backups omit the per-user credential store, and the master key that opens what they do archive"
     ],
-    "completeness_caveat": "This decision rests on 8 of 26 planned dimensions. It is a floor, not a full assessment - 18 remain unrun, accessibility has not been assessed at all, and the money-path batch alone produced two further CRITICALs. More may exist."
+    "completeness_caveat": "All 26 planned dimensions ran and every finding was put to two independent adversarial verifiers. It is still a bounded assessment: accessibility is static-only, nothing was deployed, no exchange was contacted, and 59 verifier-raised claims are triaged separately and deliberately excluded from these counts until each is confirmed or refuted on its own evidence."
   },
   "limitations": [
-    "18 of 26 audit dimensions have not run.",
-    "Adversarial verification is complete for the 8 dimensions that ran.",
+    "All 26 planned dimensions ran. The 59 defect claims the verifiers raised beyond their finders are triaged separately (audit/verifier_surfaced_gaps.md); untriaged items are NOT counted as findings.",
+    "Adversarial verification (two independent refuters per finding, both instructed to default to refuted) is complete for every dimension.",
     "No live deployment, no exchange connectivity, no production data. All dynamic verification was against local modules with in-memory or temp-dir backends.",
-    "Accessibility was not assessed at all; no browser was driven.",
-    "The Python baseline gate now passes clean on a quiescent tree: 9146 passed, 0 failed.",
-    "Rust/Anchor programs were type-checked but not compiled or fuzzed; cargo CI job was still running at time of writing."
+    "Accessibility is STATIC ONLY - no browser was driven, so every WCAG item is NEEDS_RUNTIME_VALIDATION and no conformance level is claimed.",
+    "Legal and GDPR conclusions are technical alignment only and require qualified legal review.",
+    "The Python baseline gate passes clean on a quiescent tree: 9202 passed, 0 failed.",
+    "Rust/Anchor programs were type-checked but not compiled or fuzzed locally; cargo, solidity, gitleaks and token-tooling remain CI-only."
   ]
 }

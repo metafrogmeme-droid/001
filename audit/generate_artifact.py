@@ -9,6 +9,7 @@ recurring / resolved / reopened against this file.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -23,15 +24,54 @@ def _git(*args: str) -> str:
 F = [
     dict(id="RC-2026-001", title="Unauthenticated POST /api/auth/validate-token binds an "
          "attacker-chosen Telegram id to the attacker's own web account",
-         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
          category="broken-authentication", component="web-app/auth",
-         file="app/auth.js", line="867-889", fix_class="REVIEW_REQUIRED",
+         file="app/auth.js", line="903-935", fix_class="REVIEW_REQUIRED",
          standard=["OWASP-A01:2021", "OWASP-API1:2023", "OWASP-API5:2023",
-                   "CWE-287", "CWE-639", "ASVS-4.2.1"],
+                   "CWE-287", "CWE-306", "CWE-639", "ASVS-4.1.1"],
          verified_by="lead-auditor+dimension-agent",
-         note="Two-sided fix; bot must send X-Bot-Secret before the server enforces it, "
-              "or every /link breaks. guard_lint.py:536 exempts this exact route. "
-              "telegram_id has no unique index (app/db.js:2230)."),
+         test="app/test/link_binding_is_bot_authenticated.test.js, "
+              "tests/test_link_sends_the_bot_secret.py",
+         note="Fixed in four parts: botAuth extracted to app/lib/bot_auth.js and applied "
+              "as route middleware; a 409 when the chat_id is already on another row, "
+              "raised BEFORE the write so a refusal does not burn the token; a unique "
+              "index on telegram_id whose failure path distinguishes 'already created' "
+              "from 'could not create'; and the guard_lint exemption DELETED, not "
+              "reworded. bot/skills/user_middleware.py sends X-Bot-Secret. "
+              "DEPLOY ORDER: bot first, then app - reversed, every /link returns 403. "
+              "4 mutations killed, including moving the 409 after the write."),
+    dict(id="RC-2026-023", title="The operator's live dashboard header badge is hardcoded "
+         "SIMULATION and never reads the mode the server sends",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         category="operator-display-honesty", component="bot/web/dashboard",
+         file="bot/web/dashboard.html", line="417-419 (markup), 718-771 (updateEngine)",
+         fix_class="SAFE_AUTO_FIX", standard=["CWE-1007"],
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         note="Finder said CRITICAL; both verifiers independently downgraded to HIGH and "
+              "the lead took their number - display-only console behind a Bearer token, "
+              "no trade gated on it, mode also printed at boot (bot/main.py:47) and on "
+              "Telegram. The SERVER half was already fixed (dashboard_server.py:84-97, "
+              "RC-AUD-016); the client was never wired to it, so the fix is unreachable "
+              "from the UI. The connection dot inside the badge DOES update, so a live "
+              "engine renders as a green-dot SIMULATION. Needs three states, not two: "
+              "dashboard_server.py:98 emits {'state': 'UNKNOWN'} with no simulation_mode "
+              "key at all."),
+    dict(id="RC-2026-024", title="The full-history gitleaks step scans every ref in the "
+         "checkout, so another branch's leak fails the check on every open PR",
+         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         category="gate-integrity", component="ci",
+         file=".github/workflows/ci.yml", line="482-500", fix_class="REVIEW_REQUIRED",
+         standard=["NIST-SSDF-PS.1", "NIST-SSDF-PW.7"],
+         verified_by="lead-auditor",
+         note="Mechanism CONFIRMED by local reproduction with CI's own pinned, "
+              "checksum-verified binary: scoping to one tip gives 1037 commits, letting "
+              "it see all refs gives 1039 - exactly the two then-unmerged commits on an "
+              "unrelated branch. CI's main run reported 1039/86,080,867 bytes, "
+              "byte-identical to the local run. The specific leak is NOT identified "
+              "(redacted output, fingerprint absent from the baseline, the refs are "
+              "gone) and this is NOT an all-clear: a credential briefly pushed on a "
+              "branch remains in that branch's objects until GitHub collects them. "
+              "Remediation is --log-opts=HEAD plus an all-refs sweep on a schedule."),
     dict(id="RC-2026-002", title="guard_lint accuses third-party code in any virtualenv "
          "not named .venv", status="FIXED", severity="MEDIUM", confidence="CONFIRMED",
          category="gate-integrity", component="tooling",
@@ -262,21 +302,88 @@ VALIDATION = [
 # writing the artifact, so the total is now computed from the two lists below
 # and a mismatch is an error rather than a sentence nobody rechecks.
 _COMPLETED = ["web-authz", "py-api-authz", "telegram-authz", "secrets",
-              "ai-to-money", "order-exec", "risk-engine", "market-data"]
-_NOT_RUN = ["injection", "browser-sec", "ai-injection", "backtest",
-            "honesty-py", "honesty-js", "data-db", "concurrency",
-            "infra-cicd", "deps", "a11y", "privacy", "observability",
-            "reachability", "docs-consistency", "tests",
-            "frontend-correctness", "contracts"]
+              "ai-to-money", "order-exec", "risk-engine", "market-data",
+              "ai-injection", "injection", "browser-sec", "honesty-py",
+              "honesty-js", "data-db", "concurrency", "backtest",
+              "infra-cicd", "deps", "privacy", "observability",
+              "a11y", "reachability", "docs-consistency", "tests",
+              "frontend-correctness", "contracts"]
+_NOT_RUN = []
 assert not set(_COMPLETED) & set(_NOT_RUN), "a dimension cannot be both"
+assert len(_COMPLETED) == len(set(_COMPLETED)), "a dimension is listed twice"
+
+# Counted from the file, not typed. The number in prose is the part that rots
+# first — the same reason the dimension total above is derived.
+_GAPS = ROOT / "audit" / "verifier_surfaced_gaps.md"
+GAPS_UNTRIAGED = re.findall(
+    r"(?m)^(\d+)\.\s", _GAPS.read_text(encoding="utf-8").split("---", 1)[1]
+) if _GAPS.is_file() else []
 
 COVERAGE = dict(
     dimensions_total=len(_COMPLETED) + len(_NOT_RUN),
     dimensions_completed=_COMPLETED,
     dimensions_not_run=_NOT_RUN,
-    adversarial_verification="COMPLETE for the 8 dimensions run: 49 raw findings, "
-                             "40 CONFIRMED, 6 SUSPECTED, 3 REFUTED, 0 unverified. "
-                             "Two verifiers per finding, both defaulting to refute.",
+    adversarial_verification=(
+        f"COMPLETE for all {len(_COMPLETED)} dimensions. Two independent verifiers "
+        "per finding, each given a different lens and both instructed to default "
+        "to refuted. A finding refuted by both is recorded REFUTED, by one "
+        "SUSPECTED, by neither CONFIRMED."),
+    verifier_surfaced_gaps=dict(
+        count=len(GAPS_UNTRIAGED),
+        status="TRIAGE IN PROGRESS",
+        note="Defect claims the verifiers raised that their own finders had "
+             "missed. They are NOT findings and are NOT counted as such: a "
+             "verifier asserting a defect gets the same skepticism as a finder. "
+             "Each is being re-read against the code, checked for reachability "
+             "from outside its file, reproduced where reproduction is cheap, and "
+             "then put to two adversarial refuters like any other claim.",
+        file="audit/verifier_surfaced_gaps.md",
+    ),
+)
+
+# ── The release decision is DERIVED, not restated ──────────────────────────
+#
+# It used to be a literal, and it drifted: it named RC-2026-011 and RC-2026-012
+# as blockers after both were fixed, and cited "8 of 26 dimensions" after all 26
+# had run. The register (markdown) and this file are two hands and neither could
+# correct the other, so an operator checking before arming live trading would
+# have read fixed CRITICALs as live. Computing it from F means a status change in
+# one place moves the verdict.
+_OPEN = {"OPEN", "PARTIALLY_FIXED"}
+_BLOCKING = {"BLOCKER", "CRITICAL"}
+OPEN_BLOCKERS = [f for f in F if f["status"] in _OPEN and f["severity"] in _BLOCKING]
+OPEN_HIGH = [f for f in F if f["status"] in _OPEN and f["severity"] == "HIGH"]
+
+# The brief prohibits GO with ANY unresolved BLOCKER or CRITICAL. Below that bar
+# the open HIGHs still bear on the decision, so it is CONDITIONAL GO rather than
+# GO while any remain.
+if OPEN_BLOCKERS:
+    _decision = "NO-GO"
+    _basis = (f"{len(OPEN_BLOCKERS)} unresolved "
+              f"{'BLOCKER/CRITICAL finding' if len(OPEN_BLOCKERS) == 1 else 'BLOCKER/CRITICAL findings'}. "
+              "The brief prohibits GO with any unresolved BLOCKER or CRITICAL.")
+elif OPEN_HIGH:
+    _decision = "CONDITIONAL GO"
+    _basis = (f"No unresolved BLOCKER or CRITICAL findings. {len(OPEN_HIGH)} HIGH "
+              "findings remain open and were reported rather than fixed, by the "
+              "instruction to fix only CRITICALs and genuine safe auto-fixes. Each "
+              "carries a proposed patch. The conditions are those patches.")
+else:
+    _decision = "GO"
+    _basis = "No unresolved BLOCKER, CRITICAL or HIGH findings."
+
+RELEASE_DECISION = dict(
+    decision=_decision,
+    basis=_basis,
+    blockers=[f"{f['id']} {f['title']}" for f in OPEN_BLOCKERS],
+    open_high=[f"{f['id']} {f['title']}" for f in OPEN_HIGH],
+    completeness_caveat=(
+        f"All {len(_COMPLETED)} planned dimensions ran and every finding was put to "
+        "two independent adversarial verifiers. It is still a bounded assessment: "
+        "accessibility is static-only, nothing was deployed, no exchange was "
+        f"contacted, and {len(GAPS_UNTRIAGED)} verifier-raised claims are triaged "
+        "separately and deliberately excluded from these counts until each is "
+        "confirmed or refuted on its own evidence."),
 )
 
 art = dict(
@@ -308,28 +415,23 @@ art = dict(
     refuted=REFUTED,
     validation=VALIDATION,
     coverage=COVERAGE,
-    release_decision=dict(
-        decision="NO-GO",
-        basis="RC-2026-001 is an unresolved CRITICAL. The brief prohibits GO with any "
-              "unresolved BLOCKER or CRITICAL finding.",
-        blockers=["RC-2026-001 validate-token identity binding",
-                  "RC-2026-011 per-user stops signed with operator credentials (latent until "
-                  "PER_USER_LIVE_ENABLED)",
-                  "RC-2026-012 breakers fall back to the paper book when live equity is unreadable"],
-        completeness_caveat="This decision rests on 8 of 26 planned dimensions. It is a "
-                            "floor, not a full assessment - 18 remain unrun, accessibility "
-                            "has not been assessed at all, and the money-path batch alone "
-                            "produced two further CRITICALs. More may exist.",
-    ),
+    release_decision=RELEASE_DECISION,
     limitations=[
-        "18 of 26 audit dimensions have not run.",
-        "Adversarial verification is complete for the 8 dimensions that ran.",
+        f"All {len(_COMPLETED)} planned dimensions ran. The {len(GAPS_UNTRIAGED)} "
+        "defect claims the verifiers raised beyond their finders are triaged "
+        "separately (audit/verifier_surfaced_gaps.md); untriaged items are NOT "
+        "counted as findings.",
+        "Adversarial verification (two independent refuters per finding, both "
+        "instructed to default to refuted) is complete for every dimension.",
         "No live deployment, no exchange connectivity, no production data. All dynamic "
         "verification was against local modules with in-memory or temp-dir backends.",
-        "Accessibility was not assessed at all; no browser was driven.",
-        "The Python baseline gate now passes clean on a quiescent tree: 9146 passed, 0 failed.",
-        "Rust/Anchor programs were type-checked but not compiled or fuzzed; cargo CI job "
-        "was still running at time of writing.",
+        "Accessibility is STATIC ONLY - no browser was driven, so every WCAG item is "
+        "NEEDS_RUNTIME_VALIDATION and no conformance level is claimed.",
+        "Legal and GDPR conclusions are technical alignment only and require qualified "
+        "legal review.",
+        "The Python baseline gate passes clean on a quiescent tree: 9202 passed, 0 failed.",
+        "Rust/Anchor programs were type-checked but not compiled or fuzzed locally; "
+        "cargo, solidity, gitleaks and token-tooling remain CI-only.",
     ],
 )
 

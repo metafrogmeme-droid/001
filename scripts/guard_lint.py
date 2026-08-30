@@ -533,8 +533,6 @@ RULES: list[Rule] = [
             "auth.js:POST /verify-email",
             "auth.js:POST /telegram", "auth.js:POST /google",
             "auth.js:GET /oauth/:provider/start", "auth.js:GET /oauth/:provider/callback",
-            "auth.js:POST /validate-token",   # answers "is this token valid" — the
-                                              # token IS the credential being checked
             "auth.js:GET /config",            # which sign-in providers are enabled
             "auth.js:POST /wallet/nonce",     # issues a nonce to sign; binds nothing
             "auth.js:POST /wallet/verify",    # proves wallet control, no account write

@@ -5,7 +5,6 @@
  */
 
 const express = require('express');
-const crypto = require('crypto');
 const { pool } = require('../db');
 // LAZY on purpose. `require('../auth')` at module load makes this file fatally
 // depend on the WEB session secret — auth.js exits the process when JWT_SECRET
@@ -269,21 +268,12 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
   }
 });
 
-// Auth middleware for bot sync — constant-time comparison
-function botAuth(req, res, next) {
-  if (!SYNC_SECRET) {
-    return res.status(503).json({ error: 'Sync not configured (BOT_SYNC_SECRET unset)' });
-  }
-  const secret = req.headers['x-bot-secret'];
-  const a = Buffer.from(secret || '');
-  const b = Buffer.from(SYNC_SECRET);
-  // timingSafeEqual THROWS on unequal-length buffers — length-check first so a
-  // wrong-length secret returns a clean 403 instead of crashing to a 500.
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return res.status(403).json({ error: 'Invalid bot secret' });
-  }
-  next();
-}
+// Auth middleware for bot sync — constant-time comparison.
+//
+// Moved to lib/bot_auth.js when POST /api/auth/validate-token needed the same
+// gate. Two copies of a constant-time comparison is one copy that can drift
+// into not being constant-time, and nothing would notice.
+const { botAuth } = require('../lib/bot_auth');
 
 router.use(botAuth);
 

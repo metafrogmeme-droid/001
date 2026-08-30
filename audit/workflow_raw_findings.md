@@ -1,10 +1,26 @@
 # Raw findings from the completed audit dimensions
 
-**Status: UNVERIFIED.** The two adversarial verifiers for each dimension
-died on the session rate limit, so nothing below has been through the
-refutation pass. Six items were independently verified by the lead
-auditor and are written up in `verified_findings.md`; the rest are
-SUSPECTED and must not be treated as confirmed.
+**Read the section header before the finding.** This file has two halves and
+they carry very different weight. The banner that used to sit here said
+"Status: UNVERIFIED" and applied to the whole file; that was written before the
+verifiers ran and stayed true only of the first 22 items. Leaving it up made
+162 verified findings read as unverified, which is the opposite of this audit's
+usual failure but is the same defect: a status line that stopped tracking what
+it describes.
+
+| section | items | verification |
+|---|---|---|
+| `W-01` … `W-22` | 22 | **UNVERIFIED.** The first run's two verifiers per dimension died on the session rate limit. Nothing in this section has been through a refutation pass. Treat as SUSPECTED. |
+| `M-*`, `B3-*` … `B7-*` | 162 | **VERIFIED.** Each finding was put to two independent adversarial verifiers with different lenses, both instructed to default to `refuted`. Refuted by both → dropped and recorded as refuted in the batch summary; by one → SUSPECTED; by neither → CONFIRMED. |
+
+Across the six verified batches: **172 raw → 162 CONFIRMED, 6 SUSPECTED, 4
+REFUTED.** Only CONFIRMED findings are written up as blocks below, which is why
+the block count and the confirmed count are the same number.
+
+**The lead-auditor register is `verified_findings.md`** (`RC-2026-NNN`): the
+subset re-verified by hand — code re-read, reachability established from outside
+the file, reproduced where reproduction was cheap. A finding here that is not
+there has been through the verifiers but not through that.
 
 
 ## W-01 — /risk/halt swallows the halt failure and returns a hardcoded success, and never does what its own docstring promises

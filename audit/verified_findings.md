@@ -1654,3 +1654,203 @@ that step's job, the branch-tip sweep belongs on a schedule, and GitHub's own
 push protection covers the push itself.
 
 **Rollback.** Delete the `--log-opts` line. One line, no state.
+
+---
+
+# RC-2026-001 — `/api/auth/validate-token` is unauthenticated and it WRITES
+
+- **Status**: FIXED · **Severity**: CRITICAL · **Confidence**: CONFIRMED
+- **Fix class**: REVIEW_REQUIRED — it changes an auth boundary and it has a
+  deploy-ordering constraint (below)
+- **Dimension**: web-authz · **File**: `app/auth.js:903-935` (before the fix)
+- **Standard**: OWASP API Top 10 API2:2023 (Broken Authentication) and API5:2023
+  (Broken Function Level Authorization); ASVS V4.1.1; CWE-306 (Missing
+  Authentication for a Critical Function), CWE-639 (Authorization Bypass
+  Through User-Controlled Key)
+
+**What it did.** Anyone on the internet could POST `{token, chat_id}` and the
+route would, with no credential of any kind:
+
+1. look the account up by `link_token`;
+2. **consume** the token;
+3. **set `telegram_id` to the caller-supplied `chat_id`** and
+   `telegram_linked = TRUE`; and
+4. return the account's `user_id`, `email` and `plan`.
+
+**The exemption argued the read, and the route is a write.** `guard_lint`
+carried it in `express-mixed-module-routes` with the reason *"answers 'is this
+token valid' — the token IS the credential being checked"*. That is a sound
+argument about a lookup. It is not an argument about binding a Telegram account
+to somebody's row and handing back their email. The exemption is deleted, not
+reworded, in the same commit as the gate.
+
+**The codebase already knew the rule.** Two entries below it in the same list
+sits `auth.js:POST /wallet/link-by-code`, whose comment reads: *"Refuses if the
+wallet is already on another account."* And `app/auth.js:1110-1115` implements
+it:
+
+```js
+// A wallet identifies at most one account (it is also a login key).
+const [rows] = await pool.execute(
+  'SELECT id FROM users WHERE wallet_address = ? LIMIT 1', [lower]);
+if (rows.length && rows[0].id !== req.user.user_id) {
+  return res.status(409).json({ error: 'That wallet is already linked to another account.' });
+}
+```
+
+`telegram_id` had no equivalent. It also had no unique index, while
+`wallet_address`, `referral_code` and `leaderboard_handle` all do
+(`app/db.js:2309`, `:2339`, `:2347`). So **two rows could hold the same
+chat_id**, and every resolver takes the first match — `app/db.js:1492`
+(`WHERE telegram_id = ?`) and the tier sync at `:1749`
+(`this.users.find(x => String(x.telegram_id) === String(params[1]))`). Which
+account a user's tier, trades and exchange credentials attached to would depend
+on row order.
+
+**Not a brute-force finding.** `link-token` mints
+`crypto.randomBytes(16).toString('hex')` with a 10-minute TTL
+(`app/auth.js:889-890`) — 128 bits is not guessable, and saying otherwise would
+overstate it. The exposure is every path by which a 10-minute token reaches a
+second pair of eyes: pasted into the wrong chat, screenshotted, in a proxy log,
+or simply raced. Against an anonymous endpoint, one such token was a complete
+account bind plus an email disclosure.
+
+## The fix
+
+Four parts, and the fourth is the one that keeps the other three honest.
+
+1. **`app/lib/bot_auth.js`** — `botAuth` extracted from `app/routes/sync.js`,
+   which has used it since the sync endpoints existed. Extracted rather than
+   rewritten: a second constant-time comparison is one that can drift into not
+   being constant-time with nothing noticing. It now reads
+   `process.env.BOT_SYNC_SECRET` **per request** instead of at module scope, so
+   whether the channel works no longer depends on import order versus the vault
+   restore. All 31 tests that set the variable set it before requiring the
+   router, so none change.
+2. **`app/auth.js`** — the route takes `botAuth` as middleware, and refuses a
+   `chat_id` already bound to a different row with a **409, before the write**,
+   so a refusal does not burn the token and the legitimate owner can retry.
+3. **`app/db.js`** — `CREATE UNIQUE INDEX idx_users_telegram_id`. Deliberately
+   **not** wrapped in the bare `catch (e) { /* exists */ }` its neighbours use:
+   on a live table that already holds duplicates this fails `ER_DUP_ENTRY`, and
+   swallowing that leaves no index while the code reads as though there is one.
+   It distinguishes "already created" from "could not create" and says which,
+   naming the manual reconciliation. An absent constraint reported as a present
+   one is the defect this repository exists to prevent.
+4. **`scripts/guard_lint.py`** — the exemption removed. Without this the rule
+   keeps reporting the route as covered and the fix is unverifiable from
+   outside.
+
+Plus `bot/skills/user_middleware.py:198` sends `X-Bot-Secret`, reusing
+`BOT_SYNC_SECRET` rather than minting a second credential to rotate. An unset
+secret is **logged by name and the header omitted** rather than sent blank — a
+blank fails the comparison exactly like a wrong one, so the operator would read
+"invalid bot secret" for "this bot has none".
+
+**`botAuth` is named as middleware rather than open-coded on purpose.**
+`guard_lint`'s rule matches `authMiddleware|optionalAuth|botAuth`, so naming it
+is what makes the exemption *deletable*. Open-coding the same check would have
+left the route flagged and invited a reworded exemption — the defect wearing a
+different hat.
+
+## ⚠ Deploy order: **bot first, then app**
+
+`app/` and `bot/` deploy to separate targets. A new bot against an old server
+sends a header the old server ignores — harmless. **Reversed, every `/link`
+returns 403.** Merging this is not the same as being safe to deploy in either
+order.
+
+## Validation
+
+| gate | result |
+|---|---|
+| `app/test/link_binding_is_bot_authenticated.test.js` | 6/6 |
+| full app suite | **3,607 passed, 0 failed** |
+| `tests/test_link_sends_the_bot_secret.py` | 4/4 |
+| `guard_lint.py` | 12/12 rules, `express-mixed-module-routes` 196/225 |
+| `ruff_gate.py` | 1257 == baseline |
+
+**Four mutations, all killed** — a test that passes against the reverted code
+proves nothing:
+
+| mutation | caught by |
+|---|---|
+| drop `botAuth` from the route | 3 test failures |
+| drop the already-bound check | 1 failure |
+| move the check *after* the write | 1 failure — the token is burned |
+| exemption removed, route left unguarded | `guard_lint` ✗, naming the route |
+
+**A defect in the test found first.** Its seeding used one combined
+`UPDATE ... SET link_token = ?, link_token_expires = ?, telegram_id = ? WHERE id = ?`.
+`app/db.js`'s in-memory shim pattern-matches SQL and reads parameters
+positionally, so that statement matched its `UPDATE USERS SET LINK_TOKEN`
+branch, misread `params[2]` as the user id, found nobody, and **silently seeded
+nothing**. Four tests failed with a 404 that had nothing to do with the route.
+The shim's supported statements are used now, with the reason recorded in the
+file.
+
+## Residual risk
+
+The 503 branch in `botAuth` is not reachable through a normal boot —
+`app/server.js` refuses to start without `BOT_SYNC_SECRET`. It is reachable
+when the router is mounted by something that is not `server.js`, which is what
+every test suite does, and it costs one branch. Stated rather than presented as
+production protection.
+
+The unique index does not repair pre-existing duplicates; it refuses new ones
+and reports loudly if it could not be created. Any account already sharing a
+chat_id needs a human decision about which one owns it.
+
+## Rollback
+
+Revert the four files. The index survives a revert and is harmless on its own —
+it enforces a property the application would then no longer depend on. Dropping
+it (`DROP INDEX idx_users_telegram_id ON users`) is separate and optional.
+
+---
+
+# Correction — the confirmed-finding count was 177 and it is 162
+
+I reported **177 confirmed findings** in the batch-7 commit message
+(`97476bd`), in the PR description, and in every status update after batch 7.
+The number is wrong. Counted from the batch summaries in
+`audit/workflow_raw_findings.md`:
+
+| batch | raw | CONFIRMED | SUSPECTED | REFUTED |
+|---|---|---|---|---|
+| money-path (`M-*`) | 27 | 25 | 0 | 2 |
+| 3 (`B3-*`) | 22 | 22 | 0 | 0 |
+| 4 (`B4-*`) | 33 | 31 | 2 | 0 |
+| 5 (`B5-*`) | 33 | 31 | 2 | 0 |
+| 6 (`B6-*`) | 39 | 38 | 1 | 0 |
+| 7 (`B7-*`) | 18 | 15 | 1 | 2 |
+| **total** | **172** | **162** | **6** | **4** |
+
+162 is also exactly the number of finding blocks written in that file, which is
+the independent check: only CONFIRMED findings get a block, so the two counts
+have to agree, and they do.
+
+Separately there are **22 `W-*` items** from the first, rate-limited run that
+never went through a refutation pass at all. They are not confirmed and were
+never included in the total.
+
+**Where 177 came from.** A running total I carried forward by hand across seven
+batch reports instead of recounting. Every individual batch figure I published
+was right; the sum was not, and nothing recomputed it because it lived in prose.
+
+That is this repository's own stated lesson — *"a number in prose is the part
+that rots first"*, the sentence justifying why `tests/test_claude_md_accuracy.py`
+pins the gate count in `CLAUDE.md` — committed by the person auditing for it,
+in the headline figure of a security audit, five times in a row.
+
+**The structural fix, not just the number.** `audit/generate_artifact.py` now
+derives the release decision from the findings list rather than restating it,
+derives the dimension total from the two coverage lists with an overlap
+assertion, and counts the untriaged verifier gaps by parsing
+`verifier_surfaced_gaps.md` instead of carrying an integer. The remaining hand-
+carried number is this one, and the batch table above is now the thing to
+recount from.
+
+**Not corrected:** commit `97476bd`'s message. It is pushed and merged into this
+branch's history, and rewriting published history to fix a figure would cost
+more than the figure is worth. This entry is the correction of record.

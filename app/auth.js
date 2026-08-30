@@ -8,6 +8,7 @@ const oauth2 = require('./lib/oauth2');
 const { VENUES } = require('./lib/venues');
 const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
 const { stepUpBlock } = require('./lib/stepup');
+const { botAuth } = require('./lib/bot_auth');
 const { postGateway, isConfigured } = require('./lib/gateway');
 const gateway = { isConfigured };
 const { erasurePlan } = require('./lib/account_erasure');
@@ -901,11 +902,34 @@ router.post('/link-token', authMiddleware, async (req, res) => {
 });
 
 // -- Validate link token (called by the Telegram bot) --
-
-router.post('/validate-token', async (req, res) => {
+//
+// AUTHENTICATED AS THE BOT, and that is a change. This route does not merely
+// ANSWER "is this token valid" — it WRITES: it consumes the link token, binds
+// `telegram_id` to the account, and returns the account's email. guard_lint's
+// exemption list justified leaving it open on the read ("the token IS the
+// credential being checked"), which is true of a lookup and false of a bind, so
+// that exemption is deleted in the same commit as this gate.
+//
+// The bot is the only legitimate caller (bot/skills/user_middleware.py). It
+// already holds BOT_SYNC_SECRET, and bot/utils/website_sync.py has been sending
+// X-Bot-Secret on every other bot->web call all along, so this reuses that
+// answer rather than inventing a second one.
+//
+// `botAuth` is named as middleware rather than open-coded because guard_lint's
+// `express-mixed-module-routes` rule recognises `authMiddleware|optionalAuth|
+// botAuth`. Naming it is what lets the exemption be REMOVED instead of
+// reworded, and a rule that still called this route covered would be the defect
+// wearing a different hat.
+//
+// DEPLOY ORDER: bot FIRST, then app. A new bot against an old server sends a
+// header the old server ignores, which is harmless. Reversed, every /link gets
+// a 403.
+router.post('/validate-token', botAuth, async (req, res) => {
   try {
     const { token, chat_id } = req.body;
     if (!token || !chat_id) return res.status(400).json({ error: 'token and chat_id required' });
+
+    const chatId = String(chat_id).slice(0, 32);
 
     // Find user with this token that hasn't expired
     const [rows] = await pool.execute(
@@ -919,11 +943,26 @@ router.post('/validate-token', async (req, res) => {
 
     const user = rows[0];
 
+    // A Telegram account identifies at most one RUNECLAW account — the same
+    // rule, and the same shape, as the wallet check in POST /wallet/link
+    // below ("A wallet identifies at most one account").
+    //
+    // Without it two rows could carry the same telegram_id, and every lookup
+    // that resolves a chat_id to an account takes the FIRST match — so which
+    // account a user's tier, trades and exchange credentials attach to would
+    // depend on row order. Refused BEFORE the write, so a rejection does not
+    // burn the token and the legitimate owner can retry.
+    const [bound] = await pool.execute(
+      'SELECT id FROM users WHERE telegram_id = ? LIMIT 1', [chatId]);
+    if (bound.length && bound[0].id !== user.id) {
+      return res.status(409).json({ error: 'That Telegram account is already linked to another account.' });
+    }
+
     // Consume the token, mark telegram linked, and RECORD the telegram id so the
     // website can attach exchange-credential submissions to the right bot account.
     await pool.execute(
       'UPDATE users SET link_token = NULL, link_token_expires = NULL, telegram_linked = TRUE, telegram_id = ? WHERE id = ?',
-      [String(chat_id).slice(0, 32), user.id]
+      [chatId, user.id]
     );
 
     res.json({ user_id: user.id, email: user.email, plan: user.plan });
