@@ -796,7 +796,13 @@ with one reachability qualification the finder did not state.
 
 ## RC-2026-011 — Stop-loss orders for a per-user account are signed with the OPERATOR's credentials
 
-- **Status**: OPEN · **Severity**: CRITICAL *(conditional — see reachability)*
+- **Status**: FIXED · **Severity**: CRITICAL *(conditional — see reachability)*
+- **Fixed by**: `BitgetV3Client.for_account(credentials)` — one place that
+  answers "whose keys is this?", replacing `from_config()` at all four v3 call
+  sites (both writes and both reads). Two of the four are `@staticmethod` and
+  cannot see `self`, so credentials are threaded as a parameter from their
+  instance callers; a half-filled credential dict falls back to the operator
+  rather than signing with a key and no secret.
 - **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
 - **Category**: Cross-account money path (CWE-522, CWE-863)
 - **File**: `bot/core/live_executor.py:5109-5116` and `:5228`, via `bot/core/bitget_v3_client.py:46-55`
@@ -865,7 +871,12 @@ currently carries a stop the operator's book is holding.
 
 ## RC-2026-012 — Unreadable live equity silently reroutes the DAILY-LOSS and DRAWDOWN breakers to the paper book
 
-- **Status**: OPEN · **Severity**: CRITICAL · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: CRITICAL · **Confidence**: CONFIRMED
+- **Fixed by**: `d0dd61c` — `risk_engine.py:1038` refuses a live evaluation
+  with no readable equity, via an explicit `live_mode` parameter wired at both
+  engine call sites. One early return before any gate measures anything, so all
+  three fail-open branches (sizing, daily-loss, drawdown) are covered by
+  construction rather than three separate patches.
 - **Fix class**: REVIEW_REQUIRED
 - **Category**: The repo's own top rule, on the control that decides how much real money is lost before it halts
 - **File**: `bot/risk/risk_engine.py:1413-1418` (daily loss), `:1475-1486` (drawdown)

@@ -207,6 +207,14 @@ class TestTheLoopActuallyOmitsTheField:
             def from_config():
                 return _FakeClient()
 
+            # RC-2026-011: the executor now asks for THIS account's client so a
+            # per-user stop is signed with the user's keys, not the operator's.
+            # The double ignores whose keys they are — it replaces the
+            # transport entirely — but it has to offer the method.
+            @staticmethod
+            def for_account(_credentials):
+                return _FakeClient()
+
             def request(self, _method, _path, body):
                 sent.append(dict(body))
                 return {"code": venue(body), "data": {"orderId": "OID-1"},
@@ -216,10 +224,14 @@ class TestTheLoopActuallyOmitsTheField:
         # has to land on the defining module, not on live_executor.
         monkeypatch.setattr(v3mod, "BitgetV3Client", _FakeClient)
         monkeypatch.setattr(LiveExecutor, "_fetch_position_margin_mode_v3",
-                            staticmethod(lambda _s: "isolated"))
+                            staticmethod(lambda _s, *_: "isolated"))
         monkeypatch.setattr(asyncio, "sleep", _no_sleep)
 
         ex = LiveExecutor.__new__(LiveExecutor)
+        # __new__ skips __init__, so every attribute the path touches is set
+        # by hand. `_credentials` is None here = the operator executor, which
+        # is what this ladder test is about.
+        ex._credentials = None
         ex._actual_margin_mode = "isolated"
         ex._hedge_mode = False
         ex._last_sltp_error = {}

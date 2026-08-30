@@ -102,7 +102,7 @@ F = [
               "trade-off for a human. (c) RUNECLAW_STATE_DIR silently drops the vault."),
     dict(id="RC-2026-011", title="Stop-loss orders for a per-user account are signed "
          "with the OPERATOR's credentials",
-         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
          category="cross-account-money-path", component="order-execution",
          file="bot/core/live_executor.py", line="5202-5208, 5321 (SL/TP); 8765 (flash close)",
          fix_class="REVIEW_REQUIRED", standard=["CWE-522", "CWE-863"],
@@ -117,10 +117,16 @@ F = [
               "closed, and if the operator holds the same symbol/side, THEIRS is. Both are "
               "instance methods, so self._credentials is in scope. The two GET sites (1390, "
               "4996) also read the operator's account. Line numbers re-anchored after PR "
-              "#229 shifted them by ~93."),
+              "#229 shifted them by ~93. FIXED: BitgetV3Client.for_account(credentials) "
+              "is now the single place that answers 'whose keys is this?', replacing "
+              "from_config() at all four sites. _fetch_v3_positions_raw and "
+              "_fetch_position_margin_mode_v3 are @staticmethod and cannot see self, so "
+              "credentials are threaded as a parameter from their instance callers. A "
+              "half-filled credential dict falls back to the operator rather than signing "
+              "with a key and no secret."),
     dict(id="RC-2026-012", title="Unreadable live equity silently reroutes the DAILY-LOSS "
          "and DRAWDOWN breakers to the paper book",
-         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
          category="risk-control-fail-open", component="risk-engine",
          file="bot/risk/risk_engine.py", line="1033 (sizing), 1413-1418 (daily loss), 1475-1486 (drawdown)",
          fix_class="REVIEW_REQUIRED",
