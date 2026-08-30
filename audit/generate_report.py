@@ -144,6 +144,29 @@ partial = [f for f in ALL if f["status"] == "PARTIALLY_FIXED"]
 disputed = [f for f in VER if f.get("severity_disputed")]
 corrected = [f for f in VER if f.get("severity_verifier")]
 
+BLOCKER_LIST = chr(10).join(
+    f'{i}. **{f["id"]}** [{f["severity"]}] {f["title"]}'
+    for i, f in enumerate(open_block, 1)) or "_None open._"
+
+STANDARDS_USED = chr(10).join(
+    f'- **{k}**: {", ".join(v) if isinstance(v, list) else v}'
+    for k, v in A.get("standards", {}).items() if k != "note")
+
+#: Fixes written, validated, then dropped for a better parallel implementation.
+#: Kept in the log because a remediation record showing only what shipped hides
+#: how the decision was made.
+WITHDRAWN = [
+    ("RC-2026-011",
+     "`from_credentials()` + `_v3_client()`, 8 tests, 1 mutation killed",
+     "`for_account()`, 14 tests, **6 mutations**"),
+    ("RC-2026-001",
+     "`botAuth` middleware + 409 + unique index, 10 tests, 4 mutations",
+     "`linkBotAuth` with an observe-first `off|warn|block` ladder, "
+     "22 tests, **10 mutations**"),
+]
+WITHDRAWN_TABLE = chr(10).join(
+    "| " + " | ".join(r) + " |" for r in WITHDRAWN)
+
 P: list[str] = []
 w = P.append
 
@@ -170,7 +193,7 @@ w(f"""# ⚔️RUNECLAW⚔️ by HUMANOID TRADERS — full-stack audit report
 
 ### Most serious risks
 
-{chr(10).join(f'{i}. **{f["id"]}** [{f["severity"]}] {f["title"]}' for i, f in enumerate(open_block, 1)) or '_None open._'}
+{BLOCKER_LIST}
 
 ### Immediate release blockers
 
@@ -200,7 +223,7 @@ is ignored.
 
 ### Standards used
 
-{chr(10).join(f'- **{k}**: {", ".join(v) if isinstance(v, list) else v}' for k, v in A.get('standards', {}).items() if k != 'note')}
+{STANDARDS_USED}
 
 ---
 
@@ -306,7 +329,8 @@ All counts computed from `runeclaw-audit.json` at generation time.
 |---|---|---|
 | hand-verified register | {len(REG)} | lead auditor: code re-read, reachability established, reproduced where cheap |
 | dimension findings | {len(VER)} | two independent adversarial verifiers each, both defaulting to `refuted` |
-| unverified claims (`W-*`) | {len(UNV)} | **none** — the first run's verifiers died on a rate limit. Not counted as findings. |
+| unverified claims (`W-*`) | {len(UNV)} | **none** — the first run's
+verifiers died on a rate limit. Not counted as findings. |
 | verifier-raised gaps | {COV['verifier_surfaced_gaps']['count']} | triage in progress. Not counted as findings. |
 
 ### Fixed versus open
@@ -408,8 +432,7 @@ another session's**, because theirs were better:
 
 | finding | mine | landed instead |
 |---|---|---|
-| RC-2026-011 | `from_credentials()` + `_v3_client()`, 8 tests, 1 mutation killed | `for_account()`, 14 tests, **6 mutations** |
-| RC-2026-001 | `botAuth` middleware + 409 + unique index, 10 tests, 4 mutations | `linkBotAuth` with an observe-first `off\\|warn\\|block` ladder, 22 tests, **10 mutations** |
+{WITHDRAWN_TABLE}
 
 Recorded because a remediation log that shows only what shipped hides how the
 decision was made.
@@ -449,7 +472,7 @@ assert not any("NOT_RECORDED" in (v.get("cmd") or "NOT_RECORDED")
     "without reporting the executed commands' is the brief's rule and this "
     "table is where it is kept.")
 
-w(f"""
+w("""
 ### Not run locally, CI only
 
 `Rune NFT (solidity)`, `Secret scan (gitleaks)`, `Staking program (cargo)`,
@@ -469,6 +492,124 @@ its steps curl-pipes a Solana validator installer.
 | Trading-invariant tests | PASS | `scripts/red_team.py` 30/30, `scripts/authority_red_team.py` 12/12 |
 """)
 
+N_AUTHZ = sum(
+    1 for f in ALL
+    if any(k in st for st in (f.get("standard") or [])
+           for k in ("A01", "API5", "CWE-863", "CWE-639")))
+N_AI_INJ = sum(1 for f in VER if f.get("dimension") == "ai-injection")
+N_A11Y = sum(1 for f in VER if f.get("dimension") == "a11y")
+
+STANDARDS = [
+    (
+        "OWASP A01 Broken Access Control",
+        "web app, bot gateway",
+        f"{N_AUTHZ} findings; `scripts/guard_lint.py` 12/12 rules reached",
+        "PARTIAL",
+        "RC-2026-025 latent step-up/identity mismatch",
+        "read step-up factors for the identity the action runs as",
+    ),
+    (
+        "OWASP A02 Cryptographic Failures",
+        "credential stores, session",
+        "Fernet vault; `DASHBOARD_TOKEN` in URL fragment (RC-2026-013)",
+        "PARTIAL",
+        "token in fragment, readable by any script on the page",
+        "move to an httpOnly cookie or POST exchange",
+    ),
+    (
+        "OWASP A07 Identification & Auth",
+        "`/validate-token`, 2FA",
+        "RC-2026-001 FIXED; `/api/auth/2fa/disable` has no throttle",
+        "PARTIAL",
+        "no lockout on 2FA disable",
+        "add per-account throttle + lockout",
+    ),
+    (
+        "OWASP API1/API5 Object & Function Level Authz",
+        "~228 Express routes",
+        "`express-route-auth` + `express-mixed-module-routes` reached at every site",
+        "PARTIAL",
+        "exemptions are argued individually, not eliminated",
+        "keep the exemption list shrinking",
+    ),
+    (
+        "OWASP LLM Top 10 2026 — prompt injection",
+        "Guardian firewall",
+        f"dimension `ai-injection`, {N_AI_INJ} findings",
+        "PARTIAL",
+        "Contract Studio runs no firewall scan at all",
+        "scan every chat-shaped surface, record the verdict",
+    ),
+    (
+        "NIST SSDF PS.1 / PW.7",
+        "CI, secret scanning",
+        "RC-2026-024: the history scan's verdict depends on which branches exist",
+        "FAIL",
+        "a green result is not evidence history is clean",
+        "scope to `--log-opts=HEAD`; move the all-refs sweep to a schedule",
+    ),
+    (
+        "NIST AI RMF — MEASURE",
+        "LLM decisions on money",
+        "`AUTO_CONFIRM` gates; SECURITY.md claims human-in-the-loop the default does not provide "
+        "(RC-2026-021)",
+        "FAIL",
+        "documentation contradicts the default",
+        "correct the document or the default; this is a product decision",
+    ),
+    (
+        "MITRE ATLAS — model I/O",
+        "untrusted text → LLM",
+        "firewall verdict recorded on a tamper-evident chain",
+        "PARTIAL",
+        "surfaces exist that bypass it",
+        "close the bypasses",
+    ),
+    (
+        "WCAG 2.2 AA",
+        "web app, marketing site",
+        f"dimension `a11y`, {N_A11Y} findings, **static review only**",
+        "NOT_TESTED",
+        "no browser driven; no conformance claimed",
+        "run an axe/Playwright pass before claiming any level",
+    ),
+    (
+        "EN 301 549",
+        "same",
+        "inherits WCAG 2.2 AA",
+        "NOT_TESTED",
+        "as above",
+        "as above",
+    ),
+    (
+        "GDPR Art. 17 (erasure)",
+        "account purge",
+        "RC-2026-006 FIXED; RC-2026-019/020 OPEN",
+        "NEEDS_LEGAL_REVIEW",
+        "purge misses the bot SQLite DB and web-only accounts",
+        "complete the purge, then have counsel review",
+    ),
+    (
+        "GDPR Art. 5 (accuracy)",
+        "published performance",
+        "RC-2026-018: backtests fill at prices never traded",
+        "NEEDS_LEGAL_REVIEW",
+        "published figures rest on an unsound fill model",
+        "fix the fill model before publishing performance",
+    ),
+    (
+        "CWE-754 unchecked return / absent-as-value",
+        "everywhere",
+        "the single largest finding class below",
+        "FAIL",
+        "many surfaces still render unreadable as a confident value",
+        "apply guard-or-omit per `CLAUDE.md`",
+    ),
+]
+
+STANDARDS_TABLE = "\n".join(
+    "| " + " | ".join(r) + " |" for r in STANDARDS)
+
 std_rows = Counter()
 for f in ALL:
     for s in (f.get("standard") or []):
@@ -484,20 +625,7 @@ NOT_TESTED / NEEDS_LEGAL_REVIEW.
 
 | control | applicability | evidence | status | gap | required action |
 |---|---|---|---|---|---|
-| OWASP A01 Broken Access Control | web app, bot gateway | {sum(1 for f in ALL if any('A01' in s or 'API5' in s or 'CWE-863' in s or 'CWE-639' in s for s in (f.get('standard') or [])))} findings; `scripts/guard_lint.py` 12/12 rules reached | PARTIAL | RC-2026-025 latent step-up/identity mismatch | read step-up factors for the identity the action runs as |
-| OWASP A02 Cryptographic Failures | credential stores, session | Fernet vault; `DASHBOARD_TOKEN` in URL fragment (RC-2026-013) | PARTIAL | token in fragment, readable by any script on the page | move to an httpOnly cookie or POST exchange |
-| OWASP A07 Identification & Auth | `/validate-token`, 2FA | RC-2026-001 FIXED; `/api/auth/2fa/disable` has no throttle | PARTIAL | no lockout on 2FA disable | add per-account throttle + lockout |
-| OWASP API1/API5 Object & Function Level Authz | ~228 Express routes | `express-route-auth` + `express-mixed-module-routes` reached at every site | PARTIAL | exemptions are argued individually, not eliminated | keep the exemption list shrinking |
-| OWASP LLM Top 10 2026 — prompt injection | Guardian firewall | dimension `ai-injection`, {sum(1 for f in VER if f.get('dimension') == 'ai-injection')} findings | PARTIAL | Contract Studio runs no firewall scan at all | scan every chat-shaped surface, record the verdict |
-| NIST SSDF PS.1 / PW.7 | CI, secret scanning | RC-2026-024: the history scan's verdict depends on which branches exist | FAIL | a green result is not evidence history is clean | scope to `--log-opts=HEAD`; move the all-refs sweep to a schedule |
-| NIST AI RMF — MEASURE | LLM decisions on money | `AUTO_CONFIRM` gates; SECURITY.md claims human-in-the-loop the default does not provide (RC-2026-021) | FAIL | documentation contradicts the default | correct the document or the default; this is a product decision |
-| MITRE ATLAS — model I/O | untrusted text → LLM | firewall verdict recorded on a tamper-evident chain | PARTIAL | surfaces exist that bypass it | close the bypasses |
-| WCAG 2.2 AA | web app, marketing site | dimension `a11y`, {sum(1 for f in VER if f.get('dimension') == 'a11y')} findings, **static review only** | NOT_TESTED | no browser driven; no conformance claimed | run an axe/Playwright pass before claiming any level |
-| EN 301 549 | same | inherits WCAG 2.2 AA | NOT_TESTED | as above | as above |
-| GDPR Art. 17 (erasure) | account purge | RC-2026-006 FIXED; RC-2026-019/020 OPEN | NEEDS_LEGAL_REVIEW | purge misses the bot SQLite DB and web-only accounts | complete the purge, then have counsel review |
-| GDPR Art. 5 (accuracy) | published performance | RC-2026-018: backtests fill at prices never traded | NEEDS_LEGAL_REVIEW | published figures rest on an unsound fill model | fix the fill model before publishing performance |
-| CWE-754 unchecked return / absent-as-value | everywhere | the single largest finding class below | FAIL | many surfaces still render unreadable as a confident value | apply guard-or-omit per `CLAUDE.md` |
-
+{STANDARDS_TABLE}
 ### Standards cited by finding count
 
 {chr(10).join(f'- `{k}` — {v}' for k, v in std_rows.most_common())}
@@ -579,7 +707,7 @@ for f in open_block:
 if not open_block:
     w("_None._\n")
 
-w(f"""### P1 — critical next actions
+w("""### P1 — critical next actions
 
 The open HIGH findings, in the order their consequence reaches money or identity:
 
