@@ -100,6 +100,33 @@ F = [
          note="(a) exchange_creds.enc added - FIXED. (b) Fernet master key still not "
               "archived; off-host restore yields unreadable ciphertext - OPEN, security "
               "trade-off for a human. (c) RUNECLAW_STATE_DIR silently drops the vault."),
+    dict(id="RC-2026-011", title="Stop-loss orders for a per-user account are signed "
+         "with the OPERATOR's credentials",
+         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         category="cross-account-money-path", component="order-execution",
+         file="bot/core/live_executor.py", line="5109-5116, 5228",
+         fix_class="REVIEW_REQUIRED", standard=["CWE-522", "CWE-863"],
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         reachability="LATENT BY DEFAULT: PER_USER_LIVE_ENABLED defaults False "
+                      "(bot/config.py:2261). Live the moment that supported feature is "
+                      "enabled; nothing warns that stops land on the wrong account.",
+         note="_v3_post uses BitgetV3Client.from_config() (global CONFIG.exchange) to POST "
+              "/api/v3/trade/place-strategy-order - the SL/TP. It sits inside an instance "
+              "method, so self._credentials is already in scope; the fix is small but "
+              "changes which account a live order reaches."),
+    dict(id="RC-2026-012", title="Unreadable live equity silently reroutes the DAILY-LOSS "
+         "and DRAWDOWN breakers to the paper book",
+         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         category="risk-control-fail-open", component="risk-engine",
+         file="bot/risk/risk_engine.py", line="1413-1418, 1475-1486",
+         fix_class="REVIEW_REQUIRED",
+         standard=["CLAUDE.md-unreadable-is-never-zero", "CWE-754"],
+         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         reachability="NO FEATURE FLAG NEEDED - applies to the default operator live path.",
+         note="The else branch serves both 'paper mode' and 'live but the equity read "
+              "failed'. Paper daily_pnl is ~0 by construction (the code's own comment says "
+              "so), so both breakers compute ~0% and do not trip. Fails in the direction "
+              "that spends money."),
     dict(id="RC-2026-009", title="/performance paper branch publishes a hardcoded "
          "'Week PnL' of $0.00 in green", status="OPEN", severity="MEDIUM",
          confidence="CONFIRMED", category="display-honesty", component="telegram-bot",
@@ -121,7 +148,11 @@ VERIFICATION = dict(
            "(evidence/correctness; reachability/prior-art), both defaulting to refute. "
            "Refuted by both -> REFUTED, by one -> SUSPECTED, by neither -> CONFIRMED.",
     dimensions_verified=["web-authz", "py-api-authz", "telegram-authz", "secrets"],
-    raw=22, confirmed=15, suspected=6, refuted=1, unverified=0,
+    raw=49, confirmed=40, suspected=6, refuted=3, unverified=0,
+    batches=[dict(dimensions=["web-authz","py-api-authz","telegram-authz","secrets"],
+                  raw=22, confirmed=15, suspected=6, refuted=1),
+             dict(dimensions=["ai-to-money","order-exec","risk-engine","market-data"],
+                  raw=27, confirmed=25, suspected=0, refuted=2)],
     confirmed_and_still_open=[
         "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt counter (HIGH)",
         "py-api-authz: /risk/halt swallows the halt failure and returns hardcoded success (HIGH)",
@@ -136,7 +167,9 @@ VERIFICATION = dict(
         "py-api-authz: handle_policy_clear swallows the failure and answers ok:true (LOW)",
         "secrets: /connect and /setexchange echo a raw ccxt exception to the user (LOW)",
     ],
-    note="These twelve are REPORTED, NOT REMEDIATED. Full detail with evidence in "
+    note="35 CONFIRMED findings are REPORTED, NOT REMEDIATED (12 from batch 1 listed "
+         "above, 23 more from the money-path batch as M-01..M-25 minus the two "
+         "written up as RC-2026-011/012). Full evidence in "
          "audit/workflow_raw_findings.md; classification in audit/verified_findings.md.",
 )
 
@@ -210,18 +243,28 @@ VALIDATION = [
                 "quiescent tree before any number is reported."),
 ]
 
+# Derived, not typed. I asserted "25 dimensions" in every status update in this
+# audit; the real number is 26 — `a11y` was dropped from my own count because
+# the regex I checked it with was [a-z-]+ and the key has digits in it. That is
+# the failure this whole artifact exists to prevent, committed by the person
+# writing the artifact, so the total is now computed from the two lists below
+# and a mismatch is an error rather than a sentence nobody rechecks.
+_COMPLETED = ["web-authz", "py-api-authz", "telegram-authz", "secrets",
+              "ai-to-money", "order-exec", "risk-engine", "market-data"]
+_NOT_RUN = ["injection", "browser-sec", "ai-injection", "backtest",
+            "honesty-py", "honesty-js", "data-db", "concurrency",
+            "infra-cicd", "deps", "a11y", "privacy", "observability",
+            "reachability", "docs-consistency", "tests",
+            "frontend-correctness", "contracts"]
+assert not set(_COMPLETED) & set(_NOT_RUN), "a dimension cannot be both"
+
 COVERAGE = dict(
-    dimensions_total=25,
-    dimensions_completed=["web-authz", "py-api-authz", "telegram-authz", "secrets"],
-    dimensions_not_run=["injection", "browser-sec", "ai-injection", "ai-to-money",
-                        "order-exec", "risk-engine", "market-data", "backtest",
-                        "honesty-py", "honesty-js", "data-db", "concurrency",
-                        "infra-cicd", "deps", "a11y", "privacy", "observability",
-                        "reachability", "docs-consistency", "tests",
-                        "frontend-correctness", "contracts"],
-    adversarial_verification="INCOMPLETE - verifiers died on the session rate limit; "
-                             "the 22 raw dimension findings in workflow_raw_findings.md "
-                             "are UNVERIFIED",
+    dimensions_total=len(_COMPLETED) + len(_NOT_RUN),
+    dimensions_completed=_COMPLETED,
+    dimensions_not_run=_NOT_RUN,
+    adversarial_verification="COMPLETE for the 8 dimensions run: 49 raw findings, "
+                             "40 CONFIRMED, 6 SUSPECTED, 3 REFUTED, 0 unverified. "
+                             "Two verifiers per finding, both defaulting to refute.",
 )
 
 art = dict(
@@ -257,18 +300,22 @@ art = dict(
         decision="NO-GO",
         basis="RC-2026-001 is an unresolved CRITICAL. The brief prohibits GO with any "
               "unresolved BLOCKER or CRITICAL finding.",
-        completeness_caveat="This decision rests on 4 of 25 planned dimensions. It is a "
-                            "floor, not a full assessment - the unrun dimensions include "
-                            "the AI-to-money path, order execution, the risk engine and "
-                            "accessibility. Further CRITICALs may exist.",
+        blockers=["RC-2026-001 validate-token identity binding",
+                  "RC-2026-011 per-user stops signed with operator credentials (latent until "
+                  "PER_USER_LIVE_ENABLED)",
+                  "RC-2026-012 breakers fall back to the paper book when live equity is unreadable"],
+        completeness_caveat="This decision rests on 8 of 26 planned dimensions. It is a "
+                            "floor, not a full assessment - 18 remain unrun, accessibility "
+                            "has not been assessed at all, and the money-path batch alone "
+                            "produced two further CRITICALs. More may exist.",
     ),
     limitations=[
-        "21 of 25 audit dimensions did not run (session rate limit).",
-        "The adversarial verification pass did not complete; 22 dimension findings are unverified.",
+        "18 of 26 audit dimensions have not run.",
+        "Adversarial verification is complete for the 8 dimensions that ran.",
         "No live deployment, no exchange connectivity, no production data. All dynamic "
         "verification was against local modules with in-memory or temp-dir backends.",
         "Accessibility was not assessed at all; no browser was driven.",
-        "The Python baseline test-gate result is inconclusive (source changed mid-run).",
+        "The Python baseline gate now passes clean on a quiescent tree: 9146 passed, 0 failed.",
         "Rust/Anchor programs were type-checked but not compiled or fuzzed; cargo CI job "
         "was still running at time of writing.",
     ],

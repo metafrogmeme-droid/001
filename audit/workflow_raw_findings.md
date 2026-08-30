@@ -1050,3 +1050,1158 @@ Compare the neighbouring branch, which does mutate state, bot/skills/telegram_ha
 ---
 
 Total: 22 raw findings across 4 of 25 dimensions.
+
+
+========================================================================
+
+# Money-path batch — ai-to-money, order-exec, risk-engine, market-data
+
+**27 raw · 25 CONFIRMED · 0 SUSPECTED · 2 REFUTED**, each judged by two
+independent adversarial verifiers defaulting to refute.
+
+
+## M-01 [HIGH] Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id="auto", bypassing every per-user gate
+
+- **Dimension**: ai-to-money · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/engine.py:4330-4334 (auto-confirm selection); 5702 (strategy gate skipped for "auto"); 6289 (manual margin applied); bot/skills/manual_trade.py:101,112`
+- **Standard**: CLAUDE.md: "A GATE WITH FIVE CONDITIONS AND SIX RENDERINGS OF IT WILL DISAGREE WITH ITSELF" — here the confirm-time gates that isolate a user's trade are all keyed on user_id, and the auto path erases the user_id. Also the repo's own custody discipline (bot/web/web_live_gate.py header): "no live web order exists outside" an enforce-mode Authority Envelope.
+
+**Observed**: The idea is confirmed as `user_id="auto"`, which the confirm path treats as the operator: the per-user strategy gate is skipped (5702), `per_user_live_eligibility("auto")` returns `(True, "operator/auto path")` (2272-2273), `_per_user_margin_cap("auto")` returns None (924), and `_executor_for("auto")` returns the shared operator LiveExecutor (1772). The Lock-5 human-approval token is auto-minted because `auto_confirm_live_enabled` is True (6058). The user's own `margin` value becomes the position margin at 6289-6294. Simultaneously bypassed: the gateway's proposer-isolation check (`user_gateway.py:1395-1396` only runs inside handle_trade_confirm), the fail-closed web-live gate + Authority Envelope (`user_gateway.py:1408-1424`), and the 2FA step-up in `app/routes/webtrade.js:96-118`.
+
+**Expected**: An idea proposed by a non-operator, paper-only identity must never reach the live executor. Either the auto-confirm loop restricts itself to ideas the engine's own scan produced, or the confirm inherits the proposer's identity so the per-user gates run.
+
+**Root cause**: `_pending_ideas` is one engine-wide dict written by five different producers (analyzer tick, force_scan, manual_trade, scan_skill, skill_registry) and read by an auto-confirm loop that has no notion of provenance. The repo already noticed half of this — bot/utils/user_store.py:50-53 records "the idea book is already shared by everyone who can scan" — but reasoned only about who may WRITE to it, never about the autonomous consumer that turns entries into real orders on a different account.
+
+**Business impact**: Real money on the operator's exchange account is committed to a symbol, direction, entry/SL/TP and margin chosen by an unvetted, self-admitted account that the product explicitly classifies as paper-only. The operator's audit row for the order reads `user_id: "auto"`, so nothing in the trail attributes the position to the person who authored it.
+
+**Reachability**: Confirmed reachable. `/api/trade/propose` -> `handle_trade_propose` -> `_propose_from_text` requires only `_guard_user(..., command="trade")`; verified at runtime that the auto-provisioned `paper` role holds `trade`. Telegram `/trade` reaches the same helper at telegram_handler.py:10083 behind `self._guard(update, "trade")`. No upstream guard filters `_pending_ideas` by origin: I read the full body of both auto-confirm loops (engine.py:4326-4380 and 6581-6600) and the whole of `_confirm_trade_inner` (5687-6420). The only limiter is the tick's early return at engine.py:4109 when the book is already non-empty, which makes this a race rather than a deterministic call — stated explicitly in the reproduction.
+
+**Existing tests**: No test pins idea provenance. `grep -rn auto_confirm tests/` returns 7 files; tests/test_calibrated_autotrade.py covers only the calibrated gate value, tests/test_audit_v5_fixes.py:33-39 only asserts the defaults, tests/test_audit_v7_fixes.py:337 only asserts the Lock-5 mint expression is present. tests/test_web_gateway.py:643 pins the OPPOSITE direction (a web user must not confirm an engine-generated idea) — the reverse direction, engine auto-confirming a user's idea, is untested.
+
+**Remediation**: Stamp provenance on registration and filter it in both auto-confirm loops. `register_manual_idea` (and the analyze_asset/scan_skill writers) already have the caller's id at hand — record `idea._proposer = user_id`. Then in engine.py:4331-4334 and 6583-6584 select only ideas with no proposer (engine-generated) — an idea a human proposed must be confirmed by that human, through confirm_trade(user_id=<them>), so the strategy gate, eligibility gate, per-user cap, envelope and 2FA all run. This is a few lines in three files and churns no ratchet baseline.
+
+**Evidence**:
+
+```
+bot/skills/manual_trade.py:96-116 — every manual proposal is stamped max confidence and written straight into the ENGINE-GLOBAL pending book:
+```
+        confidence=1.0,
+        reasoning="Manual trade placed by user",
+        signals_used=["manual"],
+        source="manual",
+...
+def register_manual_idea(engine, idea, margin_usd: Optional[float] = None) -> None:
+    engine._pending_ideas[idea.id] = idea
+    if margin_usd and margin_usd > 0:
+        ...
+        engine._manual_margin_override[idea.id] = margin_usd
+```
+bot/core/engine.py:4330-4334 — the autonomous tick's auto-confirm selection reads that same dict with NO filter on who created the idea or what its `source` is:
+```
+        auto_threshold = RUNTIME.auto_confirm_threshold
+        auto_ideas = [
+            (tid, tidea) for tid, tidea in list(self._pending_ideas.items())
+            if self._auto_confirm_gate_value(tidea) >= auto_threshold
+        ]
+```
+bot/core/engine.py:4364 — `result = await self.confirm_trade(tid, user_id="auto")`
+bot/core/engine.py:5702 — the per-user strategy veto is skipped for that caller: `if user_id and user_id != "auto":`
+bot/core/engine.py:1770-1772 (`_executor_for`) — `if not user_id or user_id in ("auto", ""): return self.live_executor` (the OPERATOR's account)
+bot/core/engine.py:922-924 (`_per_user_margin_cap`) — `if not user_id or user_id in ("auto", "") or self._is_operator_user(user_id): return None`
+```
+
+## M-02 [MEDIUM] force_scan's auto-confirm loop omits the AUTO_CONFIRM_LIVE_ENABLED suppression the tick applies, and is reachable by the lowest-privileged role
+
+- **Dimension**: ai-to-money · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/engine.py:6581-6600`
+- **Standard**: CLAUDE.md: "A GATE WITH FIVE CONDITIONS AND SIX RENDERINGS OF IT WILL DISAGREE WITH ITSELF. THE FIX FOR A CLAIM MADE IN SIX PLACES IS ONE PLACE."
+
+**Observed**: The force_scan path runs the entire confirm pipeline (risk recheck, critique, drift/SL revalidation) and is only stopped at the very end by compliance Lock 5 — `_authorize_live` at bot/compliance/compliance_engine.py:313-329 fails closed when no approval token was minted, and engine.py:6058 only mints for `human or CONFIG.auto_confirm_live_enabled`. So no order is placed, but the operator's switch is enforced by a different layer with a different audit signature (AUTH_DENIED rather than SUPPRESSED_LIVE), and the suppression that is supposed to be the first line of defence simply is not there. With the shipped default (AUTO_CONFIRM_LIVE_ENABLED=1) the divergence is invisible and the same command hands any `scan`-permission user on-demand control over WHEN the operator's account opens real positions, plus the ability to wipe the operator's pending-confirm queue (`self._pending_ideas.clear()` at engine.py:6537).
+
+**Expected**: Both auto-confirm sites obey the same operator switch, and the operator sees one consistent SUPPRESSED_LIVE trail.
+
+**Root cause**: The auto-confirm decision is written out twice, and only one copy was updated when the RC-AUD-002 live suppression was added.
+
+**Business impact**: An operator who deliberately turned off unattended live execution has one of two code paths still driving the full confirm pipeline, and gets a different audit signature than the one the flag's documentation describes. On the default configuration, the lowest-privileged role can time the operator's real-money entries and clear the operator's confirm queue.
+
+**Reachability**: Reachable: `force_scan` has exactly two callers (telegram_handler.py:5782 under @guard("admin") /forcescan, and telegram_handler.py:11440 under @guard("scan") _cmd_latest_signal). Verified at runtime that ROLE_PERMISSIONS["viewer"] contains "scan". The Lock-5 backstop is real and I verified it by reading `_authorize_live` in full — that is why this is MEDIUM and not HIGH.
+
+**Existing tests**: tests/test_audit_v7_fixes.py:337 asserts only that `"if human or CONFIG.auto_confirm_live_enabled:"` appears in engine source — a source scan that passes regardless of which auto-confirm loop is missing the suppression. No test exercises force_scan with auto_confirm_live_enabled off.
+
+**Remediation**: Extract the selection+suppression into one helper (e.g. `_auto_confirmable_ideas()`), returning [] with the SUPPRESSED_LIVE audit when `CONFIG.is_live() and not CONFIG.auto_confirm_live_enabled`, and call it from both engine.py:4331 and engine.py:6583. Separately, reconsider whether `_cmd_latest_signal` should be able to drive a scan that auto-executes — routing it to a read-only refresh would be the tighter fix.
+
+**Evidence**:
+
+```
+bot/core/engine.py:4330-4344 — the autonomous tick refuses to auto-confirm in live mode unless the operator opted in, and says so in the audit trail:
+```
+        auto_threshold = RUNTIME.auto_confirm_threshold
+        auto_ideas = [...]
+        if auto_ideas and CONFIG.is_live() and not CONFIG.auto_confirm_live_enabled:
+            for tid, tidea in auto_ideas:
+                audit(trade_log, f"Auto-confirm SUPPRESSED in live mode ...",
+                      action="auto_confirm", result="SUPPRESSED_LIVE", ...)
+            auto_ideas = []
+```
+bot/core/engine.py:6580-6594 — the force_scan copy of the same loop has no such branch:
+```
+        from bot.config import RUNTIME
+        auto_threshold = RUNTIME.auto_confirm_threshold
+        auto_confirmed = 0
+        for tid, tidea in list(self._pending_ideas.items()):
+            if self._auto_confirm_gate_value(tidea) >= auto_threshold:
+                _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
+                ...
+                    result = await self.confirm_trade(tid, user_id="auto")
+```
+bot/skills/telegram_handler.py:11372-11373 — the caller that reaches it is guarded on the weakest permission in the table:
+```
+    @guard("scan")
+    async def _cmd_latest_signal(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+```
+```
+
+## M-03 [MEDIUM] /autoconfirm status card reports the frozen CONFIG threshold while the money path gates on the RUNTIME one, so the card asserts a bar that is not in force
+
+- **Dimension**: ai-to-money · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/skills/telegram_handler.py:5726`
+- **Standard**: CLAUDE.md: "Ask which OTHER surface makes the same claim" and the corollary that a claim made in several places will disagree with itself. Also the direct precedent in the same file's own history: /start reading one of five gate conditions.
+
+**Observed**: The card states a value that no gate consults. The dangerous direction is the adaptive one: the operator is told real-money unattended execution needs 85% confidence while the loop is firing at 60%. `engine.py:1745` already renders the correct source (`"auto_confirm_threshold": round(RUNTIME.auto_confirm_threshold, 2)`), so two surfaces of the same control disagree.
+
+**Expected**: The card states the threshold the auto-confirm loop actually tests against — RUNTIME — or says it cannot read it.
+
+**Root cause**: One control, two storage locations, and the display picked the wrong one. `RUNTIME.auto_confirm_threshold` is seeded from `CONFIG.auto_confirm_threshold` at construction (bot/config.py:2596), so the two agree until the first write and the bug is invisible in a fresh process — including in any test that never mutates it.
+
+**Business impact**: The operator's only readout of the unattended-live-execution bar can be wrong in both directions on a control that decides whether real orders are placed with no human press. A green 'ON at 85%' shown over a gate actually set to 1.0, or over an adaptively-lowered 0.60, is a status card manufacturing a number nobody measured.
+
+**Reachability**: `_cmd_autoconfirm` is @guard("admin") and is the operator's only interactive view of this control. Both the setter and the two money-path readers were read in full; the divergence is unconditional after any write. There is no upstream sync that copies RUNTIME back into CONFIG — CONFIG is a frozen dataclass field read directly.
+
+**Existing tests**: grep of tests/ for `autoconfirm` returns only tests/test_no_hardcoded_risk_check_count.py:80 (a doc-string mention), tests/fixtures/command_audience_backlog.json (a catalogue note), and tests/test_operator_controls_are_derived.py:206 (which notes /autoconfirm assigns to RUNTIME but does not check the read). Nothing pins the displayed value.
+
+**Remediation**: Change telegram_handler.py:5726 to `threshold = RUNTIME.auto_confirm_threshold` (RUNTIME is already imported at 5721). Then add an assertion that plants a RUNTIME value diverging from CONFIG and reads the card back — the source-grep alone would not have caught this, since both names are spelled `auto_confirm_threshold`.
+
+**Evidence**:
+
+```
+bot/skills/telegram_handler.py:5723-5738 — the status branch reads CONFIG:
+```
+        if not args:
+            # Show current state
+            threshold = CONFIG.auto_confirm_threshold
+            if threshold >= 1.0:
+                status = "\U0001f534 <b>OFF</b> — all trades require manual confirmation"
+            else:
+                status = f"\U0001f7e2 <b>ON</b> — trades with confidence ≥ <b>{threshold*100:.0f}%</b> auto-execute"
+```
+The same command's own setters write RUNTIME (telegram_handler.py:5743 `RUNTIME.auto_confirm_threshold = 1.0`, 5759 `RUNTIME.auto_confirm_threshold = new_threshold`), and both money-path readers read RUNTIME (engine.py:4330 and engine.py:6581 `auto_threshold = RUNTIME.auto_confirm_threshold`). A third writer moves it behind the operator's back — engine.py:4304-4319, the adaptive-threshold block:
+```
+                        if new_thresh != RUNTIME.auto_confirm_threshold:
+                            audit(system_log, f"Adaptive threshold: ...")
+                            RUNTIME.auto_confirm_threshold = new_thresh
+```
+with bounds `ADAPTIVE_THRESHOLD_MIN=0.60` / `MAX=0.90` (bot/config.py:1704-1705) and `ADAPTIVE_THRESHOLD_ENABLED` default True (bot/config.py:1700).
+```
+
+## M-04 [MEDIUM] ExecutePaperTradeSkill ignores the `confirmed` parameter its own spec calls "the human-in-the-loop gate", and routes to the LIVE confirm path despite its name
+
+- **Dimension**: ai-to-money · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/skills/skill_registry.py:884-890`
+- **Standard**: CLAUDE.md "A module nothing calls is indistinguishable from one that does not work" and the #999 precedent (code present, never reached, no scan can tell those apart). Also bot/skills/skill_permissions.py's own fail-closed rule.
+
+**Observed**: The advertised human-in-the-loop parameter is not implemented at all, and the call it makes carries no user attribution, so it takes the `user_id=""` branch of every per-user gate: no strategy gate (engine.py:5702), no per-user margin cap (engine.py:924), operator executor, auto-minted Lock 5. Whoever eventually adds a permission line for this skill — the exact action tests/unreachable_skills_baseline.txt invites — turns a chat sentence into a live order on the operator's account.
+
+**Expected**: Either the skill enforces the `confirmed` flag it advertises and refuses without it, or the spec stops claiming a gate the code does not have. And a skill named/described "paper" should not be the one that reaches the live executor.
+
+**Root cause**: The skill was specified with a safety parameter and implemented without it, and being unreachable meant no caller ever exposed the gap. This is the CLAUDE.md pattern verbatim: a module nothing calls is indistinguishable from one that does not work.
+
+**Business impact**: A published skill contract promises a human-in-the-loop gate that does not exist, on a skill whose one statement places a real order. The name and description ("paper") actively mislead whoever triages it for wiring.
+
+**Reachability**: Currently NOT reachable — I verified all three doors: not in SKILL_PERMISSION (bot/skills/skill_permissions.py:24-62), therefore excluded from WEB_CHAT_SKILLS (line 66) and refused by the Telegram free-text gate (telegram_handler.py:2727-2731 denies when `permission_for()` returns None); and bot/mcp/server.py's tool list deliberately omits execute (lines 100-105). It is recorded in tests/unreachable_skills_baseline.txt. Severity reflects that: this is a latent contract violation, not a live bypass.
+
+**Existing tests**: tests/test_registered_skills_are_reachable.py enforces the baseline file, which pins that the skill is dark — it says nothing about the `confirmed` parameter. grep of tests/ for `execute_paper_trade` returns only that baseline entry. tests/test_mcp_doc_matches_the_code.py covers MCP docs, not skill_definitions.yaml.
+
+**Remediation**: Two lines and a rename, before anyone decides to wire it: reject unless `kwargs.get("confirmed") is True`, and pass the caller's id through (`engine.confirm_trade(trade_id, user_id=kwargs.get("user_id", ""))` — the chat dispatch sites already pass `user_id=tg_id`, see telegram_handler.py:2771) so the per-user gates run. If the skill is meant to stay dark, delete the registration rather than leaving a live-path caller sitting behind a paper-sounding name.
+
+**Evidence**:
+
+```
+bot/skills/skill_registry.py:883-890 — the whole implementation:
+```
+class ExecutePaperTradeSkill(BaseSkill):
+    name = "execute_paper_trade"
+    description = "Confirm and execute a pending paper trade"
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        trade_id = kwargs.get("trade_id") or kwargs.get("symbol", "")
+        if not trade_id:
+            return "Provide a trade_id to confirm."
+        return await engine.confirm_trade(trade_id)
+```
+`kwargs.get("confirmed")` never appears. Its published contract, bot/prompts/skill_definitions.yaml:160-167, says otherwise:
+```
+      - name: confirmed
+        type: boolean
+        required: true
+        description: >
+          Must be true to proceed. The system will reject execution if this
+          is false or missing. This is the human-in-the-loop gate.
+```
+And `confirm_trade(trade_id)` with no user_id is the LIVE path — engine.py:6118-6121 refuses paper outright: `if not CONFIG.is_live(): ... return "⛔ Paper trading is disabled on this bot. This bot is LIVE-ONLY."`, while `user_id=""` makes `_human_confirmed("")` False (engine.py:5537) so the Lock-5 token is auto-minted under the default `CONFIG.auto_confirm_live_enabled` (engine.py:6058) and `_executor_for("")` returns the operator's live executor (engine.py:1772).
+```
+
+## M-05 [LOW] MCP Shield renders an omitted confidence as a measured 0.65 — above the 0.60 trade floor — and reports it back as the trade's confidence
+
+- **Dimension**: ai-to-money · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/mcp/server.py:432-459`
+- **Standard**: CLAUDE.md: "Unreadable is never zero, and absent is never a measurement", and the `.get("pnl", 0)` row of the shapes table — an absent field rendered as a value. bot/risk/confidence_floor.py already implements the correct rule (`is None` -> does not clear) for the engine path.
+
+**Observed**: An absent input becomes a measurement that clears the floor and scales the size, and is echoed to the caller as if measured. The tool's own description calls this "an immutable safety decision" that "any external agent can call", which is the surface where an invented input matters most.
+
+**Expected**: Per bot/risk/confidence_floor.py's own docstring — "An idea with no confidence at all is a different thing and does not clear — an unmeasured setup is not a passing one" — an omitted confidence should make `confidence` a required parameter, or produce a third answer (unmeasurable) rather than a passing default.
+
+**Root cause**: A convenience default on an optional parameter, chosen just above the gate it feeds.
+
+**Business impact**: An external agent integrating against the Shield to decide whether a trade is safe can receive an APPROVED verdict and a position size partly derived from a confidence value it never provided, presented as its own.
+
+**Reachability**: Reachability is WEAK and I state it plainly: `RuneClawMCPServer` has no non-test importer anywhere in the tree (`rg 'bot.mcp|MCPServer'` finds only bot/mcp/server.py's own docstring/definition and live_e2e_test.py), and the Node app's /mcp route (app/routes/mcp.js) is a separate implementation that does not expose a shield tool. So this is a defect in code that is currently only reachable by running bot/mcp/server.py directly. The tool is read-only — it places no order — which is why this is LOW.
+
+**Existing tests**: tests/test_mcp_doc_matches_the_code.py checks documentation/code agreement for MCP tools, not the semantics of the default. No test in tests/ exercises `_shield_evaluate` with confidence omitted.
+
+**Remediation**: Make `confidence` required (`required=True`, no default) so an omitting caller gets a validation error, or accept None and return a distinct `{"approved": false, "verdict": "UNSCORABLE", "confidence": null, "reason": "no confidence supplied — an unmeasured setup is not an approved one"}`. Do not echo a default as the caller's value.
+
+**Evidence**:
+
+```
+bot/mcp/server.py:126-160 declares the parameter as optional with a fabricated default:
+```
+            MCPToolParam(
+                name="confidence", type="number",
+                description="Signal confidence 0.0-1.0.",
+                required=False,
+                default=0.65,
+            ),
+```
+and bot/mcp/server.py:432-459 feeds it straight into the risk gate and then reports it as a fact:
+```
+    async def _shield_evaluate(
+        self, symbol: str, direction: str, entry_price: float,
+        stop_loss: float, take_profit: float, confidence: float = 0.65,
+    ) -> str:
+        ...
+        idea = TradeIdea(..., confidence=confidence, ...)
+        result = self._engine.risk.evaluate(idea, atr=atr)
+        approved = result.verdict == RiskVerdict.APPROVED
+        return json.dumps({
+            "approved": approved,
+            ...
+            "confidence": round(confidence, 3),
+```
+The risk engine gates on exactly that field — bot/risk/risk_engine.py:1664-1669:
+```
+                from bot.risk.confidence_floor import min_confidence_for
+                min_conf = min_confidence_for(idea)
+                if idea.confidence < min_conf:
+                    failed.append(f"CONFIDENCE: {idea.confidence} < {min_conf} minimum")
+```
+and also SIZES against it — risk_engine.py:2426 `fraction = self.kelly_position_size(idea.confidence, win_rate, avg_win, avg_loss)`.
+```
+
+## M-06 [CRITICAL] Bitget v3 channel always signs with the OPERATOR's credentials — per-user executors place stop-losses and flash-closes on the operator's account
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/bitget_v3_client.py:47-55`
+- **Standard**: CLAUDE.md, per-account isolation: 'Per-user live trading runs one LiveExecutor per user, each bound to its own position/closed-trade files so accounts never share state' (live_executor.py:618-628). Placing one account's protective and closing orders on another account's key violates that invariant at the money layer, not just the state layer.
+
+**Observed**: The raw-HTTP v3 half of the executor is hard-wired to the operator account. A per-user position's stop-loss/take-profit strategy order is posted to the operator's account; the emergency flash-close posts `{"category":"USDT-FUTURES","symbol":<user's symbol>,"posSide":<user's side>}` to the operator's account; and `sync_positions_from_exchange` reads the OPERATOR's open positions and writes their leverage (and a recomputed `cost_usd`) onto the USER's tracked positions whenever the symbols collide (live_executor.py:5023-5033).
+
+**Expected**: A per-user executor must sign every venue call — ccxt and raw v3 alike — with that user's own credentials. The v3 client should be constructed from the executor's `self._credentials` (falling back to CONFIG.exchange only for the shared operator executor), exactly as `Venue.create_exchange(cfg, self._credentials)` already does.
+
+**Root cause**: The v3 transport was extracted into `BitgetV3Client` with a single `from_config()` constructor at a time when only the shared operator executor existed. Per-user executors were added later and threaded credentials through `Venue.create_exchange` only; the five raw-v3 call sites were never given a credential seam. `_fetch_v3_positions_raw` is additionally a @staticmethod, so it structurally cannot see `self._credentials` or `self._venue` — it even checks the GLOBAL `get_venue().id != 'bitget'` rather than the executor's own venue, so a per-user Hyperliquid executor will still query Bitget v3 positions.
+
+**Business impact**: Real money on the wrong account. Three concrete outcomes: (a) a user's SL/TP is posted with `tpslMode: "full"` against the operator's position on the same symbol, replacing the operator's own stop/target with levels computed for someone else's entry; (b) the emergency flash-close closes the OPERATOR's position on that symbol while the user's position stays open; (c) the user's tracked leverage and margin are silently overwritten with the operator's numbers, corrupting every downstream risk, exposure and PnL calculation. Where no operator position exists on the symbol, the SL/TP simply never lands (31008 ladder exhaustion) and the user's leveraged position runs with no venue-side stop.
+
+**Reachability**: Reachable. `engine._executor_for` (bot/core/engine.py:1843) constructs `LiveExecutor(user_id=..., credentials=creds, venue=venue)` whenever `CONFIG.per_user_live_enabled` is true; `engine.balance_view_executor` (bot/core/engine.py:1909) builds per-user executors regardless of that flag (those are view-only and do not reach the v3 order paths). `use_v3` is set by `_detect_hold_mode`, which `_ensure_leverage` calls at live_executor.py:1209 on the live entry path, and Bitget UTA accounts are exactly the accounts that return 40085 there. The master flag PER_USER_LIVE_ENABLED defaults to False (bot/config.py:2261), which bounds today's exposure but is a one-env-var flip, and the wiring is complete on the other side of it.
+
+**Existing tests**: tests/test_bitget_v3_client.py::TestFromConfig::test_from_config_reads_exchange_credentials pins the OPPOSITE property — that from_config reads CONFIG.exchange — and there is no test anywhere that exercises the v3 path on an executor carrying `credentials`. tests/test_sltp_variant_ladder.py stubs `from_config` out entirely (line 207), so it cannot see whose key is used. grep of tests/ for BitgetV3Client returns only those two files.
+
+**Remediation**: Give `BitgetV3Client` a per-executor factory: store `self._v3 = BitgetV3Client(api_key, api_secret, passphrase)` built from `self._credentials or CONFIG.exchange` in `LiveExecutor.__init__`, and replace all five `BitgetV3Client.from_config()` call sites (live_executor.py:1390, 4903, 5115, 8672 and the `_fetch_v3_positions_raw`/`_fetch_position_margin_mode_v3` static pair) with it. Those two statics must become instance methods so they can also use `self._venue.id` instead of the global `get_venue()`. Until that lands, a fail-closed guard is the minimum: force `use_v3 = False` whenever `self._credentials` is set, so a per-user executor never signs with the operator key.
+
+**Evidence**:
+
+```
+bot/core/bitget_v3_client.py:47-55
+    @classmethod
+    def from_config(cls) -> "BitgetV3Client":
+        """Build a client from the live exchange credentials in CONFIG.
+        ...
+        """
+        cfg = CONFIG.exchange
+        return cls(cfg.api_key, cfg.api_secret, cfg.passphrase)
+
+Every v3 call site constructs it that way, inside methods that run on a PER-USER executor:
+
+bot/core/live_executor.py:5115 (_place_sl_tp_v3 -> POST /api/v3/trade/place-strategy-order)
+                return cast(dict, BitgetV3Client.from_config().request("POST", path, body_dict))
+
+bot/core/live_executor.py:8671-8672 (_flash_close_position -> POST /api/v3/trade/close-positions)
+            result = await asyncio.to_thread(
+                BitgetV3Client.from_config().request, "POST", path, body_dict)
+
+bot/core/live_executor.py:4900-4903 (_fetch_v3_positions_raw)
+        if get_venue().id != "bitget":
+            return []
+        from bot.core.bitget_v3_client import BitgetV3Client
+        client = BitgetV3Client.from_config()
+
+while the ccxt half of the same executor is correctly per-user — bot/core/live_executor.py:812-813:
+            self._exchange = self._venue.create_exchange(cfg, self._credentials)
+```
+
+## M-07 [HIGH] BitgetV3Client ignores CONFIG.exchange.sandbox — a demo-configured bot sends live-account strategy and close orders
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/bitget_v3_client.py:33-44`
+- **Standard**: CLAUDE.md's operational rule that a check answering about one half cannot report the other (the 2026-08-25 two-target deploy incident). Here it is worse than a reporting gap: one half of the order path is demo and the other half is live, within the same trade.
+
+**Observed**: The v3 transport is unconditionally production: fixed `https://api.bitget.com`, fixed `category: USDT-FUTURES` (never the demo `SUSDT-FUTURES`), and no PAPTRADING header on any request. A bot the operator believes is paper-trading issues real strategy orders and real close-positions calls against the live account, using the same API key — Bitget demo trading is the same key plus the header, which is why ccxt implements it as a header and not a base-URL swap.
+
+**Expected**: The demo/live environment selector must apply to every transport the executor uses. Either the v3 client sends `PAPTRADING: 1` when `CONFIG.exchange.sandbox` is set (matching ccxt), or the v3 path is refused outright in sandbox mode so a demo run cannot emit a live-account request.
+
+**Root cause**: `from_config()` copies only the three credential fields off `CONFIG.exchange` and drops `cfg.sandbox`. The v3 channel was extracted from inline `urlopen` blocks that had the same omission, so the defect was preserved rather than introduced — but the ccxt side WAS fixed for the flag (venues.py:210-215, whose comment notes BITGET_SANDBOX had been dead config) and the v3 side was not, leaving the two halves of one executor pointed at two different matching engines.
+
+**Business impact**: A demo-mode bot can close a real position (flash-close) and can overwrite a real position's TP/SL (tpslMode 'full'), because the same API key authorizes both environments. Conversely, in the ordinary case the demo position has no live counterpart, so the SL/TP ladder exhausts on 31008 and the demo run reports 'no exchange stop could be placed' — teaching the operator that a code path is broken when it is only pointed at the wrong environment, and hiding whether the real SL path works.
+
+**Reachability**: Reachable whenever BITGET_SANDBOX=true on a UTA account. `use_v3` is set by `_detect_hold_mode` (live_executor.py:1382) via `_ensure_leverage` (line 1209) on the ordinary live entry path; `_flash_close_position` is reached from `_close_position_inner`'s 25227 branch (live_executor.py:7945). CONFIG.exchange.sandbox defaults to False (tests/test_core.py:2202 pins that), so this needs a deliberate demo configuration — which is exactly the configuration in which the operator is least expecting a live order.
+
+**Existing tests**: No test covers it. grep of tests/ for BitgetV3Client returns tests/test_bitget_v3_client.py and tests/test_sltp_variant_ladder.py; neither mentions sandbox. tests/test_data_loader_venue.py::test_loader_never_opts_into_sandbox pins the DATA loader's sandbox behaviour, a different module. tests/test_exchange_credentials.py exercises the ccxt validation probes only.
+
+**Remediation**: Add a `sandbox: bool` to `BitgetV3Client.__init__`, read `cfg.sandbox` in `from_config()`, and emit `"PAPTRADING": "1"` from `_headers()` when set — mirroring ccxt's rule (skip it when the request already names an S* productType). Then have `_place_sl_tp_v3` / `_fetch_v3_positions_raw` / `_flash_close_position` use `SUSDT-FUTURES` for `category` in sandbox mode. Until that lands, fail closed: refuse `use_v3` when `CONFIG.exchange.sandbox` is true so the demo run cannot reach the live channel at all.
+
+**Evidence**:
+
+```
+bot/core/bitget_v3_client.py:33-44
+BITGET_BASE_URL = "https://api.bitget.com"
+
+
+class BitgetV3Client:
+    """Signed HTTP transport for Bitget v3 REST endpoints."""
+
+    def __init__(self, api_key: str, api_secret: str, passphrase: str,
+                 base_url: str = BITGET_BASE_URL) -> None:
+
+bot/core/bitget_v3_client.py:69-77 — the full header set, with no demo marker:
+    def _headers(self, timestamp: str, signature: str) -> dict[str, str]:
+        return {
+            "ACCESS-KEY": self._api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": self._passphrase,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        }
+
+The ccxt half DOES honour the flag — bot/core/venues.py:210-215:
+        # Explicit demo-trading activation (PAPTRADING header). ...
+        if cfg.sandbox:
+            exchange.set_sandbox_mode(True)
+
+and ccxt turns that into a per-request header (.venv-audit/.../ccxt/bitget.py:10644-10651):
+        sandboxMode = self.safe_bool_2(self.options, 'sandboxMode', 'sandbox', False)
+        if sandboxMode and ...:
+                headers['PAPTRADING'] = '1'
+```
+
+## M-08 [HIGH] Post-fill leverage-overshoot guard is structurally inert on the limit-fill, partial-fill and drift-fallback paths — it passes a spot-form symbol that ccxt filters out
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/live_executor.py:1896-1901`
+- **Standard**: CLAUDE.md: 'A module nothing calls is indistinguishable from one that does not work', and the #999 lesson — 'The code was *present*. It was never reached, and no scan can tell those apart.' Also the helper's own docstring claim (live_executor.py:1863-1876) that these three paths now have a verdict.
+
+**Observed**: `fetch_positions(['APT/USDT'])` returns [] (ccxt filters by the unified symbol, which carries the settle suffix), so `_verify_position_exists` falls through to its default `{'confirmed': False, 'leverage': 0}`. `int(verify.get('leverage') or 0)` is 0, `leverage_overshoot_verdict` returns decision='unknown' for a non-positive actual, and the guard logs 'Leverage unverified on limit fill' and returns None. A 5x-approved position filled at 20x is kept, on all three paths the helper was written to cover.
+
+**Expected**: `_guard_fill_leverage` should read the venue's applied leverage and flatten a confirmed overshoot beyond `leverage_overshoot_max_ratio`, exactly as the market path does — i.e. it should pass `self._venue.swap_symbol(pos.symbol)` to `_verify_position_exists`, as every other position query in the file does.
+
+**Root cause**: Symbol-spelling drift between the two halves of the executor — the exact class of bug this file's own `_rest_key` docstring documents ('The rest was set, was correct, and could never be found', live_executor.py:1422-1443). `execute` reassigns `symbol` to the perp form before its own verification, so the market path works; the shared helper reads `pos.symbol`, which is `idea.asset` (spot form) for a bot-opened position and only happens to be perp-form for adopted positions (`symbol=raw_sym` from the exchange payload, live_executor.py:2372) and manual trades (`pair = f"{symbol}/USDT:USDT"`, bot/skills/manual_trade.py:94).
+
+**Business impact**: The concrete loss the guard was written for, from the file's own incident note: a 5x target filled at 20x has a liquidation distance ~5.0% adverse instead of ~20.0%, i.e. a 1.9-point buffer behind a 3.1% stop instead of 16.9 points. On the limit path — the default order type when CONFIG.limit_orders is enabled — the position is kept at that leverage with no verdict, and the operator sees only a debug-level 'Leverage unverified' line.
+
+**Reachability**: Reachable and hot: `_guard_fill_leverage` is called on every limit fill (live_executor.py:6528), every adopted partial fill (6878) and every drift->market fallback (7044). The upstream `sync_positions_from_exchange` does NOT compensate — it writes the venue leverage onto `pos.leverage` but takes no action, which is precisely the gap the helper's docstring says it exists to close ('a log entry, not a decision'). The only positions for which the guard does work are adopted ones and manual /trade ideas, whose `pos.symbol` already carries the ':USDT' suffix.
+
+**Existing tests**: tests/test_fill_leverage_guard_all_paths.py covers this helper but cannot see the defect: it replaces the dependency wholesale (`ex._verify_position_exists = AsyncMock(return_value={...'leverage': actual_leverage...})`, line 58) and builds its fixture position with the perp form (`def _pos(symbol="APT/USDT:USDT", ...)`, line 71). tests/test_leverage_overshoot_guard.py tests the pure `leverage_overshoot_verdict` function, which is correct. Nothing exercises the real symbol resolution.
+
+**Remediation**: One line: `verify = await self._verify_position_exists(exchange, self._venue.swap_symbol(pos.symbol), ...)`. Better, make `_verify_position_exists` normalise its own input (`symbol = self._venue.swap_symbol(symbol)` at the top, and pass `params=self._venue.futures_params()`) so both callers and any future one inherit the correct behaviour — the same 'guard at the boundary' move the file already made for `_fmt_price(None)` and `_rest_key`.
+
+**Evidence**:
+
+```
+bot/core/live_executor.py:1896-1901
+            verify = await self._verify_position_exists(
+                exchange, pos.symbol,
+                "LONG" if pos.direction == "LONG" else "SHORT")
+            actual = int(verify.get("leverage") or 0)
+            verdict = leverage_overshoot_verdict(
+                intended_leverage, actual, _max_ratio)
+
+and the identity test it depends on, bot/core/live_executor.py:1994-2002:
+            positions = await exchange.fetch_positions([symbol])
+            for p in (positions or []):
+                ...
+                p_symbol = p.get("symbol", "")
+                ...
+                if p_symbol == symbol and contracts > 0 and p_side == expected_side:
+
+Every OTHER position-fetch call site in the file converts first, e.g. bot/core/live_executor.py:8767-8769:
+            ccxt_sym = self._venue.swap_symbol(pos.symbol)
+            positions = await exchange.fetch_positions(
+                [ccxt_sym], params=self._venue.futures_params())
+
+and `execute`'s own use of the same helper passes the already-converted perp symbol (live_executor.py:4120-4123).
+```
+
+## M-09 [MEDIUM] The drift-to-market fallback opens a live position with no clientOid — the one entry path that bypasses _create_order_idempotent
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/live_executor.py:6958-6960`
+- **Standard**: CLAUDE.md: 'Ask which OTHER surface makes the same claim — before calling the fix done.' The claim here is 'an entry order can never double-submit or be silently lost'; the idempotent wrapper makes it on four paths and this one does not.
+
+**Observed**: This is the only position-opening `create_order` in the file that does not use the idempotent wrapper. Grep of create_order call sites: 4841/4864 (SL/TP triggers, reduceOnly), 5384 (_partial_close, reduceOnly), 7171 (_update_exchange_sl, reduceOnly), 7576 (close, reduceOnly), 1766 (inside `_create_order_idempotent` itself) — and 6958, which opens. It also passes `pos.symbol` and `self._venue.futures_params()` directly instead of `self._venue.order_symbol(pos.symbol)` and without the `price` that `market_order_needs_price` venues require, so on a non-Bitget venue it sends a USDT-quoted symbol to a USDC perp exchange with no reference price.
+
+**Expected**: Every order that OPENS exposure goes through `_create_order_idempotent`, so a lost response is reconciled by clientOid rather than treated as a non-event. That is the stated design: 'Reused for every order/cancel below so a timeout-retry can never double-submit' (live_executor.py:3025-3027).
+
+**Root cause**: The fallback was written as a self-contained 'cancel then market' routine and never re-based onto the idempotent submitter that the main entry path grew. The venue-dialect helpers (`order_symbol`, `market_order_needs_price`) were added later during the multi-venue work and this call site was missed — every other order call in the file was converted.
+
+**Business impact**: A momentum-chase entry whose response is lost leaves real leveraged exposure on the venue with no stop-loss and no local record, for up to 5 minutes (orphan sweep) or, if the sweep also fails, until the 8-hour stale-pending timeout books a flat close for a position that is actually live. On a non-Bitget venue the order cannot be placed at all, after the resting limit has already been cancelled — the setup is lost without a trade.
+
+**Reachability**: Reachable. Gated on `CONFIG.limit_orders.drift_market_fallback` and reached from `_check_pending_limit` at live_executor.py:6628 on any drifted resting limit with aligned ADX momentum, inside the ordinary per-tick monitor. The `trading_halted()` last-mile check immediately above it (line 6947) confirms the maintainers treat this as a real entry path. Verified that a repeat call cannot double-market: the second pass's `cancel_order` raises and the inner `fetch_order` reports 'canceled', which returns None at line 6919 — so the risk is the lost/orphaned fill, not a re-submission loop.
+
+**Existing tests**: No test drives the create_order at 6958. tests/test_fill_leverage_guard_all_paths.py names `_execute_drift_market_fallback` in its docstring but only exercises `_guard_fill_leverage` with mocks. grep of tests/ for 'drift_market' finds no test that asserts an idempotency key on this order.
+
+**Remediation**: Route it through the wrapper: `order = await self._create_order_idempotent(exchange, symbol=self._venue.order_symbol(pos.symbol), type='market', side=side, amount=qty, coid=self._client_oid(trade_id + '-drift'), price=(cur_price if self._venue.market_order_needs_price else None), params=self._venue.futures_params())`. The distinct coid suffix keeps it from colliding with the original limit's key while staying deterministic, so a retry of the fallback cannot double-fill.
+
+**Evidence**:
+
+```
+bot/core/live_executor.py:6958-6960
+            order = await exchange.create_order(
+                pos.symbol, "market", side, qty,
+                params=self._venue.futures_params())
+
+compared with the entry path's own contract, bot/core/live_executor.py:1745-1753:
+        """Place an order with an idempotency key, recovering from timeouts.
+
+        Flow:
+          1. Inject clientOid into params (Bitget dedups on it).
+          2. Try create_order normally.
+          3. On ANY exception, query the exchange by clientOid. If the order
+             actually landed, return it (so a timed-out-but-filled order is
+             reconciled instead of lost — and never re-submitted). ...
+
+and the failure handler that turns a timeout into 'nothing happened', bot/core/live_executor.py:7069-7074:
+        except Exception as exc:
+            audit(trade_log,
+                  f"Market fallback execution failed for {pos.symbol}: {exc}",
+                  action="limit_drift_market_fallback", result="ERROR",
+                  data={"trade_id": trade_id, "error": str(exc)})
+            return None
+```
+
+## M-10 [MEDIUM] A failed close leaves the position reopened with stale SL/TP order ids for orders it already cancelled — recorded as protected while naked on the venue
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/live_executor.py:7968-7974`
+- **Standard**: CLAUDE.md, 'Unreadable is never zero, and absent is never a measurement', applied to state rather than numbers: a cancelled order id rendered as protection is a confident positive built from an absence. The file states the rule itself at 6042-6053.
+
+**Observed**: The position is returned to 'open' carrying ids for two cancelled orders. Local price-monitoring (the static SL/TP check at live_executor.py:6161-6188) still closes it on breach, so it is not wholly unmanaged — but the venue-side stop is gone, nothing re-places it on the next tick, no operator alert is raised, and every surface that reads `sl_order_id` reports the position as protected.
+
+**Expected**: A cancel that succeeded followed by a close that failed must null the ids and mark the position unprotected — the same treatment the retry path gives at live_executor.py:6053 (`self._mark_stop_absent(pos, trade_id, had_stop=_had_stop)`), so the per-tick retry re-places the stop immediately and the operator alert fires.
+
+**Root cause**: The H-01 revert was written to make the position retryable and only touched `status`. The protective-order fields are cleared on the success path (they go with the closed record) and on the residual path (live_executor.py:7629-7630 explicitly sets both to None), but not on the failure path.
+
+**Business impact**: A leveraged position the bot tried and failed to close is left with no venue-side stop while every card, alert gate and self-heal check reads it as protected. Protection degrades to the local price monitor, which depends on the process staying alive and on a readable ticker — the exact single point of failure the exchange stop exists to remove.
+
+**Reachability**: Reachable on any close that raises after the cancel loop — the cancel loop is unconditional whenever ids are stored, and `create_order` failures are ordinary (the handler exists precisely for them). Partially mitigated: `verify_and_fix_sltp` runs on a throttle from bot/core/engine.py:6816-6820 and, for the classic two-order case, `_missing_classic_legs` (live_executor.py:8895) will see the ids are no longer live and re-place — but only when `verify_classic_sltp_on_restart` is on (bot/config.py:1835, default True) and only once per `_SLTP_VERIFY_INTERVAL`, and the local record is wrong for the whole window in between. That mitigation is why this is MEDIUM and not HIGH.
+
+**Existing tests**: grep of tests/ for 'CLOSE FAILED' and for the H-01 revert finds no test asserting the state of `sl_order_id` after a failed close. The tests that cover `_mark_stop_absent` exercise the sltp_retry path, not the close path.
+
+**Remediation**: In the failure handler at live_executor.py:7968, before reverting status, clear whichever legs were actually cancelled and mark the state honestly: `if pos.sl_order_id and pos.sl_order_id not in cancel_failed: self._mark_stop_absent(pos, trade_id, had_stop=True, why=f'close failed: {exc_str[:80]}')` plus `pos.tp_order_id = None` for any TP that was cancelled. `_mark_stop_absent` already nulls the id, sets `unprotected`, saves and audits at WARNING.
+
+**Evidence**:
+
+```
+The close cancels both protective legs first — bot/core/live_executor.py:7526-7534:
+            # Cancel SL/TP orders BEFORE closing — prevents race condition where
+            # a trigger fires between close-fill and cancel, opening an opposite pos.
+            cancel_failed = []
+            for oid in [pos.sl_order_id, pos.tp_order_id]:
+                if oid:
+                    ...
+                        cancel_resp = await exchange.cancel_order(oid, self._venue.order_symbol(pos.symbol))
+
+and the failure exit puts the position back without clearing them — bot/core/live_executor.py:7968-7974:
+            # H-01 FIX: Revert status so position is retried next cycle
+            pos.status = "open"
+            self._save_positions()
+            audit(trade_log, f"Live close failed: {exc}",
+                  action="live_close", result="ERROR",
+                  data={"trade_id": trade_id, "error": exc_str})
+            return f"CLOSE FAILED for {trade_id}: {exc}"
+
+The per-tick self-heal then skips it, because its gate is the stored id — bot/core/live_executor.py:6012-6013:
+                    if (not pos.sl_order_id or not pos.tp_order_id) and pos.stop_loss > 0 and pos.take_profit > 0:
+
+The file already knows this is the wrong shape; the sibling path spells it out at live_executor.py:6042-6053 — 'Leaving sl_order_id naming the cancelled order made every downstream signal read "protected" ... A cancelled stop that could not be replaced is an ABSENT stop, and the field has to say so.' — and calls `_mark_stop_absent`. The close path does not.
+```
+
+## M-11 [MEDIUM] Weekend/off-session stop widening inflates approved risk 40% on Stock-class perps, with no compensating size reduction
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/order_rules.py:34-35, 126-133`
+- **Standard**: CLAUDE.md, risk-path invariant: adjustments after sizing must be reduce-only with respect to risk. The repo enforces exactly this elsewhere — bot/core/user_sizing.py's docstring ('A self-declared appetite must never RAISE risk ... Only reductions (mult < 1.0) applied pre-cap; never increases') and bot/core/leverage.py's reduce-only clamp.
+
+**Observed**: Stock-class perps — the class with the LONGEST off-hours window, roughly 15 hours of every weekday plus all weekend — take a 40% wider stop at unchanged size. The risk engine approved a dollar risk it will not get. `ASSET_RULES` in the same module records `"Stock": {"min_sl_pct": 2.0, "weekend_sl_pct": 3.0, "max_leverage": 10}` (order_rules.py:161-167), but grep shows ASSET_RULES has zero references anywhere in bot/ or tests/ — it is a comment in dict form, so neither the weekend SL cap nor the 10x leverage cap for stocks is enforced.
+
+**Expected**: Widening a stop after the position has been sized must be paired with a size reduction that holds dollar risk constant (size x 1/1.40 ~= 0.71), or the idea must be re-sized. For Metal/Commodity/ETF the 35% cut roughly does this (1.40 x 0.65 = 0.91). Stock gets the widening and none of the cut.
+
+**Root cause**: `is_weekend_queued` collapses two different states — 'closed for the weekend' and 'outside today's session' — into one boolean, and the two adjusters then key off different class sets: the SL widener excludes only Crypto and Pre-IPO, while the size reducer includes only the three weekday-only classes. Stock falls through the gap in both directions.
+
+**Business impact**: Every off-session stock-perp entry risks 1.40x the amount the risk engine approved and reported. The risk engine's per-trade % cap, its drawdown accounting and the R-multiples every downstream report is built on are all computed against the pre-widening stop, so the discrepancy is invisible in the audit trail — the `weekend_sl_widen` record logs the new stop but nothing recomputes size or risk from it.
+
+**Reachability**: Reachable by default. `SCAN_CLASS_STOCKS` defaults to True (bot/config.py:2380) so stock perps are in the scanned universe; `_classify_symbol` returns 'Stock' for anything in `_STOCK_PERP_SET`/`_STOCK_SET` or any auto-discovered `*STOCK` base (bot/core/market_scanner.py:104-107). The widening block at live_executor.py:2918 runs before any order is placed and is not behind a feature flag. Note the widened stop is applied to `idea`, which is a copy (live_executor.py:2877), so it does not corrupt the caller's object — only this order's geometry.
+
+**Existing tests**: grep of tests/ for `adjust_sl_for_gap_risk` and `adjust_size_for_weekend` returns nothing — neither function has any test. grep for ASSET_RULES returns only its own definition.
+
+**Remediation**: Either add `Stock` (and any `_SESSION_HOURS` class) to the size-reduction set, or — better — derive the reduction from the widening so they cannot drift: return the widen factor from `adjust_sl_for_gap_risk` and have `execute` apply `size_usd /= widen_factor` whenever the stop was actually widened, for every class. Separately, either wire `ASSET_RULES` into the leverage/SL caps or delete it, so a table that reads as policy is not in fact inert.
+
+**Evidence**:
+
+```
+bot/core/order_rules.py:34-35 — the two class sets are disjoint:
+_WEEKDAY_ONLY = {"Metal", "Commodity", "ETF"}  # closed weekends
+_SESSION_HOURS = {"Stock"}  # specific daily window
+
+bot/core/order_rules.py:126-133 — the size reduction only covers _WEEKDAY_ONLY:
+def adjust_size_for_weekend(
+    size_usd: float,
+    asset_class: str,
+    is_weekend: bool,
+) -> float:
+    ...
+    if not is_weekend:
+        return size_usd
+    if asset_class not in _WEEKDAY_ONLY:
+        return size_usd
+
+bot/core/order_rules.py:96-101 — but the SL widening covers every non-crypto class:
+    if not is_weekend:
+        return stop_loss
+    if asset_class in _ALWAYS_OPEN or asset_class in _PRE_IPO:
+        return stop_loss
+    ...
+    # Widen by 40% (midpoint of GetClaw's 25-50% range)
+    widen_factor = 1.40
+
+and `execute` applies the widening to an already-sized idea — bot/core/live_executor.py:2918-2926:
+        if is_weekend:
+            old_sl = idea.stop_loss
+            new_sl = adjust_sl_for_gap_risk(
+                idea.stop_loss, idea.entry_price,
+                idea.direction.value, asset_class, is_weekend,
+            )
+            if new_sl != old_sl:
+                idea.stop_loss = new_sl
+```
+
+## M-12 [LOW] PartialTPState.__post_init__ discards persisted ladder state on every reload — remaining_qty, current_sl and runner_trail_best reset each monitor tick
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/partial_tp.py:47-50`
+- **Standard**: CLAUDE.md, 'Write the assertion, then re-run the search' — the persisted dict is the reader and `asdict` is the writer, and they disagree, which is the same writer/reader drift `closed_trade_row` was made module-level and pure to prevent (live_executor.py:324-336).
+
+**Observed**: The ladder's own bookkeeping is reset every tick. `close_qty = min(close_qty, state.remaining_qty)` (partial_tp.py:127, 145) therefore never clamps against what is actually left; the runner block's `new_sl = max(trail_sl, state.current_sl)` compares against the original loose stop rather than the ratcheted one and re-emits a move_sl action every tick; and `partial_tp_summary` (partial_tp.py:207-217) reports `pct_remaining` as 100% and `pct_closed` as 0% for a position that has already banked TP1.
+
+**Expected**: Rehydrating a dataclass from its own `asdict` output must round-trip. `__post_init__` should seed those three fields only when they are unset (e.g. `if not self.remaining_qty: self.remaining_qty = self.original_qty`), or the seeding should move into `create_partial_tp_state`, where a fresh state is built.
+
+**Root cause**: `__post_init__` was written for the fresh-construction case only (`create_partial_tp_state` sets no values for those three fields), and the persistence round-trip in `_run_partial_tp` was added later. The nearby comment at live_executor.py:5421-5428 shows the author reasoning carefully about a DIFFERENT rehydration hazard (initial_risk collapsing toward 0 on a ratcheted stop) in the `except` branch, while the happy-path branch one line above silently discards three fields.
+
+**Business impact**: The partial-TP ladder's persisted state is wrong for the entire life of any position past TP1: the runner's trailing stop is recomputed from the current price each tick rather than advanced through `runner_trail_best`, and any surface built on `partial_tp_summary` reports 100% of the position still open after half of it has been banked. If either downstream clamp is ever removed in a refactor, the same defect becomes an over-close and a loosened stop.
+
+**Reachability**: Reachable on every tick of every live position: `CONFIG.partial_tp.enabled` defaults True (bot/config.py:1685) and `_run_partial_tp` is called unconditionally for open positions at live_executor.py:6006-6007. The damage is bounded by two downstream guards, which is why this is LOW rather than higher: `_run_partial_tp` clamps every close to the live position (`qty = min(act.qty_to_close, pos.quantity)`, live_executor.py:5475), and `_would_tighten` (line 5447) refuses any SL move that would loosen `pos.stop_loss` — so the reset cannot cause an over-close or a loosened stop, only wrong internal bookkeeping and a trail that recomputes from scratch each tick instead of ratcheting through state.
+
+**Existing tests**: grep of tests/ for PartialTPState / check_partial_tp finds tests that build state in-process and call `check_partial_tp` directly; none constructs a `PartialTPState(**asdict(st))` round trip, which is why the clobber has never been observed.
+
+**Remediation**: Change `__post_init__` to seed only unset fields: `if not self.remaining_qty: self.remaining_qty = self.original_qty`, `if not self.current_sl: self.current_sl = self.original_sl`, `if not self.runner_trail_best: self.runner_trail_best = self.entry_price`. Add a round-trip test — `PartialTPState(**asdict(st)) == st` — since that single assertion covers every field including any added later.
+
+**Evidence**:
+
+```
+bot/core/partial_tp.py:47-50 — the post-init overwrites three fields that are also constructor arguments:
+    def __post_init__(self):
+        self.remaining_qty = self.original_qty
+        self.current_sl = self.original_sl
+        self.runner_trail_best = self.entry_price
+
+and bot/core/live_executor.py:5417-5419 rehydrates the ladder by passing the persisted dict straight into that constructor:
+        else:
+            try:
+                st = PartialTPState(**pos.partial_tp_state)
+
+with the state written back each tick at bot/core/live_executor.py:5504:
+        pos.partial_tp_state = _dc.asdict(st)
+```
+
+## M-13 [LOW] Tier-C size reduction recomputes quantity after the exchange-minimum and notional checks have already run
+
+- **Dimension**: order-exec · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/live_executor.py:3528-3534`
+- **Standard**: CLAUDE.md's guard-at-the-boundary principle (`_fmt_price(None)` returning an em dash rather than a dozen call sites remembering to check) and the file's own stated rule about never surfacing raw venue errors.
+
+**Observed**: The reduced quantity is re-rounded outside a try/except and is never re-validated against min amount or min notional, so a sub-minimum tier-C order produces a raw venue error string instead of the clean `BLOCKED: ... position too small for the exchange` message the same condition produces 180 lines above.
+
+**Expected**: Any change to `quantity` must be followed by the same three checks the first computation gets: the exchange-minimum resolution (`resolve_exchange_min_quantity`), the guarded `amount_to_precision`, and `_validate_order_limits`. The file's own comment at 3376-3381 states the standard: 'never surface a raw venue precision error — classify it as a clean skip'.
+
+**Root cause**: The confluence/tier logic was inserted after the validation block rather than before it, so the size decision now happens downstream of the checks written to bound it.
+
+**Business impact**: An operator sees a raw ccxt or Bitget error string instead of the actionable 'position too small for the exchange' message the codebase produces for the identical condition on the unreduced path — the exact diagnosability regression the guarded call at 3376 was added to prevent. No capital moves either way.
+
+**Reachability**: Reachable whenever `CONFIG.limit_orders.enabled` and a limit order needs price recalculation with a valid ATR (live_executor.py:3480-3495). No capital is at risk: both failure modes are pre-fill refusals — an exception before submission, or a venue rejection of the order. That is why this is LOW.
+
+**Existing tests**: grep of tests/ for 'limit_tier_c' / 'SIZE_REDUCED' finds no test that drives the tier-C branch through `execute` with a market whose minimums the reduced size would breach.
+
+**Remediation**: Move the whole minimum/precision/notional validation block below the confluence recalculation, or extract it into a small `self._finalize_quantity(...)` helper called from both places, so the tier-C branch inherits the same guarded behaviour instead of re-implementing half of it.
+
+**Evidence**:
+
+```
+bot/core/live_executor.py:3528-3534 — the reduction and its unguarded re-rounding:
+                        # Recalculate quantity with new size
+                        quantity = (size_usd * leverage_mult) / current_price
+                        if market:
+                            _re_rounded = active_exchange.amount_to_precision(symbol, quantity)
+                            if _re_rounded:
+                                quantity = float(_re_rounded)
+
+compared with the first rounding, ~180 lines earlier, which the file deliberately wrapped — bot/core/live_executor.py:3376-3386:
+                try:
+                    _rounded = active_exchange.amount_to_precision(symbol, quantity)
+                except Exception as _prec_exc:
+                    # Defense-in-depth: never surface a raw venue precision
+                    # error — classify it as a clean skip.
+                    ...
+                    return (f"BLOCKED: {symbol} position too small for the "
+                            f"exchange's precision rules ({quantity:.8f}). Skipped.")
+
+The minimum-quantity guard (live_executor.py:3327-3372) and `_validate_order_limits` (line 3437) both run on the PRE-reduction quantity and are never re-run.
+```
+
+## M-14 [CRITICAL] Unreadable live equity silently reroutes the DAILY_LOSS and DRAWDOWN breakers to the paper book, which is structurally flat in LIVE-ONLY mode — both print "0.0% OK"
+
+- **Dimension**: risk-engine · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/risk/risk_engine.py:1413-1418, 1475-1486 (and bot/core/engine.py:5325, bot/core/engine.py:895)`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement.' Also the guard-or-omit table: a single-source panel must guard, never render a confident negative.
+
+**Observed**: live_equity=None (or 0.0) falls through to the PAPER PortfolioTracker snapshot. In LIVE-ONLY mode (bot/core/engine.py:6111 'This bot is LIVE-ONLY'; the confirm success branch at bot/core/engine.py:6395 is commented 'Exchange is single source of truth — no paper duplicate') that book holds no positions and no history, so _snapshot_locked() (bot/risk/portfolio.py:445-452) yields daily_pnl=0.0 and current_drawdown=0.0. Both gates emit a confident measured pass and the trade is APPROVED while the real account is 50% below its peak with the day's loss cap already spent.
+
+**Expected**: An unreadable live equity is not a measurement. Both gates should refuse (or report UNKNOWN and let the caller refuse), as bot/risk/venue_aggregate.py:cap_verdict already does for the multi-venue caps.
+
+**Root cause**: The live branch is selected on `live_equity is not None and live_equity > 0`, and the else-branch is a real fallback rather than an unknown state. The two feeder sites read `self._live_balance_cache` directly — engine.py:5325 (scan risk gate) and engine.py:895 (_live_recheck_context, the pre-execution re-check) — with no age check. The cache is emptied by _invalidate_live_balance_cache() on every position close (bot/core/engine.py:827-830), so a venue outage or auth blip right after a close, or any window before the first successful fetch, yields {} -> live_eq=None. The comments beside both gates already state the paper numbers are meaningless in live ('the paper snapshot's daily_pnl is ~0 because live fills never touch the paper portfolio'; 'not the paper snapshot which never moves in pure-live mode (audit CRITICAL)').
+
+**Business impact**: The two controls that decide how much real money is lost before the bot halts can be defeated by a venue timeout. An account already 50% below its high-water mark is told 'DAILY_LOSS: 0.0% OK / DRAWDOWN: 0.0% OK' and permitted to open further positions.
+
+**Reachability**: Reached on both live money paths: bot/core/engine.py:5355 (scan-time risk gate) and bot/core/engine.py:5937 (confirm-time re-check, whose verdict gates executor.execute at bot/core/engine.py:6381). No upstream guard blocks trading on an absent balance: set_live_auth_status is only ever called from bot/main.py (boot preflight) — grep over the tree shows no runtime caller — so a balance-fetch failure does not mark venue auth down and does not engage the auth halt at engine.py:6372.
+
+**Existing tests**: tests/test_live_account_breakers.py and tests/test_live_drawdown_reporting.py always pass a positive live_equity. tests/test_live_balance_age_gate.py pins the age-gated accessor and asserts only display surfaces (scan_skill, web_reports, skill_registry, telegram_handler) read through it — bot/core/engine.py is not in its reader list, so the two money-path reads are unpinned. No test drives evaluate() in live with live_equity=None.
+
+**Remediation**: Make the live branch three-valued: when CONFIG.is_live() and live equity cannot be read, append a FAILED check ('DAILY_LOSS/DRAWDOWN: live equity unreadable — cannot measure') rather than evaluating the paper snapshot; select the paper branch only when not is_live(). Separately route engine.py:5325 and engine.py:895 through the existing age-gated accessor engine.live_balance_cached() so a frozen cache is also reported as unknown rather than as current equity.
+
+**Evidence**:
+
+```
+bot/risk/risk_engine.py:1413-1418
+            if live_equity is not None and live_equity > 0:
+                _daily_pnl = self._live_daily_pnl
+                loss_base = live_equity
+            else:
+                _daily_pnl = state.daily_pnl
+                loss_base = min(sizing_equity, state.equity_usd) if sizing_equity > 0 and state.equity_usd > 0 else max(sizing_equity, state.equity_usd)
+
+bot/risk/risk_engine.py:1475-1486
+            if live_equity is not None and live_equity > 0:
+                self._last_live_equity = live_equity
+                if live_equity > self._live_equity_peak:
+                    self._live_equity_peak = live_equity
+                _cur_dd = (100.0 * (self._live_equity_peak - live_equity)
+                           / self._live_equity_peak) if self._live_equity_peak > 0 else 0.0
+            else:
+                _cur_dd = getattr(state, "current_drawdown_pct", state.max_drawdown_pct)
+
+bot/core/engine.py:5325
+        live_eq = self._live_balance_cache.get("total", 0.0) if (CONFIG.is_live() and self._live_balance_cache) else None
+```
+
+## M-15 [HIGH] The LIVE daily-loss accumulator is dropped by the combined-state restore that production actually uses — the daily-loss breaker gets a full fresh budget on every restart
+
+- **Dimension**: risk-engine · **Confidence**: CONFIRMED · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/risk/risk_engine.py:3478-3491`
+- **Standard**: The file's own comment at bot/risk/risk_engine.py:302-310: 'Lose 4.5% against a 5% cap, redeploy, lose 4.5% again, and the gate reads 4.5% while the day is really 9.0% — the breaker that exists to stop exactly that never trips, and this deployment redeploys often.'
+
+**Observed**: _load_from_state_dict restores circuit_open, streak, trip cause/day, the drawdown override and the live peak, but not the live daily-loss accumulator — even though _export_state_dict (bot/risk/risk_engine.py:3455-3462) writes live_daily_pnl and live_daily_day into the very dict it is handed.
+
+**Expected**: A mid-day restart must hand the engine back the day's realized live loss, as tests/test_daily_loss_survives_restart.py requires: 'A fresh DAY starts flat. A restart is not a fresh day.'
+
+**Root cause**: Two restore paths that must agree; only one was updated when _restore_live_daily was added. bot/core/engine.py:2635-2638 loads combined_state.json through _load_from_state_dict, and bot/core/engine.py:2668-2669 then wires _combined_saver on both portfolio and risk, so bot/risk/risk_engine.py:3407-3409 routes every subsequent _save_state() into combined_state.json and data/risk_state.json is never written again. The constructor's _load_state() therefore reads a file frozen at migration time whose stored day no longer matches today, so _restore_live_daily correctly ignores it — and the combined restore that carries today's value never calls it.
+
+**Business impact**: On a deployment CLAUDE.md describes as redeploying often, the 5% daily-loss circuit breaker can be reset to a full budget several times in one UTC day. Three redeploys after 4.5% losses is a ~13.5% real day against a 5% cap, with the breaker never tripping.
+
+**Reachability**: bot/core/engine.py:2617-2638 — _wire_combined_state_saver is called unconditionally from RuneClawEngine.__init__ (bot/core/engine.py:497); when data/combined_state.json exists it calls self.risk._load_from_state_dict(combined['risk']). That file is created by the first _save_state after wiring, so every boot after the first takes this path. This is the operator/shared engine, which is what risk_for() returns whenever PER_USER_LIVE_ENABLED is off (the default) — the engine that gates every live trade.
+
+**Existing tests**: tests/test_daily_loss_survives_restart.py exercises only `RiskEngine(PortfolioTracker(), state_file=...)` via its _engine helper, i.e. the individual-file path. Grep for 'live_daily_pnl' across tests/ returns only that file, test_surface_scenarios.py and test_live_account_breakers.py, none of which touch the combined path.
+
+**Remediation**: Add `self._restore_live_daily(data)` to _load_from_state_dict alongside _restore_dd_override/_restore_live_peak, and extend tests/test_daily_loss_survives_restart.py with a case that round-trips through _export_state_dict -> _load_from_state_dict rather than only through the individual state file.
+
+**Evidence**:
+
+```
+bot/risk/risk_engine.py:3478-3488 (the path production loads from)
+    def _load_from_state_dict(self, data: dict) -> None:
+        """C2-34: Restore risk state from a dict (no file I/O).
+        Uses fail-closed semantics matching _load_state."""
+        self._circuit_open = data.get("circuit_open", False)
+        ...
+        self._restore_dd_override(data)
+        self._restore_live_peak(data)
+
+bot/risk/risk_engine.py:3334-3336 (the path only the legacy individual file uses)
+            self._restore_dd_override(data)
+            self._restore_live_daily(data)
+            self._restore_live_peak(data)
+```
+
+## M-16 [HIGH] Correlation, portfolio-exposure, symbol-exposure, PCA-concentration and VaR gates measure the paper portfolio, which is never populated in LIVE-ONLY mode — five of the 23 caps report measured passes over an empty book
+
+- **Dimension**: risk-engine · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/risk/risk_engine.py:1853, 1865, 3115-3118`
+- **Standard**: CLAUDE.md: 'A module nothing calls is indistinguishable from one that does not work' — here a gate whose only input is never populated. And 'absent is never a measurement': 'CORRELATION: no concentrated exposure' is a confident negative computed from an empty set.
+
+**Observed**: With an empty paper book, group_count is always 0 so #8 never rejects; open_value is always 0.0 so #14 only ever scores the single new position; symbol_value is always 0.0 so #15 likewise; #20 always reports 'fewer than 2 open positions'; #21's current_exposure loop over self._portfolio.open_positions contributes 0. All five append confident 'OK' strings to checks_passed, so the audit trail and /whynot record a cap as verified when nothing was measured.
+
+**Expected**: CONFIG.risk.max_correlation_per_group (default 2, bot/config.py:436), max_portfolio_exposure_pct (80.0, bot/config.py:434) and max_symbol_exposure_pct (20.0, bot/config.py:435) should bind against the account actually holding the positions.
+
+**Root cause**: The daily-loss and drawdown gates were each given an explicit live-mode data source (self._live_daily_pnl, self._live_equity_peak) when the pure-live paper-book problem was found; the exposure/correlation/concentration/VaR gates were not, and still read PortfolioTracker. The live book lives in LiveExecutor._positions, which the RiskEngine holds no handle on.
+
+**Business impact**: With MICRO_MAX_OPEN_POSITIONS=5 a live account can hold five positions all in one correlation group and one direction (e.g. five ALT_L1 longs) against a configured max_correlation_per_group of 2. A single correlated move then hits every position at once — the exact concentration the cap exists to prevent.
+
+**Reachability**: All five run on every live evaluation (bot/core/engine.py:5355 and :5937). Partial upstream coverage exists but does not substitute: LiveExecutor._preflight_check (bot/core/live_executor.py:1493-1497, 1541-1542) enforces MICRO_MAX_TOTAL_EXPOSURE ($500) and MICRO_MAX_OPEN_POSITIONS (5) from its own _positions, and its duplicate-symbol guard (lines 1544-1555) blocks a second position on the same symbol. Nothing anywhere enforces the correlation-group cap on live positions: the only place live positions are mapped to correlation groups is bot/core/engine.py:1407 inside _twin_positions, feeding run_digital_twin, whose docstring says 'Read-only foresight + fail-open: it never proposes, blocks, or alters a trade.'
+
+**Existing tests**: tests/test_core.py, tests/test_audit_f3_reconciliation.py and tests/test_roadmap_p0.py exercise these checks by populating a PortfolioTracker directly (paper semantics). No test drives them with a live executor book, and none asserts the live-mode behaviour.
+
+**Remediation**: Either inject a live-position provider into RiskEngine (same shape as set_person_totals_fn) so #8/#14/#15/#20/#21 read the executor's book in live mode, or — if the intent is that the executor's dollar caps are the live control — make these checks report SKIPPED/NOT-MEASURED in live so the audit record and /whynot stop claiming a cap was verified.
+
+**Evidence**:
+
+```
+bot/risk/risk_engine.py:1852-1857 (check #14, portfolio exposure)
+            margin_equiv_position_usd = position_usd
+            open_value = self._portfolio.get_position_value()
+            exposure_pct = (open_value / sizing_equity * 100) if sizing_equity > 0 else 0
+            new_exposure = exposure_pct + (margin_equiv_position_usd / sizing_equity * 100 if sizing_equity > 0 else 0)
+            if new_exposure > CONFIG.risk.max_portfolio_exposure_pct:
+
+bot/risk/risk_engine.py:3114-3120 (check #8, correlation cap)
+        new_group = self._correlation_group(idea.asset)
+        open_groups: list[str] = [
+            self._correlation_group(pos.asset)
+            for pos in self._portfolio.open_positions
+        ]
+
+        group_count = open_groups.count(new_group)
+
+bot/risk/risk_engine.py:1865 (check #15, per-symbol exposure)
+            symbol_value = self._portfolio.get_position_value(asset=idea.asset)
+```
+
+## M-17 [MEDIUM] The combined-state load path is not fail-closed despite its docstring — a corrupt combined_state.json silently clears an open circuit breaker instead of halting
+
+- **Dimension**: risk-engine · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/engine.py:2645-2652 (with bot/risk/risk_engine.py:3478-3481)`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero' — an unreadable risk state is not a clear one; and _fail_closed_restore's own rationale, 'an unknown risk state is not a safe one'.
+
+**Observed**: A corrupt combined_state.json produces a warning line and a boot with whatever the constructor's _load_state() left behind — in a deployment that was never migrated from legacy files, that is a fresh start with _circuit_open=False. An open breaker is silently cleared by a corrupt file, which is precisely what _fail_closed_restore exists to prevent.
+
+**Expected**: Parity with _load_state's documented contract (bot/risk/risk_engine.py:3311-3316): 'Corrupt file (non-empty but invalid JSON) -> assume breaker TRIPPED (fail-closed)', with cause state_unreadable recorded and the damaged file preserved.
+
+**Root cause**: Two restore paths with one documented contract; the fail-closed behaviour was implemented only in the file-reading path, and the combined path's docstring asserts a property the code does not have. The caller's recovery ('fall back to individual files') was true when both files were live, and stopped being true once the combined saver became the only writer.
+
+**Business impact**: A halt that exists precisely because the bot lost money can be erased by a corrupt state file at restart — the failure mode _fail_closed_restore was written to prevent, arriving through the door that path does not cover.
+
+**Reachability**: bot/core/engine.py:2617-2652 runs on every boot once data/combined_state.json exists, and that file is created by the first _save_state after wiring. The corruption case itself requires a torn or garbled file — atomic_write_json plus fsync_dir make that unlikely but not impossible (disk-full, filesystem corruption, an operator restoring a truncated backup).
+
+**Existing tests**: tests/test_combined_state_per_user_intent.py pins that per-user state stays out of the combined file. Grep across tests/ finds no test that feeds a corrupt combined_state.json through _wire_combined_state_saver and asserts the breaker ends up open.
+
+**Remediation**: Wrap _load_from_state_dict's body so a malformed dict calls self._fail_closed_restore('Combined state unreadable', 'COMBINED_FAIL_CLOSED'), and make _wire_combined_state_saver's except branch do the same rather than logging and continuing. Consider reading the .bak written at bot/core/engine.py:2697-2704, which is currently produced and never consumed.
+
+**Evidence**:
+
+```
+bot/risk/risk_engine.py:3478-3481
+    def _load_from_state_dict(self, data: dict) -> None:
+        """C2-34: Restore risk state from a dict (no file I/O).
+        Uses fail-closed semantics matching _load_state."""
+        self._circuit_open = data.get("circuit_open", False)
+
+bot/core/engine.py:2645-2652
+            except Exception as exc:
+                # Combined file corrupt — fall back to individual files
+                # (which were already loaded by each component's __init__)
+                system_log.warning(
+                    "C2-34: Combined state corrupt (%s), using individual files",
+                    exc,
+                )
+```
+
+## M-18 [MEDIUM] A circuit-breaker trip or /halt never cancels resting limit ENTRY orders, so new exposure can still open on an account that has just breached its drawdown or daily-loss limit
+
+- **Dimension**: risk-engine · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/live_executor.py:576-579`
+- **Standard**: The one-rule framing in bot/core/trade_gate.py ('A gate with five conditions and six renderings of it will disagree with itself'), applied to enforcement rather than reporting: the rule stops the bot's next order but not the order the bot already sent.
+
+**Observed**: The halt is honoured only on code paths the bot itself drives (trading_halted() at live_executor.py:3759, 3873, 6949). An entry order already resting at Bitget is filled by the venue and adopted as a real position on a halted account, with SL/TP placed as normal.
+
+**Expected**: A breaker that exists to stop the account taking more risk should also withdraw the orders that would add risk, or at minimum surface that N resting entries remain live at the venue.
+
+**Root cause**: The kill switch was implemented as a decision gate on the bot's own code paths rather than as an action on venue state. The last-mile checks correctly close the race between the engine's check and order submission, but nothing addresses orders that were already submitted before the trip.
+
+**Business impact**: An account that has just hit its max-drawdown limit can acquire additional positions minutes later because an order placed before the trip finally fills, while every operator surface reports trading as Paused.
+
+**Reachability**: Reachable whenever limit entries are in use (CONFIG.limit_orders.enabled; bot/core/live_executor.py:4052 records them with status='pending_fill', and bot/core/live_executor.py:2607 adopts orphaned limit orders into the same state). The window is as long as the limit-order expiry.
+
+**Existing tests**: Tests reference trading_halted and the last-mile refusals (the BLOCKED_HALTED strings). Grep across tests/ finds no test asserting that a breaker trip cancels or blocks resting limit entries.
+
+**Remediation**: On a breaker trip with cause in (daily_loss, drawdown, streak), cancel every pending_fill entry order on the affected executor — the cancel logic already exists in _close_position_inner's pending_fill branch — or at minimum add a halt check to the pending_fill->open transition so a fill arriving while halted is immediately flattened rather than adopted. Either way the trip card should state how many resting entries were live at the moment of the trip.
+
+**Evidence**:
+
+```
+bot/core/live_executor.py:576-579 (the module's own statement of the gap)
+# Consequence, all defaults: a resting limit order placed before a `/halt` or an
+# automatic breaker trip would still convert to a market BUY on drift, opening
+# NEW exposure on a halted account. Neither /halt nor any breaker cancels resting
+# limits; only /emergency_stop does.
+
+bot/risk/risk_engine.py:3604-3612 (what a trip actually does)
+    def _trip_circuit_breaker(self, reason: str, cause: str = "manual") -> None:
+        if not self._circuit_open:
+            self._circuit_open = True
+            self._circuit_breaker_trips += 1
+            self._circuit_trip_cause = cause
+            self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
+```
+
+## M-19 [MEDIUM] get_exchange_position_count fabricates a position count from local state when the venue is unreachable, caches it for 30s, and MAX_POSITIONS then prints a confident "OK"
+
+- **Dimension**: risk-engine · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/exchange_sync.py:440-452`
+- **Standard**: CLAUDE.md: 'absent is never a measurement'; bot/risk/venue_aggregate.py: 'a floor below the cap proves nothing. The unreadable venue could hold anything. ACCEPT is not safe.'
+
+**Observed**: The failure returns an integer indistinguishable from a real reading, and check #5 reports it as a measured pass.
+
+**Expected**: An unreadable venue position count must be reported as unknown so risk check #5 can refuse — exactly as bot/risk/venue_aggregate.py:cap_verdict does: 'under it, INCOMPLETE -> REFUSE, naming the venue that went unread ... Allowing on a floor is how a cap gets loosened by a timeout.'
+
+**Root cause**: The comment's premise is inverted: max(local_live, local_port) is a FLOOR of the true exchange count, not a ceiling. Local tracking can sit below the truth after a restart before adopt_exchange_positions runs, when a position was opened outside the bot, or when the executor's persisted book was lost — precisely the situations in which an authoritative count matters. The repo's own bot/risk/venue_aggregate.py documents this floor-vs-cap distinction at length and reaches the opposite conclusion.
+
+**Business impact**: During a venue outage the max-open-positions cap can be evaluated against a count lower than reality, admitting positions on top of an already-full book — and the audit record states the count as measured, so the operator cannot tell afterwards.
+
+**Reachability**: Called from bot/core/engine.py:5341 (scan risk gate) and bot/core/engine.py:897 (_live_recheck_context, the pre-execute re-check). The executor's own MICRO_MAX_OPEN_POSITIONS check (bot/core/live_executor.py:1540-1542) counts the same local _positions map, so it shares the blind spot rather than covering it.
+
+**Existing tests**: Grep across tests/ for get_exchange_position_count finds no test of the exception branch; nothing asserts what MAX_POSITIONS reports when the venue count is unreadable.
+
+**Remediation**: Return Optional[int] (None on failure), have callers propagate that as 'not measured' rather than as a count, and give risk check #5 an unreadable branch that fails closed the way its person-level sibling already does at bot/risk/risk_engine.py:1549-1557. Do not cache a fabricated count.
+
+**Evidence**:
+
+```
+bot/core/exchange_sync.py:440-452
+    except Exception as exc:
+        audit(system_log,
+              f"Could not fetch exchange position count: {exc}",
+              action="exchange_position_count", result="ERROR")
+        # Fall back to local state maximum so we never accidentally
+        # exceed limits when the exchange API is unreachable.
+        local_live = len(getattr(engine.live_executor, "open_positions", {}))
+        local_port = len(getattr(engine.portfolio, "_positions", {}))
+        fallback = max(local_live, local_port)
+        # Cache fallback too to prevent repeated failed API calls
+        _position_count_cache["count"] = fallback
+        _position_count_cache["timestamp"] = now
+        return fallback
+```
+
+## M-20 [MEDIUM] Person-level multi-venue caps (drawdown, daily loss, open positions) are computed from PAPER portfolio snapshots, so they measure an empty book for a live user and enforce nothing
+
+- **Dimension**: risk-engine · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/engine.py:2186-2188 (with bot/risk/multi_portfolio.py:273-281)`
+- **Standard**: CLAUDE.md's reachability rule applied to data rather than callers: a control whose input is never populated is indistinguishable from one that does not work.
+
+**Observed**: _person_open_positions() returns 0 and _person_daily_loss_pct() returns 0.0 for a live user; both are folded in with max() at bot/risk/risk_engine.py:1440-1442 and 1541-1543, so they never raise the measured value and the cap is a no-op. _person_drawdown_pct() (bot/risk/risk_engine.py:938-963) feeds the paper equity into get_person_peak_store().drawdown_pct, seeding the shared person high-water mark from a paper balance and returning ~0.0%, which the tighten-only max() at bot/risk/risk_engine.py:1493-1494 then discards.
+
+**Expected**: Per bot/risk/venue_aggregate.py's own statement of intent: 'Two venues each holding their own "max 5 open positions" is ten positions against one person's money, and nobody chose ten.' The person totals must reflect the books that actually hold the money.
+
+**Root cause**: The Phase 3 aggregation was wired to MultiUserPortfolio because that is where a per-(user, venue) book object exists, but in LIVE-ONLY mode the live book is LiveExecutor._positions plus the venue balance, not the paper tracker. The abstraction is right; the data source is the wrong one. A related quiet edge: if _totals raises, _person_totals() returns None (bot/risk/risk_engine.py:876-886) and _person_totals_incomplete() then also returns '', so the incompleteness that would otherwise force a refusal is never reported.
+
+**Business impact**: The stated purpose of Phase 3 — one person's caps counted once across every venue — is not delivered for live trading. A user on two venues under per-user live can hold MICRO_MAX_OPEN_POSITIONS on each, which is the 'ten positions against one person's money' the design document says must not happen.
+
+**Reachability**: Bound only in risk_for() (bot/core/engine.py:2153-2196), which returns the shared engine unless CONFIG.per_user_live_enabled is set — default False (bot/config.py:2261). So this bites only deployments that have enabled per-user live trading, which is also the only configuration in which one person has multiple venue books. The failure direction is inert rather than actively loosening, because every fold-in uses max().
+
+**Existing tests**: venue_aggregate and person_peak are unit-tested as pure functions. Grep across tests/ finds no test asserting that the person totals reflect a LIVE book, and none that exercises _totals against a live executor.
+
+**Remediation**: Build VenueReadings from each venue's live executor (open position count) and its fetched balance / daily realized PnL, keeping the existing None-on-failure semantics so an unreadable venue still marks the total incomplete and forces a refusal. The aggregate/cap_verdict layer needs no change. Separately, distinguish 'no totals provider' from 'the provider raised' in _person_totals so the latter reports incompleteness.
+
+**Evidence**:
+
+```
+bot/core/engine.py:2186-2188
+            def _totals(_uid=str(user_id)):
+                from bot.risk.venue_aggregate import aggregate
+                return aggregate(self.user_portfolios.venue_readings(_uid))
+            eng.set_person_totals_fn(_totals)
+
+bot/risk/multi_portfolio.py:273-281
+        for venue, book in books:
+            try:
+                snap = book.snapshot()
+                out.append(VenueReading(
+                    venue=venue,
+                    open_positions=int(snap.open_positions),
+                    equity_usd=float(snap.equity_usd),
+                    daily_pnl_usd=float(snap.daily_pnl),
+                ))
+```
+
+## M-21 [HIGH] US stock-perp trading window is 11 hours wrong — `is_market_open('Stock')` reports OPEN overnight and CLOSED during the real US session, widening stops 40% and forcing limit orders on live equity-perp trades
+
+- **Dimension**: market-data · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/order_rules.py:56-65`
+- **Standard**: CLAUDE.md — 'Ask which OTHER surface makes the same claim'; a market-clock claim must agree across the surfaces that act on it. Also DST-aware session handling (docs/RUNECLAW_v3.4.0_ROADMAP.md C2-06 records this class of bug once already).
+
+**Observed**: The gate is open 02:30–09:00 UTC (22:30–04:00 ET — the dead of night for the underlying) and closed for the entire real cash session. Whoever wrote it converted a Beijing-time listing (21:30–04:00 CST = 09:30–16:00 ET) as if those digits were US Central time, shifting the window 11 hours.
+
+**Expected**: 9:30–16:00 ET is 13:30–20:00 UTC under EDT (14:30–21:00 under EST). `is_market_open('Stock')` should be True there and False overnight, matching `stock_trading.get_market_session` and `config.us_regular_open_hour_utc()`.
+
+**Root cause**: A hard-coded UTC minute window derived from a mis-converted local-time listing, with no zoneinfo conversion and no cross-check against the two other modules in the same repo that already compute the session correctly.
+
+**Business impact**: Real money on live equity-perp trades. During the actual liquid US session every stock-perp entry is treated as an off-hours weekend queue: the stop is widened by 40% (a 2% stop becomes 2.8% — 40% more loss per stopped trade), market orders are silently converted to limit orders (fills missed / entries not taken), and TP/SL are deferred until after fill, leaving the position briefly unprotected. Conversely at 03:00–09:00 UTC the bot believes the market is open and sends market orders into the thinnest overnight book, with no gap-risk widening.
+
+**Reachability**: Reachable on the live money path: bot/core/live_executor.py:38 imports `is_market_open, is_weekend_queued, adjust_sl_for_gap_risk` and line 2892 calls `mkt_open, mkt_reason = is_market_open(asset_class)` inside the open-position routine, with `asset_class = _classify_symbol(idea.asset)` (market_scanner classifier, which returns 'Stock' for US_STOCK_SYMBOLS / STOCK_PERPETUALS / *STOCK bases). The three downstream effects (market→limit override, `adjust_size_for_weekend`, `adjust_sl_for_gap_risk`, `should_defer_tp_sl`) all read `is_weekend_queued`, defined as `not is_market_open(...)`. Note the engine's own stock gate at bot/core/engine.py:6232-6234 uses the CORRECT clock (`get_market_session`), so the two gates disagree by 11 hours inside one order flow.
+
+**Existing tests**: grep of tests/ for `is_market_open` and `order_rules` returns nothing — the module has no test coverage at all. docs/AUDIT_REPORT_V4.md:211 ('M-04: Stock market hours check off by 30 minutes') looked at this exact function and only questioned the 30-minute rounding, never the 11-hour offset.
+
+**Remediation**: Delete the hard-coded window and delegate to the already-correct source: `from bot.core.stock_trading import get_market_session` (or `config.us_regular_open_hour_utc()/us_regular_close_hour_utc()`), returning `session.is_regular_hours` for `_SESSION_HOURS`. Add a test asserting `is_market_open('Stock', <Tue 15:00 UTC>)[0] is True` and `... 03:00 UTC ... is False`, and that it agrees with `get_market_session(...).is_regular_hours` for 24 hourly samples — there is currently no test anywhere touching order_rules.py.
+
+**Evidence**:
+
+```
+bot/core/order_rules.py:56-65
+    if asset_class in _SESSION_HOURS:
+        if weekday >= 5:
+            return False, "Stock perps are closed on weekends"
+        # Stock perps: 02:30 – 09:00 UTC (US market hours during EDT)
+        minutes_today = now.hour * 60 + now.minute
+        # Stocks: 02:30 - 09:00 UTC (9:30 AM - 4:00 PM ET during EDT)
+        if 150 <= minutes_today < 540:  # 150 = 2*60+30, 540 = 9*60
+            return True, ""
+
+The same repo states the correct window twice. bot/core/stock_trading.py:83-85
+    # Regular session: 13:30 - 20:00 UTC
+    regular_open = 13.5   # 13:30 UTC = 9:30 ET
+    regular_close = 20.0  # 20:00 UTC = 16:00 ET
+
+and bot/config.py:1040-1041
+    def us_regular_open_hour_utc() -> int:
+        return _us_market_hour_utc(9, 30)
+```
+
+## M-22 [MEDIUM] Market scanner turns an unreported 24h move into a measured 0.00% — the uncured copy of the exact expression two other producers were fixed for
+
+- **Dimension**: market-data · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/market_scanner.py:645`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero, and absent is never a measurement'; the shapes table lists `float(x or 0)` as 'unreadable is break-even'. Also 'Ask which OTHER surface makes the same claim — before calling the fix done.'
+
+**Observed**: The scanner never emits None, so it prints `◇ +0.0%` — the glyph whose comment says it means FLAT, a measured zero — and the row is counted in neither `bullish`, `bearish` nor `unread` (skill_registry.py:384-386). `_momentum_score(0.0, spike)` also returns 0.0, so the symbol sorts last on `abs(momentum_score)` and is quietly dropped from the top-movers list on the strength of a number nobody measured.
+
+**Expected**: `MarketSignal.change_pct_24h` is `Optional[float] = None` (bot/utils/models.py:73) precisely so an unreported move can be omitted; the scan card should print `?` / `—` and count the row under `unread`.
+
+**Root cause**: `.get(k, 0)` plus `or 0` — CLAUDE.md's banned shape twice over — in the scan-loop's primary MarketSignal producer, which the earlier sweep's source scans never covered.
+
+**Business impact**: The scan card — the operator's first read of the market — states a 24h move for a symbol the venue reported none for, and the honest 'unread' tally it renders beside it can never fire. A symbol with an unreadable move is also silently ranked out of the top-movers list, so it is never analysed.
+
+**Reachability**: `_process_ticker` is the only builder in `_scan_spot` (line ~546) and `_scan_futures` (line 605), i.e. every signal from `MarketScanner.scan()`. `ScanMarketSkill.execute` (skill_registry.py:335-336) renders those signals directly through `_spark`/`_chg` and stashes them on `engine._last_scan_signals`. No upstream guard filters a null percentage: only `price <= 0` and `volume < min_vol` reject a ticker.
+
+**Existing tests**: tests/test_absent_move_is_not_a_short_setup.py and tests/test_absent_move_is_not_a_bearish_move.py exist for this exact expression, and their source scans read `bot/skills/scan_skill.py`, `bot/skills/skill_registry.py`, `bot/core/analyzer.py` and `app/public/js/app.js` — never `bot/core/market_scanner.py`. tests/test_scan_volume_floor.py touches `_process_ticker` but only for the volume floor.
+
+**Remediation**: Use the existing helper: `change = _maybe_pct(tick.get("percentage"))` (lift `_maybe_pct` into a shared util rather than importing skills from core), keep `change_pct_24h=change`, and pass a real 0.0 only when the venue reported one. `_momentum_score` needs a matching third outcome — an unread move must not score 0.0 alongside a measured flat one. Then extend the source scan in tests/test_absent_move_is_not_a_short_setup.py to `bot/core/market_scanner.py`.
+
+**Evidence**:
+
+```
+bot/core/market_scanner.py:644-651
+        try:
+            change = float(tick.get("percentage", 0) or 0)
+            volume = float(tick.get("quoteVolume", 0) or 0)
+            price = float(tick.get("last", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+
+        if price <= 0 or volume < min_vol:
+            return None
+
+The cure already exists one package over — bot/skills/skill_registry.py:98-105:
+    def _maybe_pct(raw: object) -> Optional[float]:
+        """A reported percentage, or None. Never a manufactured zero.
+        `float(ticker.get("percentage", 0) or 0)` collapsed absent, null, empty
+        string and a genuine 0.0% into one value ..."""
+
+and the renderers have a None branch that this producer makes unreachable — skill_registry.py:81-95:
+    def _spark(v: Optional[float]) -> str:
+        # "◇" is FLAT — a measured zero — so it cannot also stand for "the venue
+        # reported no percentage". ...
+        if v is None: return "?"
+    def _chg(v: Optional[float]) -> str:
+        """The 24h move as text. `+0.0%` is a claim; an unread move gets none."""
+        return "—" if v is None else f"{v:+.1f}%"
+```
+
+## M-23 [MEDIUM] Duel calls settle off a still-forming 1h candle, so the recorded settle price is 'the price when someone happened to load the page' — the outcome the module's own header says it exists to prevent
+
+- **Dimension**: market-data · **Confidence**: HIGH · **Fix class**: REVIEW_REQUIRED
+- **File**: `app/lib/duel_service.js:119-132`
+- **Standard**: CLAUDE.md: an incomplete read must not be recorded as a measurement; and the module's own stated determinism contract.
+
+**Observed**: Nothing anywhere requires `now >= bucket + HOUR_MS`, so for the first hour after each horizon the settle price is whichever mid-candle print the earliest page load happened to catch. Whether a player's call scores a win can depend on when someone opened the page.
+
+**Expected**: Per the module header (app/lib/candles.js:5-11) and settleDue's own docstring: 'running this late produces the same number as running it on time' — a settle price that is a deterministic function of the timestamp. A bucket that has not closed should answer null and leave the call pending, exactly as an unreadable read does.
+
+**Root cause**: `isDue` gates on the horizon instant, while `closeAt` addresses the containing hour bucket; the two are only equivalent once that bucket has closed, and nothing enforces the gap.
+
+**Business impact**: A public-facing accuracy record and streak/quest state built partly from prices that are not reproducible from the public API — the exact 'silently record the price when someone happened to load the page' failure the module was written to avoid. No direct order flow.
+
+**Reachability**: settleDue is called on ordinary page loads: duel_service.js:231 (`cardFor`) and :259 (`recordFor`), reached from app/routes/duel.js:45 and :75 and app/routes/sync.js:1245. The written price feeds `duel.pickOutcome` → `publicPick.outcome`, `accuracy`, `computeMarks`, `duelStreak` and `weeklyDuelQuests` in `recordFor`.
+
+**Existing tests**: app/test/duel_settlement.test.js covers null-on-failure, business-error-in-200, bucket selection and 'does not depend on when settlement runs' — the last one with `setCandleFetcher(async () => [row(HORIZON, 111)])`, a fixture that returns the same close on both calls, so the real variable is removed from the test. Nothing asserts the bucket has closed.
+
+**Remediation**: Gate on bucket completion, not on the horizon: in `settleDue`, skip a pick unless `Date.now() >= hourStart(at) + HOUR_MS` (both are already exported from candles.js), or have `closeAt` take `now` and return null for a bucket that has not ended. Then extend app/test/duel_settlement.test.js with a fetcher whose row for the current bucket CHANGES between calls and assert the two settlements agree — the present 'the answer does not depend on when settlement runs' test (lines 42-51) returns a fixed row, so it cannot see this.
+
+**Evidence**:
+
+```
+app/lib/duel.js:348-352 — due the instant the horizon passes, at an arbitrary minute:
+    function isDue(pick, now = new Date()) {
+      if (!pick || !pick.resolves_at) return false;
+      const t = Date.parse(pick.resolves_at);
+      return Number.isFinite(t) && new Date(now).getTime() >= t;
+    }
+
+app/lib/duel_service.js:124-131 — the first read that finds it due writes the price permanently:
+    const at = Date.parse(p.resolves_at);
+    const close = (symbol && Number.isFinite(at)) ? await closeAt(symbol, at) : null;
+    if (close != null) {
+      await pool.execute(
+        'UPDATE duel_picks SET settle_price = ?, settle_state = ?, settled_at = ? WHERE id = ?',
+        [close, 'settled', new Date(now).toISOString(), p.id]);
+
+app/lib/candles.js:79-86 — closeAt returns the matching bucket's row with no test that the bucket has ENDED:
+    for (const row of rows) {
+      if (!Array.isArray(row) || row.length < 5) continue;
+      const ts = Number(row[0]);
+      if (!Number.isFinite(ts) || hourStart(ts) !== bucket) continue;
+      const close = Number(row[4]);
+```
+
+## M-24 [LOW] Open-interest reads answer `oi_change_pct: 0.0` — 'OI unchanged' — on a failed fetch, an unavailable exchange, and a first-ever observation, and the consumer's `is not None` branch can never fire
+
+- **Dimension**: market-data · **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
+- **File**: `bot/core/exchange_flow.py:206-210, 228-236`
+- **Standard**: CLAUDE.md: 'Unreadable is never zero'; and the guard/omit table — this is neither, it is a fabricated measurement.
+
+**Observed**: A failed or impossible read is reported as a measured 0.0% change, and the stale `oi_usd` beside it carries no age or stale flag. `_assess_squeeze_risk` then evaluates `oi_change_pct > 5` as False, downgrading what would have been a HIGH squeeze risk to MEDIUM on the strength of a number nobody measured; the Telegram line renders '(+0.0%)'.
+
+**Expected**: `oi_change_pct` should be None when it could not be computed — its only renderer already tests `if oi_chg is not None`, and `_assess_squeeze_risk` already types it `Optional[float]` and handles None (`oi_rising = (oi_change_pct is not None and oi_change_pct > 5)`).
+
+**Root cause**: A zero literal used as the 'no information' value on three separate return paths, in a module whose header promises 'errors degrade to None / 0.0'.
+
+**Business impact**: Diagnostic runs and any future consumer of `get_flow_summary` read 'open interest flat' from a fetch that failed, and a squeeze-risk assessment silently loses its OI amplifier.
+
+**Reachability**: `get_open_interest` is reached only through `get_flow_summary` (line 285), whose non-test callers are scripts/e2e_pipeline.py:163 and scripts/live_deep_analysis.py:157, plus `ExchangeFlowProvider.format_for_telegram` (line 360), which has no caller in the tree. The engine's live trading path gets OI from bot/core/order_flow.py:507-529 instead, which correctly leaves `sig.oi_change_pct` as None when there is no previous observation. Severity is LOW for that reason — diagnostics/reporting, not the order path.
+
+**Existing tests**: tests/test_exchange_flow_seed.py, tests/test_orderflow_gates.py and tests/test_intelligence_upgrades.py touch this module; none assert anything about `oi_change_pct` on a failure path.
+
+**Remediation**: Return `"oi_change_pct": None` on all three paths (unavailable exchange, fetch failure, no previous observation), and add a `stale`/`oi_updated_at` field to the returned dict so a reader can tell a cached OI from a live one — the pattern bot/core/market_cap.py already uses (`stale: bool` + `get_cached(..., allow_stale=True)`).
+
+**Evidence**:
+
+```
+bot/core/exchange_flow.py:206-210 (exchange unavailable → stale cache, change asserted as zero)
+        exchange = await self._get_exchange()
+        if exchange is None:
+            if entry["oi_usd"] is not None:
+                return {"oi_usd": entry["oi_usd"], "oi_change_pct": 0.0}
+            return None
+
+bot/core/exchange_flow.py:231-235 (fetch raised → same claim)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("fetch_open_interest(%s) failed: %s", swap, exc)
+
+        if entry["oi_usd"] is not None:
+            return {"oi_usd": entry["oi_usd"], "oi_change_pct": 0.0}
+
+and the consumer written expecting None, in this same file's format_for_telegram:
+            chg_str = f" ({oi_chg:+.1f}%)" if oi_chg is not None else ""
+```
+
+## M-25 [LOW] The exchange position-count cache is seeded `{count: 0, timestamp: 0.0}` against `time.monotonic()`, so a bot started within 30s of host boot serves a fabricated count of 0 to the max-open-positions risk gate
+
+- **Dimension**: market-data · **Confidence**: HIGH · **Fix class**: SAFE_AUTO_FIX
+- **File**: `bot/core/exchange_sync.py:35-39, 428-432`
+- **Standard**: CLAUDE.md: 'absent is never a measurement'; and onchain.py's own comment forbidding a 0.0 sentinel against `time.monotonic()`.
+
+**Observed**: For the first 30 seconds of host uptime the function answers 0 open positions on the exchange without asking, and `invalidate_position_count_cache()` (lines 455-458, which resets the timestamp to 0.0 specifically to 'force a fresh exchange query') is a no-op under the same condition.
+
+**Expected**: A count that has never been fetched must not be servable as a fresh measurement; the sentinel should be None (or `-inf`), forcing the first call to hit the exchange.
+
+**Root cause**: A zero-valued sentinel for 'never measured', compared against a clock whose origin is also near zero at boot.
+
+**Business impact**: During the affected window the position-limit check evaluates as if the exchange account were flat, so the bot can open past its configured max_open_positions — real money, though only on a boot-time start.
+
+**Reachability**: `get_exchange_position_count` is called at bot/core/engine.py:897 (live equity/open-count report) and bot/core/engine.py:5337, where `live_open = exchange_count + pending_count` is passed to `self.risk.evaluate(..., live_open_count=live_open)` — the max_open_positions gate. Both are in the live path (`if CONFIG.is_live()`). The precondition (process start within 30s of host boot) is narrow: a deploy onto a long-running box is unaffected, a bot launched by an init unit on a freshly booted VM/microVM is not.
+
+**Existing tests**: tests patch `bot.core.engine.get_exchange_position_count` (tests/test_core.py:1343,1400; tests/test_per_user_live_equity.py:162,176; tests/test_audit_v7_followups.py:87) rather than exercising the cache, so the seeded-sentinel path is untested.
+
+**Remediation**: Seed `"timestamp": None` (or `float('-inf')`) and treat it as always-expired: `ts = _position_count_cache["timestamp"]; if ts is not None and (now - ts) < _POSITION_COUNT_TTL:`. Same change in `invalidate_position_count_cache`.
+
+**Evidence**:
+
+```
+bot/core/exchange_sync.py:35-39
+    _position_count_cache: dict[str, Any] = {
+        "count": 0,
+        "timestamp": 0.0,
+    }
+    _POSITION_COUNT_TTL = 30.0  # seconds — refresh at most every 30s
+
+bot/core/exchange_sync.py:428-432
+        now = time.monotonic()
+
+        # Return cached value if fresh enough
+        if (now - _position_count_cache["timestamp"]) < _POSITION_COUNT_TTL:
+            return _position_count_cache["count"]
+
+The repo names this exact trap elsewhere — bot/core/onchain.py:204-208:
+    # Radar cache shared across symbols (one pull covers every base). None
+    # sentinel, NEVER 0.0 — time.monotonic() starts near zero on fresh boots.
+```
+
+## Refuted in this batch (2)
+
+- **A WS ticker with no usable exchange timestamp is stamped with the local clock, so it can never be filtered as stale — the freshness guard's 'unreadable timestamp → treat as stale' branch is unreachable for exactly that case** — `bot/core/ws_feed.py:556-560`
+  - The quotes are verbatim (bot/core/ws_feed.py:556-560, 239-246, 202-227) but the described harm does not follow. `_process_ticker` runs when a ticker message is RECEIVED (called from _handle_message at line 549), and it writes the tick once; nothing refreshes that timestamp afterwards. So `datetime.now(UTC)` there is not a fabricated measurement of an unknown quantity — it is a real, locally measured arrival time, and a tick stamped that way ages normally in `_ticks`. The guard's purpose, stated in get_prices' own docstring ('so a silently-stalled feed can't serve a stale price to stop logic'),
+- **The repaint guard decides whether a candle has closed by comparing the venue's bar timestamp to the LOCAL wall clock, and fails silently in both directions under clock skew** — `bot/utils/candles.py:96-101`
+  - The quote is verbatim at bot/utils/candles.py:96-101 and the docstring at 78-86 is as described, but this is not a defect in the code — it is the standard and, for the last bar, the only available test. The finding's own proposed alternative ('a bar is closed when a later bar exists') cannot apply to `ohlcv[-1]`, which is precisely the bar in question. Behaviour only changes when the host clock is skewed by more than the time remaining in the final bar, so on the 5m/15m/1h timeframes used (engine.py:4421-4425 delegates to it; live_executor.py:3475 uses '1h') a few seconds of NTP drift changes 
