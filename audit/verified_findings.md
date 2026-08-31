@@ -2202,6 +2202,77 @@ zero stale. The defects are real and none had been quietly fixed. What did not
 hold was the severities (8 corrected, all down) and the remedies — **20 of 24
 incomplete, three of them actively harmful**.
 
+## RC-2026-026 — two different people share one bot-database row, so one reads the other's API keys
+
+- **Status**: OPEN · **Severity**: **CRITICAL** · **Confidence**: CONFIRMED
+- **Category**: Improper access control (CWE-863, CWE-1270)
+- **File**: `bot/skills/user_middleware.py:77-91`
+- **Found**: while prosecuting the RC-2026-019 remedy. It is not a purge bug and
+  does not need a purge to fire.
+
+`_ensure_local_user(user_id, email, plan)` runs `SELECT id FROM users WHERE id = ?`
+and **returns early if a row exists**, never checking that the row belongs to this
+person. That `user_id` is the **website's MySQL id**. The same SQLite table also
+holds rows created by `create_user`, which `AUTOINCREMENT`s from 1 behind
+`POST /auth/register` — mounted at `api_bridge.py:366`. Both id spaces start at 1.
+
+**Driven end to end, not reasoned:**
+
+```
+alice bot-native id: 1
+row id 1 email     : alice@real.com
+Bob reads llm_api_key: 'sk-ALICE-PRIVATE'
+Bob reads news key   : ('cryptopanic', 'ALICE-NEWS-KEY')
+```
+
+Also reachable on that row: `user_portfolio` (equity, `trade_history`) and
+`user_ingest_notes` (text the user pasted to their own agent).
+
+**The condition, stated honestly.** A bot-native signup must land on an id a
+website account also holds. `ensure_settings_parent` inserts telegram-id-keyed
+rows (~10 digits), which drags `AUTOINCREMENT` up — so the window is bot-native
+signups occurring *before* any large stub exists: the early life of a deployment,
+when ids on both sides are small.
+
+**The fix is not free.** Refusing to bind is the fail-closed direction and is
+correct, but it denies bot features to any website user already comingled, so an
+operator has to decide what happens to existing pairs. The discriminator is
+measured and stable: a bot-native row carries a PBKDF2 hash, a stub carries `''`,
+and a website-linked row always carries the literal
+`website-linked:no-local-password` — nothing in the tree ever updates
+`password_hash`.
+
+## RC-2026-027 — `settings_user_id` is not injective: Unicode digits reach another user's row
+
+- **Status**: OPEN · **Severity**: **HIGH** · **Confidence**: CONFIRMED
+- **Category**: Improper access control (CWE-289, CWE-178)
+- **File**: `bot/db/models.py:397-409`
+
+Executed against the real functions:
+
+| input | maps to | same row as |
+|---|---|---|
+| `'12345'` | `12345` | — |
+| `'١٢٣٤٥'` (Arabic-Indic) | `12345` | **`'12345'`** |
+| `'１２３４５'` (fullwidth) | `12345` | **`'12345'`** |
+| `'web:١٢'` | `-12` | **`'web:12'`** |
+| `'0'` / `'web:0'` | `0` | **each other** |
+| `'²'`, `'⁵'` | **raises `ValueError`** | — |
+
+`str.isdigit()` is True for these and `int()` accepts them. The gateway's own gate
+does not stop it: `_WEB_ID_RE = re.compile(r"^web:\d{1,20}$")` is a `str` pattern,
+so its flags are `re.UNICODE` (32) and `\d` matches them —
+`_is_web_id('web:١٢')` is `True`. That row holds `llm_api_key`.
+
+Two further defects in the same function: `'0'` and `'web:0'` collide the two id
+spaces at their boundary, and `'²'` / `'⁵'` are `isdigit()` but not `int()`-able,
+so the function **raises** where its docstring promises `None` — 500ing the routes
+that call it rather than rejecting cleanly.
+
+Remediation: normalise and validate with an **ASCII-only** pattern, reject `0`, and
+return `None` rather than raising. Not yet fixed; filed with the measurement.
+
+
 ---
 
 # The adversarial second pass — 61 findings, 66 prosecutor reports
