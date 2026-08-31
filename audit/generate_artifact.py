@@ -238,6 +238,58 @@ F = [
               "credential briefly pushed on a branch survives in that branch's objects "
               "until GitHub collects them. Remediation: --log-opts=HEAD, with the "
               "all-refs sweep moved to a schedule."),
+    dict(id="RC-2026-026", title="Two different people share one bot-database row, so one "
+         "reads the other's API keys",
+         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
+         category="improper-access-control", component="bot/db+user_middleware",
+         file="bot/skills/user_middleware.py", line="77-91", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-863", "CWE-1270"], raw_id="RC-2026-026",
+         verified_by="lead-auditor+prosecutor (driven end to end)",
+         note="FOUND WHILE PROSECUTING THE RC-2026-019 REMEDY; it is not a purge bug and "
+              "does not need a purge to fire. `_ensure_local_user(user_id, email, plan)` "
+              "looks up `SELECT id FROM users WHERE id = ?` and RETURNS EARLY if a row "
+              "exists, never checking that the row belongs to this person. `user_id` there "
+              "is the WEBSITE's MySQL id; the same SQLite table also holds rows created by "
+              "`create_user` (AUTOINCREMENT from 1) behind POST /auth/register, mounted at "
+              "api_bridge.py:366. Both id spaces start at 1. DRIVEN END TO END: Alice "
+              "registers bot-natively and gets id 1 with llm_api_key 'sk-ALICE-PRIVATE'; "
+              "Bob is website MySQL id 1; `_ensure_local_user(1, 'bob@other.com', 'pro')` "
+              "returns early, and Bob then reads llm_api_key 'sk-ALICE-PRIVATE' and news "
+              "key ('cryptopanic', 'ALICE-NEWS-KEY'). Also reachable: user_portfolio "
+              "(equity, trade_history) and user_ingest_notes (text the user pasted). "
+              "CONDITION, stated honestly: a bot-native signup must land on an id a "
+              "website account also holds. Because `ensure_settings_parent` inserts "
+              "telegram-id-keyed rows (~10 digits) it drags AUTOINCREMENT up, so the "
+              "window is bot-native signups occurring before any large stub exists - "
+              "i.e. the early life of a deployment, when ids on both sides are small. "
+              "THE FIX IS NOT FREE: refusing to bind is the fail-closed direction and is "
+              "correct, but it denies bot features to any website user already comingled, "
+              "so the operator has to decide what happens to existing pairs. The "
+              "discriminator is measured and stable: a bot-native row carries a PBKDF2 "
+              "hash, a stub carries '', and a website-linked row always carries the "
+              "literal 'website-linked:no-local-password' (nothing in the tree ever "
+              "updates password_hash). FIXED: both doors refuse."),
+    dict(id="RC-2026-027", title="settings_user_id is not injective: Unicode digits map "
+         "onto another user's settings row",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
+         category="improper-access-control", component="bot/db+gateway",
+         file="bot/db/models.py", line="397-409", fix_class="REVIEW_REQUIRED",
+         standard=["CWE-289", "CWE-178"], raw_id="RC-2026-027",
+         verified_by="lead-auditor+prosecutor (executed)",
+         note="Executed against the real functions: '\u0661\u0662\u0663\u0664\u0665' "
+              "(Arabic-Indic) and '\uff11\uff12\uff13\uff14\uff15' (fullwidth) both map "
+              "to 12345, the SAME user_settings row as '12345' - which holds llm_api_key. "
+              "'web:\u0661\u0662' maps to -12, the same row as 'web:12'. `str.isdigit()` "
+              "is True for these and `int()` accepts them. The gateway's own gate does not "
+              "stop it: _WEB_ID_RE = re.compile(r'^web:\\d{1,20}$') is a str pattern, so "
+              "its flags are re.UNICODE (32) and \\d matches them - _is_web_id('web:"
+              "\u0661\u0662') is True. Two further defects in the same function: '0' and "
+              "'web:0' both map to 0, colliding the two id spaces at their boundary; and "
+              "'\u00b2' / '\u2075' are isdigit() but not int()-able, so the function "
+              "RAISES ValueError where its docstring promises None, which 500s the routes "
+              "that call it rather than rejecting cleanly. Remediation: normalise and "
+              "validate with an ASCII-only pattern, reject 0, and return None rather than "
+              "raising. NOT YET FIXED - filed with the measurement."),
     dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the money "
          "move executes as the resolved bot identity",
          status="OPEN", severity="LOW",

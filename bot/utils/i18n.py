@@ -927,6 +927,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Could not reach the website to validate your token.\nPlease try again in a moment.",
         "zh": "無法連線到網站以驗證權杖。\n請稍後再試。",
     },
+    # RC-2026-026: the bot-side row at this website user's id belongs to a
+    # different account. Refusing is the only safe answer -- linking would hand
+    # this person another user's API keys and trade history -- and the message
+    # says an operator is needed, because the user cannot resolve it themselves.
+    "link_id_conflict": {
+        "en": "Could not link this account.\n\nAn existing bot record uses the same"
+              " internal id, so linking would connect you to somebody else's data."
+              " Nothing was changed. Please contact support and quote your account"
+              " email — an operator has to separate the two records.",
+        "zh": "無法連結此帳號。\n\n既有的機器人紀錄使用相同的內部 ID，連結會讓你連到"
+              "其他人的資料。系統未做任何變更。請聯繫客服並提供你的帳號電子郵件 —"
+              "需要由操作員分離這兩筆紀錄。",
+    },
     "link_other_account": {
         "en": "This Telegram account is already linked to another RUNECLAW account.\nUse /unlink first, then link the correct account.",
         "zh": "此 Telegram 帳號已連結到另一個 RUNECLAW 帳號。\n請先使用 /unlink，再連結正確的帳號。",

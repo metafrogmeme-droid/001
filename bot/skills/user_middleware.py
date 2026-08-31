@@ -27,6 +27,7 @@ from bot.db.models import (
 from bot.db.models import User as DBUser
 
 from bot.utils.i18n import t
+from bot.utils.logger import audit
 from bot.utils.site_url import site_url
 
 log = logging.getLogger(__name__)
@@ -74,18 +75,54 @@ def _user_lang(chat_id) -> str:
         return "en"
 
 
+class LocalUserConflict(Exception):
+    """The bot-side row at this id belongs to somebody else.
+
+    Raised rather than returned because there is no safe way to continue: the
+    caller's next act is to read that row's settings, and those are another
+    person's.
+    """
+
+
 def _ensure_local_user(user_id: int, email: str, plan: str) -> None:
     """Create a stub user in the bot's local SQLite if it doesn't exist yet.
-    This bridges the website (MySQL) and bot (SQLite) user stores."""
-    from bot.db.models import get_db
+    This bridges the website (MySQL) and bot (SQLite) user stores.
+
+    RC-2026-026. This used to run `SELECT id FROM users WHERE id = ?` and
+    RETURN EARLY if a row existed, without checking the row belonged to this
+    person. `user_id` is the WEBSITE's MySQL id, and the same table also holds
+    rows from `create_user` -- AUTOINCREMENT from 1, behind POST /auth/register
+    -- and identity stubs from `ensure_settings_parent`. The first two id
+    spaces both start at 1, so a website user landed on a bot-native account
+    and read its `llm_api_key`, `user_news_keys.api_key`,
+    `user_portfolio.trade_history` and `user_ingest_notes.body`.
+
+    The discriminator is `password_hash`, NOT email. The website owns the email
+    and can change it whenever the user asks, so requiring a match would turn
+    an ordinary email change into a permanent, unfixable refusal to link.
+    Nothing in the tree updates `password_hash` after insert.
+
+    A website-linked row at id N IS website user N -- MySQL ids are unique --
+    so reusing it is correct even when the email has since changed. Any other
+    row shape is a collision and this refuses, because serving somebody else's
+    secrets is worse than refusing to link.
+    """
+    from bot.db.models import WEBSITE_LINKED_HASH, get_db
     with get_db() as db:
-        existing = db.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
-        if existing:
-            return
+        existing = db.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if existing is not None:
+            if existing["password_hash"] == WEBSITE_LINKED_HASH:
+                return                      # our own row from an earlier link
+            raise LocalUserConflict(
+                f"bot-side user id {user_id} already belongs to a different "
+                "account; refusing to bind this website user to it"
+            )
         # Insert stub user with a placeholder password hash (not usable for login)
         db.execute(
             "INSERT INTO users (id, email, password_hash, plan) VALUES (?, ?, ?, ?)",
-            (user_id, email, "website-linked:no-local-password", plan),
+            (user_id, email, WEBSITE_LINKED_HASH, plan),
         )
         db.execute("INSERT INTO user_settings (user_id) VALUES (?)", (user_id,))
         db.execute("INSERT INTO user_portfolio (user_id) VALUES (?)", (user_id,))
@@ -261,8 +298,25 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     plan = result.get("plan", "free")
 
     # Ensure a matching user record exists in local SQLite (website uses MySQL,
-    # bot uses SQLite -- we create a stub so FK constraints are satisfied)
-    _ensure_local_user(user_id, email, plan)
+    # bot uses SQLite -- we create a stub so FK constraints are satisfied).
+    #
+    # RC-2026-026: this can now refuse. Everything below reads that row's
+    # settings and portfolio, so there is nothing safe to do but stop -- and
+    # stop BEFORE link_telegram, so no chat is bound to the disputed id.
+    try:
+        _ensure_local_user(user_id, email, plan)
+    except LocalUserConflict as exc:
+        log.error("link refused: %s", exc)
+        audit(log, f"Link refused, bot-side id {user_id} belongs to another account",
+              action="link_id_conflict", result="REJECT",
+              data={"website_user_id": user_id, "chat_id": str(chat_id)},
+              level=logging.ERROR)
+        # Narrowed rather than added to the union-attr backlog: the ratchet
+        # may only go down, and `update.message` genuinely is Optional here.
+        _msg = update.message
+        if _msg is not None:
+            await _msg.reply_text(t("link_id_conflict", _user_lang(chat_id)))
+        return
 
     # Link in local SQLite so bot commands work
     success = link_telegram(user_id, chat_id, username)

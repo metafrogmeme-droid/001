@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import sqlite3
 import time
@@ -65,6 +66,19 @@ def database_is_new() -> bool:
     if key not in _db_existed:
         _db_existed[key] = DB_PATH.exists()
     return not _db_existed[key]
+
+# The `password_hash` a website-linked stub carries. It is the DISCRIMINATOR
+# between the three writers that share this table's integer key, so it is
+# defined once here rather than spelled out at each site:
+#
+#   create_user()            -> a real PBKDF2 hash        (bot-native account)
+#   _ensure_local_user()     -> WEBSITE_LINKED_HASH        (website bridge)
+#   ensure_settings_parent() -> ''                         (identity stub)
+#
+# Nothing in the tree updates password_hash after insert, which is what makes
+# it stable enough to key an authorization decision on. Email is NOT usable for
+# that: the website owns it and can change it at any time.
+WEBSITE_LINKED_HASH = "website-linked:no-local-password"
 
 # -- Schema ----------------------------------------------------------------
 
@@ -394,19 +408,51 @@ def _decrypt_llm_key(stored: str) -> str:
         return stored
 
 
+# ASCII digits ONLY, and the restriction is the point — see settings_user_id.
+_ASCII_DIGITS = re.compile(r"^[0-9]{1,19}$")
+
+
 def settings_user_id(identity) -> Optional[int]:
     """Map a gateway/chat identity to the user_settings INTEGER key.
 
     Telegram ids are positive numbers ("12345" -> 12345). Web-only identities
-    ("web:5") map to the NEGATIVE of the website user id (-5) — the two id
-    spaces can never collide because Telegram ids are always positive.
-    Returns None for anything else (no settings row is reachable)."""
+    ("web:5") map to the NEGATIVE of the website user id (-5). Returns None for
+    anything else — no settings row is reachable, and the caller must treat
+    that as "not mappable" rather than as a key.
+
+    RC-2026-027. This used `str.isdigit()`, which is True for numerals `int()`
+    accepts from OTHER scripts and for some it rejects entirely:
+
+        '\u0661\u0662\u0663\u0664\u0665' (Arabic-Indic) -> 12345
+        '\uff11\uff12\uff13\uff14\uff15' (fullwidth)     -> 12345
+
+    Both landed on the SAME row as '12345', which holds `llm_api_key`; the same
+    trick reached the negative space through 'web:<those digits>'. And
+    '\u00b2' is isdigit() but not int()-able, so the function RAISED where this
+    docstring promises None, turning a rejection into a 500 in its callers.
+
+    ZERO IS REJECTED. It is the one value where the two id spaces meet: '0' and
+    'web:0' both mapped to 0, so a Telegram identity and a web identity shared a
+    row. No real Telegram id or website user id is 0.
+    """
     s = str(identity or "").strip()
-    if s.isdigit():
-        return int(s)
-    if s.startswith("web:") and s[4:].isdigit():
-        return -int(s[4:])
+    if _ASCII_DIGITS.match(s):
+        n = int(s)
+        return n if n > 0 else None
+    if s.startswith("web:") and _ASCII_DIGITS.match(s[4:]):
+        n = int(s[4:])
+        return -n if n > 0 else None
     return None
+
+
+class IdentityCollision(Exception):
+    """The users row at this id belongs to a different account.
+
+    Three writers share this table's integer key and their id spaces overlap,
+    so "a row exists at this id" is not the same as "this row is yours". Raised
+    rather than returned: every caller's next act is to read or write that
+    row's settings, and there is no safe way to do that for somebody else.
+    """
 
 
 def ensure_settings_parent(uid: int) -> None:
@@ -414,12 +460,36 @@ def ensure_settings_parent(uid: int) -> None:
     MAPPED identity (settings_user_id: telegram id, or negative web id) —
     user_settings has a FK to users(id). The stub row carries a synthetic
     unique email and an EMPTY password hash, so nobody can ever authenticate
-    against it; it exists only to satisfy the FK. (Rows created by real
-    website signups are untouched — INSERT OR IGNORE.)"""
+    against it; it exists only to satisfy the FK.
+
+    RC-2026-026, second door. This was `INSERT OR IGNORE`, and the comment said
+    rows from real website signups are "untouched" — true of the INSERT, and
+    the reason it was unsafe: on a collision the insert quietly did nothing and
+    the caller then wrote its settings into SOMEBODY ELSE'S row.
+
+    The collision is not hypothetical and it gets likelier over time. This
+    function inserts explicit ids, and SQLite's AUTOINCREMENT tracks max(id),
+    so a Telegram-keyed stub drags the counter into Telegram-id range; the next
+    `create_user` lands there, and a Telegram user whose chat id is that number
+    then maps onto it. Driven end to end when the finding was filed.
+    """
     with get_db() as db:
+        row = db.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+        if row is not None:
+            # '' is a stub this function made. WEBSITE_LINKED_HASH is the
+            # bridge's, and the two describe the SAME person whenever a web
+            # identity resolves here, so both are safe to write through.
+            # A real hash means a bot-native account: not this identity.
+            if row["password_hash"] in ("", WEBSITE_LINKED_HASH):
+                return
+            raise IdentityCollision(
+                f"users id {uid} holds a bot-native account; refusing to write "
+                "another identity's settings into it"
+            )
         db.execute(
-            "INSERT OR IGNORE INTO users (id, email, password_hash) "
-            "VALUES (?, ?, '')",
+            "INSERT INTO users (id, email, password_hash) VALUES (?, ?, '')",
             (uid, f"identity:{uid}@bot.local"),
         )
 
