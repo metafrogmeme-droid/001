@@ -12643,18 +12643,32 @@ class TelegramHandler:
             state = portfolio.snapshot()
             trades = portfolio.trade_history
             today_trades = len(trades)
-            wins = sum(1 for t in trades if t.pnl > 0)
-            win_rate = (wins / today_trades * 100) if today_trades > 0 else 0
-            best_pair = "N/A"
-            worst_pair = "N/A"
-            if trades:
-                sorted_t = sorted(trades, key=lambda t: t.pnl)
+            # RC-2026-010. `sum(1 for t in trades if t.pnl > 0)` raises on a
+            # close carrying no recorded P&L, and `... else 0` mapped "no
+            # trades" onto a MEASURED 0% win rate -- a claim that everything
+            # lost. win_stats() is the helper the live branch already uses and
+            # answers None when nothing could be scored.
+            from bot.utils.win_rate import win_stats as _win_stats
+            _ws = _win_stats(trades)
+            win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
+            best_pair = None
+            worst_pair = None
+            _scored = [t for t in trades if getattr(t, "pnl", None) is not None]
+            if _scored:
+                sorted_t = sorted(_scored, key=lambda t: t.pnl)
                 worst_pair = sorted_t[0].asset.replace("/USDT", "")
                 best_pair = sorted_t[-1].asset.replace("/USDT", "")
             data = {
-                "today_pnl": round(state.daily_pnl, 2) if hasattr(state, "daily_pnl") else 0.0,
-                "week_pnl": 0.0,
+                "today_pnl": (round(state.daily_pnl, 2)
+                              if getattr(state, "daily_pnl", None) is not None else None),
+                # RC-2026-009. This was the literal `0.0`. Nothing computes a
+                # week for paper, and the tile painted `week_pnl >= 0` GREEN --
+                # so a figure that was never measured was published in the
+                # colour that claims a profitable week.
+                "week_pnl": None,
                 "win_rate": win_rate,
+                "win_rate_scored": _ws["scored"],
+                "win_rate_unscored": _ws["unscored"],
                 "trades_today": today_trades,
                 "best_pair": best_pair,
                 "worst_pair": worst_pair,
@@ -12663,28 +12677,16 @@ class TelegramHandler:
         rendered = wr_performance(data)
         # Visual stats card (guarded — falls back to the text readout).
         try:
+            from bot.formatters.performance_card import performance_card_payload
             from bot.formatters.signal_card import render_stats_card
-            _tp = data.get("total_pnl", data.get("today_pnl", 0.0))
-            _wr = data.get("win_rate", 0.0)
-            tiles = [
-                {"label": "Today PnL", "value": f"${data.get('today_pnl', 0.0):+,.2f}",
-                 "color": "green" if data.get("today_pnl", 0.0) >= 0 else "red"},
-                {"label": "Week PnL", "value": f"${data.get('week_pnl', 0.0):+,.2f}",
-                 "color": "green" if data.get("week_pnl", 0.0) >= 0 else "red"},
-                {"label": ("Win Rate" if not data.get("win_rate_unscored")
-                           else f"Win Rate (of {data.get('win_rate_scored', 0)})"),
-                 "value": f"{_wr:.0f}%", "color": "cyan"},
-                {"label": "Trades", "value": str(data.get("total_trades", data.get("trades_today", 0))), "color": "white"},
-                {"label": "Best", "value": str(data.get("best_pair", "N/A")), "color": "green"},
-                {"label": "Worst", "value": str(data.get("worst_pair", "N/A")), "color": "red"},
-            ]
-            _png = render_stats_card({
-                "title": "PERFORMANCE",
-                "subtitle": f"{datetime.now(UTC).strftime('%H:%M')} UTC",
-                "hero": {"label": "Total PnL", "value": f"${_tp:+,.2f}",
-                         "color": "green" if _tp >= 0 else "red"},
-                "tiles": tiles,
-            })
+            # The tiles were built inline here, which is why three defects sat
+            # in them that no test could reach: a hardcoded week in green, the
+            # hero publishing TODAY'S figure under a "Total PnL" label whenever
+            # total_pnl was absent, and `f"{None:.0f}%"` raising on the honest
+            # unscored rate so the `except` below deleted the entire card.
+            # bot/formatters/performance_card.py is the seam.
+            _png = render_stats_card(performance_card_payload(
+                data, subtitle=f"{datetime.now(UTC).strftime('%H:%M')} UTC"))
             if _png and await self._send_photo(update, _png, "\U0001f4c8 <b>PERFORMANCE</b>"):
                 return
         except Exception as exc:

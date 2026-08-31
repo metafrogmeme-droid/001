@@ -94,9 +94,28 @@ class TestTheHelpersAreActuallyRead:
     def test_the_performance_card_labels_its_denominator(self):
         # "Win Rate" and "Trades" are neighbouring tiles; without this the
         # pair implies a denominator the rate never used.
+        #
+        # This asserted the tile expression's exact SPELLING inside
+        # telegram_handler.py. RC-2026-009/010 moved that construction into
+        # bot/formatters/performance_card.py so a test could plant a reading
+        # and look at the tile, so the string is gone and the behaviour is
+        # not. Exercising the property is what the scan was standing in for,
+        # and it holds wherever the code lives.
         src = self._src("bot/skills/telegram_handler.py")
-        assert '"win_rate_scored"' in src
-        assert 'f"Win Rate (of {data.get(\'win_rate_scored\', 0)})"' in src
+        assert '"win_rate_scored"' in src, (
+            "the handler no longer passes the scored count to the card"
+        )
+        from bot.formatters.performance_card import performance_card_payload
+
+        tiles = performance_card_payload(
+            {"win_rate": 50.0, "win_rate_unscored": 3, "win_rate_scored": 4}
+        )["tiles"]
+        label = next(t["label"] for t in tiles if t["label"].startswith("Win Rate"))
+        assert "4" in label, (
+            f"tile reads {label!r}: a rate over 4 scoreable closes sits beside a "
+            "Trades tile counting 7, and the pair implies a denominator the "
+            "rate never used"
+        )
 
 
 class TestTheTagItself:

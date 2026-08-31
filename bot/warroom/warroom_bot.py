@@ -9,7 +9,7 @@ No external dependencies beyond the Python standard library are required.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 __all__ = [
     "render_start",
@@ -79,11 +79,25 @@ def _pill(text: str) -> str:
     return f"<code>\u2009{text}\u2009</code>"
 
 
-def _money(v: float, sign: bool = False) -> str:
+# An em dash for a figure nobody measured. Guarded at the BOUNDARY, the way
+# `_fmt_price(None)` is, so a new caller inherits the honest behaviour instead
+# of each call site having to remember the check.
+#
+# RC-2026-009/010: these three raised TypeError on None, which meant a caller
+# that honestly reported "not measured" took the whole card down through the
+# nearest `except` -- so the honest value was the one that looked like a bug,
+# and passing a confident 0.0 was the way to keep the card alive.
+_DASH = "\u2014"
+
+
+def _money(v: Optional[float], sign: bool = False) -> str:
+    if v is None:
+        return _DASH
     return f"${v:+,.2f}" if sign else f"${v:,.2f}"
 
 
-def _spark(v: float) -> str:
+def _spark(v: Optional[float]) -> str:
+    if v is None: return _DASH
     if v > 2: return "\u25b2"
     if v > 0: return "\u25b3"
     if v < -2: return "\u25bc"
@@ -91,7 +105,10 @@ def _spark(v: float) -> str:
     return "\u25c7"
 
 
-def _pnl_arrow(v: float) -> str:
+def _pnl_arrow(v: Optional[float]) -> str:
+    # Deliberately NOT the flat glyph: `\u25c7` is what a MEASURED break-even
+    # gets, and "flat" and "unknown" must not share a symbol.
+    if v is None: return f"{_NEU}{_DASH}"
     if v > 0: return f"{_OK}\u25b2"
     if v < 0: return f"{_BAD}\u25bc"
     return f"{_NEU}\u25c7"
@@ -369,8 +386,12 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
     total_trades = data.get("total_trades", trades)
     _wr_scored = data.get("win_rate_scored")
     _wr_unscored = data.get("win_rate_unscored") or 0
-    best = data.get("best_pair", "N/A")
-    worst = data.get("worst_pair", "N/A")
+    # `.get(k, "N/A")` only defaults when the KEY IS ABSENT: a caller that
+    # honestly sends best_pair=None got None straight through, and the
+    # concatenation below raised. `or` covers both the missing key and the
+    # explicit "not measured".
+    best = data.get("best_pair") or _DASH
+    worst = data.get("worst_pair") or _DASH
     adopted_count = data.get("adopted_count", 0)
     adopted_pnl = data.get("adopted_pnl", 0.0)
 
@@ -386,8 +407,17 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
                f" of {total_trades} closes — {_wr_unscored} carry no recorded "
                f"P&amp;L and are scored neither way.</i>")
 
-    # Fake sparkline for PnL trend
-    pnl_trend = _sparkline([0, today * 0.3, today * 0.5, today * 0.8, today], w=8) if today != 0 else "━━━━━━━━"
+    # Interpolated from `today` alone -- it is a shape, not a series, which is
+    # why it is labelled fake. Three cases, not two: `today != 0` was True for
+    # None as well, so an unmeasured day reached the arithmetic and raised.
+    # The dashed line is deliberately NOT the solid one: solid is a measured
+    # flat day, dashed is no reading at all.
+    if today is None:
+        pnl_trend = "┄┄┄┄┄┄┄┄"
+    elif today != 0:
+        pnl_trend = _sparkline([0, today * 0.3, today * 0.5, today * 0.8, today], w=8)
+    else:
+        pnl_trend = "━━━━━━━━"
 
     text = (
         f"{_header(chr(0x1F4CA), 'PERFORMANCE')}\n"
