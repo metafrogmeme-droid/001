@@ -2153,3 +2153,71 @@ remaining severities accordingly, in that direction.
 zero stale. The defects are real and none had been quietly fixed. What did not
 hold was the severities (8 corrected, all down) and the remedies — **20 of 24
 incomplete, three of them actively harmful**.
+
+---
+
+# The adversarial second pass — 31 findings, 35 prosecutor reports
+
+Brief Phase 15. Targets were chosen by what a wrong claim would cost, computed
+from the artifact rather than picked: the findings driving the release decision,
+the open HIGHs, and the 33 whose severity the two first-pass verifiers
+**disagreed** about — where the finder's number stood by default rather than by
+argument. The two blockers got three prosecutors each, one per lens.
+
+The first pass asked *is this defect real*, three times over. This pass asked
+three questions nobody had:
+
+1. **Staleness** — is it still true of the tree today? Five PRs landed during
+   the audit and at least three findings were fixed by them. One triage claim
+   asserted a missing UNIQUE index the audit's own fix had already added.
+2. **Remediation soundness** — would the proposed fix work, and is it worse than
+   the defect?
+3. **Severity honesty** — adjudicate, rather than inherit, a disputed number.
+
+## Results
+
+| verdict | count |
+|---|---|
+| STANDS | 14 |
+| SEVERITY_WRONG | 11 |
+| REMEDIATION_UNSOUND | 10 |
+
+| remediation | count |
+|---|---|
+| INCOMPLETE | 27 |
+| SOUND | 4 |
+| HARMFUL | 3 |
+| NOT_ASSESSED | 1 |
+
+**31 of 35 reports carry executed evidence** — the prosecutors ran the code
+rather than reading it.
+
+### The findings held
+
+**0 refuted. 0 stale.** Not one of the 31 had been quietly fixed by the
+audit's own PRs, and not one fell over under a third adversarial read. The
+finder-plus-two-verifiers pipeline produced claims that survive.
+
+### The severities did not, and they failed in one direction
+
+**12 severities moved. Every one moved DOWN**: B4-03, B4-20, B5-02, B5-05, B5-06, B5-11, B5-22, B6-05, RC-2026-005, RC-2026-008, RC-2026-010, RC-2026-018.
+
+That is a finding about the audit, not about RUNECLAW. Agents asked to find
+defects rate them generously; two adversarial verifiers corrected 84 of 162
+severities and still left a systematic upward bias. **A reader should discount
+the remaining severities in that direction.**
+
+### The remedies did not, and that is the discovery
+
+**26 of 31 proposed fixes are incomplete or harmful** (84%). Three are
+actively **HARMFUL**: B4-03, B6-05, RC-2026-009.
+
+Every gate this audit ran — finder, two verifiers, the lead-auditor register
+pass — asked whether the defect was real. **None asked whether the fix would
+work.** So the register accumulated well-evidenced defects paired with cures
+nobody had tested: one emits invalid Prometheus, one does not compile as
+written, and RC-2026-018's acceptance test passes on the unfixed engine.
+
+An audit that names real problems and prescribes broken cures is worth less than
+it looks. That gap was invisible from inside the first pass, because the first
+pass was not asking.
