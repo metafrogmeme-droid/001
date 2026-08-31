@@ -640,7 +640,8 @@ and mypy ratchets unchanged; `guard_lint` exit 0.
 
 ## RC-2026-009 — `/performance` paper branch publishes a hardcoded "Week PnL" of $0.00 in green
 
-- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: MEDIUM · **Confidence**: CONFIRMED
+  → **FIXED**: the week is `None` and the tile is gray, via `performance_card_payload`.
 - **Category**: Honesty of displayed measurement (CLAUDE.md's own top rule)
 - **File**: `bot/skills/telegram_handler.py:12555` (value), `:12571-12572` (render)
 - **Fix class**: REVIEW_REQUIRED (what an unmeasured tile should say is a product call)
@@ -688,7 +689,8 @@ fix cannot be tested.
 
 ## RC-2026-010 — the honest "unscored" win rate makes the whole stats card disappear
 
-- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: MEDIUM · **Confidence**: CONFIRMED
+  → **FIXED**: an unscored rate renders an em dash instead of taking the card down.
 - **Category**: `is None` vs falsiness, one layer out
 - **File**: `bot/skills/telegram_handler.py:12567` and `:12574`
 - **Fix class**: SAFE_AUTO_FIX (proposed, not applied — same seam problem as above)
@@ -1151,7 +1153,8 @@ through anything that reflects `location`. `browser-sec`, HIGH.
 
 ## RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready` and `/metrics` publish a permanent HEALTHY
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: PARTIALLY_FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **PARTIALLY_FIXED**: the snapshot, card and /metrics no longer claim HEALTHY from no data. Still open: nothing FEEDS the monitor, so /ready's fail-closed promise cannot yet be kept by its status code.
 - **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py · **Raw**: `B5-27`
  A monitor with no input reporting
 the good state is the exact failure CLAUDE.md's rule describes, on the endpoints
@@ -1166,7 +1169,8 @@ measurement. `honesty-py`, HIGH.
 
 ## RC-2026-016 — the web gateway reports `unprotected: false` for a live position
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **FIXED**: `unprotected` is three-valued and the UI chips on the unknown case first.
 - **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py
 
 
@@ -1233,7 +1237,8 @@ what a single finder pass will miss.
 
 ## RC-2026-017 — a balance payload without `free` clamps every live order to $0 and reports it as a measurement
 
-- **Status**: OPEN · **Severity**: LOW · **Confidence**: CONFIRMED
+- **Status**: PARTIALLY_FIXED · **Severity**: LOW · **Confidence**: CONFIRMED
+  → **PARTIALLY_FIXED**: an unreadable free margin now REFUSES the order instead of sizing it at $0 and sealing a fabricated figure into the audit chain. Still open: `free` can still arrive unreadable for a USDC-margined venue.
 - **Category**: absent-is-never-a-measurement, on the pre-execution size clamp
 - **File**: `bot/core/engine.py:6271-6278`
 - **Fix class**: SAFE_AUTO_FIX (proposed, not applied — out of scope for the
@@ -1616,7 +1621,8 @@ and that `reject_hazardous_extensions` is a deny-list with a catch-all.
 
 ## RC-2026-023 — the operator's live dashboard says SIMULATION while trading live
 
-- **Status**: OPEN · **Severity**: HIGH (finder said CRITICAL; both verifiers
+- **Status**: FIXED · **Severity**: HIGH (finder said CRITICAL; both verifiers
+  → **FIXED**: the client now reads `trading_mode` and opens as MODE UNKNOWN.
   downgraded, and I agree with them)
 - **Fix class**: SAFE_AUTO_FIX
 - **File**: `bot/web/dashboard.html:417-419` (markup), `:718-771` (`updateEngine`)

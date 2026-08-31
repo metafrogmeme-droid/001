@@ -21,11 +21,7 @@ This is the audit's central rule on the most expensive surface it has: the
 operator consults this list *because they do not know what is out there*.
 There are three states, not two -- a price, no stop, and nobody looked.
 """
-import pytest
-
-pytest.importorskip("aiohttp")
-
-from bot.web.user_gateway import _live_position_row  # noqa: E402
+from bot.web.user_gateway import _live_position_row
 
 
 class _Pos:
