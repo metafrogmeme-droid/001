@@ -77,6 +77,82 @@ of at most {max_proposals} objects, no prose, no markdown fences:
 "rationale": "<one sentence tied to the evidence>"}}]"""
 
 
+#: Where each allowlisted flag's value actually lives once CONFIG has
+#: resolved it. Kept BESIDE the bounds rather than derived, because a flag
+#: whose path nobody wrote is a flag whose no-op check silently stops
+#: running — the exact failure this table exists to end. A missing or
+#: unresolvable entry fails
+#: tests/test_self_audit_reports_what_it_measured.py, so the table cannot
+#: quietly fall behind ALLOWED_FLAGS.
+FLAG_CONFIG_PATHS: dict[str, str] = {
+    "EQUITY_THROTTLE_ENABLED": "risk.equity_throttle_enabled",
+    "ENTRY_TIMING_ENABLED": "execution.entry_timing_enabled",
+    "STRUCTURE_TRAIL_ENABLED": "trailing.structure_trail_enabled",
+    "CANDLE_ENTRY_VETO_ENABLED": "analyzer.candle_entry_veto_enabled",
+    "REENTRY_COOLDOWN_SECONDS": "risk.reentry_cooldown_seconds",
+    "TREND_UP_SIZE_MULT": "risk.trend_up_size_mult",
+    "LIVE_PERF_REDUCE_WINRATE": "risk.live_perf_reduce_winrate",
+    "LIVE_PERF_REDUCE_MULT": "risk.live_perf_reduce_mult",
+    "VOLATILITY_GUARD_ATR_PCT": "risk.volatility_guard_atr_pct",
+    "SYMBOL_LOSS_STREAK_THRESHOLD": "risk.symbol_loss_streak_threshold",
+    "OF_MAX_SPREAD_BPS": "order_flow:max_spread_bps",
+    "OF_MIN_DEPTH_USD": "order_flow:min_top_depth_usd",
+}
+
+
+def effective_value(flag: str, env: Optional[dict] = None):
+    """The value in force for ``flag``: env if set, else CONFIG's resolved one.
+
+    Returns ``None`` when neither can be read — and that is a real third
+    state, not a stand-in for "unset". An unreadable current value means the
+    no-op check cannot be made, so the proposal is allowed through and
+    measured rather than dropped on a comparison nobody performed.
+    """
+    if env:
+        raw = env.get(flag)
+        if raw is not None and str(raw).strip() != "":
+            return str(raw).strip()
+    path = FLAG_CONFIG_PATHS.get(flag)
+    if not path:
+        return None
+    # The two liquidity knobs are NOT on CONFIG. OrderFlowConfig lives in
+    # bot/core/order_flow.py and is constructed per-analyzer rather than held
+    # as a singleton, so the value in force is what a fresh construction reads
+    # from the environment — which is exactly what the analyzer got.
+    if path.startswith("order_flow:"):
+        try:
+            from bot.core.order_flow import OrderFlowConfig
+            return getattr(OrderFlowConfig(), path.split(":", 1)[1])
+        except Exception:
+            return None
+    try:
+        from bot.config import CONFIG
+        node: Any = CONFIG
+        for part in path.split("."):
+            node = getattr(node, part)
+        return node
+    except Exception:
+        return None
+
+
+def _same_value(current: Any, norm: str, kind: str) -> bool:
+    """Compare a live config value with a normalised proposal string."""
+    try:
+        if kind == "bool":
+            if isinstance(current, bool):
+                return ("1" if current else "0") == norm
+            return str(current).strip().lower() in (
+                ("1", "true", "yes", "on") if norm == "1"
+                else ("0", "false", "no", "off"))
+        return abs(float(current) - float(norm)) < 1e-9
+    except Exception:
+        # Unreadable is not "different". Saying they differ would let a
+        # genuine no-op through on a failed comparison; saying they match
+        # would drop a real proposal. Neither is safe to assert, so the
+        # caller treats None-ish as "could not check" and measures it.
+        return False
+
+
 def validate_proposals(raw: list, current_env: Optional[dict] = None,
                        max_proposals: int = 2) -> list[dict]:
     """Filter LLM proposals to allowlisted flags with in-bounds values.
@@ -105,7 +181,22 @@ def validate_proposals(raw: list, current_env: Optional[dict] = None,
                 if not (spec["min"] <= v <= spec["max"]):
                     continue
                 norm = f"{v:g}"
-            if env.get(flag) is not None and str(env.get(flag)) == norm:
+            # NO-OP CHECK, against the value actually IN FORCE.
+            #
+            # This used to read `os.environ` alone, so a flag left at its
+            # code default had `env.get(flag) is None` and skipped the check
+            # entirely. On 2026-08-31 the audit proposed
+            # SYMBOL_LOSS_STREAK_THRESHOLD=3 — which config.py:431 already
+            # defaults to — measured no change, and printed
+            # "⬜ measured +3.14% (+0.00pp vs baseline)" under a rationale
+            # promising it would "raise win rate toward 0.50". A change that
+            # is not a change, reported as one that was tried and did not
+            # help.
+            #
+            # Absent from the environment is not absent from the CONFIG. The
+            # comparison is against the resolved value now.
+            cur = effective_value(flag, env)
+            if cur is not None and _same_value(cur, norm, spec["type"]):
                 continue  # no-op
             seen.add(flag)
             out.append({"flag": flag, "value": norm,
@@ -386,7 +477,14 @@ class SelfAudit:
         gates = evidence.get("shadow_gates") or {}
         worst = next(iter(gates.items()), None)
         if worst and worst[1].get("net_r", 0) > 0.5:
-            lines.append(f"Shadow book: <code>{worst[0][:28]}</code> is the "
+            # `[:28]` with no marker. The 2026-08-31 card printed
+            # "LIQUIDITY: LIQUIDITY: spread" — 28 characters exactly, cut mid
+            # -name, and it read as a finished phrase so nothing said it had
+            # been cut. Gate keys are categories now (shadow_book
+            # .gate_category), so this rarely bites; when it does it says so.
+            _g = str(worst[0])
+            _g = _g if len(_g) <= 28 else _g[:27] + "…"
+            lines.append(f"Shadow book: <code>{_g}</code> is the "
                          f"costliest gate (net {worst[1]['net_r']:+.1f}R "
                          f"over {worst[1]['n']} blocked trades)")
         if not results:
@@ -396,7 +494,11 @@ class SelfAudit:
                          "not a failure.)")
             return "\n".join(lines)
         base_ret = baseline.get("return_pct")
+        # Trade count included: without it a reader cannot see that a
+        # candidate's "39tr" is the baseline's own figure repeated.
         base_s = (f"{base_ret:+.2f}% / PF {baseline.get('pf', '?')}"
+                  + (f" / {int(baseline['trades'])}tr"
+                     if baseline.get("trades") is not None else "")
                   if base_ret is not None else "unavailable")
         lines.append(f"\nBenchmark <code>{dataset}</code> baseline: {base_s}")
         for r in results:
@@ -404,6 +506,27 @@ class SelfAudit:
             ret = m.get("return_pct")
             if ret is None or base_ret is None:
                 verdict = "⬜ NOT VERIFIED (benchmark run failed)"
+            elif _identical_run(m, baseline):
+                # EVERY headline figure matched the baseline's, to the digit.
+                # That is not a measurement of the change; it is the benchmark
+                # failing to distinguish it, and the two have to read
+                # differently. On 2026-08-31 both proposals rendered
+                # "⬜ measured +3.14% (+0.00pp vs baseline) · PF 1.87 · 39tr"
+                # — the baseline's own numbers, presented as a verdict on a
+                # change that had been tried.
+                #
+                # Two things produce this signature and neither is "neutral":
+                # a proposal that was not a change (now dropped upstream), and
+                # a knob whose trigger the dataset never enters.
+                # LIVE_PERF_REDUCE_WINRATE 0.40->0.35 only binds when win rate
+                # sits in (0.35, 0.40] AND the window is net-positive, so a
+                # benchmark running at PF 1.87 never reaches it. The live book
+                # was at 25% and net-negative, where it binds constantly. A
+                # null from the wrong instrument is not evidence of no effect.
+                verdict = ("⬜ NOT DISTINGUISHED — this benchmark returned the "
+                           "baseline's figures unchanged, so it did not "
+                           "exercise the change. That is not evidence the "
+                           "change is neutral in live.")
             else:
                 delta = ret - base_ret
                 icon = "\U0001f7e9" if delta > 0 else (
@@ -417,6 +540,31 @@ class SelfAudit:
                          f"  Apply: <code>{r['flag']}={r['value']}</code> "
                          f"(env + restart) — nothing auto-applied")
         return "\n".join(lines)
+
+
+
+def _identical_run(measured: dict, baseline: dict) -> bool:
+    """True when a candidate run matched the baseline on EVERY headline figure.
+
+    Compared across return, PF and trade count rather than return alone: a
+    change that shifts the trade count while landing on the same return is a
+    real difference the report must not swallow, and `+0.00pp` on its own
+    cannot tell the two apart.
+
+    A missing figure on either side makes this False — unknown is not
+    identical, and claiming a match from an absent number is the failure this
+    whole branch exists to end.
+    """
+    for k in ("return_pct", "pf", "trades"):
+        a, b = measured.get(k), baseline.get(k)
+        if a is None or b is None:
+            return False
+        try:
+            if abs(float(a) - float(b)) > 1e-9:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 # Shared singleton (same pattern as SHADOW_BOOK / catalog watch).

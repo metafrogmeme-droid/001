@@ -114,9 +114,27 @@ class TestGroundingInstructionsPresent:
         assert "never" in H._CHAT_SYSTEM_PROMPT.lower()
         assert "ACTIVE POSITIONS" in H._CHAT_SYSTEM_PROMPT
 
-    def test_system_prompt_forbids_stating_live_prices_not_given(self):
-        prompt_lower = H._CHAT_SYSTEM_PROMPT.lower()
-        assert "real-time" in prompt_lower or "live market-data" in prompt_lower
+    def test_system_prompt_forbids_stating_a_price_it_was_not_given(self):
+        """Pins the RULE, not the words it happened to be spelled with.
+
+        WAS: `"real-time" in p or "live market-data" in p`. Both phrases came
+        from one sentence — "You do NOT have a live market-data feed in this
+        chat" — which was removed because it CONTRADICTED the LIVE MARKET
+        block `_live_ticker_block()` appends to the same prompt. The model was
+        being told, in one document, that it has no prices and that it has
+        these prices.
+
+        The rule the test is named for survived that rewrite intact, and is
+        now stated more precisely than before: the distinction that matters is
+        SOURCE, not availability. So the assertion moves to the two clauses
+        that carry it — the prohibition, and what to do when the price is not
+        in front of you — instead of a phrase from a sentence that no longer
+        exists.
+        """
+        p = H._CHAT_SYSTEM_PROMPT.lower()
+        assert "never state a price" in p, "the prohibition is gone"
+        assert "you do not know that price" in p, \
+            "nothing tells the model what to do when the price is not given"
 
     def test_system_prompt_warns_against_stale_conversation_history(self):
         assert "conversation" in H._CHAT_SYSTEM_PROMPT.lower()

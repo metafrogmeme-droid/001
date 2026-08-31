@@ -178,6 +178,19 @@ class BacktestResult(BaseModel):
     total_ideas_rejected_preset: int = 0
     total_ideas_timing_unfilled: int = 0
     total_entries_pending_at_end: int = 0
+    # RC-2026-018. The limit-entry lifecycle, reported because the number that
+    # NEVER filled is what tells a strategy's edge apart from its fill
+    # assumption. The engine used to book every limit at its own price on the
+    # signal bar, so these four were structurally 0/0/0/0 and unmeasurable.
+    #
+    # `filled_same_bar` is broken out because it carries a weaker claim than
+    # the rest: the signal bar's range reached the level, but bar data cannot
+    # say whether it did so before or after the signal. A run where most fills
+    # are same-bar is one to read carefully.
+    total_limits_filled: int = 0
+    total_limits_filled_same_bar: int = 0
+    total_limits_expired: int = 0
+    total_limits_cancelled_drift: int = 0
 
     # Per-gate risk-rejection tally (gate name -> count) so an A/B diff can SEE
     # which gates diverged. `stateful_rejections` sums the path-dependent gates

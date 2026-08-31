@@ -55,6 +55,38 @@ def _base(symbol: str) -> str:
     return s[:i] if i > 0 else s
 
 
+def gate_category(gate: str) -> str:
+    """The stable bucket a gate string belongs to.
+
+    A gate string carries the READING that tripped it -
+    "CONFIDENCE: 0.55 < 0.6 minimum" - so grouping on the raw string splits
+    one gate across as many buckets as there were distinct readings. The live
+    ledger on 2026-08-31 held the confidence floor as EIGHT separate gates
+    (11, 8, 8, 4, 3, 3, 2 and 1 trades).
+
+    That matters because the nightly self-audit reads
+    ``next(iter(gate_report()))`` - the single highest-net_r bucket - and
+    prints it as "the costliest gate". It named a shard of 4 blocked trades
+    and presented it as the whole gate: a partial printed as a total, in the
+    scoreboard that decides which gate to loosen on a live trading bot.
+
+    Applied at READ time, not at write. Storage keeps the full string in
+    ``gate``, ``gates`` and ``reason``, so nothing is lost and the rows
+    ALREADY ON DISK aggregate correctly with no migration - the fix reaches
+    backwards, which a write-side change could not.
+
+    Splitting on the first colon also collapses the doubled
+    "LIQUIDITY: LIQUIDITY: spread ..." engine.py produced. That is fixed at
+    its source as well: a canonicaliser that quietly absorbs a malformed
+    input is how the malformed input survives.
+    """
+    head = str(gate or "").split(":", 1)[0].strip().upper()
+    # An unlabelled rejection keeps its OWN bucket rather than joining a
+    # neighbour's. Merging it would credit its R to a gate that did not earn
+    # it, which is the same misattribution one level down.
+    return head or "UNLABELLED"
+
+
 class ShadowBook:
     """Persistent counterfactual ledger of gate-rejected trades."""
 
@@ -231,7 +263,7 @@ class ShadowBook:
         for tr in self._trades:
             if tr["status"] != "closed" or tr.get("r") is None:
                 continue
-            g = out.setdefault(tr["gate"], {
+            g = out.setdefault(gate_category(tr["gate"]), {
                 "n": 0, "wins": 0, "losses": 0, "net_r": 0.0})
             g["n"] += 1
             g["net_r"] = round(g["net_r"] + float(tr["r"]), 3)
@@ -255,7 +287,7 @@ class ShadowBook:
             if tr["status"] != "closed" or tr.get("r") is None:
                 continue
             reg = str(tr.get("regime") or "") or "UNKNOWN"
-            g = out.setdefault(tr["gate"], {}).setdefault(
+            g = out.setdefault(gate_category(tr["gate"]), {}).setdefault(
                 reg, {"n": 0, "net_r": 0.0})
             g["n"] += 1
             g["net_r"] = round(g["net_r"] + float(tr["r"]), 3)
