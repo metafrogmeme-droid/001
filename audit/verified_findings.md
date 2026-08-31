@@ -2204,7 +2204,8 @@ incomplete, three of them actively harmful**.
 
 ## RC-2026-026 — two different people share one bot-database row, so one reads the other's API keys
 
-- **Status**: OPEN · **Severity**: **CRITICAL** · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: **CRITICAL** · **Confidence**: CONFIRMED
+  → **FIXED**: both doors refuse now -- `_ensure_local_user` and `ensure_settings_parent` -- keyed on `password_hash`, and all five call sites handle the refusal.
 - **Category**: Improper access control (CWE-863, CWE-1270)
 - **File**: `bot/skills/user_middleware.py:77-91`
 - **Found**: while prosecuting the RC-2026-019 remedy. It is not a purge bug and
@@ -2244,7 +2245,8 @@ and a website-linked row always carries the literal
 
 ## RC-2026-027 — `settings_user_id` is not injective: Unicode digits reach another user's row
 
-- **Status**: OPEN · **Severity**: **HIGH** · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: **HIGH** · **Confidence**: CONFIRMED
+  → **FIXED**: `settings_user_id` is ASCII-only, rejects 0 and returns None instead of raising; `_WEB_ID_RE` carries `re.ASCII`.
 - **Category**: Improper access control (CWE-289, CWE-178)
 - **File**: `bot/db/models.py:397-409`
 

@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "0749eb30d22dd6b750f64e3f3cb1e587ee0a5769",
+    "commit": "e20d474b741da9432d1d1cabecce6b1c79bc47b9",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -272,7 +272,7 @@
     {
       "id": "RC-2026-026",
       "title": "Two different people share one bot-database row, so one reads the other's API keys",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "CRITICAL",
       "confidence": "CONFIRMED",
       "category": "improper-access-control",
@@ -286,12 +286,12 @@
       ],
       "raw_id": "RC-2026-026",
       "verified_by": "lead-auditor+prosecutor (driven end to end)",
-      "note": "FOUND WHILE PROSECUTING THE RC-2026-019 REMEDY; it is not a purge bug and does not need a purge to fire. `_ensure_local_user(user_id, email, plan)` looks up `SELECT id FROM users WHERE id = ?` and RETURNS EARLY if a row exists, never checking that the row belongs to this person. `user_id` there is the WEBSITE's MySQL id; the same SQLite table also holds rows created by `create_user` (AUTOINCREMENT from 1) behind POST /auth/register, mounted at api_bridge.py:366. Both id spaces start at 1. DRIVEN END TO END: Alice registers bot-natively and gets id 1 with llm_api_key 'sk-ALICE-PRIVATE'; Bob is website MySQL id 1; `_ensure_local_user(1, 'bob@other.com', 'pro')` returns early, and Bob then reads llm_api_key 'sk-ALICE-PRIVATE' and news key ('cryptopanic', 'ALICE-NEWS-KEY'). Also reachable: user_portfolio (equity, trade_history) and user_ingest_notes (text the user pasted). CONDITION, stated honestly: a bot-native signup must land on an id a website account also holds. Because `ensure_settings_parent` inserts telegram-id-keyed rows (~10 digits) it drags AUTOINCREMENT up, so the window is bot-native signups occurring before any large stub exists - i.e. the early life of a deployment, when ids on both sides are small. THE FIX IS NOT FREE: refusing to bind is the fail-closed direction and is correct, but it denies bot features to any website user already comingled, so the operator has to decide what happens to existing pairs. The discriminator is measured and stable: a bot-native row carries a PBKDF2 hash, a stub carries '', and a website-linked row always carries the literal 'website-linked:no-local-password' (nothing in the tree ever updates password_hash)."
+      "note": "FOUND WHILE PROSECUTING THE RC-2026-019 REMEDY; it is not a purge bug and does not need a purge to fire. `_ensure_local_user(user_id, email, plan)` looks up `SELECT id FROM users WHERE id = ?` and RETURNS EARLY if a row exists, never checking that the row belongs to this person. `user_id` there is the WEBSITE's MySQL id; the same SQLite table also holds rows created by `create_user` (AUTOINCREMENT from 1) behind POST /auth/register, mounted at api_bridge.py:366. Both id spaces start at 1. DRIVEN END TO END: Alice registers bot-natively and gets id 1 with llm_api_key 'sk-ALICE-PRIVATE'; Bob is website MySQL id 1; `_ensure_local_user(1, 'bob@other.com', 'pro')` returns early, and Bob then reads llm_api_key 'sk-ALICE-PRIVATE' and news key ('cryptopanic', 'ALICE-NEWS-KEY'). Also reachable: user_portfolio (equity, trade_history) and user_ingest_notes (text the user pasted). CONDITION, stated honestly: a bot-native signup must land on an id a website account also holds. Because `ensure_settings_parent` inserts telegram-id-keyed rows (~10 digits) it drags AUTOINCREMENT up, so the window is bot-native signups occurring before any large stub exists - i.e. the early life of a deployment, when ids on both sides are small. THE FIX IS NOT FREE: refusing to bind is the fail-closed direction and is correct, but it denies bot features to any website user already comingled, so the operator has to decide what happens to existing pairs. The discriminator is measured and stable: a bot-native row carries a PBKDF2 hash, a stub carries '', and a website-linked row always carries the literal 'website-linked:no-local-password' (nothing in the tree ever updates password_hash). FIXED: both doors refuse."
     },
     {
       "id": "RC-2026-027",
       "title": "settings_user_id is not injective: Unicode digits map onto another user's settings row",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "improper-access-control",
@@ -3724,17 +3724,14 @@
     }
   },
   "release_decision": {
-    "decision": "NO-GO",
-    "basis": "1 unresolved BLOCKER/CRITICAL finding. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
-    "blockers": [
-      "RC-2026-026 Two different people share one bot-database row, so one reads the other's API keys"
-    ],
+    "decision": "CONDITIONAL GO",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 19 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "blockers": [],
     "open_high": [
       "RC-2026-013 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
       "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
       "RC-2026-019 The GDPR purge misses the bot's SQLite database entirely",
       "RC-2026-020 Web-only accounts never reach the purge at all",
-      "RC-2026-027 settings_user_id is not injective: Unicode digits map onto another user's settings row",
       "M-01 Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id=\"auto\", bypassing every per-user gate",
       "M-08 Post-fill leverage-overshoot guard is structurally inert on the limit-fill, partial-fill and drift-fallback paths \u2014 it passes a spot-form symbol that ccxt filters out",
       "M-15 The LIVE daily-loss accumulator is dropped by the combined-state restore that production actually uses \u2014 the daily-loss breaker gets a full fresh budget on every restart",

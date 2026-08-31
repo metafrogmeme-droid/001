@@ -82,7 +82,13 @@ async def secret_middleware(request: web.Request, handler):
 # authenticated by the Express server's JWT layer. Real Telegram ids are
 # numeric, and MultiUserPortfolio's key sanitizer strips ":" (web:5 -> web5),
 # so these can never collide with a Telegram user's records.
-_WEB_ID_RE = re.compile(r"^web:\d{1,20}$")
+# RC-2026-027: `\d` in a str pattern is UNICODE by default, so this gate --
+# which exists to VALIDATE the identity -- accepted "web:\u0661\u0662"
+# (Arabic-Indic) and "web:\uff11\uff12" (fullwidth). settings_user_id then
+# mapped them onto the same row as "web:12", which holds llm_api_key.
+# re.ASCII confines \d to [0-9]. `{1,19}` matches settings_user_id's own
+# bound, so the two cannot disagree about what is acceptable.
+_WEB_ID_RE = re.compile(r"^web:\d{1,19}$", re.ASCII)
 
 
 def _is_web_id(tg_id: str) -> bool:
@@ -2839,12 +2845,22 @@ async def handle_llm_set(request: web.Request) -> web.Response:
              "detail": "That key looks malformed — check for extra spaces or "
                        "line breaks from copy/paste, and that it's the full key."},
             status=400)
-    from bot.db.models import (ensure_settings_parent, get_user_settings,
+    from bot.db.models import (IdentityCollision, ensure_settings_parent,
+                               get_user_settings,
                                save_user_settings, settings_user_id)
     uid = settings_user_id(tg_id)
     if uid is None:
         return web.json_response({"error": "bad_identity"}, status=400)
-    ensure_settings_parent(uid)
+    try:
+        ensure_settings_parent(uid)
+    except IdentityCollision:
+        # RC-2026-026: the users row at this id holds a bot-native account, so
+        # writing this identity's settings into it would hand one person
+        # another's. A coarse reason code, per the /readyz precedent -- the
+        # driver message names the other account's id and must not reach a
+        # caller.
+        system_log.error("identity collision writing settings for %s", tg_id)
+        return web.json_response({"error": "identity_conflict"}, status=409)
     s = get_user_settings(uid)
     s.llm_provider = provider_str
     s.llm_api_key = api_key
@@ -2866,12 +2882,22 @@ async def handle_llm_clear(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    from bot.db.models import (ensure_settings_parent, get_user_settings,
+    from bot.db.models import (IdentityCollision, ensure_settings_parent,
+                               get_user_settings,
                                save_user_settings, settings_user_id)
     uid = settings_user_id(tg_id)
     if uid is None:
         return web.json_response({"error": "bad_identity"}, status=400)
-    ensure_settings_parent(uid)
+    try:
+        ensure_settings_parent(uid)
+    except IdentityCollision:
+        # RC-2026-026: the users row at this id holds a bot-native account, so
+        # writing this identity's settings into it would hand one person
+        # another's. A coarse reason code, per the /readyz precedent -- the
+        # driver message names the other account's id and must not reach a
+        # caller.
+        system_log.error("identity collision writing settings for %s", tg_id)
+        return web.json_response({"error": "identity_conflict"}, status=409)
     s = get_user_settings(uid)
     s.llm_api_key = ""
     save_user_settings(s)
@@ -3017,12 +3043,22 @@ async def handle_news_key_save(request: web.Request) -> web.Response:
              "detail": "That key looks malformed — check for stray spaces or "
                        "line breaks from copy/paste, and that it's the full key."},
             status=400)
-    from bot.db.models import (ensure_settings_parent, save_user_news_key,
+    from bot.db.models import (IdentityCollision, ensure_settings_parent,
+                               save_user_news_key,
                                settings_user_id)
     uid = settings_user_id(tg_id)
     if uid is None:
         return web.json_response({"error": "bad_identity"}, status=400)
-    ensure_settings_parent(uid)
+    try:
+        ensure_settings_parent(uid)
+    except IdentityCollision:
+        # RC-2026-026: the users row at this id holds a bot-native account, so
+        # writing this identity's settings into it would hand one person
+        # another's. A coarse reason code, per the /readyz precedent -- the
+        # driver message names the other account's id and must not reach a
+        # caller.
+        system_log.error("identity collision writing settings for %s", tg_id)
+        return web.json_response({"error": "identity_conflict"}, status=409)
     save_user_news_key(uid, provider, api_key)
     audit(system_log, f"BYON news key connected: {tg_id} -> {provider}",
           action="news_byon_connect", result="OK",
@@ -3097,12 +3133,21 @@ async def handle_ingest_add(request: web.Request) -> web.Response:
     if not text:
         return web.json_response({"error": "empty", "detail": "Nothing to save."},
                                  status=400)
-    from bot.db.models import (add_user_ingest_note, ensure_settings_parent,
-                               settings_user_id)
+    from bot.db.models import (IdentityCollision, add_user_ingest_note,
+                               ensure_settings_parent, settings_user_id)
     uid = settings_user_id(tg_id)
     if uid is None:
         return web.json_response({"error": "bad_identity"}, status=400)
-    ensure_settings_parent(uid)
+    try:
+        ensure_settings_parent(uid)
+    except IdentityCollision:
+        # RC-2026-026: the users row at this id holds a bot-native account, so
+        # writing this identity's settings into it would hand one person
+        # another's. A coarse reason code, per the /readyz precedent -- the
+        # driver message names the other account's id and must not reach a
+        # caller.
+        system_log.error("identity collision writing settings for %s", tg_id)
+        return web.json_response({"error": "identity_conflict"}, status=409)
     note_id = add_user_ingest_note(uid, str(body.get("title") or ""), text,
                                    str(body.get("source") or ""))
     if note_id is None:

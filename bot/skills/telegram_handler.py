@@ -9509,13 +9509,24 @@ class TelegramHandler:
                 "in chat. Manage your notes on the web dashboard. Only share "
                 "content you're allowed to.</i>")
             return
-        from bot.db.models import (add_user_ingest_note, ensure_settings_parent,
-                                   settings_user_id)
+        from bot.db.models import (IdentityCollision, add_user_ingest_note,
+                                   ensure_settings_parent, settings_user_id)
         uid = settings_user_id(tg_id)
         if uid is None:
             await self._send(update, "Couldn't resolve your account — try /start.")
             return
-        ensure_settings_parent(uid)
+        try:
+            ensure_settings_parent(uid)
+        except IdentityCollision:
+            # RC-2026-026: the row at this id holds a bot-native account, so
+            # this note would be filed under somebody else. Refuse, and say so
+            # without naming the other account.
+            system_log.error("identity collision saving ingest note for %s", tg_id)
+            await self._send(update,
+                "Couldn't save that — your account and another record share an "
+                "internal id, so saving would file this note under someone "
+                "else. Nothing was stored. Please contact support.")
+            return
         nid = add_user_ingest_note(uid, "", text, source)
         if nid is None:
             await self._send(update, "Nothing to save — send some text.")

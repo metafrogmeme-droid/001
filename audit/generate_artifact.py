@@ -240,7 +240,7 @@ F = [
               "all-refs sweep moved to a schedule."),
     dict(id="RC-2026-026", title="Two different people share one bot-database row, so one "
          "reads the other's API keys",
-         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
          category="improper-access-control", component="bot/db+user_middleware",
          file="bot/skills/user_middleware.py", line="77-91", fix_class="REVIEW_REQUIRED",
          standard=["CWE-863", "CWE-1270"], raw_id="RC-2026-026",
@@ -268,10 +268,10 @@ F = [
               "discriminator is measured and stable: a bot-native row carries a PBKDF2 "
               "hash, a stub carries '', and a website-linked row always carries the "
               "literal 'website-linked:no-local-password' (nothing in the tree ever "
-              "updates password_hash)."),
+              "updates password_hash). FIXED: both doors refuse."),
     dict(id="RC-2026-027", title="settings_user_id is not injective: Unicode digits map "
          "onto another user's settings row",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="improper-access-control", component="bot/db+gateway",
          file="bot/db/models.py", line="397-409", fix_class="REVIEW_REQUIRED",
          standard=["CWE-289", "CWE-178"], raw_id="RC-2026-027",
