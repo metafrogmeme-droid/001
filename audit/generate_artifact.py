@@ -87,16 +87,32 @@ F = [
          standard=["CWE-754"], verified_by="lead-auditor"),
     dict(id="RC-2026-018", title="The default backtest fills entries at prices the market "
          "never traded",
-         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
          category="backtest-integrity", component="backtest",
          file="bot/backtest/engine.py", line="593", fix_class="REVIEW_REQUIRED",
          standard=["CWE-1041"], raw_id="B4-01",
          verified_by="lead-auditor+dimension-agent+2-verifiers",
-         note="CONFIG.limit_orders defaults enabled with default_order_type='limit' "
-              "(config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback "
-              "up to 1 ATR below the close, and bot/backtest/ has no order-type model at "
-              "all. The finder said BLOCKER; recorded CRITICAL after the correction. "
-              "Every published backtest number rests on this."),
+         note="Was: CONFIG.limit_orders defaults enabled with default_order_type='limit' "
+              "(config.py:1982-1984), so the analyzer set idea.entry_price to a pullback "
+              "up to 1 ATR below the close, and bot/backtest/ had no order-type model at "
+              "all - so the engine captured exactly the entries a real limit would have "
+              "MISSED, the ones where price ran away. FIXED: _place_entry fills a market "
+              "order at bar.close (what fill_mode='close' was always named for; the old "
+              "call site passed the limit price while _execute_fill's own docstring said "
+              "'bar close'), fills a limit only when a bar's range reaches it (LONG "
+              "bar.low <= px, SHORT bar.high >= px), and otherwise rests it - "
+              "_drain_pending_limits runs each bar: fill on touch, expire at "
+              "expire_seconds, cancel past price_drift_cancel_pct using the LIVE formula "
+              "(live_executor.py:6721), both non-fill branches clearing the pending "
+              "intent. The result now carries total_limits_filled / _filled_same_bar / "
+              "_expired / _cancelled_drift, which were structurally 0 before: a run that "
+              "cannot say how many entries never filled is indistinguishable from one "
+              "where they all did. STATED LIMITATION: live's drift_market_fallback "
+              "(default ON) converts some drifted limits to market orders and is NOT "
+              "modelled, so _cancelled_drift is an upper bound and the backtest "
+              "under-fills against live by that margin. 15 tests, 9 mutations killed, "
+              "187 existing backtest tests unchanged. backtest_deep_results.json predates "
+              "the fix and must be regenerated before any figure in it is quoted."),
     dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
          status="OPEN", severity="HIGH", confidence="CONFIRMED",
          category="privacy-erasure", component="bot/web/user_gateway",

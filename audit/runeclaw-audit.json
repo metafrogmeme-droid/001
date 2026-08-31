@@ -4,8 +4,8 @@
     "target": "RUNECLAW by HUMANOID TRADERS",
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
-    "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "11bdcaeebbe8c4d15db1c18a746dd0081d28fb73",
+    "branch": "claude/new-session-fk85gd",
+    "commit": "9ae008c4b3831d44637684ad34d65d0955d16c90",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -147,7 +147,7 @@
     {
       "id": "RC-2026-018",
       "title": "The default backtest fills entries at prices the market never traded",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "CRITICAL",
       "confidence": "CONFIRMED",
       "category": "backtest-integrity",
@@ -160,7 +160,7 @@
       ],
       "raw_id": "B4-01",
       "verified_by": "lead-auditor+dimension-agent+2-verifiers",
-      "note": "CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ has no order-type model at all. The finder said BLOCKER; recorded CRITICAL after the correction. Every published backtest number rests on this."
+      "note": "Was: CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer set idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ had no order-type model at all - so the engine captured exactly the entries a real limit would have MISSED, the ones where price ran away. FIXED: _place_entry fills a market order at bar.close (what fill_mode='close' was always named for; the old call site passed the limit price while _execute_fill's own docstring said 'bar close'), fills a limit only when a bar's range reaches it (LONG bar.low <= px, SHORT bar.high >= px), and otherwise rests it - _drain_pending_limits runs each bar: fill on touch, expire at expire_seconds, cancel past price_drift_cancel_pct using the LIVE formula (live_executor.py:6721), both non-fill branches clearing the pending intent. The result now carries total_limits_filled / _filled_same_bar / _expired / _cancelled_drift, which were structurally 0 before: a run that cannot say how many entries never filled is indistinguishable from one where they all did. STATED LIMITATION: live's drift_market_fallback (default ON) converts some drifted limits to market orders and is NOT modelled, so _cancelled_drift is an upper bound and the backtest under-fills against live by that margin. 15 tests, 9 mutations killed, 187 existing backtest tests unchanged. backtest_deep_results.json predates the fix and must be regenerated before any figure in it is quoted."
     },
     {
       "id": "RC-2026-019",
@@ -3658,9 +3658,8 @@
   },
   "release_decision": {
     "decision": "NO-GO",
-    "basis": "2 unresolved BLOCKER/CRITICAL findings. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
+    "basis": "1 unresolved BLOCKER/CRITICAL finding. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
     "blockers": [
-      "RC-2026-018 The default backtest fills entries at prices the market never traded",
       "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them"
     ],
     "open_high": [
