@@ -66,10 +66,26 @@ F = [
               "operator and any uptime checker consult first."),
     dict(id="RC-2026-015", title="/livebalance renders a FAILED exchange balance read as "
          "a complete $0.00 account statement",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="OPEN", severity="MEDIUM",
+         second_pass="HIGH -> MEDIUM. Defect REPRODUCED by execution, not read: planting "
+                     "fetch_balance's own error return through the repo's _make_handler() "
+                     "harness prints Cash $0.00 / Used $0.00 / Equity $0.00 / NET $0.00 "
+                     "with no error text. Root cause confirmed - _get_exchange() assigns "
+                     "self._exchange BEFORE the fetch, so the honest error branch is "
+                     "reached only when exchange CONSTRUCTION fails, i.e. never for a "
+                     "rejected key, IP allowlist, nonce or venue 5xx. Remedy rated "
+                     "HARMFUL on its endorsed half: 'return None instead of a zeros dict' "
+                     "was executed against bot/main.py:180-186, where the error dict "
+                     "today selects STARTUP: exchange auth FAILED and "
+                     "set_live_auth_status(False), halting new live entries - None "
+                     "loses that halt. The PRIMARY fix (raise on bal['error']) is sound "
+                     "and scrubs via _safe_exc_text, but /livebalance is a COMPOSITE "
+                     "card whose PnL, trade count and exposure are genuinely readable, "
+                     "so CLAUDE.md's table prefers OMIT: render the balance block "
+                     "unknown and keep the rest.", confidence="CONFIRMED",
          category="honesty-fail-open", component="telegram",
          file="bot/skills/telegram_handler.py", line="see B3", fix_class="REVIEW_REQUIRED",
-         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
+         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers+prosecutor",
          note="Cash, equity and the rest presented as a measurement. CLAUDE.md's first "
               "rule, on the account-value card."),
     dict(id="RC-2026-016", title="The web gateway reports unprotected: false for a live "
@@ -87,32 +103,54 @@ F = [
          standard=["CWE-754"], verified_by="lead-auditor"),
     dict(id="RC-2026-018", title="The default backtest fills entries at prices the market "
          "never traded",
-         status="FIXED", severity="CRITICAL", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
+         severity_history="finder BLOCKER -> verifiers CRITICAL -> second pass HIGH "
+                          "(the fixing session, working from the pre-correction register, "
+                          "recorded it CRITICAL; HIGH is the adjudicated value and the "
+                          "reasoning is in the note)",
          category="backtest-integrity", component="backtest",
          file="bot/backtest/engine.py", line="593", fix_class="REVIEW_REQUIRED",
          standard=["CWE-1041"], raw_id="B4-01",
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
-         note="Was: CONFIG.limit_orders defaults enabled with default_order_type='limit' "
-              "(config.py:1982-1984), so the analyzer set idea.entry_price to a pullback "
-              "up to 1 ATR below the close, and bot/backtest/ had no order-type model at "
-              "all - so the engine captured exactly the entries a real limit would have "
-              "MISSED, the ones where price ran away. FIXED: _place_entry fills a market "
-              "order at bar.close (what fill_mode='close' was always named for; the old "
-              "call site passed the limit price while _execute_fill's own docstring said "
-              "'bar close'), fills a limit only when a bar's range reaches it (LONG "
-              "bar.low <= px, SHORT bar.high >= px), and otherwise rests it - "
-              "_drain_pending_limits runs each bar: fill on touch, expire at "
-              "expire_seconds, cancel past price_drift_cancel_pct using the LIVE formula "
-              "(live_executor.py:6721), both non-fill branches clearing the pending "
-              "intent. The result now carries total_limits_filled / _filled_same_bar / "
-              "_expired / _cancelled_drift, which were structurally 0 before: a run that "
-              "cannot say how many entries never filled is indistinguishable from one "
-              "where they all did. STATED LIMITATION: live's drift_market_fallback "
-              "(default ON) converts some drifted limits to market orders and is NOT "
-              "modelled, so _cancelled_drift is an upper bound and the backtest "
-              "under-fills against live by that margin. 15 tests, 9 mutations killed, "
-              "187 existing backtest tests unchanged. backtest_deep_results.json predates "
-              "the fix and must be regenerated before any figure in it is quoted."),
+         verified_by="lead-auditor+dimension-agent+2-verifiers+3-prosecutors",
+         note="WAS: CONFIG.limit_orders defaults enabled with default_order_type='limit' "
+              "(config.py:1982-1984), so the analyzer set idea.entry_price to a pullback up "
+              "to 1 ATR below the close, and bot/backtest/ had no order-type model at all - "
+              "the engine captured exactly the entries a real limit would have MISSED, the "
+              "ones where price ran away. "
+              "SEVERITY, ADJUDICATED DOWN: verifier 1 justified CRITICAL with 'it corrupts "
+              "every published backtest/scorecard number'; verifier 2 proved that false "
+              "(--honest forces fill_mode=next_open at runner.py:546-548, and every "
+              "published path passes --honest); the register adopted verifier 2's FACT "
+              "while keeping verifier 1's SEVERITY. Three second-pass prosecutors, one per "
+              "lens, independently said HIGH. AFFECTED: real-data default-mode developer "
+              "runs. NOT AFFECTED: the frozen benchmark, the marketplace scorecards and the "
+              "web Strategy Lab, which all pass --honest; backtest_deep_results.json is "
+              "100% synthetic GBM. "
+              "FIXED on main (PR #243): _place_entry fills a market order at bar.close "
+              "(what fill_mode='close' was always named for; the old call site passed the "
+              "limit price while _execute_fill's own docstring said 'bar close'), fills a "
+              "limit only when a bar's range reaches it (LONG bar.low <= px, SHORT bar.high "
+              ">= px), and otherwise rests it - _drain_pending_limits runs each bar: fill on "
+              "touch, expire at expire_seconds, cancel past price_drift_cancel_pct using the "
+              "LIVE formula (live_executor.py:6721), both non-fill branches clearing the "
+              "pending intent. The result now carries total_limits_filled / _filled_same_bar "
+              "/ _expired / _cancelled_drift, which were structurally 0 before: a run that "
+              "cannot say how many entries never filled is indistinguishable from one where "
+              "they all did. "
+              "STATED LIMITATION (theirs, and it is the right call to state it): live's "
+              "drift_market_fallback (default ON) converts some drifted limits to market "
+              "orders and is NOT modelled, so _cancelled_drift is an upper bound and the "
+              "backtest under-fills against live by that margin. 15 tests, 9 mutations "
+              "killed, 187 existing backtest tests unchanged. backtest_deep_results.json "
+              "predates the fix and must be regenerated before any figure in it is quoted. "
+              "ONE TEST NOTE, not an objection to the fix: the second pass had flagged the "
+              "PROPOSED acceptance test's shape, and the landed "
+              "test_every_recorded_entry_lies_inside_some_bar_that_traded_it keeps it - it "
+              "asserts min(low) <= px <= max(high) over the whole series, a hull the "
+              "fixture's own levels (99.5/99.0/98.0 inside [94.5, 102]) already satisfy on "
+              "the UNFIXED engine. Its CONSERVATION assertion is what makes it bite, and the "
+              "other 12 tests in the file pin the behaviour directly, so the fix is covered; "
+              "the invariant half of that one test is not what covers it."),
     dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
          status="OPEN", severity="HIGH", confidence="CONFIRMED",
          category="privacy-erasure", component="bot/web/user_gateway",
@@ -130,10 +168,29 @@ F = [
               "its bot-side state skipped silently."),
     dict(id="RC-2026-021", title="SECURITY.md promises human-in-the-loop confirmation "
          "that the default configuration does not provide",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="OPEN", severity="MEDIUM",
+         second_pass="HIGH -> MEDIUM. The DEFECT stands - six public surfaces state an "
+                     "unconditional human-in-the-loop guarantee the code contradicts, "
+                     "and the repo's own tests/test_mcp_doc_matches_the_code.py is an "
+                     "admission of it applied to exactly one of the seven. Both props "
+                     "under the HIGH failed: agent_card.json is served by no route on "
+                     "either deploy target and referenced by no non-test code (and is "
+                     "already stale on live_trading), and 'the default configuration' is "
+                     "true of the CODE default but false of the SHIPPED one - "
+                     ".env.example turns both auto-confirm knobs off and "
+                     "`cp .env.example .env` is the documented install on four surfaces. "
+                     "Set against RC-2026-022, the same class, which both verifiers put "
+                     "at MEDIUM because no money moves differently. BOTH remedies are "
+                     "unsound: (b)'s threshold half is defeated by the adaptive block, "
+                     "on by default, unsettable from .env.example, walking a 1.0 "
+                     "'disable' down to 0.60 on a winning streak (executed), and it "
+                     "fails a test in the file it tells the fixer to edit; (a) read "
+                     "literally yields \"requires_confirmation\": false - a safety "
+                     "declaration inverted toward danger on every standard install.",
+         confidence="CONFIRMED",
          category="docs-vs-default", component="documentation",
          file="SECURITY.md", line="29", fix_class="REVIEW_REQUIRED",
-         standard=["CWE-1059"], verified_by="lead-auditor",
+         standard=["CWE-1059"], verified_by="lead-auditor+prosecutor",
          note="The one HIGH in its batch neither verifier downgraded, and I verified it "
               "directly. Documentation vs default is a product decision, so "
               "REVIEW_REQUIRED rather than a doc edit."),
@@ -183,7 +240,11 @@ F = [
               "all-refs sweep moved to a schedule."),
     dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the money "
          "move executes as the resolved bot identity",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         status="OPEN", severity="LOW",
+         second_pass="MEDIUM -> LOW. Reproduces in the breached state, but "
+                     "that state is unreachable now that uniq_users_telegram_id "
+                     "and the 409 both exist. LOW as a latent invariant - and "
+                     "its own remedy was rated HARMFUL.", confidence="CONFIRMED",
          category="incorrect-authorization", component="web-app/staking",
          file="app/routes/staking.js", line="55-66", fix_class="REVIEW_REQUIRED",
          standard=["CWE-863", "ASVS-4.2.1"], verified_by="lead-auditor",
@@ -217,7 +278,11 @@ F = [
          fix_class="SAFE_AUTO_FIX", standard=["CWE-1126"], verified_by="lead-auditor",
          test="tests/test_scanners_skip_vendored_trees.py"),
     dict(id="RC-2026-005", title="90 default-ON safety toggles are absent from .env.example",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         status="OPEN", severity="LOW",
+         second_pass="MEDIUM -> LOW. The 71 default-ON flags are absent from "
+                     ".env.example, but they are safety-ON by default, so an "
+                     "operator who never edits the file gets the protected "
+                     "behaviour. The harm is discoverability, not exposure.", confidence="CONFIRMED",
          category="configuration-governance", component="config",
          file=".env.example", line="n/a", fix_class="REVIEW_REQUIRED",
          standard=["NIST-SSDF-PW.9", "CWE-1188"], verified_by="lead-auditor",
@@ -258,7 +323,11 @@ F = [
               "would matter if the book ever became per-user."),
     dict(id="RC-2026-008", title="Backups omit the per-user credential store, and the "
          "master key that opens what they do archive",
-         status="PARTIALLY_FIXED", severity="HIGH", confidence="CONFIRMED",
+         status="PARTIALLY_FIXED", severity="MEDIUM",
+         second_pass="HIGH -> MEDIUM. STANDS on all three lenses and part (c) "
+                     "is worse than written, but MEDIUM is the defensible "
+                     "number for a backup-completeness gap behind an "
+                     "operator-only manual restore.", confidence="CONFIRMED",
          category="credential-durability", component="ops",
          file="bot/utils/backup.py", line="35-47", fix_class="REVIEW_REQUIRED",
          standard=["CWE-522"], verified_by="lead-auditor+dimension-agent",
@@ -312,7 +381,10 @@ F = [
          fix_class="REVIEW_REQUIRED", standard=["CLAUDE.md-unreadable-is-never-zero"],
          verified_by="lead-auditor"),
     dict(id="RC-2026-010", title="The honest 'unscored' win rate makes the whole stats "
-         "card disappear", status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         "card disappear", status="OPEN", severity="LOW",
+         second_pass="MEDIUM -> LOW. Remedy rated SOUND; severity overstated. "
+                     "The honest unscored path HIDES a card rather than "
+                     "asserting a false number.", confidence="CONFIRMED",
          category="display-honesty", component="telegram-bot",
          file="bot/skills/telegram_handler.py", line="12567,12574",
          fix_class="SAFE_AUTO_FIX", standard=["CLAUDE.md-test-is-None-not-falsiness"],
@@ -559,7 +631,50 @@ def _parse_verified_findings(text: str) -> list[dict]:
     return out
 
 
+# ── Second-pass severity overrides ────────────────────────────────────────
+#
+# The adversarial second pass attacked surviving findings on three axes the
+# first pass never used: is it still true of today's tree, is the REMEDIATION
+# sound, and is the severity defensible. Corrections are recorded here with
+# their reasoning rather than edited into the markdown, so the original claim
+# and the correction stay legible side by side.
+#
+# Only DOWNGRADES appear below, and that is a finding about the audit: every
+# severity the second pass moved, it moved down. Agents asked to find defects
+# rate them generously, and two adversarial verifiers correcting 84 of 162 still
+# left a systematic upward bias.
+SECOND_PASS_SEVERITY = {
+    "B4-03": ("HIGH",
+              "Three prosecutors, one per lens: two said HIGH, one MEDIUM. None "
+              "left it at CRITICAL. Took HIGH, the more conservative of the two "
+              "below-CRITICAL verdicts. The remedy lens rated the proposed "
+              "remediation HARMFUL."),
+    "B4-20": ("MEDIUM", "Second pass confirmed MEDIUM against a disputed claim."),
+    "B5-02": ("LOW", "Second pass: MEDIUM not defensible on reachability."),
+    "B5-05": ("LOW", "Second pass: MEDIUM not defensible on reachability."),
+    "B5-06": ("LOW", "Second pass: every gate the finding names as missing was "
+                     "added to ci.yml AFTER .gitlab-ci.yml's last commit."),
+    "B5-11": ("MEDIUM", "Second pass adjudicated the disputed severity."),
+    "B5-22": ("LOW", "Second pass: the severity was borrowed from four sibling "
+                     "findings in the same batch rather than argued."),
+    "B6-05": ("LOW", "Second pass: severity overstated; remedy rated HARMFUL."),
+    "B6-13": ("LOW", "Second pass: the defect is real and re-derived at HEAD, "
+                     "but its remedy was rated HARMFUL and the severity does "
+                     "not survive the reachability question."),
+    "B6-38": ("INFORMATIONAL",
+              "Second pass: the assertion is AST-confirmed vacuous and untouched "
+              "by every audit-window PR, but a vacuous test in a doc-consistency "
+              "check carries no operational severity."),
+    "M-07": ("MEDIUM", "Second pass adjudicated the disputed severity."),
+}
+
 VERIFIED_FINDINGS = _parse_verified_findings(_raw_text)
+for _f in VERIFIED_FINDINGS:
+    _o = SECOND_PASS_SEVERITY.get(_f["id"])
+    if _o:
+        _f["severity_before_second_pass"] = _f["severity"]
+        _f["severity"], _f["second_pass_reason"] = _o
+        _f["severity_disputed"] = False  # adjudicated by the second pass
 
 # A gate whose coverage is overstated is the failure this repository spends its
 # guard tests preventing, so the parse is checked against the batch summaries

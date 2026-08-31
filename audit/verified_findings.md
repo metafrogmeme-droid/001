@@ -1287,7 +1287,7 @@ including each finding's verifier notes.
 
 ## RC-2026-018 — the default backtest fills entries at prices the market never traded
 
-- **Status**: FIXED · **Severity**: **CRITICAL** (the finder said BLOCKER; see the correction)
+- **Status**: FIXED · **Severity**: **HIGH** (finder BLOCKER -> verifiers CRITICAL -> second pass HIGH; the fixing session recorded CRITICAL from the pre-correction register. See "the CRITICAL was incoherent" below.)
 - **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
 - **File**: `bot/backtest/engine.py:593`
 
@@ -2105,3 +2105,161 @@ they do not. The second is cheaper and states the invariant out loud.
 **Test**: plant a row whose `telegram_id` belongs to another account, with 2FA
 disabled on the caller and enabled on the identity, and assert `/staking/fixed`
 refuses. That test fails today and passes under either remediation.
+
+---
+
+# The release decision changed: NO-GO → CONDITIONAL GO
+
+Not because anything was fixed. Because the adversarial second pass found that
+the two findings holding the NO-GO were **rated CRITICAL on reasoning the
+register itself had already refuted**, and three independent prosecutors per
+finding, one per lens, said so without conferring.
+
+## RC-2026-018 — the CRITICAL was incoherent, and this register carried the proof
+
+Verifier 1 justified CRITICAL in one sentence:
+
+> *"it corrupts every published backtest/scorecard number, which is CRITICAL
+> rather than ship-stopping."*
+
+Verifier 2 then proved that premise false: `--honest` forces
+`fill_mode="next_open"` at `runner.py:546-548`, and every published path passes
+`--honest` — `bot/api/lab.py:164`, `scripts/gen_agent_scorecards.py:70`,
+`docs/FROZEN_BENCHMARK.md`, and all four `benchmark/scorecards/*.json` carry
+`"honest": true`.
+
+**I adopted verifier 2's fact and kept verifier 1's severity.** This file says,
+two paragraphs below the severity line:
+
+> *"So the **frozen benchmark and the marketplace scorecards are NOT
+> affected.**"*
+
+while `audit/runeclaw-audit.json` and §5 of the report both said:
+
+> *"Every published backtest number rests on this."*
+
+Two of my own artifacts, in direct contradiction, on the finding driving the
+audit's verdict — and I repeated the false half in status updates more than
+once. The severity was inherited from an argument nobody re-derived after its
+premise was withdrawn.
+
+**Now HIGH.** What is genuinely affected: real-data default-mode developer runs
+(`run_realdata_backtest.py`, `backtest_realdata.py`, ad-hoc `runner`
+invocations without `--honest`). What is not: the frozen benchmark, the
+marketplace scorecards, the web Strategy Lab. `backtest_deep_results.json` is
+100% synthetic GBM — `run_deep_backtest.py` builds all 500 runs from
+`DataLoader.generate_synthetic`.
+
+The defect is untouched and still real. Only the blast radius was overstated.
+
+## The remediation was ALSO wrong, and that is the more useful finding
+
+This register proposed:
+
+> *"Add a test asserting every recorded entry price lies within some bar's
+> `[low, high]` **at or after** the signal bar."*
+
+A limit resting up to 1 ATR below the close is very often touched by *some*
+later bar. **That test passes on the unfixed engine.** It asserts the price was
+eventually plausible, not that it was tradeable when the fill was booked. The
+assertion has to be against the range of the bar the fill was **booked on**.
+
+Follow that remediation and you ship a non-fix with a green test vouching for
+it — which is the defect class this entire audit is about, written by the
+auditor, into the register, on the highest-severity finding.
+
+## B4-03 — three prosecutors, none left it at CRITICAL
+
+Two said HIGH, one MEDIUM. I took **HIGH**, the more conservative. The remedy
+lens additionally rated its proposed remediation **HARMFUL**.
+
+## What this verdict rests on, stated so it cannot be over-read
+
+**CONDITIONAL GO is not "ready to ship".** It means: no unresolved BLOCKER or
+CRITICAL, and **26 open HIGH findings**, each reported with a proposed patch
+rather than fixed, by the agreed scope. The conditions are those patches.
+
+**The second pass that produced this change is INCOMPLETE.** 13 of 56 targets
+were lost to a session limit. The two blockers are complete — three prosecutors
+each, all three reporting — so the specific adjudication behind this change is
+whole. The wider pass is not, and a later target could raise something. This
+verdict is therefore current, not final.
+
+**Every severity the second pass moved, it moved DOWN** — eight of them. That is
+a finding about the audit rather than about RUNECLAW: agents asked to find
+defects rate them generously, and two adversarial verifiers correcting 84 of 162
+severities still left a systematic upward bias. A reader should discount the
+remaining severities accordingly, in that direction.
+
+**The findings themselves held.** Across 24 prosecuted findings: zero refuted,
+zero stale. The defects are real and none had been quietly fixed. What did not
+hold was the severities (8 corrected, all down) and the remedies — **20 of 24
+incomplete, three of them actively harmful**.
+
+---
+
+# The adversarial second pass — 61 findings, 66 prosecutor reports
+
+Brief Phase 15. Targets were chosen by what a wrong claim would cost, computed
+from the artifact rather than picked: the findings driving the release decision,
+the open HIGHs, and the 33 whose severity the two first-pass verifiers
+**disagreed** about — where the finder's number stood by default rather than by
+argument. The two blockers got three prosecutors each, one per lens.
+
+The first pass asked *is this defect real*, three times over. This pass asked
+three questions nobody had:
+
+1. **Staleness** — is it still true of the tree today? Five PRs landed during
+   the audit and at least three findings were fixed by them. One triage claim
+   asserted a missing UNIQUE index the audit's own fix had already added.
+2. **Remediation soundness** — would the proposed fix work, and is it worse than
+   the defect?
+3. **Severity honesty** — adjudicate, rather than inherit, a disputed number.
+
+## Results
+
+| verdict | count |
+|---|---|
+| STANDS | 30 |
+| REMEDIATION_UNSOUND | 23 |
+| SEVERITY_WRONG | 13 |
+
+| remediation | count |
+|---|---|
+| INCOMPLETE | 49 |
+| HARMFUL | 8 |
+| SOUND | 8 |
+| NOT_ASSESSED | 1 |
+
+**61 of 66 reports carry executed evidence** — the prosecutors ran the code
+rather than reading it.
+
+### The findings held
+
+**0 refuted. 0 stale.** Not one of the 61 had been quietly fixed by the
+audit's own PRs, and not one fell over under a third adversarial read. The
+finder-plus-two-verifiers pipeline produced claims that survive.
+
+### The severities did not, and they failed in one direction
+
+**18 severities moved. Every one moved DOWN**: B4-03, B4-20, B5-02, B5-05, B5-06, B5-11, B5-22, B6-05, B6-13, B6-38, M-07, RC-2026-005, RC-2026-008, RC-2026-010, RC-2026-015, RC-2026-018, RC-2026-021, RC-2026-025.
+
+That is a finding about the audit, not about RUNECLAW. Agents asked to find
+defects rate them generously; two adversarial verifiers corrected 84 of 162
+severities and still left a systematic upward bias. **A reader should discount
+the remaining severities in that direction.**
+
+### The remedies did not, and that is the discovery
+
+**52 of 61 proposed fixes are incomplete or harmful** (85%). Three are
+actively **HARMFUL**: B4-03, B6-05, B6-13, M-07, RC-2026-009, RC-2026-013, RC-2026-015, RC-2026-025.
+
+Every gate this audit ran — finder, two verifiers, the lead-auditor register
+pass — asked whether the defect was real. **None asked whether the fix would
+work.** So the register accumulated well-evidenced defects paired with cures
+nobody had tested: one emits invalid Prometheus, one does not compile as
+written, and RC-2026-018's acceptance test passes on the unfixed engine.
+
+An audit that names real problems and prescribes broken cures is worth less than
+it looks. That gap was invisible from inside the first pass, because the first
+pass was not asking.

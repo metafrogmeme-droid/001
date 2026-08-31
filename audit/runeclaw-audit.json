@@ -4,8 +4,8 @@
     "target": "RUNECLAW by HUMANOID TRADERS",
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
-    "branch": "claude/new-session-fk85gd",
-    "commit": "9ae008c4b3831d44637684ad34d65d0955d16c90",
+    "branch": "claude/runeclaw-full-audit-8ks0k3",
+    "commit": "0a9b16a0a97a3082eb1dfa20a3a877545c6055f7",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -98,7 +98,8 @@
       "id": "RC-2026-015",
       "title": "/livebalance renders a FAILED exchange balance read as a complete $0.00 account statement",
       "status": "OPEN",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
+      "second_pass": "HIGH -> MEDIUM. Defect REPRODUCED by execution, not read: planting fetch_balance's own error return through the repo's _make_handler() harness prints Cash $0.00 / Used $0.00 / Equity $0.00 / NET $0.00 with no error text. Root cause confirmed - _get_exchange() assigns self._exchange BEFORE the fetch, so the honest error branch is reached only when exchange CONSTRUCTION fails, i.e. never for a rejected key, IP allowlist, nonce or venue 5xx. Remedy rated HARMFUL on its endorsed half: 'return None instead of a zeros dict' was executed against bot/main.py:180-186, where the error dict today selects STARTUP: exchange auth FAILED and set_live_auth_status(False), halting new live entries - None loses that halt. The PRIMARY fix (raise on bal['error']) is sound and scrubs via _safe_exc_text, but /livebalance is a COMPOSITE card whose PnL, trade count and exposure are genuinely readable, so CLAUDE.md's table prefers OMIT: render the balance block unknown and keep the rest.",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
       "component": "telegram",
@@ -108,7 +109,7 @@
       "standard": [
         "CWE-754"
       ],
-      "verified_by": "dimension-agent+2-verifiers",
+      "verified_by": "dimension-agent+2-verifiers+prosecutor",
       "note": "Cash, equity and the rest presented as a measurement. CLAUDE.md's first rule, on the account-value card."
     },
     {
@@ -148,8 +149,9 @@
       "id": "RC-2026-018",
       "title": "The default backtest fills entries at prices the market never traded",
       "status": "FIXED",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "confidence": "CONFIRMED",
+      "severity_history": "finder BLOCKER -> verifiers CRITICAL -> second pass HIGH (the fixing session, working from the pre-correction register, recorded it CRITICAL; HIGH is the adjudicated value and the reasoning is in the note)",
       "category": "backtest-integrity",
       "component": "backtest",
       "file": "bot/backtest/engine.py",
@@ -159,8 +161,8 @@
         "CWE-1041"
       ],
       "raw_id": "B4-01",
-      "verified_by": "lead-auditor+dimension-agent+2-verifiers",
-      "note": "Was: CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer set idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ had no order-type model at all - so the engine captured exactly the entries a real limit would have MISSED, the ones where price ran away. FIXED: _place_entry fills a market order at bar.close (what fill_mode='close' was always named for; the old call site passed the limit price while _execute_fill's own docstring said 'bar close'), fills a limit only when a bar's range reaches it (LONG bar.low <= px, SHORT bar.high >= px), and otherwise rests it - _drain_pending_limits runs each bar: fill on touch, expire at expire_seconds, cancel past price_drift_cancel_pct using the LIVE formula (live_executor.py:6721), both non-fill branches clearing the pending intent. The result now carries total_limits_filled / _filled_same_bar / _expired / _cancelled_drift, which were structurally 0 before: a run that cannot say how many entries never filled is indistinguishable from one where they all did. STATED LIMITATION: live's drift_market_fallback (default ON) converts some drifted limits to market orders and is NOT modelled, so _cancelled_drift is an upper bound and the backtest under-fills against live by that margin. 15 tests, 9 mutations killed, 187 existing backtest tests unchanged. backtest_deep_results.json predates the fix and must be regenerated before any figure in it is quoted."
+      "verified_by": "lead-auditor+dimension-agent+2-verifiers+3-prosecutors",
+      "note": "WAS: CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer set idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ had no order-type model at all - the engine captured exactly the entries a real limit would have MISSED, the ones where price ran away. SEVERITY, ADJUDICATED DOWN: verifier 1 justified CRITICAL with 'it corrupts every published backtest/scorecard number'; verifier 2 proved that false (--honest forces fill_mode=next_open at runner.py:546-548, and every published path passes --honest); the register adopted verifier 2's FACT while keeping verifier 1's SEVERITY. Three second-pass prosecutors, one per lens, independently said HIGH. AFFECTED: real-data default-mode developer runs. NOT AFFECTED: the frozen benchmark, the marketplace scorecards and the web Strategy Lab, which all pass --honest; backtest_deep_results.json is 100% synthetic GBM. FIXED on main (PR #243): _place_entry fills a market order at bar.close (what fill_mode='close' was always named for; the old call site passed the limit price while _execute_fill's own docstring said 'bar close'), fills a limit only when a bar's range reaches it (LONG bar.low <= px, SHORT bar.high >= px), and otherwise rests it - _drain_pending_limits runs each bar: fill on touch, expire at expire_seconds, cancel past price_drift_cancel_pct using the LIVE formula (live_executor.py:6721), both non-fill branches clearing the pending intent. The result now carries total_limits_filled / _filled_same_bar / _expired / _cancelled_drift, which were structurally 0 before: a run that cannot say how many entries never filled is indistinguishable from one where they all did. STATED LIMITATION (theirs, and it is the right call to state it): live's drift_market_fallback (default ON) converts some drifted limits to market orders and is NOT modelled, so _cancelled_drift is an upper bound and the backtest under-fills against live by that margin. 15 tests, 9 mutations killed, 187 existing backtest tests unchanged. backtest_deep_results.json predates the fix and must be regenerated before any figure in it is quoted. ONE TEST NOTE, not an objection to the fix: the second pass had flagged the PROPOSED acceptance test's shape, and the landed test_every_recorded_entry_lies_inside_some_bar_that_traded_it keeps it - it asserts min(low) <= px <= max(high) over the whole series, a hull the fixture's own levels (99.5/99.0/98.0 inside [94.5, 102]) already satisfy on the UNFIXED engine. Its CONSERVATION assertion is what makes it bite, and the other 12 tests in the file pin the behaviour directly, so the fix is covered; the invariant half of that one test is not what covers it."
     },
     {
       "id": "RC-2026-019",
@@ -200,7 +202,8 @@
       "id": "RC-2026-021",
       "title": "SECURITY.md promises human-in-the-loop confirmation that the default configuration does not provide",
       "status": "OPEN",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
+      "second_pass": "HIGH -> MEDIUM. The DEFECT stands - six public surfaces state an unconditional human-in-the-loop guarantee the code contradicts, and the repo's own tests/test_mcp_doc_matches_the_code.py is an admission of it applied to exactly one of the seven. Both props under the HIGH failed: agent_card.json is served by no route on either deploy target and referenced by no non-test code (and is already stale on live_trading), and 'the default configuration' is true of the CODE default but false of the SHIPPED one - .env.example turns both auto-confirm knobs off and `cp .env.example .env` is the documented install on four surfaces. Set against RC-2026-022, the same class, which both verifiers put at MEDIUM because no money moves differently. BOTH remedies are unsound: (b)'s threshold half is defeated by the adaptive block, on by default, unsettable from .env.example, walking a 1.0 'disable' down to 0.60 on a winning streak (executed), and it fails a test in the file it tells the fixer to edit; (a) read literally yields \"requires_confirmation\": false - a safety declaration inverted toward danger on every standard install.",
       "confidence": "CONFIRMED",
       "category": "docs-vs-default",
       "component": "documentation",
@@ -210,7 +213,7 @@
       "standard": [
         "CWE-1059"
       ],
-      "verified_by": "lead-auditor",
+      "verified_by": "lead-auditor+prosecutor",
       "note": "The one HIGH in its batch neither verifier downgraded, and I verified it directly. Documentation vs default is a product decision, so REVIEW_REQUIRED rather than a doc edit."
     },
     {
@@ -270,7 +273,8 @@
       "id": "RC-2026-025",
       "title": "The 2FA step-up reads the caller's row while the money move executes as the resolved bot identity",
       "status": "OPEN",
-      "severity": "MEDIUM",
+      "severity": "LOW",
+      "second_pass": "MEDIUM -> LOW. Reproduces in the breached state, but that state is unreachable now that uniq_users_telegram_id and the 409 both exist. LOW as a latent invariant - and its own remedy was rated HARMFUL.",
       "confidence": "CONFIRMED",
       "category": "incorrect-authorization",
       "component": "web-app/staking",
@@ -340,7 +344,8 @@
       "id": "RC-2026-005",
       "title": "90 default-ON safety toggles are absent from .env.example",
       "status": "OPEN",
-      "severity": "MEDIUM",
+      "severity": "LOW",
+      "second_pass": "MEDIUM -> LOW. The 71 default-ON flags are absent from .env.example, but they are safety-ON by default, so an operator who never edits the file gets the protected behaviour. The harm is discoverability, not exposure.",
       "confidence": "CONFIRMED",
       "category": "configuration-governance",
       "component": "config",
@@ -402,7 +407,8 @@
       "id": "RC-2026-008",
       "title": "Backups omit the per-user credential store, and the master key that opens what they do archive",
       "status": "PARTIALLY_FIXED",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
+      "second_pass": "HIGH -> MEDIUM. STANDS on all three lenses and part (c) is worse than written, but MEDIUM is the defensible number for a backup-completeness gap behind an operator-only manual restore.",
       "confidence": "CONFIRMED",
       "category": "credential-durability",
       "component": "ops",
@@ -476,7 +482,8 @@
       "id": "RC-2026-010",
       "title": "The honest 'unscored' win rate makes the whole stats card disappear",
       "status": "OPEN",
-      "severity": "MEDIUM",
+      "severity": "LOW",
+      "second_pass": "MEDIUM -> LOW. Remedy rated SOUND; severity overstated. The honest unscored path HIDES a card rather than asserting a false number.",
       "confidence": "CONFIRMED",
       "category": "display-honesty",
       "component": "telegram-bot",
@@ -584,7 +591,7 @@
     {
       "id": "M-07",
       "title": "BitgetV3Client ignores CONFIG.exchange.sandbox \u2014 a demo-configured bot sends live-account strategy and close orders",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": null,
       "severity_disputed": false,
@@ -594,7 +601,9 @@
       "fix_class": "REVIEW_REQUIRED",
       "file": "bot/core/bitget_v3_client.py:33-44",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "HIGH",
+      "second_pass_reason": "Second pass adjudicated the disputed severity."
     },
     {
       "id": "M-08",
@@ -1235,20 +1244,22 @@
     {
       "id": "B4-03",
       "title": "Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "severity_claimed": "CRITICAL",
       "severity_verifier": [
         "MEDIUM",
         "HIGH"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "backtest",
       "fix_class": "REVIEW_REQUIRED",
       "file": "bot/backtest/engine.py:614",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "CRITICAL",
+      "second_pass_reason": "Three prosecutors, one per lens: two said HIGH, one MEDIUM. None left it at CRITICAL. Took HIGH, the more conservative of the two below-CRITICAL verdicts. The remedy lens rated the proposed remediation HARMFUL."
     },
     {
       "id": "B4-04",
@@ -1547,14 +1558,16 @@
         "UNCHANGED",
         "MEDIUM"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "honesty-js",
       "fix_class": "REVIEW_REQUIRED",
       "file": "app/public/js/dashboard.js:6300-6310",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass confirmed MEDIUM against a disputed claim."
     },
     {
       "id": "B4-21",
@@ -1775,20 +1788,22 @@
     {
       "id": "B5-02",
       "title": "Third-party GitHub Actions are referenced by mutable branch/tag, not commit SHA \u2014 including a branch ref on the Rust toolchain action",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "infra-cicd",
       "fix_class": "SAFE_AUTO_FIX",
       "file": ".github/workflows/ci.yml:173, 176, 454",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: MEDIUM not defensible on reachability."
     },
     {
       "id": "B5-03",
@@ -1829,38 +1844,42 @@
     {
       "id": "B5-05",
       "title": "GitLab's token-tooling job runs from the repo root against paths that only exist under token/, and its `rules: changes` list can never match",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "infra-cicd",
       "fix_class": "REVIEW_REQUIRED",
       "file": ".gitlab-ci.yml:92-99",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: MEDIUM not defensible on reachability."
     },
     {
       "id": "B5-06",
       "title": "The GitLab pipeline silently omits nine GitHub gates while its header promises that every omission is stated",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "infra-cicd",
       "fix_class": "REVIEW_REQUIRED",
       "file": ".gitlab-ci.yml:10-20, 57-62, 81-90",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: every gate the finding names as missing was added to ci.yml AFTER .gitlab-ci.yml's last commit."
     },
     {
       "id": "B5-07",
@@ -1937,20 +1956,22 @@
     {
       "id": "B5-11",
       "title": "pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
         "MEDIUM",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "deps",
       "fix_class": "REVIEW_REQUIRED",
       "file": ".github/workflows/ci.yml:161-163 (with bot/requirements.txt:10-13, Dockerfile:22-23, tests/test_manifests_agree.py:49)",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "HIGH",
+      "second_pass_reason": "Second pass adjudicated the disputed severity."
     },
     {
       "id": "B5-12",
@@ -2135,20 +2156,22 @@
     {
       "id": "B5-22",
       "title": "The privacy policy's collection list and deletion list do not match what the code stores: verbatim chat text, personal ingest notes and third-party provider keys are undisclosed and undeleted",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "LOW",
         "UNCHANGED"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "privacy",
       "fix_class": "REVIEW_REQUIRED",
       "file": "website/privacy/index.html:28",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: the severity was borrowed from four sibling findings in the same batch rather than argued."
     },
     {
       "id": "B5-23",
@@ -2387,20 +2410,22 @@
     {
       "id": "B6-05",
       "title": "Platform header chips announce PAPER vs LIVE and engine reachability with no live region \u2014 the mode change is silent to screen readers",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "MEDIUM"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "a11y",
       "fix_class": "SAFE_AUTO_FIX",
       "file": "app/public/dashboard.html:21, 24",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: severity overstated; remedy rated HARMFUL."
     },
     {
       "id": "B6-06",
@@ -2531,20 +2556,22 @@
     {
       "id": "B6-13",
       "title": "Every losing journal entry is stamped with a fabricated lesson ('Low confidence trade lost') derived from a confidence field nothing ever records",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "reachability",
       "fix_class": "REVIEW_REQUIRED",
       "file": "bot/core/engine.py:7170",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: the defect is real and re-derived at HEAD, but its remedy was rated HARMFUL and the severity does not survive the reachability question."
     },
     {
       "id": "B6-14",
@@ -2981,20 +3008,22 @@
     {
       "id": "B6-38",
       "title": "A vacuous `assert ... or True` in tests/test_board_cards.py \u2014 the exact pattern the repo caught and annotated once, missed a second time",
-      "severity": "LOW",
+      "severity": "INFORMATIONAL",
       "severity_claimed": "LOW",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "tests",
       "fix_class": "SAFE_AUTO_FIX",
       "file": "tests/test_board_cards.py:71",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "LOW",
+      "second_pass_reason": "Second pass: the assertion is AST-confirmed vacuous and untouched by every audit-window PR, but a vacuous test in a doc-consistency check carries no operational severity."
     },
     {
       "id": "B7-01",
@@ -3657,23 +3686,17 @@
     }
   },
   "release_decision": {
-    "decision": "NO-GO",
-    "basis": "1 unresolved BLOCKER/CRITICAL finding. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
-    "blockers": [
-      "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them"
-    ],
+    "decision": "CONDITIONAL GO",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 21 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "blockers": [],
     "open_high": [
       "RC-2026-013 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
       "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
-      "RC-2026-015 /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement",
       "RC-2026-016 The web gateway reports unprotected: false for a live position whose stop could not be read",
       "RC-2026-019 The GDPR purge misses the bot's SQLite database entirely",
       "RC-2026-020 Web-only accounts never reach the purge at all",
-      "RC-2026-021 SECURITY.md promises human-in-the-loop confirmation that the default configuration does not provide",
       "RC-2026-023 The operator's live dashboard header badge is hardcoded SIMULATION and never reads the mode the server sends",
-      "RC-2026-008 Backups omit the per-user credential store, and the master key that opens what they do archive",
       "M-01 Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id=\"auto\", bypassing every per-user gate",
-      "M-07 BitgetV3Client ignores CONFIG.exchange.sandbox \u2014 a demo-configured bot sends live-account strategy and close orders",
       "M-08 Post-fill leverage-overshoot guard is structurally inert on the limit-fill, partial-fill and drift-fallback paths \u2014 it passes a spot-form symbol that ccxt filters out",
       "M-15 The LIVE daily-loss accumulator is dropped by the combined-state restore that production actually uses \u2014 the daily-loss breaker gets a full fresh budget on every restart",
       "M-16 Correlation, portfolio-exposure, symbol-exposure, PCA-concentration and VaR gates measure the paper portfolio, which is never populated in LIVE-ONLY mode \u2014 five of the 23 caps report measured passes over an empty book",
@@ -3682,10 +3705,10 @@
       "B3-16 /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement \u2014 Cash, Equity and NET all \"$0.00\"",
       "B3-17 The web gateway reports `unprotected: false` for a live position that has NO stop at all, and the dashboard paints it \"\ud83e\udd16 bot-managed\" under a \"\ud83d\udee1\ufe0f All positions have their stop-loss on the exchange\" banner",
       "B4-02 /walk_forward's out-of-sample window is shorter than the indicator warmup, so every fold reports an unrun test as a measured +0.00% and 0% consistency",
+      "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them",
       "B4-04 --honest win rate and trade count are per scale-out LEG, not per position, inflating every published scorecard win rate",
       "B4-15 buildDefiPositions returns an all-clear on Aave liquidation risk when every chain RPC is dead \u2014 no marker distinguishes it from a position-free wallet",
       "B4-16 buildExposure renders a failed `trades` query as a flat book \u2014 \"No directional exposure found \u2014 no open positions\" and $0 net/gross",
-      "B5-11 pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates",
       "B7-02 Operator dashboard renders a swallowed positions-read exception as \"No open positions\" (HTTP 200 with an empty or partial list)",
       "B7-03 Operator dashboard paints \"CIRCUIT BREAKER: OK\" in green from a failed risk read"
     ],
