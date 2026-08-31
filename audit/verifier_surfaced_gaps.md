@@ -1,21 +1,88 @@
 # Defects the VERIFIERS found that the finders missed
 
-## Status: TRIAGE INCOMPLETE — 36 of 59 examined, 15 of those adversarially judged
+## Status: TRIAGE COMPLETE — 59 of 59 examined, 59 adversarially classified
 
-A session limit ended the triage mid-run. **55 agents failed with `You've hit
-your session limit`** — 18 in the 16-30 batch, 17 in 31-45, 20 in 46-59; the
-1-15 batch completed all 43 of its agents with no errors. What follows is
-exactly what was and was not covered; nothing here is rounded up.
+Every claim in this file has now been read against the code. Each was then put
+to **two independent adversarial refuters** with different lenses, both
+instructed to default to `refuted`. A claim refuted by both is REFUTED; by one,
+SUSPECTED; by neither, CONFIRMED. A claim the verification pass itself rejected
+never reached the refuters.
 
-> The first draft of this paragraph said **28**, which was the count of
-> *successful* refutation verdicts in batch 1 — I read the wrong variable and
-> published it as a failure count, in the sentence establishing how much to
-> trust the rest of the section. Corrected by recounting from each run's
-> `agents_error`. It is the same defect this whole audit keeps finding, and the
-> reason the numbers in this file are now computed rather than typed.
-
-| coverage | items | what was done |
+| outcome | count | items |
 |---|---|---|
+| **CONFIRMED** — held against both refuters | **22** | 1, 2, 3, 4, 5, 8, 11, 12, 13, 15, 21, 22, 24, 32, 37, 38, 42, 48, 49, 51, 54, 56 |
+| **SUSPECTED** — one refuter dissented | 16 | 6, 7, 9, 10, 16, 17, 19, 27, 28, 31, 35, 41, 46, 50, 53, 57 |
+| **REFUTED** — both refuters rejected it | 7 | 26, 34, 40, 47, 52, 55, 59 |
+| **rejected at verification** — did not survive first contact with the code | 14 | 14, 18, 20, 23, 25, 29, 30, 33, 36, 39, 43, 44, 45, 58 |
+| **incomplete** — fewer than two refutation verdicts | 0 | — |
+
+**21 of the 59 claims were rejected somewhere** — 14 did not
+survive first contact with the code (#14, #18, #20, #23, #25, #29, #30, #33, #36, #39, #43, #44, #45, #58), and a further
+7 were held by the verification pass and then rejected by BOTH refuters
+(#26, #34, #40, #47, #52, #55, #59). That is a **36% overall rejection rate** on the
+verifiers' own escalations.
+
+Stating it as the verification-stage rate alone (24%) would understate
+it,
+and understating a rejection rate in the document that exists to say how much
+these claims can be trusted is the wrong direction to be wrong in.
+
+This is why they were held here as claims rather than promoted to findings: the
+verifiers were right more often than not, and not reliably enough to be taken on
+trust. **38 of 59** came through with something left standing.
+
+**Every one of the 45 claims that survived verification was reproduced by
+EXECUTION**, not by reading: the agents imported the modules, planted state,
+drove the failure and pasted real output. That includes the 7 the refuters
+later rejected — reproducing a mechanism and establishing that it matters are
+different questions, and the refuters answered the second one.
+
+| severity of the 45 that hold | count |
+|---|---|
+| HIGH | 12 |
+| MEDIUM | 17 |
+| LOW | 16 |
+
+Duplicate pairs among the survivors: #2=#3, #4=#5, #6=#7, #49=#50.
+So the 45 holding claims describe **41 distinct defects**.
+
+### What the triage caught that neither finder nor verifier did
+
+**#30's claim is already false.** It says `users.telegram_id` carries no UNIQUE
+index. It does — `app/db.js:2953`, added by the RC-2026-001 fix earlier in this
+same audit. The verifier wrote the claim before the fix landed and nothing
+re-read it afterwards. A finding register that is not re-checked against the
+tree it describes goes stale in exactly this direction.
+
+**#26 was refuted by both refuters after the verification pass held it HIGH.**
+The disagreement is the mechanism working: one agent reading carefully is not a
+finding, which is the whole argument of this file.
+
+**#16 was wrong in the direction that matters.** It asserted that rebinding a
+push endpoint lets an attacker *receive and decrypt* the victim's
+notifications. Reproduced, it is the opposite: the delivery target is the
+endpoint — the victim's browser — so the attacker receives nothing and the
+victim gets ciphertext they cannot read. Integrity, not confidentiality. The
+claim's own proposed alternative fix is strictly worse than the defect.
+
+**#1 found a test that acquits vacuously.**
+`tests/test_command_audience_matches_permission.py` scores a command with **no
+guard at all** exactly as it scores one gated by a permission nobody holds:
+`_permission_string` returns `None`, and the reachability comprehension then
+evaluates `None in p`, which is empty. `/broadcast` and `/channel` both pass it
+while carrying no `@guard`. A false acquittal, in the direction CLAUDE.md names
+as the dangerous one.
+
+### Status of these items
+
+CONFIRMED and SUSPECTED items are **candidate findings, not findings**. They
+have not been through the lead-auditor pass that the `RC-2026-NNN` register
+requires — code re-read by hand, reachability established from outside the file,
+a fix or a proposed patch written. They are not counted in the audit's finding
+totals or in its release decision.
+
+---
+|---|---|
 | **full** — verified **and** put to two adversarial refuters | 15 | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 |
 | **single-pass** — verified, **no refutation** | 21 | 16, 17, 18, 19, 20, 21, 22, 23, 24, 31, 32, 33, 34, 35, 36, 46, 47, 48, 49, 50, 51 |
 | **not examined at all** | 23 | 25, 26, 27, 28, 29, 30, 37, 38, 39, 40, 41, 42, 43, 44, 45, 52, 53, 54, 55, 56, 57, 58, 59 |
