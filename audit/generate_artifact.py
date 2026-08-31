@@ -180,7 +180,11 @@ F = [
               "all-refs sweep moved to a schedule."),
     dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the money "
          "move executes as the resolved bot identity",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         status="OPEN", severity="LOW",
+         second_pass="MEDIUM -> LOW. Reproduces in the breached state, but "
+                     "that state is unreachable now that uniq_users_telegram_id "
+                     "and the 409 both exist. LOW as a latent invariant - and "
+                     "its own remedy was rated HARMFUL.", confidence="CONFIRMED",
          category="incorrect-authorization", component="web-app/staking",
          file="app/routes/staking.js", line="55-66", fix_class="REVIEW_REQUIRED",
          standard=["CWE-863", "ASVS-4.2.1"], verified_by="lead-auditor",
@@ -214,7 +218,11 @@ F = [
          fix_class="SAFE_AUTO_FIX", standard=["CWE-1126"], verified_by="lead-auditor",
          test="tests/test_scanners_skip_vendored_trees.py"),
     dict(id="RC-2026-005", title="90 default-ON safety toggles are absent from .env.example",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         status="OPEN", severity="LOW",
+         second_pass="MEDIUM -> LOW. The 71 default-ON flags are absent from "
+                     ".env.example, but they are safety-ON by default, so an "
+                     "operator who never edits the file gets the protected "
+                     "behaviour. The harm is discoverability, not exposure.", confidence="CONFIRMED",
          category="configuration-governance", component="config",
          file=".env.example", line="n/a", fix_class="REVIEW_REQUIRED",
          standard=["NIST-SSDF-PW.9", "CWE-1188"], verified_by="lead-auditor",
@@ -255,7 +263,11 @@ F = [
               "would matter if the book ever became per-user."),
     dict(id="RC-2026-008", title="Backups omit the per-user credential store, and the "
          "master key that opens what they do archive",
-         status="PARTIALLY_FIXED", severity="HIGH", confidence="CONFIRMED",
+         status="PARTIALLY_FIXED", severity="MEDIUM",
+         second_pass="HIGH -> MEDIUM. STANDS on all three lenses and part (c) "
+                     "is worse than written, but MEDIUM is the defensible "
+                     "number for a backup-completeness gap behind an "
+                     "operator-only manual restore.", confidence="CONFIRMED",
          category="credential-durability", component="ops",
          file="bot/utils/backup.py", line="35-47", fix_class="REVIEW_REQUIRED",
          standard=["CWE-522"], verified_by="lead-auditor+dimension-agent",
@@ -309,7 +321,10 @@ F = [
          fix_class="REVIEW_REQUIRED", standard=["CLAUDE.md-unreadable-is-never-zero"],
          verified_by="lead-auditor"),
     dict(id="RC-2026-010", title="The honest 'unscored' win rate makes the whole stats "
-         "card disappear", status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         "card disappear", status="OPEN", severity="LOW",
+         second_pass="MEDIUM -> LOW. Remedy rated SOUND; severity overstated. "
+                     "The honest unscored path HIDES a card rather than "
+                     "asserting a false number.", confidence="CONFIRMED",
          category="display-honesty", component="telegram-bot",
          file="bot/skills/telegram_handler.py", line="12567,12574",
          fix_class="SAFE_AUTO_FIX", standard=["CLAUDE.md-test-is-None-not-falsiness"],

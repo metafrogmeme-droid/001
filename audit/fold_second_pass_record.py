@@ -70,7 +70,14 @@ _SUMMARY.write_text(json.dumps({
 n_ids, n_rows = len(ids), len(rows)
 pct_unsound = round(100 * len(unsound) / n_ids)
 doc = pathlib.Path("audit/verified_findings.md")
-doc.write_text(doc.read_text() + f'''
+# Idempotent: strip any previous copy of this section before appending. Running
+# a generator twice must not double the document, and "append" is one of the
+# two ways a record silently grows wrong (the other being a stale header).
+_MARK = "\n---\n\n# The adversarial second pass"
+_existing = doc.read_text()
+if _MARK in _existing:
+    _existing = _existing[:_existing.index(_MARK)]
+doc.write_text(_existing + f'''
 ---
 
 # The adversarial second pass — {n_ids} findings, {n_rows} prosecutor reports
