@@ -12538,7 +12538,6 @@ class TelegramHandler:
 
             total_trades = len(user_trades)
             _ws = _win_stats(user_trades)
-            wins = _ws["wins"]
             # None travels. `... if rate is not None else 0` converted "nothing
             # could be scored" into "everything lost" one layer ABOVE the
             # renderer, so no amount of care in render_performance could
@@ -12646,9 +12645,11 @@ class TelegramHandler:
             # RC-2026-010. `sum(1 for t in trades if t.pnl > 0)` raises on a
             # close carrying no recorded P&L, and `... else 0` mapped "no
             # trades" onto a MEASURED 0% win rate -- a claim that everything
-            # lost. win_stats() is the helper the live branch already uses and
-            # answers None when nothing could be scored.
-            from bot.utils.win_rate import win_stats as _win_stats
+            # lost. `_win_stats` (module-level, line 684) is the helper the
+            # live branch already uses and answers None when nothing could be
+            # scored. NOT re-imported here: a function-local import binds the
+            # name for the WHOLE function, which made the live branch's call
+            # above an unbound local.
             _ws = _win_stats(trades)
             win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
             best_pair = None

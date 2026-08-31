@@ -26,7 +26,6 @@ rather than reading them:
 The card was assembled inline inside a 12,000-line handler, so none of this
 could be planted and read. `performance_card_payload` is that seam.
 """
-import pytest
 
 from bot.formatters.performance_card import performance_card_payload
 

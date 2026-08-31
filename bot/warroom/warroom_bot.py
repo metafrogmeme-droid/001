@@ -97,7 +97,8 @@ def _money(v: Optional[float], sign: bool = False) -> str:
 
 
 def _spark(v: Optional[float]) -> str:
-    if v is None: return _DASH
+    if v is None:
+        return _DASH
     if v > 2: return "\u25b2"
     if v > 0: return "\u25b3"
     if v < -2: return "\u25bc"
@@ -108,7 +109,8 @@ def _spark(v: Optional[float]) -> str:
 def _pnl_arrow(v: Optional[float]) -> str:
     # Deliberately NOT the flat glyph: `\u25c7` is what a MEASURED break-even
     # gets, and "flat" and "unknown" must not share a symbol.
-    if v is None: return f"{_NEU}{_DASH}"
+    if v is None:
+        return f"{_NEU}{_DASH}"
     if v > 0: return f"{_OK}\u25b2"
     if v < 0: return f"{_BAD}\u25bc"
     return f"{_NEU}\u25c7"
