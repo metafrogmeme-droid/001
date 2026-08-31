@@ -598,6 +598,14 @@ SECOND_PASS_SEVERITY = {
     "B5-22": ("LOW", "Second pass: the severity was borrowed from four sibling "
                      "findings in the same batch rather than argued."),
     "B6-05": ("LOW", "Second pass: severity overstated; remedy rated HARMFUL."),
+    "B6-13": ("LOW", "Second pass: the defect is real and re-derived at HEAD, "
+                     "but its remedy was rated HARMFUL and the severity does "
+                     "not survive the reachability question."),
+    "B6-38": ("INFORMATIONAL",
+              "Second pass: the assertion is AST-confirmed vacuous and untouched "
+              "by every audit-window PR, but a vacuous test in a doc-consistency "
+              "check carries no operational severity."),
+    "M-07": ("MEDIUM", "Second pass adjudicated the disputed severity."),
 }
 
 VERIFIED_FINDINGS = _parse_verified_findings(_raw_text)

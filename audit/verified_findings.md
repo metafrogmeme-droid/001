@@ -2156,7 +2156,7 @@ incomplete, three of them actively harmful**.
 
 ---
 
-# The adversarial second pass — 45 findings, 50 prosecutor reports
+# The adversarial second pass — 53 findings, 58 prosecutor reports
 
 Brief Phase 15. Targets were chosen by what a wrong claim would cost, computed
 from the artifact rather than picked: the findings driving the release decision,
@@ -2178,29 +2178,29 @@ three questions nobody had:
 
 | verdict | count |
 |---|---|
-| STANDS | 22 |
-| REMEDIATION_UNSOUND | 17 |
-| SEVERITY_WRONG | 11 |
+| STANDS | 27 |
+| REMEDIATION_UNSOUND | 19 |
+| SEVERITY_WRONG | 12 |
 
 | remediation | count |
 |---|---|
-| INCOMPLETE | 36 |
-| SOUND | 7 |
-| HARMFUL | 6 |
+| INCOMPLETE | 42 |
+| SOUND | 8 |
+| HARMFUL | 7 |
 | NOT_ASSESSED | 1 |
 
-**45 of 50 reports carry executed evidence** — the prosecutors ran the code
+**53 of 58 reports carry executed evidence** — the prosecutors ran the code
 rather than reading it.
 
 ### The findings held
 
-**0 refuted. 0 stale.** Not one of the 45 had been quietly fixed by the
+**0 refuted. 0 stale.** Not one of the 53 had been quietly fixed by the
 audit's own PRs, and not one fell over under a third adversarial read. The
 finder-plus-two-verifiers pipeline produced claims that survive.
 
 ### The severities did not, and they failed in one direction
 
-**14 severities moved. Every one moved DOWN**: B4-03, B4-20, B5-02, B5-05, B5-06, B5-11, B5-22, B6-05, B6-13, RC-2026-005, RC-2026-008, RC-2026-010, RC-2026-018, RC-2026-025.
+**16 severities moved. Every one moved DOWN**: B4-03, B4-20, B5-02, B5-05, B5-06, B5-11, B5-22, B6-05, B6-13, B6-38, M-07, RC-2026-005, RC-2026-008, RC-2026-010, RC-2026-018, RC-2026-025.
 
 That is a finding about the audit, not about RUNECLAW. Agents asked to find
 defects rate them generously; two adversarial verifiers corrected 84 of 162
@@ -2209,8 +2209,8 @@ the remaining severities in that direction.**
 
 ### The remedies did not, and that is the discovery
 
-**37 of 45 proposed fixes are incomplete or harmful** (82%). Three are
-actively **HARMFUL**: B4-03, B6-05, B6-13, RC-2026-009, RC-2026-013, RC-2026-025.
+**44 of 53 proposed fixes are incomplete or harmful** (83%). Three are
+actively **HARMFUL**: B4-03, B6-05, B6-13, M-07, RC-2026-009, RC-2026-013, RC-2026-025.
 
 Every gate this audit ran — finder, two verifiers, the lead-auditor register
 pass — asked whether the defect was real. **None asked whether the fix would
