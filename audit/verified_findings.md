@@ -1458,7 +1458,8 @@ Worth fixing; not HIGH.
 
 ## RC-2026-019 — the GDPR purge misses the bot's SQLite database entirely
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **FIXED**: `purge_user_data` reaches all seven tables, the parent delete is CONDITIONAL on the row being a stub so a collision cannot cascade away somebody's account, and the verdicts survive the audit redactor. NEEDS_LEGAL_REVIEW still applies to whether this satisfies erasure.
 - **File**: `bot/web/user_gateway.py:2830-2900`
 - **Fix class**: REVIEW_REQUIRED
 
@@ -1495,7 +1496,8 @@ list.
 
 ## RC-2026-020 — web-only accounts never reach the purge at all
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **FIXED**: the bot purge is no longer gated on `user.telegram_id`; a web-only account is purged under the `web:<id>` identity the gateway actually stores, and a telegram_id spelled `web:*` is refused rather than sent. NEEDS_LEGAL_REVIEW still applies.
 - **File**: `app/auth.js:1724-1730`
 
 ```js

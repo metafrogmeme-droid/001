@@ -600,6 +600,17 @@ class UserStore:
         """
         key = str(telegram_id)
         with self._lock:
+            # RC-2026-019. On a failed load `_users` is {} and `_save` refuses
+            # to write, so this returned False -- "there was no such record" --
+            # for a file it could not READ. On an erasure request that is the
+            # audit's central defect on the surface where it is least
+            # forgivable: the caller reports "none", the request is recorded as
+            # satisfied, and the record may still be on disk. Raise instead;
+            # every caller already maps an exception to `error`.
+            if getattr(self, "_load_failed", False):
+                raise RuntimeError(
+                    "users.json failed to load; cannot honour an erasure "
+                    "request against a store that could not be read")
             if key not in self._users:
                 return False
             del self._users[key]

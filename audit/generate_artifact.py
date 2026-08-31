@@ -152,14 +152,14 @@ F = [
               "other 12 tests in the file pin the behaviour directly, so the fix is covered; "
               "the invariant half of that one test is not what covers it."),
     dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="privacy-erasure", component="bot/web/user_gateway",
          file="bot/web/user_gateway.py", line="2830-2900", fix_class="REVIEW_REQUIRED",
          standard=["GDPR-Art.17"], verified_by="lead-auditor",
          note="NEEDS_LEGAL_REVIEW. Wider than RC-2026-006, which fixed only the "
               "attribute probe: bot.db.models is not reached by the purge at all."),
     dict(id="RC-2026-020", title="Web-only accounts never reach the purge at all",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="privacy-erasure", component="web-app/auth",
          file="app/auth.js", line="1724-1730", fix_class="REVIEW_REQUIRED",
          standard=["GDPR-Art.17"], verified_by="lead-auditor",
