@@ -84,20 +84,40 @@ async def handle_state(request: web.Request) -> web.Response:
         # RC-AUD-016: report the REAL trading mode, not a hardcoded True.
         # A hardcoded "simulation_mode": True made the dashboard show paper mode
         # even while trading live with real capital.
+        #
+        # RC-2026-023: `not is_live()` is a TWO-valued projection of a
+        # four-valued world. A box with SIMULATION_MODE=false and
+        # LIVE_TRADING_ENABLED=false -- the staging posture the runbook
+        # describes -- places no orders and answered `simulation_mode: True`,
+        # i.e. SIMULATION for a bot that is not simulating. An UNREADABLE
+        # config answered the same thing, which is a confident verdict
+        # manufactured from a failed read, in the reassuring direction.
+        # mode_label() is this tree's canonical answer and already serves four
+        # other surfaces: LIVE / PAPER / IDLE / UNKNOWN.
         try:
             from bot.config import CONFIG as _engine_cfg
-            _sim_mode = not _engine_cfg.is_live()
+            from bot.core.live_readiness import mode_label as _mode_label
+            _trading_mode = _mode_label(_engine_cfg)
         except Exception:
-            _sim_mode = True  # fail safe: default to showing simulation
+            _trading_mode = "UNKNOWN"
         data["engine"] = {
             "state": state_name,
             "scan_interval": getattr(engine, "_scan_interval", 60),
             "pending_ideas": len(getattr(engine, "pending_ideas", [])),
-            "simulation_mode": _sim_mode,
+            # Value-identical to the old `not is_live()` for every input,
+            # including the failures: mode_label() answers LIVE exactly when
+            # is_live() is True, and UNKNOWN on every read that raised -- where
+            # the old code fell to its `except -> True` fail-safe. Kept so no
+            # existing reader changes behaviour; new readers want trading_mode,
+            # which can say "nobody read it".
+            "simulation_mode": _trading_mode != "LIVE",
+            "trading_mode": _trading_mode,
             "state_history": history,
         }
     except Exception:
-        data["engine"] = {"state": "UNKNOWN"}
+        # Was {"state": "UNKNOWN"} with no mode key at all -- the client then
+        # had nothing to distinguish "not read" from "paper".
+        data["engine"] = {"state": "UNKNOWN", "trading_mode": "UNKNOWN"}
 
     # LLM Tiers — RESOLVED, not recited.
     #
@@ -325,9 +345,32 @@ async def handle_performance_chart(request: web.Request) -> web.Response:
 # PnL or any per-user data — so it is safe to expose to a scraper.
 
 def _is_ready(snap) -> bool:
-    """Readiness = exchange reachable and health not CRITICAL."""
-    return bool(getattr(snap, "exchange_connected", False)) and \
-        getattr(snap, "status", "CRITICAL") != "CRITICAL"
+    """Readiness = nothing has REPORTED a failure.
+
+    RC-2026-014, and the choice here is deliberate. This used to read
+    `bool(exchange_connected) and status != "CRITICAL"` with a docstring
+    promising it "fails CLOSED if health can't be determined". That promise was
+    never tested, because `exchange_connected` defaulted to True and `status`
+    to HEALTHY -- so the endpoint answered 200 off values nobody had written,
+    which is the opposite of failing closed.
+
+    Now that the snapshot says UNKNOWN honestly, the literal fail-closed
+    reading would return 503 FOREVER: `SystemHealthMonitor` has no feeder in
+    the tree, so "not determined" is its steady state, and a readiness probe
+    stuck at 503 is an outage that is not happening. Trading a false all-clear
+    for a false alarm is not an improvement.
+
+    So: a REPORTED failure fails readiness; an ABSENT reading does not, and
+    /ready's body carries `health_observed` so the difference is legible. The
+    fail-closed promise becomes honourable the moment something calls
+    `record_api_call` / `set_exchange_status`; until then it cannot be kept by
+    the status code, only pretended.
+    """
+    if getattr(snap, "status", None) == "CRITICAL":
+        return False
+    # `is False` -- an explicit report of disconnection. None is "nobody
+    # looked", and bool(None) would have silently meant "down".
+    return getattr(snap, "exchange_connected", None) is not False
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -362,7 +405,13 @@ async def handle_ready(request: web.Request) -> web.Response:
         body = {
             "ready": ready,
             "status": getattr(snap, "status", "UNKNOWN"),
-            "exchange_connected": bool(getattr(snap, "exchange_connected", False)),
+            # Was `bool(...)`, which rendered "nobody checked" as False, i.e.
+            # as a reported disconnection. null says which it is.
+            "exchange_connected": getattr(snap, "exchange_connected", None),
+            # The honest qualifier on `ready` above: false means this instance
+            # answered 200 because nothing reported a fault, NOT because
+            # anything confirmed it healthy.
+            "health_observed": getattr(snap, "status", "UNKNOWN") != "UNKNOWN",
             "uptime_seconds": getattr(snap, "uptime_seconds", 0.0),
         }
         return web.json_response(body, status=200 if ready else 503)
@@ -388,11 +437,24 @@ def _render_prometheus(engine) -> str:
         s = engine.health.snapshot()
         metric("runeclaw_ready", int(_is_ready(s)), "1 if the bot is ready to trade.")
         metric("runeclaw_uptime_seconds", s.uptime_seconds, "Process uptime in seconds.", "counter")
-        metric("runeclaw_exchange_connected", int(bool(s.exchange_connected)), "1 if the exchange is connected.")
+        # RC-2026-014: OMIT, not zero. Prometheus has no value meaning "no
+        # reading", so a gauge emitted at 0 for an unfed monitor gives every
+        # alert on it a permanently-satisfied condition -- and emitting the
+        # None directly is not valid exposition at all, which would make a
+        # scraper reject this whole payload and take the real metrics with it.
+        # An absent series is how "not measured" is spelled here.
+        metric("runeclaw_health_observed", int(s.status != "UNKNOWN"),
+               "1 if anything has reported health; 0 means the gauges below are absent.")
+        if s.exchange_connected is not None:
+            metric("runeclaw_exchange_connected", int(bool(s.exchange_connected)),
+                   "1 if the exchange is connected.")
         metric("runeclaw_ws_connected", int(bool(s.ws_connected)), "1 if the market-data websocket is connected.")
-        metric("runeclaw_api_latency_ms", s.api_latency_ms, "Rolling average API latency (ms).")
-        metric("runeclaw_api_latency_p99_ms", s.api_latency_p99_ms, "p99 API latency (ms).")
-        metric("runeclaw_api_error_rate_pct", s.error_rate_pct, "API error rate over the window (percent).")
+        if s.api_latency_ms is not None:
+            metric("runeclaw_api_latency_ms", s.api_latency_ms, "Rolling average API latency (ms).")
+        if s.api_latency_p99_ms is not None:
+            metric("runeclaw_api_latency_p99_ms", s.api_latency_p99_ms, "p99 API latency (ms).")
+        if s.error_rate_pct is not None:
+            metric("runeclaw_api_error_rate_pct", s.error_rate_pct, "API error rate over the window (percent).")
         metric("runeclaw_api_calls_total", s.total_api_calls, "Total API calls observed.", "counter")
         metric("runeclaw_api_errors_total", s.total_errors, "Total API errors observed.", "counter")
     except Exception:

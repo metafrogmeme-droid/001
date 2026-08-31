@@ -34,11 +34,18 @@ const vm = require('node:vm');
 const HTML = path.join(__dirname, '..', '..', 'bot', 'web', 'dashboard.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
-const START = 'function updateEngine';
+// Starts at modeBadgeView rather than updateEngine: RC-2026-023 moved the
+// mode-pill decision into that pure helper, which sits immediately above
+// updateEngine and is CALLED by it, so a slice beginning lower down throws
+// ReferenceError. Widening the slice keeps this test running the real helper
+// instead of a stub that could drift away from it.
+const START = 'function modeBadgeView';
 const END = '// ── Fetch Loop';
-assert.ok(src.includes(START) && src.includes(END),
-  'the dashboard no longer contains updateEngine or the fetch-loop marker — ' +
-  'this test is slicing nothing and would pass on an empty page');
+assert.ok(src.includes(START) && src.includes('function updateEngine')
+          && src.includes(END),
+  'the dashboard no longer contains modeBadgeView, updateEngine or the ' +
+  'fetch-loop marker — this test is slicing nothing and would pass on an ' +
+  'empty page');
 const slice = src.slice(src.indexOf(START), src.indexOf(END));
 
 /** Run updateEngine against a stub DOM and return what each element shows. */

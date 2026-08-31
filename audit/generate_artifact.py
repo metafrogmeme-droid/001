@@ -57,7 +57,7 @@ F = [
               "served with no CSP, no X-Frame-Options and no nosniff."),
     dict(id="RC-2026-014", title="SystemHealthMonitor is fed by nothing, so /health, "
          "/ready and /metrics publish a permanent HEALTHY",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="PARTIALLY_FIXED", severity="HIGH", confidence="CONFIRMED",
          category="honesty-fail-open", component="observability",
          file="bot/core/health.py", line="see B3/B5-27", fix_class="REVIEW_REQUIRED",
          standard=["CWE-754"], raw_id="B5-27",
@@ -90,14 +90,14 @@ F = [
               "rule, on the account-value card."),
     dict(id="RC-2026-016", title="The web gateway reports unprotected: false for a live "
          "position whose stop could not be read",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="honesty-fail-open", component="bot/web/user_gateway",
          file="bot/web/user_gateway.py", line="see B3", fix_class="REVIEW_REQUIRED",
          standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
          note="'This position has a stop' asserted from a read that failed."),
     dict(id="RC-2026-017", title="A balance payload without `free` clamps every live "
          "order to $0 and reports it as a measurement",
-         status="OPEN", severity="LOW", confidence="CONFIRMED",
+         status="PARTIALLY_FIXED", severity="LOW", confidence="CONFIRMED",
          category="honesty-fail-open", component="order-execution",
          file="bot/core/engine.py", line="6271-6278", fix_class="SAFE_AUTO_FIX",
          standard=["CWE-754"], verified_by="lead-auditor"),
@@ -206,7 +206,7 @@ F = [
               "asserted to the public as a product guarantee."),
     dict(id="RC-2026-023", title="The operator's live dashboard header badge is hardcoded "
          "SIMULATION and never reads the mode the server sends",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="operator-display-honesty", component="bot/web/dashboard",
          file="bot/web/dashboard.html", line="417-419 (markup), 718-771 (updateEngine)",
          fix_class="SAFE_AUTO_FIX", standard=["CWE-1007"], raw_id="B7-01",
@@ -375,13 +375,13 @@ F = [
               "equity both stops the breakers tripping AND sizes real orders against a "
               "fictional balance. One cause: a two-way branch serving three situations."),
     dict(id="RC-2026-009", title="/performance paper branch publishes a hardcoded "
-         "'Week PnL' of $0.00 in green", status="OPEN", severity="MEDIUM",
+         "'Week PnL' of $0.00 in green", status="FIXED", severity="MEDIUM",
          confidence="CONFIRMED", category="display-honesty", component="telegram-bot",
          file="bot/skills/telegram_handler.py", line="12555,12571-12572",
          fix_class="REVIEW_REQUIRED", standard=["CLAUDE.md-unreadable-is-never-zero"],
          verified_by="lead-auditor"),
     dict(id="RC-2026-010", title="The honest 'unscored' win rate makes the whole stats "
-         "card disappear", status="OPEN", severity="LOW",
+         "card disappear", status="FIXED", severity="LOW",
          second_pass="MEDIUM -> LOW. Remedy rated SOUND; severity overstated. "
                      "The honest unscored path HIDES a card rather than "
                      "asserting a false number.", confidence="CONFIRMED",

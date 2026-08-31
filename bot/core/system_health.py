@@ -15,20 +15,43 @@ from datetime import datetime, timezone
 from typing import Optional
 
 
+# An em dash for a figure nobody measured. `f"{None:.0f}"` raises, and the
+# nearest `except` would have swallowed the whole card -- so being honest
+# upstream would have deleted the display rather than corrected it.
+_DASH = "\u2014"
+
+
+def _ms(v: Optional[float]) -> str:
+    return _DASH if v is None else f"{v:.0f}ms"
+
+
+def _rate(v: Optional[float]) -> str:
+    return _DASH if v is None else f"{v:.1f}%"
+
+
 @dataclass
 class HealthSnapshot:
     """Point-in-time system health report."""
     uptime_seconds: float = 0.0
-    api_latency_ms: float = 0.0          # rolling average
-    api_latency_p99_ms: float = 0.0      # 99th percentile
-    error_rate_pct: float = 0.0          # errors / total calls last 5 min
+    # RC-2026-014. These were `0.0`, and every status threshold below is a
+    # comparison against them, so a monitor nothing had ever reported to
+    # graded itself HEALTHY off three fabricated zeros. None means NO SAMPLE:
+    # `0.0` is a real reading (calls were made and none failed) and the two
+    # must not share a value.
+    api_latency_ms: Optional[float] = None       # rolling average; None = no samples
+    api_latency_p99_ms: Optional[float] = None   # 99th percentile
+    error_rate_pct: Optional[float] = None       # errors/calls in window; None = no calls
     total_api_calls: int = 0
     total_errors: int = 0
     last_successful_scan: Optional[str] = None
     last_error: Optional[str] = None
-    exchange_connected: bool = True
+    # Was `True` -- an initialiser value no caller ever wrote, published as a
+    # connectivity check that had never run.
+    exchange_connected: Optional[bool] = None
     ws_connected: bool = False
-    status: str = "HEALTHY"              # HEALTHY | DEGRADED | CRITICAL
+    # UNKNOWN is not a passing grade. It is the correct answer before anything
+    # has reported, and it is this monitor's steady state until something does.
+    status: str = "UNKNOWN"              # UNKNOWN | HEALTHY | DEGRADED | CRITICAL
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -50,7 +73,10 @@ class SystemHealthMonitor:
         self._total_errors = 0
         self._last_success_time: Optional[str] = None
         self._last_error_msg: Optional[str] = None
-        self._exchange_ok = True
+        # None = nobody has reported either way. `set_exchange_status` has no
+        # caller in the tree, so this stays None in practice -- which is the
+        # fact the snapshot now publishes instead of hiding.
+        self._exchange_ok: Optional[bool] = None
         self._ws_ok = False
 
     def record_api_call(
@@ -99,23 +125,31 @@ class SystemHealthMonitor:
                 errors = sum(1 for _, _, ok in recent if not ok)
                 err_rate = (errors / len(recent)) * 100
             else:
-                avg_lat = 0.0
-                p99_lat = 0.0
-                err_rate = 0.0
+                avg_lat = None
+                p99_lat = None
+                err_rate = None
 
-            # Determine status
-            if not self._exchange_ok or err_rate > 50:
+            # Determine status. Four outcomes, not three -- "nothing has
+            # reported" is not a grade, and it used to be spelled HEALTHY.
+            if self._exchange_ok is False:
+                # Reported down. This is a measurement, and it is the bad one.
                 status = "CRITICAL"
-            elif err_rate > 10 or avg_lat > 5000:
+            elif err_rate is None and self._exchange_ok is None:
+                # No samples and no connectivity report: nothing to grade.
+                status = "UNKNOWN"
+            elif err_rate is not None and err_rate > 50:
+                status = "CRITICAL"
+            elif (err_rate is not None and err_rate > 10) or \
+                 (avg_lat is not None and avg_lat > 5000):
                 status = "DEGRADED"
             else:
                 status = "HEALTHY"
 
             return HealthSnapshot(
                 uptime_seconds=round(uptime, 1),
-                api_latency_ms=round(avg_lat, 1),
-                api_latency_p99_ms=round(p99_lat, 1),
-                error_rate_pct=round(err_rate, 2),
+                api_latency_ms=None if avg_lat is None else round(avg_lat, 1),
+                api_latency_p99_ms=None if p99_lat is None else round(p99_lat, 1),
+                error_rate_pct=None if err_rate is None else round(err_rate, 2),
                 total_api_calls=self._total_calls,
                 total_errors=self._total_errors,
                 last_successful_scan=self._last_success_time,
@@ -136,10 +170,18 @@ class SystemHealthMonitor:
             "HEALTHY": "\u2705",
             "DEGRADED": "\u26a0\ufe0f",
             "CRITICAL": "\U0001f6a8",
+            "UNKNOWN": "\u2b1c",
         }.get(s.status, "\u2753")
 
-        exchange_icon = "\U0001f7e2" if s.exchange_connected else "\U0001f534"
-        exchange_str = "Connected" if s.exchange_connected else "DISCONNECTED"
+        # Three states. `if s.exchange_connected` collapsed None onto the
+        # DISCONNECTED branch, which is the opposite error but still a claim:
+        # nobody has checked, so neither red nor green is honest.
+        if s.exchange_connected is None:
+            exchange_icon, exchange_str = "\u26aa", "not reported"
+        elif s.exchange_connected:
+            exchange_icon, exchange_str = "\U0001f7e2", "Connected"
+        else:
+            exchange_icon, exchange_str = "\U0001f534", "DISCONNECTED"
         ws_icon = "\U0001f7e2" if s.ws_connected else "\u26aa"
         ws_str = "Connected" if s.ws_connected else "Disconnected"
 
@@ -152,8 +194,10 @@ class SystemHealthMonitor:
             f"{status_icon} <b>SYSTEM HEALTH: {s.status}</b>",
             "────────────────",
             f"- Uptime: <code>{uptime_str}</code>",
-            f"- API Latency: <code>{s.api_latency_ms:.0f}ms</code> (p99: <code>{s.api_latency_p99_ms:.0f}ms</code>)",
-            f"- Error Rate: <code>{s.error_rate_pct:.1f}%</code> ({s.total_errors}/{s.total_api_calls})",
+            f"- API Latency: <code>{_ms(s.api_latency_ms)}</code>"
+            f" (p99: <code>{_ms(s.api_latency_p99_ms)}</code>)",
+            f"- Error Rate: <code>{_rate(s.error_rate_pct)}</code>"
+            f" ({s.total_errors}/{s.total_api_calls})",
             f"- Exchange: {exchange_icon} {exchange_str}",
             f"- WebSocket: {ws_icon} {ws_str}",
         ]

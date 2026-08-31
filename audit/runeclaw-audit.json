@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "0a9b16a0a97a3082eb1dfa20a3a877545c6055f7",
+    "commit": "27aa8b86d388768e574b25c028a0fe903f76890c",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -79,7 +79,7 @@
     {
       "id": "RC-2026-014",
       "title": "SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
-      "status": "OPEN",
+      "status": "PARTIALLY_FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
@@ -115,7 +115,7 @@
     {
       "id": "RC-2026-016",
       "title": "The web gateway reports unprotected: false for a live position whose stop could not be read",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
@@ -132,7 +132,7 @@
     {
       "id": "RC-2026-017",
       "title": "A balance payload without `free` clamps every live order to $0 and reports it as a measurement",
-      "status": "OPEN",
+      "status": "PARTIALLY_FIXED",
       "severity": "LOW",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
@@ -236,7 +236,7 @@
     {
       "id": "RC-2026-023",
       "title": "The operator's live dashboard header badge is hardcoded SIMULATION and never reads the mode the server sends",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "operator-display-honesty",
@@ -465,7 +465,7 @@
     {
       "id": "RC-2026-009",
       "title": "/performance paper branch publishes a hardcoded 'Week PnL' of $0.00 in green",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "MEDIUM",
       "confidence": "CONFIRMED",
       "category": "display-honesty",
@@ -481,7 +481,7 @@
     {
       "id": "RC-2026-010",
       "title": "The honest 'unscored' win rate makes the whole stats card disappear",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "LOW",
       "second_pass": "MEDIUM -> LOW. Remedy rated SOUND; severity overstated. The honest unscored path HIDES a card rather than asserting a false number.",
       "confidence": "CONFIRMED",
@@ -3687,15 +3687,13 @@
   },
   "release_decision": {
     "decision": "CONDITIONAL GO",
-    "basis": "No unresolved BLOCKER or CRITICAL findings. 21 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 19 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
     "blockers": [],
     "open_high": [
       "RC-2026-013 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
       "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
-      "RC-2026-016 The web gateway reports unprotected: false for a live position whose stop could not be read",
       "RC-2026-019 The GDPR purge misses the bot's SQLite database entirely",
       "RC-2026-020 Web-only accounts never reach the purge at all",
-      "RC-2026-023 The operator's live dashboard header badge is hardcoded SIMULATION and never reads the mode the server sends",
       "M-01 Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id=\"auto\", bypassing every per-user gate",
       "M-08 Post-fill leverage-overshoot guard is structurally inert on the limit-fill, partial-fill and drift-fallback paths \u2014 it passes a spot-form symbol that ccxt filters out",
       "M-15 The LIVE daily-loss accumulator is dropped by the combined-state restore that production actually uses \u2014 the daily-loss breaker gets a full fresh budget on every restart",

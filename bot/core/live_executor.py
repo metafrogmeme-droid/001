@@ -607,6 +607,17 @@ def trading_halted() -> bool:
         return True
 
 
+def _free_or_none(entry) -> float | None:
+    """The free balance the venue reported, or None if it reported none.
+
+    RC-2026-017. `.get("free", 0)` cannot tell an absent balance-coin entry
+    from a genuinely empty one, and the two mean opposite things to a sizing
+    clamp: "nobody looked" versus "your capital is fully deployed".
+    """
+    from bot.core.margin_clamp import read_free_margin
+    return read_free_margin(entry)
+
+
 class LiveExecutor:
     """Executes real trades on Bitget with micro-test safety limits.
 
@@ -8947,7 +8958,16 @@ class LiveExecutor:
                     })
 
             return {
-                "free": float(usdt.get("free", 0)),
+                # RC-2026-017: was `float(usdt.get("free", 0))`. `usdt` is `{}`
+                # whenever the balance-coin entry is absent (a USDC-margined
+                # venue, a response shape ccxt parses differently), so an
+                # unread free margin was minted as a measured 0.0 -- beside a
+                # `total` taken from the raw equity and therefore correct.
+                # None says "not reported"; a real 0.0 still means fully
+                # deployed. `used`, `total`, `wallet_total`, `holdings` and the
+                # except branch below are deliberately untouched: bot/main.py
+                # classifies its startup auth halt on `total` and `error`.
+                "free": _free_or_none(usdt),
                 "used": float(usdt.get("used", 0)),
                 "total": equity,  # equity-aware value for display
                 "wallet_total": wallet_total,  # raw wallet balance

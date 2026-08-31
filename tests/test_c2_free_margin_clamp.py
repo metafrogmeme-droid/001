@@ -37,7 +37,14 @@ def _clamp_block() -> str:
     src = inspect.getsource(RuneClawEngine._confirm_trade_inner)
     i = src.index("live_bal = await self.get_user_live_equity(user_id)")
     i = src.rindex("\n", 0, i) + 1
-    j = src.index("size_usd = available", i) + len("size_usd = available")
+    # RC-2026-017 renamed the closing anchor: the clamp is three-valued now
+    # (`clamp_to_free_margin` returns None when the free margin was never
+    # reported, so the trade is refused rather than sized at $0) and the
+    # assignment reads `size_usd = _sized`. The anchors are still unique lines
+    # of CODE in this function, which is the property the docstring above
+    # cares about; only their spelling moved.
+    _end = "size_usd = _sized"
+    j = src.index(_end, i) + len(_end)
     return src[i:j]
 
 

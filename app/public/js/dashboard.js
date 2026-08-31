@@ -1119,15 +1119,27 @@
     const rows = (d && d.positions) || [];
     if (!rows.length) return '';
     const prot = d.protected_count || 0, unp = d.unprotected_count || 0;
+    // RC-2026-016. `unknown_count` is positions whose stop could not be READ.
+    // Without it the all-clear below fired on `unp === 0` alone and announced
+    // that every position was protected while some had never been looked at —
+    // a categorical guarantee assembled from a failed read, on the panel an
+    // operator opens precisely because they do not know what is out there.
+    const unk = d.unknown_count || 0;
     let banner;
     if (d.live && unp > 0) banner = `<div class="lpos-alert lpos-alert--bad">⚠️ <b>${unp} live position${unp === 1 ? '' : 's'} without an exchange stop.</b> The bot keeps re-arming the stop, but until it's placed the exchange itself won't auto-close it. Review below.</div>`;
+    else if (d.live && unk > 0) banner = `<div class="lpos-alert lpos-alert--bad">🛑 <b>Stop-loss state unknown for ${unk} live position${unk === 1 ? '' : 's'}.</b> The exchange could not be read, so whether these are protected is not known — this is not the same as "protected". Check the venue directly.</div>`;
     else if (d.live) banner = `<div class="lpos-alert lpos-alert--ok">🛡️ All ${prot} live position${prot === 1 ? '' : 's'} have their stop-loss on the exchange.</div>`;
     else banner = `<div class="lpos-alert">${esc(T('ctl.paper_stops', 'Paper — stops are bot-managed in-sim (no exchange order). Go live to place real exchange stops.'))}</div>`;
     const shown = opts.limit ? rows.slice(0, opts.limit) : rows;
     const body = shown.map((p) => {
       const dist = (p.sl_dist_pct != null && p.sl_dist_pct > 0) ? ` <span class="muted small">(${p.sl_dist_pct}% away)</span>` : '';
       let chip;
-      if (p.unprotected) chip = `<span class="chip chip--down">⚠️ unprotected</span>`;
+      // Order matters. `sl_unknown` is checked BEFORE `unprotected`, because
+      // `unprotected` is three-valued now (`null` = nobody read it) and `null`
+      // is falsy — so an unread stop used to fall past both branches and land
+      // on "bot-managed", the most reassuring label on the panel.
+      if (p.sl_unknown || p.unprotected == null) chip = `<span class="chip chip--down">🛑 stop unknown</span>`;
+      else if (p.unprotected) chip = `<span class="chip chip--down">⚠️ unprotected</span>`;
       else if (p.sl_order === 'exchange') chip = `<span class="chip chip--up">🛡️ on exchange</span>`;
       else chip = `<span class="chip">🤖 bot-managed</span>`;
       const lev = p.leverage ? ` · <span class="muted small">${p.leverage}×</span>` : '';

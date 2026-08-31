@@ -99,7 +99,10 @@ class TestManualOverrideRespectsCapAndClamp:
         i = src.index("self._manual_margin_override.pop(idea.id)")
         i = src.rindex("\n", 0, i) + 1
         # The block ends where its `if` does — the last statement inside it.
-        j = src.index("size_usd = _avail", i) + len("size_usd = _avail")
+        # RC-2026-017 renamed it: the clamp is three-valued now and the manual
+        # path assigns `size_usd = _msized`.
+        _end = "size_usd = _msized"
+        j = src.index(_end, i) + len(_end)
         return src[i:j]
 
     def test_manual_override_reapplies_per_user_cap(self):
@@ -110,4 +113,18 @@ class TestManualOverrideRespectsCapAndClamp:
     def test_manual_override_reapplies_free_balance_clamp(self):
         b = self._block()
         assert "manual_margin_clamp" in b
-        assert 'live_bal.get("free"' in b
+        # Was `assert 'live_bal.get("free"' in b`. RC-2026-017 moved that read
+        # into bot/core/margin_clamp.py, because `.get("free", 0.0)` could not
+        # tell an unreported margin from a measured zero. What matters is that
+        # the manual path still clamps against the executing account's free
+        # margin, which is now spelled as a call to the shared seam.
+        assert "clamp_to_free_margin(size_usd, live_bal)" in b
+
+    def test_manual_override_refuses_rather_than_sizing_to_an_unread_margin(self):
+        """The behaviour behind the scan above, exercised rather than matched."""
+        from bot.core.margin_clamp import clamp_to_free_margin
+
+        # A payload whose balance-coin entry was absent: real equity, no free.
+        assert clamp_to_free_margin(50.0, {"total": 512.34}) == (None, "unreadable")
+        # A real reading still clamps, which is what this path is for.
+        assert clamp_to_free_margin(500.0, {"free": 120.0}) == (120.0, "clamped")
