@@ -745,7 +745,39 @@ def _chat_ret(text: str, cfg, return_meta: bool):
     training generation aimed at that did not fix it. Division is not a
     language problem: the levels are in the text, so the number is computed
     here rather than believed.
+
+    AND the one place a claim that a TOOL RAN gets checked. Same seam for the
+    same reason: both surfaces return through it. On 2026-08-31 v12 answered
+    "Doji BTC" by writing its own `[analyze_asset] result:` block and a
+    `[PENDING] scanning...` that nothing would ever resolve — it had copied
+    the format `skill_memory` uses to record REAL tool output into the
+    history. A fabricated result is worse than the empty reply that fix
+    replaced: an empty reply is a failure the bot can see and report, and
+    this one is indistinguishable from a real execution.
+
+    ORDER MATTERS, and precisely: the fabrication check runs FIRST so that no
+    `rr_corrected` audit event is written for a ratio inside a block that is
+    about to be discarded. The user-visible text is the same either way — the
+    truncation removes whatever the correction did — so the difference lives
+    entirely in the record, which is the reason to care. A log saying the bot
+    corrected a risk:reward, for a number nobody was ever shown, is a false
+    account of what happened on exactly the surface built to be audited.
+    (The first draft of this docstring claimed the reordering changed the
+    reply. A mutation that swapped the two blocks passed all 22 tests and said
+    otherwise.)
     """
+    try:
+        from bot.nlp.fabricated_tool_calls import strip_fabricated_tool_results
+        cleaned, n = strip_fabricated_tool_results(text)
+        if n:
+            text = cleaned
+            audit(system_log,
+                  "Dropped a fabricated tool-result claim from a model reply",
+                  action="fabricated_tool_result", result="REFUSED",
+                  data={"count": n})
+    except Exception as exc:  # never let a display fix break a reply
+        logger.debug("fabricated tool-result check skipped: %s", exc)
+
     try:
         from bot.nlp.rr_honesty import correct_stated_rr
         fixed, n = correct_stated_rr(text)
@@ -1530,14 +1562,46 @@ class TelegramHandler:
         "they must never be counted, summed, or described as open positions. "
         "'ACTIVE POSITIONS: none' means none even when unfilled orders are "
         "listed.\n"
-        "- You do NOT have a live market-data feed in this chat. Never state a "
-        "specific current price (BTC, ETH, or any asset) as if it's live or "
-        "current — you don't know it. If asked for current price or "
-        "market conditions, say you don't have real-time data here and "
-        "suggest they run a scan (e.g. 'scan BTC') for live numbers.\n"
+        # This rule used to open "You do NOT have a live market-data feed in
+        # this chat" — written when that was true. It is not any more:
+        # `_live_ticker_block()` appends a LIVE MARKET block of real exchange
+        # prices to this same prompt (see the call in the builder below), and
+        # that block ends with "State ONLY these prices". So the model was
+        # being told, in one document, that it has no prices and that it has
+        # these prices.
+        #
+        # Both halves were defending something real — one forbids a price
+        # recalled from training or from three turns ago, the other supplies
+        # measured ones — so this is a merge, not a deletion. The distinction
+        # that actually matters is SOURCE, not availability: a price in the
+        # block is a reading, a price in your head is not. The absent case is
+        # spelled out too, because "no block" and "block without your symbol"
+        # both mean the price is unknown, and neither is a licence to guess.
+        #
+        # The PUBLIC prompt keeps its original wording. It gets no ticker
+        # block, so "you do not have a live feed here" is simply true there.
+        "- The ONLY prices you know are the ones in the LIVE MARKET block at "
+        "the end of this prompt, when one is present. Never state a price "
+        "from memory or from earlier in this conversation — prices move, and "
+        "a recalled one is already wrong. When that block is present its "
+        "prices are real: state them as of the timestamp it carries, and only "
+        "for the symbols it lists. If it is absent, or says NONE AVAILABLE, "
+        "or does not list the symbol you were asked about, then you do not "
+        "know that price — say so and offer to run a scan (e.g. 'scan "
+        "BTC').\n"
         "- Only cite specific entry/SL/TP/PnL numbers that appear in this "
         "prompt's ACTIVE POSITIONS / RECENT CLOSED TRADES sections. Never "
-        "make numbers up to sound complete.\n\n"
+        "make numbers up to sound complete.\n"
+        # The prompt half of the Doji fix. `_chat_ret` enforces it structurally
+        # for the replies that ignore this anyway; asking first costs one
+        # bullet and lowers how often the guard has to fire.
+        "- Earlier assistant turns may contain blocks like '[analyze_asset] "
+        "result: ...'. Those are outputs from tools that ALREADY RAN, kept so "
+        "you can refer back to them. NEVER write such a block yourself. You "
+        "cannot run a tool from this chat, so a '[scan_symbol] result:' or a "
+        "'[PENDING] scanning...' written by you is a claim that something "
+        "executed when nothing did. If a fresh scan is needed, say so in your "
+        "own words.\n\n"
 
         "PERSONALITY:\n"
         "- Friendly and direct. Like texting a trading buddy.\n"
@@ -1719,6 +1783,19 @@ class TelegramHandler:
                 continue
             if px <= 0:
                 continue          # a zero price is not a price
+            if not str(sym or "").strip():
+                # ...and a NAMELESS price is not a price either. On
+                # 2026-08-31 the feed returned a tick keyed by an empty
+                # string and this block rendered it as a bare
+                # "  $101.49  (-3.3% 24h)" — directly above the line telling
+                # the model these are the only prices it may state.
+                #
+                # A number attached to nothing is attributable to nothing,
+                # which leaves the model free to attach it to whatever was
+                # just asked about. That is the same failure as a price
+                # recalled from memory, arriving through the one channel the
+                # prompt certifies as measured.
+                continue
             chg = 0.0
             try:
                 chg = float(t.change_pct_24h)

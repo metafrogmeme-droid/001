@@ -26,6 +26,7 @@ import http.server
 import os
 import secrets
 import sys
+import time
 
 LISTEN = ("127.0.0.1", int(os.environ.get("RUNECLAW_PROXY_PORT", "11435")))
 UPSTREAM = ("127.0.0.1", int(os.environ.get("OLLAMA_PORT", "11434")))
@@ -34,6 +35,11 @@ TOKEN = os.environ.get("RUNECLAW_PROXY_TOKEN", "")
 # End-to-end hop-by-hop headers we must not blindly forward.
 _SKIP_REQ = {"host", "authorization", "connection", "accept-encoding", "content-length"}
 _SKIP_RESP = {"transfer-encoding", "connection", "keep-alive", "content-encoding"}
+
+
+#: Set RUNECLAW_PROXY_DEBUG to a directory to capture request/response bodies
+#: there. Unset (the default) captures nothing at all.
+DEBUG_DIR = os.environ.get("RUNECLAW_PROXY_DEBUG", "").strip()
 
 
 class GateHandler(http.server.BaseHTTPRequestHandler):
@@ -51,6 +57,35 @@ class GateHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _dump(self, kind, payload):
+        """Write one request/response body to DEBUG_DIR. Opt-in, off by default.
+
+        THIS EXISTS BECAUSE GUESSING FAILED TWICE. On 2026-08-30 the bot showed
+        "the AI is temporarily unavailable" while ollama logged HTTP 200 with 21
+        tokens generated, and the same prompt sent by hand through this proxy
+        returned a full 1,487-token answer. Two hypotheses were argued from the
+        outside - a tool-call swallowing the content, then a template problem -
+        and neither could be confirmed or refuted without the actual bytes.
+
+        The bot's request and ollama's response both pass through here. There
+        is no reason to infer what they contain.
+
+        Bodies can carry user text, so this stays OFF unless
+        RUNECLAW_PROXY_DEBUG is set, writes only under a directory the operator
+        names, and the Authorization header is never among what is written.
+        """
+        if not DEBUG_DIR:
+            return
+        try:
+            os.makedirs(DEBUG_DIR, exist_ok=True)
+            stamp = time.strftime("%H%M%S") + "-%03d" % (time.time() % 1 * 1000)
+            path = os.path.join(DEBUG_DIR, "%s-%s.txt" % (stamp, kind))
+            with open(path, "wb") as fh:
+                fh.write(payload if isinstance(payload, bytes)
+                         else str(payload).encode("utf-8", "replace"))
+        except Exception as exc:
+            sys.stderr.write("debug dump failed: %r\n" % (exc,))
+
     def _proxy(self):
         auth = self.headers.get("Authorization", "")
         if not secrets.compare_digest(auth, "Bearer " + TOKEN):
@@ -58,6 +93,8 @@ class GateHandler(http.server.BaseHTTPRequestHandler):
 
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
+        if body:
+            self._dump("request", body)
 
         headers = {k: v for k, v in self.headers.items()
                    if k.lower() not in _SKIP_REQ}
@@ -86,13 +123,18 @@ class GateHandler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
         self.end_headers()
 
+        captured = bytearray() if DEBUG_DIR else None
         while True:
             chunk = resp.read1(65536)
             if not chunk:
                 break
+            if captured is not None and len(captured) < 262144:
+                captured.extend(chunk)
             self.wfile.write(chunk)
             self.wfile.flush()
         conn.close()
+        if captured is not None:
+            self._dump("response", bytes(captured))
 
     do_GET = do_POST = do_DELETE = do_HEAD = _proxy
 

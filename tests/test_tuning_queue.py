@@ -45,11 +45,31 @@ class TestShadowPricedLiquidityGuard:
         src = inspect.getsource(RuneClawEngine)
         i = src.find("Trade REJECTED by liquidity guard")
         assert i > 0
-        seg = src[i:i + 2600]
-        assert "SHADOW_BOOK.record_rejection" in seg, \
-            "Check #17 must feed the counterfactual ledger"
-        assert 'f"LIQUIDITY: {liq_reason}"' in seg
-        assert "return None" in seg
+        # Anchored on the CALL, not on a byte window from the log line.
+        # `src[i:i + 2600]` used to hold all three claims; adding ten lines of
+        # comment above the call pushed `return None` past 2600 and the test
+        # failed on prose. A fixed window measures the distance to unrelated
+        # edits, which is not what any of these assertions are about.
+        k = src.find("SHADOW_BOOK.record_rejection", i)
+        # WAS: assert 'f"LIQUIDITY: {liq_reason}"' in seg
+        #
+        # That pinned the literal that CONTAINED the defect. Every return in
+        # order_flow._liquidity_reason already opens "LIQUIDITY: ", so the
+        # extra prefix produced a doubled gate key in the shadow book, and
+        # this assertion required it to stay. The intent was that the reason
+        # reaches the ledger AS the gate; that is what is pinned now.
+        #
+        # Not asserted here: that the doubled form is absent. This file's own
+        # explanation would match such a scan, and "a comment that quotes the
+        # string it forbids is indistinguishable from the code doing it" has
+        # produced four false failures in this repository already.
+        assert k > i, "Check #17 must feed the counterfactual ledger"
+        call = src[k:k + 900]
+        assert "[liq_reason]" in call, \
+            "the liquidity reason must be passed as the primary gate"
+        # The guard must ABORT the trade, not record and fall through.
+        assert "return None" in call, \
+            "the liquidity guard must return None after recording"
 
 
 class TestVpTwoPass:

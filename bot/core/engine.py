@@ -5412,8 +5412,17 @@ class RuneClawEngine:
                             _lq_regime = getattr(_lq_r, "value", "") or ""
                         except Exception:
                             _lq_regime = ""
+                        # `liq_reason` ALREADY opens "LIQUIDITY: " — every
+                        # return in order_flow._liquidity_reason does
+                        # (:1083, :1101, :1113). Prefixing it again produced
+                        # "LIQUIDITY: LIQUIDITY: spread ..." as the shadow
+                        # book's gate key, which the nightly audit then
+                        # printed verbatim. gate_category() collapses it on
+                        # read, but the doubled string still reaches `gates`
+                        # and `reason`, and a canonicaliser that silently
+                        # absorbs a malformed input is how it survives.
                         SHADOW_BOOK.record_rejection(
-                            idea, [f"LIQUIDITY: {liq_reason}"], liq_reason,
+                            idea, [liq_reason], liq_reason,
                             ref_price=float(getattr(signal, "price", 0) or 0),
                             regime=_lq_regime)
                 except Exception as _lq_exc:
