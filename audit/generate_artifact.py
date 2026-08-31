@@ -66,10 +66,26 @@ F = [
               "operator and any uptime checker consult first."),
     dict(id="RC-2026-015", title="/livebalance renders a FAILED exchange balance read as "
          "a complete $0.00 account statement",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="OPEN", severity="MEDIUM",
+         second_pass="HIGH -> MEDIUM. Defect REPRODUCED by execution, not read: planting "
+                     "fetch_balance's own error return through the repo's _make_handler() "
+                     "harness prints Cash $0.00 / Used $0.00 / Equity $0.00 / NET $0.00 "
+                     "with no error text. Root cause confirmed - _get_exchange() assigns "
+                     "self._exchange BEFORE the fetch, so the honest error branch is "
+                     "reached only when exchange CONSTRUCTION fails, i.e. never for a "
+                     "rejected key, IP allowlist, nonce or venue 5xx. Remedy rated "
+                     "HARMFUL on its endorsed half: 'return None instead of a zeros dict' "
+                     "was executed against bot/main.py:180-186, where the error dict "
+                     "today selects STARTUP: exchange auth FAILED and "
+                     "set_live_auth_status(False), halting new live entries - None "
+                     "loses that halt. The PRIMARY fix (raise on bal['error']) is sound "
+                     "and scrubs via _safe_exc_text, but /livebalance is a COMPOSITE "
+                     "card whose PnL, trade count and exposure are genuinely readable, "
+                     "so CLAUDE.md's table prefers OMIT: render the balance block "
+                     "unknown and keep the rest.", confidence="CONFIRMED",
          category="honesty-fail-open", component="telegram",
          file="bot/skills/telegram_handler.py", line="see B3", fix_class="REVIEW_REQUIRED",
-         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers",
+         standard=["CWE-754"], verified_by="dimension-agent+2-verifiers+prosecutor",
          note="Cash, equity and the rest presented as a measurement. CLAUDE.md's first "
               "rule, on the account-value card."),
     dict(id="RC-2026-016", title="The web gateway reports unprotected: false for a live "
@@ -87,29 +103,54 @@ F = [
          standard=["CWE-754"], verified_by="lead-auditor"),
     dict(id="RC-2026-018", title="The default backtest fills entries at prices the market "
          "never traded",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
-         severity_history="finder BLOCKER -> verifiers CRITICAL -> second pass HIGH",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
+         severity_history="finder BLOCKER -> verifiers CRITICAL -> second pass HIGH "
+                          "(the fixing session, working from the pre-correction register, "
+                          "recorded it CRITICAL; HIGH is the adjudicated value and the "
+                          "reasoning is in the note)",
          category="backtest-integrity", component="backtest",
          file="bot/backtest/engine.py", line="593", fix_class="REVIEW_REQUIRED",
          standard=["CWE-1041"], raw_id="B4-01",
          verified_by="lead-auditor+dimension-agent+2-verifiers+3-prosecutors",
-         note="CONFIG.limit_orders defaults enabled with default_order_type='limit' "
-              "(config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback "
-              "up to 1 ATR below the close, and bot/backtest/ has no order-type model at "
-              "all. THE CRITICAL WAS INCOHERENT AND THIS NOTE CARRIED THE PROOF: verifier "
-              "1 justified CRITICAL with 'it corrupts every published backtest/scorecard "
-              "number'; verifier 2 proved that false (--honest forces fill_mode=next_open "
-              "at runner.py:546-548, and every published path passes --honest); the "
-              "register adopted verifier 2's FACT while keeping verifier 1's SEVERITY, and "
-              "this note asserted the refuted premise verbatim while the register two "
-              "paragraphs away said the opposite. Three second-pass prosecutors, one per "
+         note="WAS: CONFIG.limit_orders defaults enabled with default_order_type='limit' "
+              "(config.py:1982-1984), so the analyzer set idea.entry_price to a pullback up "
+              "to 1 ATR below the close, and bot/backtest/ had no order-type model at all - "
+              "the engine captured exactly the entries a real limit would have MISSED, the "
+              "ones where price ran away. "
+              "SEVERITY, ADJUDICATED DOWN: verifier 1 justified CRITICAL with 'it corrupts "
+              "every published backtest/scorecard number'; verifier 2 proved that false "
+              "(--honest forces fill_mode=next_open at runner.py:546-548, and every "
+              "published path passes --honest); the register adopted verifier 2's FACT "
+              "while keeping verifier 1's SEVERITY. Three second-pass prosecutors, one per "
               "lens, independently said HIGH. AFFECTED: real-data default-mode developer "
-              "runs. NOT AFFECTED: the frozen benchmark, the marketplace scorecards and "
-              "the web Strategy Lab, which all pass --honest; backtest_deep_results.json "
-              "is 100% synthetic GBM. The remediation is ALSO unsound - its acceptance "
-              "test asserts the entry lies in some bar's range 'at or after the signal "
-              "bar', which passes on the UNFIXED engine; it must assert the range of the "
-              "bar the fill was booked on."),
+              "runs. NOT AFFECTED: the frozen benchmark, the marketplace scorecards and the "
+              "web Strategy Lab, which all pass --honest; backtest_deep_results.json is "
+              "100% synthetic GBM. "
+              "FIXED on main (PR #243): _place_entry fills a market order at bar.close "
+              "(what fill_mode='close' was always named for; the old call site passed the "
+              "limit price while _execute_fill's own docstring said 'bar close'), fills a "
+              "limit only when a bar's range reaches it (LONG bar.low <= px, SHORT bar.high "
+              ">= px), and otherwise rests it - _drain_pending_limits runs each bar: fill on "
+              "touch, expire at expire_seconds, cancel past price_drift_cancel_pct using the "
+              "LIVE formula (live_executor.py:6721), both non-fill branches clearing the "
+              "pending intent. The result now carries total_limits_filled / _filled_same_bar "
+              "/ _expired / _cancelled_drift, which were structurally 0 before: a run that "
+              "cannot say how many entries never filled is indistinguishable from one where "
+              "they all did. "
+              "STATED LIMITATION (theirs, and it is the right call to state it): live's "
+              "drift_market_fallback (default ON) converts some drifted limits to market "
+              "orders and is NOT modelled, so _cancelled_drift is an upper bound and the "
+              "backtest under-fills against live by that margin. 15 tests, 9 mutations "
+              "killed, 187 existing backtest tests unchanged. backtest_deep_results.json "
+              "predates the fix and must be regenerated before any figure in it is quoted. "
+              "ONE TEST NOTE, not an objection to the fix: the second pass had flagged the "
+              "PROPOSED acceptance test's shape, and the landed "
+              "test_every_recorded_entry_lies_inside_some_bar_that_traded_it keeps it - it "
+              "asserts min(low) <= px <= max(high) over the whole series, a hull the "
+              "fixture's own levels (99.5/99.0/98.0 inside [94.5, 102]) already satisfy on "
+              "the UNFIXED engine. Its CONSERVATION assertion is what makes it bite, and the "
+              "other 12 tests in the file pin the behaviour directly, so the fix is covered; "
+              "the invariant half of that one test is not what covers it."),
     dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
          status="OPEN", severity="HIGH", confidence="CONFIRMED",
          category="privacy-erasure", component="bot/web/user_gateway",
@@ -127,10 +168,29 @@ F = [
               "its bot-side state skipped silently."),
     dict(id="RC-2026-021", title="SECURITY.md promises human-in-the-loop confirmation "
          "that the default configuration does not provide",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="OPEN", severity="MEDIUM",
+         second_pass="HIGH -> MEDIUM. The DEFECT stands - six public surfaces state an "
+                     "unconditional human-in-the-loop guarantee the code contradicts, "
+                     "and the repo's own tests/test_mcp_doc_matches_the_code.py is an "
+                     "admission of it applied to exactly one of the seven. Both props "
+                     "under the HIGH failed: agent_card.json is served by no route on "
+                     "either deploy target and referenced by no non-test code (and is "
+                     "already stale on live_trading), and 'the default configuration' is "
+                     "true of the CODE default but false of the SHIPPED one - "
+                     ".env.example turns both auto-confirm knobs off and "
+                     "`cp .env.example .env` is the documented install on four surfaces. "
+                     "Set against RC-2026-022, the same class, which both verifiers put "
+                     "at MEDIUM because no money moves differently. BOTH remedies are "
+                     "unsound: (b)'s threshold half is defeated by the adaptive block, "
+                     "on by default, unsettable from .env.example, walking a 1.0 "
+                     "'disable' down to 0.60 on a winning streak (executed), and it "
+                     "fails a test in the file it tells the fixer to edit; (a) read "
+                     "literally yields \"requires_confirmation\": false - a safety "
+                     "declaration inverted toward danger on every standard install.",
+         confidence="CONFIRMED",
          category="docs-vs-default", component="documentation",
          file="SECURITY.md", line="29", fix_class="REVIEW_REQUIRED",
-         standard=["CWE-1059"], verified_by="lead-auditor",
+         standard=["CWE-1059"], verified_by="lead-auditor+prosecutor",
          note="The one HIGH in its batch neither verifier downgraded, and I verified it "
               "directly. Documentation vs default is a product decision, so "
               "REVIEW_REQUIRED rather than a doc edit."),

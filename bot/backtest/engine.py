@@ -178,6 +178,17 @@ class BacktestEngine:
         # construct an engine and reach that builder without calling run() —
         # so a run()-only attribute made the card's own honesty field raise.
         self._pending_entry: tuple | None = None
+        # RC-2026-018. Limit entries that have been PLACED but not yet
+        # touched. Before this existed, a limit was booked at its own price on
+        # the signal bar whether or not any bar traded there — see
+        # `_place_entry`. Same reason as `_pending_entry` for initialising it
+        # here: the result builder reads it and two tests reach that builder
+        # without calling run().
+        self._pending_limits: list[dict] = []
+        self._limits_filled = 0
+        self._limits_filled_same_bar = 0
+        self._limits_expired = 0
+        self._limits_cancelled_drift = 0
         self._et_bar_win: list[tuple[float, float, float, float]] = []
         self._et_armed = 0
         self._et_fired = 0
@@ -385,6 +396,12 @@ class BacktestEngine:
                 self._pending_entry = None
                 self._execute_fill(_p_idea, _p_risk, current_bar.open, current_bar)
 
+            # --- Resting limit entries (RC-2026-018): fill on touch, expire
+            # or cancel on drift. Before the stop check for the same reason
+            # the queued next-open entry is: a fill on this bar must then be
+            # exposed to this bar's range, as a live one would be. ---
+            self._drain_pending_limits(current_bar)
+
             # --- Monitor open positions against this bar's high/low ---
             self._check_stops_intrabar(current_bar)
 
@@ -590,7 +607,117 @@ class BacktestEngine:
         if getattr(self.config, "fill_mode", "close") == "next_open":
             self._pending_entry = (idea, risk_check)
             return
-        self._execute_fill(idea, risk_check, idea.entry_price, bar)
+        self._place_entry(idea, risk_check, bar)
+
+    # ── entry placement (RC-2026-018) ────────────────────────────────
+    @staticmethod
+    def _limit_is_touched(bar, px: float, direction) -> bool:
+        """Did this bar's range reach a resting limit at ``px``?
+
+        A LONG limit rests BELOW the market, so it fills when the bar trades
+        down to it; a SHORT limit rests above. This is the whole question the
+        engine was not asking.
+        """
+        try:
+            if direction == Direction.LONG:
+                return float(bar.low) <= px
+            return float(bar.high) >= px
+        except (TypeError, ValueError):
+            # An unreadable bar is not a touch. Treating it as one would
+            # manufacture the fill this function exists to withhold.
+            return False
+
+    def _place_entry(self, idea, risk_check, bar) -> None:
+        """Decide WHETHER this bar can fill the entry, and at what price.
+
+        RC-2026-018. This used to be one line — `_execute_fill(idea,
+        risk_check, idea.entry_price, bar)` — which booked the position at
+        `idea.entry_price` unconditionally. With `CONFIG.limit_orders` on by
+        default (`default_order_type="limit"`), that price is a pullback level
+        up to 1 ATR BELOW the close, and nothing checked whether any bar had
+        traded there. The engine therefore captured precisely the entries a
+        real limit order would have MISSED: the ones where price ran away
+        favourably and never came back.
+
+        The mislabelling ran deep enough that `_execute_fill`'s own docstring
+        says "bar close in legacy mode" while this call site passed the limit
+        price. `fill_mode="close"` now means what it is named for.
+
+        NOT the honest path's problem: `runner.py:546` forces
+        `fill_mode="next_open"` under `--honest`, which is what the frozen
+        benchmark and the marketplace scorecards use. This is the default
+        path — `backtest_deep_results.json`, `/backtest`, `/walk_forward`.
+        """
+        px = float(getattr(idea, "entry_price", 0) or 0)
+        if str(getattr(idea, "order_type", "market")).lower() != "limit" or px <= 0:
+            # A market order transacts at the going price, and the going price
+            # at signal time is this bar's close.
+            self._execute_fill(idea, risk_check, bar.close, bar)
+            return
+
+        if self._limit_is_touched(bar, px, idea.direction):
+            # The signal bar's own range reached the level, so the price is
+            # one the market actually printed. Optimistic only about ORDER
+            # WITHIN the bar, which is the standard bar-data limitation and a
+            # different thing from inventing the price outright.
+            self._limits_filled_same_bar += 1
+            self._limits_filled += 1
+            self._execute_fill(idea, risk_check, px, bar)
+            return
+
+        # Untouched: it rests, exactly as a live limit would.
+        self._pending_limits.append({
+            "idea": idea, "risk_check": risk_check, "px": px,
+            "placed_ts": bar.timestamp.timestamp(),
+        })
+
+    def _drain_pending_limits(self, bar) -> None:
+        """Fill, expire or cancel each resting limit against this bar.
+
+        Mirrors the live lifecycle (`CONFIG.limit_orders`): fill on touch,
+        expire after `expire_seconds`, cancel once price has drifted
+        `price_drift_cancel_pct` away. The drift and expiry branches clear the
+        risk engine's pending intent, which `_execute_fill` does on the fill
+        branch — an intent left behind would hold size against every later
+        idea in the run.
+        """
+        if not self._pending_limits:
+            return
+        cfg = CONFIG.limit_orders
+        now_ts = bar.timestamp.timestamp()
+        still: list[dict] = []
+        for order in self._pending_limits:
+            idea, px = order["idea"], order["px"]
+            if self._limit_is_touched(bar, px, idea.direction):
+                self._limits_filled += 1
+                self._execute_fill(idea, order["risk_check"], px, bar)
+                continue
+            if now_ts - order["placed_ts"] >= float(cfg.expire_seconds):
+                self._limits_expired += 1
+                self.risk.clear_pending_intent(idea.id)
+                continue
+            try:
+                drift = abs(float(bar.close) - px) / px * 100.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                drift = 0.0
+            if drift > float(cfg.price_drift_cancel_pct):
+                # NOT MODELLED, and stated rather than hidden: live has a
+                # `drift_market_fallback` (default ON) that converts a
+                # drifted limit to a MARKET order when ADX clears
+                # `drift_market_min_adx`. Some of what is counted here would
+                # therefore have become a fill in live, so this count is an
+                # UPPER BOUND on true cancellations and the backtest
+                # under-fills against live by that margin.
+                #
+                # Half-modelling it would be worse than not: the ADX at
+                # cancel time is not on this path, and a fallback driven by a
+                # guessed momentum reading would put back exactly the class
+                # of invented fill this change removes.
+                self._limits_cancelled_drift += 1
+                self.risk.clear_pending_intent(idea.id)
+                continue
+            still.append(order)
+        self._pending_limits = still
 
     def _execute_fill(self, idea, risk_check, fill_price: float, bar) -> None:
         """Open the position at ``fill_price`` (bar close in legacy mode, next
@@ -1408,7 +1535,16 @@ class BacktestEngine:
                 self._et_disarmed_invalidated
                 + self._et_disarmed_expired
                 + len(self._armed_setups)),
-            total_entries_pending_at_end=(1 if self._pending_entry is not None else 0),
+            total_entries_pending_at_end=(
+                (1 if self._pending_entry is not None else 0)
+                + len(self._pending_limits)),
+            # RC-2026-018 honesty fields. A run that does not say how many
+            # entries never filled cannot be told apart from one where they
+            # all did — which is exactly the state this engine was in.
+            total_limits_filled=self._limits_filled,
+            total_limits_filled_same_bar=self._limits_filled_same_bar,
+            total_limits_expired=self._limits_expired,
+            total_limits_cancelled_drift=self._limits_cancelled_drift,
             rejections_by_gate=dict(self._rejections_by_gate),
             stateful_rejections=sum(
                 c for g, c in self._rejections_by_gate.items()

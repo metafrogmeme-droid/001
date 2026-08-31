@@ -1287,7 +1287,7 @@ including each finding's verifier notes.
 
 ## RC-2026-018 — the default backtest fills entries at prices the market never traded
 
-- **Status**: OPEN · **Severity**: **CRITICAL** (the finder said BLOCKER; see the correction)
+- **Status**: FIXED · **Severity**: **HIGH** (finder BLOCKER -> verifiers CRITICAL -> second pass HIGH; the fixing session recorded CRITICAL from the pre-correction register. See "the CRITICAL was incoherent" below.)
 - **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
 - **File**: `bot/backtest/engine.py:593`
 
@@ -1339,13 +1339,55 @@ below the close, filled without being touched — and that is what I am assertin
 A number I have not reproduced does not go in a register that exists to be
 trusted.
 
-**Remediation**: honour `idea.order_type` in `_execute_fill` — queue a limit and
-fill only when a later bar's low (LONG) / high (SHORT) reaches it, expiring per
-`CONFIG.limit_orders.expire_seconds` and cancelling on `price_drift_cancel_pct`.
-Add a test asserting every recorded entry price lies within some bar's
-`[low, high]` at or after the signal bar. Until then, **no default-mode artifact
-should be quoted as a performance figure** — `backtest_deep_results.json`
-included.
+### Remediation — APPLIED
+
+`_place_entry` now stands between the signal path and `_execute_fill`:
+
+- a **market** order fills at `bar.close` — which is what `fill_mode="close"`
+  has always been named for and never did; the old call site passed
+  `idea.entry_price` while `_execute_fill`'s own docstring said "bar close in
+  legacy mode";
+- a **limit** fills at its price only when a bar's range reaches it (LONG when
+  `bar.low <= px`, SHORT when `bar.high >= px`). On the signal bar that is
+  optimistic about ORDER WITHIN the bar, which is the ordinary bar-data
+  limitation and a different thing from inventing the price; the count is
+  reported separately as `total_limits_filled_same_bar` so a run leaning on it
+  is visible;
+- otherwise it **rests**, and `_drain_pending_limits` runs each bar before the
+  stop check: fill on touch, expire at `CONFIG.limit_orders.expire_seconds`,
+  cancel past `price_drift_cancel_pct`. Both non-fill branches call
+  `clear_pending_intent`, which `_execute_fill` does on the fill branch — an
+  intent left behind would hold size against every later idea in the run.
+
+Drift uses the LIVE formula, `abs(price - limit) / limit * 100`
+(`live_executor.py:6721`), and a test pins the boundary in both directions.
+Modelling it differently would trade one fill-assumption defect for another.
+
+**Stated limitation.** Live's `drift_market_fallback` (default ON) converts a
+drifted limit to a MARKET order when ADX clears `drift_market_min_adx`. That is
+NOT modelled: the ADX at cancel time is not on this path, and a fallback driven
+by a guessed momentum reading would put back exactly the class of invented fill
+this change removes. So `total_limits_cancelled_drift` is an UPPER BOUND on true
+cancellations and the backtest now under-fills against live by that margin —
+recorded here rather than left for someone to discover.
+
+**The result carries the lifecycle**: `total_limits_filled`,
+`..._filled_same_bar`, `..._expired`, `..._cancelled_drift`, and resting orders
+join `total_entries_pending_at_end`. Before this they were structurally
+0/0/0/0, which is how a fill assumption hides inside a performance figure: a
+run that cannot say how many entries never filled is indistinguishable from one
+where they all did.
+
+15 tests in `tests/test_backtest_limit_fills_need_a_touch.py`, including the
+register's own acceptance property — every recorded entry lies within some
+bar's `[low, high]` at or after the signal bar — plus a conservation check that
+every order placed ends in exactly one state, so an engine that quietly dropped
+what it could not fill would still fail. Nine mutations, all killed. All 187
+existing backtest tests pass unchanged.
+
+**Still true, and unchanged by this fix**: `backtest_deep_results.json` was
+produced by the OLD engine and remains a default-mode artifact from before the
+fill model existed. It should be regenerated before any figure in it is quoted.
 
 ## The other confirmed CRITICALs
 
@@ -2156,7 +2198,7 @@ incomplete, three of them actively harmful**.
 
 ---
 
-# The adversarial second pass — 53 findings, 58 prosecutor reports
+# The adversarial second pass — 61 findings, 66 prosecutor reports
 
 Brief Phase 15. Targets were chosen by what a wrong claim would cost, computed
 from the artifact rather than picked: the findings driving the release decision,
@@ -2178,29 +2220,29 @@ three questions nobody had:
 
 | verdict | count |
 |---|---|
-| STANDS | 27 |
-| REMEDIATION_UNSOUND | 19 |
-| SEVERITY_WRONG | 12 |
+| STANDS | 30 |
+| REMEDIATION_UNSOUND | 23 |
+| SEVERITY_WRONG | 13 |
 
 | remediation | count |
 |---|---|
-| INCOMPLETE | 42 |
+| INCOMPLETE | 49 |
+| HARMFUL | 8 |
 | SOUND | 8 |
-| HARMFUL | 7 |
 | NOT_ASSESSED | 1 |
 
-**53 of 58 reports carry executed evidence** — the prosecutors ran the code
+**61 of 66 reports carry executed evidence** — the prosecutors ran the code
 rather than reading it.
 
 ### The findings held
 
-**0 refuted. 0 stale.** Not one of the 53 had been quietly fixed by the
+**0 refuted. 0 stale.** Not one of the 61 had been quietly fixed by the
 audit's own PRs, and not one fell over under a third adversarial read. The
 finder-plus-two-verifiers pipeline produced claims that survive.
 
 ### The severities did not, and they failed in one direction
 
-**16 severities moved. Every one moved DOWN**: B4-03, B4-20, B5-02, B5-05, B5-06, B5-11, B5-22, B6-05, B6-13, B6-38, M-07, RC-2026-005, RC-2026-008, RC-2026-010, RC-2026-018, RC-2026-025.
+**18 severities moved. Every one moved DOWN**: B4-03, B4-20, B5-02, B5-05, B5-06, B5-11, B5-22, B6-05, B6-13, B6-38, M-07, RC-2026-005, RC-2026-008, RC-2026-010, RC-2026-015, RC-2026-018, RC-2026-021, RC-2026-025.
 
 That is a finding about the audit, not about RUNECLAW. Agents asked to find
 defects rate them generously; two adversarial verifiers corrected 84 of 162
@@ -2209,8 +2251,8 @@ the remaining severities in that direction.**
 
 ### The remedies did not, and that is the discovery
 
-**44 of 53 proposed fixes are incomplete or harmful** (83%). Three are
-actively **HARMFUL**: B4-03, B6-05, B6-13, M-07, RC-2026-009, RC-2026-013, RC-2026-025.
+**52 of 61 proposed fixes are incomplete or harmful** (85%). Three are
+actively **HARMFUL**: B4-03, B6-05, B6-13, M-07, RC-2026-009, RC-2026-013, RC-2026-015, RC-2026-025.
 
 Every gate this audit ran — finder, two verifiers, the lead-auditor register
 pass — asked whether the defect was real. **None asked whether the fix would
