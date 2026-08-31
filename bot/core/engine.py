@@ -21,6 +21,7 @@ from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
+from bot.core.margin_clamp import clamp_to_free_margin
 from bot.core.system_health import SystemHealthMonitor
 from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
@@ -6277,15 +6278,34 @@ class RuneClawEngine:
         # on fetch failure, so the clamp is simply skipped (as before an empty
         # cache), never sized against the wrong account.
         live_bal = await self.get_user_live_equity(user_id)
-        if live_bal:
-            available = live_bal.get("free", 0.0)
-            if size_usd > available:
-                audit(trade_log,
-                      f"Live size clamped: ${size_usd:.2f} -> ${available:.2f} (exchange available)",
-                      action="live_size_clamp", result="CLAMPED",
-                      data={"requested": round(size_usd, 2), "available": round(available, 2),
-                            "user_id": user_id})
-                size_usd = available
+        # RC-2026-017. Was `available = live_bal.get("free", 0.0)`, and
+        # fetch_balance mints `free: 0.0` whenever the balance-coin entry is
+        # absent, so every order was sized at $0 and the chain recorded
+        # "clamped ... (exchange available)" for a figure nobody measured.
+        # Refusing keeps the outcome identical -- a $0 order is rejected by the
+        # venue -- while correcting the stated reason. Letting the order
+        # through instead would open a position that does not open today.
+        _sized, _why = clamp_to_free_margin(size_usd, live_bal)
+        if _sized is None:
+            audit(trade_log,
+                  f"Live entry refused: free margin {_why}",
+                  action="live_size_clamp", result="REJECT",
+                  data={"requested": round(size_usd, 2), "reason": _why,
+                        "user_id": user_id, "trade_id": trade_id})
+            self._pending_pyramid.pop(trade_id, None)
+            self._transition(AgentState.IDLE, f"free margin {_why} for {trade_id}")
+            if _why == "unreadable":
+                return ("Trade REJECTED: could not read this account's available "
+                        "margin from the exchange. Refusing rather than sizing "
+                        "against a number nobody measured.")
+            return "Trade REJECTED: the exchange reports no free margin available."
+        if _why == "clamped":
+            audit(trade_log,
+                  f"Live size clamped: ${size_usd:.2f} -> ${_sized:.2f} (exchange available)",
+                  action="live_size_clamp", result="CLAMPED",
+                  data={"requested": round(size_usd, 2), "available": round(_sized, 2),
+                        "user_id": user_id})
+        size_usd = _sized
 
         # Manual margin override: if user specified a fixed margin via /trade command.
         # Audit V7 follow-up (double-leverage fix): size_usd is MARGIN everywhere —
@@ -6318,16 +6338,30 @@ class RuneClawEngine:
                       data={"requested": round(size_usd, 2), "cap": round(_cap, 2),
                             "user_id": user_id})
                 size_usd = _cap
-            if live_bal:
-                _avail = live_bal.get("free", 0.0)
-                if size_usd > _avail:
-                    audit(trade_log,
-                          f"Manual margin clamped to free balance: "
-                          f"${size_usd:.2f} -> ${_avail:.2f}",
-                          action="manual_margin_clamp", result="CLAMPED",
-                          data={"requested": round(size_usd, 2),
-                                "available": round(_avail, 2), "user_id": user_id})
-                    size_usd = _avail
+            # Same three-valued read as the automatic path above: a manual
+            # margin must not be clamped against an unreported figure either.
+            _msized, _mwhy = clamp_to_free_margin(size_usd, live_bal)
+            if _msized is None:
+                audit(trade_log,
+                      f"Manual margin refused: free margin {_mwhy}",
+                      action="manual_margin_clamp", result="REJECT",
+                      data={"requested": round(size_usd, 2), "reason": _mwhy,
+                            "user_id": user_id, "trade_id": trade_id})
+                self._pending_pyramid.pop(trade_id, None)
+                self._transition(AgentState.IDLE, f"free margin {_mwhy} for {trade_id}")
+                if _mwhy == "unreadable":
+                    return ("Trade REJECTED: could not read this account's available "
+                            "margin from the exchange. Refusing rather than sizing "
+                            "against a number nobody measured.")
+                return "Trade REJECTED: the exchange reports no free margin available."
+            if _mwhy == "clamped":
+                audit(trade_log,
+                      f"Manual margin clamped to free balance: "
+                      f"${size_usd:.2f} -> ${_msized:.2f}",
+                      action="manual_margin_clamp", result="CLAMPED",
+                      data={"requested": round(size_usd, 2),
+                            "available": round(_msized, 2), "user_id": user_id})
+            size_usd = _msized
 
         # C2-53 FIX: Reject trade when ATR is missing or zero.
         # A zero ATR produces SL at entry price = immediate stop-out.

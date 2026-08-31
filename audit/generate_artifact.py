@@ -57,7 +57,7 @@ F = [
               "served with no CSP, no X-Frame-Options and no nosniff."),
     dict(id="RC-2026-014", title="SystemHealthMonitor is fed by nothing, so /health, "
          "/ready and /metrics publish a permanent HEALTHY",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="PARTIALLY_FIXED", severity="HIGH", confidence="CONFIRMED",
          category="honesty-fail-open", component="observability",
          file="bot/core/health.py", line="see B3/B5-27", fix_class="REVIEW_REQUIRED",
          standard=["CWE-754"], raw_id="B5-27",
@@ -97,7 +97,7 @@ F = [
          note="'This position has a stop' asserted from a read that failed."),
     dict(id="RC-2026-017", title="A balance payload without `free` clamps every live "
          "order to $0 and reports it as a measurement",
-         status="OPEN", severity="LOW", confidence="CONFIRMED",
+         status="PARTIALLY_FIXED", severity="LOW", confidence="CONFIRMED",
          category="honesty-fail-open", component="order-execution",
          file="bot/core/engine.py", line="6271-6278", fix_class="SAFE_AUTO_FIX",
          standard=["CWE-754"], verified_by="lead-auditor"),

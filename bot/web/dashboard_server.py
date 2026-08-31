@@ -345,9 +345,32 @@ async def handle_performance_chart(request: web.Request) -> web.Response:
 # PnL or any per-user data — so it is safe to expose to a scraper.
 
 def _is_ready(snap) -> bool:
-    """Readiness = exchange reachable and health not CRITICAL."""
-    return bool(getattr(snap, "exchange_connected", False)) and \
-        getattr(snap, "status", "CRITICAL") != "CRITICAL"
+    """Readiness = nothing has REPORTED a failure.
+
+    RC-2026-014, and the choice here is deliberate. This used to read
+    `bool(exchange_connected) and status != "CRITICAL"` with a docstring
+    promising it "fails CLOSED if health can't be determined". That promise was
+    never tested, because `exchange_connected` defaulted to True and `status`
+    to HEALTHY -- so the endpoint answered 200 off values nobody had written,
+    which is the opposite of failing closed.
+
+    Now that the snapshot says UNKNOWN honestly, the literal fail-closed
+    reading would return 503 FOREVER: `SystemHealthMonitor` has no feeder in
+    the tree, so "not determined" is its steady state, and a readiness probe
+    stuck at 503 is an outage that is not happening. Trading a false all-clear
+    for a false alarm is not an improvement.
+
+    So: a REPORTED failure fails readiness; an ABSENT reading does not, and
+    /ready's body carries `health_observed` so the difference is legible. The
+    fail-closed promise becomes honourable the moment something calls
+    `record_api_call` / `set_exchange_status`; until then it cannot be kept by
+    the status code, only pretended.
+    """
+    if getattr(snap, "status", None) == "CRITICAL":
+        return False
+    # `is False` -- an explicit report of disconnection. None is "nobody
+    # looked", and bool(None) would have silently meant "down".
+    return getattr(snap, "exchange_connected", None) is not False
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -382,7 +405,13 @@ async def handle_ready(request: web.Request) -> web.Response:
         body = {
             "ready": ready,
             "status": getattr(snap, "status", "UNKNOWN"),
-            "exchange_connected": bool(getattr(snap, "exchange_connected", False)),
+            # Was `bool(...)`, which rendered "nobody checked" as False, i.e.
+            # as a reported disconnection. null says which it is.
+            "exchange_connected": getattr(snap, "exchange_connected", None),
+            # The honest qualifier on `ready` above: false means this instance
+            # answered 200 because nothing reported a fault, NOT because
+            # anything confirmed it healthy.
+            "health_observed": getattr(snap, "status", "UNKNOWN") != "UNKNOWN",
             "uptime_seconds": getattr(snap, "uptime_seconds", 0.0),
         }
         return web.json_response(body, status=200 if ready else 503)
@@ -408,11 +437,24 @@ def _render_prometheus(engine) -> str:
         s = engine.health.snapshot()
         metric("runeclaw_ready", int(_is_ready(s)), "1 if the bot is ready to trade.")
         metric("runeclaw_uptime_seconds", s.uptime_seconds, "Process uptime in seconds.", "counter")
-        metric("runeclaw_exchange_connected", int(bool(s.exchange_connected)), "1 if the exchange is connected.")
+        # RC-2026-014: OMIT, not zero. Prometheus has no value meaning "no
+        # reading", so a gauge emitted at 0 for an unfed monitor gives every
+        # alert on it a permanently-satisfied condition -- and emitting the
+        # None directly is not valid exposition at all, which would make a
+        # scraper reject this whole payload and take the real metrics with it.
+        # An absent series is how "not measured" is spelled here.
+        metric("runeclaw_health_observed", int(s.status != "UNKNOWN"),
+               "1 if anything has reported health; 0 means the gauges below are absent.")
+        if s.exchange_connected is not None:
+            metric("runeclaw_exchange_connected", int(bool(s.exchange_connected)),
+                   "1 if the exchange is connected.")
         metric("runeclaw_ws_connected", int(bool(s.ws_connected)), "1 if the market-data websocket is connected.")
-        metric("runeclaw_api_latency_ms", s.api_latency_ms, "Rolling average API latency (ms).")
-        metric("runeclaw_api_latency_p99_ms", s.api_latency_p99_ms, "p99 API latency (ms).")
-        metric("runeclaw_api_error_rate_pct", s.error_rate_pct, "API error rate over the window (percent).")
+        if s.api_latency_ms is not None:
+            metric("runeclaw_api_latency_ms", s.api_latency_ms, "Rolling average API latency (ms).")
+        if s.api_latency_p99_ms is not None:
+            metric("runeclaw_api_latency_p99_ms", s.api_latency_p99_ms, "p99 API latency (ms).")
+        if s.error_rate_pct is not None:
+            metric("runeclaw_api_error_rate_pct", s.error_rate_pct, "API error rate over the window (percent).")
         metric("runeclaw_api_calls_total", s.total_api_calls, "Total API calls observed.", "counter")
         metric("runeclaw_api_errors_total", s.total_errors, "Total API errors observed.", "counter")
     except Exception:

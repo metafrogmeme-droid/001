@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "ac6988f6f53510a988760d2aca39124017c1ff85",
+    "commit": "66b91522934cb84b70a6378816d433c4eb62d2a4",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -79,7 +79,7 @@
     {
       "id": "RC-2026-014",
       "title": "SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
-      "status": "OPEN",
+      "status": "PARTIALLY_FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
@@ -132,7 +132,7 @@
     {
       "id": "RC-2026-017",
       "title": "A balance payload without `free` clamps every live order to $0 and reports it as a measurement",
-      "status": "OPEN",
+      "status": "PARTIALLY_FIXED",
       "severity": "LOW",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
