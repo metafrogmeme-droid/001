@@ -1596,10 +1596,38 @@ async def handle_portfolio(request: web.Request) -> web.Response:
 
 # ── Open positions + stop-loss PROTECTION TRUTH (read-only) ──────────────────
 
-def _protection_dists(entry: float, sl: float, tp: float) -> tuple[float, float]:
-    sl_d = abs(entry - sl) / entry * 100 if entry > 0 and sl > 0 else 0.0
-    tp_d = abs(tp - entry) / entry * 100 if entry > 0 and tp > 0 else 0.0
-    return round(sl_d, 2), round(tp_d, 2)
+def _protection_level(v) -> float | None:
+    """A real protective price, or None. Never a default.
+
+    RC-2026-016. `float(getattr(pos, "stop_loss", 0) or 0)` mapped every way of
+    NOT KNOWING a stop -- an absent field, a venue that answered nothing, an
+    adoption whose order-book read raised -- onto `0.0`, and every downstream
+    expression then read that zero as a measurement. No traded asset has a stop
+    at zero, so `<= 0` here is the ABSENCE of a reading and must not be
+    rendered as one. Guard at the boundary so new callers inherit it.
+    """
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):   # NaN / inf are not prices
+        return None
+    return f if f > 0 else None
+
+
+def _protection_dists(entry: float, sl: float | None,
+                      tp: float | None) -> tuple[float | None, float | None]:
+    """Percent distance entry -> level, or None where either side is unknown.
+
+    `0.0` is a REAL distance -- a stop sitting exactly at entry -- so it cannot
+    also mean "no reading". That collision printed "0% away" for positions
+    whose stop nobody had looked up.
+    """
+    def _d(level: float | None) -> float | None:
+        if entry <= 0 or level is None:
+            return None
+        return round(abs(entry - level) / entry * 100, 2)
+    return _d(sl), _d(tp)
 
 
 def _live_position_row(pos) -> dict:
@@ -1611,14 +1639,40 @@ def _live_position_row(pos) -> dict:
     Telegram's ``sl_order: 'exchange' if pos.sl_order_id else 'manual'``.
     """
     entry = float(getattr(pos, "entry_price", 0) or 0)
-    sl = float(getattr(pos, "stop_loss", 0) or 0)
-    tp = float(getattr(pos, "take_profit", 0) or 0)
+    sl = _protection_level(getattr(pos, "stop_loss", None))
+    tp = _protection_level(getattr(pos, "take_profit", None))
     qty = float(getattr(pos, "quantity", 0) or 0)
     cost = float(getattr(pos, "cost_usd", 0) or 0) or (entry * qty)
     lev = float(getattr(pos, "leverage", 0) or 0) or 1.0
     sl_protected = bool(getattr(pos, "sl_order_id", None))
     tp_protected = bool(getattr(pos, "tp_order_id", None))
-    unprotected = (not sl_protected and sl > 0) or bool(getattr(pos, "unprotected", False))
+    marked = bool(getattr(pos, "unprotected", False))
+
+    def _state(protected: bool, price: float | None) -> str:
+        """exchange / manual / unknown -- three outcomes, not two.
+
+        "manual" asserts a stop EXISTS and was placed by hand. Saying that
+        about a position nobody could read a stop for is the reassuring
+        direction of the mistake.
+        """
+        if protected:
+            return "exchange"
+        return "manual" if price is not None else "unknown"
+
+    sl_order = _state(sl_protected, sl)
+    tp_order = _state(tp_protected, tp)
+    # THREE-VALUED, and the third value is the whole point. `False` here is a
+    # claim -- the dashboard chips straight off this field -- so it may only be
+    # said about a position we actually read. A stop nobody looked up is None:
+    # not protected, not unprotected, NOT READ. Consumers must test `is None`
+    # rather than falsiness, which is why the count below is explicit.
+    if marked:
+        unprotected = True
+    elif sl_order == "unknown":
+        unprotected = None
+    else:
+        unprotected = sl_order == "manual"
+    sl_unknown = sl_order == "unknown" and not marked
     sl_d, tp_d = _protection_dists(entry, sl, tp)
     opened = getattr(pos, "opened_at", None)
     return {
@@ -1626,18 +1680,19 @@ def _live_position_row(pos) -> dict:
         "pair": str(getattr(pos, "symbol", "")).split("/")[0],
         "direction": getattr(pos, "direction", ""),
         "entry_price": round(entry, 6),
-        "stop_loss": round(sl, 6),
-        "take_profit": round(tp, 6),
+        "stop_loss": round(sl, 6) if sl is not None else None,
+        "take_profit": round(tp, 6) if tp is not None else None,
         "sl_dist_pct": sl_d,
         "tp_dist_pct": tp_d,
         "size_usd": round(cost, 2),
         "leverage": round(lev, 2),
         "quantity": qty,
-        "sl_order": "exchange" if sl_protected else "manual",
-        "tp_order": "exchange" if tp_protected else "manual",
+        "sl_order": sl_order,
+        "tp_order": tp_order,
         "sl_protected": sl_protected,
         "tp_protected": tp_protected,
         "unprotected": unprotected,
+        "sl_unknown": sl_unknown,
         "strategy_type": getattr(pos, "strategy_type", "") or "",
         "opened_at": opened.isoformat() if opened else None,
     }
@@ -1698,7 +1753,11 @@ async def handle_positions(request: web.Request) -> web.Response:
         "positions": rows,
         "count": len(rows),
         "protected_count": sum(1 for r in rows if r.get("sl_protected")),
-        "unprotected_count": sum(1 for r in rows if r.get("unprotected")),
+        # `is True` / `is None`, not truthiness: `unprotected` is three-valued
+        # now, and the two counts used not to sum to `count` -- an unreadable
+        # position fell into neither and so read as safe.
+        "unprotected_count": sum(1 for r in rows if r.get("unprotected") is True),
+        "unknown_count": sum(1 for r in rows if r.get("unprotected") is None),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
 

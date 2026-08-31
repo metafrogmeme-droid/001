@@ -84,20 +84,40 @@ async def handle_state(request: web.Request) -> web.Response:
         # RC-AUD-016: report the REAL trading mode, not a hardcoded True.
         # A hardcoded "simulation_mode": True made the dashboard show paper mode
         # even while trading live with real capital.
+        #
+        # RC-2026-023: `not is_live()` is a TWO-valued projection of a
+        # four-valued world. A box with SIMULATION_MODE=false and
+        # LIVE_TRADING_ENABLED=false -- the staging posture the runbook
+        # describes -- places no orders and answered `simulation_mode: True`,
+        # i.e. SIMULATION for a bot that is not simulating. An UNREADABLE
+        # config answered the same thing, which is a confident verdict
+        # manufactured from a failed read, in the reassuring direction.
+        # mode_label() is this tree's canonical answer and already serves four
+        # other surfaces: LIVE / PAPER / IDLE / UNKNOWN.
         try:
             from bot.config import CONFIG as _engine_cfg
-            _sim_mode = not _engine_cfg.is_live()
+            from bot.core.live_readiness import mode_label as _mode_label
+            _trading_mode = _mode_label(_engine_cfg)
         except Exception:
-            _sim_mode = True  # fail safe: default to showing simulation
+            _trading_mode = "UNKNOWN"
         data["engine"] = {
             "state": state_name,
             "scan_interval": getattr(engine, "_scan_interval", 60),
             "pending_ideas": len(getattr(engine, "pending_ideas", [])),
-            "simulation_mode": _sim_mode,
+            # Value-identical to the old `not is_live()` for every input,
+            # including the failures: mode_label() answers LIVE exactly when
+            # is_live() is True, and UNKNOWN on every read that raised -- where
+            # the old code fell to its `except -> True` fail-safe. Kept so no
+            # existing reader changes behaviour; new readers want trading_mode,
+            # which can say "nobody read it".
+            "simulation_mode": _trading_mode != "LIVE",
+            "trading_mode": _trading_mode,
             "state_history": history,
         }
     except Exception:
-        data["engine"] = {"state": "UNKNOWN"}
+        # Was {"state": "UNKNOWN"} with no mode key at all -- the client then
+        # had nothing to distinguish "not read" from "paper".
+        data["engine"] = {"state": "UNKNOWN", "trading_mode": "UNKNOWN"}
 
     # LLM Tiers — RESOLVED, not recited.
     #

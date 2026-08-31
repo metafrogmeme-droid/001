@@ -106,6 +106,22 @@ body::after {
   color: var(--amber);
 }
 
+/* IDLE is "not simulating and not armed" -- it places nothing, but it is not
+   paper either, and it is a MEASURED state, so it gets its own colour. */
+.badge-idle {
+  background: rgba(148,163,184,0.12);
+  border: 1px solid rgba(148,163,184,0.35);
+  color: var(--steel);
+}
+
+/* Nobody read the mode. Deliberately the flattest treatment on the header:
+   colour is a claim, and every other badge here is making one. */
+.badge-unknown {
+  background: rgba(148,163,184,0.06);
+  border: 1px dashed rgba(148,163,184,0.45);
+  color: var(--steel);
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -414,9 +430,13 @@ body::after {
   <div class="header">
     <div class="header-left">
       <h1>⚔️ RUNECLAW</h1>
-      <span class="header-badge badge-sim" id="modeBadge">
+      <!-- RC-2026-023: this pill used to read SIMULATION as literal markup and
+           updateEngine never touched it, so the mode the server sends was
+           unreachable from the UI. It opens as MODE UNKNOWN because before the
+           first poll returns that is the honest answer. -->
+      <span class="header-badge badge-unknown" id="modeBadge">
         <span class="status-dot dot-amber" id="statusDot"></span>
-        SIMULATION
+        <span id="modeText">MODE UNKNOWN</span>
       </span>
       <span class="header-badge" id="stateBadge" style="background:rgba(148,163,184,0.1);border:1px solid var(--border);color:var(--steel);">IDLE</span>
     </div>
@@ -716,11 +736,39 @@ function updateRisk(r) {
     '</div>';
 }
 
+// What the header pill should say about the trading mode, given the engine
+// block the server sent. Pure so a test can plant a payload and read the
+// answer -- the badge was inline before, and "the code is present" and "the
+// code is reached" are indistinguishable without a seam.
+//
+// FOUR values, because the server can emit four. `trading_mode` comes from
+// live_readiness.mode_label(), the same helper four other surfaces use:
+// LIVE / PAPER / IDLE / UNKNOWN. And the outer handler in dashboard_server.py
+// emits {"state": "UNKNOWN"} with NO mode key at all, so "nobody read it"
+// arrives here in ordinary operation and must not resolve to a word.
+function modeBadgeView(eng) {
+  const raw = eng && eng.trading_mode;
+  const mode = typeof raw === 'string' ? raw.toUpperCase() : '';
+  if (mode === 'LIVE')  return { text: 'LIVE',  badgeClass: 'badge-live',    dotClass: 'dot-green' };
+  if (mode === 'PAPER') return { text: 'PAPER', badgeClass: 'badge-sim',     dotClass: 'dot-amber' };
+  if (mode === 'IDLE')  return { text: 'IDLE',  badgeClass: 'badge-idle',    dotClass: 'dot-amber' };
+  // Anything else -- 'UNKNOWN', a key that never arrived, a null, a shape we
+  // do not recognise -- is one thing: not read. It is never SIMULATION,
+  // which is a claim that no real money is at risk.
+  return { text: 'MODE UNKNOWN', badgeClass: 'badge-unknown', dotClass: 'dot-amber' };
+}
+
 function updateEngine(eng, tiers, cost) {
   // State badge
   const s = (eng && eng.state) || 'IDLE';
   $('stateBadge').textContent = s.toUpperCase();
   $('stateBadge').className = 'header-badge ' + stateClass(s);
+
+  // Mode badge. `statusDot` inside this pill reports the CONNECTION and is
+  // driven elsewhere; the word and the pill colour report the MODE.
+  const mv = modeBadgeView(eng);
+  $('modeText').textContent = mv.text;
+  $('modeBadge').className = 'header-badge ' + mv.badgeClass;
 
   // Tiers
   //
