@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "11bdcaeebbe8c4d15db1c18a746dd0081d28fb73",
+    "commit": "c71ac1b8ce4b0a188af9665f6e7a993bbce05b42",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -148,8 +148,9 @@
       "id": "RC-2026-018",
       "title": "The default backtest fills entries at prices the market never traded",
       "status": "OPEN",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "confidence": "CONFIRMED",
+      "severity_history": "finder BLOCKER -> verifiers CRITICAL -> second pass HIGH",
       "category": "backtest-integrity",
       "component": "backtest",
       "file": "bot/backtest/engine.py",
@@ -159,8 +160,8 @@
         "CWE-1041"
       ],
       "raw_id": "B4-01",
-      "verified_by": "lead-auditor+dimension-agent+2-verifiers",
-      "note": "CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ has no order-type model at all. The finder said BLOCKER; recorded CRITICAL after the correction. Every published backtest number rests on this."
+      "verified_by": "lead-auditor+dimension-agent+2-verifiers+3-prosecutors",
+      "note": "CONFIG.limit_orders defaults enabled with default_order_type='limit' (config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback up to 1 ATR below the close, and bot/backtest/ has no order-type model at all. THE CRITICAL WAS INCOHERENT AND THIS NOTE CARRIED THE PROOF: verifier 1 justified CRITICAL with 'it corrupts every published backtest/scorecard number'; verifier 2 proved that false (--honest forces fill_mode=next_open at runner.py:546-548, and every published path passes --honest); the register adopted verifier 2's FACT while keeping verifier 1's SEVERITY, and this note asserted the refuted premise verbatim while the register two paragraphs away said the opposite. Three second-pass prosecutors, one per lens, independently said HIGH. AFFECTED: real-data default-mode developer runs. NOT AFFECTED: the frozen benchmark, the marketplace scorecards and the web Strategy Lab, which all pass --honest; backtest_deep_results.json is 100% synthetic GBM. The remediation is ALSO unsound - its acceptance test asserts the entry lies in some bar's range 'at or after the signal bar', which passes on the UNFIXED engine; it must assert the range of the bar the fill was booked on."
     },
     {
       "id": "RC-2026-019",
@@ -1235,20 +1236,22 @@
     {
       "id": "B4-03",
       "title": "Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "severity_claimed": "CRITICAL",
       "severity_verifier": [
         "MEDIUM",
         "HIGH"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "backtest",
       "fix_class": "REVIEW_REQUIRED",
       "file": "bot/backtest/engine.py:614",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "CRITICAL",
+      "second_pass_reason": "Three prosecutors, one per lens: two said HIGH, one MEDIUM. None left it at CRITICAL. Took HIGH, the more conservative of the two below-CRITICAL verdicts. The remedy lens rated the proposed remediation HARMFUL."
     },
     {
       "id": "B4-04",
@@ -1547,14 +1550,16 @@
         "UNCHANGED",
         "MEDIUM"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "honesty-js",
       "fix_class": "REVIEW_REQUIRED",
       "file": "app/public/js/dashboard.js:6300-6310",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass confirmed MEDIUM against a disputed claim."
     },
     {
       "id": "B4-21",
@@ -1775,20 +1780,22 @@
     {
       "id": "B5-02",
       "title": "Third-party GitHub Actions are referenced by mutable branch/tag, not commit SHA \u2014 including a branch ref on the Rust toolchain action",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "infra-cicd",
       "fix_class": "SAFE_AUTO_FIX",
       "file": ".github/workflows/ci.yml:173, 176, 454",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: MEDIUM not defensible on reachability."
     },
     {
       "id": "B5-03",
@@ -1829,38 +1836,42 @@
     {
       "id": "B5-05",
       "title": "GitLab's token-tooling job runs from the repo root against paths that only exist under token/, and its `rules: changes` list can never match",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "infra-cicd",
       "fix_class": "REVIEW_REQUIRED",
       "file": ".gitlab-ci.yml:92-99",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: MEDIUM not defensible on reachability."
     },
     {
       "id": "B5-06",
       "title": "The GitLab pipeline silently omits nine GitHub gates while its header promises that every omission is stated",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "infra-cicd",
       "fix_class": "REVIEW_REQUIRED",
       "file": ".gitlab-ci.yml:10-20, 57-62, 81-90",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: every gate the finding names as missing was added to ci.yml AFTER .gitlab-ci.yml's last commit."
     },
     {
       "id": "B5-07",
@@ -1937,20 +1948,22 @@
     {
       "id": "B5-11",
       "title": "pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates",
-      "severity": "HIGH",
+      "severity": "MEDIUM",
       "severity_claimed": "HIGH",
       "severity_verifier": [
         "MEDIUM",
         "LOW"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "deps",
       "fix_class": "REVIEW_REQUIRED",
       "file": ".github/workflows/ci.yml:161-163 (with bot/requirements.txt:10-13, Dockerfile:22-23, tests/test_manifests_agree.py:49)",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "HIGH",
+      "second_pass_reason": "Second pass adjudicated the disputed severity."
     },
     {
       "id": "B5-12",
@@ -2135,20 +2148,22 @@
     {
       "id": "B5-22",
       "title": "The privacy policy's collection list and deletion list do not match what the code stores: verbatim chat text, personal ingest notes and third-party provider keys are undisclosed and undeleted",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "LOW",
         "UNCHANGED"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "privacy",
       "fix_class": "REVIEW_REQUIRED",
       "file": "website/privacy/index.html:28",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: the severity was borrowed from four sibling findings in the same batch rather than argued."
     },
     {
       "id": "B5-23",
@@ -2387,20 +2402,22 @@
     {
       "id": "B6-05",
       "title": "Platform header chips announce PAPER vs LIVE and engine reachability with no live region \u2014 the mode change is silent to screen readers",
-      "severity": "MEDIUM",
+      "severity": "LOW",
       "severity_claimed": "MEDIUM",
       "severity_verifier": [
         "UNCHANGED",
         "MEDIUM"
       ],
-      "severity_disputed": true,
+      "severity_disputed": false,
       "status": "OPEN",
       "confidence": "CONFIRMED",
       "dimension": "a11y",
       "fix_class": "SAFE_AUTO_FIX",
       "file": "app/public/dashboard.html:21, 24",
       "verified_by": "dimension-agent+2-verifiers",
-      "source": "audit/workflow_raw_findings.md"
+      "source": "audit/workflow_raw_findings.md",
+      "severity_before_second_pass": "MEDIUM",
+      "second_pass_reason": "Second pass: severity overstated; remedy rated HARMFUL."
     },
     {
       "id": "B6-06",
@@ -3657,17 +3674,15 @@
     }
   },
   "release_decision": {
-    "decision": "NO-GO",
-    "basis": "2 unresolved BLOCKER/CRITICAL findings. The brief prohibits GO with any unresolved BLOCKER or CRITICAL.",
-    "blockers": [
-      "RC-2026-018 The default backtest fills entries at prices the market never traded",
-      "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them"
-    ],
+    "decision": "CONDITIONAL GO",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 26 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "blockers": [],
     "open_high": [
       "RC-2026-013 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
       "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
       "RC-2026-015 /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement",
       "RC-2026-016 The web gateway reports unprotected: false for a live position whose stop could not be read",
+      "RC-2026-018 The default backtest fills entries at prices the market never traded",
       "RC-2026-019 The GDPR purge misses the bot's SQLite database entirely",
       "RC-2026-020 Web-only accounts never reach the purge at all",
       "RC-2026-021 SECURITY.md promises human-in-the-loop confirmation that the default configuration does not provide",
@@ -3683,10 +3698,10 @@
       "B3-16 /livebalance renders a FAILED exchange balance read as a complete $0.00 account statement \u2014 Cash, Equity and NET all \"$0.00\"",
       "B3-17 The web gateway reports `unprotected: false` for a live position that has NO stop at all, and the dashboard paints it \"\ud83e\udd16 bot-managed\" under a \"\ud83d\udee1\ufe0f All positions have their stop-loss on the exchange\" banner",
       "B4-02 /walk_forward's out-of-sample window is shorter than the indicator warmup, so every fold reports an unrun test as a measured +0.00% and 0% consistency",
+      "B4-03 Under --honest (next_open), positions are opened at the next bar's open while SL/TP stay anchored to the un-filled limit \u2014 57% of opened positions have a realized R:R below the 1.2 gate that approved them",
       "B4-04 --honest win rate and trade count are per scale-out LEG, not per position, inflating every published scorecard win rate",
       "B4-15 buildDefiPositions returns an all-clear on Aave liquidation risk when every chain RPC is dead \u2014 no marker distinguishes it from a position-free wallet",
       "B4-16 buildExposure renders a failed `trades` query as a flat book \u2014 \"No directional exposure found \u2014 no open positions\" and $0 net/gross",
-      "B5-11 pip-audit audits `requirements.lock`; the deployed manifest range-pins the same packages and its floors carry 27+ known advisories the gate never evaluates",
       "B7-02 Operator dashboard renders a swallowed positions-read exception as \"No open positions\" (HTTP 200 with an empty or partial list)",
       "B7-03 Operator dashboard paints \"CIRCUIT BREAKER: OK\" in green from a failed risk read"
     ],

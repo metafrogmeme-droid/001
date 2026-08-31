@@ -87,16 +87,29 @@ F = [
          standard=["CWE-754"], verified_by="lead-auditor"),
     dict(id="RC-2026-018", title="The default backtest fills entries at prices the market "
          "never traded",
-         status="OPEN", severity="CRITICAL", confidence="CONFIRMED",
+         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         severity_history="finder BLOCKER -> verifiers CRITICAL -> second pass HIGH",
          category="backtest-integrity", component="backtest",
          file="bot/backtest/engine.py", line="593", fix_class="REVIEW_REQUIRED",
          standard=["CWE-1041"], raw_id="B4-01",
-         verified_by="lead-auditor+dimension-agent+2-verifiers",
+         verified_by="lead-auditor+dimension-agent+2-verifiers+3-prosecutors",
          note="CONFIG.limit_orders defaults enabled with default_order_type='limit' "
               "(config.py:1982-1984), so the analyzer sets idea.entry_price to a pullback "
               "up to 1 ATR below the close, and bot/backtest/ has no order-type model at "
-              "all. The finder said BLOCKER; recorded CRITICAL after the correction. "
-              "Every published backtest number rests on this."),
+              "all. THE CRITICAL WAS INCOHERENT AND THIS NOTE CARRIED THE PROOF: verifier "
+              "1 justified CRITICAL with 'it corrupts every published backtest/scorecard "
+              "number'; verifier 2 proved that false (--honest forces fill_mode=next_open "
+              "at runner.py:546-548, and every published path passes --honest); the "
+              "register adopted verifier 2's FACT while keeping verifier 1's SEVERITY, and "
+              "this note asserted the refuted premise verbatim while the register two "
+              "paragraphs away said the opposite. Three second-pass prosecutors, one per "
+              "lens, independently said HIGH. AFFECTED: real-data default-mode developer "
+              "runs. NOT AFFECTED: the frozen benchmark, the marketplace scorecards and "
+              "the web Strategy Lab, which all pass --honest; backtest_deep_results.json "
+              "is 100% synthetic GBM. The remediation is ALSO unsound - its acceptance "
+              "test asserts the entry lies in some bar's range 'at or after the signal "
+              "bar', which passes on the UNFIXED engine; it must assert the range of the "
+              "bar the fill was booked on."),
     dict(id="RC-2026-019", title="The GDPR purge misses the bot's SQLite database entirely",
          status="OPEN", severity="HIGH", confidence="CONFIRMED",
          category="privacy-erasure", component="bot/web/user_gateway",
@@ -543,7 +556,42 @@ def _parse_verified_findings(text: str) -> list[dict]:
     return out
 
 
+# ── Second-pass severity overrides ────────────────────────────────────────
+#
+# The adversarial second pass attacked surviving findings on three axes the
+# first pass never used: is it still true of today's tree, is the REMEDIATION
+# sound, and is the severity defensible. Corrections are recorded here with
+# their reasoning rather than edited into the markdown, so the original claim
+# and the correction stay legible side by side.
+#
+# Only DOWNGRADES appear below, and that is a finding about the audit: every
+# severity the second pass moved, it moved down. Agents asked to find defects
+# rate them generously, and two adversarial verifiers correcting 84 of 162 still
+# left a systematic upward bias.
+SECOND_PASS_SEVERITY = {
+    "B4-03": ("HIGH",
+              "Three prosecutors, one per lens: two said HIGH, one MEDIUM. None "
+              "left it at CRITICAL. Took HIGH, the more conservative of the two "
+              "below-CRITICAL verdicts. The remedy lens rated the proposed "
+              "remediation HARMFUL."),
+    "B4-20": ("MEDIUM", "Second pass confirmed MEDIUM against a disputed claim."),
+    "B5-02": ("LOW", "Second pass: MEDIUM not defensible on reachability."),
+    "B5-05": ("LOW", "Second pass: MEDIUM not defensible on reachability."),
+    "B5-06": ("LOW", "Second pass: every gate the finding names as missing was "
+                     "added to ci.yml AFTER .gitlab-ci.yml's last commit."),
+    "B5-11": ("MEDIUM", "Second pass adjudicated the disputed severity."),
+    "B5-22": ("LOW", "Second pass: the severity was borrowed from four sibling "
+                     "findings in the same batch rather than argued."),
+    "B6-05": ("LOW", "Second pass: severity overstated; remedy rated HARMFUL."),
+}
+
 VERIFIED_FINDINGS = _parse_verified_findings(_raw_text)
+for _f in VERIFIED_FINDINGS:
+    _o = SECOND_PASS_SEVERITY.get(_f["id"])
+    if _o:
+        _f["severity_before_second_pass"] = _f["severity"]
+        _f["severity"], _f["second_pass_reason"] = _o
+        _f["severity_disputed"] = False  # adjudicated by the second pass
 
 # A gate whose coverage is overstated is the failure this repository spends its
 # guard tests preventing, so the parse is checked against the batch summaries
