@@ -13,7 +13,7 @@
 const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
-const { resolveBotIdentity } = require('../lib/identity');
+const { resolveBotIdentity, foreignIdentityBlock } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { pool } = require('../db');
 const { stepUpBlock } = require('../lib/stepup');
@@ -63,6 +63,11 @@ router.post('/fixed', execLimit, async (req, res) => {
       'Enter your 6-digit authenticator code to lock funds.');
     if (blk) return res.status(blk.status).json(blk.body);
     const ident = await resolveBotIdentity(req);
+    // RC-2026-025: the step-up above read THIS account's factors; the move
+    // below is performed as `ident.id`. Refuse if those are not the same
+    // subject — see lib/identity.foreignIdentityBlock.
+    const mism = await foreignIdentityBlock(ident.id, req.user.user_id);
+    if (mism) return res.status(mism.status).json(mism.body);
     const r = await gateway.postGateway('/staking/fixed', {
       telegram_id: ident.id,
       coin, product_id: productId, days,

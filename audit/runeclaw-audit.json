@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "97042bab1dd42cccbbc4ab2bc5c83d8528d95e62",
+    "commit": "e25b0833eedde5724d2385784248882713b69d69",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -310,7 +310,7 @@
     {
       "id": "RC-2026-025",
       "title": "The 2FA step-up reads the caller's row while the money move executes as the resolved bot identity",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "LOW",
       "second_pass": "MEDIUM -> LOW. Reproduces in the breached state, but that state is unreachable now that uniq_users_telegram_id and the 409 both exist. LOW as a latent invariant - and its own remedy was rated HARMFUL.",
       "confidence": "CONFIRMED",

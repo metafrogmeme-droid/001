@@ -2152,7 +2152,13 @@ holding the bot secret, a chat_id already on another row is refused.
 
 ## RC-2026-025 — the step-up and the action address different subjects
 
-- **Status**: OPEN · **Severity**: MEDIUM (latent — see reachability)
+- **Status**: FIXED · **Severity**: MEDIUM (latent — see reachability)
+  → **FIXED** by the second remediation the finding offers — assert the two subjects agree and refuse if they do not — because it is cheaper (one indexed lookup, no change to how 2FA is evaluated) and it fails LOUDLY rather than silently gating on someone else's factors.
+  → `app/lib/identity.foreignIdentityBlock(telegramId, uid)` is the shared guard, and it carries the invariant the finding's whole point was that nobody had written down: three route files depended on "nothing can put another account's telegram_id on your row" while none of them said so. A `web:<uid>` identity short-circuits without a query — `resolveBotIdentity` built it from that very uid, so there is no second subject.
+  → **Three call sites, not one.** The finding names `staking.js` "and the same shape wherever `stepUpBlock` precedes `resolveBotIdentity`": that is `staking.js` `/fixed`, `webtrade.js` confirm, and `controls.js` submit. A test enumerates `app/routes/*.js` and fails on any route that gates on `stepUpBlock` and then acts as a `telegram_id` without consulting the guard — so a new one inherits the check rather than repeating the defect.
+  → **`controls.js` has three `pending_controls` writes, and only one is guarded.** `/stop` is deliberately left ungated: it has no step-up whose subject could disagree, and this file's standing rule is that de-risking is never gated — a 403 there would block a user closing their own book to close a hole `idx_users_telegram_id` already closes. The venue-selection write has no step-up either. The reason is stated in the file and pinned by a test, so the omission reads as a decision rather than an oversight.
+  → **Still latent.** Nothing changes for any real request today; the guard returns null on every one. That is the point — it is a property made explicit at the place that relies on it.
+  → `app/test/stepup_and_action_same_subject.test.js` (11), 8 mutations killed, including removing the guard from each of the three routes independently. One test exists because the first draft would have failed it: MySQL returns BIGINT as a string under some driver configurations, so a strict `===` between `42` and `"42"` would have locked out every legitimate owner — the comparison is stringified on both sides.
 - **Confidence**: CONFIRMED · **Fix class**: REVIEW_REQUIRED
 - **File**: `app/routes/staking.js:55-66`, and the same shape wherever
   `stepUpBlock` precedes `resolveBotIdentity`
