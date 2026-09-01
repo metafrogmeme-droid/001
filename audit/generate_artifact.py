@@ -251,7 +251,7 @@ F = [
               "with no simulation_mode key at all."),
     dict(id="RC-2026-024", title="The full-history gitleaks step scans every ref in the "
          "checkout, so another branch's leak fails the check on every open PR",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         status="FIXED", severity="MEDIUM", confidence="CONFIRMED",
          category="gate-integrity", component="ci",
          file=".github/workflows/ci.yml", line="482-500", fix_class="REVIEW_REQUIRED",
          standard=["NIST-SSDF-PS.1", "NIST-SSDF-PW.7"], verified_by="lead-auditor",
