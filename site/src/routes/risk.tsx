@@ -13,11 +13,20 @@
  * already reported where it is measured — `checks_passed` on the decision
  * record. A headline figure could only ever be a second, less accurate copy.
  *
- * So this page describes the PROPERTY, which does not drift: a check that
- * cannot be evaluated rejects the trade. That is worth more than a count
- * anyway, and it is the one thing about a risk gate a reader cannot verify by
+ * So this page describes the PROPERTY rather than a count -- and states it
+ * per-check, pointing at the manifest, which is where it actually lives. It
+ * deliberately does NOT publish the manifest's tally either: the same rule
+ * applies (site/test/site_honesty.test.js forbids a published risk-check
+ * count, because not all of them run on every trade). Stating it as a
+ * categorical
+ * "there is no path" was the older copy here, and it was FALSE — the engine
+ * records a skip into the passed list for an advisory check whose data source
+ * is absent, and for seven whose own evaluation raises.
+ *
+ * That is still the one thing about a risk gate a reader cannot verify by
  * watching it work — a gate that silently passes on error looks identical to
- * one that does not, right up until it does not.
+ * one that does not, right up until it does not — which is exactly why the
+ * page must name the paths that do skip instead of denying they exist.
  */
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -69,37 +78,55 @@ function Risk() {
         cannot be answered.
       </P>
 
-      <H>An unanswerable check is a rejection</H>
+      <H>Most checks reject when they cannot be answered. Not all.</H>
       <P>
-        Each check runs inside its own error boundary, and an exception does not
-        skip that check: it records a failure, and any failure rejects the
-        trade. There is no path where a check that could not be evaluated is
-        treated as a check that passed.
+        This page used to say there was <em>no path</em> where a check that
+        could not be evaluated was treated as a check that passed. That was a
+        stronger claim than the code supports, so here is the accurate one.
+      </P>
+      <P>
+        The gate is <strong>fail-closed</strong> on the checks that carry the
+        money: <code>config/risk_manifest.yaml</code> declares the behaviour
+        per check rather than as a slogan, and for the large majority a check
+        that cannot be evaluated rejects the trade. The volatility guard is the
+        clearest case: ATR is required and must be above zero, so an unreadable
+        volatility reading rejects instead of defaulting to calm.
       </P>
       <div className="data mt-5 rounded-lg border border-line bg-surface p-5 text-sm leading-relaxed text-ink-2">
-        <span className="text-accent"># the contract, verbatim</span>
+        <span className="text-accent"># the manifest, verbatim</span>
         <br />
-        This is the fail-closed contract: if ANY check cannot be evaluated,
+        LIQUIDITY: &ldquo;This is the ONLY fail-open check: no data = pass.&rdquo;
         <br />
-        the trade is REJECTED. No silent pass-through on errors.
+        MTF_ALIGNMENT / PORTFOLIO_VAR / CONCENTRATION_PCA: fail_behavior: skip
       </div>
       <ul className="mt-4 space-y-2.5">
-        <Src at="bot/risk/risk_engine.py">
-          That sentence is the module&rsquo;s own, and the structure under it
-          matches: every check sits in a <code>try</code> whose{' '}
-          <code>except</code> appends to the failed list rather than the passed
-          one.
+        <Src at="config/risk_manifest.yaml">
+          <strong>One check is fail-open by design.</strong> The liquidity guard
+          passes when it has no order-book depth to read, and the manifest says
+          so in as many words rather than leaving it to be discovered.
         </Src>
         <Src at="bot/risk/risk_engine.py">
-          The volatility guard is explicit about it — ATR is required and must
-          be above zero, so an unreadable volatility reading rejects instead of
-          defaulting to calm.
+          <strong>Advisory checks skip rather than reject.</strong> When a data
+          source is absent — no macro calendar configured, no order-flow
+          analyzer, not enough trade history for a VaR estimate — the check
+          records a skip, and a skip is counted with the passes. Seven of them
+          do the same when their own evaluation raises. That is a real
+          fail-open path, not an error boundary, and it is why the sentence
+          above no longer says &ldquo;no path&rdquo;.
+        </Src>
+        <Src at="bot/risk/risk_engine.py">
+          <strong>A skipped check is not a hidden one.</strong> Each one names
+          itself and its reason in the decision record — &ldquo;MACRO_EVENT: no
+          calendar configured (skipped)&rdquo; — so the audit trail shows what
+          was actually evaluated rather than a count that quietly includes what
+          was not.
         </Src>
       </ul>
       <P>
-        That is the opposite of the usual failure. A gate that swallows its own
-        errors and lets the trade through looks identical to a working one from
-        the outside, on every day that nothing goes wrong.
+        The distinction is the point. A gate that swallows its own errors and
+        lets the trade through looks identical to a working one from the
+        outside, on every day that nothing goes wrong — which is exactly why
+        the checks that do skip are named, and why this page names them too.
       </P>
 
       <H>Two breakers, and they are not the same breaker</H>
