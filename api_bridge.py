@@ -29,7 +29,7 @@ from fastapi import FastAPI, HTTPException, Depends, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse  # noqa: F401 (FileResponse kept for future static routes)
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: F401 (FileResponse kept for future static routes)
 from pydantic import BaseModel
 
 from bot.config import CONFIG
@@ -1034,14 +1034,63 @@ async def insight(symbol: str, timeframe: str = "1h", limit: int = 200,
 
 @app.post("/risk/halt")
 async def risk_halt(_token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
-    """Emergency stop — activate circuit breaker, close all positions."""
+    """Trip the circuit breaker so no NEW entry is accepted.
+
+    IT DOES NOT CLOSE POSITIONS, and this docstring said it did. The call is
+    `RiskEngine.emergency_halt`, which trips the breaker and persists it;
+    flattening every account is `engine.emergency_halt_all`, behind the
+    Telegram emergency_confirm button. "Close all open positions" is a
+    four-word promise this endpoint never kept, and an operator who reads it
+    during a drawdown stops looking for the button that actually flattens.
+
+    THREE OUTCOMES, and the reason they are not one: the halt ran under
+    `except Exception: pass` and the function then returned
+    `ok: True, circuit_breaker_active: True` **unconditionally** — the
+    emergency stop reporting success on its own failure, which is the single
+    worst thing a control on this path can do. The breaker is read BACK from
+    the engine now, so the answer states what is true rather than what was
+    attempted:
+
+      True   -> the breaker is open. Halted.
+      False  -> the call returned and the breaker is still closed. NOT halted.
+      unread -> nobody could ask. That is not "on", and must never render as
+                success on an emergency control.
+    """
     if engine is None:
         raise HTTPException(503, "Engine not initialized")
+
+    failure = ""
     try:
         engine.risk.emergency_halt("Emergency halt from dashboard")
-    except Exception:
-        pass
-    return {"ok": True, "circuit_breaker_active": True, "message": "Emergency halt activated"}
+    except Exception as exc:
+        # The CLASS name only. This body reaches an operator surface, and a
+        # driver message can carry a request URL with credentials in it.
+        failure = type(exc).__name__
+
+    try:
+        active = bool(engine.risk.circuit_breaker_active)
+    except Exception as exc:
+        active = None
+        failure = failure or type(exc).__name__
+
+    if active is True:
+        return {"ok": True, "circuit_breaker_active": True,
+                "closed_positions": False,
+                "message": "Circuit breaker tripped — no new entries. "
+                           "Open positions are NOT closed by this endpoint."}
+    if active is False:
+        return JSONResponse(status_code=500, content={
+            "ok": False, "circuit_breaker_active": False,
+            "closed_positions": False,
+            "message": "HALT DID NOT TAKE — the breaker is still closed and "
+                       "new entries are still being accepted."
+                       + (f" ({failure})" if failure else "")})
+    return JSONResponse(status_code=500, content={
+        "ok": False, "circuit_breaker_active": None,
+        "closed_positions": False,
+        "message": "Halt was attempted and its result could NOT be read. Do "
+                   "not assume the bot is halted."
+                   + (f" ({failure})" if failure else "")})
 
 
 # ── Static website serving ──────────────────────────────────────

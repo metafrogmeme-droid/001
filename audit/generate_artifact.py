@@ -570,17 +570,47 @@ VERIFICATION = dict(
                   raw=27, confirmed=25, suspected=0, refuted=2)],
     confirmed_and_still_open=[
         "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt counter (HIGH)",
-        "py-api-authz: /risk/halt swallows the halt failure and returns hardcoded success (HIGH)",
         "py-api-authz: Redis unreachable at boot silently downgrades JWT revocation (HIGH)",
-        "telegram-authz: /risk 'Safe Mode' button changes no state but says it is on (HIGH)",
         "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but not the READ (MEDIUM)",
         "py-api-authz: unauthenticated /api/lab/run allows unbounded subprocess/job growth (MEDIUM)",
         "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
         "secrets: gitleaks allowlist disables Solana keypair rules under tests/ and app/ (MEDIUM)",
         "secrets: an undecryptable LLM key is returned as ciphertext, reported present (MEDIUM)",
         "py-api-authz: /lab/status returns subprocess stderr to unauthenticated callers (LOW)",
-        "py-api-authz: handle_policy_clear swallows the failure and answers ok:true (LOW)",
         "secrets: /connect and /setexchange echo a raw ccxt exception to the user (LOW)",
+    ],
+    #: Entries LEAVE this list only by being fixed, and only in the commit that
+    #: fixes them — the `known_failures.txt` rule, because a list of what is
+    #: still wrong is worth nothing if it is not maintained in both directions.
+    #: A stale OPEN entry is the same defect as a stale severity: the register
+    #: describing a repo that no longer exists.
+    remediated_since=[
+        "py-api-authz: /risk/halt swallows the halt failure and returns "
+        "hardcoded success (HIGH) — FIXED 2026-09-01. The breaker is read BACK "
+        "from the engine, so the response states what is true rather than what "
+        "was attempted; three outcomes (halted / did not take / could not be "
+        "read). Its docstring also promised 'close all positions', which it has "
+        "never done — that is engine.emergency_halt_all, behind the Telegram "
+        "confirm button, and the endpoint now says so.",
+        "telegram-authz: /risk 'Safe Mode' button changes no state but says it "
+        "is on (HIGH) — FIXED 2026-09-01, by making it stop claiming. It "
+        "changed nothing, told the operator 'Safe mode is on', and wrote an "
+        "audit record with result=OK — a tamper-evident entry asserting a risk "
+        "control had been switched on. It sits between Pause and Stop Bot, both "
+        "of which really act, so it could displace the button that works. It "
+        "now names itself unimplemented and routes to those two; the audit "
+        "record says NOOP. Building a real safe mode is a product decision "
+        "about what the words should mean and was deliberately NOT invented "
+        "here. The identical line in warroom_bot.handle_callback was left "
+        "alone: that function is already in "
+        "tests/unreachable_functions_baseline.txt, and fixing an unreachable "
+        "surface is fixing nothing.",
+        "py-api-authz: handle_policy_clear swallows the failure and answers "
+        "ok:true (LOW) — FIXED 2026-09-01, and it was worse than recorded. "
+        "dashboard.js renders ok:true+removed:false as 'No policy was set.', so "
+        "a clear that THREW told the operator there had been no policy while it "
+        "stayed bound and stayed enforcing. The browser was already built for "
+        "three outcomes; the producer only ever sent two.",
     ],
     note="35 CONFIRMED findings are REPORTED, NOT REMEDIATED (12 from batch 1 listed "
          "above, 23 more from the money-path batch as M-01..M-25 minus the two "
