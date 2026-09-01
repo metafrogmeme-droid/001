@@ -216,15 +216,42 @@ test('a confirmed purge erases the account and ends the session', async () => {
     'the token still works after the account was erased');
 });
 
-test('an account with no telegram link needs no bot round trip', async () => {
+// REPLACES 'an account with no telegram link needs no bot round trip'.
+//
+// RC-2026-020. That test asserted `botCalls` was EMPTY for a web-only account,
+// on the stated premise that this was "an account the bot has never heard of".
+// The premise is false, and it is the whole finding: the gateway provisions a
+// `web:<id>` identity on first request, so the bot holds that person's
+// `user_settings.llm_api_key`, `user_news_keys.api_key`, their pasted
+// `user_ingest_notes` and their `user_portfolio`, keyed at the negative of the
+// website id. Skipping the round trip left every one of them on disk while the
+// web half reported the account deleted.
+//
+// The route's own refusal three lines below the gate says why that matters —
+// "it holds your exchange credentials, deleting here first would leave them
+// behind" — and that reasoning never depended on a Telegram link existing.
+test('a web-only account is still purged bot-side', async () => {
   const u = await newUser({ telegram: false });
   const res = await req('DELETE', '/api/auth/account', { token: u.token, body: CONFIRM });
   assert.strictEqual(res.status, 200, JSON.stringify(res.data));
-  assert.deepStrictEqual(botCalls, [],
-    'the gateway was called for an account the bot has never heard of');
-  assert.strictEqual(res.data.bot_stores, null,
-    'bot_stores must be null, not {} — "we did not ask" is not "nothing was '
-    + 'there"');
+  assert.strictEqual(botCalls.length, 1,
+    'a web-only account skipped the bot purge, leaving its rows on disk');
+  assert.match(String(botCalls[0].body.telegram_id), /^web:\d+$/,
+    'the bot must be asked under the web identity it actually stores');
+});
+
+test('a telegram_id spelled as a web identity is refused, not sent', async () => {
+  // The one construction where one account's purge key can name a different
+  // human: `web:5` as a telegram_id resolves bot-side to the same row as
+  // website user 5. Refusing costs nothing and closes it.
+  const u = await newUser({ telegram: false });
+  // `telegram_id` is VARCHAR(32) (app/db.js:2245), so this value is storable —
+  // the construction is reachable, which is why the guard exists.
+  await pool.execute('UPDATE users SET telegram_id = ? WHERE id = ?', ['web:5', u.id]);
+  botCalls = [];
+  const res = await req('DELETE', '/api/auth/account', { token: u.token, body: CONFIRM });
+  assert.strictEqual(res.status, 409, JSON.stringify(res.data));
+  assert.deepStrictEqual(botCalls, [], 'an ambiguous identity was sent to the bot');
 });
 
 test('a fault part-way through says so, instead of "nothing was removed"', async () => {

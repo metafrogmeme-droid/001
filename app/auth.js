@@ -1829,12 +1829,36 @@ router.delete('/account', authMiddleware, async (req, res) => {
     }
 
     // ── the bot half, first ──────────────────────────────────────────────
+    //
+    // RC-2026-020. This was gated on `user.telegram_id`, so an account that
+    // never linked Telegram skipped the bot half ENTIRELY and the web half
+    // then reported the account deleted — while the bot's SQLite still held
+    // that person's llm_api_key, news key, pasted notes and portfolio, keyed
+    // by the `web:<id>` identity the gateway provisions on first request.
+    // "It holds your exchange credentials — deleting here first would leave
+    // them behind" is the reason given three lines down for refusing to
+    // proceed without the bot; it is just as true for a web-only account.
+    //
+    // A telegram_id SPELLED as a web identity is refused rather than sent.
+    // It is the one construction where one account's purge key can name a
+    // different human: `web:5` as a telegram_id resolves bot-side to the same
+    // row as website user 5.
     let botStores = null;
-    if (user.telegram_id && gateway.isConfigured()) {
+    const rawTg = user.telegram_id == null ? '' : String(user.telegram_id);
+    if (/^web:/i.test(rawTg)) {
+      secLog('account_delete_ambiguous_identity', req, rawTg);
+      return res.status(409).json({
+        error: 'Your account was NOT deleted. Its Telegram identifier is '
+          + 'ambiguous, so deleting could act on a different account. '
+          + 'Nothing has been changed. Please contact support.',
+      });
+    }
+    const botIdentity = rawTg || `web:${user.id}`;
+    if (gateway.isConfigured()) {
       let purge;
       try {
         purge = await postGateway('/account/purge',
-          { telegram_id: String(user.telegram_id) }, 15000);
+          { telegram_id: botIdentity }, 15000);
       } catch (e) {
         secLog('account_delete_bot_unreachable', req, e.message);
         return res.status(502).json({

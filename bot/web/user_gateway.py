@@ -2906,6 +2906,25 @@ async def handle_llm_clear(request: web.Request) -> web.Response:
     return web.json_response({"connected": False})
 
 
+def _purge_audit_payload(stores: dict) -> dict:
+    """Per-store verdicts in a shape the audit redactor cannot eat.
+
+    RC-2026-019. `audit()` runs `_redact_dict` over `data`, and
+    `_SENSITIVE_KEY_RE` (bot/utils/logger.py:35) matches `token`, `credential`
+    and friends by KEY. Reporting the verdicts as `{"link_tokens": "deleted",
+    "exchange_credentials": "deleted"}` logged two of the seven as
+    `***REDACTED***` -- the store's outcome erased from the record that IS the
+    legal artifact for an erasure request. The values were never secret; the
+    key names merely looked like it.
+
+    A list of {"store": name, "result": verdict} carries the same facts under
+    keys the redactor has no opinion about. Pinned by a test that redacts a
+    real payload and asserts nothing was eaten.
+    """
+    return {"count": len(stores),
+            "verdicts": [{"store": k, "result": v} for k, v in sorted(stores.items())]}
+
+
 async def handle_account_purge(request: web.Request) -> web.Response:
     """POST /gateway/account/purge — erase everything the BOT holds for a user.
 
@@ -3008,10 +3027,43 @@ async def handle_account_purge(request: web.Request) -> web.Response:
         system_log.warning("purge: user record failed for %s: %s", tg_id, exc)
         result["user_record"] = "error"
 
+    # The bot's OWN SQLite. RC-2026-019: this database was not reached at all,
+    # so a purge answered `purged: true` having changed zero rows in seven
+    # tables holding llm_api_key, the news key, the trade history and the
+    # user's own pasted notes.
+    from bot.db.models import purge_user_data, settings_user_id
+    _uid = settings_user_id(tg_id)
+    if _uid is None:
+        # Not mappable to a settings key -- and that is a fact about the
+        # request, not an empty database. It must not read as "nothing here".
+        result["bot_database"] = "error"
+    else:
+        try:
+            for _table, _verdict in purge_user_data(_uid).items():
+                result[f"db_{_table}"] = _verdict
+        except Exception as exc:                      # pragma: no cover
+            system_log.warning("purge: bot database failed for %s: %s", tg_id, exc)
+            result["bot_database"] = "error"
+
+    # The Telegram link, keyed by the caller's OWN authenticated chat id rather
+    # than by a resolved user id. `user_telegram.chat_id` is TEXT UNIQUE, so
+    # this cannot reach another person's row even when the id spaces collide --
+    # it is the safest key in this handler, and it is the correct partial
+    # answer in the comingled case: the link goes, the disputed account stays.
+    try:
+        from bot.db.models import get_db as _get_db
+        with _get_db() as _db:
+            _cur = _db.execute(
+                "DELETE FROM user_telegram WHERE chat_id = ?", (str(tg_id),))
+            result["db_telegram_link"] = "deleted" if _cur.rowcount > 0 else "none"
+    except Exception as exc:                          # pragma: no cover
+        system_log.warning("purge: telegram link failed for %s: %s", tg_id, exc)
+        result["db_telegram_link"] = "error"
+
     ok = all(v in ("deleted", "none") for v in result.values())
     audit(system_log, f"Account purge requested: {tg_id}",
           action="account_purge", result="OK" if ok else "PARTIAL",
-          data={"user": tg_id, "stores": result})
+          data={"user": tg_id, "stores": _purge_audit_payload(result)})
     # 409, not 500: the request was well-formed and was partly carried out.
     # The caller must not read this as "retry the whole thing blindly", and
     # must not read it as success either.

@@ -494,6 +494,80 @@ def ensure_settings_parent(uid: int) -> None:
         )
 
 
+# Every table in SCHEMA that hangs off users(id), child-first. Declared as
+# data rather than as a sequence of DELETEs so a test can compare it against
+# SCHEMA itself: a table added later and not added here is a store somebody's
+# erasure silently misses, which is exactly how RC-2026-019 happened.
+PURGE_TABLES = (
+    "user_ingest_notes",
+    "user_news_keys",
+    "link_tokens",
+    "user_portfolio",
+    "user_settings",
+    "user_telegram",
+)
+
+
+def purge_user_data(uid: int) -> dict:
+    """Erase this identity's rows from the bot's SQLite. Per-table verdicts.
+
+    RC-2026-019. `handle_account_purge` covered six OTHER stores and never
+    reached this database, so a purge returned `purged: true` having changed
+    zero rows here -- leaving `user_settings.llm_api_key`,
+    `user_news_keys.api_key`, `user_portfolio.trade_history` and
+    `user_ingest_notes.body` readable.
+
+    THE PARENT DELETE IS CONDITIONAL, and that is the whole safety argument.
+    `DELETE FROM users WHERE id = ?` would inherit the RC-2026-026 collision:
+    the row at this id may be somebody's real account, and ON DELETE CASCADE
+    would take it and all their data with it. Deleting less than asked is the
+    bug being fixed; deleting another person's account is a worse one. So the
+    parent goes only when it is a STUB -- a website-linked bridge row (which
+    IS this person, MySQL ids being unique) or an identity stub. A row with a
+    real password hash is a bot-native account reached by an identity that
+    should not own it: refused, reported `error`, never silently removed.
+
+    The children are deleted explicitly rather than left to CASCADE. get_db()
+    sets PRAGMA foreign_keys=ON, but a caller that ever opens this file
+    without it would orphan them with the secret still readable, and the
+    explicit deletes also let each table report its own verdict.
+
+    Three outcomes per table -- deleted / none / error -- never a blanket OK.
+    """
+    result: dict[str, str] = {}
+    with get_db() as db:
+        row = db.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+
+        # CHECKED BEFORE ANYTHING IS DELETED, and the order is the safety.
+        # A first draft deleted the children first and refused only the parent,
+        # reasoning that the child rows "were written under this identity".
+        # On a collision they were not: they are the OTHER account's settings,
+        # news key and notes, and that draft destroyed them while carefully
+        # preserving the row that pointed at them. Nothing under a disputed id
+        # is this caller's to delete.
+        if row is not None and row["password_hash"] not in ("", WEBSITE_LINKED_HASH):
+            logger.error("purge: users id %s holds a bot-native account; "
+                         "refusing to delete anything under it", uid)
+            return {t: "error" for t in (*PURGE_TABLES, "users")}
+
+        for table in PURGE_TABLES:
+            try:
+                cur = db.execute(f"DELETE FROM {table} WHERE user_id = ?", (uid,))
+                result[table] = "deleted" if cur.rowcount > 0 else "none"
+            except Exception as exc:                  # pragma: no cover
+                logger.warning("purge: %s failed for %s: %s", table, uid, exc)
+                result[table] = "error"
+
+        if row is None:
+            result["users"] = "none"
+        else:
+            cur = db.execute("DELETE FROM users WHERE id = ?", (uid,))
+            result["users"] = "deleted" if cur.rowcount > 0 else "none"
+    return result
+
+
 def get_user_settings(user_id: int) -> UserSettings:
     with get_db() as db:
         row = db.execute(
