@@ -17,7 +17,7 @@
 const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
-const { resolveBotIdentity } = require('../lib/identity');
+const { resolveBotIdentity, foreignIdentityBlock } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { pool } = require('../db');
 const { stepUpBlock } = require('../lib/stepup');
@@ -118,6 +118,10 @@ router.post('/confirm', tradeLimit, async (req, res) => {
         if (blk) { secLog('WEB_TRADE_CONFIRM_2FA', req, `trade_id=${tradeId}`); return res.status(blk.status).json(blk.body); }
       }
     }
+    // RC-2026-025: the step-up above read THIS account's factors; the confirm
+    // below is performed as `ident.id`. Same subject or refuse.
+    const mism = await foreignIdentityBlock(ident.id, req.user.user_id);
+    if (mism) { secLog('WEB_TRADE_IDENTITY_MISMATCH', req, `trade_id=${tradeId}`); return res.status(mism.status).json(mism.body); }
     secLog('WEB_TRADE_CONFIRM', req, `trade_id=${tradeId}`);
     const r = await gateway.postGateway('/trade/confirm', {
       telegram_id: ident.id, trade_id: tradeId,

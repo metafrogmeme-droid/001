@@ -20,6 +20,7 @@ const { parseSelection, serializeSelection, deserializeSelection } =
   require('../lib/venue_selection_wire');
 const { postGateway, relay, isConfigured } = require('../lib/gateway');
 const { stepUpBlock } = require('../lib/stepup');
+const { foreignIdentityBlock } = require('../lib/identity');
 const { secLog } = require('../lib/seclog');
 
 const router = express.Router();
@@ -127,6 +128,16 @@ router.post('/', ctlLimit, async (req, res) => {
     if (live === null && paused === null && margin === null) {
       return res.status(400).json({ error: 'No control changes provided.' });
     }
+    // RC-2026-025: the step-ups above read THIS account's factors; the row
+    // written below is keyed on `u[0].telegram_id`, and the bot acts as it.
+    // Same subject or refuse — see lib/identity.foreignIdentityBlock.
+    //
+    // NOT applied to /stop below, deliberately. That path has no step-up whose
+    // subject could disagree, and this file's own rule is that de-risking is
+    // never gated — a 403 there would block an emergency stop to close a hole
+    // that the unique index already closes.
+    const mism = await foreignIdentityBlock(u[0].telegram_id, uid);
+    if (mism) { secLog('controls_identity_mismatch', req); return res.status(mism.status).json(mism.body); }
     await pool.execute(
       `INSERT INTO pending_controls (user_id, telegram_id, live_enabled, max_margin, paused)
        VALUES (?, ?, ?, ?, ?)

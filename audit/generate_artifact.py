@@ -322,7 +322,7 @@ F = [
               "raising. NOT YET FIXED - filed with the measurement."),
     dict(id="RC-2026-025", title="The 2FA step-up reads the caller's row while the money "
          "move executes as the resolved bot identity",
-         status="OPEN", severity="LOW",
+         status="FIXED", severity="LOW",
          second_pass="MEDIUM -> LOW. Reproduces in the breached state, but "
                      "that state is unreachable now that uniq_users_telegram_id "
                      "and the 409 both exist. LOW as a latent invariant - and "
