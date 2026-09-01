@@ -2805,6 +2805,7 @@ async def handle_llm_status(request: web.Request) -> web.Response:
         return err
     from bot.db.models import get_user_settings, settings_user_id
     connected, provider, fingerprint = False, "", ""
+    key_status = "none"
     uid = settings_user_id(tg_id)
     if uid is not None:
         try:
@@ -2814,11 +2815,29 @@ async def handle_llm_status(request: web.Request) -> web.Response:
                 connected = True
                 provider = s.llm_provider
                 fingerprint = _llm_fingerprint(key)
+                key_status = "ok"
+            else:
+                # NOT-CONNECTED HAS TWO CAUSES AND THEY NEED DIFFERENT ACTIONS.
+                # A stored key that will not decrypt used to arrive here as the
+                # ciphertext itself: non-empty, so connected:True with a
+                # fingerprint of the ciphertext, while every call 401s. It is
+                # dropped upstream now, which makes this branch "no key" — and
+                # "you never set one" is different advice from "the one you set
+                # can no longer be read", so the raw column is asked which.
+                if getattr(s, "llm_key_status", "") == "unreadable":
+                    key_status = "unreadable"
+                    provider = s.llm_provider
         except Exception as exc:
             system_log.debug("LLM status read failed for %s: %s", tg_id, exc)
     from bot.llm.provider import is_ultra_mode
     resp = {
         "connected": connected,
+        # "none" | "ok" | "unreadable". `connected` alone cannot say that a key
+        # IS stored and cannot be read, which is the one state where re-entering
+        # it is the fix and waiting is not.
+        "key_status": key_status,
+        "detail": ("A key is stored but could not be decrypted — re-enter it."
+                   if key_status == "unreadable" else ""),
         "provider": provider,
         "fingerprint": fingerprint,
         "per_user_enabled": bool(getattr(CONFIG.analyzer,

@@ -575,10 +575,7 @@ VERIFICATION = dict(
         "is unguarded. Closing it needs DASHBOARD_TOKEN on BOTH sides and breaks "
         "a working Lab if only one gets it, so it is an operator's deployment "
         "call, deliberately not made silently (MEDIUM)",
-        "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
-        "secrets: an undecryptable LLM key is returned as ciphertext, reported present (MEDIUM)",
         "py-api-authz: /lab/status returns subprocess stderr to unauthenticated callers (LOW)",
-        "secrets: /connect and /setexchange echo a raw ccxt exception to the user (LOW)",
     ],
     #: Entries LEAVE this list only by being fixed, and only in the commit that
     #: fixes them — the `known_failures.txt` rule, because a list of what is
@@ -586,6 +583,43 @@ VERIFICATION = dict(
     #: A stale OPEN entry is the same defect as a stale severity: the register
     #: describing a repo that no longer exists.
     remediated_since=[
+        "telegram-authz: confirm/reject consumes the trade before the ownership "
+        "check (MEDIUM) — FIXED 2026-09-01, and the consequence is worse than "
+        "the wording. The double-tap guard ADDS trade_id to _confirmed_ids and "
+        "the ownership check ran after it, so a stranger's confirm:<id> was "
+        "recorded and only then denied — and the trade's real owner tapping "
+        "Confirm afterwards hit the guard and was told 'Already confirmed', for "
+        "a trade that never executed. Anyone who could guess or observe a "
+        "trade_id could burn it, and the message told the owner it had gone "
+        "through. `reject:` had identical ordering and SHARES that set, so a "
+        "stranger's reject burned the confirm too. Ownership now runs first in "
+        "both; a denial must not spend the thing it is denying.",
+
+        "secrets: an undecryptable LLM key is returned as ciphertext, reported "
+        "present (MEDIUM) — FIXED 2026-09-01. _decrypt_llm_key answered a "
+        "failed decrypt by returning the stored value unchanged, under a "
+        "comment naming two OPPOSITE situations at once: 'Legacy plaintext "
+        "(pre-encryption) or unreadable — pass through.' A legacy plaintext key "
+        "is a real credential; undecryptable ciphertext is not one at all, and "
+        "handing it back makes the CIPHERTEXT the key — the status endpoint saw "
+        "a non-empty string, answered connected:True and printed a fingerprint "
+        "of it while every call 401'd. Told apart by shape: a Fernet token is "
+        "base64url of a payload whose first byte is 0x80, so all of them begin "
+        "'gAAAAA' and no provider key does. Unreadable now returns empty and is "
+        "recorded as UserSettings.llm_key_status, because 'you never set one' "
+        "and 'the one you set cannot be read' need different advice.",
+
+        "secrets: /connect and /setexchange echo a raw ccxt exception to the "
+        "user (LOW) — FIXED 2026-09-01. Six sites in exchange_credentials "
+        "returned str(exc)[:200] as the venue's rejection reason; a ccxt error "
+        "carries the request URL and several venues put the API key in its "
+        "query string. SCRUBBED, NOT SUPPRESSED: these strings are the only "
+        "thing telling a user what to fix ('passphrase does not match', 'IP not "
+        "allowlisted'), so dropping them for a class name would take the answer "
+        "away to solve a problem redaction already solves. Routed through the "
+        "same _redact_string chokepoint the log formatter uses, with the class "
+        "name prepended for the case where scrubbing leaves nothing.",
+
         "secrets: gitleaks allowlist disables Solana keypair rules under tests/ "
         "and app/ (MEDIUM) — FIXED 2026-09-01, CONFIRMED BY EXECUTION rather "
         "than by reading. gitleaks 8.21.2 was run over the same 64-integer "

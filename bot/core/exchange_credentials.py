@@ -479,7 +479,7 @@ async def _bitget_balance_probe(api_key: str, api_secret: str,
             free = 0.0
         return True, f"{free:.2f} USDT free"
     except Exception as exc:
-        return False, str(exc)[:200]
+        return False, _safe_venue_detail(exc)
     finally:
         if client is not None:
             try:
@@ -686,7 +686,7 @@ async def _hyperliquid_balance_probe(wallet_address: str, agent_private_key: str
             free = 0.0
         return True, f"{free:.2f} USDC free"
     except Exception as exc:
-        return False, str(exc)[:200]
+        return False, _safe_venue_detail(exc)
     finally:
         if client is not None:
             try:
@@ -740,7 +740,7 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
             free = 0.0
         return True, f"{free:.2f} USDT free"
     except Exception as exc:
-        return False, str(exc)[:200]
+        return False, _safe_venue_detail(exc)
     finally:
         if client is not None:
             try:
@@ -784,7 +784,7 @@ async def _ccxt_keysecret_probe(ccxt_id: str, api_key: str, api_secret: str,
             free = 0.0
         return True, f"{free:.2f} USDT free"
     except Exception as exc:
-        return False, str(exc)[:200]
+        return False, _safe_venue_detail(exc)
     finally:
         if client is not None:
             try:
@@ -824,7 +824,7 @@ async def _wallet_balance_probe(ccxt_id: str, currency: str, wallet_address: str
             free = 0.0
         return True, f"{free:.2f} {currency} free"
     except Exception as exc:
-        return False, str(exc)[:200]
+        return False, _safe_venue_detail(exc)
     finally:
         if client is not None:
             try:
@@ -856,6 +856,33 @@ async def validate_venue_credentials(venue: str, fields: dict,
             _CCXT_ID[venue], fields["api_key"], fields["api_secret"],
             fields.get("passphrase", ""), sandbox)
     return False, f"unknown venue {venue!r}"
+
+
+def _safe_venue_detail(exc: BaseException, limit: int = 200) -> str:
+    """A venue's rejection reason, with inline secrets scrubbed.
+
+    These strings are the ANSWER a user gets from /connect and /setexchange —
+    "wrong passphrase", "IP not allowlisted", "invalid key" — so dropping them
+    for a class name would take away the only thing that tells them what to
+    fix. They were `str(exc)[:200]`, which is the raw driver message: a ccxt
+    error carries the request URL, and for several venues the API key travels
+    in that URL's query string. Escaping is not the issue; the credential is.
+
+    Scrubbed rather than suppressed, through the same chokepoint the log
+    formatter uses, so a pattern added there covers this too. The class name
+    is prepended because a scrubbed message can end up empty or unhelpful, and
+    "AuthenticationError" is worth more than nothing.
+    """
+    try:
+        from bot.utils.logger import _redact_string
+        msg = _redact_string(str(exc))
+    except Exception:
+        msg = ""
+    msg = msg.strip()
+    name = type(exc).__name__
+    if not msg or msg == name:
+        return name[:limit]
+    return f"{name}: {msg}"[:limit]
 
 
 def _balance_total(bal: dict, currency: str) -> Optional[float]:
@@ -961,7 +988,7 @@ async def balance_snapshot(venue: str, fields: dict,
                 "detail": f"{equity:.2f} {currency} total"}
     except Exception as exc:
         return {"ok": False, "venue": venue, "equity_usd": None,
-                "detail": str(exc)[:200]}
+                "detail": _safe_venue_detail(exc)}
     finally:
         if client is not None:
             try:
