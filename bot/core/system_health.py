@@ -58,8 +58,26 @@ class HealthSnapshot:
 class SystemHealthMonitor:
     """Tracks API performance and system health metrics.
 
-    Thread-safe. Call record_api_call() after each exchange/LLM API call.
-    Call snapshot() to get current health status.
+    Thread-safe. `snapshot()` gives the current status.
+
+    WHO FEEDS THIS (RC-2026-014). For a long time: nobody. The three feeders
+    below had no caller in the tree, so the four grades collapsed to one and
+    /ready's 503 branches were decoration. They are now driven from
+    `RuneClawEngine`:
+
+      record_api_call      _record_exchange_read, off every `_cached_ohlcv`
+                           fetch -- the engine's single shared exchange read
+      set_exchange_status  the same call site, True on a completed read and
+                           False only on a TRANSPORT-class failure
+      record_scan          _record_sweep_complete, which is not reached when
+                           the scan failed
+      set_ws_status        the tick loop, off `ws_feed.is_connected()`
+
+    EXCHANGE READS ONLY, deliberately, though this docstring used to say
+    "exchange/LLM". `/ready` grades off `error_rate_pct` and `api_latency_ms`,
+    so folding LLM calls in here would let a slow or rate-limited model provider
+    take the bot out of a load balancer's rotation while the exchange side is
+    perfectly healthy. Two different questions need two different gauges.
     """
 
     def __init__(self, window_seconds: float = 300.0, max_samples: int = 500):
@@ -73,9 +91,10 @@ class SystemHealthMonitor:
         self._total_errors = 0
         self._last_success_time: Optional[str] = None
         self._last_error_msg: Optional[str] = None
-        # None = nobody has reported either way. `set_exchange_status` has no
-        # caller in the tree, so this stays None in practice -- which is the
-        # fact the snapshot now publishes instead of hiding.
+        # None = nobody has reported either way. This used to be the permanent
+        # state -- `set_exchange_status` had no caller at all. It is now the
+        # BOOT WINDOW: the span before this process completes its first
+        # exchange read, which the snapshot publishes rather than hiding.
         self._exchange_ok: Optional[bool] = None
         self._ws_ok = False
 

@@ -1186,8 +1186,11 @@ mirror into `location.hash`.
 
 ## RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready` and `/metrics` publish a permanent HEALTHY
 
-- **Status**: PARTIALLY_FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
-  → **PARTIALLY_FIXED**: the snapshot, card and /metrics no longer claim HEALTHY from no data. Still open: nothing FEEDS the monitor, so /ready's fail-closed promise cannot yet be kept by its status code.
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **FIXED** in two passes. The first made the snapshot honest — None rather than `0.0` for unmeasured latency and error rate, None rather than `True` for `exchange_connected`, and UNKNOWN as a fourth outcome carried through the Telegram card and /metrics (series omitted, not zeroed).
+  → The second is the half that pass could not reach: **nothing FED it.** `record_api_call`, `set_exchange_status` and `record_scan` had no caller in the tree, so DEGRADED, CRITICAL and both of `_is_ready`'s 503 branches were unreachable — the honest UNKNOWN was permanent. `RuneClawEngine._record_exchange_read` now reports every fetch through `_cached_ohlcv` (instrumented *after* the cache hit returns, so a cached series is not counted as a fast success), and `_record_sweep_complete` stamps `record_scan` on the path that is not reached when the scan failed. `set_exchange_status(False)` fires only on TRANSPORT-class failures, matched across the whole exception MRO — a `BadSymbol` is the exchange *answering*, and 503-ing over a delisted ticker is a heuristic promoted to a verdict. The recorded error is the exception's class name plus the symbol, never `str(exc)`: `last_error` renders into the Telegram card and a ccxt error string can carry the request URL.
+  → `handle_ready`'s docstring promised a fail-closed contract `_is_ready` deliberately does not implement; the **docstring** is corrected, not the predicate. UNKNOWN is now a bounded boot window rather than a permanent state, so failing closed on it became possible — but that changes how an orchestrator treats a restarting instance, which is a deployment decision, not an honesty fix. Left as a named option rather than taken silently.
+  → `tests/test_health_monitor_is_actually_fed.py` (32) drives the real engine functions against a stand-in `self` rather than the monitor directly, because reachability is a property of the CALLERS; all 10 mutations killed.
 - **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py · **Raw**: `B5-27`
  A monitor with no input reporting
 the good state is the exact failure CLAUDE.md's rule describes, on the endpoints

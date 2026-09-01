@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "03881a6692f5d480486c114237c35e86b29067e5",
+    "commit": "d790005dab811f14ffc013d6961789e035309c91",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -79,12 +79,12 @@
     {
       "id": "RC-2026-014",
       "title": "SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
       "component": "observability",
-      "file": "bot/core/health.py",
+      "file": "bot/core/system_health.py",
       "line": "see B3/B5-27",
       "fix_class": "REVIEW_REQUIRED",
       "standard": [
@@ -92,7 +92,7 @@
       ],
       "raw_id": "B5-27",
       "verified_by": "dimension-agent+2-verifiers",
-      "note": "A monitor with no input reporting the good state, on the endpoints an operator and any uptime checker consult first."
+      "note": "A monitor with no input reporting the good state, on the endpoints an operator and any uptime checker consult first. Fixed in two passes. (1) The snapshot stopped grading itself off initialiser values: latency, p99 and error rate are None rather than 0.0 when nothing has reported, exchange_connected is None rather than True, and UNKNOWN joined HEALTHY/ DEGRADED/CRITICAL as a fourth outcome, carried through the Telegram card (an em dash, a white chip) and /metrics (series OMITTED, not zeroed, since a gauge at 0 gives every alert on it a permanently-satisfied condition). (2) The half that pass could not reach: nothing FED it. record_api_call, set_exchange_status and record_scan had no caller in the tree, so DEGRADED, CRITICAL and both of _is_ready's 503 branches were unreachable and the honest UNKNOWN was permanent. RuneClawEngine._record_exchange_read now reports every fetch through _cached_ohlcv - the engine's one shared exchange read, instrumented AFTER the cache hit returns so a cached series is not counted as a fast success - and _record_sweep_complete stamps record_scan on the path that is not reached when the scan failed. set_exchange_status(False) fires only on TRANSPORT-class failures, matched across the whole exception MRO: a BadSymbol is the exchange answering, and taking /ready to 503 over a delisted ticker is a heuristic promoted to a verdict. The recorded error is the exception's CLASS NAME plus the symbol, never str(exc), because last_error renders into the Telegram card and a ccxt error string can carry the request URL. handle_ready's docstring, which still promised a fail-closed contract _is_ready deliberately does not implement, is corrected rather than the predicate: UNKNOWN is now a bounded boot window instead of a permanent state, so failing closed on it became possible - but it changes how an orchestrator treats a restarting instance, which is a deployment decision, not an honesty fix. tests/test_health_monitor_is_actually_fed.py (32) drives the real engine functions rather than the monitor, because reachability is a property of the callers; all 10 mutations killed."
     },
     {
       "id": "RC-2026-015",
@@ -3725,10 +3725,9 @@
   },
   "release_decision": {
     "decision": "CONDITIONAL GO",
-    "basis": "No unresolved BLOCKER or CRITICAL findings. 16 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 15 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
     "blockers": [],
     "open_high": [
-      "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
       "M-01 Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id=\"auto\", bypassing every per-user gate",
       "M-08 Post-fill leverage-overshoot guard is structurally inert on the limit-fill, partial-fill and drift-fallback paths \u2014 it passes a spot-form symbol that ccxt filters out",
       "M-15 The LIVE daily-loss accumulator is dropped by the combined-state restore that production actually uses \u2014 the daily-loss breaker gets a full fresh budget on every restart",

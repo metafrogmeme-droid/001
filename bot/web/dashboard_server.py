@@ -354,17 +354,26 @@ def _is_ready(snap) -> bool:
     to HEALTHY -- so the endpoint answered 200 off values nobody had written,
     which is the opposite of failing closed.
 
-    Now that the snapshot says UNKNOWN honestly, the literal fail-closed
-    reading would return 503 FOREVER: `SystemHealthMonitor` has no feeder in
-    the tree, so "not determined" is its steady state, and a readiness probe
-    stuck at 503 is an outage that is not happening. Trading a false all-clear
-    for a false alarm is not an improvement.
+    When that was written the monitor had no feeder anywhere in the tree, so
+    "not determined" was its PERMANENT state and the literal fail-closed
+    reading would have returned 503 forever -- an outage that is not happening.
+    That is no longer true: `RuneClawEngine._record_exchange_read` reports every
+    read through `_cached_ohlcv`, so UNKNOWN now means one specific, temporary
+    thing -- this process has not completed its first exchange read yet.
 
-    So: a REPORTED failure fails readiness; an ABSENT reading does not, and
-    /ready's body carries `health_observed` so the difference is legible. The
-    fail-closed promise becomes honourable the moment something calls
-    `record_api_call` / `set_exchange_status`; until then it cannot be kept by
-    the status code, only pretended.
+    The predicate is unchanged anyway, and on purpose. A REPORTED failure fails
+    readiness; an ABSENT reading does not. UNKNOWN is the boot window, and the
+    body says `health_observed: false` throughout it, so the difference stays
+    legible to anything that reads more than the status code. Failing closed on
+    the boot window is a defensible orchestrator contract and NOT what this
+    endpoint promises today; changing it would change how a load balancer
+    treats a restarting instance, which is a deployment decision, not a
+    honesty fix.
+
+    What the feeders bought is that the two branches below can now actually
+    fire. Until this commit they were unreachable -- `status` never left
+    UNKNOWN and `exchange_connected` was never written -- so this function had
+    exactly one possible answer and the 503 path was decoration.
     """
     if getattr(snap, "status", None) == "CRITICAL":
         return False
@@ -393,10 +402,20 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 async def handle_ready(request: web.Request) -> web.Response:
-    """Readiness: 200 when the engine can trade, 503 otherwise.
+    """Readiness: 503 once something REPORTS a fault, 200 otherwise.
 
-    Fails CLOSED — if health can't be determined the bot is reported NOT ready,
-    so a load balancer / orchestrator never routes to a half-up instance.
+    This said "fails CLOSED — if health can't be determined the bot is
+    reported NOT ready". It never did that. `_is_ready` chose the opposite
+    reading deliberately and documents why at length; this docstring was simply
+    left behind, promising a contract the handler underneath it does not
+    implement — which is worse than the old behaviour, because an operator
+    configuring a probe reads the promise and not the predicate.
+
+    The honest statement of the contract: a reported CRITICAL or a reported
+    exchange disconnection returns 503. An unreported reading — the window
+    before this process has completed its first exchange read — returns 200
+    with `health_observed: false` in the body, which is the field to alert on
+    if you want the strict reading.
     """
     engine = request.app["engine"]
     try:

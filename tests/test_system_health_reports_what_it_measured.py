@@ -1,9 +1,14 @@
 """An unfed health monitor must not report the good state.
 
-RC-2026-014, SAFE variant. `SystemHealthMonitor` is fed by nothing --
-`record_api_call`, `set_exchange_status` and `set_ws_status` have no caller
-anywhere in the tree outside this class's own docstring -- and `snapshot()`
-resolved that absence into the most reassuring answer available::
+RC-2026-014, SAFE variant. When this was written `SystemHealthMonitor` was fed
+by nothing -- `record_api_call`, `set_exchange_status` and `record_scan` had no
+caller anywhere in the tree outside this class's own docstring. The feeders
+exist now (`tests/test_health_monitor_is_actually_fed.py` pins them); this file
+keeps the other half, which the feeders do not make redundant: an UNFED monitor
+must still not report the good state, because that is what every one of these
+surfaces shows during the boot window and after any regression that unwires
+them. `snapshot()` used to resolve that absence into the most reassuring answer
+available::
 
     else:
         avg_lat = 0.0
@@ -20,13 +25,16 @@ caller ever writes. That is published on /health, /ready, /metrics and the
 Telegram card -- the four places an operator and an uptime checker look first.
 
 WHAT THIS DELIBERATELY DOES NOT DO. Making the snapshot honest would, under the
-old predicate, flip /ready from a permanent 200 to a permanent 503: the
-monitor is unfed, so "not determined" is its steady state, and a readiness
+old predicate, have flipped /ready from a permanent 200 to a permanent 503: the
+monitor was unfed, so "not determined" was its steady state, and a readiness
 probe stuck at 503 is an outage that is not happening. The HTTP contract is
-therefore unchanged and the body says `health_observed: false` instead. The
-endpoint's own "fails CLOSED" promise cannot be honoured until something
-actually feeds the monitor; pretending otherwise by flipping the code would
-trade a false all-clear for a false alarm.
+therefore unchanged and the body says `health_observed: false` instead.
+
+That reasoning has since been overtaken in one respect and not in the other.
+UNKNOWN is no longer permanent -- it is the window before the first exchange
+read lands -- so failing closed on it is now at least POSSIBLE. It is still not
+done here, because it changes how an orchestrator treats a restarting instance,
+which is a deployment decision rather than an honesty one.
 """
 from bot.core.system_health import SystemHealthMonitor
 
@@ -129,9 +137,11 @@ def test_readiness_does_not_flip_to_a_permanent_503():
 
     The old predicate was `exchange_connected and status != "CRITICAL"`, with a
     docstring promising it "fails CLOSED". Against the honest snapshot that
-    reads False forever, because the monitor is unfed -- so an orchestrator or
-    uptime checker would see a permanent outage that is not happening. A false
-    alarm is not an improvement on a false all-clear.
+    read False forever, because the monitor was unfed -- so an orchestrator or
+    uptime checker would have seen a permanent outage that is not happening. A
+    false alarm is not an improvement on a false all-clear. With the feeders
+    wired it is a bounded boot window instead, and the choice to answer 200
+    through it is now a contract decision rather than a forced one.
 
     Not-observed is therefore not a readiness failure; a REPORTED failure still
     is. The body carries the truth for whoever reads it.

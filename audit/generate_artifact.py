@@ -57,13 +57,43 @@ F = [
               "served with no CSP, no X-Frame-Options and no nosniff."),
     dict(id="RC-2026-014", title="SystemHealthMonitor is fed by nothing, so /health, "
          "/ready and /metrics publish a permanent HEALTHY",
-         status="PARTIALLY_FIXED", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="honesty-fail-open", component="observability",
-         file="bot/core/health.py", line="see B3/B5-27", fix_class="REVIEW_REQUIRED",
+         file="bot/core/system_health.py", line="see B3/B5-27",
+         fix_class="REVIEW_REQUIRED",
          standard=["CWE-754"], raw_id="B5-27",
          verified_by="dimension-agent+2-verifiers",
          note="A monitor with no input reporting the good state, on the endpoints an "
-              "operator and any uptime checker consult first."),
+              "operator and any uptime checker consult first. Fixed in two passes. "
+              "(1) The snapshot stopped grading itself off initialiser values: latency, "
+              "p99 and error rate are None rather than 0.0 when nothing has reported, "
+              "exchange_connected is None rather than True, and UNKNOWN joined HEALTHY/ "
+              "DEGRADED/CRITICAL as a fourth outcome, carried through the Telegram card "
+              "(an em dash, a white chip) and /metrics (series OMITTED, not zeroed, "
+              "since a gauge at 0 gives every alert on it a permanently-satisfied "
+              "condition). (2) The half that pass could not reach: nothing FED it. "
+              "record_api_call, set_exchange_status and record_scan had no caller in "
+              "the tree, so DEGRADED, CRITICAL and both of _is_ready's 503 branches "
+              "were unreachable and the honest UNKNOWN was permanent. "
+              "RuneClawEngine._record_exchange_read now reports every fetch through "
+              "_cached_ohlcv - the engine's one shared exchange read, instrumented "
+              "AFTER the cache hit returns so a cached series is not counted as a fast "
+              "success - and _record_sweep_complete stamps record_scan on the path that "
+              "is not reached when the scan failed. set_exchange_status(False) fires "
+              "only on TRANSPORT-class failures, matched across the whole exception "
+              "MRO: a BadSymbol is the exchange answering, and taking /ready to 503 "
+              "over a delisted ticker is a heuristic promoted to a verdict. The "
+              "recorded error is the exception's CLASS NAME plus the symbol, never "
+              "str(exc), because last_error renders into the Telegram card and a ccxt "
+              "error string can carry the request URL. handle_ready's docstring, which "
+              "still promised a fail-closed contract _is_ready deliberately does not "
+              "implement, is corrected rather than the predicate: UNKNOWN is now a "
+              "bounded boot window instead of a permanent state, so failing closed on "
+              "it became possible - but it changes how an orchestrator treats a "
+              "restarting instance, which is a deployment decision, not an honesty fix. "
+              "tests/test_health_monitor_is_actually_fed.py (32) drives the real engine "
+              "functions rather than the monitor, because reachability is a property of "
+              "the callers; all 10 mutations killed."),
     dict(id="RC-2026-015", title="/livebalance renders a FAILED exchange balance read as "
          "a complete $0.00 account statement",
          status="OPEN", severity="MEDIUM",
