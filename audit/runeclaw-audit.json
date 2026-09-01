@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "679428ead831e86e824931d77ab89cdb8d9494dd",
+    "commit": "9b86db0d34e913960b69d84a0e5b98475dc50c50",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -444,7 +444,7 @@
     {
       "id": "RC-2026-008",
       "title": "Backups omit the per-user credential store, and the master key that opens what they do archive",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED",
       "severity": "MEDIUM",
       "second_pass": "HIGH -> MEDIUM. STANDS on all three lenses and part (c) is worse than written, but MEDIUM is the defensible number for a backup-completeness gap behind an operator-only manual restore.",
       "confidence": "CONFIRMED",

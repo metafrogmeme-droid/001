@@ -99,24 +99,91 @@ _ENV_OVERRIDES = {
     "data/proofofpnl_publication.json": "PROOFOFPNL_PUBLICATION_PATH",
 }
 
+#: Critical files this backup deliberately does NOT archive, and why.
+#:
+#: RC-2026-008(b). `data/.exchange_secret.key` is the Fernet master key, and it
+#: opens BOTH encrypted stores -- `exchange_credentials._KEY_FILE` and
+#: `secrets_vault._MASTER_KEY_BASENAME` are the same file. Without it an
+#: off-host restore yields ciphertext nothing can read: a vault whose every
+#: entry fails to decrypt, and a bot that boots with none of its exchange
+#: credentials.
+#:
+#: Archiving a key beside the data it opens is a security trade-off for a
+#: human to make, so it is NOT made here. What IS fixed is that the dependency
+#: was SILENT: the manifest now says the archive is incomplete without it, so
+#: whoever runs the restore learns it before the decrypt fails rather than
+#: after. `data/attestation_key.bin` is already archived, so key material in
+#: the archive is established practice here rather than a new precedent --
+#: noted for whoever decides.
+_EXTERNALLY_MANAGED = {
+    "data/.exchange_secret.key":
+        "Fernet master key for secrets_vault.enc AND exchange_creds.enc. NOT "
+        "in this archive by design. A restore without it cannot decrypt "
+        "either store. See audit/verified_findings.md RC-2026-008(b).",
+}
+
+
+def _state_dir_twin(rel: str) -> Optional[str]:
+    """The `RUNECLAW_STATE_DIR` location of a `data/...` entry, if that is set.
+
+    RC-2026-008(c). `secrets_vault` and `exchange_credentials` both resolve
+    through `RUNECLAW_STATE_DIR`, while every entry in `_CRITICAL` is a literal
+    `data/...`. On a deployment that sets it, `critical_paths` looked for
+    `data/secrets_vault.enc`, found nothing, and -- filtering on `is_file()` --
+    skipped it WITHOUT COMPLAINT. Reproduced: both credential stores dropped
+    out of the archive and the run reported success.
+
+    Both locations are searched rather than one redirected, because not every
+    `data/` writer honours the variable, and a redirect would trade one silent
+    miss for another.
+    """
+    sd = (os.environ.get("RUNECLAW_STATE_DIR") or "").strip()
+    if not sd or not rel.startswith("data/"):
+        return None
+    return os.path.join(sd, rel[len("data/"):])
+
+
+def critical_status(root: str = "") -> tuple[list[Path], list[str]]:
+    """(found, missing). One resolution, so the archive and the manifest agree.
+
+    `missing` is the honest half: a critical file that is not there is a fact
+    about this backup, and it used to be recorded nowhere. Only the ALL-absent
+    case was reported, so an archive missing exactly the two credential stores
+    came back as an unqualified success.
+    """
+    rootp = rootp_of(root)
+    found: list[Path] = []
+    missing: list[str] = []
+    seen: set[str] = set()
+    for rel in _CRITICAL:
+        env_key = _ENV_OVERRIDES.get(rel)
+        actual = os.environ.get(env_key, rel) if env_key else rel
+        cands = [actual]
+        twin = _state_dir_twin(rel)
+        if twin:
+            cands.append(twin)
+        hit = False
+        for cand in cands:
+            p = Path(cand) if os.path.isabs(cand) else rootp / cand
+            if p.is_file() and str(p) not in seen:
+                seen.add(str(p))
+                found.append(p)
+                hit = True
+        if not hit:
+            missing.append(rel)
+    for pat in _CRITICAL_GLOBS:
+        for m in sorted(glob.glob(str(rootp / pat))):
+            if Path(m).is_file() and m not in seen:
+                seen.add(m)
+                found.append(Path(m))
+    return found, missing
+
 
 def critical_paths(root: str = "") -> list[Path]:
     """Resolve the critical set. `root` defaults to the REPO ROOT, not "." —
     a cwd-relative default meant the backup contents depended on who launched
     the process."""
-    rootp = rootp_of(root)
-    found: list[Path] = []
-    for rel in _CRITICAL:
-        env_key = _ENV_OVERRIDES.get(rel)
-        actual = os.environ.get(env_key, rel) if env_key else rel
-        p = Path(actual) if os.path.isabs(actual) else rootp / actual
-        if p.is_file():
-            found.append(p)
-    for pat in _CRITICAL_GLOBS:
-        for m in sorted(glob.glob(str(rootp / pat))):
-            if Path(m).is_file():
-                found.append(Path(m))
-    return found
+    return critical_status(root)[0]
 
 
 def _sha256(path: Path) -> str:
@@ -134,12 +201,22 @@ def create_backup(root: str = "", now: Optional[float] = None) -> tuple[Path, di
     dest.mkdir(parents=True, exist_ok=True)
     name = f"runeclaw-backup-{ts}"
     archive = dest / f"{name}.tar.gz"
-    files = critical_paths(root)
+    files, missing = critical_status(root)
     manifest = {
         "created_at": ts,
         "files": {},
+        # RC-2026-008. What is NOT in here is part of the record. A restore
+        # operator reading only `files` cannot tell a complete archive from
+        # one that quietly skipped the credential stores, and that is the
+        # difference between a working restore and a bot with no keys.
+        "missing": missing,
+        "complete": not missing,
+        "externally_managed": _EXTERNALLY_MANAGED,
         "note": "verify with bot.utils.backup.verify_backup — hashes are "
-                "re-derived from the archive, never trusted from this file",
+                "re-derived from the archive, never trusted from this file. "
+                "`missing` lists critical paths that were not found; "
+                "`externally_managed` lists what this archive deliberately "
+                "does not contain and cannot be restored without.",
     }
     with tarfile.open(archive, "w:gz") as tar:
         for p in files:
@@ -157,6 +234,16 @@ def create_backup(root: str = "", now: Optional[float] = None) -> tuple[Path, di
             "BACKUP CAPTURED NOTHING — none of the %d critical paths exist "
             "under %s. This archive is empty; nothing has been backed up.",
             len(_CRITICAL), rootp_of(root))
+    elif missing:
+        # PARTIAL IS NOT COMPLETE, and only the all-absent case was reported.
+        # An archive missing exactly `secrets_vault.enc` and
+        # `exchange_creds.enc` -- which is what a RUNECLAW_STATE_DIR
+        # deployment produced -- came back as an unqualified success.
+        logger.warning(
+            "BACKUP IS PARTIAL — %d of %d critical paths were not found under "
+            "%s and are NOT in this archive: %s. If RUNECLAW_STATE_DIR is set, "
+            "check it points where the stores actually write.",
+            len(missing), len(_CRITICAL), rootp_of(root), ", ".join(missing))
     (dest / f"{name}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
     _rotate(dest)
     return archive, manifest
