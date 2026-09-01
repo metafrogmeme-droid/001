@@ -96,11 +96,16 @@ const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 min lockout after max attempts
 
 // RC-AUD-026: per-account (per-email) failed-login throttle. The per-IP limiter
 // above does not stop distributed / rotating-IP credential stuffing against a
-// single account. This in-process counter mirrors the per-IP one, keyed by the
-// normalized email, so repeated failures against one account lock it out
-// regardless of source IP.
-const accountAttempts = new Map(); // email -> { count, firstAttempt, lockedUntil }
-const ACCOUNT_RATE_LIMIT_MAX = 8;
+// single account. Keyed by the normalized email, so repeated failures against
+// one account lock it out regardless of source IP.
+//
+// THE COUNTER MOVED to lib/second_factor_lockout.js and this file now shares
+// it. It was login-only, under a comment claiming failed codes "can't be
+// brute-forced past the rate limits" — true here and false at /2fa/disable,
+// which checked the same codes with no limiter at all. Sharing one Map means a
+// failure at the step-up counts against the same account at login, which is
+// what makes the bound real rather than per-route.
+const _lockout = require('./lib/second_factor_lockout');
 
 function _pruneAttemptMap(map) {
   const now = Date.now();
@@ -118,7 +123,7 @@ function _pruneAttemptMap(map) {
 
 function pruneRateLimits() {
   _pruneAttemptMap(loginAttempts);
-  _pruneAttemptMap(accountAttempts);
+  // The per-account map prunes itself on its own timer inside the module.
 }
 const _pruneTimer = setInterval(pruneRateLimits, 60000);
 if (_pruneTimer.unref) _pruneTimer.unref(); // don't hold the event loop open (matches lib/rate_limit.js)
@@ -140,27 +145,11 @@ function recordAttempt(ip) {
   loginAttempts.set(ip, entry);
 }
 
-// RC-AUD-026: per-account counterparts to the per-IP helpers above.
-function checkAccountLockout(email) {
-  const now = Date.now();
-  const entry = accountAttempts.get(email);
-  if (!entry) return true;
-  if (entry.lockedUntil && now < entry.lockedUntil) return false;
-  if (now - entry.firstAttempt > RATE_LIMIT_WINDOW) { accountAttempts.delete(email); return true; }
-  return entry.count < ACCOUNT_RATE_LIMIT_MAX;
-}
-
-function recordAccountFailure(email) {
-  const now = Date.now();
-  const entry = accountAttempts.get(email) || { count: 0, firstAttempt: now };
-  entry.count++;
-  if (entry.count >= ACCOUNT_RATE_LIMIT_MAX) entry.lockedUntil = now + LOCKOUT_DURATION;
-  accountAttempts.set(email, entry);
-}
-
-function clearAccountFailures(email) {
-  accountAttempts.delete(email);
-}
+// RC-AUD-026: per-account counterparts to the per-IP helpers above. Thin
+// delegates now — the state is shared with every other second-factor check.
+const checkAccountLockout = _lockout.checkAccountLockout;
+const recordAccountFailure = _lockout.recordAccountFailure;
+const clearAccountFailures = _lockout.clearAccountFailures;
 
 // -- Middleware --
 
@@ -809,9 +798,22 @@ router.post('/2fa/enable', authMiddleware, async (req, res) => {
     const user = rows[0];
     if (user.totp_enabled) return res.status(400).json({ error: '2FA is already enabled.' });
     if (!user.totp_secret) return res.status(400).json({ error: 'Run /2fa/setup first.' });
+    // Same bucket as every other second-factor check. Guessing here wins an
+    // attacker little — it enrols 2FA on an account they already hold — but
+    // an unthrottled verifier is an oracle for the secret /2fa/setup just
+    // issued, and "this one is not worth bounding" is how the disable route
+    // ended up unbounded too.
+    const enableKey = String(user.email || '').trim().toLowerCase()
+      || _lockout.uidKey(req.user.user_id);
+    if (!_lockout.checkAccountLockout(enableKey)) {
+      return res.status(429).json({
+        error: 'Too many incorrect codes. Try again in a few minutes.' });
+    }
     if (!totp.verifyTotp(user.totp_secret, (req.body || {}).code)) {
+      _lockout.recordAccountFailure(enableKey);
       return res.status(401).json({ error: 'Code does not match — check your authenticator app.' });
     }
+    _lockout.clearAccountFailures(enableKey);
     const { codes, hashes } = totp.generateBackupCodes();
     // MIGRATE THE ROW HERE. This used to write `user.totp_secret` straight
     // back, so a legacy plaintext seed stayed plaintext for the life of the
@@ -841,6 +843,19 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
     const user = rows[0];
     if (!user.totp_enabled) return res.status(400).json({ error: '2FA is not enabled.' });
+    // THE ONE ROUTE WITH NO BOUND AT ALL. Turning 2FA OFF accepted an
+    // unlimited number of guesses at a six-digit code and at eight static
+    // backup codes, behind nothing but a session — and surviving a stolen
+    // session is the entire reason 2FA exists. The login path checked the
+    // same codes under a per-account lockout and said so in a comment; this
+    // sibling route, which REMOVES the factor, checked them under nothing.
+    const acctKey = String(user.email || '').trim().toLowerCase()
+      || _lockout.uidKey(req.user.user_id);
+    if (!_lockout.checkAccountLockout(acctKey)) {
+      secLog('2fa_disable_lockout', req);
+      return res.status(429).json({
+        error: 'Too many incorrect codes. Try again in a few minutes.' });
+    }
     const code = String((req.body || {}).code || '').trim();
     let ok = totp.verifyTotp(user.totp_secret, code);
     if (!ok) {
@@ -848,7 +863,15 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
       try { backups = JSON.parse(user.totp_backup_codes || '[]'); } catch (e) { backups = []; }
       ok = totp.consumeBackupCode(code, backups) !== null;
     }
-    if (!ok) return res.status(401).json({ error: 'A valid current code (or backup code) is required to disable 2FA.' });
+    if (!ok) {
+      // Counted against the SAME account bucket as a failed login, so an
+      // attacker cannot spend their budget here and then start fresh there.
+      _lockout.recordAccountFailure(acctKey);
+      recordAttempt(req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
+      secLog('2fa_disable_bad_code', req);
+      return res.status(401).json({ error: 'A valid current code (or backup code) is required to disable 2FA.' });
+    }
+    _lockout.clearAccountFailures(acctKey);
     await pool.execute(
       'UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_backup_codes = ? WHERE id = ?',
       [null, 0, null, req.user.user_id]);
@@ -1815,7 +1838,8 @@ router.delete('/account', authMiddleware, async (req, res) => {
       }
     }
     const blk = stepUpBlock(user.totp_enabled, user.totp_secret, b.totp_code,
-      'Enter your 6-digit authenticator code to delete your account.');
+      'Enter your 6-digit authenticator code to delete your account.',
+      _lockout.uidKey(req.user.user_id));
     if (blk) { secLog('account_delete_2fa', req); return res.status(blk.status).json(blk.body); }
 
     // A typed phrase, because every other control on this account is

@@ -17,6 +17,7 @@ const { resolveBotIdentity, foreignIdentityBlock } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { pool } = require('../db');
 const { stepUpBlock } = require('../lib/stepup');
+const { uidKey } = require('../lib/second_factor_lockout');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -60,7 +61,8 @@ router.post('/fixed', execLimit, async (req, res) => {
       [req.user.user_id]);
     const u = rows[0] || {};
     const blk = stepUpBlock(u.totp_enabled, u.totp_secret, b.totp_code,
-      'Enter your 6-digit authenticator code to lock funds.');
+      'Enter your 6-digit authenticator code to lock funds.',
+      uidKey(req.user.user_id));
     if (blk) return res.status(blk.status).json(blk.body);
     const ident = await resolveBotIdentity(req);
     // RC-2026-025: the step-up above read THIS account's factors; the move

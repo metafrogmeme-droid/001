@@ -20,6 +20,7 @@ const { parseSelection, serializeSelection, deserializeSelection } =
   require('../lib/venue_selection_wire');
 const { postGateway, relay, isConfigured } = require('../lib/gateway');
 const { stepUpBlock } = require('../lib/stepup');
+const { uidKey } = require('../lib/second_factor_lockout');
 const { foreignIdentityBlock } = require('../lib/identity');
 const { secLog } = require('../lib/seclog');
 
@@ -87,7 +88,8 @@ router.post('/', ctlLimit, async (req, res) => {
     // stay frictionless so de-risking is never gated (the /stop path never is).
     if (live === 1) {
       const blk = stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
-        'Enter your 6-digit authenticator code to enable live trading.');
+        'Enter your 6-digit authenticator code to enable live trading.',
+        uidKey(req.user.user_id));
       if (blk) { secLog('controls_enable_2fa', req); return res.status(blk.status).json(blk.body); }
     }
     const paused = (b.paused === undefined || b.paused === null) ? null : (b.paused ? 1 : 0);
@@ -121,7 +123,8 @@ router.post('/', ctlLimit, async (req, res) => {
         ? Number(prev[0].max_margin) : null;
       if (known === null || margin > known) {
         const blk = stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
-          'Enter your 6-digit authenticator code to raise your margin cap.');
+          'Enter your 6-digit authenticator code to raise your margin cap.',
+          uidKey(req.user.user_id));
         if (blk) { secLog('controls_margin_raise_2fa', req); return res.status(blk.status).json(blk.body); }
       }
     }

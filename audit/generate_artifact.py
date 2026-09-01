@@ -569,8 +569,6 @@ VERIFICATION = dict(
              dict(dimensions=["ai-to-money","order-exec","risk-engine","market-data"],
                   raw=27, confirmed=25, suspected=0, refuted=2)],
     confirmed_and_still_open=[
-        "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt counter (HIGH)",
-        "py-api-authz: Redis unreachable at boot silently downgrades JWT revocation (HIGH)",
         "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but not the READ (MEDIUM)",
         "py-api-authz: unauthenticated /api/lab/run allows unbounded subprocess/job growth (MEDIUM)",
         "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
@@ -585,6 +583,39 @@ VERIFICATION = dict(
     #: A stale OPEN entry is the same defect as a stale severity: the register
     #: describing a repo that no longer exists.
     remediated_since=[
+        "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt "
+        "counter (HIGH) — FIXED 2026-09-01, and it was one of FOUR places that "
+        "check a code. Login had a per-account lockout (RC-AUD-026) under a "
+        "comment saying codes 'can't be brute-forced past the rate limits'; the "
+        "sibling route that REMOVES the second factor checked the same codes "
+        "under nothing at all — no limiter, no lockout, no counter — so a "
+        "stolen session, the exact thing 2FA exists to survive, could grind the "
+        "six-digit space and switch 2FA off. /2fa/enable was unbounded too, and "
+        "stepUpBlock (staking, web trades, control changes, account deletion) "
+        "had only its routes' 6-20/min limits, which leaves a patient grinder "
+        "days. The counter could not simply be imported into stepup.js — "
+        "auth.js requires it, closing a cycle — so it now lives in "
+        "app/lib/second_factor_lockout.js and all four share ONE account "
+        "budget: failures at the step-up count against the same account at "
+        "login. A MISSING code is deliberately not counted; it is the discovery "
+        "handshake the browser uses before it prompts, and counting it would "
+        "lock people out through ordinary use.",
+
+        "py-api-authz: Redis unreachable at boot silently downgrades JWT "
+        "revocation (HIGH) — FIXED 2026-09-01. _maybe_connect_redis returned a "
+        "bare None for TWO situations — 'not configured' (nothing promised) and "
+        "'configured, ping failed' (durability promised, not delivered) — and "
+        "every guard keys off `self._redis is not None`. So the second silently "
+        "became the first and the whole M16 write-path posture, which exists "
+        "because /auth/logout once answered ok:True while other workers kept "
+        "honouring the killed token, was disarmed for the life of the process "
+        "by one warning line at startup. The same Redis dying one second AFTER "
+        "boot failed loud, as designed: boot was an accidental exception, not a "
+        "decision, and two code paths disagreeing about one situation is the "
+        "tell. The client is now KEPT when the boot ping fails, so writes still "
+        "raise RevocationNotDurable and redis-py's per-command reconnect lets "
+        "the store self-heal instead of staying downgraded until a restart.",
+
         "py-api-authz: /risk/halt swallows the halt failure and returns "
         "hardcoded success (HIGH) — FIXED 2026-09-01. The breaker is read BACK "
         "from the engine, so the response states what is true rather than what "
