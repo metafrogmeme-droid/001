@@ -124,14 +124,65 @@ class TestNoHandlerBypassesIt:
             open("bot/skills/telegram_handler.py", encoding="utf-8").read())
 
     def test_no_user_reply_renders_a_raw_exception(self):
-        import re
-        src = self._src()
-        bad = re.findall(
-            r"_(?:send|reply)\([^\n]*?(?:html\.escape\()?str\(exc", src)
+        r"""Parsed, not grepped — the regex version had a blind spot.
+
+        It was `_(?:send|reply)\([^\n]*?...str\(exc`, and `[^\n]*?` CANNOT
+        CROSS A NEWLINE. Every call written the way black formats a long one —
+
+            await self._send(update,
+                             f"🔴 Could not read closed trades ({str(exc)})")
+
+        — put `str(exc)` on the next line and was invisible to it. Four sites
+        were leaking behind a green guard, including the credential preflight,
+        whose error text is built FROM the request that carried the key:
+
+            bitget GET https://api.bitget.com/...?apiKey=bg_LIVE...&passphrase=...
+
+        A guard that reports clean because of where it looked is worse than no
+        guard: it is the reason nobody looked again. The AST has no such blind
+        spot — it sees the call, not its formatting.
+        """
+        import ast
+        tree = ast.parse(self._src())
+        bad: list[str] = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"_send", "_reply"}):
+                continue
+            for arg in list(node.args) + [kw.value for kw in node.keywords]:
+                for sub in ast.walk(arg):
+                    if (isinstance(sub, ast.Call)
+                            and isinstance(sub.func, ast.Name)
+                            and sub.func.id == "str"
+                            and len(sub.args) == 1
+                            and isinstance(sub.args[0], ast.Name)
+                            and sub.args[0].id.startswith("exc")):
+                        bad.append(f"line {sub.lineno}")
         assert not bad, (
             f"{len(bad)} handler(s) still send an unscrubbed exception to a "
-            f"user; html.escape is not a secret filter"
+            f"user ({', '.join(bad)}); html.escape is not a secret filter"
         )
+
+    def test_the_guard_itself_can_see_a_multiline_call(self):
+        """The blind spot, pinned. This fails against the old regex."""
+        import ast
+        planted = (
+            "class H:\n"
+            "    async def f(self, update, exc):\n"
+            "        await self._send(update,\n"
+            "                         f'boom {str(exc)[:200]}')\n"
+        )
+        tree = ast.parse(planted)
+        found = [
+            s for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "_send"
+            for a in n.args for s in ast.walk(a)
+            if isinstance(s, ast.Call) and isinstance(s.func, ast.Name)
+            and s.func.id == "str"
+        ]
+        assert found, "the guard cannot see a leak split across two lines"
 
     def test_the_scrubber_is_actually_wired(self):
         assert self._src().count("_safe_exc_text(") >= 10, (

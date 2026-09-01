@@ -96,7 +96,7 @@ F = [
               "the callers; all 10 mutations killed."),
     dict(id="RC-2026-015", title="/livebalance renders a FAILED exchange balance read as "
          "a complete $0.00 account statement",
-         status="OPEN", severity="MEDIUM",
+         status="FIXED", severity="MEDIUM",
          second_pass="HIGH -> MEDIUM. Defect REPRODUCED by execution, not read: planting "
                      "fetch_balance's own error return through the repo's _make_handler() "
                      "harness prints Cash $0.00 / Used $0.00 / Equity $0.00 / NET $0.00 "

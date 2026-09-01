@@ -4614,7 +4614,7 @@ class TelegramHandler:
             await self._send(update,
                              f"🔴 <b>Preflight failed</b> — {target.display_name} "
                              f"did not accept the credentials:\n<code>"
-                             f"{str(exc)[:200]}</code>\nVenue NOT switched — "
+                             f"{_safe_exc_text(exc)}</code>\nVenue NOT switched — "
                              f"still on {active.display_name}.")
             return
         finally:
@@ -5535,7 +5535,8 @@ class TelegramHandler:
             trades = await _aio.to_thread(load_closed_trades, path)
         except Exception as exc:
             await self._send(update,
-                             f"🔴 Could not read closed trades ({str(exc)[:120]})")
+                             f"🔴 Could not read closed trades "
+                             f"({_safe_exc_text(exc, limit=120)})")
             return
         if not trades:
             await self._send(update, "📏 No closed live trades yet — the parity "
@@ -7866,16 +7867,30 @@ class TelegramHandler:
                 # (epoch >> monotonic), freezing live sizing equity after one
                 # /livebalance and blinding the stale-balance alert.
                 self.engine._live_balance_cache_ts = time.monotonic()
-            total = bal.get("total", 0)
-            free = bal.get("free", 0)
-            used = bal.get("used", 0)
-            holdings = bal.get("holdings", [])
+            # RC-2026-015. Was `bal.get("total", 0)` and friends, which cannot
+            # tell a reported 0.0 from a read that never happened -- so
+            # fetch_balance's own error return ({"error": ..., "total": 0, ...})
+            # printed Cash $0.00 / Used $0.00 / Equity $0.00 / NET $0.00, a
+            # complete account statement with no error text. The reading is
+            # three-valued now; see bot/formatters/live_balance.py for why the
+            # fix is here and not in fetch_balance (bot/main.py classifies its
+            # startup auth halt on that dict).
+            from bot.formatters.live_balance import (
+                money,
+                read_balance,
+                render_balance_block,
+            )
+            _reading = read_balance(bal)
+            holdings = _reading.holdings
 
-            # Fetch prices and compute portfolio value
-            exchange = await balance_exec._get_exchange()
+            # Fetch prices and compute portfolio value. `holdings` is None when
+            # nothing was read -- NOT [], which would claim the venue answered
+            # and the account holds no spot.
             spot_items = []
-            total_usd = total
-            for h in sorted(holdings, key=lambda x: x["asset"]):
+            total_usd = _reading.total
+            if holdings:
+                exchange = await balance_exec._get_exchange()
+            for h in sorted(holdings or [], key=lambda x: x["asset"]):
                 asset = h["asset"]
                 qty = h["total"]
                 symbol = f"{asset}/USDT"
@@ -7885,7 +7900,12 @@ class TelegramHandler:
                     ticker = await exchange.fetch_ticker(symbol)
                     price = float(ticker.get("last", 0))
                     usd_val = qty * price
-                    total_usd += usd_val
+                    # None + float raises. An unreadable equity stays
+                    # unreadable; a priced holding cannot rescue it into a
+                    # number, and a partial total printed as a whole one is
+                    # the shape the table warns about.
+                    if total_usd is not None:
+                        total_usd += usd_val
                 except Exception:
                     pass
                 spot_items.append({"asset": asset, "qty": qty, "price": price, "usd": usd_val})
@@ -7937,8 +7957,6 @@ class TelegramHandler:
                         if _realized_known and _bal["unpriced"] else "")
 
             # "Used" from exchange only counts filled positions in cross margin.
-            # Show the higher of exchange-reported or bot-tracked exposure for accuracy.
-            used_display = max(used, exposure)
 
             # Header — name WHICH account this is so a linked user isn't
             # confused about seeing their own balance vs the operator's.
@@ -7957,15 +7975,15 @@ class TelegramHandler:
                 f"{SEP}",
                 f"   {pnl_icon}  Net PnL: <code>{_realized_str}</code> (fees: {_fees_str}){_partial}",
                 "",
-                "💳 <b>Balance</b>",
-                f"{SEP}",
-                f"- Cash: <code>${free:,.2f}</code>",
-                f"- Used: <code>${used_display:,.2f}</code>",
-                f"- Equity: <code>${total_usd:,.2f}</code>",
-                f"- Exposure: <code>${exposure:,.2f}</code>",
             ]
+            # The higher of venue-reported `used` and bot-tracked exposure is
+            # only meaningful when both are readings; the renderer decides.
+            lines += render_balance_block(_reading, exposure=exposure,
+                                          equity=total_usd, sep=SEP)
 
-            # Spot holdings section
+            # Spot holdings section. Skipped entirely when nothing was read:
+            # an omitted section says "we cannot tell you", an empty one says
+            # "you hold none", and only one of those is true here.
             real_holdings = [s for s in spot_items if s["usd"] >= 0.01]
             dust_holdings = [s for s in spot_items if 0 < s["usd"] < 0.01]
 
@@ -7974,7 +7992,8 @@ class TelegramHandler:
                 lines.append("📦 <b>Spot Holdings</b>")
                 lines.append(SEP)
                 for s in sorted(real_holdings, key=lambda x: -x["usd"]):
-                    pct = (s["usd"] / total_usd * 100) if total_usd > 0 else 0
+                    pct = (s["usd"] / total_usd * 100) \
+                        if (total_usd or 0) > 0 else 0
                     bar = _bar(pct / 100, 1.0, 8)
                     lines.append(
                         f"- <b>{s['asset']}</b>  "
@@ -7994,7 +8013,11 @@ class TelegramHandler:
                             else "unknown") + "</code>")
             lines.append(f"- Exposure: <code>${exposure:,.2f}</code>")
             lines.append(SEP)
-            lines.append(f"- <b>NET: <code>${total_usd:,.2f}</code></b>")
+            # The headline number on the card. `${None:,.2f}` raises, and the
+            # nearest except would have swallowed the whole reply -- so being
+            # honest here without money() would have DELETED the card rather
+            # than corrected it.
+            lines.append(f"- <b>NET: <code>{money(total_usd)}</code></b>")
 
             # Footer — use filtered trade count (consistent with Performance)
             n_trades = len(user_closed)
@@ -9700,7 +9723,7 @@ class TelegramHandler:
         except Exception as exc:
             system_log.error("analyze_asset failed for %s: %s", symbol, exc, exc_info=True)
             await self._send(update,
-                f"\U0001f534 {t('analyze_failed', self._lang(update), symbol=html.escape(symbol), detail=html.escape(str(exc)[:200]))}")
+                f"\U0001f534 {t('analyze_failed', self._lang(update), symbol=html.escape(symbol), detail=_safe_exc_text(exc))}")
             return
 
         new_idea = None
@@ -12014,7 +12037,7 @@ class TelegramHandler:
         except Exception as exc:
             logger.error(f"Orders fetch error: {exc}", exc_info=True)
             await self._send(update,
-                f"\U0001f534 <b>Failed to fetch orders:</b> <code>{html.escape(str(exc)[:200])}</code>")
+                f"\U0001f534 <b>Failed to fetch orders:</b> <code>{_safe_exc_text(exc)}</code>")
 
     @guard("portfolio")
     async def _cmd_open_positions(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
