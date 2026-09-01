@@ -51,10 +51,38 @@ _NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 _TIMEOUT_SEC = float(os.environ.get("LAB_TIMEOUT_SEC", "600"))
 _MIN_SUBMIT_GAP_SEC = 5.0
 
-# Single-slot job registry. Results are kept for the session (small dicts).
+# Single-slot job registry.
+#
+# "Results are kept for the session (small dicts)" is what this said, and it
+# was an assumption rather than a bound: `_jobs[job_id] = {...}` appears once
+# and no line anywhere deletes from it. Concurrency IS bounded — one job at a
+# time, plus a submit gap — so the audit's "unbounded subprocess/job growth"
+# names the wrong mechanism; what grew without limit was the RECORD DICT, one
+# entry every few seconds for the life of the process, each holding a params
+# dict, a full backtest result and up to 2 KB of log tail.
 _jobs: dict[str, dict] = {}
 _running_id: Optional[str] = None
 _last_submit: float = 0.0
+
+#: Finished job records to keep. Poll-after-finish needs a short history, not
+#: an archive; anything older is unreachable from the UI anyway.
+_MAX_JOBS = 50
+
+
+def _prune_jobs() -> None:
+    """Drop the oldest finished records once the registry exceeds the cap.
+
+    Never evicts the running job: its poller is holding that id and a 404 mid
+    run would read as "your backtest vanished".
+    """
+    if len(_jobs) <= _MAX_JOBS:
+        return
+    evictable = sorted(
+        (j.get("started_at", 0.0), k)
+        for k, j in _jobs.items() if k != _running_id
+    )
+    for _, key in evictable[:len(_jobs) - _MAX_JOBS]:
+        _jobs.pop(key, None)
 
 
 class LabRunRequest(BaseModel):
@@ -170,6 +198,7 @@ async def lab_run(req: LabRunRequest):
                    "last_bars": last_bars, "confidence_threshold": confidence,
                    "balance": balance, **gate_params},
     }
+    _prune_jobs()
     _running_id = job_id
     _last_submit = now
     asyncio.get_running_loop().create_task(_run_job(job_id, cmd, out_file))
@@ -202,7 +231,11 @@ async def _run_job(job_id: str, cmd: list[str], out_file: Path) -> None:
         result = json.loads(out_file.read_text())
         job.update(status="done", finished_at=time.time(), result=result)
     except Exception as exc:
-        job.update(status="error", error=f"Lab job crashed: {exc}")
+        # CLASS NAME ONLY. This string is handed straight back by /lab/status,
+        # and a raw exception text carries filesystem paths and whatever the
+        # failing call put in its message.
+        job.update(status="error",
+                   error=f"Lab job crashed: {type(exc).__name__}")
     finally:
         try:
             out_file.unlink(missing_ok=True)

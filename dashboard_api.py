@@ -196,8 +196,49 @@ class Handler(BaseHTTPRequestHandler):
         if content is not None:
             self.wfile.write(content)
 
+    def _read_authorised(self) -> bool:
+        """The SAME key the write path requires.
+
+        The POST checked `X-API-Key` with `hmac.compare_digest`; the GET
+        checked nothing, and returns `system.equity` — the operator's real
+        live account equity in dollars — plus per-trader total/daily PnL,
+        commission, OPEN POSITIONS and recent trades. Open positions are
+        worse than a privacy leak: someone who knows what you are holding can
+        trade against it.
+
+        CLAUDE.md's rule is that public payloads carry percent, ratio and
+        count only. An unauthenticated HTTP GET is as public as a surface
+        gets, so this one is not public — it is an operator surface that had
+        no lock on the door.
+
+        LATENT, and that is precisely the trap. Nothing in this repo deploys
+        this server (no compose service, nginx upstream, Dockerfile or deploy
+        script), and the pusher only starts when an operator sets
+        DASHBOARD_API_KEY and DASHBOARD_URL themselves. So the person exposed
+        is the one who turns it on — and they are entitled to read a guarded
+        write path as meaning the whole API is guarded. Nothing in the repo
+        consumes /api/snapshot, so requiring the key breaks no caller.
+        """
+        if not API_KEY:
+            return False
+        key = self.headers.get("X-API-Key", "")
+        return bool(key) and hmac.compare_digest(key, API_KEY)
+
     def do_GET(self):
         path = self.path.split("?")[0]
+
+        # The money endpoints. /api/health stays open below: it carries a
+        # status word, a timestamp and a COUNT, which is what a liveness probe
+        # is for and what the public-surface rule permits.
+        if path in ("/api/snapshot", "/api/feed"):
+            if not self._read_authorised():
+                self._json_response(
+                    {"error": "unauthorised",
+                     "detail": "This endpoint reports account equity, P&L and "
+                               "open positions. Send the same X-API-Key the "
+                               "snapshot POST requires."},
+                    403)
+                return
 
         # API routes
         if path == "/api/snapshot":

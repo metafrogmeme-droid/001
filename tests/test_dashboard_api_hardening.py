@@ -70,10 +70,19 @@ def server(tmp_path, monkeypatch):
         httpd.server_close()
 
 
-def _req(addr, method, path):
+def _req(addr, method, path, key=None):
+    """`key` sends X-API-Key.
+
+    The money reads (/api/snapshot, /api/feed) require the same key the POST
+    always did — they were returning account equity, per-trader P&L and open
+    positions to anyone who asked. Callers below that are testing what the
+    endpoint SAYS, rather than who may ask, pass the key; the GET/HEAD parity
+    check deliberately does not, which now also proves the gate applies to
+    both verbs rather than only the one that was patched.
+    """
     conn = http.client.HTTPConnection(*addr, timeout=10)
     try:
-        conn.request(method, path)
+        conn.request(method, path, headers={"X-API-Key": key} if key else {})
         r = conn.getresponse()
         return r.status, r.read(), dict(r.getheaders())
     finally:
@@ -164,7 +173,7 @@ def test_snapshot_does_not_report_an_empty_book_for_an_unreadable_file(server):
     addr, mod, _tmp = server
     with open(mod.DATA_FILE, "w") as f:
         f.write("}{")
-    status, body, _h = _req(addr, "GET", "/api/snapshot")
+    status, body, _h = _req(addr, "GET", "/api/snapshot", key="test-key")
     assert status == 503, (
         f"/api/snapshot answered {status} with {body[:80]!r} for a corrupt "
         f"file. `{{'traders': [], 'total_traders': 0}}` reads as a measured "
