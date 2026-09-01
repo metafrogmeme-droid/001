@@ -6,7 +6,7 @@
 
 Welcome to the official RUNECLAW documentation.
 
-RUNECLAW is a risk-first AI trading assistant designed for the **Bitget AI Base Camp · Hackathon S1**. It scans Bitget markets for opportunities, generates trade theses using LLM analysis and technical indicators, applies macro and volatility context, enforces strict risk controls, and requires human confirmation before any trade can proceed.
+RUNECLAW is a risk-first AI trading assistant designed for the **Bitget AI Base Camp · Hackathon S1**. It scans Bitget markets for opportunities, generates trade theses using LLM analysis and technical indicators, applies macro and volatility context, enforces strict risk controls, and requires human confirmation before any trade can proceed unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
 
 The system runs in **paper trading mode by default** and is built around safety, transparency, explainability, and disciplined execution.
 
@@ -29,7 +29,7 @@ Macro / Volatility / Risk Context
  ↓
 Fail-Closed Risk Gate
  ↓
-Human Confirmation
+Human Confirmation   <-- skipped when auto-confirm is on; see AUTO_CONFIRM_LIVE_ENABLED
  ↓
 Paper Trade / Future Bitget Execution
  ↓
@@ -42,7 +42,7 @@ Structured Audit Log
 
 1. **Simulation-first.** Live trading is disabled unless explicitly enabled with two environment flags.
 2. **Fail-closed risk.** Every trade must pass all 20 pre-trade checks (fail-closed + 1 fail-open for liquidity only). One failure means rejection.
-3. **Human-in-the-loop.** No trade executes without explicit confirmation via Telegram inline keyboard.
+3. **Human-in-the-loop.** No trade executes without explicit confirmation via Telegram inline keyboard, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
 4. **Full auditability.** Every decision is logged as structured JSON for post-mortem review.
 
 ---

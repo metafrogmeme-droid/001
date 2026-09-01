@@ -23,6 +23,10 @@ from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.margin_clamp import clamp_to_free_margin
 from bot.core.system_health import SystemHealthMonitor
+from bot.core.adaptive_threshold import (
+    auto_confirm_is_disabled,
+    next_auto_confirm_threshold,
+)
 from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
@@ -4418,18 +4422,28 @@ class RuneClawEngine:
                         recent_wins = sum(1 for t in recent_closed if t.pnl > 0)
                         recent_wr = recent_wins / len(recent_closed)
 
-                        if recent_wr >= CONFIG.adaptive.adaptive_threshold_high_wr:
-                            # Winning streak: lower threshold to capture more
-                            new_thresh = max(CONFIG.adaptive.adaptive_threshold_min,
-                                           RUNTIME.auto_confirm_threshold - 0.05)
-                        elif recent_wr <= CONFIG.adaptive.adaptive_threshold_low_wr:
-                            # Losing streak: raise threshold to be selective
-                            new_thresh = min(CONFIG.adaptive.adaptive_threshold_max,
-                                           RUNTIME.auto_confirm_threshold + 0.05)
-                        else:
-                            new_thresh = RUNTIME.auto_confirm_threshold
-
-                        if new_thresh != RUNTIME.auto_confirm_threshold:
+                        # RC-2026-021. This was three inline branches, and
+                        # two of them could move the threshold the WRONG WAY:
+                        # `min(cap, cur + 0.05)` LOWERS a threshold above the
+                        # cap, so the "losing streak, be more selective" branch
+                        # walked a disabled 1.00 down to 0.90 in a single tick
+                        # and switched auto-confirm back on for the operator
+                        # who had just lost five trades. The winning branch
+                        # walked it to 0.60 more slowly. `.env.example` ships
+                        # 1.0, `/autoconfirm off` writes 1.0, and config.py
+                        # documents 1.0 as DISABLE -- all three were undone on
+                        # a timer by a feature with no knob in .env.example.
+                        new_thresh = next_auto_confirm_threshold(
+                            RUNTIME.auto_confirm_threshold, recent_wr,
+                            high_wr=CONFIG.adaptive.adaptive_threshold_high_wr,
+                            low_wr=CONFIG.adaptive.adaptive_threshold_low_wr,
+                            floor=CONFIG.adaptive.adaptive_threshold_min,
+                            cap=CONFIG.adaptive.adaptive_threshold_max,
+                        )
+                        # None means DISABLED: not a value to write back.
+                        # Writing anything at all is what undid the switch.
+                        if new_thresh is not None and \
+                                new_thresh != RUNTIME.auto_confirm_threshold:
                             audit(system_log,
                                   f"Adaptive threshold: {RUNTIME.auto_confirm_threshold:.2f} → {new_thresh:.2f} "
                                   f"(WR={recent_wr:.0%} over last {len(recent_closed)} trades)",
@@ -4446,7 +4460,11 @@ class RuneClawEngine:
         # disabled by default (threshold 1.0) and, in LIVE mode, refuses to place
         # real-money orders unless AUTO_CONFIRM_LIVE_ENABLED is explicitly set.
         auto_threshold = RUNTIME.auto_confirm_threshold
-        auto_ideas = [
+        # `value >= threshold` makes 1.0 mean "needs a perfect score", not
+        # "off" -- and a blend that scored exactly 1.0 would auto-execute
+        # through a switch the operator had turned off. The sentinel is
+        # checked, not compared against.
+        auto_ideas = [] if auto_confirm_is_disabled(auto_threshold) else [
             (tid, tidea) for tid, tidea in list(self._pending_ideas.items())
             if self._auto_confirm_gate_value(tidea) >= auto_threshold
         ]
@@ -6798,8 +6816,10 @@ class RuneClawEngine:
         from bot.config import RUNTIME
         auto_threshold = RUNTIME.auto_confirm_threshold
         auto_confirmed = 0
+        _disabled = auto_confirm_is_disabled(auto_threshold)
         for tid, tidea in list(self._pending_ideas.items()):
-            if self._auto_confirm_gate_value(tidea) >= auto_threshold:
+            # Same sentinel as the tick path. Two gates, one meaning.
+            if not _disabled and self._auto_confirm_gate_value(tidea) >= auto_threshold:
                 _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
                 if not _et_ok:
                     audit(trade_log,

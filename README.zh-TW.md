@@ -59,7 +59,7 @@
 
 **RUNECLAW** 是由 **Humanoid Traders** 為 Bitget AI Base Camp · Hackathon S1 打造的 AI 交易指揮系統。它將多時間框架分析、匯流評分、市況偵測、訂單流微結構與風險優先邏輯整合為一套講求紀律的框架 —— 全部都可透過 Telegram 機器人介面操控。
 
-本系統**預設以模擬優先模式運作**。每一個交易構想都必須通過 21 項交易前風險檢查（16 道嚴格的失敗即關閉閘門 + 1 道失敗即放行的流動性防護 + 4 項在資料不可用時略過的顧問性檢查）、一道對抗式自我批判閘門，並在執行前取得明確的人工確認。
+本系統**預設以模擬優先模式運作**。每一個交易構想都必須通過 21 項交易前風險檢查（16 道嚴格的失敗即關閉閘門 + 1 道失敗即放行的流動性防護 + 4 項在資料不可用時略過的顧問性檢查）、一道對抗式自我批判閘門，並在執行前取得明確的人工確認 —— 除非操作者啟用自動確認（`AUTO_CONFIRM_LIVE_ENABLED` 搭配 `AUTO_CONFIRM_THRESHOLD`）；隨附的 `.env.example` 兩者皆為關閉，而未提供 `.env` 時的程式碼預設為開啟。
 
 > **Shield 風險引擎以 MCP 伺服器形式提供 —— 任何 GetClaw agent 都可呼叫它。** 詳見 `bot/mcp/server.py`。
 
@@ -105,7 +105,7 @@ RUNECLAW 透過 `LLM_BASE_URL` 支援任何相容於 OpenAI 的 LLM 供應商：
 每次掃描產生 4 個區塊：**帳戶狀態 (Account Status)**（權益、部位、斷路器）、**即時報價 (Live Tickers)**（價格、24 小時變動、成交量表格）、**市況評估 (Regime Assessment)**（逐一標的的敘述，含 RSI、VWAP、EMA20、支撐／壓力位）、以及**掃描裁決 (Scan Verdict)**（可操作的交易構想，含進場/SL/TP/R:R 與信心條）。
 
 ### 多資產宇宙 — 加密貨幣 + 傳統金融永續合約 (NEW)
-除了加密貨幣，RUNECLAW 也掃描並交易 **Bitget 上的非加密 USDT-M 永續合約** —— 相同的風險引擎、AI 分析與人工確認流程適用於每一個類別。以 `/mode <universe>`（或 `.env` 中的 `ASSET_UNIVERSE`）即可瞬間切換焦點，無需重啟：
+除了加密貨幣，RUNECLAW 也掃描並交易 **Bitget 上的非加密 USDT-M 永續合約** —— 相同的風險引擎、AI 分析與人工確認流程（在自動確認關閉時；見 `AUTO_CONFIRM_LIVE_ENABLED`）適用於每一個類別。以 `/mode <universe>`（或 `.env` 中的 `ASSET_UNIVERSE`）即可瞬間切換焦點，無需重啟：
 
 | `/mode` | 宇宙 | 標的 |
 |---------|----------|-------------|
@@ -236,7 +236,7 @@ RUNECLAW 支援**多位使用者各自在自己的 Bitget 帳戶上實盤交易*
                    |            |
                    v            v
               +----+------------+----+
-              | Human Confirmation   |
+              | Human Confirmation   |   <-- 啟用自動確認時略過（AUTO_CONFIRM_LIVE_ENABLED）
               | (Telegram Keyboard)  |
               +----------+-----------+
                          |
@@ -253,6 +253,10 @@ RUNECLAW 支援**多位使用者各自在自己的 Bitget 帳戶上實盤交易*
 - **Dashboard**（經由 API Bridge 提供）—— War Room、即時訊號、投組檢視
 
 **流程：** SCAN --> ANALYZE --> RISK GATE --> HUMAN CONFIRM --> EXECUTE（紙上或實盤；實盤受把關且需人工確認，僅管理員可自動執行）
+
+> 當操作者啟用自動確認（`AUTO_CONFIRM_LIVE_ENABLED` 搭配 `AUTO_CONFIRM_THRESHOLD`）時，
+> HUMAN CONFIRM 這一步會被略過。隨附的 `.env.example` 兩者皆關閉，
+> 未提供 `.env` 時的程式碼預設為開啟。
 
 ### 執行期服務
 
@@ -664,7 +668,7 @@ RUNECLAW 以**失敗即關閉**的理念設計：
 
 ## 實盤交易紀錄
 
-RUNECLAW 正在 **Bitget 期貨上實盤交易**，採微型部位。所有交易皆透過 Telegram 機器人介面並經人工確認執行。
+RUNECLAW 正在 **Bitget 期貨上實盤交易**，採微型部位。所有交易皆透過 Telegram 機器人介面並經人工確認執行（除非啟用自動確認 `AUTO_CONFIRM_LIVE_ENABLED`）。
 
 **交易期間：** 2026 年 6 月 17-19 日  
 **交易所：** Bitget USDT-M 期貨  
@@ -747,7 +751,7 @@ python run_realdata_backtest.py --llm --output results.json
 | 交易前風險檢查 | **21 項檢查（16 嚴格 + 5 顧問）** | 0-3 項基本檢查 |
 | 失敗即關閉設計 | **是** —— 任何失敗 = 拒絕 | 失敗即放行（錯誤略過檢查） |
 | 斷路器 | 在每日虧損／回撤時**自動停止** | 無或僅手動 |
-| 人工確認 | 透過 Telegram 鍵盤**強制要求** | 自動執行或無閘門 |
+| 人工確認 | 透過 Telegram 鍵盤**強制要求**，除非操作者啟用自動確認（`AUTO_CONFIRM_LIVE_ENABLED`） | 自動執行或無閘門 |
 | 市況偵測 | **ADX-14 市況過濾**阻擋逆勢 | 不予考慮 |
 | 匯流評分 | **30+ 投票者模型**（含可選的家族上限去相關） | 1-2 個指標 |
 | 稽核軌跡 | **完整 JSONL** —— 每一決策皆記錄 | 極少或無 |

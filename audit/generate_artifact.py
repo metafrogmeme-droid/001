@@ -198,7 +198,7 @@ F = [
               "its bot-side state skipped silently."),
     dict(id="RC-2026-021", title="SECURITY.md promises human-in-the-loop confirmation "
          "that the default configuration does not provide",
-         status="OPEN", severity="MEDIUM",
+         status="FIXED", severity="MEDIUM",
          second_pass="HIGH -> MEDIUM. The DEFECT stands - six public surfaces state an "
                      "unconditional human-in-the-loop guarantee the code contradicts, "
                      "and the repo's own tests/test_mcp_doc_matches_the_code.py is an "

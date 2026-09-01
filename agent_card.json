@@ -50,7 +50,8 @@
     "dual_flag_live_gate": true,
     "audit_trail": "structured_jsonl",
     "red_team_validated": true,
-    "black_swan_detector": true
+    "black_swan_detector": true,
+    "human_in_the_loop_note": "True as shipped: .env.example sets AUTO_CONFIRM_LIVE_ENABLED=false and AUTO_CONFIRM_THRESHOLD=1.0. An operator may enable auto-confirm, and the code default with no .env file has it ON. Read this field as the shipped posture, not an unconditional guarantee."
   },
   "hackathon": {
     "name": "Bitget AI Base Camp S1",
@@ -59,5 +60,6 @@
       "Track 2 - Trading Infra"
     ],
     "submission_url": "https://github.com/Humanoid-Traders/RUNECLAW"
-  }
+  },
+  "requires_confirmation_note": "True as shipped: .env.example sets AUTO_CONFIRM_LIVE_ENABLED=false and AUTO_CONFIRM_THRESHOLD=1.0. An operator may enable auto-confirm, and the code default with no .env file has it ON. Read this field as the shipped posture, not an unconditional guarantee."
 }

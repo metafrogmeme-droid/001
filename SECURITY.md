@@ -26,7 +26,7 @@ RUNECLAW enforces a **fail-closed** design — if any safety check is ambiguous 
 - **Simulation by Default** — live trading requires two explicit flags: `SIMULATION_MODE=false` and `LIVE_TRADING_ENABLED=true`. Both default to safe values.
 - **Risk Limits** — position sizing uses percentage-based limits (MAX_POSITION_PCT=2.0%, MAX_SYMBOL_EXPOSURE_PCT=20.0%) applied to current equity. On the default $10,000 paper balance, this yields a ~$200 risk budget and $2,000 max per-symbol exposure.
 - **Tamper-Evident Audit Chain** — every decision, rejection, and execution is logged with a chained SHA-256 hash, making post-hoc log tampering detectable. Ed25519 attestation available when `cryptography` package is installed.
-- **Human-in-the-Loop** — all trade executions require explicit human confirmation; the AI agent cannot autonomously place orders.
+- **Human-in-the-Loop** — trade executions require explicit human confirmation unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present. With auto-confirm off the agent cannot place an order without a human press; with it on, a signal clearing the confidence bar executes unattended. `AUTO_CONFIRM_THRESHOLD=1.0` (or `/autoconfirm off`) disables auto-confirm outright, and nothing may quietly re-enable it.
 - **Non-Root Container** — Docker image runs as `runeclaw` user (uid 1001).
 - **Redis Security** — Redis requires `REDIS_PASSWORD` (no default; compose fails fast if unset), port not exposed to host.
 
