@@ -369,3 +369,84 @@ def test_the_committed_artifact_is_the_generated_artifact():
         "Regenerate it and commit the result:\n"
         "  python3 audit/generate_artifact.py"
     )
+
+
+# ── severity, which drifted on SIX findings while status agreed on all ────
+#
+# Status was the only field compared, and status was fine. Severity was not:
+# RC-2026-005, -007, -008, -010, -015, -021 and -025 all read one level HIGHER
+# in the prose than in the generator, every one of them because a second pass
+# recorded a downgrade in the machine half and nobody applied it to the half a
+# human reads.
+#
+# That direction is the bad one. The report itself tells a reader "discount the
+# remaining severities" downward — while the prose register went on presenting
+# the pre-discount numbers as current. An IDOR filed as HIGH after its own
+# author recorded why it is LOW is the register overstating its findings, which
+# is exactly what its "18 severities moved, every one DOWN" section is warning
+# about.
+#
+# The generator is the later authority: every one of the seven carries the
+# reason for its own move, in `second_pass` or in `severity_history`. Reading
+# only `second_pass` reports six of them as unexplained — a check answering
+# "unrecorded" from where it looked, so both fields are read here.
+
+
+def _severities_from_generator() -> dict[str, str]:
+    tree = ast.parse(GENERATOR.read_text(encoding="utf-8"))
+    out: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "dict"):
+            continue
+        kw = {k.arg: k.value for k in node.keywords if k.arg}
+        fid, sev = kw.get("id"), kw.get("severity")
+        if not (isinstance(fid, ast.Constant) and isinstance(sev, ast.Constant)):
+            continue
+        if isinstance(fid.value, str) and FINDING_ID.fullmatch(fid.value):
+            out[fid.value] = sev.value
+    return out
+
+
+def _severities_from_prose() -> dict[str, str]:
+    """First `**Severity**: X` under each heading. Same wrap rule as status."""
+    out: dict[str, str] = {}
+    current: str | None = None
+    prev_was_heading = False
+    for line in PROSE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            m = FINDING_ID.search(line)
+            if m:
+                current = m.group(0)
+            elif not prev_was_heading:
+                current = None
+            prev_was_heading = True
+            continue
+        prev_was_heading = False
+        # Only the declaration line, never the `**Severity moved** X → Y`
+        # bullet that records the history — that one names two severities and
+        # neither is the current one.
+        if current and current not in out and line.lstrip().startswith("- **Status**:"):
+            m = re.search(r"\*\*Severity\*\*:\s*\**([A-Z]+)\**", line)
+            if m:
+                out[current] = m.group(1)
+    return out
+
+
+def test_the_prose_declares_some_severities():
+    """Guard the guard, again: an empty parse would pass every case below."""
+    sev = _severities_from_prose()
+    assert len(sev) >= 12, f"only parsed {len(sev)} severities — the parser has drifted"
+
+
+@pytest.mark.parametrize("fid", sorted(_statuses_from_generator()))
+def test_the_two_halves_agree_on_severity(fid):
+    gen, prose = _severities_from_generator(), _severities_from_prose()
+    if fid not in prose:
+        pytest.skip(f"{fid} has no severity declaration line in the prose")
+    assert gen[fid] == prose[fid], (
+        f"{fid}: generate_artifact.py says {gen[fid]}, verified_findings.md "
+        f"says {prose[fid]}. The generator carries the reason for every move "
+        "it records (second_pass or severity_history) — apply it to the prose "
+        "rather than raising the generator to match."
+    )
