@@ -194,9 +194,19 @@ def test_a_complete_backup_does_not_cry_wolf(tmp_path, monkeypatch, caplog):
     assert not any("PARTIAL" in r.message for r in caplog.records)
 
 
-# ── back-compat ───────────────────────────────────────────────────────────
+# ── one definition, not two ───────────────────────────────────────────────
 
-def test_critical_paths_still_returns_just_the_found_list(tree, monkeypatch):
-    root, alt = tree
-    monkeypatch.setenv("RUNECLAW_STATE_DIR", str(alt))
-    assert bk.critical_paths(str(root)) == bk.critical_status(str(root))[0]
+def test_there_is_no_second_resolver_to_drift_from(tree):
+    """`critical_paths` was kept as a wrapper and became dead on the same day.
+
+    `create_backup` needs `missing`, so it moved to `critical_status`, which
+    left the older name called by nothing but tests —
+    `tests/test_no_new_unreachable_functions.py` caught it in CI. A resolver
+    that only tests call is the shape this repo's ratchets exist to stop, and
+    two resolvers for one question is how the archive and the manifest come to
+    disagree. It is deleted rather than baselined.
+    """
+    assert not hasattr(bk, "critical_paths"), (
+        "a second resolver is back; `create_backup` reads `critical_status`, "
+        "so anything else is a copy that can drift from what is archived"
+    )

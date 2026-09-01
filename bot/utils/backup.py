@@ -94,6 +94,10 @@ def _keep() -> int:
         return 14
 
 
+#: The prefix every `_CRITICAL` entry uses, and the default the stores fall
+#: back to when `RUNECLAW_STATE_DIR` is unset (`secrets_vault._state_dir()`).
+_DEFAULT_STATE_DIRNAME = "data"
+
 _ENV_OVERRIDES = {
     "data/anchor_state.json": "ANCHOR_STATE_PATH",
     "data/proofofpnl_publication.json": "PROOFOFPNL_PUBLICATION_PATH",
@@ -115,11 +119,17 @@ _ENV_OVERRIDES = {
 #: after. `data/attestation_key.bin` is already archived, so key material in
 #: the archive is established practice here rather than a new precedent --
 #: noted for whoever decides.
+#: Keyed on the BASENAME, deliberately. The file moves with
+#: `RUNECLAW_STATE_DIR` exactly as the two stores do, so a `data/`-prefixed
+#: key would be wrong on the deployment shape that part (c) is about — and
+#: tests/test_durable_paths_are_not_cwd_dependent.py rightly flags a
+#: cwd-relative durable-state literal, which is how that was noticed.
 _EXTERNALLY_MANAGED = {
-    "data/.exchange_secret.key":
-        "Fernet master key for secrets_vault.enc AND exchange_creds.enc. NOT "
-        "in this archive by design. A restore without it cannot decrypt "
-        "either store. See audit/verified_findings.md RC-2026-008(b).",
+    ".exchange_secret.key":
+        "Fernet master key for secrets_vault.enc AND exchange_creds.enc "
+        "(alongside them in the state dir). NOT in this archive by design. A "
+        "restore without it cannot decrypt either store. See "
+        "audit/verified_findings.md RC-2026-008(b).",
 }
 
 
@@ -138,9 +148,15 @@ def _state_dir_twin(rel: str) -> Optional[str]:
     miss for another.
     """
     sd = (os.environ.get("RUNECLAW_STATE_DIR") or "").strip()
-    if not sd or not rel.startswith("data/"):
+    if not sd:
         return None
-    return os.path.join(sd, rel[len("data/"):])
+    # Split rather than a "data/" literal: the durable-path guard flags a
+    # cwd-relative state path anywhere in the tree, and it is right to — a
+    # bare prefix here reads exactly like one that gets opened.
+    head, _, tail = rel.partition("/")
+    if head != _DEFAULT_STATE_DIRNAME or not tail:
+        return None
+    return os.path.join(sd, tail)
 
 
 def critical_status(root: str = "") -> tuple[list[Path], list[str]]:
@@ -179,11 +195,6 @@ def critical_status(root: str = "") -> tuple[list[Path], list[str]]:
     return found, missing
 
 
-def critical_paths(root: str = "") -> list[Path]:
-    """Resolve the critical set. `root` defaults to the REPO ROOT, not "." —
-    a cwd-relative default meant the backup contents depended on who launched
-    the process."""
-    return critical_status(root)[0]
 
 
 def _sha256(path: Path) -> str:
