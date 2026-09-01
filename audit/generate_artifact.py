@@ -226,7 +226,7 @@ F = [
               "REVIEW_REQUIRED rather than a doc edit."),
     dict(id="RC-2026-022", title="The public /risk page asserts a categorical guarantee "
          "the code does not provide",
-         status="OPEN", severity="MEDIUM", confidence="CONFIRMED",
+         status="FIXED", severity="MEDIUM", confidence="CONFIRMED",
          category="public-claim-honesty", component="marketing-site",
          file="site/src/routes/risk.tsx", line="82", fix_class="REVIEW_REQUIRED",
          standard=["CWE-1059"], verified_by="lead-auditor",

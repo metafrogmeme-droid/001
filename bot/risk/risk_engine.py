@@ -2,7 +2,23 @@
 RUNECLAW Risk Engine -- FAIL-CLOSED pre-trade gatekeeper.
 
 23 independent pre-trade checks. ANY failure = REJECTED. No overrides.
-Design: if a check cannot be evaluated, the trade is REJECTED (fail-closed).
+Design: a check that cannot be evaluated REJECTS the trade (fail-closed) --
+for the checks that carry the money. `config/risk_manifest.yaml` is the
+authoritative per-check statement: 17 closed, 1 open, 3 skip.
+
+RC-2026-022. That qualifier is load-bearing and this docstring used to omit
+it, which is where the public /risk page got the categorical sentence "there
+is no path where a check that could not be evaluated is treated as a check
+that passed". There are sixteen such paths. An advisory check whose data
+source is absent appends a SKIP to the *passed* list -- no macro calendar, no
+order-flow analyzer, not enough history for a VaR estimate -- and seven do the
+same when their own evaluation raises (USER_RISK_PREF, FEE_AWARE,
+REENTRY_COOLDOWN, FUNDING_CLOCK, INTENT_POLICY, VALIDATION, AUTHORITY).
+
+A skip is never silent: each names itself and its reason on the decision
+record, so `checks_passed` can be read against what was actually evaluated.
+But it is counted with the passes, and a reader told "no path" would not know
+to look.
 
 Note: Check #17 (liquidity guard) lives in engine.py via OrderFlowAnalyzer,
 not in this module.  It is fail-open (no data = pass) by design.
@@ -200,7 +216,10 @@ _UNMAPPED_GROUP = "UNMAPPED_ALT"
 class RiskEngine:
     """
     Pre-trade and post-trade risk checks.
-    Design principle: if ANY check cannot be evaluated, the trade is REJECTED.
+    Design principle: a check that cannot be evaluated REJECTS the trade --
+    on the 17 the manifest marks `fail_behavior: closed`. One is fail-open by
+    design (LIQUIDITY) and the advisory checks skip; see the module docstring,
+    which no longer states this categorically because it was not true.
     23 independent checks -- all must pass (20 in-engine + #17 liquidity in engine.py via OrderFlowAnalyzer + #22 taker 3-bar + #23 bid dominance).
 
     Threading model: RUNECLAW runs on a single-threaded asyncio event loop.
@@ -1395,8 +1414,13 @@ class RiskEngine:
             self._save_state()
 
         # ── Individual checks — each wrapped so a raised exception → REJECTED ──
-        # This is the fail-closed contract: if ANY check cannot be evaluated,
-        # the trade is REJECTED.  No silent pass-through on errors.
+        # The fail-closed contract, and its actual scope: a check that cannot
+        # be evaluated REJECTS, on the 17 the manifest marks closed. It is NOT
+        # universal, and stating it as though it were is what put a false
+        # guarantee on the public /risk page (RC-2026-022). Seven `except`
+        # handlers below append to `passed`, not `failed` — grep
+        # `passed.append` inside an except block before repeating the
+        # categorical form anywhere.
 
         try:
             # 1. Circuit breaker

@@ -1,6 +1,8 @@
 # Risk Framework
 
-RUNECLAW's risk engine is the most critical component in the system. It follows a **fail-closed** design: if any check cannot be evaluated or fails, the trade is rejected. There are no overrides, no force-execute flags, no backdoors.
+RUNECLAW's risk engine is the most critical component in the system. It follows a **fail-closed** design on the checks that carry the money: if such a check cannot be evaluated or fails, the trade is rejected. There are no overrides, no force-execute flags, no backdoors.
+
+`config/risk_manifest.yaml` is the authoritative per-check statement — **17 fail-closed, 1 fail-open, 3 skip**. The liquidity guard says so itself ("the ONLY fail-open check: no data = pass"), and the advisory checks record a *skip* into the passed list when their data source is absent, or when their own evaluation raises. A skip names itself and its reason on the decision record, so `checks_passed` can be read against what was actually evaluated — but it is counted with the passes, so read the manifest rather than a slogan.
 
 ## Design Philosophy
 
@@ -161,7 +163,7 @@ Guards against data errors producing invalid trade parameters.
 
 Rejects trades during extreme volatility conditions where stops are unreliable. **When ATR data is unavailable, the volatility guard fails closed and rejects the trade.** This ensures the system never enters a position without a valid volatility assessment.
 
-Of the 20 pre-trade checks, **19 are fail-closed** (including the volatility guard) and **1 is fail-open** (the liquidity guard only, which is skipped when order book data is unavailable).
+Of the 21 checks the manifest names, **17 are fail-closed** (including the volatility guard), **1 is fail-open** (LIQUIDITY only, skipped when order-book data is unavailable) and **3 declare `fail_behavior: skip`** (MTF_ALIGNMENT, PORTFOLIO_VAR, CONCENTRATION_PCA). This paragraph read "19 are fail-closed" and counted the three skip checks among them — a skip is recorded with the passes, not with the rejections, which is the distinction the rest of this page is about.
 
 ### 17. Liquidity Guard
 

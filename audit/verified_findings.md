@@ -1628,7 +1628,13 @@ default.
 
 ## RC-2026-022 — the public /risk page's categorical claim, and it is worse than reported
 
-- **Status**: OPEN · **Severity**: MEDIUM (verifier-corrected from HIGH) · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: MEDIUM (verifier-corrected from HIGH) · **Confidence**: CONFIRMED
+  → **FIXED**, and worse again than the nine recorded below. An AST walk finds **sixteen** skip-to-passed paths, and **seven of them are `except` handlers** — which contradicts the sentence directly beneath the flagged one on the same page: *"an exception does not skip that check: it records a failure"*. That second false claim was not in the finding. The seven are `USER_RISK_PREF`, `FEE_AWARE`, `REENTRY_COOLDOWN`, `FUNDING_CLOCK`, `INTENT_POLICY`, `VALIDATION` and `AUTHORITY`.
+  → **Two of the nine are NOT defects**, checked rather than counted: `RISK_REWARD` and `CONFIDENCE` skip only `if is_manual` — a human supplied the levels, so the check is *not applicable* rather than *unevaluable*. Their `except` branches append to `failed`, correctly. Not every match is a defect, including in a count I inherited.
+  → **The root was the engine's own docstring.** `risk_engine.py` stated the categorical form in three places (module, class, and the inline "the contract, verbatim" comment the page quoted). All three now state the scope: fail-closed on the 17 the manifest marks `closed`, with the fail-open and skip paths named. Fixing the page without fixing what it quoted would have left the next writer to re-derive the same false sentence.
+  → **A contradiction inside the GitBook, found by the sweep**: `risk-framework.md:166` said *"Of the 20 pre-trade checks, 19 are fail-closed and 1 is fail-open"* — counting the three `fail_behavior: skip` checks among the fail-closed, which is the same defect one page down and disagrees with the manifest and with line 3 of its own file.
+  → **The page states no tally**, deliberately. `site/test/site_honesty.test.js` forbids a published risk-check count — the number that matters is per-trade and is already on the decision record — and a manifest tally reads as that count. The page names `LIQUIDITY` and quotes the manifest ("the ONLY fail-open check: no data = pass") instead; the numbers live in the manifest, the GitBook and the guard.
+  → `tests/test_risk_page_does_not_overclaim_fail_closed.py` (13). It is **positive wherever possible**: both the corrected page and the corrected docstring *quote* the false sentence to show what was wrong, and a scan cannot tell a quotation from a restatement — CLAUDE.md records four false failures from exactly that shape. The single negative check is anchored to the correction framing. 5 mutations killed, two of them only after being re-run at full strength; the first pass's "survivors" were weak mutations, not gaps.
 
 `site/src/routes/risk.tsx:82`, published to `website/risk/index.html`:
 

@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "bf9e379d6e15fec872310ead887cc136ddddac89",
+    "commit": "679428ead831e86e824931d77ab89cdb8d9494dd",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -219,7 +219,7 @@
     {
       "id": "RC-2026-022",
       "title": "The public /risk page asserts a categorical guarantee the code does not provide",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "MEDIUM",
       "confidence": "CONFIRMED",
       "category": "public-claim-honesty",
