@@ -128,15 +128,30 @@ _LABEL = r"Risk[:\s_-]?Reward(?:\s+ratio)?|R:R|R/R|RISK[_ ]REWARD"
 #: "R:R 1.40", "risk:reward of 1.25", "RISK_REWARD: 3.0".
 #: Two lookaheads, both load-bearing.
 #:
-#: (?![\d.])  stops the ratio matching a PREFIX of a longer number. Without
-#: it, backtracking finds "10" inside "10.00" the moment the second guard
-#: rejects the whole token, and the correction lands mid-number.
+#: (?!\d)(?!\.\d)  stops the ratio matching a PREFIX of a longer number.
+#: Without it, backtracking finds "10" inside "10.00" the moment the second
+#: guard rejects the whole token, and the correction lands mid-number.
+#:
+#: IT WAS `(?![\d.])`, WHICH ALSO REJECTED A FULL STOP. A ratio that ends a
+#: sentence is the most ordinary thing in prose, and every shape broke on one:
+#:
+#:     "R:R = 1.50."          -> None   the guard runs and recognises nothing
+#:     "Risk:Reward: 1:2.35." -> 1      WORSE: the wrong number, not no number
+#:
+#: The first is the shape this module exists to prevent — runs, matches
+#: nothing, reports success. The second is worse and was not predicted: the
+#: `1:` prefix is optional, so rejecting "2.35." makes the pattern fall back
+#: to the "1" and hand back a confident misparse.
+#:
+#: A trailing `.` is only part of the number when a digit follows it, which is
+#: exactly what `(?!\.\d)` says. Verified against the division form and the
+#: "10.00" prefix case both guards were written for.
 #:
 #: (?!\s*/)   leaves a DIVISION alone. v13's corpus writes the honest form
 #: "R:R = 10.00 / 5.00 = 2.00"; matching the numerator there would rewrite
 #: correct arithmetic into nonsense. Silently corrupting a right answer is a
 #: worse failure than missing a wrong one, so the guard declines the shape.
-_RATIO = r"(?P<ratio>\d+\.?\d*)(?![\d.])(?!\s*/)"
+_RATIO = r"(?P<ratio>\d+\.?\d*)(?!\d)(?!\.\d)(?!\s*/)"
 
 #: Horizontal whitespace only. `\s*` crosses newlines, which let a label in
 #: a table HEADER bind to the first number of the value row below it.
@@ -166,7 +181,7 @@ _RE_STATED_PRE = re.compile(
 #: rebuilt from numbers this function did not derive.
 _RE_STATED_QUOT = re.compile(
     r"(?P<expr>\d+\.?\d*" + _H + r"*/" + _H + r"*\d+\.?\d*" + _H + r"*=" + _H + r"*)"
-    r"(?P<ratio>\d+\.?\d*)(?![\d.])")
+    r"(?P<ratio>\d+\.?\d*)(?!\d)(?!\.\d)")
 
 #: A whole table cell that is nothing but a ratio: "1:1.70", "1.70".
 _RE_RR_CELL = re.compile(r"(?P<pre>1\s*:\s*)?(?P<ratio>\d+\.?\d*)")

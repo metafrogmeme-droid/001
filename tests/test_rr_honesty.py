@@ -288,3 +288,73 @@ class TestReachedThroughTheChatSeam:
         text, meta = _chat_ret(reply, cfg, True)
         assert "1.17" in text
         assert meta == {"provider": "runeclaw", "model": "v12-14b"}
+
+
+class TestRatioAtTheEndOfASentence:
+    r"""A ratio that ends a sentence is the most ordinary thing in prose.
+
+    The prefix guard was `(?![\d.])`, which rejects a following full stop as
+    well as a following digit. Every stated shape broke on one, and the two
+    failures are different kinds:
+
+        "R:R = 1.50."          -> None   ran, recognised nothing, said nothing
+        "Risk:Reward: 1:2.35." -> 1      WORSE — a confident wrong number
+
+    The second was not predicted by the review that raised this. The `1:`
+    prefix is optional, so once "2.35." is rejected the pattern falls back to
+    matching the "1" and hands back a misparse rather than a miss. A guard
+    that returns the wrong answer is worse than one that returns none, and
+    this module exists to stop exactly that.
+
+    A trailing `.` belongs to the number only when a digit follows it, which
+    is what `(?!\.\d)` says.
+    """
+
+    @pytest.mark.parametrize("text,expected", [
+        ("R:R = 1.50.", "1.50"),
+        ("R:R 2.75.", "2.75"),
+        ("Risk:Reward: 1:2.35.", "2.35"),
+        ("R:R 1:3.0.", "3.0"),
+        ("Targeting a solid R:R = 1.70.", "1.70"),
+    ])
+    def test_a_terminal_ratio_is_still_read(self, text, expected):
+        from bot.nlp.rr_honesty import _RE_STATED
+        m = _RE_STATED.search(text)
+        assert m is not None, f"{text!r} read as no ratio at all"
+        assert m.group("ratio") == expected, (
+            f"{text!r} parsed as {m.group('ratio')!r} — a confident wrong "
+            "number is worse than no number"
+        )
+
+    @pytest.mark.parametrize("text,expected", [
+        ("(R:R 1.70)", "1.70"),
+        ("R:R 1.70, with a tight stop", "1.70"),
+        ("R:R 1.70; then trail", "1.70"),
+        ("R:R 1.70 and a tight stop", "1.70"),
+    ])
+    def test_other_delimiters_were_and_remain_fine(self, text, expected):
+        from bot.nlp.rr_honesty import _RE_STATED
+        m = _RE_STATED.search(text)
+        assert m is not None and m.group("ratio") == expected
+
+    def test_the_prefix_guard_still_holds(self):
+        """The reason the lookahead exists: "10.00" must not match as "10"."""
+        from bot.nlp.rr_honesty import _RE_STATED
+        m = _RE_STATED.search("R:R 10.00")
+        assert m is not None and m.group("ratio") == "10.00"
+
+    def test_the_division_guard_still_holds(self):
+        """The honest form must be left alone; rewriting an operand would
+        turn correct arithmetic into nonsense."""
+        from bot.nlp.rr_honesty import _RE_STATED
+        assert _RE_STATED.search("R:R = 10.00 / 5.00 = 2.00") is None
+
+    def test_a_terminal_ratio_is_actually_corrected(self):
+        """End to end, not just the pattern: a wrong ratio that ends a
+        sentence must now be caught and rewritten from the levels."""
+        text = ("Direction: LONG\nEntry: 100.00\nStop Loss: 97.00\n"
+                "Take Profit: 103.00\nR:R = 5.00.")
+        out, n = correct_stated_rr(text)
+        assert n == 1, "a sentence-terminal wrong ratio went uncorrected"
+        assert "5.00" not in out
+        assert "1.00" in out
