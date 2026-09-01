@@ -38,11 +38,35 @@ paths = [
   '''(^|/)Cargo\.lock$''',
   # The audit report quotes key-shaped material while explaining these risks.
   '''^docs/TOKEN_SECURITY_AUDIT\.md$''',
-  # Test fixtures are deliberately fake credentials. The Solana keypair rules
-  # above are NOT path-allowlisted, so a real keypair committed under tests/
-  # is still caught.
-  '''^tests/''',
-  '''^app/test/''',
+  # Test fixtures are deliberately fake credentials.
+  #
+  # SCOPED BY EXTENSION, AND THE COMMENT THAT USED TO BE HERE WAS FALSE. It
+  # read: "The Solana keypair rules above are NOT path-allowlisted, so a real
+  # keypair committed under tests/ is still caught." A top-level [allowlist]
+  # applies to EVERY rule, including those two. Verified by executing gitleaks
+  # 8.21.2 over the identical 64-integer array in three places: caught under
+  # token/, silently allowed under tests/ and app/test/ — on what this file
+  # itself calls "the single highest-value pattern in the repo: that file holds
+  # mint, metadata, presale and LP authority plus the entire supply."
+  #
+  # Every finding the allowlist exists to suppress is in a .py or .js file (an
+  # env-var NAME, a help string, a fake fixture credential). A Solana keypair
+  # is a .json file and a base58 secret lands in a .env. Naming the noisy
+  # extensions therefore keeps all 21 suppressions and re-arms both keypair
+  # rules across the whole tree. Measured both ways: 0 findings on tracked
+  # files (unchanged), and 4 of 4 planted keys caught where the old config
+  # caught 1.
+  #
+  # `.env` and `.json` are deliberately ABSENT from this list — they are where
+  # a real key hides. A first draft of this fix included `env` and suppressed a
+  # planted tests/*.env key; the plant is what caught it.
+  #
+  # NOT gitleaks' [[allowlists]] + targetRules, which would express this more
+  # directly: 8.21.2 PARSES that block and silently ignores it, so the config
+  # was accepted while suppressing nothing at all — a "fix" that would have
+  # deleted the noise suppression and looked clean doing it.
+  '''^tests/[^\n]*\.(?:py|js|mjs|cjs|ts|md|txt)$''',
+  '''^app/test/[^\n]*\.(?:py|js|mjs|cjs|ts|md|txt)$''',
 ]
 
 regexes = [

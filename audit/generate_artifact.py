@@ -576,7 +576,6 @@ VERIFICATION = dict(
         "a working Lab if only one gets it, so it is an operator's deployment "
         "call, deliberately not made silently (MEDIUM)",
         "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
-        "secrets: gitleaks allowlist disables Solana keypair rules under tests/ and app/ (MEDIUM)",
         "secrets: an undecryptable LLM key is returned as ciphertext, reported present (MEDIUM)",
         "py-api-authz: /lab/status returns subprocess stderr to unauthenticated callers (LOW)",
         "secrets: /connect and /setexchange echo a raw ccxt exception to the user (LOW)",
@@ -587,6 +586,26 @@ VERIFICATION = dict(
     #: A stale OPEN entry is the same defect as a stale severity: the register
     #: describing a repo that no longer exists.
     remediated_since=[
+        "secrets: gitleaks allowlist disables Solana keypair rules under tests/ "
+        "and app/ (MEDIUM) — FIXED 2026-09-01, CONFIRMED BY EXECUTION rather "
+        "than by reading. gitleaks 8.21.2 was run over the same 64-integer "
+        "array (the exact shape solana-keygen writes) in three directories: "
+        "caught under token/, SILENTLY ALLOWED under tests/ and app/test/. The "
+        "comment above those two entries claimed the opposite — 'the Solana "
+        "keypair rules above are NOT path-allowlisted' — but a top-level "
+        "[allowlist] applies to every rule, so it asserted a protection the "
+        "config did not provide, on what .gitleaks.toml itself calls the "
+        "single highest-value pattern in the repo. Scoped by extension now: "
+        "every finding the allowlist exists to suppress is in a .py or .js "
+        "file, a keypair is .json and a base58 secret lands in .env, so naming "
+        "the noisy extensions keeps all 21 suppressions and re-arms both rules "
+        "tree-wide. Measured both ways: 0 findings on tracked files "
+        "(unchanged) and 5 of 5 planted keys caught where the old config "
+        "caught 1. NOT done with [[allowlists]] + targetRules, which says this "
+        "more directly and which 8.21.2 PARSES AND IGNORES — that candidate "
+        "produced 21 findings, identical to no allowlist at all, so it would "
+        "have shipped as a fix while deleting the noise suppression.",
+
         "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but "
         "not the READ (MEDIUM) — FIXED 2026-09-01. The POST compared "
         "X-API-Key with hmac.compare_digest; the GET compared nothing and "
