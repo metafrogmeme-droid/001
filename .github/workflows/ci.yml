@@ -490,12 +490,55 @@ jobs:
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
           echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
           tar xzf "$tarball" gitleaks
+          # SCOPE: --log-opts="HEAD", and the absence of it was RC-2026-024.
+          #
+          # `gitleaks git .` with no --log-opts scans EVERY REF IN THE
+          # CHECKOUT, not the history of the commit under test. `fetch-depth: 0`
+          # above fetches every branch, so the subject of the scan was "the
+          # repository as the runner happened to see it" — and one leak on any
+          # branch anybody pushed turned this check red on every open PR,
+          # naming a commit the PR never touched, while the PR-scope step
+          # directly above said "No leaks detected".
+          #
+          # Measured, not argued: at the time of this change, against this
+          # repo with the same pinned binary,
+          #   no --log-opts   -> 506 commits, 84,635,643 bytes
+          #   --log-opts=HEAD -> 503 commits, 84,590,620 bytes
+          # a delta of exactly the 3 commits sitting on two unrelated
+          # branches. In CI the delta was 40 commits and 287 KB, and the same
+          # check passed 3 hours later on a branch that had GROWN by two
+          # commits — nothing about the scanner, config or history changed
+          # between them, only which refs the runner held.
+          #
+          # This is the same hazard the `pull_request` gating above exists to
+          # prevent ("a step that is guaranteed red on a whole class of events
+          # carries no signal and trains people to click past the scanner"),
+          # reached by the other door.
+          #
+          # RESIDUAL RISK, stated rather than hidden: a secret pushed to a
+          # branch that is never merged is no longer caught here. That was
+          # never this step's question — it asks "is anything still reachable
+          # in THIS ref's history" — and GitHub's own push protection covers
+          # the push itself. A branch-tip sweep belongs on a schedule, where a
+          # red result is actionable by whoever can act on it; putting it back
+          # on PRs recreates the defect above.
+          #
+          # A failure now names WHERE. The step used to print a redacted count
+          # and no location, so a reader could not tell a real incident from
+          # this one — which is what made the false alarms unfalsifiable.
           ./gitleaks git \
             --config .gitleaks.toml \
             --baseline-path .gitleaks-history-baseline.json \
+            --log-opts="HEAD" \
+            --report-path gitleaks-report.json \
             --redact \
             --no-banner \
-            .
+            . || {
+              echo "::error::gitleaks found a secret reachable from this commit's history."
+              echo "--- findings: rule, file, line and commit. Secret values are masked. ---"
+              cat gitleaks-report.json 2>/dev/null || echo "(no report was written)"
+              exit 1
+            }
 
   token-tooling:
     name: Token tooling (node)

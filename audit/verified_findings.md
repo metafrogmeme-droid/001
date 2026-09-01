@@ -1749,9 +1749,15 @@ money moves.
 
 ## RC-2026-024 — the secret scanner reports another branch's leak as this PR's
 
-- **Status**: OPEN · **Severity**: MEDIUM · **Confidence**: CONFIRMED (mechanism)
+- **Status**: FIXED · **Severity**: MEDIUM · **Confidence**: CONFIRMED (mechanism)
   / NEEDS_RUNTIME_VALIDATION (the specific leak)
-- **Fix class**: REVIEW_REQUIRED — no fix pushed; this changes a security gate
+  → **FIXED.** The mechanism was re-verified from scratch before the gate was touched, twice and independently. Git arithmetic on the working tree: 765 commits reachable from all refs against 762 from `HEAD` — three not in this ref's history, sitting on `incoming-0901` and `origin/claude/db-ssl-tidb-fix`. Then CI's own pinned 8.28.0, downloaded and `sha256sum -c`-verified against the workflow's own pin, run both ways:
+  → &nbsp;&nbsp;`no --log-opts` → **506 commits**, 84,635,643 bytes · `--log-opts="HEAD"` → **503 commits**, 84,590,620 bytes. A delta of exactly those three commits. The finding's inference is measurement now.
+  → **The control still bites**, checked rather than assumed: a synthetic `ghp_` token planted in a scratch repo is detected identically with and without the flag (`leaks found: 1`, exit **1**), and the real repo exits **0**. Scoping changes WHICH history is scanned, not what counts as a leak.
+  → **A failure now names where.** The step printed a redacted count and no location, so a reader could not tell a real incident from a false one — which is what made the alarms unfalsifiable rather than merely annoying. `--report-path` plus surfacing it on failure yields rule, file, line and commit, with `--redact` keeping the value masked.
+  → **The residual risk is stated in the workflow, not hidden**: a secret pushed to a branch that is never merged is no longer caught here. That was never this step's question, and GitHub's own push protection covers the push. Restoring a branch-tip sweep belongs on a schedule — putting it back on PRs recreates this defect, and putting it on `push: main` reddens the README's CI badge for someone else's branch. **Left as a posture decision rather than taken.**
+  → `tests/test_secret_scan_is_scoped_to_this_commit.py` (6), 8 mutations killed. **Two of them survived the first draft and both mattered**: the guard matched the flag inside the *comment* explaining why the flag must be there, so deleting `--log-opts` left every assertion green — the test failed open on precisely the defect it exists to catch. Stripping comments fixed one; the second needed more, because the step's own `echo` named `--redact` while describing the output. The assertions read the ARGUMENT LIST now. CLAUDE.md records four false failures from a comment quoting a forbidden string; this is that shape inverted, and it is worse, because it goes green instead of red.
+- **Fix class**: REVIEW_REQUIRED — the gate is changed; the branch-tip sweep's new home is not decided here
 - **Dimension**: infra-cicd · **File**: `.github/workflows/ci.yml:482-500`
 - **Standard**: NIST SSDF PS.1 / PW.7; CWE-1120 (excessive code complexity in a
   control) is a poor fit — the closer statement is that a control whose alarms

@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "9b86db0d34e913960b69d84a0e5b98475dc50c50",
+    "commit": "97042bab1dd42cccbbc4ab2bc5c83d8528d95e62",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -254,7 +254,7 @@
     {
       "id": "RC-2026-024",
       "title": "The full-history gitleaks step scans every ref in the checkout, so another branch's leak fails the check on every open PR",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "MEDIUM",
       "confidence": "CONFIRMED",
       "category": "gate-integrity",
