@@ -32,6 +32,7 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from bot.core.margin_clamp import read_money_field
 from bot.utils.atomic_write import atomic_write_json
 
 log = logging.getLogger("runeclaw.exchange_creds")
@@ -857,20 +858,32 @@ async def validate_venue_credentials(venue: str, fields: dict,
     return False, f"unknown venue {venue!r}"
 
 
-def _balance_total(bal: dict, currency: str) -> float:
-    """Total (free+used) of ``currency`` from a ccxt fetch_balance dict.
+def _balance_total(bal: dict, currency: str) -> Optional[float]:
+    """Total (free+used) of ``currency`` from a ccxt fetch_balance dict, or None.
 
-    Pure and defensive: prefers the 'total' field, falls back to free+used,
-    and returns 0.0 on any malformed shape — a balance display must never
-    raise over an exchange's response quirks."""
+    RC-2026-017. This returned 0.0 on any malformed shape — its own docstring
+    said so — and `balance_snapshot` published that as
+    ``ok: True, equity_usd: 0.0, detail: "0.00 USDC total"``. An affirmative
+    success, on the flow where somebody has just linked an exchange account,
+    telling them it holds nothing when the truth is that the currency entry
+    was never found.
+
+    Still never raises: a malformed shape yields None, which the callers
+    already render as "unavailable" because their own timeout path produces
+    it. Not-read and empty are now different answers.
+    """
     try:
         row = bal.get(currency) or {}
-        total = row.get("total")
+        total = read_money_field(row, "total")
         if total is not None:
-            return float(total)
-        return float(row.get("free") or 0.0) + float(row.get("used") or 0.0)
+            return total
+        free = read_money_field(row, "free")
+        used = read_money_field(row, "used")
+        if free is None and used is None:
+            return None
+        return (free or 0.0) + (used or 0.0)
     except (TypeError, ValueError, AttributeError):
-        return 0.0
+        return None
 
 
 async def balance_snapshot(venue: str, fields: dict,
@@ -935,6 +948,14 @@ async def balance_snapshot(venue: str, fields: dict,
         params = {"type": "swap"} if venue == "bitget" else {}
         bal = await client.fetch_balance(params)
         equity = _balance_total(bal, currency)
+        if equity is None:
+            # Auth SUCCEEDED — the venue answered. It just did not answer with
+            # a figure for this currency, and `ok` reports authentication, not
+            # the balance. Reporting 0.00 here read as an empty account.
+            return {"ok": True, "venue": venue, "currency": currency,
+                    "equity_usd": None,
+                    "detail": f"authenticated, but no readable {currency} "
+                              f"balance in the venue's response"}
         return {"ok": True, "venue": venue, "currency": currency,
                 "equity_usd": round(equity, 2),
                 "detail": f"{equity:.2f} {currency} total"}

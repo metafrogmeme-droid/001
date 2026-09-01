@@ -20,6 +20,7 @@ from datetime import datetime
 from bot.compat import UTC
 from typing import Optional
 from bot.utils.paths import state_path
+from bot.core.margin_clamp import read_money_field
 from bot.formatters.brain_state import BRAIN_TEXT as _BRAIN_TEXT
 from bot.formatters.brain_state import brain_state as _brain_state
 from bot.formatters.brain_state import UNTESTED as _BRAIN_UNTESTED
@@ -177,6 +178,33 @@ def _unpriced_tag(stats: dict) -> str:
         return ""
     return f" <i>(+{n} unpriced)</i>" if n > 0 else ""
 
+
+
+def venue_balance_line(acct: object, coin: str) -> str:
+    """The balance line under a "venue switched" banner, three-valued.
+
+    RC-2026-017, extracted so it can be exercised. Inline in the handler,
+    nothing could plant a venue that answered without a balance-coin entry and
+    read what the operator would see -- and what they would have seen was
+
+        • Balance: 0.00 USDC (free 0.00)
+
+    directly beneath a green "Venue switched" heading, because the reads were
+    `float(acct.get("free") or 0)`. A confident zero, assembled from an absent
+    entry, shown at the moment somebody is deciding whether the switch worked.
+
+    Each half is stated only when it was read; a venue that reports a total but
+    no free margin says so rather than printing a zero for the half nobody
+    measured.
+    """
+    total = read_money_field(acct, "total")
+    free = read_money_field(acct, "free")
+    if total is None and free is None:
+        return (f"\n• Balance: <i>could not be read</i> — the venue answered "
+                f"without a {coin} entry")
+    _t = f"{total:,.2f} {coin}" if total is not None else f"unknown {coin}"
+    _f = f"{free:,.2f}" if free is not None else "unknown"
+    return f"\n• Balance: <b>{_t}</b> (free {_f})"
 
 
 def _safe_exc_text(exc: BaseException, *, limit: int = 200) -> str:
@@ -4597,7 +4625,7 @@ class TelegramHandler:
             return
 
         # ── Preflight: read-only balance call against the TARGET venue ──
-        free = total = None
+        acct: object = {}
         coin = target.balance_coin
         probe = None
         try:
@@ -4606,10 +4634,12 @@ class TelegramHandler:
                 bal = await probe.fetch_balance(target.balance_fetch_params())
             except Exception:
                 bal = await probe.fetch_balance()
+            # RC-2026-017, same shape as `fetch_balance`'s `free`/`used`:
+            # `or 0` cannot tell an absent balance-coin entry from an empty
+            # account, and the answer is printed under a GREEN "venue
+            # switched" banner. The raw entry goes to the renderer, which does
+            # the reading -- there is nowhere left here to mint a zero.
             acct = bal.get(coin, {}) if isinstance(bal, dict) else {}
-            if isinstance(acct, dict):
-                free = float(acct.get("free") or 0)
-                total = float(acct.get("total") or 0)
         except Exception as exc:
             await self._send(update,
                              f"🔴 <b>Preflight failed</b> — {target.display_name} "
@@ -4635,8 +4665,7 @@ class TelegramHandler:
                 set_venue_override(None)
             except Exception:
                 pass
-        bal_line = (f"\n• Balance: <b>{total:,.2f} {coin}</b> "
-                    f"(free {free:,.2f})" if total is not None else "")
+        bal_line = venue_balance_line(acct, coin)
         await self._send(update,
                          f"🟢 <b>Venue switched: {active.display_name} → "
                          f"{target.display_name}</b>{bal_line}\n"

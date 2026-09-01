@@ -140,9 +140,16 @@ async def client_for(engine, handler):
 def test_balance_total_prefers_total_then_free_plus_used():
     assert _balance_total({"USDT": {"total": 123.45}}, "USDT") == 123.45
     assert _balance_total({"USDT": {"free": 100, "used": 25}}, "USDT") == 125.0
-    assert _balance_total({}, "USDT") == 0.0
-    assert _balance_total({"USDT": {"total": "garbage"}}, "USDT") == 0.0
-    assert _balance_total(None or {}, "USDT") == 0.0
+    # RC-2026-017. These three asserted 0.0 until 2026-09-01 -- they PINNED the
+    # defect: an absent currency entry and a malformed row both read as a
+    # measured, empty account, which `balance_snapshot` then published as
+    # `ok: True, equity_usd: 0.00` to somebody who had just linked an exchange.
+    # The assertion was wrong, not the code it was asserting about.
+    assert _balance_total({}, "USDT") is None
+    assert _balance_total({"USDT": {"total": "garbage"}}, "USDT") is None
+    assert _balance_total(None or {}, "USDT") is None
+    # The other direction still holds: a genuinely empty account is a reading.
+    assert _balance_total({"USDT": {"total": 0.0}}, "USDT") == 0.0
 
 
 async def test_balance_snapshot_unknown_venue_fails_soft():

@@ -618,6 +618,18 @@ def _free_or_none(entry) -> float | None:
     return read_free_margin(entry)
 
 
+def _used_or_none(entry) -> float | None:
+    """The margin in use the venue reported, or None if it reported none.
+
+    The same absent balance-coin entry that made `free` a fabricated 0.0 made
+    `used` one too, on the line directly below it. `used` reaches the operator
+    through the `/livebalance` card, where "Used $0.00" claims nothing is
+    deployed -- said about an account whose margin nobody could read.
+    """
+    from bot.core.margin_clamp import read_money_field
+    return read_money_field(entry, "used")
+
+
 class LiveExecutor:
     """Executes real trades on Bitget with micro-test safety limits.
 
@@ -8964,11 +8976,25 @@ class LiveExecutor:
                 # unread free margin was minted as a measured 0.0 -- beside a
                 # `total` taken from the raw equity and therefore correct.
                 # None says "not reported"; a real 0.0 still means fully
-                # deployed. `used`, `total`, `wallet_total`, `holdings` and the
-                # except branch below are deliberately untouched: bot/main.py
-                # classifies its startup auth halt on `total` and `error`.
+                # deployed.
+                #
+                # `used` GOT THE SAME TREATMENT, one commit later. It was in
+                # the "deliberately untouched" list above, but that list's
+                # stated reason -- bot/main.py classifies its startup auth halt
+                # on `total` and `error` (main.py:181,
+                # `float(bal.get("total", 0) or 0) > 0`) -- covers `total` and
+                # `error` and says nothing about `used`. It had been swept in
+                # by proximity. `bot/formatters/live_balance.py` already types
+                # it `float | None` and renders None as "unknown", so the card
+                # was waiting for a reading the producer never sent.
+                #
+                # `total`, `wallet_total`, `holdings` and the except branch
+                # below ARE still deliberately untouched, for the reason above:
+                # main.py reads `total` as a number to decide whether the venue
+                # authenticated, and a None there would report a healthy
+                # account as an empty one.
                 "free": _free_or_none(usdt),
-                "used": float(usdt.get("used", 0)),
+                "used": _used_or_none(usdt),
                 "total": equity,  # equity-aware value for display
                 "wallet_total": wallet_total,  # raw wallet balance
                 "holdings": holdings,

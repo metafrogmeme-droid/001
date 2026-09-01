@@ -38,17 +38,25 @@ from typing import Any, Optional, Tuple
 # that halt.
 
 
-def read_free_margin(payload: Any) -> Optional[float]:
-    """The free margin the exchange actually reported, or None.
+def read_money_field(payload: Any, key: str) -> Optional[float]:
+    """The figure the exchange actually reported for `key`, or None.
 
-    `0.0` is a real reading -- fully-deployed capital -- and must not double as
-    "no reading", which is why this tests presence rather than truthiness.
+    `0.0` is a real reading -- fully-deployed capital, an empty wallet -- and
+    must not double as "no reading", which is why this tests presence rather
+    than truthiness.
+
+    Generalised from `read_free_margin` because `free` was never the only
+    field with this problem. The line directly below the one this finding
+    fixed read `float(usdt.get("used", 0))`, minting the same fabricated
+    measurement from the same absent balance-coin entry, and two other
+    surfaces did it with `or 0`. One definition of "what counts as a reading"
+    means the next field inherits it.
     """
     if not isinstance(payload, dict):
         return None
-    if "free" not in payload:
+    if key not in payload:
         return None
-    raw = payload["free"]
+    raw = payload[key]
     if isinstance(raw, bool) or raw is None or raw == "":
         return None
     try:
@@ -58,6 +66,11 @@ def read_free_margin(payload: Any) -> Optional[float]:
     if f != f or f in (float("inf"), float("-inf")):   # NaN / inf are not money
         return None
     return f
+
+
+def read_free_margin(payload: Any) -> Optional[float]:
+    """The free margin the exchange actually reported, or None."""
+    return read_money_field(payload, "free")
 
 
 def clamp_to_free_margin(

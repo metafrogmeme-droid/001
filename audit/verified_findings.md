@@ -1367,8 +1367,9 @@ what a single finder pass will miss.
 
 ## RC-2026-017 — a balance payload without `free` clamps every live order to $0 and reports it as a measurement
 
-- **Status**: PARTIALLY_FIXED · **Severity**: LOW · **Confidence**: CONFIRMED
-  → **PARTIALLY_FIXED**: an unreadable free margin now REFUSES the order instead of sizing it at $0 and sealing a fabricated figure into the audit chain. Still open: `free` can still arrive unreadable for a USDC-margined venue.
+- **Status**: FIXED · **Severity**: LOW · **Confidence**: CONFIRMED
+  → **FIXED (1/2)**: an unreadable free margin now REFUSES the order instead of sizing it at $0 and sealing a fabricated figure into the audit chain.
+  → **FIXED (2/2)**: the remaining open claim is **refuted**, and `free` turned out not to be the only field. See below.
 - **Category**: absent-is-never-a-measurement, on the pre-execution size clamp
 - **File**: `bot/core/engine.py:6271-6278`
 - **Fix class**: SAFE_AUTO_FIX (proposed, not applied — out of scope for the
@@ -1410,6 +1411,87 @@ clamp when it is `None` (matching the documented fetch-failure behaviour) and
 apply it when a real number came back. Bitget's ccxt payload does carry `free`,
 so this is latent rather than active on the current venue — which is exactly why
 it wants a test rather than a comment.
+
+### The remaining open claim is refuted
+
+This entry said `free` "can still arrive unreadable for a USDC-margined venue".
+**It cannot**, on any of the three shapes ccxt produces for one, and the check
+was executed rather than read:
+
+- `venues.py` already sets `balance_coin = "USDC"` for Hyperliquid and Paradex,
+  so `balance.get(self._venue.balance_coin)` asks for the right coin.
+- ccxt's `safe_balance` derives `free = total - used` whenever a venue reports
+  the other two — and Hyperliquid's **cross-margin** branch is exactly that
+  case: it sets `total` and `used` and never sets `free`.
+
+The one payload that still yields `free is None` is a response with **no entry
+for the margin coin at all**, and there `None` is the correct answer: the clamp
+refuses with "unreadable", which is the fix working.
+
+`tests/test_balance_fields_beyond_free_are_three_valued.py` drives ccxt's real
+parser rather than a hand-written fixture, so if a future ccxt stops deriving
+`free`, the claim becoming true again is a failing test rather than a silent
+return to refusing every live order on the venue.
+
+### `free` was not the only field, and the other three were still wrong
+
+Asking which other surface makes the same claim found three:
+
+**1. `used`, on the line DIRECTLY BELOW the one this finding fixed.**
+`float(usdt.get("used", 0))`, minting the same fabricated measurement from the
+same absent balance-coin entry. It was in the fix's own "deliberately
+untouched" list — but that list's stated reason (*`bot/main.py` classifies its
+startup auth halt on `total` and `error`*) covers `total` and `error` and says
+nothing about `used`. It had been swept in by proximity. `used` reaches the
+operator through `/livebalance`, where **"Used $0.00"** claims nothing is
+deployed, said about an account whose margin nobody could read — and
+`live_balance.py` already typed it `float | None` and rendered `None` as
+"unknown", so the card had been waiting for a reading the producer never sent.
+
+**2. The `/venue` switch preflight**, `float(acct.get("free") or 0)`, whose
+number is printed under a **green "Venue switched" banner**:
+
+> 🟢 **Venue switched: Bitget → Hyperliquid**
+> • Balance: **0.00 USDC** (free 0.00)
+
+A confident zero, assembled from an absent entry, shown at the moment somebody
+is deciding whether the switch worked.
+
+**3. `exchange_credentials._balance_total`**, which returned `0.0` on any
+malformed shape — its own docstring said so — and whose caller published that
+as `ok: True, equity_usd: 0.00, detail: "0.00 USDC total"`. An **affirmative
+success**, on the flow where someone has just linked an exchange account,
+telling them it holds nothing.
+
+### What was done
+
+`read_free_margin` is generalised to `read_money_field(payload, key)`, so one
+definition of "what counts as a reading" serves every field and the next one
+inherits it. `used` is three-valued. `venue_balance_line()` is a new pure seam
+that takes the **raw venue entry** and does the reading itself, so there is
+nowhere left in the command to mint a zero. `balance_snapshot` answers
+`ok: True, equity_usd: None` with a detail saying authentication succeeded but
+no readable balance came back.
+
+**`total` stays a plain number, deliberately.** `bot/main.py` decides the venue
+authenticated with `float(bal.get("total", 0) or 0) > 0`; a `None` there would
+report a healthy, funded account as an empty one on every startup. A test pins
+that with the reason, so the next person to "finish the job" reads it first.
+
+### Two things worth copying from it
+
+**A test in this repo was pinning the defect.** `tests/test_networth_gateway.py`
+asserted `_balance_total({}, "USDT") == 0.0` and two more of the same shape —
+*unreadable is zero*, written down as an expectation and passing every run. The
+assertion was corrected, not the code, and the reason is recorded inline.
+
+**The wiring guard needed two attempts, and the first failure is one CLAUDE.md
+already records.** A string scan for `acct.get("free") or` passed against a
+mutation that reintroduced the zeros two lines up as `_a.get("free") or 0` —
+the same renamed-variable trap as the PNG tile's colour test. It is an AST
+shape walk now: `X or 0` and `.get(k, 0)` anywhere inside `_cmd_venue`,
+name-independent, with a guard-the-guard test that feeds it exactly the
+mutation that got through. 8 of 8 mutations killed.
 
 ---
 

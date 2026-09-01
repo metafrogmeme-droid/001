@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "74da753f4c0c0b049b28217bc03270fc7c1cbd0c",
+    "commit": "7166751abba8b63211540eed8c3551e1841fded4",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -132,7 +132,7 @@
     {
       "id": "RC-2026-017",
       "title": "A balance payload without `free` clamps every live order to $0 and reports it as a measurement",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED",
       "severity": "LOW",
       "confidence": "CONFIRMED",
       "category": "honesty-fail-open",
@@ -143,7 +143,13 @@
       "standard": [
         "CWE-754"
       ],
-      "verified_by": "lead-auditor"
+      "verified_by": "lead-auditor",
+      "test": "tests/test_balance_fields_beyond_free_are_three_valued.py",
+      "reproduction": "ccxt's own parser, driven over a realistic Hyperliquid response in the test file above, plus the real LiveExecutor.fetch_balance over a planted payload.",
+      "observed": "THE REMAINING OPEN CLAIM IS REFUTED, and `free` was never the only field. This entry said `free` \"can still arrive unreadable for a USDC-margined venue\". It cannot, on any of the three shapes ccxt produces for one: venues.py already sets balance_coin=\"USDC\" for Hyperliquid and Paradex, and ccxt's safe_balance derives free = total - used, which the Hyperliquid futures branch relies on (it sets total and used and never sets free). Executed, not read. What WAS still wrong is three more sites making the identical claim: fetch_balance's `used`, on the line DIRECTLY BELOW the one this finding fixed; the /venue switch preflight's float(acct.get(\"free\") or 0), printed under a green \"Venue switched\" banner; and exchange_credentials._balance_total, which returned 0.0 on any malformed shape and whose caller published that as ok:True, equity_usd:0.00 to somebody who had just linked an exchange account.",
+      "remediation": "read_free_margin generalised to read_money_field(payload, key), so one definition of \"what counts as a reading\" serves every field. `used` is three-valued; live_balance.py already typed it float|None and rendered None as \"unknown\", so the card had been waiting for a reading the producer never sent. venue_balance_line() is a new pure seam that takes the RAW venue entry and does the reading itself, leaving nowhere in the command to mint a zero. balance_snapshot reports ok:True with equity_usd:None and says authentication succeeded but no readable balance came back.",
+      "residual_risk": "`total` stays a plain number DELIBERATELY: bot/main.py decides the venue authenticated with float(bal.get(\"total\", 0) or 0) > 0, and a None there would report a healthy funded account as an empty one on every startup. Pinned by a test that says so, so the next person to \"finish the job\" reads the reason first.",
+      "note": "A TEST IN THIS REPO WAS PINNING THE DEFECT. tests/test_networth_gateway.py asserted _balance_total({}, \"USDT\") == 0.0 and two more of the same -- unreadable IS zero, written as an expectation. The assertion was corrected, not the code, and the reason is recorded inline. Mutation-tested 8/8, and the wiring guard needed two attempts: a string scan for `acct.get(\"free\") or` passed against a mutation that reintroduced the zeros as `_a.get(\"free\") or 0` -- the renamed -variable trap CLAUDE.md already records once. It is an AST shape walk now, which cannot be renamed around."
     },
     {
       "id": "RC-2026-018",
