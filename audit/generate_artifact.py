@@ -569,8 +569,12 @@ VERIFICATION = dict(
              dict(dimensions=["ai-to-money","order-exec","risk-engine","market-data"],
                   raw=27, confirmed=25, suspected=0, refuted=2)],
     confirmed_and_still_open=[
-        "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but not the READ (MEDIUM)",
-        "py-api-authz: unauthenticated /api/lab/run allows unbounded subprocess/job growth (MEDIUM)",
+        "py-api-authz: /lab/* on the bridge is unauthenticated — DEFENCE IN DEPTH, "
+        "not the primary control: app/routes/lab.js already requires login and "
+        "rate-limits per IP, so only a caller who can reach api_bridge directly "
+        "is unguarded. Closing it needs DASHBOARD_TOKEN on BOTH sides and breaks "
+        "a working Lab if only one gets it, so it is an operator's deployment "
+        "call, deliberately not made silently (MEDIUM)",
         "telegram-authz: confirm/reject consumes the trade before the ownership check (MEDIUM)",
         "secrets: gitleaks allowlist disables Solana keypair rules under tests/ and app/ (MEDIUM)",
         "secrets: an undecryptable LLM key is returned as ciphertext, reported present (MEDIUM)",
@@ -583,6 +587,46 @@ VERIFICATION = dict(
     #: A stale OPEN entry is the same defect as a stale severity: the register
     #: describing a repo that no longer exists.
     remediated_since=[
+        "py-api-authz: dashboard_api.py authenticates the snapshot WRITE but "
+        "not the READ (MEDIUM) — FIXED 2026-09-01. The POST compared "
+        "X-API-Key with hmac.compare_digest; the GET compared nothing and "
+        "returned system.equity (the operator's real live account equity in "
+        "dollars), per-trader total/daily P&L, commission, OPEN POSITIONS and "
+        "recent trades. Open positions are worse than a privacy leak: someone "
+        "who knows what you hold can trade against it. CLAUDE.md's rule is "
+        "percent/ratio/count only on public payloads, and an unauthenticated "
+        "GET is as public as a surface gets. LATENT — nothing in this repo "
+        "deploys the server and the pusher only starts on operator opt-in — "
+        "which is exactly the trap: the person exposed is the one who turns it "
+        "on, and a guarded write path entitles them to assume the API is "
+        "guarded. /api/snapshot and /api/feed now need the same key; "
+        "/api/health stays open deliberately, carrying a status word, a "
+        "timestamp and a COUNT, which is what the public-surface rule permits. "
+        "Nothing in the repo consumes these reads, so no caller broke.",
+
+        "py-api-authz: unauthenticated /api/lab/run allows unbounded "
+        "subprocess/job growth (MEDIUM) — PARTLY FIXED, AND THE FINDING'S "
+        "MECHANISM IS CORRECTED. Subprocess concurrency was never unbounded: "
+        "one job at a time (409), a submit gap (429), whitelisted datasets, "
+        "symbols validated against the snapshot manifest and capped at 4, every "
+        "numeric clamped, and a subprocess with a hard timeout. What grew "
+        "without limit was the RECORD DICT — `_jobs[job_id] = {...}` with no "
+        "delete anywhere, under a comment reading 'kept for the session (small "
+        "dicts)', which is an assumption and not a bound: one entry every few "
+        "seconds for the life of the process, each holding params, a full "
+        "backtest result and up to 2 KB of log tail. Bounded now, oldest-first, "
+        "never evicting the running job. The AUTH half is left open on purpose "
+        "and is re-recorded in confirmed_and_still_open with its trade-off.",
+
+        "py-api-authz: /lab/status returns subprocess stderr to unauthenticated "
+        "callers (LOW) — the worse half FIXED 2026-09-01. `log_tail` was "
+        "already capped at 2 KB, but the adjacent line returned "
+        "f'Lab job crashed: {exc}' — raw exception text, carrying filesystem "
+        "paths and whatever the failing call put in its message — straight back "
+        "through /lab/status. Class name only now, the same rule applied to "
+        "/risk/halt and the policy-clear handler. The remaining exposure is "
+        "the capped log tail, which goes with the auth decision above.",
+
         "web-authz: /api/auth/2fa/disable has no throttle, lockout or attempt "
         "counter (HIGH) — FIXED 2026-09-01, and it was one of FOUR places that "
         "check a code. Login had a per-account lockout (RC-AUD-026) under a "
