@@ -138,3 +138,95 @@ class TestUnderTheHardCap:
             assert "phase:positions (backstop)" in eng.calls
         finally:
             object.__setattr__(CONFIG.monitoring, "tick_hard_timeout_sec", 0.0)
+
+
+class TestTheBackstopDoesNotClaimItRan:
+    """Returning is not evidence the monitor ran.
+
+    `_phase(..., fatal=False)` is what keeps this call from taking the tick
+    loop down, and it buys that by RETURNING None on a timeout rather than
+    raising. So a backstop cancelled at its cap — having watched nothing —
+    came back through the same path as one that completed, and the original
+    `else:` branch audited it as RAN.
+
+    That is a failed read rendered as a success, on the guard that exists
+    because the stops were already missed once. `_check_open_positions` sets
+    the flag at its END, so it is the only thing in the process that can tell
+    the two apart.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch):
+        seen: list[dict] = []
+        import bot.core.engine as eng_mod
+        monkeypatch.setattr(
+            eng_mod, "audit",
+            lambda *a, **k: seen.append({"msg": a[1] if len(a) > 1 else "", **k}))
+        return seen
+
+    @staticmethod
+    def _tick_that_ends_early():
+        async def tick(self):
+            return
+        return tick
+
+    def test_a_timed_out_backstop_is_not_reported_as_having_run(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        eng = _Recorder(self._tick_that_ends_early())
+
+        async def _timed_out(coro, what, fatal=True):
+            # Precisely what _phase(fatal=False) does when it blows its cap:
+            # the coroutine is cancelled and None is returned, not raised.
+            coro.close()
+            return None
+
+        eng._phase = _timed_out  # type: ignore[method-assign]
+        _run(eng)
+
+        results = [a.get("result") for a in seen]
+        assert "RAN" not in results, (
+            "a backstop that was cancelled at its cap reported that it ran — "
+            "the stops were not watched and the log says they were"
+        )
+        assert "INCOMPLETE" in results
+
+    def test_the_incomplete_line_says_positions_are_unwatched(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        eng = _Recorder(self._tick_that_ends_early())
+
+        async def _timed_out(coro, what, fatal=True):
+            coro.close()
+            return None
+
+        eng._phase = _timed_out  # type: ignore[method-assign]
+        _run(eng)
+
+        line = next(a["msg"] for a in seen if a.get("result") == "INCOMPLETE")
+        assert "unwatched" in line, f"the operator is not told what it means: {line!r}"
+
+    def test_a_completed_backstop_still_reports_that_it_ran(self, monkeypatch):
+        """The honest fix must not blank the good news."""
+        seen = self._capture(monkeypatch)
+        eng = _Recorder(self._tick_that_ends_early())
+        _run(eng)
+
+        results = [a.get("result") for a in seen]
+        assert "RAN" in results
+        assert "INCOMPLETE" not in results
+
+    def test_a_failed_backstop_reports_only_the_error(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        eng = _Recorder(self._tick_that_ends_early())
+
+        async def _boom(coro, what, fatal=True):
+            coro.close()
+            raise RuntimeError("exchange unreachable")
+
+        eng._phase = _boom  # type: ignore[method-assign]
+        _run(eng)
+
+        results = [a.get("result") for a in seen]
+        assert results.count("ERROR") == 1
+        assert "RAN" not in results and "INCOMPLETE" not in results, (
+            "an error must not also emit a completion verdict"
+        )

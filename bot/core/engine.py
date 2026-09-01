@@ -3027,6 +3027,11 @@ class RuneClawEngine:
         Non-fatal on purpose: a back-stop that can itself take the loop down
         is not one. It is never silent — reaching it means a tick skipped its
         monitor, and that is worth a line on the operator surface.
+
+        THREE outcomes on that line, not two. See the comment on the flag
+        check below: `fatal=False` returns None on a timeout, so "did not
+        raise" and "watched the stops" are different facts and only one of
+        them is the good news.
         """
         if getattr(self, "_positions_monitored_tick", False):
             return
@@ -3039,11 +3044,29 @@ class RuneClawEngine:
             audit(system_log,
                   f"Backstop position monitor failed: {exc}",
                   action="positions_backstop", result="ERROR")
-        else:
+            return
+        # RETURNING IS NOT EVIDENCE IT RAN. `fatal=False` is the whole reason
+        # this call cannot take the loop down, and it buys that by returning
+        # None on a timeout instead of raising — so a back-stop cancelled at
+        # its cap, having watched nothing, arrives here exactly like one that
+        # completed. Auditing RAN off that is a failed read rendered as a
+        # success, on the guard that exists because the stops were already
+        # missed once.
+        #
+        # `_check_open_positions` sets the flag at its END, which is the only
+        # thing in the process that can tell the two apart. Three outcomes,
+        # not two.
+        if getattr(self, "_positions_monitored_tick", False):
             audit(system_log,
                   "Tick ended before its position check — ran the SL/TP "
                   "monitor as a backstop",
                   action="positions_backstop", result="RAN")
+        else:
+            audit(system_log,
+                  "Tick ended before its position check AND the backstop "
+                  "SL/TP monitor did not complete — open positions are "
+                  "unwatched for this tick",
+                  action="positions_backstop", result="INCOMPLETE")
 
     #: Stages of one analysis, in the order they run. Bound to the module
     #: constant so there is exactly one list.
