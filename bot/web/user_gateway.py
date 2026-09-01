@@ -2703,14 +2703,30 @@ async def handle_policy_clear(request: web.Request) -> web.Response:
     engine, tg_id, body = await _policy_op_guard(request)
     if engine is None:
         return body
-    removed = False
+    # THREE OUTCOMES, and the browser was already built for all three.
+    # dashboard.js renders removed:true as "Policy cleared.", removed:false as
+    # "No policy was set.", and !ok as "Clear failed." This handler swallowed
+    # the exception, left `removed` at its initialiser and answered
+    # `ok: True, removed: False` — so a clear that THREW told the operator
+    # there had been no policy, while the policy stayed bound and stayed
+    # enforcing. The consumer was ready and the producer never sent the third
+    # state.
     try:
-        removed = engine.clear_intent_policy()
+        removed = bool(engine.clear_intent_policy())
     except Exception as exc:
         system_log.debug("Web policy clear failed: %s", exc)
+        audit(system_log, "Web operator intent-policy clear FAILED",
+              action="web_policy_clear", result="ERROR")
+        return web.json_response(
+            {"ok": False, "removed": None,
+             # Class name only: this reaches an operator surface.
+             "error": type(exc).__name__,
+             "detail": "The policy could not be cleared. It may still be "
+                       "bound and still enforcing."},
+            status=500)
     audit(system_log, "Web operator cleared intent policy",
-          action="web_policy_clear", result=str(bool(removed)))
-    return web.json_response({"ok": True, "removed": bool(removed)})
+          action="web_policy_clear", result=str(removed))
+    return web.json_response({"ok": True, "removed": removed})
 
 
 # ── LLM connect (WEB-1: per-user BYOK key + admin ULTRA control) ─────────────

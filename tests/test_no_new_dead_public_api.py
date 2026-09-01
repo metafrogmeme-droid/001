@@ -89,7 +89,18 @@ def code_only(text: str) -> str:
 
 BASELINE = Path(__file__).parent / "dead_public_api_baseline.txt"
 
-_SKIP = ("__pycache__", ".venv", "node_modules", "/build/", "/dist/")
+#: `/audit/` is prose about this codebase that happens to live in .py files.
+#: `generate_artifact.py` carries every finding as Python STRING LITERALS, and
+#: `code_only` deliberately keeps literals — they are values, not commentary.
+#: So a write-up naming a dead function counted as a reference to it, and
+#: recording the fix for warroom_bot's decorative Safe Mode line marked
+#: `handle_callback` alive on 2026-09-01. A checker that reads a description of
+#: a corpse as a pulse manufactures an ABSOLUTION, which is this file's own
+#: warning — "a reachability checker with a blind spot manufactures exactly the
+#: accusation it exists to prevent" — running in the opposite direction, and
+#: the more dangerous one: the accusation gets investigated, the absolution is
+#: silent. Nothing under audit/ imports bot code, so nothing real is lost.
+_SKIP = ("__pycache__", ".venv", "node_modules", "/build/", "/dist/", "/audit/")
 
 
 def _python_files() -> list:
@@ -283,6 +294,39 @@ def test_the_detector_finds_a_real_reference():
     assertion above while reporting the whole codebase dead."""
     text = "from somewhere import zz_widget\nzz_widget()\n"
     assert _references("zz_widget", text, is_own_module=False) == 2
+
+
+def test_a_finding_write_up_is_not_a_reference():
+    """`audit/` is prose about this repo, stored as Python string literals.
+
+    `code_only` blanks comments and docstrings but KEEPS literals, correctly —
+    a literal is a value. So recording "the identical line in
+    warroom_bot.handle_callback was left alone" inside
+    audit/generate_artifact.py made the detector report `handle_callback` as
+    referenced, and the stale-entry half of the ratchet demanded it be removed
+    from the baseline. Describing a corpse read as a pulse.
+
+    This direction is the more dangerous of the two: a false ACCUSATION gets
+    investigated by whoever it lands on, a false ABSOLUTION is silent and
+    quietly empties the list.
+    """
+    scanned = {p.as_posix() for p in _python_files()}
+    audit_files = {f for f in scanned if "/audit/" in f or f.startswith("audit/")}
+    assert audit_files == set(), (
+        f"audit/ prose is being scanned for references: {sorted(audit_files)[:3]}"
+    )
+
+
+def test_the_exclusion_did_not_swallow_the_real_tree():
+    """The other direction: bot/ and tests/ must still be read.
+
+    An over-broad skip would empty the detector and pass every assertion in
+    this file — the vacuity failure its own module docstring warns about.
+    """
+    scanned = {p.as_posix() for p in _python_files()}
+    assert any("/bot/" in f or f.startswith("bot/") for f in scanned)
+    assert any("/tests/" in f or f.startswith("tests/") for f in scanned)
+    assert len(scanned) > 200, f"only {len(scanned)} files scanned"
 
 
 def test_the_baseline_is_small_enough_to_be_read():

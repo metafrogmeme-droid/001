@@ -180,6 +180,39 @@ def _unpriced_tag(stats: dict) -> str:
 
 
 
+def safe_mode_notice() -> str:
+    """What the "Safe Mode" button says, now that it says something true.
+
+    IT CHANGED NO STATE. The handler sent "Safe mode is on. I'll only take
+    high-confidence setups from here." and wrote an audit record with
+    result="OK" — a tamper-evident entry asserting a risk control was
+    activated, for a control that does not exist. No threshold moved, no flag
+    was set, nothing read it afterwards.
+
+    The button sits between Pause and Stop Bot, both of which really act. That
+    is what made it dangerous rather than merely wrong: an operator reaching
+    for "make me safer" during a drawdown could press it, be told they were
+    safer, and NOT press the one that works. A decoy on a risk panel costs
+    more than a missing button.
+
+    So it names what it is and routes to the controls that do act. Building a
+    real safe mode — a reduce-only latch, a confidence floor — is a product
+    decision about what the words should mean, and inventing one here would be
+    the same overclaim wearing a different hat.
+    """
+    return (
+        "\u26a0\ufe0f <b>Safe Mode is not wired to anything.</b>\n\n"
+        "This button changed no setting. It previously reported that it had, "
+        "which is worse than doing nothing — so it now says so instead.\n\n"
+        "<b>What actually reduces risk right now:</b>\n"
+        "\u2022 <b>Pause</b> — stops new entries. Open positions stay open "
+        "and stay monitored.\n"
+        "\u2022 <b>Stop Bot</b> — trips the breaker, clears queued ideas and "
+        "flattens every account.\n\n"
+        "<i>Use /risk to see what is currently blocking trades.</i>"
+    )
+
+
 def venue_balance_line(acct: object, coin: str) -> str:
     """The balance line under a "venue switched" banner, three-valued.
 
@@ -13348,11 +13381,14 @@ class TelegramHandler:
         # ── Risk panel callbacks ─────────────────────────────
 
         if data == "risk_safe_mode":
-            await self._send(update,
-                "Safe mode is on.\n\n"
-                "I'll only take high-confidence setups from here.",
-                edit=True)
-            audit(system_log, "Safe mode activated", action="safe_mode", result="OK")
+            await self._send(update, safe_mode_notice(), edit=True)
+            # NOT "activated", and not result="OK". The old line sealed a
+            # claim that a risk control had been switched on into the
+            # tamper-evident chain, every time somebody pressed a button that
+            # did nothing.
+            audit(system_log, "Safe mode button pressed — no state change "
+                              "(not implemented)",
+                  action="safe_mode", result="NOOP")
             return
 
         if data == "risk_pause":
