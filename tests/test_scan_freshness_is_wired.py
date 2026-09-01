@@ -41,6 +41,7 @@ import types
 
 
 from bot.core.engine import AgentState, RuneClawEngine
+from bot.core.system_health import SystemHealthMonitor
 from bot.skills.telegram_handler import (
     _background_scan_is_fresh,
     _skipped_symbols_note,
@@ -78,7 +79,13 @@ class _Engine:
         # The two fields under test, in their pre-sweep state.
         self._last_scan_time = 0.0
         self._last_sweep_duration_s = None
-        self.health = types.SimpleNamespace(set_ws_status=lambda *a: None)
+        # The REAL monitor, not a namespace of the two methods the tick
+        # happened to call when this was written. That stub broke the day
+        # `_record_sweep_complete` started stamping `record_scan()` --
+        # a fixture failing on a wiring change it was not testing. The
+        # monitor is pure and dependency-free, so standing in for it buys
+        # nothing and costs the next feeder a red build here.
+        self.health = SystemHealthMonitor()
         self.ws_feed = types.SimpleNamespace(is_connected=lambda: False)
         self.risk = types.SimpleNamespace(circuit_breaker_active=False)
         self.scanner = types.SimpleNamespace(scan=lambda: None)

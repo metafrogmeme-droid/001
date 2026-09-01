@@ -67,6 +67,33 @@ from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
+# Exception BASE-CLASS names that mean "we could not reach the exchange", as
+# opposed to "the exchange answered and said no". Matched against the whole MRO
+# so ccxt's own tree (RequestTimeout, ExchangeNotAvailable and DDoSProtection
+# all subclass NetworkError) and the aiohttp/asyncio transport errors beneath it
+# are covered by one rule instead of an enumeration that rots.
+#
+# The distinction is the point. `BadSymbol` is the exchange ANSWERING, and
+# reporting it as a connectivity fault would take /ready to 503 over a delisted
+# ticker -- a heuristic promoted to a verdict. One failed read of one symbol is
+# not a finding about the exchange, so the non-connectivity case deliberately
+# leaves `exchange_connected` alone rather than writing False into it. It still
+# counts against the error RATE, which is an aggregate and can carry it.
+_CONNECTIVITY_ERROR_BASES = frozenset({
+    "NetworkError",       # ccxt: transport layer, all timeouts and outages
+    "TimeoutError",       # asyncio.TimeoutError is the builtin on 3.11+
+    "OSError",            # covers aiohttp ClientOSError/ClientConnectorError
+    "ConnectionError",    # subclass of OSError; named for readability
+})
+
+
+def _is_connectivity_error(exc: BaseException) -> bool:
+    """True when `exc` says the exchange was UNREACHABLE, not that it refused."""
+    return bool(
+        {c.__name__ for c in type(exc).__mro__} & _CONNECTIVITY_ERROR_BASES
+    )
+
+
 
 def filter_adopted_messages(sync_msgs: list[str]) -> list[str]:
     """The "Adopted"-labeled subset of sync_portfolio_with_exchange's messages.
@@ -3107,6 +3134,11 @@ class RuneClawEngine:
         """
         now = time.monotonic()
         self._last_scan_time = now
+        # RC-2026-014: the health monitor's `last_successful_scan`. This is the
+        # right seam precisely BECAUSE of the paragraph above -- it is not
+        # reached when the scan failed, so the stamp cannot come to mean "we
+        # tried" instead of "we read the tape".
+        self.health.record_scan()
         if started > 0:
             self._last_sweep_duration_s = max(0.0, now - started)
 
@@ -4386,6 +4418,53 @@ class RuneClawEngine:
         await self._phase(self._check_open_positions(), "positions")
         self._transition(AgentState.IDLE, "tick cycle complete")
 
+    def _record_exchange_read(
+        self, started: float, exc: BaseException | None,
+        symbol: str = "", timeframe: str = "",
+    ) -> None:
+        """Report ONE exchange read to the health monitor.
+
+        RC-2026-014. `SystemHealthMonitor` was fed by nothing: `record_api_call`
+        and `set_exchange_status` had no caller in the tree, so /ready's two
+        503 branches and the snapshot's DEGRADED and CRITICAL grades were all
+        unreachable, and the monitor's honest UNKNOWN was its permanent answer.
+        A module nothing calls is indistinguishable from one that does not work
+        -- that is true of a feeder as much as of a scorer.
+
+        This is called from `_cached_ohlcv`, which is the engine's single
+        shared exchange read: the scan, the MTF loop and the entry refiner all
+        go through it. It is called AFTER the cache hit returns, because
+        serving a cached series is not an API call and counting it as a fast
+        success would dilute the latency and error figures with reads that
+        never left the process.
+
+        `error_msg` carries the exception's CLASS NAME and the symbol, never
+        `str(exc)`. `last_error` is rendered into the Telegram health card, and
+        a ccxt error string can carry the request URL -- which on some venues
+        carries the API key. Same rule as /readyz's fixed reason vocabulary:
+        the operator needs to know WHICH kind of failure, not the driver's
+        prose. A class name is a real measurement of what happened.
+
+        Deliberately not wrapped in try/except. The monitor's methods are a
+        deque append and two counters under a lock; swallowing here would let
+        the feeder stop feeding silently, which is the defect this method
+        exists to close.
+        """
+        latency_ms = max(0.0, (time.monotonic() - started) * 1000.0)
+        where = f"{symbol} {timeframe}".strip()
+        if exc is None:
+            self.health.record_api_call(latency_ms, success=True)
+            # We just read from it. This is a measurement, not an assumption.
+            self.health.set_exchange_status(True)
+            return
+        label = type(exc).__name__
+        self.health.record_api_call(
+            latency_ms, success=False,
+            error_msg=f"{label} on {where}" if where else label,
+        )
+        if _is_connectivity_error(exc):
+            self.health.set_exchange_status(False)
+
     async def _cached_ohlcv(self, exchange, symbol, timeframe, limit=100, ttl=120):
         """Fetch OHLCV with a simple TTL cache to avoid refetching within `ttl` seconds.
 
@@ -4399,7 +4478,13 @@ class RuneClawEngine:
             cached_time, cached_data = self._ohlcv_cache[key]
             if now - cached_time < ttl:
                 return cached_data
-        data = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        _t0 = time.monotonic()
+        try:
+            data = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        except BaseException as exc:
+            self._record_exchange_read(_t0, exc, symbol, timeframe)
+            raise
+        self._record_exchange_read(_t0, None, symbol, timeframe)
         self._ohlcv_cache[key] = (now, data)
         # C2-54 FIX: Hard size cap + TTL eviction to prevent unbounded growth.
         # First try TTL-based eviction; if still over limit, evict oldest entries.

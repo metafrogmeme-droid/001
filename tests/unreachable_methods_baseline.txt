@@ -157,9 +157,6 @@ bot/core/smart_exits.py:TimeOfDayEdge.get_best_hours
 bot/core/smart_exits.py:TimeOfDayEdge.get_edge
 bot/core/swarm.py:SwarmCoordinator.inject_anomaly
 bot/core/swarm.py:SwarmCoordinator.process_signal
-bot/core/system_health.py:SystemHealthMonitor.record_api_call
-bot/core/system_health.py:SystemHealthMonitor.record_scan
-bot/core/system_health.py:SystemHealthMonitor.set_exchange_status
 bot/core/token_optimizer.py:OptimizationStats.record_batch
 bot/core/validation_gate.py:BacktestValidationGate.format_badge
 bot/core/validation_gate.py:BacktestValidationGate.get_all_validations
