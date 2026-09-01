@@ -70,22 +70,44 @@ class TokenStore:
         # In-process backend — the default, the test backend, and the fallback.
         self._epoch: dict[int, int] = defaultdict(int)
         self._consumed_jti: set[str] = set()
-        self._redis = self._maybe_connect_redis()
+        self._redis, self._redis_required = self._maybe_connect_redis()
 
     @staticmethod
     def _maybe_connect_redis():
-        """Return a connected sync Redis client, or None to use in-process only."""
+        """Return ``(client_or_None, redis_was_configured)``.
+
+        TWO RETURNS, BECAUSE ONE `None` WAS ANSWERING TWO QUESTIONS. This
+        returned a bare `None` both when Redis was not configured — nothing
+        promised, in-process IS the backend — and when it was configured and
+        the boot-time `ping()` failed. Every guard in this module keys off
+        `self._redis is not None`, so the second case silently became the
+        first: `bump_epoch` and `try_consume_jti` stopped raising
+        `RevocationNotDurable`, and the M16 write-path posture this file is
+        mostly about was disarmed for the life of the process by one warning
+        line at startup.
+
+        The same Redis dying one second AFTER boot failed loud, exactly as
+        designed. Boot was an accidental exception, not a decision.
+
+        So a configured-but-unreachable Redis now KEEPS its client:
+        redis-py reconnects per command, so the store self-heals when Redis
+        comes back instead of staying downgraded until someone restarts the
+        process. `configured` covers the one case where no client can exist
+        at all — the package is missing — so that stays loud too.
+        """
         url = os.getenv("REDIS_URL", "").strip()
         host = os.getenv("REDIS_HOST", "").strip()
         if not url and not host:
-            return None  # Redis not configured → in-process only (default).
+            return None, False  # Redis not configured → in-process only (default).
         try:
             import redis  # sync client; optional dependency
         except Exception as exc:  # pragma: no cover - import guard
-            logger.warning(
-                "redis package not installed — JWT revocation stays in-process: %s", exc
+            logger.error(
+                "Redis is CONFIGURED but the redis package is not installed — "
+                "JWT revocation cannot be made durable. Revocations will FAIL "
+                "rather than be reported as done: %s", exc
             )
-            return None
+            return None, True
         try:
             if url:
                 client = redis.Redis.from_url(
@@ -100,18 +122,37 @@ class TokenStore:
                     socket_timeout=2, socket_connect_timeout=2,
                     decode_responses=True,
                 )
+        except Exception as exc:  # pragma: no cover - client construction
+            logger.error(
+                "Redis is CONFIGURED but its client could not be built — JWT "
+                "revocation cannot be made durable: %s", exc
+            )
+            return None, True
+        try:
             client.ping()
             logger.info("JWT revocation store: Redis backend active")
-            return client
         except Exception as exc:
-            logger.warning(
-                "Redis unavailable — JWT revocation falls back to in-process: %s", exc
+            # NOT a downgrade. The client is kept so every write still attempts
+            # Redis and still raises RevocationNotDurable when it cannot reach
+            # it — the same posture as an outage that starts after boot.
+            logger.error(
+                "Redis is CONFIGURED but unreachable at startup — JWT "
+                "revocation is NOT durable. Revocations will fail loudly "
+                "until it answers: %s", exc
             )
-            return None
+        return client, True
+
+    #: Durability was PROMISED — Redis is configured — even if no usable client
+    #: exists. A class default so stores built with __new__ (the test helpers)
+    #: keep working and default to "nothing promised".
+    _redis_required: bool = False
 
     @property
     def backend(self) -> str:
-        return "redis" if self._redis is not None else "in-process"
+        """What is ACTUALLY backing revocation, not what was asked for."""
+        if self._redis is not None:
+            return "redis"
+        return "redis-unavailable" if self._redis_required else "in-process"
 
     def get_epoch(self, user_id: int) -> int:
         """Current token epoch for a user (0 if never revoked).
@@ -156,6 +197,16 @@ class TokenStore:
                 raise RevocationNotDurable(
                     "token revocation could not be persisted") from exc
         self._epoch[user_id] += 1
+        if self._redis_required:
+            # Configured, but no client exists at all (the package is missing).
+            # Durability was promised and cannot be delivered, so the caller is
+            # told — the same answer as an unreachable Redis, because it is the
+            # same situation.
+            logger.error(
+                "Redis is configured but unusable — revocation for user %s is "
+                "local to this worker only", user_id)
+            raise RevocationNotDurable(
+                "token revocation could not be persisted")
         return self._epoch[user_id]
 
     def try_consume_jti(self, jti: str, ttl_seconds: int) -> bool:
@@ -180,6 +231,12 @@ class TokenStore:
                     "than losing replay detection: %s", exc)
                 raise RevocationNotDurable(
                     "refresh replay protection unavailable") from exc
+        if self._redis_required:
+            logger.error(
+                "Redis is configured but unusable — refusing the refresh rather "
+                "than losing replay detection")
+            raise RevocationNotDurable(
+                "refresh replay protection unavailable")
         if jti in self._consumed_jti:
             return False
         self._consumed_jti.add(jti)

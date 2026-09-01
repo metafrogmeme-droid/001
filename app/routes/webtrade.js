@@ -21,6 +21,7 @@ const { resolveBotIdentity, foreignIdentityBlock } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { pool } = require('../db');
 const { stepUpBlock } = require('../lib/stepup');
+const { uidKey } = require('../lib/second_factor_lockout');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -114,7 +115,8 @@ router.post('/confirm', tradeLimit, async (req, res) => {
       if (liveCapable) {
         const blk = stepUpBlock(urow.totp_enabled, urow.totp_secret,
           (req.body || {}).totp_code,
-          'Enter your 6-digit authenticator code to confirm a live trade.');
+          'Enter your 6-digit authenticator code to confirm a live trade.',
+          uidKey(req.user.user_id));
         if (blk) { secLog('WEB_TRADE_CONFIRM_2FA', req, `trade_id=${tradeId}`); return res.status(blk.status).json(blk.body); }
       }
     }
