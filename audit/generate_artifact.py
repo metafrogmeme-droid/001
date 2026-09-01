@@ -47,7 +47,7 @@ F = [
     # block), which is why the ratchet counted the gap as ten rather than six.
     dict(id="RC-2026-013", title="Operator DASHBOARD_TOKEN (trade-confirm / close / halt "
          "authority) is read from the URL fragment and persisted to localStorage",
-         status="OPEN", severity="HIGH", confidence="CONFIRMED",
+         status="FIXED", severity="HIGH", confidence="CONFIRMED",
          category="credential-exposure", component="bot/web/dashboard",
          file="bot/web/dashboard.html", line="see B3-01", fix_class="REVIEW_REQUIRED",
          standard=["CWE-522", "OWASP-A02:2021"], raw_id="B3-01",

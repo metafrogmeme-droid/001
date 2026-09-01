@@ -1144,12 +1144,45 @@ at HIGH:
 
 ## RC-2026-013 — the operator's `DASHBOARD_TOKEN` is read from the URL fragment
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
 - **Fix class**: REVIEW_REQUIRED · **Dimension**: browser-sec · **Raw**: `B3-01`
 
 That token carries trade-confirm, close and halt authority. A URL fragment
 survives in browser history, is readable by any script on the page, and leaks
 through anything that reflects `location`. `browser-sec`, HIGH.
+
+### Remediation — APPLIED
+
+`_takeTokenFromHash()` consumes and erases in the same breath: read the
+`token` param, delete it, and `history.replaceState` the URL without it.
+
+**`replaceState`, not `location.hash = rest`, and that is the whole fix.**
+Assigning to `location.hash` pushes a NEW history entry and leaves the
+token-bearing one behind it, still reachable with the Back button — a strip
+that strips nothing. No pattern match distinguishes the two: both mention the
+hash. So the test drives the real function under node against a stubbed
+browser and asks what the history entry actually became.
+
+Other fragment params are preserved, and a hash carrying no token is left
+completely alone — a security fix that silently ate a future view-router's
+state, or rewrote the URL of every page load, would be found the hard way.
+
+**BOTH PAGES.** `bot/web/dashboard.html` and `bot/web/performance_chart.html`
+are separate `FileResponse` handlers with no shared asset pipeline, so the
+block is duplicated. `tests/test_dashboard_token_leaves_no_trace_in_the_url.py`
+is parametrised over both: a fix applied to one and not the other fails.
+
+**RESIDUAL, stated rather than implied.** The token still lands in
+`localStorage`, so it survives a browser restart and is readable by any script
+that reaches the page. Narrowing that to `sessionStorage` costs the operator a
+re-prompt every session — a UX decision, not one to make silently inside a
+security fix. The fragment was the defect this finding names, and it is closed.
+
+13 tests, 4 mutations killed (never stripping; assigning `location.hash`
+instead of replacing; wiping the whole fragment; rewriting the URL when no
+token is present). Three of the test's own fixtures were wrong before the code
+was: the stub omitted the browser's leading `#`, and its `replaceState` did not
+mirror into `location.hash`.
 
 ## RC-2026-014 — `SystemHealthMonitor` is fed by nothing, so `/health`, `/ready` and `/metrics` publish a permanent HEALTHY
 

@@ -92,9 +92,50 @@ footer { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 // Auth token — read from URL hash or prompt (same pattern as the dashboard).
-const _token = (new URLSearchParams(window.location.hash.slice(1))).get('token')
+// RC-2026-013. This is where the operator's token ENTERS the page: they paste
+// http://box:8080/#token=SECRET. Reading it is fine. LEAVING IT THERE is not.
+//
+// That token carries trade-confirm, close and halt authority, and a URL
+// fragment persists in browser history, in the address bar, in a bookmark, in
+// session restore, and in any screenshot or screen-share of the window — and
+// it stays readable by every script on the page for as long as it sits there.
+// The page has no XSS today; the fragment makes the token available to one
+// that arrives later, and to a shoulder over the operator's.
+//
+// So it is consumed and erased in the same breath.
+function _takeTokenFromHash() {
+  var raw = window.location.hash.slice(1);
+  if (!raw) return null;
+  var p = new URLSearchParams(raw);
+  var t = p.get('token');
+  if (!t) return null;
+  p.delete('token');
+  var rest = p.toString();
+  // replaceState, NOT `location.hash = rest`. Assigning to location.hash
+  // pushes a NEW history entry and leaves the token-bearing one behind it,
+  // still reachable with the Back button — a strip that strips nothing.
+  try {
+    history.replaceState(null, '', window.location.pathname
+      + window.location.search + (rest ? '#' + rest : ''));
+  } catch (e) {
+    // No History API (very old browsers). Clearing the live URL is still
+    // worth doing even though this one does push an entry.
+    window.location.hash = rest;
+  }
+  return t;
+}
+
+// Other fragment params are PRESERVED. Nothing here uses the hash for state
+// today, and a security fix that silently ate a future view-router's state
+// would be found the hard way.
+const _token = _takeTokenFromHash()
   || localStorage.getItem('dashboard_token')
   || prompt('Enter dashboard token:');
+// RESIDUAL, stated rather than left implied: the token still lands in
+// localStorage, so it survives a browser restart and is readable by any script
+// that gets onto the page. Narrowing that to sessionStorage costs the operator
+// a re-prompt every session — a UX decision, not mine to make silently. The
+// fragment was the defect this finding names, and it is closed.
 if (_token) localStorage.setItem('dashboard_token', _token);
 const AUTH_HEADERS = _token ? {'Authorization': 'Bearer ' + _token} : {};
 const API = '';

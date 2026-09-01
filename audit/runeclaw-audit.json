@@ -4,8 +4,8 @@
     "target": "RUNECLAW by HUMANOID TRADERS",
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
-    "branch": "claude/runeclaw-full-audit-8ks0k3",
-    "commit": "207352156df0c6f1d4f363ce01dcc66891fcaff6",
+    "branch": "claude/new-session-fk85gd",
+    "commit": "03881a6692f5d480486c114237c35e86b29067e5",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -60,7 +60,7 @@
     {
       "id": "RC-2026-013",
       "title": "Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "HIGH",
       "confidence": "CONFIRMED",
       "category": "credential-exposure",
@@ -3725,10 +3725,9 @@
   },
   "release_decision": {
     "decision": "CONDITIONAL GO",
-    "basis": "No unresolved BLOCKER or CRITICAL findings. 17 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
+    "basis": "No unresolved BLOCKER or CRITICAL findings. 16 HIGH findings remain open and were reported rather than fixed, by the instruction to fix only CRITICALs and genuine safe auto-fixes. Each carries a proposed patch. The conditions are those patches.",
     "blockers": [],
     "open_high": [
-      "RC-2026-013 Operator DASHBOARD_TOKEN (trade-confirm / close / halt authority) is read from the URL fragment and persisted to localStorage",
       "RC-2026-014 SystemHealthMonitor is fed by nothing, so /health, /ready and /metrics publish a permanent HEALTHY",
       "M-01 Shared pending-idea book: a paper-only user's proposed trade is auto-confirmed LIVE on the operator's account as user_id=\"auto\", bypassing every per-user gate",
       "M-08 Post-fill leverage-overshoot guard is structurally inert on the limit-fill, partial-fill and drift-fallback paths \u2014 it passes a spot-form symbol that ccxt filters out",
