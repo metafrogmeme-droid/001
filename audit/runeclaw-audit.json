@@ -5,7 +5,7 @@
     "repository": "metafrogmeme-droid/001",
     "note": "The brief named Humanoid-Traders/RUNECLAW-Limit-Entry-Scanner; that repo is not this one and was not in scope for this session.",
     "branch": "claude/new-session-fk85gd",
-    "commit": "d790005dab811f14ffc013d6961789e035309c91",
+    "commit": "bf9e379d6e15fec872310ead887cc136ddddac89",
     "base_commit": "6928653872685e6c5147644b35dab4ff01309c60",
     "pull_request": "https://github.com/metafrogmeme-droid/001/pull/227",
     "environment": "test",
@@ -97,7 +97,7 @@
     {
       "id": "RC-2026-015",
       "title": "/livebalance renders a FAILED exchange balance read as a complete $0.00 account statement",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "MEDIUM",
       "second_pass": "HIGH -> MEDIUM. Defect REPRODUCED by execution, not read: planting fetch_balance's own error return through the repo's _make_handler() harness prints Cash $0.00 / Used $0.00 / Equity $0.00 / NET $0.00 with no error text. Root cause confirmed - _get_exchange() assigns self._exchange BEFORE the fetch, so the honest error branch is reached only when exchange CONSTRUCTION fails, i.e. never for a rejected key, IP allowlist, nonce or venue 5xx. Remedy rated HARMFUL on its endorsed half: 'return None instead of a zeros dict' was executed against bot/main.py:180-186, where the error dict today selects STARTUP: exchange auth FAILED and set_live_auth_status(False), halting new live entries - None loses that halt. The PRIMARY fix (raise on bal['error']) is sound and scrubs via _safe_exc_text, but /livebalance is a COMPOSITE card whose PnL, trade count and exposure are genuinely readable, so CLAUDE.md's table prefers OMIT: render the balance block unknown and keep the rest.",
       "confidence": "CONFIRMED",
@@ -201,7 +201,7 @@
     {
       "id": "RC-2026-021",
       "title": "SECURITY.md promises human-in-the-loop confirmation that the default configuration does not provide",
-      "status": "OPEN",
+      "status": "FIXED",
       "severity": "MEDIUM",
       "second_pass": "HIGH -> MEDIUM. The DEFECT stands - six public surfaces state an unconditional human-in-the-loop guarantee the code contradicts, and the repo's own tests/test_mcp_doc_matches_the_code.py is an admission of it applied to exactly one of the seven. Both props under the HIGH failed: agent_card.json is served by no route on either deploy target and referenced by no non-test code (and is already stale on live_trading), and 'the default configuration' is true of the CODE default but false of the SHIPPED one - .env.example turns both auto-confirm knobs off and `cp .env.example .env` is the documented install on four surfaces. Set against RC-2026-022, the same class, which both verifiers put at MEDIUM because no money moves differently. BOTH remedies are unsound: (b)'s threshold half is defeated by the adaptive block, on by default, unsettable from .env.example, walking a 1.0 'disable' down to 0.60 on a winning streak (executed), and it fails a test in the file it tells the fixer to edit; (a) read literally yields \"requires_confirmation\": false - a safety declaration inverted toward danger on every standard install.",
       "confidence": "CONFIRMED",

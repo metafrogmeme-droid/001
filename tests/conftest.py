@@ -180,3 +180,46 @@ def _clean_combined_state():
     _clean_runtime_state()
     yield
     _clean_runtime_state()
+
+
+#: BacktestEngine.__init__ forces these OFF process-wide — deliberately, and
+#: asserted by tests/test_backtest_flag_restore.py: they are fitted on the
+#: bot's whole closed-trade history and are lookahead against a replayed bar.
+#: The override is handed back by run(), cleanup(), or __del__.
+_LOOKAHEAD_FLAGS = (
+    "confidence_calibration_enabled",
+    "setup_expectancy_enabled",
+    "external_sentiment_enabled",
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_lookahead_flags():
+    """Hand the analyzer's learning flags back after every test.
+
+    WHY THIS EXISTS. Around twenty tests construct a BacktestEngine and never
+    run(), cleanup() or `with` it — so the ctor's process-wide override is
+    released only when the engine is garbage collected. pytest keeps engines
+    alive through fixtures and assertion tracebacks, so the release lands
+    somewhere unpredictable, or not before the end of the session.
+
+    The visible cost was test_flag_status.py::test_default_on_guards_report_on
+    reading CONFIDENCE_CALIBRATION_ENABLED as False in a full run while
+    passing on its own. It reproduced on a clean checkout, so the suite has
+    been failing its own gate (known_failures.txt is an empty baseline) for a
+    reason unrelated to whatever change was being tested.
+
+    This restores the flags rather than asserting they were left alone,
+    because a test that leaks one has still tested what it meant to test —
+    the leak is a cleanup defect, not a behaviour claim. The behaviour claim
+    (that the engine forces them off and gives them back) has its own file,
+    tests/test_backtest_flag_restore.py, which this cannot make vacuous: it
+    sets and reads the flags WITHIN a single test.
+    """
+    from bot.config import CONFIG
+
+    saved = {f: getattr(CONFIG.analyzer, f, None) for f in _LOOKAHEAD_FLAGS}
+    yield
+    for name, val in saved.items():
+        if val is not None and getattr(CONFIG.analyzer, name, None) != val:
+            object.__setattr__(CONFIG.analyzer, name, val)

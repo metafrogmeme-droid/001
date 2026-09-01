@@ -59,11 +59,13 @@
 
 **RUNECLAW** is an AI trading command system built by **Humanoid Traders** for the Bitget AI Base Camp · Hackathon S1. It merges multi-timeframe analysis, confluence scoring, regime detection, order-flow microstructure, and risk-first logic into a disciplined framework -- all controllable through a Telegram bot interface.
 
-The system operates in **simulation-first mode by default**. Every trade idea must pass the full pre-trade risk gate — strict fail-closed rules, a fail-open liquidity guard, and advisory rules that skip when their data is unavailable (`config/risk_manifest.yaml` is the authoritative list) — an adversarial self-critique gate, and receive explicit human confirmation before execution.
+The system operates in **simulation-first mode by default**. Every trade idea must pass the full pre-trade risk gate — strict fail-closed rules, a fail-open liquidity guard, and advisory rules that skip when their data is unavailable (`config/risk_manifest.yaml` is the authoritative list) — an adversarial self-critique gate, and receive explicit human confirmation before execution unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
 
 > **Shield risk engine available as MCP server -- any GetClaw agent can call it.** See `bot/mcp/server.py`.
 
 **Key philosophy:** The bot suggests. The human decides. The risk engine enforces.
+(The operator may delegate the deciding step to auto-confirm — `AUTO_CONFIRM_LIVE_ENABLED` —
+which is off in the shipped `.env.example` and on in the code default.)
 
 ### AI Learning System (NEW)
 RUNECLAW includes a full **self-improving AI learning system** with 8 integrated modules:
@@ -105,7 +107,7 @@ Three dedicated scan commands with rich dashboard-grade output:
 Each scan produces 4 sections: **Account Status** (equity, positions, circuit breaker), **Live Tickers** (price, 24h change, volume table), **Regime Assessment** (per-asset narrative with RSI, VWAP, EMA20, support/resistance levels), and **Scan Verdict** (actionable trade ideas with entry/SL/TP/R:R and confidence bars).
 
 ### Multi-Asset Universe — Crypto + TradFi Perps (NEW)
-Beyond crypto, RUNECLAW scans and trades **non-crypto USDT-M perpetuals on Bitget** — the same risk engine, AI analysis, and human-confirmation flow apply to every class. Switch focus instantly with `/mode <universe>` (or `ASSET_UNIVERSE` in `.env`), no restart required:
+Beyond crypto, RUNECLAW scans and trades **non-crypto USDT-M perpetuals on Bitget** — the same risk engine, AI analysis, and human-confirmation flow (subject to `AUTO_CONFIRM_LIVE_ENABLED`) apply to every class. Switch focus instantly with `/mode <universe>` (or `ASSET_UNIVERSE` in `.env`), no restart required:
 
 | `/mode` | Universe | Instruments |
 |---------|----------|-------------|
@@ -278,7 +280,7 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
                    |            |
                    v            v
               +----+------------+----+
-              | Human Confirmation   |
+              | Human Confirmation   |   <-- skipped when auto-confirm is on (AUTO_CONFIRM_LIVE_ENABLED)
               | (Telegram Keyboard)  |
               +----------+-----------+
                          |
@@ -289,12 +291,17 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 ```
 
 **Runtime services:**
-- **Telegram Bot** (port 8080 internal) -- command interface, human-in-the-loop confirmation
+- **Telegram Bot** (port 8080 internal) -- command interface, human-in-the-loop confirmation (subject to `AUTO_CONFIRM_LIVE_ENABLED`)
 - **API Bridge** (port 8000) -- FastAPI REST API exposing engine endpoints (`/health`, `/scan`, `/portfolio`, `/risk/status`, `/confirm`)
 - **Redis** (port 6379 internal, not host-exposed) -- LLM cache, rate limiting, session state
 - **Dashboard** (served via API Bridge) -- War Room, Live Signals, portfolio views
 
 **Pipeline:** SCAN --> ANALYZE --> RISK GATE --> HUMAN CONFIRM --> EXECUTE (paper or live; live is gated and human-confirmed, with admin-only auto-execution)
+
+> The HUMAN CONFIRM step is skipped when the operator enables auto-confirm
+> (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`). Both are off in the
+> shipped `.env.example` and on in the code default when no `.env` is present.
+> `AUTO_CONFIRM_THRESHOLD=1.0`, or `/autoconfirm off`, disables it outright.
 
 ### Runtime Services
 
@@ -652,7 +659,7 @@ RUNECLAW is designed with a **fail-closed** philosophy:
 - **Simulation by default.** Live trading requires two explicit environment flags.
 - **Every trade passes the full gate.** Strict fail-closed rules, a fail-open liquidity guard, advisory rules that skip without data. The number that ran is on the decision record; see `config/risk_manifest.yaml`.
 - **Circuit breaker.** Auto-halts on daily loss (5%) or max drawdown (10%).
-- **Human-in-the-loop.** No trade executes without explicit confirmation.
+- **Human-in-the-loop.** No trade executes without explicit confirmation, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
 - **Re-check on confirm.** Risk is re-evaluated at confirmation time because market conditions change.
 - **Full audit trail.** Every decision is logged as structured JSON for review.
 - **No silent failures.** Unhandled errors abort the pipeline, never proceed.
@@ -708,7 +715,7 @@ RUNECLAW is designed with a **fail-closed** philosophy:
 
 ## Live Trading Records
 
-RUNECLAW is **live trading on Bitget futures** with micro-size positions. All trades are executed via the Telegram bot interface with human confirmation.
+RUNECLAW is **live trading on Bitget futures** with micro-size positions. All trades are executed via the Telegram bot interface with human confirmation, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
 
 **Trading Period:** June 17-19, 2026  
 **Exchange:** Bitget USDT-M Futures  
@@ -791,7 +798,11 @@ python run_realdata_backtest.py --llm --output results.json
 | Pre-trade risk gate | **Fail-closed, manifest-driven** | 0-3 basic checks |
 | Fail-closed design | **Yes** -- any failure = rejection | Fail-open (errors skip checks) |
 | Circuit breaker | **Auto-halt** on daily loss / drawdown | None or manual only |
-| Human confirmation | **Required** via Telegram keyboard | Auto-execute or no gate |
+| Human confirmation | **Required** via Telegram keyboard, unless the operator enables auto-confirm | Auto-execute or no gate |
+
+> Auto-confirm is `AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`: off in the shipped
+> `.env.example`, on in the code default when no `.env` is present. With it on, this row
+> reads like the right-hand column.
 | Regime detection | **ADX-14 regime filter** blocks counter-trend | Not considered |
 | Confluence scoring | **30+ voter model** (with optional family-cap de-correlation) | 1-2 indicators |
 | Audit trail | **Full JSONL** -- every decision logged | Minimal or none |

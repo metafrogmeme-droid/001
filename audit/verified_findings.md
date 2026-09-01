@@ -1198,7 +1198,12 @@ an operator and any uptime checker consult first. `honesty-py`, HIGH.
 
 ## RC-2026-015 — `/livebalance` renders a FAILED exchange balance read as a complete $0.00 account statement
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **FIXED** by OMIT, per the table in CLAUDE.md, and deliberately **not** by the remedy the second pass rated HARMFUL. `fetch_balance` still returns its zeros-plus-`error` dict, because `bot/main.py` classifies its startup credential preflight on exactly that shape — `bal.get("error")` selects "STARTUP: exchange auth FAILED" and calls `set_live_auth_status(False)`, which halts new live entries. Returning `None` would have traded an honest card for a safety regression.
+  → The CARD learned to read it instead. `bot/formatters/live_balance.py` is a new pure seam: `read_balance()` gives a three-valued `BalanceReading` (the venue answered / it failed and said why / that was not a balance), `money()` renders `None` as the word rather than `$0.00`, and `render_balance_block()` prints Cash, Used and Equity as `unknown` with the scrubbed venue reason above them. `holdings` is `None` rather than `[]` — an empty list is a measurement ("you hold no spot") and the failed read must not make that claim either. The NET line and the `pct` divisor were the two other places a `None` equity would have raised or lied.
+  → **Composite, so one dead source must not blank the rest**: realized PnL, fees, trade count and exposure come from the local store and the executor's own book and stay on the card. Exposure is relabelled *bot-tracked* in the failed-read block so a figure that did not come from the venue is not read as the venue's, and `max(used, exposure)` no longer prints our number as theirs.
+  → **A second defect, not in the original finding.** RC-2026-017 made `free` three-valued upstream (`_free_or_none`), but this call site still did `f"${free:,.2f}"` — `TypeError` on `None`, swallowed by the outer `except`, taking down the *whole* card including everything that was readable. An honest fix upstream had become a crash at an unfixed consumer.
+  → `tests/test_livebalance_failed_read_is_not_a_statement.py` (31), all 8 mutations killed. Two of its own tests were wrong first: the handler diverted into new-user onboarding so an absence assertion passed against a welcome message, and a blanket `"$0.00" not in out` failed on a *correct* card whose realized PnL and exposure genuinely were zero. Both are now anchored to the venue's own lines, with a rendered-card guard so neither can pass vacuously.
 - **Fix class**: REVIEW_REQUIRED · **Dimension**: honesty-py
  — cash, equity and the rest, presented as a
 measurement. `honesty-py`, HIGH.
@@ -1584,9 +1589,17 @@ audit: a finding can be right for reasons its author did not actually verify.
 
 ## RC-2026-021 — the security documentation promises human confirmation that the default configuration does not provide
 
-- **Status**: OPEN · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **FIXED**, and the second pass was right that BOTH proposed remedies were unsound — so neither was taken. The product decision it was reserved for turned out not to be the blocker: underneath it was a **code defect**.
+  → **The disable switch did not hold.** `config.py` documents "set to 1.0 to DISABLE", `.env.example` ships `AUTO_CONFIRM_THRESHOLD=1.0`, and `/autoconfirm off` writes 1.0. The adaptive block undid all three on a timer, and the branch that did it fastest is the one whose comment says it makes the bot *more* careful: `min(cap 0.90, 1.00 + 0.05)` → **0.90 in a single tick** on a losing streak. The winning-streak branch walked it to 0.60 more slowly. So the operator most likely to discover their disable had been undone is the one who had just lost five trades. `ADAPTIVE_THRESHOLD_ENABLED` defaults ON and appears nowhere in `.env.example`, so nothing in a normal install stopped it. Executed, not read.
+  → `bot/core/adaptive_threshold.py` is the new pure seam. Three rules, the last two being the **general** form of the bug rather than a patch over 1.0: a threshold at or above `DISABLED` is not a number to tune; a winning streak may only lower the bar; a losing streak may only raise it. A cap below the current value inverts "be more selective" into a loosening at 0.95 exactly as it does at 1.00. An unreadable threshold counts as disabled — the one direction that must not fail open.
+  → Both engine gates now check the sentinel rather than comparing against it. `value >= threshold` made 1.0 mean "needs a perfect score", so a blend scoring exactly 1.0 would have auto-executed through a switch the operator had turned off.
+  → **The docs are qualified, not deleted, and the boolean is NOT inverted.** The second pass rated `"requires_confirmation": false` "a safety declaration inverted toward danger on every standard install", and it was right: `cp .env.example .env` is the documented install and it *does* require a human press. Every surface now states the guarantee **and names the flag that suspends it** — `SECURITY.md`, `README.md`, `README.zh-TW.md`, `docs/gitbook/README.md`, and `agent_card.json` (booleans kept `true`, each carrying a note naming `AUTO_CONFIRM_LIVE_ENABLED`).
+  → `tests/test_human_confirmation_claim_is_qualified.py` generalises the guard the raw finding asked for — the repo had it on exactly **one** of the surfaces, which was an admission rather than a fix. It asserts a **presence**, not an absence: deleting the sentence would remove a statement that is true as shipped, and this repo has watched an absence assertion misfire four times. Writing it immediately found **12 more claim sites** than the grep had — a comparison table whose "**Required**" column is exactly what auto-confirm turns into the column beside it, two ASCII pipeline diagrams, and the Chinese mirror throughout.
+  → `tests/test_autoconfirm_disable_actually_holds.py` (27). 8 mutations killed; a 9th "survivor" was a bad mutation, not a gap.
 - **Fix class**: REVIEW_REQUIRED (documentation vs default is a product decision)
 - The one HIGH in this batch neither verifier downgraded. I verified it directly.
+- **The product decision is still yours and was NOT made here.** `auto_confirm_live_enabled` still defaults `True` in code. What changed is that the docs no longer hide it and the off switch now actually holds.
 
 `SECURITY.md:29`:
 

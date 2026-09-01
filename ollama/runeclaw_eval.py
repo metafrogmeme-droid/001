@@ -42,6 +42,20 @@ RISK_CHECK_REQUIRED = [
 ]
 VALID_DIRECTIONS = {"LONG", "SHORT"}
 VALID_VERDICTS   = {"APPROVED", "REJECTED"}
+
+#: "TRADE IDEA: BTC/USDT LONG", "TRADE IDEA [TI-4412] SOL/USDT SHORT".
+#: Header case-insensitive via a scoped flag; the direction token is NOT, so
+#: "a long entry" in prose cannot be mistaken for a call.
+_RE_DIR_HEADLINE = re.compile(
+    r"(?i:TRADE\s*IDEA|TradeIdea)\b[^\n]*?\b(LONG|SHORT)\b[^\n]*$",
+    re.MULTILINE)
+
+#: The same call written on the line BELOW the header:
+#:     TRADE IDEA
+#:     BTC/USDT LONG
+_RE_DIR_UNDER_HEADLINE = re.compile(
+    r"(?i:TRADE\s*IDEA|TradeIdea)\b[^\n]*\n[^\n]*?\b(LONG|SHORT)\b",
+    re.MULTILINE)
 KNOWN_SIGNALS    = {
     # Core 12 from analyzer.py confluence engine
     "RSI", "RSI-14", "MACD", "MACD Histogram", "Bollinger Bands", "Bollinger %B",
@@ -283,6 +297,22 @@ def extract_json(text: str) -> Optional[dict]:
                 data[key] = float(val)
             except ValueError:
                 data[key] = val
+
+    # HEADLINE DIRECTION. The pattern above needs a label — "Direction: LONG",
+    # "Setup: SHORT". v12 does not write one; it puts the direction in the
+    # headline ("TRADE IDEA: BTC/USDT LONG") or on the line beneath it. The
+    # parser read that as no direction at all and scored a correct call as a
+    # miss, so the yardstick was wrong about the model rather than the model
+    # being wrong about the trade. Same failure class as the "Risk Check:"
+    # verdict line above: never let the yardstick and the output format drift.
+    #
+    # The header match is case-insensitive; the DIRECTION token deliberately
+    # is not. Prose says "a long position" constantly, and a case-blind match
+    # would harvest a direction out of an explanation.
+    if "direction" not in data:
+        m = _RE_DIR_HEADLINE.search(text) or _RE_DIR_UNDER_HEADLINE.search(text)
+        if m:
+            data["direction"] = m.group(1)
 
     # Extract signals_used from text if not in JSON
     if "signals_used" not in data:

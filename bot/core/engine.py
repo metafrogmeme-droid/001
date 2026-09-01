@@ -23,6 +23,10 @@ from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.margin_clamp import clamp_to_free_margin
 from bot.core.system_health import SystemHealthMonitor
+from bot.core.adaptive_threshold import (
+    auto_confirm_is_disabled,
+    next_auto_confirm_threshold,
+)
 from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
@@ -2983,7 +2987,10 @@ class RuneClawEngine:
         diagnosis still fires first). 0 disables the guard entirely."""
         cap = float(getattr(CONFIG.monitoring, "tick_hard_timeout_sec", 0.0) or 0.0)
         if cap <= 0:
-            await self._tick()
+            try:
+                await self._tick()
+            finally:
+                await self._backstop_position_monitor()
             return
         try:
             await asyncio.wait_for(self._tick(), timeout=cap)
@@ -2996,6 +3003,74 @@ class RuneClawEngine:
                 action="tick", result="HARD_TIMEOUT",
             )
             raise
+        finally:
+            await self._backstop_position_monitor()
+
+    async def _backstop_position_monitor(self) -> None:
+        """Watch the stops even when the tick died before reaching them.
+
+        WHY. _check_open_positions is the SL/TP monitor, and its call site
+        carries the comment "this is the SL/TP monitor on every tick". It was
+        not on every tick. In the normal path it runs LAST, after scan and
+        analyze, and two ordinary outcomes jumped straight over it:
+
+          * the scan returning no signals — `if not signals: ... return`,
+            which is a routine result, not an error;
+          * the analyze phase blowing its per-phase cap — fatal=True there is
+            deliberate (a half-finished sweep must not stamp the freshness
+            gate), and the re-raise unwound the rest of the tick with it.
+
+        Neither is a crash. Both left open positions unwatched until the next
+        tick, and a persistently slow analyze phase leaves them unwatched for
+        as long as it keeps failing — which is precisely when an exchange is
+        struggling and a stop matters most.
+
+        The scan-phase comment claimed "positions were checked earlier in this
+        same tick". They were not; only the early-return branches do that.
+
+        Non-fatal on purpose: a back-stop that can itself take the loop down
+        is not one. It is never silent — reaching it means a tick skipped its
+        monitor, and that is worth a line on the operator surface.
+
+        THREE outcomes on that line, not two. See the comment on the flag
+        check below: `fatal=False` returns None on a timeout, so "did not
+        raise" and "watched the stops" are different facts and only one of
+        them is the good news.
+        """
+        if getattr(self, "_positions_monitored_tick", False):
+            return
+        try:
+            await self._phase(self._check_open_positions(),
+                              "positions (backstop)", fatal=False)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a back-stop never re-raises
+            audit(system_log,
+                  f"Backstop position monitor failed: {exc}",
+                  action="positions_backstop", result="ERROR")
+            return
+        # RETURNING IS NOT EVIDENCE IT RAN. `fatal=False` is the whole reason
+        # this call cannot take the loop down, and it buys that by returning
+        # None on a timeout instead of raising — so a back-stop cancelled at
+        # its cap, having watched nothing, arrives here exactly like one that
+        # completed. Auditing RAN off that is a failed read rendered as a
+        # success, on the guard that exists because the stops were already
+        # missed once.
+        #
+        # `_check_open_positions` sets the flag at its END, which is the only
+        # thing in the process that can tell the two apart. Three outcomes,
+        # not two.
+        if getattr(self, "_positions_monitored_tick", False):
+            audit(system_log,
+                  "Tick ended before its position check — ran the SL/TP "
+                  "monitor as a backstop",
+                  action="positions_backstop", result="RAN")
+        else:
+            audit(system_log,
+                  "Tick ended before its position check AND the backstop "
+                  "SL/TP monitor did not complete — open positions are "
+                  "unwatched for this tick",
+                  action="positions_backstop", result="INCOMPLETE")
 
     #: Stages of one analysis, in the order they run. Bound to the module
     #: constant so there is exactly one list.
@@ -4057,6 +4132,13 @@ class RuneClawEngine:
     async def _tick(self) -> None:
         """One full scan-analyze cycle."""
         self._last_tick_started_ts = time.monotonic()
+        # Cleared per tick; set at the END of _check_open_positions, so it
+        # means "the monitor completed", not "the monitor was called".
+        # _tick_guarded reads it in a finally: a tick that ends without the
+        # SL/TP monitor having run — no signals, a raised analyze phase, the
+        # hard cap — gets the back-stop rather than leaving open positions
+        # unwatched until the next cycle.
+        self._positions_monitored_tick = False
         # ── Watchdog: force-recover if stuck in a non-IDLE state for >2 minutes ──
         # H-09 FIX: Don't interrupt active trade execution — use longer timeout
         if self.state != AgentState.IDLE and time.time() - self._last_state_change > 120:
@@ -4168,9 +4250,16 @@ class RuneClawEngine:
         # takes. See _record_sweep_complete.
         _sweep_started = time.monotonic()
         # Non-fatal by default: a slow exchange must not take the tick loop
-        # down with it. Positions were checked earlier in this same tick, so a
-        # skipped scan costs only the chance of a new entry. The timeout is
-        # recorded and surfaced — see CONFIG.monitoring.tick_scan_timeout_fatal.
+        # down with it. A skipped scan costs the chance of a new entry; the
+        # position check that protects money already at risk is guaranteed by
+        # _tick_guarded's back-stop, NOT by this path.
+        #
+        # This comment used to read "positions were checked earlier in this
+        # same tick". They were not — on the normal path they are checked
+        # LAST, after analyze, and both a no-signal return and a raised
+        # analyze phase jumped over that. See _backstop_position_monitor.
+        # The timeout is recorded and surfaced — see
+        # CONFIG.monitoring.tick_scan_timeout_fatal.
         signals = await self._phase(
             self.scanner.scan(), "scan",
             fatal=bool(getattr(CONFIG.monitoring, "tick_scan_timeout_fatal", False)))
@@ -4333,18 +4422,28 @@ class RuneClawEngine:
                         recent_wins = sum(1 for t in recent_closed if t.pnl > 0)
                         recent_wr = recent_wins / len(recent_closed)
 
-                        if recent_wr >= CONFIG.adaptive.adaptive_threshold_high_wr:
-                            # Winning streak: lower threshold to capture more
-                            new_thresh = max(CONFIG.adaptive.adaptive_threshold_min,
-                                           RUNTIME.auto_confirm_threshold - 0.05)
-                        elif recent_wr <= CONFIG.adaptive.adaptive_threshold_low_wr:
-                            # Losing streak: raise threshold to be selective
-                            new_thresh = min(CONFIG.adaptive.adaptive_threshold_max,
-                                           RUNTIME.auto_confirm_threshold + 0.05)
-                        else:
-                            new_thresh = RUNTIME.auto_confirm_threshold
-
-                        if new_thresh != RUNTIME.auto_confirm_threshold:
+                        # RC-2026-021. This was three inline branches, and
+                        # two of them could move the threshold the WRONG WAY:
+                        # `min(cap, cur + 0.05)` LOWERS a threshold above the
+                        # cap, so the "losing streak, be more selective" branch
+                        # walked a disabled 1.00 down to 0.90 in a single tick
+                        # and switched auto-confirm back on for the operator
+                        # who had just lost five trades. The winning branch
+                        # walked it to 0.60 more slowly. `.env.example` ships
+                        # 1.0, `/autoconfirm off` writes 1.0, and config.py
+                        # documents 1.0 as DISABLE -- all three were undone on
+                        # a timer by a feature with no knob in .env.example.
+                        new_thresh = next_auto_confirm_threshold(
+                            RUNTIME.auto_confirm_threshold, recent_wr,
+                            high_wr=CONFIG.adaptive.adaptive_threshold_high_wr,
+                            low_wr=CONFIG.adaptive.adaptive_threshold_low_wr,
+                            floor=CONFIG.adaptive.adaptive_threshold_min,
+                            cap=CONFIG.adaptive.adaptive_threshold_max,
+                        )
+                        # None means DISABLED: not a value to write back.
+                        # Writing anything at all is what undid the switch.
+                        if new_thresh is not None and \
+                                new_thresh != RUNTIME.auto_confirm_threshold:
                             audit(system_log,
                                   f"Adaptive threshold: {RUNTIME.auto_confirm_threshold:.2f} → {new_thresh:.2f} "
                                   f"(WR={recent_wr:.0%} over last {len(recent_closed)} trades)",
@@ -4361,7 +4460,11 @@ class RuneClawEngine:
         # disabled by default (threshold 1.0) and, in LIVE mode, refuses to place
         # real-money orders unless AUTO_CONFIRM_LIVE_ENABLED is explicitly set.
         auto_threshold = RUNTIME.auto_confirm_threshold
-        auto_ideas = [
+        # `value >= threshold` makes 1.0 mean "needs a perfect score", not
+        # "off" -- and a blend that scored exactly 1.0 would auto-execute
+        # through a switch the operator had turned off. The sentinel is
+        # checked, not compared against.
+        auto_ideas = [] if auto_confirm_is_disabled(auto_threshold) else [
             (tid, tidea) for tid, tidea in list(self._pending_ideas.items())
             if self._auto_confirm_gate_value(tidea) >= auto_threshold
         ]
@@ -4412,9 +4515,14 @@ class RuneClawEngine:
                       data={"trade_id": tid, "error": str(exc)})
 
         self._transition(AgentState.MONITORING, "checking open positions")
-        # The safety-critical one: this is the SL/TP monitor on every tick.
-        # A hang here means stops are not being watched, so it gets the loud
-        # cap like the rest — named, and counted as a tick failure.
+        # The safety-critical one: the SL/TP monitor on the full path. A hang
+        # here means stops are not being watched, so it gets the loud cap like
+        # the rest — named, and counted as a tick failure.
+        #
+        # It is NOT the only guarantee that it runs, and the comment that once
+        # said "on every tick" was wrong: it sits after scan and analyze, and
+        # a no-signal return or a raised analyze phase reached the end of the
+        # tick without it. _tick_guarded now backstops those.
         await self._phase(self._check_open_positions(), "positions")
         self._transition(AgentState.IDLE, "tick cycle complete")
 
@@ -6708,8 +6816,10 @@ class RuneClawEngine:
         from bot.config import RUNTIME
         auto_threshold = RUNTIME.auto_confirm_threshold
         auto_confirmed = 0
+        _disabled = auto_confirm_is_disabled(auto_threshold)
         for tid, tidea in list(self._pending_ideas.items()):
-            if self._auto_confirm_gate_value(tidea) >= auto_threshold:
+            # Same sentinel as the tick path. Two gates, one meaning.
+            if not _disabled and self._auto_confirm_gate_value(tidea) >= auto_threshold:
                 _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
                 if not _et_ok:
                     audit(trade_log,
@@ -6921,7 +7031,13 @@ class RuneClawEngine:
         return (msg or "").split("\n", 1)[0].startswith("SYNC:")
 
     async def _check_open_positions(self) -> None:
-        """Monitor open positions for SL/TP hits."""
+        """Monitor open positions for SL/TP hits.
+
+        Records that it RAN — at the END — for _backstop_position_monitor.
+        Recorded here rather than at the five call sites because COMPLETING is
+        the fact worth recording: this runs under a per-phase cap, so a call
+        that timed out monitored nothing and must not read as though it had.
+        """
         positions = self.portfolio.open_positions
         # Run paper monitoring when the shared portfolio OR any per-user (sim
         # opt-in) portfolio has open positions, so opted-in paper trades get
@@ -7099,6 +7215,10 @@ class RuneClawEngine:
             except Exception as exc:
                 audit(system_log, f"Periodic exchange sync error: {exc}",
                       action="periodic_exchange_sync", result="ERROR")
+
+        # Reached only on completion — see the docstring. _tick clears this at
+        # the top of every tick; _tick_guarded reads it in a finally.
+        self._positions_monitored_tick = True
 
     async def _check_paper_positions(self, positions) -> None:
         """Monitor paper portfolio positions for SL/TP hits."""

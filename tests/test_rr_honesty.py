@@ -158,6 +158,98 @@ class TestCorrectStatedRR:
         assert "Position Size: 1.25%" in out
 
 
+LIVE_2026_09_01 = """Section 2 - Trade Parameters
+Entry | Stop Loss | Take Profit | R:R
+------|-----------|-------------|-----
+$59,500 | $58,500 | $61,000 | 1:1.70
+
+Section 3 - Risk Check
+Of 22 checks, 0 failed - pass rate: 100%
+
+Section 4 - Reasoning
+Entry at $59,500, stop at $58,500 (1.7% / $1,000 per BTC), with take profit
+at $61,000 for a 1:1.70 R:R - well above the 1.2x minimum."""
+
+
+class TestTheShapesTheModelActuallyEmits:
+    """Regression for a guard that was in the path and silent.
+
+    On 2026-09-01 a live reply laid its levels out as a pipe TABLE and wrote
+    the ratio with the label AFTER the number. The module read neither:
+    computed_ratio returned None, correct_stated_rr made no change, and a
+    stated 1.70 whose own levels give 1.50 went out untouched.
+
+    Nothing raised. The guard ran, found nothing it recognised, and reported
+    success — which is why the defect survived a suite that only ever fed it
+    "Entry: 100".
+    """
+
+    def test_reads_levels_from_a_pipe_table(self):
+        assert computed_ratio(LIVE_2026_09_01) == pytest.approx(1.50, abs=0.01)
+
+    def test_corrects_both_the_table_cell_and_the_prose(self):
+        out, n = correct_stated_rr(LIVE_2026_09_01)
+        assert n == 2
+        assert "$61,000 | 1:1.50" in out
+        assert "for a 1:1.50 R:R" in out
+        assert "1.70" not in out
+
+    def test_levels_written_as_prose_with_at(self):
+        assert computed_ratio(
+            "Entry at $59,500, stop at $58,500, take profit at $61,000"
+        ) == pytest.approx(1.50, abs=0.01)
+
+    def test_correction_is_idempotent(self):
+        once, n1 = correct_stated_rr(LIVE_2026_09_01)
+        twice, n2 = correct_stated_rr(once)
+        assert n1 == 2 and n2 == 0
+        assert once == twice
+
+    def test_a_table_missing_a_column_reads_as_unknown(self):
+        assert computed_ratio("Entry | R:R\n------|-----\n$100 | 1:2.0") is None
+
+    def test_a_table_cell_without_a_number_reads_as_unknown(self):
+        assert computed_ratio(
+            "Entry | Stop Loss | Take Profit\n---|---|---\nn/a | $95 | $110") is None
+
+    def test_a_header_label_does_not_bind_to_the_row_below(self):
+        # "R:R" on its own line followed by a number is a header and a value,
+        # not a claim. Matching across the newline invents a statement.
+        _, n = correct_stated_rr(
+            "Entry: 100\nStop Loss: 95\nTake Profit: 110\nR:R\n9.99 something")
+        assert n == 0
+
+
+class TestTheDerivedFormIsNotCorrupted:
+    """v13's corpus writes the division out. Rewriting it would be worse.
+
+    The corpus teaches "R:R = 10.00 / 5.00 = 2.00". A guard that grabs the
+    first number after the label rewrites the NUMERATOR and turns correct
+    arithmetic into nonsense — silently corrupting a right answer, which is
+    a worse failure than missing a wrong one.
+    """
+
+    BASE = "Entry: 100\nStop Loss: 95\nTake Profit: 110\n"
+
+    def test_a_correct_derivation_is_left_alone(self):
+        text = self.BASE + ("RISK_REWARD: risk = 5.00, reward = 10.00, "
+                            "R:R = 10.00 / 5.00 = 2.00 >= 1.2 minimum")
+        out, n = correct_stated_rr(text)
+        assert n == 0
+        assert out == text
+
+    def test_a_wrong_quotient_is_corrected_but_the_operands_are_not(self):
+        out, n = correct_stated_rr(
+            self.BASE + "R:R = 10.00 / 5.00 = 3.40 >= 1.2 minimum")
+        assert n == 1
+        assert "10.00 / 5.00 = 2.00" in out
+
+    def test_a_large_number_before_the_label_is_not_a_ratio(self):
+        # "volume 1500 R:R" is two facts side by side, not a 1500:1 claim.
+        _, n = correct_stated_rr(self.BASE + "volume 1500 R:R")
+        assert n == 0
+
+
 class TestReachedThroughTheChatSeam:
     """The correction must run on the path every reply actually takes.
 
