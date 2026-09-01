@@ -36,18 +36,18 @@ def test_the_operator_secrets_vault_is_still_backed_up():
     assert "data/secrets_vault.enc" in backup._CRITICAL
 
 
-def test_critical_paths_picks_the_credential_store_up_when_it_exists(tmp_path):
-    """Listing a path is not collecting it — `critical_paths` filters on
+def test_critical_status_picks_the_credential_store_up_when_it_exists(tmp_path):
+    """Listing a path is not collecting it — `critical_status` filters on
     `is_file()`, so a name in the list that never resolves is indistinguishable
     from one that was never added."""
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "exchange_creds.enc").write_bytes(b"ciphertext")
 
-    found = {p.name for p in backup.critical_paths(str(tmp_path))}
+    found = {p.name for p in backup.critical_status(str(tmp_path))[0]}
     assert "exchange_creds.enc" in found
 
 
 def test_an_absent_credential_store_is_skipped_not_an_error(tmp_path):
     """A fresh box has no credentials yet, and that must not break the backup."""
     (tmp_path / "data").mkdir()
-    assert backup.critical_paths(str(tmp_path)) == []
+    assert backup.critical_status(str(tmp_path))[0] == []

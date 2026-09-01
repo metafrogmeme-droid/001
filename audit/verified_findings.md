@@ -572,7 +572,12 @@ schema-touching change — REVIEW_REQUIRED, raised for the maintainers.
 
 ## RC-2026-008 — Backups omit the per-user credential store, and the master key that opens what they do archive
 
-- **Status**: PARTIALLY FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+- **Status**: FIXED · **Severity**: HIGH · **Confidence**: CONFIRMED
+  → **(c) FIXED.** Reproduced first: with `RUNECLAW_STATE_DIR` set, `critical_status` found **only `runeclaw.db`** — both credential stores dropped out of the archive and the run reported success. Both locations are searched now (searched, not redirected: not every `data/` writer honours the variable, and a redirect trades one silent miss for another), and results are de-duplicated.
+  → **The honest half, which is the larger one.** Only the ALL-absent case was ever reported, so an archive missing exactly the two files it exists to protect came back as an unqualified success — a partial total printed as whole, on the disaster-recovery path. `create_backup()` now records `missing` and `complete` in the manifest and logs `BACKUP IS PARTIAL` naming what was skipped.
+  → **(b) The key is still NOT archived, deliberately, and the decision is still yours.** Putting a Fernet master key beside the ciphertext it opens is a security trade-off, not an audit fix. What is fixed is that the dependency was *silent*: the manifest's `externally_managed` now states that `data/.exchange_secret.key` opens both stores and that a restore without it cannot decrypt either. A restore operator learns this before the decrypt fails rather than after. `tests/test_backup_reports_what_it_missed.py` pins the key as absent in **both directions**, so if someone archives it they do so deliberately and update the note in the same commit.
+  → **`docs/DURABILITY.md` updated on all three counts the finding named**: the "irreplaceable" table gains `exchange_creds.enc` and the master key, the restore procedure gains a manifest check and a step to restore the key from wherever it is kept, and the verification list now includes `/livebalance` — the only probe that exercises the Fernet key. The old list checked `/anchor`, which proves the *attestation* key survived, and that key **is** archived, so the runbook could not have caught this.
+  → 13 tests, 6 mutations killed — including "archive the key", which fails now rather than passing quietly.
 - **Category**: Credential durability / disaster recovery (CWE-522)
 - **File**: `bot/utils/backup.py:35-47`
 - **Credit**: surfaced by the `secrets` dimension agent (W-13); re-derived and verified here.

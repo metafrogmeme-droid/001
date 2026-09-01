@@ -405,7 +405,7 @@ F = [
               "would matter if the book ever became per-user."),
     dict(id="RC-2026-008", title="Backups omit the per-user credential store, and the "
          "master key that opens what they do archive",
-         status="PARTIALLY_FIXED", severity="MEDIUM",
+         status="FIXED", severity="MEDIUM",
          second_pass="HIGH -> MEDIUM. STANDS on all three lenses and part (c) "
                      "is worse than written, but MEDIUM is the defensible "
                      "number for a backup-completeness gap behind an "
