@@ -981,6 +981,38 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
 
 # ── Status card ──────────────────────────────────────────────────
 
+def tick_error_line(rec: Optional[dict], lang: str = "en") -> str:
+    """What the last failed tick actually raised, or nothing at all.
+
+    The warning-rate breaker alert says new entries are suppressed, names the
+    trigger key, and then asserted "Usually transient (exchange API / WS)".
+    The engine audits the real exception one line above where it feeds that
+    breaker; the alert simply did not carry it, and the /status it points the
+    operator at showed no tick failures either.
+
+    OMITTED when there is no record — a tick that has not failed has nothing
+    to report, and an empty verdict here would read as a measured all-clear.
+    When the counter says a tick DID fail and no detail was stored, that is a
+    third outcome and it says so rather than staying quiet.
+    """
+    if not isinstance(rec, dict):
+        return ""
+    etype = rec.get("type")
+    if not etype:
+        return t('fmt_tick_error_unknown', lang)
+    try:
+        count = int(rec.get("consecutive") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    line = t('fmt_tick_error', lang).format(
+        etype=_html_escape(str(etype)), count=max(count, 1))
+    phase = rec.get("last_phase_timeout")
+    if phase:
+        line += t('fmt_tick_error_phase', lang).format(
+            phase=_html_escape(str(phase)))
+    return line
+
+
 def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
     """The measured reason the analyze phase cannot finish, and the fix.
 
@@ -1124,6 +1156,7 @@ def render_status_card(
     phase_timeout: Optional[dict] = None,
     phase_headroom: Optional[dict] = None,
     position_watch: Optional[dict] = None,
+    tick_error: Optional[dict] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     # Whether the SL/TP monitor actually ran. Sits with the phase timeout
@@ -1216,6 +1249,14 @@ def render_status_card(
                f"/{int((phase_timeout['progress'])['of'])} "
                f"{t('val_signals_done', lang)}"
                if (phase_timeout.get('progress') or {}).get('of') else "")]),
+        # WHAT the failing tick raised. A phase timeout is one cause of a tick
+        # failure and not the only one, and the warning-rate breaker that
+        # suppresses new entries counts them all under `engine_tick_failure`.
+        # Its alert points here; without this line /status could not answer,
+        # so the alert guessed "exchange API / WS" instead. Omitted on a tick
+        # that has not failed.
+        *([] if not tick_error_line(tick_error, lang) else [
+            f"- {tick_error_line(tick_error, lang)}"]),
         # The HEADROOM, not just the breach. Recording only the breach made
         # every phase a cliff: 299s of a 300s cap looked identical to 30s,
         # and the first signal was a dead tick. Shown only once a phase has

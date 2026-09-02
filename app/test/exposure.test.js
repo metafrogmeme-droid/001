@@ -191,3 +191,131 @@ test('chat: "what\'s my total exposure?" answers with flags; empty book honest',
   const other = await req('POST', '/api/chat', { token, body: { text: 'hello!' } });
   assert.equal(other.status, 503);   // unconfigured bot proxy
 });
+
+/**
+ * A failed read is not an empty book.
+ *
+ * `buildExposure` caught the trades query with `catch (e) { /* section empty *\/ }`
+ * and left `openTrades = []`. `computeExposure` turns that into no assets, and
+ * the chat surface turns no assets into "No directional exposure found — no
+ * open positions". So a database failure answered "how exposed am I?" with
+ * "you have nothing", to a user holding leveraged positions, on the one
+ * surface they open to check.
+ *
+ * Every wrong answer at that question is the reassuring one, which is why this
+ * one GUARDS rather than omits: there is no partial answer to "am I
+ * overexposed" worth giving.
+ *
+ * The wallet half was already honest — it reported `wallet_included` instead of
+ * pretending — but that boolean was one word for three facts: no wallet
+ * linked, the portfolio call returned nothing, and the call threw. Only the
+ * first is "you have no wallet", and the other two were printing as it.
+ */
+
+function withBrokenTrades(fn) {
+  // exposure.js captured this exact pool object at require time, so replacing
+  // the method reaches the code under test.
+  const real = pool.execute;
+  pool.execute = async (sql, ...rest) => {
+    if (/FROM trades/i.test(String(sql))) throw new Error('ER_LOCK_WAIT_TIMEOUT');
+    return real.call(pool, sql, ...rest);
+  };
+  return fn().finally(() => { pool.execute = real; });
+}
+
+test('an unreadable trades query is not reported as a flat book', async () => {
+  const token = await newUser();
+  const uid = await uidOf(token);
+  await withBrokenTrades(async () => {
+    const e = await exposure.buildExposure(uid);
+    assert.equal(e.positions_read, false, 'the failed read must be reported');
+    assert.equal(e.open_positions, null,
+      'an unread book has an UNKNOWN position count — 0 is a real answer');
+    assert.notEqual(e.open_positions, 0);
+  });
+});
+
+test('chat refuses to answer exposure it could not read', async () => {
+  const token = await newUser();
+  const uid = await uidOf(token);
+  await withBrokenTrades(async () => {
+    const r = await exposure.maybeHandleExposureChat(uid, "am I overexposed?");
+    assert.equal(r.intent, 'exposure');
+    assert.ok(!/No directional exposure/.test(r.reply_html),
+      'a failed read must never render as "no exposure"');
+    assert.match(r.reply_html, /not a report that you have\s+none/i,
+      'it must say explicitly that this is not a report of zero exposure');
+  });
+});
+
+test('a genuinely empty book still answers plainly', async () => {
+  // The honest zero must survive the fix — this is the case the original
+  // sentence was written for.
+  const token = await newUser();
+  const uid = await uidOf(token);
+  const e = await exposure.buildExposure(uid);
+  assert.equal(e.positions_read, true);
+  assert.equal(e.open_positions, 0);
+  const r = await exposure.maybeHandleExposureChat(uid, "what's my total exposure?");
+  assert.match(r.reply_html, /No directional exposure/);
+});
+
+test('wallet_state separates "not linked" from "could not read"', async () => {
+  const token = await newUser();
+  const uid = await uidOf(token);
+
+  // No wallet on the account at all.
+  const none = await exposure.buildExposure(uid);
+  assert.equal(none.wallet_state, 'not_linked');
+  assert.equal(none.wallet_included, false);
+
+  // Linked, but the portfolio fetch throws — a 502, not an absent wallet.
+  await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?',
+    ['0x' + 'ab'.repeat(20), uid]);
+  const realPortfolio = wallet.getWalletPortfolio;
+  wallet.getWalletPortfolio = async () => { throw new Error('502 upstream'); };
+  try {
+    const broken = await exposure.buildExposure(uid);
+    assert.equal(broken.wallet_state, 'unreadable');
+    assert.equal(broken.wallet_included, false,
+      'the legacy boolean keeps its meaning: spot is not included');
+    const r = await exposure.maybeHandleExposureChat(uid, 'my exposure');
+    assert.ok(!/no wallet linked/i.test(r.reply_html),
+      'a wallet that IS linked must not be described as unlinked');
+    assert.match(r.reply_html, /could not be read/i);
+  } finally {
+    wallet.getWalletPortfolio = realPortfolio;
+  }
+});
+
+test('a perp-only view says the wallet is missing from it', async () => {
+  const token = await newUser();
+  const uid = await uidOf(token);
+  await pool.execute(
+    `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees,
+       status, pattern, stop_loss, take_profit)
+     VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)`,
+    [uid, 'BTC/USDT', 'LONG', 60000, 800, 1, null, 58000, 65000]);
+  await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?',
+    ['0x' + 'cd'.repeat(20), uid]);
+
+  const realPortfolio = wallet.getWalletPortfolio;
+  wallet.getWalletPortfolio = async () => { throw new Error('502 upstream'); };
+  try {
+    const r = await exposure.maybeHandleExposureChat(uid, 'how exposed am i');
+    assert.match(r.reply_html, /Wallet not included/,
+      'a partial total printed as a whole one is the defect this file exists for');
+    assert.match(r.reply_html, /perps only/i);
+  } finally {
+    wallet.getWalletPortfolio = realPortfolio;
+  }
+});
+
+test('the API surfaces the read state, not just the numbers', async () => {
+  const token = await newUser();
+  const r = await req('GET', '/api/exposure', { token });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.positions_read, true);
+  assert.ok(Object.prototype.hasOwnProperty.call(r.data, 'wallet_state'),
+    'clients cannot render an error state for a field they are not sent');
+});

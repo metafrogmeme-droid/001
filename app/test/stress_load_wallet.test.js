@@ -108,3 +108,69 @@ test('every wallet-loader string exists in all 14 languages', () => {
     for (const c of codes) assert.ok(String(e[c] || '').trim().length, `${k} is missing ${c}`);
   }
 });
+
+/**
+ * A 502 is not an absent wallet.
+ *
+ * Both pages gated on `if (!r.ok || !d || !d.linked)` and rendered
+ * `sx.w_none` — "No linked wallet found. Link one in Account, then come back."
+ * `!r.ok` is a FAILED READ (502, 500, a rate limit); `!d` is unparseable JSON.
+ * Neither is an absence of a wallet, and the remedy is actively wrong for
+ * them: the user goes to Account and finds the wallet already linked.
+ *
+ * `sx.w_failed` — "Could not read the wallet mirror just now" — already
+ * existed for exactly this and was reachable only from the outer `catch`,
+ * which fires when `fetch` THROWS and never when it returns a 502. The string
+ * was right and the branch could not reach it.
+ */
+const PAGES = ['escape.html', 'stress.html'];
+
+function pageSrc(name) {
+  return fs.readFileSync(path.join(__dirname, '..', 'public', name), 'utf8');
+}
+
+test('a non-ok wallet response is reported as a failed read, not as no wallet', () => {
+  for (const name of PAGES) {
+    const src = pageSrc(name);
+    assert.ok(!/if \(!r\.ok \|\| !d \|\| !d\.linked\)/.test(src),
+      `${name}: the three conditions are collapsed again — a 502 renders as "no wallet"`);
+    assert.match(src, /if \(!r\.ok \|\| !d\)[\s\S]{0,200}sx\.w_failed/,
+      `${name}: !r.ok must reach sx.w_failed`);
+    assert.match(src, /if \(!d\.linked\)[\s\S]{0,200}sx\.w_none/,
+      `${name}: only !d.linked may claim there is no wallet`);
+  }
+});
+
+// Anchor on the CALL, never the bare key. The first draft of the two tests
+// below used `src.indexOf('sx.w_failed')`, which found the COMMENT above the
+// fix — the comment-matching trap, self-inflicted: two mutations that swapped
+// the branch order and moved the wrong remedy onto the failed read both
+// survived, because the assertions were reading an explanation of the code
+// rather than the code.
+const CALL = (key) => `walletNote(T('${key}'`;
+
+test('the failed-read branch precedes the no-wallet branch', () => {
+  // Order matters: `!d.linked` on a null `d` would throw, and on a 502 body
+  // that happens to lack `linked` it would claim no wallet.
+  for (const name of PAGES) {
+    const src = pageSrc(name);
+    const failed = src.indexOf(CALL('sx.w_failed'));
+    const none = src.indexOf(CALL('sx.w_none'));
+    assert.ok(failed > 0 && none > 0, `${name}: both calls must be present`);
+    assert.ok(failed < none,
+      `${name}: the failed-read guard must run before the no-wallet claim`);
+  }
+});
+
+test('the remedy is only offered when it is the right one', () => {
+  // "Link one in Account" is correct advice for exactly one of the three
+  // conditions. It must not travel with the other two.
+  for (const name of PAGES) {
+    const src = pageSrc(name);
+    const i = src.indexOf(CALL('sx.w_failed'));
+    assert.ok(i > 0, `${name}: the failed-read call must exist`);
+    const window = src.slice(i, i + 200);
+    assert.ok(!/Link one in Account/.test(window),
+      `${name}: a failed read must not tell the user to link a wallet they have`);
+  }
+});

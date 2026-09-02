@@ -919,6 +919,27 @@ _STRINGS: dict[str, dict[str, str]] = {
                "{measured_of}），因此實際缺口更大。請調低 TOP_MOVERS_COUNT "
                "或調高 SCAN_ANALYSIS_CONCURRENCY。"),
     },
+    # The tick error the engine measured, for the breaker alert and /status.
+    # No cause is named beyond the exception class: an alert that guesses a
+    # subsystem sends an operator to the wrong one, which is how 37 timed-out
+    # ticks got blamed on the exchange.
+    "fmt_tick_error": {
+        "en": ("\u26a0\ufe0f Last tick error: <code>{etype}</code> "
+               "(<b>{count}</b> in a row)."),
+        "zh": ("\u26a0\ufe0f 最近一次循環錯誤：<code>{etype}</code>"
+               "（連續 <b>{count}</b> 次）。"),
+    },
+    "fmt_tick_error_phase": {
+        "en": " Last phase timeout was <code>{phase}</code>, which may or may "
+              "not be related.",
+        "zh": " 最近一次階段逾時為 <code>{phase}</code>，未必相關。",
+    },
+    "fmt_tick_error_unknown": {
+        "en": ("\u26a0\ufe0f The tick failed and no error detail was "
+               "recorded \u2014 grep the log for <code>Engine tick error</code>."),
+        "zh": ("\u26a0\ufe0f 循環失敗，但未記錄錯誤細節 \u2014 "
+               "請在日誌中搜尋 <code>Engine tick error</code>。"),
+    },
     "val_peak_of": {"en": "peak of", "zh": "峰值／上限"},
     "val_cap_hit": {"en": "cap hit, tick cancelled", "zh": "已達上限，循環取消"},
     "val_signals_done": {"en": "signals analysed before it was cancelled",

@@ -6,7 +6,7 @@
 
 const express = require('express');
 const crypto = require('crypto');
-const { pool } = require('../db');
+const { pool, withTransaction } = require('../db');
 // LAZY on purpose. `require('../auth')` at module load makes this file fatally
 // depend on the WEB session secret — auth.js exits the process when JWT_SECRET
 // is unset — and sync.js is the BOT channel, authenticated by BOT_SYNC_SECRET.
@@ -307,19 +307,33 @@ router.post('/', async (req, res) => {
     // fake number under a LIVE header is exactly the bug we're killing.
     const eq = Number.isFinite(equity) ? Number(equity) : null;
 
+    // ATOMIC, because the alternative destroyed the account's history.
+    //
+    // This ran the DELETE below under autocommit and then replaced the rows
+    // with a loop of individual INSERTs. Any throw in that loop — a malformed
+    // row from the bot, a dropped connection, a deadlock — left the DELETE
+    // committed and every trade and equity snapshot for this user gone,
+    // permanently, behind a response that said only "Sync failed". On a
+    // Restart=always bot syncing on a schedule, one persistently bad row would
+    // destroy the history on every attempt and never restore it.
+    //
+    // `withTransaction` throws rather than silently running without one, so a
+    // backend that cannot do transactions fails loudly here instead of
+    // quietly reproducing the bug this comment describes.
+    await withTransaction(async (conn) => {
     // Clear existing trades and snapshots for this user
-    await pool.execute('DELETE FROM trades WHERE user_id = ?', [user_id]);
+    await conn.execute('DELETE FROM trades WHERE user_id = ?', [user_id]);
     // Only replace the equity curve when we actually have a real reading;
     // when equity is unavailable, leave the prior snapshots intact (they age
     // out via the freshness gate) rather than stamping a fake point.
     if (eq !== null) {
-      await pool.execute('DELETE FROM equity_snapshots WHERE user_id = ?', [user_id]);
+      await conn.execute('DELETE FROM equity_snapshots WHERE user_id = ?', [user_id]);
     }
 
     // Insert closed trades
     if (closed_trades && closed_trades.length > 0) {
       for (const t of closed_trades) {
-        await pool.execute(
+        await conn.execute(
           `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, venue)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
           [user_id, t.symbol, t.direction, t.entry_price, t.exit_price,
@@ -334,7 +348,7 @@ router.post('/', async (req, res) => {
     // Insert open positions
     if (positions && positions.length > 0) {
       for (const p of positions) {
-        await pool.execute(
+        await conn.execute(
           `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, opened_at, venue)
            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)`,
           [user_id, p.symbol, p.direction, p.entry_price,
@@ -348,12 +362,16 @@ router.post('/', async (req, res) => {
 
     // Insert equity snapshot only for a real reading (see eq above).
     if (eq !== null) {
-      await pool.execute(
+      await conn.execute(
         'INSERT INTO equity_snapshots (user_id, equity, snapshot_at) VALUES (?, ?, ?)',
         [user_id, eq, new Date()]
       );
     }
+    });   // ── end withTransaction: every write above lands, or none does ──
 
+    // In-memory state is updated only AFTER the commit. Stamping it before
+    // would leave `latestPortfolio` describing rows a rollback then discarded
+    // — the API reporting a sync the database does not have.
     // Update in-memory portfolio summary
     const closedCount = (closed_trades || []).length;
     const openCount = (positions || []).length;

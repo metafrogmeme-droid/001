@@ -254,6 +254,55 @@ class MemoryDB {
     learn_progress: { field: 'learnProgress' },
   };
 
+  // ── Transactions ────────────────────────────────────────────────────────
+  //
+  // The suite and the no-DATABASE_URL deployment mode both run on this class.
+  // Without these, `withTransaction` could only ever be exercised against a
+  // live MySQL — so the rollback path would ship having never once executed
+  // in a test, which is the shape this repo spends its guard tests on.
+  //
+  // The snapshot is GENERIC over own enumerable properties on purpose. A
+  // hand-listed set of tables would silently miss the next one added to the
+  // constructor, and a rollback that restores some tables and not others is
+  // worse than no rollback at all: it leaves a tree nobody designed. Same
+  // reason preflight parses ci.yml instead of restating it.
+  _snapshot() {
+    const snap = {};
+    for (const k of Object.keys(this)) {
+      const v = this[k];
+      snap[k] = (v && typeof v === 'object') ? structuredClone(v) : v;
+    }
+    return snap;
+  }
+
+  _restore(snap) {
+    for (const k of Object.keys(snap)) this[k] = snap[k];
+    // A key created DURING the transaction is not in the snapshot; drop it,
+    // or a rolled-back write survives as a table nobody rolled back.
+    for (const k of Object.keys(this)) {
+      if (!(k in snap)) delete this[k];
+    }
+  }
+
+  async getConnection() {
+    const db = this;
+    let snap = null;
+    return {
+      execute: (...a) => db.execute(...a),
+      query: (...a) => db.execute(...a),
+      beginTransaction: async () => { snap = db._snapshot(); },
+      commit: async () => { snap = null; },
+      rollback: async () => {
+        // Rolling back without a snapshot would silently do nothing and
+        // report success — the caller believes its writes were undone.
+        if (snap === null) throw new Error('rollback without beginTransaction');
+        db._restore(snap);
+        snap = null;
+      },
+      release: () => { snap = null; },
+    };
+  }
+
   constructor() {
     this.users = [];
     this.trades = [];
@@ -3118,8 +3167,53 @@ function backend() {
   return USE_MYSQL ? 'mysql' : 'memory';
 }
 
+/**
+ * Run `fn(conn)` inside a database transaction, or throw.
+ *
+ * WHAT THIS EXISTS FOR. `POST /api/bot/sync` ran
+ * `DELETE FROM trades WHERE user_id = ?` under autocommit and then replaced
+ * the rows with a loop of individual INSERTs. Any throw in that loop — a
+ * malformed row from the bot, a dropped connection, a deadlock — left the
+ * DELETE committed and the account's entire trade history gone, permanently,
+ * behind a response that said only "Sync failed". On a Restart=always bot
+ * syncing on a schedule, one persistently bad row would destroy the history
+ * on every attempt and never restore it.
+ *
+ * `beginTransaction` appeared NOWHERE in app/ before this: not one route was
+ * atomic. That made it a systemic absence rather than one handler's oversight.
+ *
+ * It THROWS on a backend that cannot do transactions rather than quietly
+ * running `fn` without one. A silent fallback would mean the caller believes
+ * its writes are atomic when they are not, which is the failure this helper
+ * exists to remove, reintroduced one level up. Both supported backends
+ * implement `getConnection`, so the throw is a guard against a future third,
+ * not a live path.
+ */
+async function withTransaction(fn) {
+  if (!pool || typeof pool.getConnection !== 'function') {
+    throw new Error('withTransaction: this database backend has no '
+      + 'getConnection — refusing to run a non-atomic write as if it were atomic');
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const out = await fn(conn);
+    await conn.commit();
+    return out;
+  } catch (err) {
+    // A rollback that itself fails must not mask the original error: that is
+    // the one the caller needs, and the rollback failure is the lesser fact.
+    try { await conn.rollback(); } catch (rbErr) {
+      console.error('Rollback failed after:', err && err.message, '->', rbErr && rbErr.message);
+    }
+    throw err;
+  } finally {
+    try { conn.release(); } catch (_) { /* pool already gone */ }
+  }
+}
+
 module.exports = {
-  pool, migrate, lastStatement, describeSql, backend,
+  pool, migrate, lastStatement, describeSql, backend, withTransaction,
   EXPECTED_TABLES, schemaIsCurrent,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string

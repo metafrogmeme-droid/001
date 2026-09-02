@@ -2893,6 +2893,9 @@ class RuneClawEngine:
                 await self._tick_guarded()
                 _consecutive_failures = 0
                 self._tick_consecutive_failures = 0
+                # A tick that succeeded makes the stored error history, not
+                # current state. Surfaces must not keep showing it.
+                self._last_tick_error = None
                 # Dead-man's switch: ping an external health endpoint (e.g.
                 # healthchecks.io) after each successful tick, so a DEAD
                 # process — the one failure mode Telegram alerting can never
@@ -2959,6 +2962,35 @@ class RuneClawEngine:
                           "phase": (getattr(self, "_last_phase_timeout", None)
                                     or {}).get("phase")},
                 )
+                # Remember WHAT failed, for the surfaces that have to explain
+                # it. The audit line above carries the exception and the phase
+                # and then they are gone: the warning-rate alert that fires off
+                # this counter guessed "Usually transient (exchange API / WS)"
+                # — a named subsystem, asserted from nothing, on the alert that
+                # tells an operator new entries are suppressed. CLAUDE.md
+                # records what reading a heuristic as a verdict cost here
+                # already: 37 timed-out ticks pointed at the wrong subsystem.
+                #
+                # CLASS NAME ONLY, never str(exc). Driver messages carry URLs,
+                # query strings and occasionally credentials, and this reaches
+                # Telegram. Same rule /readyz follows with its fixed reason
+                # vocabulary, for the same reason.
+                try:
+                    self._last_tick_error = {
+                        "type": type(exc).__name__,
+                        "consecutive": int(_consecutive_failures),
+                        # The last phase TIMEOUT, which may or may not be this
+                        # tick's fault. Reported as its own fact and never as
+                        # "the phase this error happened in" — attributing an
+                        # exception to a stale phase record would manufacture
+                        # exactly the false cause this block exists to stop.
+                        "last_phase_timeout": (
+                            getattr(self, "_last_phase_timeout", None) or {}
+                        ).get("phase"),
+                        "at": time.monotonic(),
+                    }
+                except Exception:
+                    pass
                 # Feed the warning-rate breaker so sustained failures can trip it.
                 try:
                     self.risk.record_warning("engine_tick_failure")

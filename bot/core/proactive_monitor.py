@@ -48,7 +48,11 @@ from bot.compat import UTC
 from typing import Any, Callable, Optional, Set
 
 from bot.config import CONFIG
-from bot.formatters.rich_cards import analyze_budget_line, position_watch_line
+from bot.formatters.rich_cards import (
+    analyze_budget_line,
+    position_watch_line,
+    tick_error_line,
+)
 from bot.utils.logger import audit, system_log
 
 from bot.utils.atomic_write import atomic_write_json
@@ -1733,6 +1737,20 @@ class ProactiveMonitor:
             tripped = bool(getattr(self.engine.risk, "warning_rate_breaker_active", False))
             if tripped and not self._last_warn_rate:
                 key = getattr(self.engine.risk, "_warning_rate_trip_key", "")
+                # What the engine MEASURED, instead of a subsystem guessed at.
+                # This alert said "Usually transient (exchange API / WS)" —
+                # naming a subsystem from nothing, on the alert that tells an
+                # operator new entries are suppressed. For the commonest
+                # trigger, engine_tick_failure, the truth was a phase timeout:
+                # `_phase` re-raises on the analyze cap and the tick-failure
+                # machinery counts it, so /status said "Tick phase timed out:
+                # analyze x5" while this alert said "exchange". Two halves of
+                # one event, on two surfaces, never joined.
+                _tick = tick_error_line(
+                    getattr(self.engine, "_last_tick_error", None))
+                _cause = _tick or (
+                    "No error detail was recorded for it. It clears as the "
+                    "error rate falls.")
                 alerts.append(Alert(
                     alert_type="WARNING_RATE", severity="WARNING",
                     title="Warning-rate breaker tripped",
@@ -1741,9 +1759,9 @@ class ProactiveMonitor:
                         "────────────────\n"
                         "Repeated infrastructure warnings have <b>suppressed new "
                         "entries</b> (existing positions are still monitored).\n"
-                        f"- Trigger: <code>{key or 'n/a'}</code>\n\n"
-                        "Usually transient (exchange API / WS). It clears as the "
-                        "error rate falls.\n"
+                        f"- Trigger: <code>{key or 'n/a'}</code>\n"
+                        f"{_cause}\n\n"
+                        "It clears as the error rate falls.\n"
                         "────────────────\n"
                         "\U0001f449 /status — review engine health"),
                     dedup_key="warn_rate_tripped", audience="admin"))
