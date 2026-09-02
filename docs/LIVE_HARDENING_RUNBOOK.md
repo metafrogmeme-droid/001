@@ -520,14 +520,41 @@ Do not skip this step and assume the first. A phase can reach a 300s cap with
 nothing hanging at all: an analysis makes ~9 requests, and at a 30s per-request
 cap six of them in series is 180s before the LLM turn is even reached.
 
+**The forecast rides on the alert now, not just `/status`.** When the engine
+has measured a rate and the work does not fit, the degraded alert carries the
+arithmetic and names the two levers:
+
+```
+📉 Analyze budget short: 85 signals at 4.1s each needs ~348s against a 300s
+cap — about 73 fit, 12 will not be analysed. Lower TOP_MOVERS_COUNT or raise
+SCAN_ANALYSIS_CONCURRENCY.
+```
+
+Raising `SCAN_ANALYSIS_CONCURRENCY` is usually the right lever: the per-signal
+figure is effective wall-clock throughput and already carries the concurrency
+in force, so raising it divides the total directly — and it is the only one of
+the two that does not narrow what the bot looks at. Watch the per-signal number
+afterwards: if it goes UP, the new concurrency is being throttled by the venue
+and the gain is partly given back.
+
+The line is **omitted** when the work fits and when no batch has completed, so
+no rate has been measured. Neither is a claim that it fits — the phase-timeout
+line beside it answers that independently.
+
 ### Were the stops actually watched? — the SL/TP monitor line
 
-The degraded alert says open positions "could be **unmonitored**". That is a
-hedge, and the process does not have to hedge: `_check_open_positions` runs
-LAST in a tick, so a raised analyze phase unwinds the tick before reaching it,
-and `_backstop_position_monitor` then runs it from `_tick_guarded`'s `finally`.
-Whether that back-stop *completed* is the answer, and it is now on both screens
-the alert points at — `/status` and `/positions`.
+The degraded alert used to say open positions "could be **unmonitored**". That
+was a hedge, and the process does not have to hedge: `_check_open_positions`
+runs LAST in a tick, so a raised analyze phase unwinds the tick before reaching
+it, and `_backstop_position_monitor` then runs it from `_tick_guarded`'s
+`finally`. Whether that back-stop *completed* is the answer.
+
+It is on **three** surfaces now, in one vocabulary: the alert itself, `/status`
+and `/positions`. That is deliberate — you should not have to translate between
+the screen that woke you and the screen you open next. The alert states it in
+every case including the healthy one; `/status` is the only surface that may
+stay quiet when the tick ran its own check, because it is the only one you open
+without being told something is wrong.
 
 | shown | means | do |
 |---|---|---|
