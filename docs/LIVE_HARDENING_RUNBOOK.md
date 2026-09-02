@@ -838,6 +838,53 @@ every user-invoked analysis keeps the LLM to itself. It reads `on`/`off` via
 `_env_bool` would read `off` as true and the valve would be silently inert.
 Turn it back on when training finishes.
 
+## A restart that skipped every line of the shutdown
+
+`bot/main.py` ends its run in a `finally` that stops the alert monitor, cleans
+up the dashboard runner, stops the Telegram updater and application, and calls
+`engine.stop()`. Every line of it was correct, and **nothing could reach it**.
+
+No SIGTERM handler existed anywhere in the tree. Python's default action for
+SIGTERM ends the process outright — no exception is raised, so no `finally`
+runs — and `scripts/systemd/runeclaw-bot.service` sets no `KillSignal`, so
+`systemctl restart` sends exactly that. On a bot holding live positions, the
+shutdown path had never once executed in production.
+
+`run_polling()` installs those handlers itself, which is presumably why nobody
+noticed. This bot does not use it: it drives `app.initialize()`, `app.start()`
+and `app.updater.start_polling()` by hand, and python-telegram-bot arms its stop
+signals only inside `run_polling`/`run_webhook`.
+
+**The 409 you have seen on redeploys is a symptom of this.** The poller
+watchdog's own comment names "a 409 getUpdates conflict from two instances
+overlapping on a redeploy" — which is what happens when the outgoing process
+never calls `updater.stop()` and leaves its long poll open at Telegram. The
+watchdog recovers from the collision; this is what caused it.
+
+### What to check on the box
+
+Boot prints one line, and it is worth reading:
+
+```
+graceful stop armed for: SIGTERM, SIGINT
+```
+
+If it instead says **`graceful stop: NOT ARMED for any signal`**, a supervisor
+stop will kill the process without running shutdown. `add_signal_handler` is
+Unix-only and refuses off the main thread, so this is a real outcome and not a
+theoretical one — it is reported rather than assumed, and the same verdict is
+sealed to the audit chain with `result=ARMED` or `result=NOT_ARMED`.
+
+To confirm a stop was clean, look for the audit line
+`SIGTERM received — shutting down gracefully` before the process exits. Its
+absence on a restart means the process was killed, not stopped.
+
+### If you change the unit
+
+`tests/test_graceful_stop_is_armed.py` reads `runeclaw-bot.service` and fails if
+a `KillSignal=` is set to something the bot does not arm — otherwise the fix
+would be silently undone by a one-line unit edit.
+
 ## Standing hazards
 
 **An ephemeral Cloudflare quick tunnel is a single point of failure.** The
