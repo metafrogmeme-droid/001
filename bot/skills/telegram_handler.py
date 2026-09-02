@@ -10690,6 +10690,11 @@ class TelegramHandler:
             # the symptom, which is the same hole the phase-cause carry fixed.
             position_watch=(self.engine.position_watch()
                             if hasattr(self.engine, "position_watch") else None),
+            # What the last failing tick raised. Same reason as the two above:
+            # the warning-rate breaker alert says new entries are suppressed
+            # and sends the reader to /status, so /status has to be able to
+            # answer. It could not, so the alert guessed a subsystem.
+            tick_error=getattr(self.engine, "_last_tick_error", None),
         )
         # A red headline with no reason sends the operator hunting. Name the
         # blocker. The warning-rate breaker in particular had no operator
