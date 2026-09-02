@@ -23,7 +23,7 @@ import os
 import re
 import traceback
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from bot.core.engine import RuneClawEngine
 from bot.skills.skill_registry import (
@@ -431,10 +431,34 @@ class RuneClawMCPServer:
 
     async def _shield_evaluate(
         self, symbol: str, direction: str, entry_price: float,
-        stop_loss: float, take_profit: float, confidence: float = 0.65,
+        stop_loss: float, take_profit: float,
+        confidence: Optional[float] = None,
     ) -> str:
-        """Run the RUNECLAW Shield fail-closed risk checks on a trade proposal."""
+        """Run the RUNECLAW Shield fail-closed risk checks on a trade proposal.
+
+        `confidence` used to default to 0.65. The Shield's own confidence floor
+        defaults to 0.60, so a caller that simply omitted the argument was
+        handed a passing grade on the gate — and the reply echoed it back as
+        `"confidence": 0.65`, indistinguishable from a caller who had actually
+        measured it. An MCP client is a program: omitting a field is the most
+        ordinary thing it does.
+
+        Refused rather than defaulted, because this endpoint's whole promise is
+        in its name. A fail-closed check that invents its own input is not one.
+        """
         from bot.utils.models import Direction, TradeIdea, RiskVerdict
+
+        if confidence is None:
+            return json.dumps({
+                "approved": False,
+                "verdict": "REJECTED",
+                "confidence": None,
+                "reason": ("No confidence supplied. The Shield gates on a "
+                           "confidence floor, so it cannot evaluate a proposal "
+                           "that does not state one — and will not assume a "
+                           "value that happens to clear it."),
+                "failed_checks": ["CONFIDENCE: not supplied"],
+            }, default=str)
 
         dir_enum = Direction.LONG if direction.lower() == "long" else Direction.SHORT
         idea = TradeIdea(
