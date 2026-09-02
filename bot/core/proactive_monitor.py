@@ -2879,7 +2879,12 @@ class ProactiveMonitor:
                             f"- Current: <code>${current_price:,.4f}</code>\n"
                             f"- Status: <b>NOT in profit — AUTO-CLOSE recommended</b>\n"
                             "────────────────\n"
-                            f"\U0001f449 /close {base} — close position manually\n"
+                            # /close does not exist, and /liveclose takes a
+                            # TRADE ID, not a symbol — so "/close BTC" was
+                            # wrong twice over on an alert recommending a
+                            # close. Name the two steps that work.
+                            f"\U0001f449 /positions — find {base}'s trade ID\n"
+                            "\U0001f449 /liveclose &lt;trade_id&gt; — close it manually\n"
                             "\U0001f449 /positions — review all open trades"
                         ),
                         dedup_key=key,
