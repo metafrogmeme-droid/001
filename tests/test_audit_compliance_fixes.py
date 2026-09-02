@@ -50,24 +50,47 @@ def test_f15_no_chat_failure_reply_leaks_the_raw_error():
     same for each — last_error carries a credential-bearing URL or a 4xx body
     echoing a key, so it goes to the log and never to the user.
     """
+    # EVERY reply in each ending, not the first one within 900 characters.
+    #
+    # The 900 was a magic window, and a comment added above the return pushed
+    # `_chat_ret` past it — the test failed with "substring not found" on code
+    # that was perfectly safe. Worse, when the all-failed ending later grew a
+    # SECOND reply (empty completions are not the same fact as unreachable
+    # providers), only the first would have been checked, and F-15 is a
+    # credential-leak rule that has to hold for all of them.
+    #
+    # The region now runs from the marker to the next audit( after it — the
+    # same landmark the old code used to stop at, applied to the whole span.
     for marker in ("All chat LLM providers failed", "Chat deadline hit after"):
         idx = SRC.index(marker)
-        block = SRC[idx:idx + 900]
-        ret_start = block.index("_chat_ret")
-        ret_block = block[ret_start:]
-        # Stop at the NEXT audit(, or the window runs into the following
-        # ending's log line — which legitimately DOES interpolate last_error,
-        # and the test would fail on correct code. (It did, on the first run.)
-        _next_audit = ret_block.find("audit(")
-        ret_block = ret_block[:_next_audit if _next_audit != -1 else 400]
-        assert "last_error" not in ret_block, (
-            f"raw provider error reaches the user reply after {marker!r} (F-15)")
-        assert "{error_str" not in ret_block and "str(e)" not in ret_block
+        after = SRC[idx:]
+        # Past this ending's own audit line, then up to the next one.
+        _own = after.index("\n")
+        _next_audit = after.find("audit(", _own)
+        region = after[:_next_audit if _next_audit != -1 else 1200]
+        rets = [i for i in range(len(region)) if region.startswith("_chat_ret", i)]
+        assert rets, f"no user reply found for the {marker!r} ending"
+        for start in rets:
+            ret_block = region[start:start + 700]
+            assert "last_error" not in ret_block, (
+                f"raw provider error reaches a user reply after {marker!r} (F-15)")
+            assert "{error_str" not in ret_block and "str(e)" not in ret_block
     # Each ending still returns its OWN generic, safe message — and they must
-    # not be the same message, because they are not the same fact.
-    all_failed = SRC[SRC.index("All chat LLM providers failed"):][:900]
-    deadline = SRC[SRC.index("Chat deadline hit after"):][:900]
-    assert "temporarily" in all_failed or "trouble thinking" in all_failed
+    # not be the same message, because they are not the same fact. THREE facts
+    # now: providers unreachable, providers reachable and returning nothing,
+    # and the budget running out before enough of them were asked.
+    def _ending(marker: str) -> str:
+        after = SRC[SRC.index(marker):]
+        _next = after.find("audit(", after.index("\n"))
+        return after[:_next if _next != -1 else 1200]
+
+    all_failed = _ending("All chat LLM providers failed")
+    deadline = _ending("Chat deadline hit after")
+    assert "temporarily" in all_failed or "trouble thinking" in all_failed, (
+        "the unreachable ending lost its message")
+    assert "answered but returned nothing" in all_failed, (
+        "an empty completion is not an unreachable provider: every provider "
+        "returned HTTP 200 and nothing, and the reply blamed availability")
     assert "stopped waiting" in deadline, (
         "the deadline ending must name TIME as the cause; reporting providers "
         "that were never asked as unavailable is a confident negative")
