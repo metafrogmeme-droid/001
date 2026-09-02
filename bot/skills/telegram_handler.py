@@ -24,6 +24,8 @@ from bot.core.margin_clamp import read_money_field
 from bot.formatters.brain_state import BRAIN_TEXT as _BRAIN_TEXT
 from bot.formatters.brain_state import brain_state as _brain_state
 from bot.formatters.brain_state import UNTESTED as _BRAIN_UNTESTED
+from bot.formatters.brain_state import sweep_note as _sweep_note
+from bot.formatters.brain_state import untested_confirmation as _untested_confirm
 
 # Module logger. Several exception/admin paths referenced bare `os`/`logger`
 # without these being in scope — latent NameErrors (flagged by ruff F821).
@@ -363,8 +365,13 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
             "LLM brain is healthy, so the fallback chain is ruled out."
             if _may_exclude else
             f"{_icon} LLM brain is <b>{_label}</b> — no successful LLM call is "
-            "on record, so it is NOT ruled out here. <code>/llmstatus</code> "
-            "confirms on the first scan.")
+            "on record, so it is NOT ruled out here. "
+            # "confirms on the first scan" is true of the historical default
+            # and false under LLM_BACKGROUND_SCANS=off, where the sweep
+            # returns before any provider is attempted and the brain stays
+            # untested for the life of the process. Ask what will actually
+            # confirm it under the config in force.
+            + _untested_confirm(h))
 
         # Measured, not inferred: the background loop caps each analysis, and
         # records the batch when any of them hit that cap. If it fired
@@ -9377,10 +9384,34 @@ class TelegramHandler:
                     # at 18:08 because the first status simply pre-dated any
                     # LLM call.
                     health_line = ("\n⚪ <b>Brain: untested</b> — no LLM "
-                                   "analysis attempted since restart; state "
-                                   "will confirm on the first scan.")
+                                   "analysis attempted since restart; "
+                                   + _untested_confirm(h))
                 else:
                     health_line = "\n✅ <b>Brain: healthy</b> — LLM answering."
+                # WHETHER THE SWEEP ASKS THE LLM AT ALL — its own sentence,
+                # never merged into the brain's. `sweep_note` was written and
+                # tested for exactly this and, until now, called by NOTHING
+                # outside its tests: a renderer for a state the operator could
+                # not see anywhere.
+                #
+                # It was tracked, not invisible. tests/unreachable_baseline.txt
+                # does only track MODULES, and brain_state.py is imported for
+                # the brain icons — but the repo also runs a FUNCTION-level
+                # ratchet, and `sweep_note` sat in
+                # tests/unreachable_functions_baseline.txt. Wiring it here made
+                # that entry stale and the ratchet refused to pass until it was
+                # removed in this same commit — the known_failures.txt rule,
+                # working exactly as designed.
+                #
+                # Empty for the historical default, so the common case stays
+                # quiet. When the valve is off it says so, which matters most
+                # beside a HEALTHY brain: one user /analyze keeps the streak at
+                # 0 and last_ok fresh, so the brain reads healthy — truthfully
+                # — while every background signal that tick came from the rule
+                # engine, and the reader takes those for AI theses.
+                _sweep = _sweep_note(h)
+                if _sweep:
+                    health_line += f"\n{_sweep}"
                 # CHAT FAILURES, whatever the sweep says. 2026-09-02: a user
                 # asked twice, was told the AI was unavailable twice, then read
                 # "untested — no LLM analysis attempted since restart". True of

@@ -125,7 +125,6 @@ bot/core/symbol_rest.py:coverage_sentence
 bot/db/models.py:consume_link_token
 bot/formatters/brain_state.py:brain_state_of
 bot/formatters/brain_state.py:may_rule_out_llm
-bot/formatters/brain_state.py:sweep_note
 bot/llm/provider.py:model_supports_web_search
 bot/skills/quant_skill.py:analyze_live
 bot/skills/quant_skill.py:format_quant_for_telegram
