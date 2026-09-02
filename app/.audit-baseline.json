@@ -1,13 +1,11 @@
 {
   "_comment": "Known npm advisories in app/, recorded deliberately. This is a RATCHET floor, not an approval: every entry is an outstanding vulnerability. Regenerate with `node scripts/audit_gate.mjs --update` only when you have reviewed the delta. Shrinking this file is always good; growing it needs a reason in the commit message.",
-  "recorded": "2026-08-14",
+  "recorded": "2026-09-02",
   "counts": {
     "critical": 0,
     "high": 0,
     "moderate": 0,
-    "low": 1
+    "low": 0
   },
-  "advisoryIds": [
-    "1123977"
-  ]
+  "advisoryIds": []
 }
