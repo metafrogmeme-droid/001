@@ -681,6 +681,7 @@ from bot.core.proactive_monitor import ProactiveMonitor
 from bot.marketing.channel_forwarder import ChannelForwarder
 from bot.marketing.public_text import public_close_line
 from bot.formatters.rich_cards import (
+    analyze_budget_line,
     display_symbol,
     fetch_analysis_data,
     position_watch_line,
@@ -10606,18 +10607,13 @@ class TelegramHandler:
         # is simply wider than the budget, which is the fix the operator can
         # actually apply. Shown only when a real shortfall is forecast from a
         # MEASURED rate — never as a guess, and never when it fits.
-        try:
-            _capf = getattr(self.engine, "_analyze_capacity", None)
-            if isinstance(_capf, dict) and (_capf.get("shortfall") or 0) > 0:
-                msg += (
-                    f"\n📉 Analyze budget short: <b>{_capf['of']}</b> signals at "
-                    f"{_capf['per_signal_s']:.1f}s each needs ~{_capf['needed_s']:.0f}s "
-                    f"against a {_capf['cap_s']:.0f}s cap — about "
-                    f"<b>{_capf['fits']}</b> fit, <b>{_capf['shortfall']}</b> will not "
-                    f"be analysed. Lower TOP_MOVERS_COUNT or raise "
-                    f"SCAN_ANALYSIS_CONCURRENCY.")
-        except Exception:
-            pass
+        # Shared with the degraded ALERT, which is the surface that actually
+        # wakes someone. Inline here, the remedy lived on a screen you had to
+        # go and open while the alert named only the phase that died.
+        _budget = analyze_budget_line(
+            getattr(self.engine, "_analyze_capacity", None), self._lang(update))
+        if _budget:
+            msg += f"\n{_budget}"
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).
         # Keyed on the ACCOUNT, not the armed state — an idle real account

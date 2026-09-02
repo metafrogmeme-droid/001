@@ -48,6 +48,7 @@ from bot.compat import UTC
 from typing import Any, Callable, Optional, Set
 
 from bot.config import CONFIG
+from bot.formatters.rich_cards import analyze_budget_line, position_watch_line
 from bot.utils.logger import audit, system_log
 
 from bot.utils.atomic_write import atomic_write_json
@@ -1163,6 +1164,37 @@ class ProactiveMonitor:
                 if isinstance(pt, dict) and pt.get("phase"):
                     cause = (f"Cause: phase <b>{pt['phase']}</b> exceeded its "
                              f"{float(pt.get('cap_s') or 0):.0f}s cap.\n")
+                # The MEASURED remedy, not just the dying phase. "analyze
+                # exceeded its 300s cap" tells an operator what broke and
+                # nothing about what to change; the engine has already worked
+                # out that N signals at Xs each cannot fit, and that number
+                # names the setting to move. It lived on /status only — a
+                # screen you have to go and open, from an alert that woke you.
+                budget = ""
+                try:
+                    _b = analyze_budget_line(
+                        getattr(self.engine, "_analyze_capacity", None))
+                    if _b:
+                        budget = f"{_b}\n"
+                except Exception:
+                    pass
+                # Whether money is actually exposed. This alert said open
+                # positions "could be unmonitored" — a hedge the process does
+                # not have to make: _backstop_position_monitor records, every
+                # tick, whether the SL/TP monitor ran. Same vocabulary as
+                # /status, /positions and the runbook, deliberately: an
+                # operator should not have to translate between the screen
+                # that woke them and the screen they open next.
+                watch_line = ""
+                try:
+                    _w = position_watch_line(
+                        self.engine.position_watch()
+                        if hasattr(self.engine, "position_watch") else None,
+                        verbose=True)
+                    if _w:
+                        watch_line = f"{_w}\n"
+                except Exception:
+                    pass
                 alerts.append(Alert(
                     alert_type="TICK_FAILURE", severity="CRITICAL",
                     title="Engine loop degraded",
@@ -1171,8 +1203,15 @@ class ProactiveMonitor:
                         "────────────────\n"
                         f"The main loop has failed <b>{fails}</b> times in a row.\n"
                         f"{cause}"
-                        "Scanning and position monitoring may be impaired — "
-                        "open positions could be <b>unmonitored</b>.\n"
+                        f"{budget}"
+                        # Scanning IS impaired — a failing tick is a tick that
+                        # did not finish looking for entries, and that stays
+                        # true whatever the stops are doing. The position half
+                        # is no longer a guess, so it is no longer phrased as
+                        # one; when nothing has been recorded the line says
+                        # exactly that rather than reverting to "could be".
+                        "Scanning is impaired — new entries may be missed.\n"
+                        f"{watch_line}"
                         "────────────────\n"
                         "\U0001f449 /status — check engine state\n"
                         "\U0001f449 /positions — verify SL/TP are in place"),

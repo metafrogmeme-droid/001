@@ -887,6 +887,21 @@ _STRINGS: dict[str, dict[str, str]] = {
     "val_sltp_unknown": {"en": "not recorded — the engine has not completed a tick",
                          "zh": "未記錄 — 引擎尚未完成一次循環"},
     "val_ticks": {"en": "ticks", "zh": "次循環"},
+    # ONE key, not nine fragments. Composing this sentence from "signals at",
+    # "each needs", "against a", "cap" … forced an empty zh value for a word
+    # Chinese absorbs into its neighbour, which test_i18n rightly rejects —
+    # and a sentence assembled from word-order-dependent scraps is not
+    # translatable in the first place.
+    "fmt_analyze_budget_short": {
+        "en": ("\U0001f4c9 Analyze budget short: <b>{of}</b> signals at {per:.1f}s "
+               "each needs ~{needed:.0f}s against a {cap:.0f}s cap — about "
+               "<b>{fits}</b> fit, <b>{short}</b> will not be analysed. "
+               "Lower TOP_MOVERS_COUNT or raise SCAN_ANALYSIS_CONCURRENCY."),
+        "zh": ("\U0001f4c9 分析預算不足：<b>{of}</b> 個訊號，每個 {per:.1f} 秒，"
+               "共需約 {needed:.0f} 秒，但上限為 {cap:.0f} 秒 — 約 <b>{fits}</b> "
+               "個可完成，<b>{short}</b> 個不會被分析。請調低 TOP_MOVERS_COUNT "
+               "或調高 SCAN_ANALYSIS_CONCURRENCY。"),
+    },
     "val_peak_of": {"en": "peak of", "zh": "峰值／上限"},
     "val_cap_hit": {"en": "cap hit, tick cancelled", "zh": "已達上限，循環取消"},
     "val_signals_done": {"en": "signals analysed before it was cancelled",

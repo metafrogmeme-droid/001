@@ -144,19 +144,38 @@ class TestItReachesTheOperator:
         src = code_only(open("api_bridge.py", encoding="utf-8").read())
         assert "if _analyze_capacity(engine) is not None else {}" in src
 
-    def test_status_card_states_the_two_levers(self):
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
-        assert "Analyze budget short" in src
-        assert "TOP_MOVERS_COUNT" in src
-        assert "SCAN_ANALYSIS_CONCURRENCY" in src
+    # These two scanned telegram_handler.py because the line was built inline
+    # there and nothing else could reach it. It is a pure renderer now —
+    # shared with the degraded ALERT, which is the surface that actually wakes
+    # an operator — so they run it instead of matching its source. The scan
+    # could not have told a rendered line from a deleted one; these can.
 
-    def test_status_card_stays_quiet_when_the_budget_fits(self):
+    def test_the_budget_line_states_the_two_levers(self):
+        from bot.formatters.rich_cards import analyze_budget_line
+        out = analyze_budget_line(
+            {"of": 85, "per_signal_s": 4.1, "needed_s": 348.5, "cap_s": 300.0,
+             "fits": 73, "shortfall": 12, "measured_from": 75})
+        assert "Analyze budget short" in out
+        assert "TOP_MOVERS_COUNT" in out
+        assert "SCAN_ANALYSIS_CONCURRENCY" in out
+        assert "85" in out and "73" in out and "12" in out
+
+    def test_the_budget_line_stays_quiet_when_the_budget_fits(self):
         # A warning that fires on healthy ticks gets ignored on the tick that
-        # matters.
+        # matters. Omitted when it fits AND when no rate has been measured —
+        # neither is a claim that it fits.
+        from bot.formatters.rich_cards import analyze_budget_line
+        fits = {"of": 40, "per_signal_s": 4.1, "needed_s": 164.0, "cap_s": 300.0,
+                "fits": 73, "shortfall": 0, "measured_from": 75}
+        assert analyze_budget_line(fits) == ""
+        assert analyze_budget_line(None) == ""
+
+    def test_status_still_reaches_the_shared_renderer(self):
+        # The wiring half: behaviour is covered above, this pins that /status
+        # did not stop calling it during the extraction.
         src = code_only(
             open("bot/skills/telegram_handler.py", encoding="utf-8").read())
-        assert 'get("shortfall") or 0) > 0' in src
+        assert "analyze_budget_line(" in src
 
     def test_no_prose_symbol_count_in_the_scanner_docstring(self):
         # The docstring said top_movers_count was "(80)"; the default is 200.

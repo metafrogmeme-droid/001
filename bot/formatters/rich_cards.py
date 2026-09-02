@@ -981,6 +981,47 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
 
 # ── Status card ──────────────────────────────────────────────────
 
+def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
+    """The measured reason the analyze phase cannot finish, and the fix.
+
+    "Phase analyze exceeded its 300s cap" says a phase died. It does not say
+    the universe is simply wider than the budget, which is the one thing the
+    operator can actually change. This says it with numbers the engine
+    measured — effective wall-clock throughput from the previous batch, so it
+    already carries the concurrency in force.
+
+    OMITTED, not guessed, when there is no shortfall to report: no forecast
+    on file (no batch has completed, so no rate has been measured), or the
+    work fits. Neither is a claim that it fits — the phase-timeout line
+    beside this one says independently whether a phase died. Inventing a
+    forecast from a guessed rate is what this whole instrument exists to
+    avoid, and a fabricated remedy is worse than none: it sends someone to
+    change a setting that was not the problem.
+
+    Extracted from _cmd_status, where it was inline and therefore reusable by
+    nothing — the degraded ALERT, which is what actually wakes an operator,
+    named the dying phase while the remedy stayed on a screen they had to go
+    and open.
+    """
+    if not isinstance(capacity, dict):
+        return ""
+    try:
+        if int(capacity.get("shortfall") or 0) <= 0:
+            return ""
+        return t('fmt_analyze_budget_short', lang).format(
+            of=int(capacity["of"]),
+            per=float(capacity["per_signal_s"]),
+            needed=float(capacity["needed_s"]),
+            cap=float(capacity["cap_s"]),
+            fits=int(capacity["fits"]),
+            short=int(capacity["shortfall"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        # A malformed forecast is not a measurement either. Say nothing
+        # rather than render half a sentence with a stray number in it.
+        return ""
+
+
 def position_watch_line(watch: Optional[dict], lang: str = "en",
                         verbose: bool = False) -> str:
     """Say whether the SL/TP monitor actually ran on the last tick.
