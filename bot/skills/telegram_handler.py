@@ -1047,6 +1047,14 @@ class TelegramHandler:
             # War Room commands
             ("latest_signal", self._cmd_latest_signal),
             ("open_positions", self._cmd_open_positions),
+            # /positions is what operators type and what our own alerts
+            # tell them to type — the degraded-loop alert ends with
+            # "/positions — verify SL/TP are in place". It was never
+            # registered, so the most safety-critical instruction in the
+            # product answered "I don't have a /positions command", and
+            # command_menu.suggest() lists it under what people MISTYPE.
+            # It is not a mistype when we printed it.
+            ("positions", self._cmd_open_positions),
             ("orders", self._cmd_orders),
             ("performance", self._cmd_performance),
             ("pause", self._cmd_pause),
