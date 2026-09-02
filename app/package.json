@@ -17,5 +17,8 @@
   },
   "devDependencies": {
     "comlink": "^4.4.2"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }
