@@ -1008,6 +1008,21 @@ def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
     try:
         if int(capacity.get("shortfall") or 0) <= 0:
             return ""
+        # A rate measured on a batch that was itself cancelled omits the
+        # analyses still running at the cap — the slow ones — so the shortfall
+        # it yields is a FLOOR. Saying "4 will not be analysed" from such a
+        # rate, on a tick that managed 20 of 40, is the defect this instrument
+        # exists to prevent, one level up: an honest number wrapped in a
+        # sentence that overstates what it knows.
+        if capacity.get("partial"):
+            return t('fmt_analyze_budget_short_floor', lang).format(
+                of=int(capacity["of"]),
+                per=float(capacity["per_signal_s"]),
+                cap=float(capacity["cap_s"]),
+                short=int(capacity["shortfall"]),
+                measured_from=int(capacity["measured_from"]),
+                measured_of=int(capacity["measured_of"]),
+            )
         return t('fmt_analyze_budget_short', lang).format(
             of=int(capacity["of"]),
             per=float(capacity["per_signal_s"]),

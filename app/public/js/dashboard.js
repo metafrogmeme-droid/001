@@ -4202,15 +4202,14 @@
         // only alarming when there is a real shortfall — a warning that fires
         // on healthy ticks gets ignored on the tick that matters.
         const a = f.analyze_capacity;
-        const short = (a.shortfall || 0) > 0;
-        tiles.push(short
+        const copy = analyzeBudgetCopy(a);
+        tiles.push(copy.short
           ? `<div class="panel" style="background:var(--surface-2);border:1px solid var(--down,#c0392b)"><div class="stat">
               <div class="k">Analyze budget · SHORT</div>
-              <div class="v" style="color:var(--down,#c0392b)">${Number(a.fits) || 0} of ${Number(a.of) || 0} fit</div>
-              <div class="d muted small">${Number(a.shortfall)} symbols will not be analysed this tick — needs ~${Math.round(a.needed_s)}s vs a ${Math.round(a.cap_s)}s cap</div>
+              <div class="v" style="color:var(--down,#c0392b)">${esc(copy.headline)}</div>
+              <div class="d muted small">${esc(copy.detail)}</div>
             </div></div>`
-          : tile('Analyze budget', `${Number(a.of) || 0} fit`,
-              `~${Math.round(a.needed_s)}s of a ${Math.round(a.cap_s)}s cap at the measured rate`));
+          : tile('Analyze budget', copy.headline, copy.detail));
       }
       if (f.entry_timing) tiles.push(tile('Entry timing', f.entry_timing.enabled ? 'ALL REGIMES' : (f.entry_timing.regimes || []).join(', ').toUpperCase() || 'OFF', 'wave-degree confirmation before entries'));
       if (f.shadow_book?.counts) {
@@ -4219,6 +4218,47 @@
       }
       return tiles.length ? `<div class="grid grid-3">${tiles.join('')}</div>` : null;
     }, { empty: OFFLINE });
+
+    // The analyze-budget sentence, extracted so it can be RUN rather than
+    // grepped. Its wording turns on `partial`, and a source scan cannot tell a
+    // branch that exists from one that is reached — which is how a per-position
+    // outcome shipped and rendered zero times.
+    //
+    // The claim's strength is the whole point. A forecast built from a batch
+    // that was ITSELF cancelled omits the analyses still running at the cap,
+    // and those are the slow ones — so `fits` is a ceiling and `shortfall` is a
+    // floor. Saying "4 symbols will not be analysed" from such a rate, on a
+    // tick that managed 20 of 40, is a bound printed as a measurement.
+    //
+    // Three-way on purpose: only an explicit `partial === false` earns the
+    // exact wording. Absent means we cannot tell whether the rate is a floor,
+    // and "at least" is true either way — so the hedge is kept and only the
+    // provenance clause, which we would be inventing, is dropped.
+    function analyzeBudgetCopy(a) {
+      const num = (x) => (typeof x === 'number' && isFinite(x)) ? x : null;
+      const of = num(a.of), fits = num(a.fits), short = num(a.shortfall);
+      const cap = num(a.cap_s), needed = num(a.needed_s);
+      const capTxt = cap == null ? '—' : `${Math.round(cap)}s`;
+      const neededTxt = needed == null ? '—' : `~${Math.round(needed)}s`;
+      if (!(short > 0)) {
+        return { short: false,
+                 headline: of == null ? '— fit' : `${of} fit`,
+                 detail: `${neededTxt} of a ${capTxt} cap at the measured rate` };
+      }
+      if (a.partial === false) {
+        return { short: true,
+                 headline: `${fits == null ? '—' : fits} of ${of == null ? '—' : of} fit`,
+                 detail: `${short} symbols will not be analysed this tick — needs ${neededTxt} vs a ${capTxt} cap` };
+      }
+      const from = num(a.measured_from), mof = num(a.measured_of);
+      const why = (from != null && mof != null)
+        ? ` — the rate comes from a batch that was itself cut short (${from} of ${mof} done), so the real shortfall is larger`
+        : '';
+      return { short: true,
+               headline: `at most ${fits == null ? '—' : fits} of ${of == null ? '—' : of} fit`,
+               detail: `at least ${short} symbols will not be analysed${why}` };
+    }
+    // end analyzeBudgetCopy
 
     renderPanel(C('ecards'), async () => {
       const cards = scan?.entry_cards || [];

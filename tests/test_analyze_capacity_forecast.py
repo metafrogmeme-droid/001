@@ -184,3 +184,107 @@ class TestItReachesTheOperator:
         # once with the bridge's universe list.
         src = open("bot/core/market_scanner.py", encoding="utf-8").read()
         assert "top_movers_count`` (80)" not in src
+
+
+class TestAPartialMeasurementIsAFloorNotAnEstimate:
+    """A cancelled batch's rate omits the analyses that had not finished.
+
+    Those are, by construction, the slow ones. So `per_signal_s` is a floor on
+    the true per-signal cost, `fits` is a ceiling, and `shortfall` is a floor —
+    and for a long time the sentence built from them said none of that.
+
+    On 2026-09-02 a status card carried both halves at once:
+
+        Tick phase timed out: analyze (exceeded its 300s, x5)
+          -> 20/40 signals analysed before it was cancelled
+        Analyze budget short: 40 signals at 8.1s each ... about 36 fit,
+          4 will not be analysed.
+
+    Every number there was honestly derived. The claim wrapped around them was
+    not: it promised 36 on a tick that managed 20, and scaled its remedy to the
+    4. The bias cannot be corrected from the biased data, so the numbers are
+    unchanged and only the strength of the claim drops.
+    """
+
+    def test_a_cancelled_measurement_is_marked_partial(self):
+        rec = _forecast(40, {"per_signal_s": 8.33, "done": 36, "of": 40})
+        assert rec["partial"] is True
+        assert rec["measured_from"] == 36
+        assert rec["measured_of"] == 40
+
+    def test_a_completed_measurement_is_not_partial(self):
+        rec = _forecast(40, {"per_signal_s": 8.33, "done": 40, "of": 40})
+        assert rec["partial"] is False
+
+    def test_the_producer_always_emits_both_counts(self):
+        """The renderer decides on these two, so they may never be absent."""
+        for tp in ({"per_signal_s": 4.0, "done": 10, "of": 10},
+                   {"per_signal_s": 4.0, "done": 3, "of": 99}):
+            rec = _forecast(50, tp)
+            assert "measured_from" in rec and "measured_of" in rec
+            assert "partial" in rec
+
+    def test_the_numbers_themselves_are_unchanged(self):
+        """Only the claim weakens. Inventing a corrected rate would be a
+        fabricated number, which is the thing this instrument exists to avoid.
+        """
+        tp = {"per_signal_s": 8.33, "done": 36, "of": 40}
+        rec = _forecast(40, tp)
+        assert rec["per_signal_s"] == 8.33
+        assert rec["fits"] == int(300.0 / 8.33)
+        assert rec["shortfall"] == rec["of"] - rec["fits"]
+
+
+class TestTheBudgetLineSaysWhichKindOfNumberItIs:
+    def _line(self, **over):
+        from bot.formatters.rich_cards import analyze_budget_line
+        cap = {"of": 40, "per_signal_s": 8.33, "needed_s": 333.0,
+               "cap_s": 300.0, "fits": 36, "shortfall": 4,
+               "measured_from": 36, "measured_of": 40, "partial": True}
+        cap.update(over)
+        return analyze_budget_line(cap, "en")
+
+    def test_a_partial_measurement_reports_a_floor(self):
+        out = self._line()
+        assert "at least 4" in out
+
+    def test_a_partial_measurement_names_what_it_was_measured_on(self):
+        """Without the provenance, "at least" is an unexplained hedge."""
+        out = self._line()
+        assert "36 of 40 done" in out
+        assert "cut short" in out
+
+    def test_a_complete_measurement_keeps_the_exact_claim(self):
+        """The floor wording must not leak onto a rate that is not a floor."""
+        out = self._line(partial=False, measured_from=40)
+        assert "at least" not in out
+        assert "4</b> will not be analysed" in out
+
+    def test_both_wordings_still_state_the_two_levers(self):
+        for partial in (True, False):
+            out = self._line(partial=partial)
+            assert "TOP_MOVERS_COUNT" in out
+            assert "SCAN_ANALYSIS_CONCURRENCY" in out
+
+    def test_a_fitting_budget_is_still_silent_either_way(self):
+        assert self._line(shortfall=0) == ""
+        assert self._line(shortfall=0, partial=False) == ""
+
+    def test_a_partial_record_missing_its_counts_says_nothing(self):
+        """Malformed is not a measurement — the existing contract, kept."""
+        from bot.formatters.rich_cards import analyze_budget_line
+        assert analyze_budget_line(
+            {"of": 40, "per_signal_s": 8.3, "needed_s": 333.0, "cap_s": 300.0,
+             "fits": 36, "shortfall": 4, "partial": True}, "en") == ""
+
+    def test_the_floor_wording_is_translated_not_spliced(self):
+        """Both locales must carry the whole sentence, per the i18n block's
+        own note: a sentence assembled from word-order-dependent scraps is not
+        translatable in the first place."""
+        from bot.utils.i18n import _STRINGS
+        entry = _STRINGS["fmt_analyze_budget_short_floor"]
+        assert set(entry) >= {"en", "zh"}
+        for lang in ("en", "zh"):
+            for field in ("{of}", "{short}", "{measured_from}", "{measured_of}",
+                          "TOP_MOVERS_COUNT", "SCAN_ANALYSIS_CONCURRENCY"):
+                assert field in entry[lang], (lang, field)

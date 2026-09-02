@@ -3259,7 +3259,23 @@ class RuneClawEngine:
             # rather than as a shortfall.
             "shortfall": max(0, of - fits),
             "measured_from": int(tp.get("done") or 0),
+            # What the measuring batch was ASKED to do. Together with
+            # measured_from this says whether the rate came from a batch that
+            # finished — and when it did not, every number above is a bound
+            # rather than an estimate. See `partial`.
+            "measured_of": int(tp.get("of") or 0),
         }
+        # A cancelled batch's rate EXCLUDES the analyses still running when the
+        # cap hit, and those are by construction the slow ones. So per_signal_s
+        # is a floor on the true per-signal cost, `fits` is a ceiling, and
+        # `shortfall` is a floor. On 2026-09-02 that read as "4 will not be
+        # analysed" on a tick that analysed 20 of 40 — the forecast was honest
+        # about its own inputs and the sentence built from it was not.
+        #
+        # The bias cannot be corrected from biased data, so the numbers are
+        # unchanged and only the CLAIM weakens: the renderer says "at least".
+        rec["partial"] = bool(rec["measured_of"] > 0
+                              and rec["measured_from"] < rec["measured_of"])
         if rec["shortfall"] > 0:
             audit(scan_log,
                   f"Analyze budget short: {of} signals at "
