@@ -337,7 +337,14 @@
       var r = await fetch('/api/wallet/portfolio', { credentials: 'same-origin',
         headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
       var d = await r.json().catch(function () { return null; });
-      if (!r.ok || !d || !d.linked) { walletNote(T('sx.w_none', 'No linked wallet found. Link one in Account, then come back.'), 'bad'); return; }
+      // A 502 is not an absent wallet. `!r.ok` and unparseable JSON are FAILED
+      // READS; only `!d.linked` is "you have no wallet". They were one branch,
+      // so a server error told the user to go and link a wallet they had
+      // already linked. `sx.w_failed` existed for this and was reachable only
+      // from the outer catch, which fires when fetch THROWS — never when it
+      // returns a 502.
+      if (!r.ok || !d) { walletNote(T('sx.w_failed', 'Could not read the wallet mirror just now — nothing was changed.'), 'bad'); return; }
+      if (!d.linked) { walletNote(T('sx.w_none', 'No linked wallet found. Link one in Account, then come back.'), 'bad'); return; }
       var assets = (d.assets || []).filter(function (a) { return Number(a.usd) > 0 && a.symbol && a.chain; });
       if (!assets.length) { walletNote(T('sx.w_empty', 'The linked wallet mirrors no priced balances, so there is no book to build.'), 'bad'); return; }
       // Home = the chain holding the most value. A guess, said as one.

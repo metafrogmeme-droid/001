@@ -102,29 +102,66 @@ function computeExposure(openTrades, walletAssets) {
   };
 }
 
-/** Load the caller's open positions + wallet and compute. Fails soft. */
+/**
+ * Load the caller's open positions + wallet and compute.
+ *
+ * Fails soft, and SAYS SO. The previous version caught the trades query with
+ * `catch (e) { /* section empty *\/ }` — leaving `openTrades = []`, which
+ * `computeExposure` turns into no assets, which the chat surface renders as
+ * "No directional exposure found — no open positions". A database failure
+ * therefore answered "how exposed am I?" with "you have nothing", to a user
+ * holding leveraged positions, on the one surface they open to check.
+ *
+ * The wallet half was already honest — it reported `wallet_included` rather
+ * than pretending — and this brings the positions half up to that standard.
+ * Both reads now report whether they happened, so a caller can render an
+ * error state instead of inheriting a confident zero.
+ *
+ * `wallet_state` is three-valued because `wallet_included: false` was one
+ * word for three different facts — no wallet linked, the portfolio call
+ * returned nothing, and the call threw — and only the first is "you have no
+ * wallet". `wallet_included` is kept as the boolean it always was.
+ */
 async function buildExposure(userId) {
   let openTrades = [];
+  let positionsRead = true;
   try {
     const [rows] = await pool.execute(
       `SELECT symbol, direction, size_usd FROM trades
         WHERE user_id = ? AND status = 'OPEN' ORDER BY opened_at DESC`, [userId]);
     openTrades = rows;
-  } catch (e) { /* section empty */ }
+  } catch (e) {
+    // NOT an empty book. Nothing below may present it as one.
+    positionsRead = false;
+  }
 
   let walletAssets = null;
+  let walletState = 'not_linked';
   try {
     const address = await wallet.walletAddressOf(userId);
     if (address) {
       const p = await wallet.getWalletPortfolio(address);
-      if (p) walletAssets = p.assets;
+      if (p) {
+        walletAssets = p.assets;
+        walletState = 'included';
+      } else {
+        // Linked, and the portfolio call gave us nothing back. We cannot tell
+        // an empty wallet from a failed fetch here, so we do not claim either.
+        walletState = 'unreadable';
+      }
     }
-  } catch (e) { /* wallet unreadable → perp-only view */ }
+  } catch (e) {
+    walletState = 'unreadable';
+  }
 
   return {
     ...computeExposure(openTrades, walletAssets),
-    wallet_included: Array.isArray(walletAssets),
-    open_positions: openTrades.length,
+    positions_read: positionsRead,
+    wallet_state: walletState,
+    wallet_included: walletState === 'included',
+    // null, not 0: an unread book has an unknown number of positions, and 0
+    // is a real answer that a client is entitled to render as "you are flat".
+    open_positions: positionsRead ? openTrades.length : null,
   };
 }
 
@@ -140,10 +177,32 @@ async function maybeHandleExposureChat(userId, text) {
   if (!CHAT_RE.test(String(text || ''))) return null;
   try {
     const e = await buildExposure(userId);
-    if (!e.assets.length) {
+
+    // GUARD, not omit. The question is "how exposed am I?" — there is no
+    // partial answer to that worth giving, and every wrong answer here is the
+    // reassuring one. An unread book must never reach the sentence below.
+    if (!e.positions_read) {
       return {
-        reply_html: 'No directional exposure found — no open positions'
-          + (e.wallet_included ? ' and no non-stable wallet holdings.' : ', and no wallet linked.'),
+        reply_html: "I couldn't read your open positions just now, so I can't "
+          + 'tell you your exposure. <b>This is not a report that you have '
+          + 'none</b> — it is a failed read. Try again in a moment, or check '
+          + 'your positions directly.',
+        intent: 'exposure',
+      };
+    }
+
+    if (!e.assets.length) {
+      // Positions read, and there are none. The wallet clause is three-valued
+      // for the same reason: "no wallet linked" was being printed for a wallet
+      // that was linked and simply could not be fetched.
+      const walletBit = e.wallet_state === 'included'
+        ? ' and no non-stable wallet holdings.'
+        : e.wallet_state === 'not_linked'
+          ? ', and no wallet linked.'
+          : ', and your wallet could not be read just now — any spot holdings '
+            + 'are NOT included here.';
+      return {
+        reply_html: 'No directional exposure found — no open positions' + walletBit,
         intent: 'exposure',
       };
     }
@@ -159,10 +218,19 @@ async function maybeHandleExposureChat(userId, text) {
     const warn = e.warnings.length
       ? `<br><br>⚠️ <b>Worth knowing:</b><br>${e.warnings.map(w => `• ${w}`).join('<br>')}`
       : '';
+    // "everywhere" is a claim. When the wallet could not be read this is a
+    // perp-only view, and the note below says exposure nets perps against
+    // on-chain spot — so without this line the reader takes a partial total
+    // for a whole one.
+    const gap = e.wallet_state === 'unreadable'
+      ? '<br><br>⚠️ <b>Wallet not included</b> — your on-chain holdings could '
+        + 'not be read just now, so this covers perps only.'
+      : '';
     return {
-      reply_html: `🧭 <b>Your exposure — everywhere</b> (read-only)<br><br>${rows.join('<br>')}`
+      reply_html: `🧭 <b>Your exposure</b> (read-only)<br><br>${rows.join('<br>')}`
         + `<br><br>Net ${fmtUsd(e.net_total_usd)} · Gross ${fmtUsd(e.gross_total_usd)}`
         + (e.cash_usd ? ` · Cash (stables) ${fmtUsd(e.cash_usd)}` : '')
+        + gap
         + warn
         + `<br><br><i>${e.note}</i>`,
       intent: 'exposure',
