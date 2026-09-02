@@ -141,6 +141,36 @@ def sweep_mode(health: Optional[dict]) -> str:
     return SWEEP_LLM if bool(value) else SWEEP_RULES
 
 
+def untested_confirmation(health: Optional[dict]) -> str:
+    """What will actually confirm an UNTESTED brain, under the config in force.
+
+    `/llmstatus` said "state will confirm on the first scan", and
+    `_scan_timeout_hint` said "/llmstatus confirms on the first scan". Both are
+    true of the historical default and FALSE the moment
+    ``LLM_BACKGROUND_SCANS=off`` is set: the valve returns before any provider
+    is attempted, so a sweep never touches the brain and the state stays
+    untested for as long as the bot runs. An operator is then waiting on a
+    confirmation that cannot arrive, on the surface they opened precisely
+    because they did not know whether the brain works.
+
+    Only the sweep-asks-the-LLM case may promise a scan. Rules-only names a
+    user-invoked analysis instead, and UNKNOWN names one without asserting
+    anything about a sweep mode it could not read.
+    """
+    mode = sweep_mode(health)
+    if mode == SWEEP_LLM:
+        return "state will confirm on the first scan."
+    if mode == SWEEP_RULES:
+        return ("background scans do not ask the LLM, so no sweep will "
+                "confirm this \u2014 run <code>/analyze BTC</code> to test "
+                "the brain.")
+    # UNKNOWN. The first draft of this function reused the rules-only sentence
+    # here and asserted "background scans do not ask the LLM" about a mode it
+    # could not read — the same defect one level down from the one this exists
+    # to fix. Name the action, claim nothing about the sweep.
+    return "run <code>/analyze BTC</code> to test the brain."
+
+
 def sweep_note(health: Optional[dict]) -> str:
     """One line an operator can read, or '' when there is nothing to add.
 
