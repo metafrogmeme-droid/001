@@ -902,6 +902,23 @@ _STRINGS: dict[str, dict[str, str]] = {
                "個可完成，<b>{short}</b> 個不會被分析。請調低 TOP_MOVERS_COUNT "
                "或調高 SCAN_ANALYSIS_CONCURRENCY。"),
     },
+    # The same shortfall, measured on a batch that was ITSELF cut short. Its
+    # rate omits the analyses that had not finished — the slow ones — so every
+    # figure here is a bound. A whole sentence rather than a clause spliced
+    # into the one above, for the reason recorded at the top of this block.
+    "fmt_analyze_budget_short_floor": {
+        "en": ("\U0001f4c9 Analyze budget short: <b>{of}</b> signals at "
+               "\u2265{per:.1f}s each against a {cap:.0f}s cap \u2014 "
+               "<b>at least {short}</b> will not be analysed. The rate comes "
+               "from a batch that was itself cut short ({measured_from} of "
+               "{measured_of} done), so the real shortfall is larger. Lower "
+               "TOP_MOVERS_COUNT or raise SCAN_ANALYSIS_CONCURRENCY."),
+        "zh": ("\U0001f4c9 分析預算不足：<b>{of}</b> 個訊號，每個至少 {per:.1f} 秒，"
+               "上限為 {cap:.0f} 秒 \u2014 <b>至少 {short}</b> 個不會被分析。"
+               "此速率來自一個同樣被中斷的批次（已完成 {measured_from}／"
+               "{measured_of}），因此實際缺口更大。請調低 TOP_MOVERS_COUNT "
+               "或調高 SCAN_ANALYSIS_CONCURRENCY。"),
+    },
     "val_peak_of": {"en": "peak of", "zh": "峰值／上限"},
     "val_cap_hit": {"en": "cap hit, tick cancelled", "zh": "已達上限，循環取消"},
     "val_signals_done": {"en": "signals analysed before it was cancelled",
