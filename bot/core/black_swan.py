@@ -152,8 +152,16 @@ _HALT_SEVERITY = 0.8
 # emergency worth waking someone for. Hiding it would be the opposite defect:
 # a quiet channel that is not a claim the market is calm.
 #
-# Crypto is untouched — `is_market_open("Crypto")` is always True — so a real
-# crypto liquidity failure still reaches 1.00 and still pages.
+# Crypto is untouched — it has no reference session — so a real crypto
+# liquidity failure still reaches 1.00 and still pages.
+#
+# THE QUESTION HERE IS THE UNDERLYING'S SESSION, NOT THE VENUE'S. This asked
+# `is_market_open()`, which answers "may I place an order", and for stock
+# perps that is now always yes: Bitget made them 24/7 on 2026-02-07. Under the
+# old 02:30–09:00 UTC window the two answers were not merely conflated, they
+# were INVERTED — the detector stayed loud through the US night, when thin
+# books make a 47x spread ordinary, and attenuated during the cash session,
+# when the same reading is worth waking someone for.
 _OFF_HOURS_SEVERITY_CAP = _HALT_SEVERITY - 0.01
 
 
@@ -167,8 +175,19 @@ def off_hours_reason(symbol: str, now: Optional[datetime] = None) -> str:
     """
     try:
         from bot.core.market_scanner import _classify_symbol
-        from bot.core.order_rules import is_market_open
+        from bot.core.order_rules import (
+            _REFERENCE_SESSION,
+            is_market_open,
+            is_reference_session_open,
+        )
         asset_class = _classify_symbol(symbol)
+        # Classes that track an outside market: ask that market's clock. The
+        # perp is tradeable around the clock; its book is only tight when
+        # Wall Street is.
+        if asset_class in _REFERENCE_SESSION:
+            if is_reference_session_open(asset_class, now):
+                return ""
+            return f"{asset_class} reference market is closed"
         is_open, reason = is_market_open(asset_class, now)
         if is_open:
             return ""
