@@ -56,13 +56,13 @@ def _code_only(text: str) -> str:
 
 def test_it_starts_the_bot(src: str) -> None:
     code = _code_only(src)
-    assert re.search(r"nohup python -m bot\.main", code), "the launcher does not start the bot"
+    assert re.search(r'nohup "\$PY_BIN" -m bot\.main', code), "the launcher does not start the bot"
 
 
 def test_it_starts_the_api_bridge(src: str) -> None:
     """The one that was missing, and the whole reason this file exists."""
     code = _code_only(src)
-    assert re.search(r"nohup python api_bridge\.py", code), (
+    assert re.search(r'nohup "\$PY_BIN" api_bridge\.py', code), (
         "the launcher does not start api_bridge — insight, patterns and lab will "
         "502 while every other check reports the deploy healthy"
     )
@@ -163,8 +163,38 @@ def test_the_source_check_runs_before_anything_starts(src: str) -> None:
         "the source check is never actually invoked with a refusal — a deploy "
         "can land on stale code and start it"
     )
-    first_launch = code.index("nohup python")
+    first_launch = code.index("nohup")
     assert m.start() < first_launch, "the source check runs after a process has started"
+
+
+# ── the interpreter is a thing that can be missing ───────────────────────────
+
+def test_no_launch_hardcodes_an_interpreter_name(src: str) -> None:
+    """`nohup python ...` on a box that only has `python3`.
+
+    Debian and Ubuntu dropped the unversioned name years ago. On one of ours
+    the launcher wrote "python: command not found" into bot.log and carried on
+    to the next step — nohup had succeeded, a PID existed, and the reason sat
+    in a log nobody reads. verify_bot_alive.sh caught it, which is what it is
+    for, but by then the failure had already been reported as a launch.
+    """
+    code = _code_only(src)
+    bad = re.findall(r"nohup\s+(python3?)\b", code)
+    assert not bad, (
+        f"the launcher hardcodes {bad!r} — resolve the interpreter once and "
+        f"refuse if it is absent, rather than nohup-ing a name that may not exist"
+    )
+
+
+def test_the_interpreter_is_resolved_and_refused_before_anything_starts(src: str) -> None:
+    """A launcher that cannot name its own interpreter has nothing to
+    smoke-test, so it must die BEFORE the first nohup rather than after."""
+    code = _code_only(src)
+    m = re.search(r"\[ -n \"\$PY_BIN\" \]\s*\|\|\s*die", code)
+    assert m, "a missing interpreter does not stop the launcher"
+    assert m.start() < code.index("nohup"), (
+        "the interpreter check runs after a process has been launched"
+    )
 
 
 # ── it stays outside the repo ────────────────────────────────────────────────

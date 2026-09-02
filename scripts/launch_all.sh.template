@@ -17,10 +17,10 @@
 #
 # WHY THIS EXISTS: THERE ARE TWO PROCESSES, AND ONLY ONE WAS BEING STARTED.
 #
-#   python -m bot.main    the Telegram bot + engine. Also serves the GATEWAY
+#   $PY_BIN -m bot.main   the Telegram bot + engine. Also serves the GATEWAY
 #                         on :8080 — chat, proof, cards. This is what every
 #                         deploy started.
-#   python api_bridge.py  a SEPARATE uvicorn app on :8000. Three dashboard
+#   $PY_BIN api_bridge.py a SEPARATE uvicorn app on :8000. Three dashboard
 #                         panels read it: insight, patterns, lab.
 #
 # On 2026-08-25 the bridge was down for hours. Nothing had crashed — nothing
@@ -54,6 +54,32 @@ fi
 # ── persistent state symlinked back in ──────────────────────────────────────
 [ -x ./deploy.sh ] && ./deploy.sh
 
+# ── which interpreter, decided ONCE and BEFORE anything is started ──────────
+#
+# This said `nohup python ...`. Plenty of boxes ship `python3` and no `python`
+# at all — Debian and Ubuntu dropped the unversioned name years ago — and on
+# one of ours the launcher wrote "python: command not found" into bot.log and
+# went on to the next step. `verify_bot_alive.sh` caught it, which is what it
+# is for, but the failure had already been reported as a launch: nohup had
+# succeeded, a PID existed, and the log nobody reads held the reason.
+#
+# Resolved up front and DIED ON instead. A launcher that cannot name its own
+# interpreter has nothing to smoke-test.
+#
+# The venv comes first because `deploy.sh` already resolves it the same way,
+# and a box with a venv almost certainly means its dependencies are in there
+# rather than on the system interpreter. RUNECLAW_PYTHON overrides everything
+# for the box that needs something else.
+PY_BIN="${RUNECLAW_PYTHON:-}"
+if [ -z "$PY_BIN" ]; then
+  for _cand in "$REPO/.venv/bin/python" python3 python; do
+    if command -v "$_cand" >/dev/null 2>&1; then PY_BIN="$_cand"; break; fi
+  done
+fi
+[ -n "$PY_BIN" ] || die "no python interpreter found (tried \$RUNECLAW_PYTHON, \
+$REPO/.venv/bin/python, python3, python)"
+log "interpreter: $PY_BIN ($("$PY_BIN" -V 2>&1))"
+
 # ── 1. the bot (Telegram + engine + gateway on :8080) ───────────────────────
 #
 # `--mode telegram` is EXPLICIT. The default was once `cli`, which finds no TTY
@@ -61,7 +87,7 @@ fi
 # nothing running. It defaults to telegram now; passing it anyway costs nothing
 # and survives the default changing back.
 log "starting bot.main"
-nohup python -m bot.main --mode telegram >> bot.log 2>&1 &
+nohup "$PY_BIN" -m bot.main --mode telegram >> bot.log 2>&1 &
 BOT_PID=$!
 # On its own line: `&` binds looser than `&&`, so chaining this onto the launch
 # puts the cd in a background subshell and the gate runs somewhere else. That
@@ -70,7 +96,7 @@ scripts/verify_bot_alive.sh --pid "$BOT_PID" || die "bot.main did not stay up"
 
 # ── 2. the API bridge (uvicorn on :8000) ────────────────────────────────────
 log "starting api_bridge"
-nohup python api_bridge.py >> api_bridge.log 2>&1 &
+nohup "$PY_BIN" api_bridge.py >> api_bridge.log 2>&1 &
 BRIDGE_PID=$!
 # Longer window: uvicorn imports the whole app before it binds, and a bridge
 # that is merely slow must not be called dead.
