@@ -38,6 +38,13 @@ class _Recorder:
     from bot.core.engine import RuneClawEngine as _E
     _tick_guarded = _E._tick_guarded
     _backstop_position_monitor = _E._backstop_position_monitor
+    # The back-stop now records its verdict for /status and /positions, so the
+    # recorder is part of what _tick_guarded touches. Bound from the class for
+    # the same reason as the rest: a stand-in that reimplements the thing under
+    # test proves nothing about it.
+    _record_position_watch = _E._record_position_watch
+    _POSITION_WATCH_WATCHED = _E._POSITION_WATCH_WATCHED
+    _POSITION_WATCH_UNWATCHED = _E._POSITION_WATCH_UNWATCHED
     del _E
 
     async def _tick(self):

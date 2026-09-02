@@ -520,6 +520,43 @@ Do not skip this step and assume the first. A phase can reach a 300s cap with
 nothing hanging at all: an analysis makes ~9 requests, and at a 30s per-request
 cap six of them in series is 180s before the LLM turn is even reached.
 
+### Were the stops actually watched? — the SL/TP monitor line
+
+The degraded alert says open positions "could be **unmonitored**". That is a
+hedge, and the process does not have to hedge: `_check_open_positions` runs
+LAST in a tick, so a raised analyze phase unwinds the tick before reaching it,
+and `_backstop_position_monitor` then runs it from `_tick_guarded`'s `finally`.
+Whether that back-stop *completed* is the answer, and it is now on both screens
+the alert points at — `/status` and `/positions`.
+
+| shown | means | do |
+|---|---|---|
+| (nothing on `/status`) | the tick ran its own check and it finished | nothing |
+| `SL/TP monitor: ran this tick` | same, stated explicitly on `/positions` | nothing |
+| `SL/TP monitor: tick ended early — back-stop watched the stops` | **stops watched, loop failing.** Two facts; the second is the actionable one | triage the tick above |
+| `SL/TP monitor: DID NOT RUN — open positions unwatched` | the back-stop ran and did not complete | **verify SL/TP on the venue directly** |
+| `SL/TP monitor: back-stop FAILED — open positions unwatched` | the back-stop raised | as above |
+| `SL/TP monitor: not recorded` | no tick has recorded a verdict yet | check the engine is running at all |
+
+A `×N ticks` suffix counts *consecutive* ticks that ended unwatched. One is a
+blip. A run of them is the case the back-stop was written for — a persistently
+slow analyze phase leaves stops unwatched for as long as it keeps failing,
+which is exactly when an exchange is struggling and a stop matters most.
+
+Do not read a green `/status` headline as an answer to this. The loop being
+**alive** is the state in which stops go unwatched: analyze blows its cap, the
+tick unwinds, and the engine keeps ticking on schedule.
+
+The same verdict has always been in the log, if you can reach it:
+
+```
+Tick ended before its position check — ran the SL/TP monitor as a backstop
+                                              action=positions_backstop RAN
+Tick ended before its position check AND the backstop SL/TP monitor did not
+complete — open positions are unwatched for this tick
+                                       action=positions_backstop INCOMPLETE
+```
+
 ### The caps, and what each one bounds
 
 | env | default | bounds |

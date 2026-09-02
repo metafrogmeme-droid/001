@@ -683,6 +683,7 @@ from bot.marketing.public_text import public_close_line
 from bot.formatters.rich_cards import (
     display_symbol,
     fetch_analysis_data,
+    position_watch_line,
     render_open_positions,
     render_status_card,
 )
@@ -10567,6 +10568,12 @@ class TelegramHandler:
             phase_timeout=getattr(self.engine, "_last_phase_timeout", None),
             phase_headroom=(self.engine.phase_headroom()
                             if hasattr(self.engine, "phase_headroom") else None),
+            # Did the SL/TP monitor actually run? The degraded alert says open
+            # positions "could be" unmonitored and sends the reader HERE, so
+            # this is where the answer has to be — otherwise /status repeats
+            # the symptom, which is the same hole the phase-cause carry fixed.
+            position_watch=(self.engine.position_watch()
+                            if hasattr(self.engine, "position_watch") else None),
         )
         # A red headline with no reason sends the operator hunting. Name the
         # blocker. The warning-rate breaker in particular had no operator
@@ -12343,6 +12350,18 @@ class TelegramHandler:
             header = (f"\U0001f4ca <b>{t('hdr_open_positions_title', _pos_lang)} "
                       f"({len(filled_positions)})</b> {pnl_icon} {_total}")
             header += coverage_note(_book)
+            # The other surface the degraded alert points at, and the one
+            # whose entire subject is whether the stops are in place. verbose
+            # is on here: /status may omit the healthy line to stay short, but
+            # a positions card that says nothing about the monitor leaves the
+            # reader to infer it ran, and inferring is what the alert asked
+            # them not to do.
+            _watch_line = position_watch_line(
+                self.engine.position_watch()
+                if hasattr(self.engine, "position_watch") else None,
+                _pos_lang, verbose=True)
+            if _watch_line:
+                header += f"\n{_watch_line}"
             await self._send(update, header)
         elif not pending_orders:
             await self._send(update, t("positions_none_short", _pos_lang))

@@ -981,6 +981,76 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
 
 # ── Status card ──────────────────────────────────────────────────
 
+def position_watch_line(watch: Optional[dict], lang: str = "en",
+                        verbose: bool = False) -> str:
+    """Say whether the SL/TP monitor actually ran on the last tick.
+
+    The degraded alert tells the operator that open positions "could be
+    unmonitored" and points them at /status and /positions. The process knows
+    which it is — `_backstop_position_monitor` audits RAN / INCOMPLETE — and
+    that line went to a log the operator may have no way to reach. This is the
+    same fix the phase-cause carry already made one level up: a diagnosis that
+    does not reach the operator is not a diagnosis.
+
+    FOUR renderings, not two:
+
+      tick        watched on the normal path. The only one that may be
+                  omitted, and only when `verbose` is off, because /status is
+                  already long and every ABNORMAL state still renders.
+      backstop    watched, but by the back-stop — the tick is failing. Never
+                  omitted: "your stops are fine AND your loop is broken" is
+                  two facts and the second one is actionable.
+      incomplete  the back-stop ran and did not finish.
+      error       the back-stop raised.
+      (none)      nothing recorded. Rendered EXPLICITLY as unknown, never
+                  omitted and never coloured green — this is the surface the
+                  alert sends people to, and silence there reads as "fine".
+
+    An outcome string this function does not recognise renders as unknown for
+    the same reason: a new verdict added upstream must not arrive here as an
+    all-clear by default.
+
+    Colour is a claim: red only for stops that were genuinely not watched,
+    a muted circle for unknown.
+    """
+    if not isinstance(watch, dict):
+        return f"\u26aa {t('lbl_sltp_monitor', lang)}: {t('val_sltp_unknown', lang)}"
+    outcome = watch.get("outcome")
+
+    # Age is a clause, not a number the line depends on. `age_s` is None when
+    # the timestamp could not be read; omit it rather than printing "0s ago",
+    # which is the most reassuring answer there is and would be invented.
+    age = watch.get("age_s")
+    age_txt = ""
+    if isinstance(age, (int, float)) and not isinstance(age, bool) and age >= 0:
+        age_txt = f", {float(age):.0f}s {t('val_ago', lang)}"
+
+    # Consecutive ticks that ended with the stops unwatched. One is a blip;
+    # a run of them is the incident the back-stop's docstring warns about.
+    streak = watch.get("unwatched_streak")
+    streak_txt = ""
+    if isinstance(streak, int) and not isinstance(streak, bool) and streak > 1:
+        streak_txt = f"\u00d7{streak} {t('val_ticks', lang)}, "
+
+    if outcome == "tick":
+        if not verbose:
+            return ""
+        return (f"\u2705 {t('lbl_sltp_monitor', lang)}: "
+                f"{t('val_sltp_ran', lang)}"
+                + (f" ({age_txt[2:]})" if age_txt else ""))
+    if outcome == "backstop":
+        return (f"\u26a0\ufe0f {t('lbl_sltp_monitor', lang)}: "
+                f"{t('val_sltp_backstop', lang)}"
+                + (f" ({age_txt[2:]})" if age_txt else ""))
+    if outcome in ("incomplete", "error"):
+        body = (t('val_sltp_unwatched', lang) if outcome == "incomplete"
+                else t('val_sltp_backstop_failed', lang))
+        detail = f"{streak_txt}{age_txt[2:] if age_txt else ''}".strip().rstrip(",")
+        return (f"\U0001f534 <b>{t('lbl_sltp_monitor', lang)}: {body}</b>"
+                + (f" ({detail})" if detail else ""))
+    return f"\u26aa {t('lbl_sltp_monitor', lang)}: {t('val_sltp_unknown', lang)}"
+
+
 def render_status_card(
     mode: str,
     active: bool,
@@ -997,8 +1067,15 @@ def render_status_card(
     next_tick_in_s: Optional[float] = None,
     phase_timeout: Optional[dict] = None,
     phase_headroom: Optional[dict] = None,
+    position_watch: Optional[dict] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
+    # Whether the SL/TP monitor actually ran. Sits with the phase timeout
+    # because they are cause and consequence: analyze blowing its cap is what
+    # unwinds the tick before its position check, and the degraded alert names
+    # the first while leaving the second as "could be". Empty on the healthy
+    # path; every other state, including "no reading", renders.
+    _watch_line = position_watch_line(position_watch, lang)
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
     # `"LIVE" if ... else "PAPER"` was two-valued, and the mode is not.
     # `live_readiness.mode_label()` also answers IDLE (SIMULATION_MODE off but
@@ -1101,6 +1178,7 @@ def render_status_card(
             f"({float(phase_headroom['used_ratio']) * 100:.0f}%"
             + (f" — {t('val_cap_hit', lang)}"
                if phase_headroom.get("timed_out") else "") + ")"]),
+        *([] if not _watch_line else [f"- {_watch_line}"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —
