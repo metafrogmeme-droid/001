@@ -397,8 +397,18 @@ async def handle_health(request: web.Request) -> web.Response:
     memoised, and every failure path inside it yields "unknown" rather than
     raising, so liveness cannot be made to fail by asking.
     """
-    return web.json_response(
-        {"status": "ok", "build": build_short(), "timestamp": _ts()})
+    # `gateway` is the one thing this endpoint knows that the caller cannot
+    # infer from a 200: the dashboard answering says nothing about whether
+    # /gateway/* mounted, and that is exactly the question a failed probe of
+    # /gateway/health leaves open. Defaults to "unknown" rather than a
+    # cheerful value — an older app object that never set it has not told us
+    # the gateway is fine.
+    return web.json_response({
+        "status": "ok",
+        "build": build_short(),
+        "gateway": request.app.get("gateway_status", "unknown"),
+        "timestamp": _ts(),
+    })
 
 
 async def handle_ready(request: web.Request) -> web.Response:
@@ -594,11 +604,44 @@ def create_app(engine, tg_handler=None) -> web.Application:
     app.router.add_get("/health", handle_health)
     app.router.add_get("/ready", handle_ready)
     app.router.add_get("/metrics", handle_metrics)
+    # ── the gateway, and WHETHER IT MOUNTED ────────────────────────────────
+    #
+    # Two things probe `/gateway/health`: the launcher, which gates DEPLOY_DONE
+    # on it, and proactive_monitor._probe_public_gateway, whose stated job is
+    # telling a dead tunnel apart from a firewall. Both were asking a route
+    # that can silently not exist — `tg_handler` absent, or `build_gateway`
+    # raising into a `logging.warning` on a logger nobody reads — while the
+    # dashboard's own /health went on answering 200.
+    #
+    # So :8080 looks up, /gateway/health 404s, and the operator is told the
+    # TUNNEL is broken. That is a third fault being reported as one of the two
+    # the probe exists to distinguish, and it sends someone to restart
+    # cloudflared over a route the bot never registered. Reported live on
+    # 2026-09-02 as "bot health endpoint not responding".
+    #
+    # THREE values, because "nobody asked for it" and "it was asked for and
+    # broke" are different facts with different remedies, and neither is the
+    # good one. Stored on the app so the endpoint that DOES answer can say why
+    # the other does not.
+    app["gateway_status"] = "not_requested"
     if tg_handler is not None:
         try:
             from bot.web.user_gateway import build_gateway
             app.add_subapp("/gateway", build_gateway(engine, tg_handler))
+            app["gateway_status"] = "mounted"
         except Exception as exc:  # never let the gateway break the dashboard
-            import logging
-            logging.getLogger(__name__).warning("Web gateway not mounted: %s", exc)
+            app["gateway_status"] = "failed"
+            # audit, not logging.warning: this is the line that explains a
+            # DEPLOY_DONE that should not have been. The class name only —
+            # a gateway build failure can carry configuration in its message.
+            try:
+                from bot.utils.logger import audit, system_log
+                audit(system_log,
+                      f"Web gateway did not mount ({type(exc).__name__}) — "
+                      f"/gateway/* will 404 while the dashboard answers 200",
+                      action="gateway_mount", result="FAILED")
+            except Exception:
+                import logging
+                logging.getLogger(__name__).error(
+                    "Web gateway not mounted: %s", type(exc).__name__)
     return app
