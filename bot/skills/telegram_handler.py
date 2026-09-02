@@ -2429,6 +2429,11 @@ class TelegramHandler:
         from dataclasses import replace as _dc_replace
         _deadline = time.monotonic() + float(CONFIG.llm.chat_deadline_seconds)
         _tried = 0
+        # Providers that answered HTTP-fine and returned nothing, as
+        # distinct from providers that could not be reached. The reply
+        # below says which, because "temporarily unavailable" sent an
+        # operator to check a tunnel and a key that were both fine.
+        _empty_completions = 0
         last_error = ""
         for source, cfg in configs_to_try:
             _left = _deadline - time.monotonic()
@@ -2506,6 +2511,7 @@ class TelegramHandler:
                 # spent, and dropping that would hide real spend from /costs.
                 if not (answer or "").strip():
                     last_error = f"{cfg.provider.value}: empty completion"
+                    _empty_completions += 1
                     audit(system_log,
                           f"Chat empty completion from {cfg.provider.value}",
                           action="chat_empty", result="FALLBACK")
@@ -2551,6 +2557,8 @@ class TelegramHandler:
                   f"providers ({CONFIG.llm.chat_deadline_seconds:.0f}s budget). "
                   f"Last: {last_error}",
                   action="chat_deadline", result="EXHAUSTED")
+            self._note_chat_llm_failure(
+                f"deadline after {_tried}/{len(configs_to_try)} providers")
             return _chat_ret(
                 "I stopped waiting before any model answered — that's a "
                 "timeout on my side, not an answer, and nothing was analyzed. "
@@ -2559,10 +2567,56 @@ class TelegramHandler:
                 None, return_meta)
         audit(system_log, f"All chat LLM providers failed. Last: {last_error}",
               action="chat_error", result="ALL_FAILED")
+        self._note_chat_llm_failure(last_error)
+        # "TEMPORARILY UNAVAILABLE" IS A DIAGNOSIS, AND IT WAS THE WRONG ONE.
+        #
+        # 2026-09-02, live: every provider returned HTTP 200 and an EMPTY
+        # completion, and the reader was told the AI was unavailable. It was
+        # entirely available — it answered, with nothing. They checked the
+        # tunnel and the key twice on the strength of that sentence, and both
+        # were fine the whole time.
+        #
+        # The loop above already tells the two apart (`_empty_completions`
+        # counts one, the except branches the other); only the message folded
+        # them together. Different faults, different next step: unreachable is
+        # infrastructure, empty is the model or its prompt.
+        if _empty_completions and _empty_completions >= _tried:
+            return _chat_ret(
+                "The model answered but returned nothing — every provider "
+                "came back empty, which is a model or prompt problem rather "
+                "than a connection one. Your key and endpoint are fine. "
+                "Try /llmstatus for the last error, or a specific command "
+                "like /scan or /positions.",
+                None, return_meta)
         return _chat_ret(
             "I'm having trouble thinking right now — the AI is temporarily "
             "unavailable. Try again in a minute.",
             None, return_meta)
+
+    def _note_chat_llm_failure(self, reason: object = "") -> None:
+        """Tell the brain-health signal that a chat call failed.
+
+        This audit line already existed and went nowhere a person looks. The
+        health counter behind /llmstatus lives on the ANALYZER and is fed by
+        the analysis sweep alone, so a user could watch chat fail twice and
+        then be told "no LLM analysis attempted since restart" — true, and
+        useless, because they had not asked about the sweep.
+
+        Best-effort in both directions: no analyzer, no attribute, or a raise
+        all leave the reply exactly as it was. This runs inside the failure
+        handler, and instrumentation may not turn one failure into two.
+
+        The reason is TRUNCATED BY THE RECORDER, not here, and reaches only
+        /llmstatus — an admin surface. Provider exceptions can carry a
+        credential-bearing URL, which is why the reply above never shows one.
+        """
+        try:
+            analyzer = getattr(getattr(self, "engine", None), "analyzer", None)
+            note = getattr(analyzer, "note_llm_chat_failed", None)
+            if note is not None:
+                note(str(reason or ""))
+        except Exception:
+            pass
 
     async def _handle_photo(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """AI-5 vision: read a pasted chart / positions / PnL screenshot.
@@ -9327,6 +9381,28 @@ class TelegramHandler:
                                    "will confirm on the first scan.")
                 else:
                     health_line = "\n✅ <b>Brain: healthy</b> — LLM answering."
+                # CHAT FAILURES, whatever the sweep says. 2026-09-02: a user
+                # asked twice, was told the AI was unavailable twice, then read
+                # "untested — no LLM analysis attempted since restart". True of
+                # the SWEEP, and useless: they had not asked about the sweep.
+                # Appended rather than folded into the line above, because the
+                # sweep's state and chat's are different facts and the reader
+                # needs both — a healthy sweep with failing chat is a real and
+                # confusing state, and it is the one they were in.
+                _chatf = int(h.get("chat_failures", 0) or 0)
+                if _chatf:
+                    _ago = h.get("chat_seconds_ago")
+                    _when = (f" (last {float(_ago) / 60.0:.0f} min ago)"
+                             if isinstance(_ago, (int, float)) and _ago >= 60
+                             else " (last just now)" if _ago is not None else "")
+                    health_line += (
+                        f"\n🚨 <b>Chat: {_chatf} call"
+                        f"{'s' if _chatf != 1 else ''} failed</b> — every "
+                        f"provider fell through{_when}.")
+                    _cerr = str(h.get("chat_last_error", "") or "")
+                    if _cerr:
+                        health_line += (f"\nLast chat error: "
+                                        f"<code>{html.escape(_cerr[:160])}</code>")
         except Exception:
             health_line = ""
         # Key slots: every candidate Anthropic key the resolver can pick from,

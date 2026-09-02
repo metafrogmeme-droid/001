@@ -244,7 +244,27 @@ def render_engine_uses(rows: Sequence[TierRow]) -> str:
                 "read, not an absence of routing — nothing here says which "
                 "brain is answering.</i>")
 
-    out = ["<b>What answers right now</b>"]
+    # NOT "What answers right now". That header promised BEHAVIOUR and every
+    # icon under it reports CONFIGURATION: ✅ means a credential is set, and
+    # nothing here has called anything. 2026-09-02, live — four green ticks
+    # under that heading while every chat call was failing, read by someone who
+    # had just been told the AI was unavailable. Colour is a claim, and so is a
+    # heading. The brain-health line above this section is what answers the
+    # question this one was pretending to.
+    # NO GLYPH IN THIS SENTENCE. The first draft explained the tick by
+    # printing one, and eight tests correctly failed: they assert that a
+    # keyless or unchecked tier shows no pass mark anywhere, and prose is
+    # part of anywhere. Explaining a claim by making it is the same defect
+    # one level up.
+    # SAYS WHAT THE SECTION IS, AND NOTHING THE ROWS ALREADY SAY. Two earlier
+    # drafts each tripped a guard that was right: one explained the pass mark
+    # by printing one, in a card whose tests assert an unchecked tier shows no
+    # pass mark anywhere; the next used the word "credential", which every row
+    # already carries and which a test counts to stop the same fact being
+    # stated twice. Both guards predate this change and both caught it.
+    out = ["<b>How each tier is routed</b>",
+           "<i>Configuration, not liveness — whether a tier actually answers "
+           "is the brain line above.</i>"]
     for row in rows:
         # The ICON only. `_icon_and_note`'s note is "credential unknown" for an
         # unchecked state, which is the same fact the credential text below

@@ -606,6 +606,11 @@ class Analyzer:
         # LLM) does NOT touch these counters, so the streak only rises on real
         # provider failure. The streak resets to 0 on the next LLM success.
         self._llm_degraded_streak: int = 0        # consecutive all-provider fails
+        # Chat calls where every provider failed. Kept SEPARATE from the
+        # streak above on purpose — see note_llm_chat_failed.
+        self._llm_chat_failures: int = 0
+        self._llm_chat_last_error: str = ""
+        self._llm_chat_last_monotonic: float = 0.0
         self._llm_last_ok_monotonic: float = 0.0  # last successful LLM thesis
         self._llm_degraded_since_monotonic: float = 0.0  # when the streak began
         self._llm_last_error: str = ""            # last primary-provider error
@@ -4398,6 +4403,51 @@ class Analyzer:
         if reason:
             self._llm_last_error = str(reason)[:200]
 
+    def note_llm_chat_failed(self, reason: str = "") -> None:
+        """A CHAT call fell through every provider.
+
+        Live, 2026-09-02: a user asked twice, got "I'm having trouble thinking
+        right now" twice, then ran /llmstatus and was told "Brain: untested —
+        no LLM analysis attempted since restart". Both statements were true.
+        Together they said nothing had been tried, moments after two failures.
+
+        The reason is that `_llm_degraded_streak` is fed by the analysis sweep
+        and by nothing else. The chat path wrote `chat_error / ALL_FAILED` to
+        the audit log and stopped there, so the surface a person actually uses
+        could fail all day without moving the health signal a person checks.
+
+        NOT FOLDED INTO THE STREAK, and the asymmetry is the point. A failure
+        anywhere is evidence the brain is not answering, but the streak's
+        documented meaning is "consecutive THESES where every provider failed",
+        and it drives the degraded alert and the rule-engine fallback story.
+        Advancing it from chat would change what that number means and what
+        the alert claims. Reported alongside instead — the same treatment
+        `llm_health` already gives the sweep-valve fact below, for the same
+        reason: two different questions, two answers.
+
+        Chat successes deliberately do NOT clear it. A CHAT-tier success is
+        not evidence that SCAN answers; the tiers can point at different
+        models, and this repo's own tier card exists because they often do.
+        The count ages out of relevance via `chat_seconds_ago`, which the
+        reader can weigh, rather than being silently zeroed by an unrelated
+        success.
+
+        Never raises: this runs inside the chat path's failure handler, and
+        instrumentation may not turn one failure into two.
+        """
+        try:
+            # getattr rather than direct access: analyzers built without
+            # __init__ exist (several suites do it), and instrumentation that
+            # silently stops recording on those is worse than one that never
+            # ran — it looks like "no failures".
+            self._llm_chat_failures = int(
+                getattr(self, "_llm_chat_failures", 0) or 0) + 1
+            self._llm_chat_last_monotonic = time.monotonic()
+            if reason:
+                self._llm_chat_last_error = str(reason)[:200]
+        except Exception:
+            pass
+
     def llm_health(self) -> dict:
         """Snapshot of LLM brain health for the proactive monitor / /status.
 
@@ -4414,6 +4464,16 @@ class Analyzer:
                 (now - self._llm_last_ok_monotonic)
                 if self._llm_last_ok_monotonic > 0 else None),
             "last_error": self._llm_last_error,
+            # Chat calls that fell through every provider. A THIRD claim, and
+            # the one that was missing when a user watched chat fail twice and
+            # then read "untested". See note_llm_chat_failed for why it is not
+            # folded into the streak.
+            "chat_failures": int(getattr(self, "_llm_chat_failures", 0) or 0),
+            "chat_last_error": getattr(self, "_llm_chat_last_error", "") or "",
+            "chat_seconds_ago": (
+                (now - _chat_at) if (_chat_at := float(
+                    getattr(self, "_llm_chat_last_monotonic", 0.0) or 0.0)) > 0
+                else None),
             # A DIFFERENT CLAIM from the four above, deliberately reported
             # alongside them rather than folded in. The streak answers "is the
             # brain answering"; this answers "is the autonomous sweep ASKING".

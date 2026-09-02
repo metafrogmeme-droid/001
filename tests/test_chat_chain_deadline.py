@@ -55,10 +55,16 @@ class _Conversations:
 
 def _stub():
     return SimpleNamespace(
-        engine=SimpleNamespace(cost=CostTracker()),
+        engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
         conversations=_Conversations(),
         _build_chat_system_prompt=lambda user_id, user_name="": "system prompt",
         _is_admin=lambda update: False,
+        # The chat failure exits now tell the brain-health signal that a call
+        # fell through — /llmstatus said "no LLM analysis attempted since
+        # restart" straight after two chat failures, because the counter is
+        # fed by the analysis sweep alone. Real method on the real handler;
+        # this stub is a SimpleNamespace, so it needs it spelled out.
+        _note_chat_llm_failure=lambda reason="": None,
     )
 
 
