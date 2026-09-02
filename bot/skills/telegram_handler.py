@@ -14272,20 +14272,18 @@ class TelegramHandler:
             parts = data.split(":")
             trade_id = parts[1]
 
-            # Double-tap guard: skip if this trade was already confirmed
-            if not hasattr(self, '_confirmed_ids'):
-                self._confirmed_ids: set[str] = set()
-            if trade_id in self._confirmed_ids:
-                try:
-                    await query.answer("Already confirmed")
-                except Exception:
-                    pass
-                return
-            self._confirmed_ids.add(trade_id)
-            # Cap the set to prevent unbounded growth
-            if len(self._confirmed_ids) > 100:
-                self._confirmed_ids = set(list(self._confirmed_ids)[-50:])
-
+            # OWNERSHIP FIRST, THEN THE DOUBLE-TAP GUARD. The order was the
+            # other way round, and the guard CONSUMES the id: a stranger's
+            # `confirm:<id>` was added to _confirmed_ids and only then denied,
+            # so the trade's real owner tapping Confirm afterwards hit the
+            # guard and was told "Already confirmed" — for a trade that never
+            # executed. Anyone who could guess or observe a trade_id could burn
+            # it, and the message told the owner it had gone through.
+            #
+            # A denial must not spend the thing it is denying. `reject:` had
+            # the identical ordering and shares this set, so a stranger's
+            # reject also burned the confirm.
+            #
             # M3 FIX: validate callback belongs to requesting user.
             # RC-AUD-004: fail-closed. Every legitimate confirm button is built as
             # "confirm:<id>:<uid>" (see button construction sites), so a missing
@@ -14301,6 +14299,20 @@ class TelegramHandler:
                       f"Callback IDOR blocked: caller={caller_uid} expected={expected_uid}",
                       action="callback_idor_block", result="DENIED")
                 return
+
+            # Double-tap guard: skip if this trade was already confirmed
+            if not hasattr(self, '_confirmed_ids'):
+                self._confirmed_ids: set[str] = set()
+            if trade_id in self._confirmed_ids:
+                try:
+                    await query.answer("Already confirmed")
+                except Exception:
+                    pass
+                return
+            self._confirmed_ids.add(trade_id)
+            # Cap the set to prevent unbounded growth
+            if len(self._confirmed_ids) > 100:
+                self._confirmed_ids = set(list(self._confirmed_ids)[-50:])
 
             # H-18 FIX: LIVE mode — check per-user live trading permission
             if CONFIG.is_live() and not self._is_admin(update):
@@ -14409,17 +14421,10 @@ class TelegramHandler:
             parts = data.split(":")
             trade_id = parts[1]
 
-            # Double-tap guard
-            if not hasattr(self, '_confirmed_ids'):
-                self._confirmed_ids: set[str] = set()
-            if trade_id in self._confirmed_ids:
-                try:
-                    await query.answer("Already processed")
-                except Exception:
-                    pass
-                return
-            self._confirmed_ids.add(trade_id)
-
+            # OWNERSHIP FIRST — see the note in the confirm branch. This set is
+            # shared with `confirm:`, so denying a stranger here after
+            # consuming the id would burn the owner's confirm as well.
+            #
             # M3 FIX: validate callback belongs to requesting user.
             # RC-AUD-004: fail-closed — a missing owner tag means a crafted
             # callback (legitimate buttons are always "reject:<id>:<uid>").
@@ -14434,6 +14439,17 @@ class TelegramHandler:
                       f"Callback IDOR blocked: caller={caller_uid} expected={expected_uid}",
                       action="callback_idor_block", result="DENIED")
                 return
+
+            # Double-tap guard
+            if not hasattr(self, '_confirmed_ids'):
+                self._confirmed_ids: set[str] = set()
+            if trade_id in self._confirmed_ids:
+                try:
+                    await query.answer("Already processed")
+                except Exception:
+                    pass
+                return
+            self._confirmed_ids.add(trade_id)
             try:
                 result = self.engine.reject_trade(trade_id)
             except Exception as exc:

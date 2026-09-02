@@ -358,6 +358,14 @@ class UserSettings:
     llm_api_key: str = ""
     notifications_on: bool = True
     scan_interval_sec: int = 60
+    #: What was actually known about the stored key when this row was read:
+    #: "" (none) | "plaintext" | "decrypted" | "unreadable". NOT persisted —
+    #: it is a fact about this read, not about the account. `llm_api_key` is
+    #: empty for BOTH "never set one" and "stored but undecryptable", and those
+    #: need different advice: one is a setup step, the other means re-enter the
+    #: key you already have. Defaulted so every existing constructor and every
+    #: test that builds a UserSettings by hand keeps working.
+    llm_key_status: str = ""
 
 
 import logging as _logging
@@ -395,17 +403,63 @@ def _encrypt_llm_key(plaintext: str) -> str:
         return ""
 
 
-def _decrypt_llm_key(stored: str) -> str:
-    """Decrypt a stored LLM key. A value that isn't valid Fernet ciphertext is
-    assumed to be a legacy plaintext key and returned as-is (it will be
-    re-encrypted on the next save)."""
+#: A Fernet token is base64url of a payload whose first byte is 0x80, so every
+#: one begins "gAAAAA". No provider's key does: sk-…, sk-ant-…, AIza…, gsk_… .
+#: That is what lets "this was encrypted and we cannot read it" be told apart
+#: from "this was never encrypted".
+_FERNET_PREFIX = "gAAAAA"
+
+
+def llm_key_state(stored: str) -> str:
+    """``""`` | ``plaintext`` | ``decrypted`` | ``unreadable``.
+
+    THE FOURTH STATE IS THE POINT. `_decrypt_llm_key` used to answer a failed
+    decrypt by returning `stored` unchanged, under a comment naming both
+    situations at once — "Legacy plaintext (pre-encryption) or unreadable —
+    pass through." They are opposites. A legacy plaintext key is a real,
+    usable credential. Undecryptable ciphertext is not a credential at all,
+    and handing it back means the CIPHERTEXT becomes the key: the LLM status
+    endpoint sees a non-empty string, reports `connected: True`, and prints a
+    fingerprint of it, while every call fails at the provider with a 401.
+
+    That is a failed read rendered as a measurement, on a surface whose entire
+    job is to say whether the credential works.
+
+    Reachable whenever the Fernet master key changes or is lost — the same
+    class of event this repo already tracks for the exchange vault, where the
+    log says "could not decrypt … (stale master key?)".
+    """
     if not stored:
         return ""
     try:
-        return _llm_cipher().decrypt(stored.encode()).decode()
+        _llm_cipher().decrypt(stored.encode())
+        return "decrypted"
     except Exception:
-        # Legacy plaintext (pre-encryption) or unreadable — pass through.
+        return "unreadable" if stored.startswith(_FERNET_PREFIX) else "plaintext"
+
+
+def _decrypt_llm_key(stored: str) -> str:
+    """Decrypt a stored LLM key, or "" when it cannot be read.
+
+    A value that is not Fernet ciphertext is a legacy plaintext key and is
+    returned as-is (it will be re-encrypted on the next save). A value that IS
+    Fernet ciphertext and does not decrypt returns EMPTY rather than itself —
+    see `llm_key_state`. Empty is not a perfect answer either, but it is the
+    one that cannot be mistaken for a working key by a caller that only checks
+    truthiness, and `llm_key_state` is there for any surface that needs to say
+    *why* it is empty.
+    """
+    state = llm_key_state(stored)
+    if state == "":
+        return ""
+    if state == "plaintext":
         return stored
+    if state == "unreadable":
+        _log.error(
+            "LLM key could not be decrypted (stale master key?) — treating it "
+            "as absent rather than returning the ciphertext as a key")
+        return ""
+    return _llm_cipher().decrypt(stored.encode()).decode()
 
 
 # ASCII digits ONLY, and the restriction is the point — see settings_user_id.
@@ -583,6 +637,7 @@ def get_user_settings(user_id: int) -> UserSettings:
         max_open_positions=row["max_open_positions"],
         llm_provider=row["llm_provider"],
         llm_api_key=_decrypt_llm_key(row["llm_api_key"]),
+        llm_key_status=llm_key_state(row["llm_api_key"]),
         notifications_on=bool(row["notifications_on"]),
         scan_interval_sec=row["scan_interval_sec"],
     )
