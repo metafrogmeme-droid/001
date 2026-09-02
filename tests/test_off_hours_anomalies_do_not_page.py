@@ -34,6 +34,7 @@ leave the severe path entirely, folding into the 30-minute digest.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -47,11 +48,34 @@ from bot.core.black_swan import (
 
 UTC = timezone.utc
 SUNDAY = datetime(2026, 8, 30, 5, 1, 28, tzinfo=UTC)     # the actual flood
-# Stock PERPS, not US-session equities: order_rules trades them 02:30-09:00
-# UTC on weekdays (US hours during EDT) and closes them all weekend. The first
-# draft of this file used Wednesday 15:00 UTC as "open" — that is outside the
-# window, so three tests failed on a wrong premise rather than wrong code.
-WEDNESDAY = datetime(2026, 8, 26, 5, 0, 0, tzinfo=UTC)   # inside the session
+
+# THIS PREMISE WAS BACKWARDS, AND THE COMMENT EXPLAINING IT SAYS HOW.
+#
+# It read: "order_rules trades them 02:30-09:00 UTC ... The first draft of this
+# file used Wednesday 15:00 UTC as 'open' — that is outside the window, so
+# three tests failed on a wrong premise rather than wrong code." The first
+# draft was RIGHT. 15:00 UTC is 11:00 in New York, the middle of the session;
+# 05:00 UTC is midnight there. The tests disagreed with the code, and the code
+# was taken as the authority — which is how a wrong constant acquires a test
+# that defends it.
+#
+# Two separate facts settle it. Bitget moved stock perps to 24/7 trading on
+# 2026-02-07, so there is no venue window at all; and the equities they track
+# run 09:30-16:00 America/New_York, which is 13:30-20:00 UTC under EDT. The old
+# window was neither. Attenuation is about the UNDERLYING's clock — see
+# `is_reference_session_open` — so these times are now stated in New York terms
+# and converted, rather than written directly as UTC constants where a wrong
+# one looks exactly like a right one.
+_NY = ZoneInfo("America/New_York")
+
+
+def _at_ny(y, m, d, hh, mm):
+    """A UTC instant given as New York wall-clock — DST handled for us."""
+    return datetime(y, m, d, hh, mm, tzinfo=_NY).astimezone(UTC)
+
+
+WEDNESDAY = _at_ny(2026, 8, 26, 11, 0)      # 11:00 ET = 15:00 UTC, mid-session
+WEDNESDAY_NIGHT = _at_ny(2026, 8, 26, 1, 0)  # 01:00 ET = 05:00 UTC, shut
 
 
 def _alert(symbol, severity=1.00, kind=AnomalyType.SPREAD_WIDENING, ratio=47.2):
@@ -161,12 +185,85 @@ def test_off_hours_reason_names_the_cause():
 
 # ── the boundary ──────────────────────────────────────────────────────
 def test_the_boundary_moves_with_both_the_day_and_the_clock():
-    monday_open = SUNDAY + timedelta(days=1)          # Mon 05:01 — in session
-    monday_shut = SUNDAY + timedelta(days=1, hours=10)  # Mon 15:01 — after close
-    saturday = SUNDAY - timedelta(days=1)              # Sat 05:01 — weekend
-    assert off_hours_reason("META/USDT:USDT", now=monday_open) == "", (
-        "attenuating during the Monday session window")
-    assert off_hours_reason("META/USDT:USDT", now=monday_shut), (
-        "15:01 UTC is outside the 02:30-09:00 window — should be attenuated")
+    monday_night = SUNDAY + timedelta(days=1)            # Mon 05:01 UTC = 01:01 ET
+    monday_session = SUNDAY + timedelta(days=1, hours=10)  # Mon 15:01 UTC = 11:01 ET
+    saturday = SUNDAY - timedelta(days=1)                 # Sat 05:01 UTC
+    assert off_hours_reason("META/USDT:USDT", now=monday_night), (
+        "01:01 in New York is the middle of the night — thin books there are "
+        "ordinary and must not page")
+    assert off_hours_reason("META/USDT:USDT", now=monday_session) == "", (
+        "11:01 in New York is mid-session — a 47x spread there is a real event")
     assert off_hours_reason("META/USDT:USDT", now=saturday), (
-        "Saturday is closed for stock perps")
+        "Saturday: the underlying does not trade")
+
+
+def test_the_session_follows_new_york_across_the_dst_change():
+    """A fixed UTC window is wrong for ~4 months a year, and the window this
+    file used to assert could not have expressed the difference at all."""
+    summer = _at_ny(2026, 7, 15, 9, 45)   # EDT — 13:45 UTC
+    winter = _at_ny(2026, 1, 14, 9, 45)   # EST — 14:45 UTC
+    assert summer.hour == 13 and winter.hour == 14, "fixture lost the DST shift"
+    for t in (summer, winter):
+        assert off_hours_reason("META/USDT:USDT", now=t) == "", (
+            f"09:45 ET is in session; attenuated at {t:%H:%M} UTC")
+    # The same UTC clock time is on opposite sides of the open across the change.
+    assert off_hours_reason("META/USDT:USDT",
+                            now=datetime(2026, 1, 14, 13, 45, tzinfo=UTC)), (
+        "13:45 UTC in January is 08:45 ET — before the open")
+
+
+def test_a_stock_perp_order_is_never_gated_on_a_session():
+    """The venue is 24/7. Gating orders on a session widened live stops 25-50%
+    as `weekend gap risk` on an instrument with no weekend.
+
+    Swept across a FULL WEEK, hour by hour, rather than at three chosen
+    instants. Any re-added window has some shape, and a spot check only finds
+    the shapes you thought of — the old one passed its own tests for months.
+    """
+    from bot.core.order_rules import is_market_open, is_weekend_queued
+    start = datetime(2026, 8, 24, 0, 0, tzinfo=UTC)   # a Monday
+    for h in range(24 * 7):
+        t = start + timedelta(hours=h)
+        assert is_market_open("Stock", t)[0], f"stock perp reported shut at {t}"
+        assert not is_weekend_queued("Stock", t), (
+            f"stop-widening armed at {t} on a 24/7 instrument")
+
+
+def test_the_24_7_guarantee_is_explicit_not_a_fallback():
+    """`is_market_open` ends with "Unknown class — assume open", so Stock would
+    read as open even if it were dropped from the always-open set. That makes
+    the right answer an accident of a default meant for classes nobody has
+    classified. State it, so the guarantee has somewhere to fail."""
+    from bot.core.order_rules import _ALWAYS_OPEN, _SESSION_HOURS
+    assert "Stock" in _ALWAYS_OPEN
+    assert "Stock" not in _SESSION_HOURS
+
+
+def test_a_class_with_no_reference_market_is_never_in_session():
+    """Crypto has no outside clock to be shut by. Returning True here would
+    mark every crypto alert "in session" and, worse, imply there is a session."""
+    from bot.core.order_rules import is_reference_session_open
+    for t in (SUNDAY, WEDNESDAY, WEDNESDAY_NIGHT):
+        assert not is_reference_session_open("Crypto", t)
+
+
+def test_a_missing_timezone_database_attenuates_rather_than_pages(monkeypatch):
+    """Container images ship without tzdata often enough that this is a real
+    state, not a hypothetical. Failing the other way would page an operator on
+    ordinary thin-book spreads because a package was absent — noise on the
+    channel that exists for genuine emergencies."""
+    import builtins
+
+    from bot.core import order_rules as orr
+    real_import = builtins.__import__
+
+    def _no_zoneinfo(name, *a, **kw):
+        if name == "zoneinfo":
+            raise ModuleNotFoundError("No module named 'zoneinfo'")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", _no_zoneinfo)
+    # Mid-session in New York: the answer would be True if the clock were readable.
+    assert not orr.is_reference_session_open("Stock", WEDNESDAY)
+    assert off_hours_reason("META/USDT:USDT", now=WEDNESDAY), (
+        "an unreadable clock must attenuate, not page")
