@@ -483,7 +483,43 @@ def run_telegram() -> None:
             # never recovered until a full restart. This ticks the updater's
             # health and revives polling if it has stopped while we are NOT
             # shutting down. Fully fail-open; never raises into the boot path.
+            from bot.core.boot_health import engine_should_restart, format_stop_handlers, install_stop_handlers
             poller_state = {"stopping": False}
+
+            # Graceful stop, armed. Until this existed the `finally` below —
+            # stop_monitor, dashboard cleanup, updater.stop, app.stop,
+            # app.shutdown, engine.stop — was unreachable under every
+            # supervisor: no SIGTERM handler existed anywhere in the tree, and
+            # Python's default action for SIGTERM ends the process outright, so
+            # there is no exception and no `finally`. `systemctl restart` sends
+            # SIGTERM (the unit sets no KillSignal), which means the shutdown
+            # path had never once run in production.
+            #
+            # The 409 getUpdates conflict the watchdog above recovers from is a
+            # SYMPTOM of that: an old process that never called updater.stop()
+            # leaves its long poll open at Telegram, so the next instance
+            # collides with it.
+            #
+            # Cancelling engine_task (rather than the task running this
+            # function) is deliberate: `await engine_task` below raises
+            # CancelledError, the loop breaks, and the cleanup then runs in a
+            # task that was never itself cancelled — so every `await` in the
+            # `finally` completes instead of being interrupted by the next
+            # cancellation.
+            def _request_stop(signame: str) -> None:
+                if poller_state["stopping"]:
+                    return          # a second signal must not re-enter cleanup
+                poller_state["stopping"] = True
+                audit(system_log, f"{signame} received — shutting down gracefully",
+                      action="graceful_stop", result="STOPPING")
+                print(f"\n  {signame} received, shutting down gracefully...")
+                engine_task.cancel()
+
+            _armed = install_stop_handlers(loop, _request_stop)
+            audit(system_log, format_stop_handlers(_armed),
+                  action="stop_handlers",
+                  result="ARMED" if _armed else "NOT_ARMED")
+            print(f"  {format_stop_handlers(_armed)}\n")
 
             async def _poller_watchdog() -> None:
                 from bot.core.boot_health import poller_should_restart
@@ -507,7 +543,12 @@ def run_telegram() -> None:
             while True:
                 try:
                     await engine_task
-                    # Engine exited cleanly — shouldn't happen, restart
+                    # Engine exited cleanly. "Shouldn't happen, restart" is
+                    # right only when we are NOT stopping — during an
+                    # intentional shutdown it would spawn a fresh engine while
+                    # the `finally` below tears the old one down.
+                    if not engine_should_restart(poller_state["stopping"]):
+                        break
                     audit(system_log, "Engine loop exited unexpectedly, restarting",
                           action="engine_restart", result="RESTARTING")
                     print("  WARNING: Engine exited, restarting in 5s...")
@@ -518,6 +559,8 @@ def run_telegram() -> None:
                 except Exception as exc:
                     audit(system_log, f"Engine crashed: {exc}",
                           action="engine_crash", result="ERROR")
+                    if not engine_should_restart(poller_state["stopping"]):
+                        break
                     print(f"  ERROR: Engine crashed: {exc}. Restarting in 10s...")
                     await asyncio.sleep(10)
                     engine_task = asyncio.create_task(engine.run())
