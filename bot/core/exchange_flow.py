@@ -189,24 +189,36 @@ class ExchangeFlowProvider:
         Returns
         -------
         dict or None
-            ``{"oi_usd": float, "oi_change_pct": float}``
-            ``oi_change_pct`` is the percent change vs the previous observation.
-            Returns None if the exchange is unavailable or the fetch fails.
+            ``{"oi_usd": float, "oi_change_pct": float | None}``
+            ``oi_change_pct`` is the percent change vs the previous
+            observation, or **None** when there is no such comparison to make:
+            the first reading of a symbol, or a tick where the venue could not
+            be reached. It was 0.0 in all three cases, which is the reading for
+            "open interest did not move" — a market claim, made on the ticks
+            where nothing was measured.
+            Returns None entirely if there is no level to report either.
         """
         swap = _to_swap_symbol(symbol)
         entry = self._entry(swap)
 
         # Return cached value if fresh
         if entry["oi_usd"] is not None and (time.time() - entry["oi_updated_at"]) < self._oi_ttl:
-            change_pct = 0.0
+            change_pct = None
             if entry["oi_prev_usd"] and entry["oi_prev_usd"] > 0:
                 change_pct = (entry["oi_usd"] - entry["oi_prev_usd"]) / entry["oi_prev_usd"] * 100
-            return {"oi_usd": entry["oi_usd"], "oi_change_pct": round(change_pct, 3)}
+            return {"oi_usd": entry["oi_usd"],
+                    "oi_change_pct": (None if change_pct is None
+                                      else round(change_pct, 3))}
 
         exchange = await self._get_exchange()
         if exchange is None:
             if entry["oi_usd"] is not None:
-                return {"oi_usd": entry["oi_usd"], "oi_change_pct": 0.0}
+                # The CACHED level is a real reading and still worth returning.
+                # The CHANGE is not: nothing was fetched, so there is no second
+                # observation to difference against. 0.0 here reads as "open
+                # interest is flat", which is a market claim, on the tick where
+                # we could not reach the venue at all.
+                return {"oi_usd": entry["oi_usd"], "oi_change_pct": None}
             return None
 
         try:
@@ -224,15 +236,25 @@ class ExchangeFlowProvider:
                     entry["oi_usd"] = oi_usd
                     entry["oi_updated_at"] = time.time()
                 self._prune()
-                change_pct = 0.0
+                # None on the FIRST observation too. There is no previous
+                # level to compare against, and "0.0% change" on the first
+                # reading of a symbol is a measurement of nothing.
+                change_pct = None
                 if entry["oi_prev_usd"] and entry["oi_prev_usd"] > 0:
                     change_pct = (oi_usd - entry["oi_prev_usd"]) / entry["oi_prev_usd"] * 100
-                return {"oi_usd": oi_usd, "oi_change_pct": round(change_pct, 3)}
+                return {"oi_usd": oi_usd,
+                        "oi_change_pct": (None if change_pct is None
+                                          else round(change_pct, 3))}
         except Exception as exc:  # noqa: BLE001
             logger.warning("fetch_open_interest(%s) failed: %s", swap, exc)
 
         if entry["oi_usd"] is not None:
-            return {"oi_usd": entry["oi_usd"], "oi_change_pct": 0.0}
+            # Same as above, one failure mode further in: the fetch was
+            # attempted and raised. `smart_money` already tests
+            # `oi_change_pct is not None` before acting on it, so the honest
+            # value was always accepted — the producer was overriding a
+            # consumer that had been written correctly.
+            return {"oi_usd": entry["oi_usd"], "oi_change_pct": None}
         return None
 
     async def get_funding_history(self, symbol: str, limit: int = 20) -> list[dict]:

@@ -32,9 +32,17 @@ logger = logging.getLogger(__name__)
 
 # ── Position count cache ────────────────────────────────────────────
 # Avoids hammering the exchange API on every risk check during a scan.
+# `timestamp: 0.0` was compared against `time.monotonic()`, whose zero point is
+# arbitrary — on Linux it is boot, but inside a container or under a test clock
+# it can start near zero. Whenever `monotonic()` was below the 30s TTL, the very
+# first call returned the SEEDED count without asking the venue: "you have 0
+# open positions", to the check that decides whether another may be opened.
+#
+# None is not a time and cannot be subtracted, so the freshness test has to say
+# what it means, and "never fetched" stops being expressible as a number.
 _position_count_cache: dict[str, Any] = {
-    "count": 0,
-    "timestamp": 0.0,
+    "count": None,
+    "timestamp": None,
 }
 _POSITION_COUNT_TTL = 30.0  # seconds — refresh at most every 30s
 
@@ -427,8 +435,12 @@ async def get_exchange_position_count(engine) -> int:
     global _position_count_cache
     now = time.monotonic()
 
-    # Return cached value if fresh enough
-    if (now - _position_count_cache["timestamp"]) < _POSITION_COUNT_TTL:
+    # Return cached value if fresh enough. Both halves are checked: a cache
+    # that has never been filled has no timestamp to age and no count to serve.
+    _ts = _position_count_cache["timestamp"]
+    if (_ts is not None
+            and _position_count_cache["count"] is not None
+            and (now - _ts) < _POSITION_COUNT_TTL):
         return _position_count_cache["count"]
 
     try:
