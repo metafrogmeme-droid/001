@@ -108,6 +108,40 @@ def test_the_status_lines_it_quotes_are_the_ones_actually_emitted():
     assert '"Slowest tick phase"' in i18n or "Slowest tick phase" in i18n
 
 
+def test_the_sltp_monitor_vocabulary_is_what_the_card_renders():
+    """The runbook's SL/TP table is read by someone who has just been told
+    their positions "could be unmonitored". Every row is quoted from i18n
+    rather than restated, so rewording a label fails here until the runbook
+    is updated with it — the failure mode being a table that explains a line
+    the operator will never see."""
+    from bot.utils.i18n import t
+
+    cards = Path("bot/formatters/rich_cards.py").read_text(encoding="utf-8")
+    i18n = Path("bot/utils/i18n.py").read_text(encoding="utf-8")
+    for key in ("lbl_sltp_monitor", "val_sltp_ran", "val_sltp_backstop",
+                "val_sltp_unwatched", "val_sltp_backstop_failed",
+                "val_sltp_unknown"):
+        assert key in i18n, f"{key} is not defined"
+        assert key in cards, f"{key} is defined but nothing renders it"
+        english = t(key, "en")
+        assert english != key, f"{key} has no English rendering"
+        # "not recorded — the engine has not completed a tick" is quoted short
+        # in the table; match on the leading clause.
+        quoted = english.split(" \u2014 ")[0]
+        assert quoted in RUNBOOK, (
+            f"the runbook does not quote {key} ({quoted!r}) — an operator "
+            f"looking up a line they can see would not find it")
+
+
+def test_the_backstop_audit_action_it_tells_you_to_grep_for_exists():
+    engine = Path("bot/core/engine.py").read_text(encoding="utf-8")
+    assert 'action="positions_backstop"' in engine
+    assert "positions_backstop" in RUNBOOK
+    # Both verdicts, because grepping for only the reassuring one is how the
+    # bad news gets missed.
+    assert "RAN" in RUNBOOK and "INCOMPLETE" in RUNBOOK
+
+
 def test_the_audit_action_it_tells_you_to_grep_for_exists():
     engine = Path("bot/core/engine.py").read_text(encoding="utf-8")
     assert 'action="analysis_timeout"' in engine

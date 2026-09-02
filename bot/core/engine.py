@@ -622,6 +622,15 @@ class RuneClawEngine:
         # cap — surfaced in /status and in the degraded alert so the cause
         # travels with the symptom. None until one fires.
         self._last_phase_timeout: dict | None = None
+        # {outcome, unwatched_streak, at} for the most recent tick's verdict on
+        # whether the SL/TP monitor actually ran. The process has always KNOWN
+        # this — _backstop_position_monitor audits RAN/INCOMPLETE — but the
+        # audit line reached no operator surface, so the degraded alert said
+        # open positions "could be" unmonitored, sent the reader to /status,
+        # and /status could not answer it either. None until a tick records
+        # one: never having looked is not the same as having looked and found
+        # the stops watched.
+        self._last_position_watch: dict | None = None
         # {skipped, of, cap_s, at} for the most recent batch in which one or
         # more individual analyses exceeded their own cap. Distinct from the
         # phase timeout above: that one says the tick died, this one says a
@@ -3038,16 +3047,20 @@ class RuneClawEngine:
         them is the good news.
         """
         if getattr(self, "_positions_monitored_tick", False):
+            self._record_position_watch("tick")
             return
         try:
             await self._phase(self._check_open_positions(),
                               "positions (backstop)", fatal=False)
         except asyncio.CancelledError:
+            # Shutdown, not a verdict. Recording "unwatched" here would put a
+            # red line on /positions for every clean stop of the process.
             raise
         except Exception as exc:  # noqa: BLE001 — a back-stop never re-raises
             audit(system_log,
                   f"Backstop position monitor failed: {exc}",
                   action="positions_backstop", result="ERROR")
+            self._record_position_watch("error")
             return
         # RETURNING IS NOT EVIDENCE IT RAN. `fatal=False` is the whole reason
         # this call cannot take the loop down, and it buys that by returning
@@ -3065,12 +3078,87 @@ class RuneClawEngine:
                   "Tick ended before its position check — ran the SL/TP "
                   "monitor as a backstop",
                   action="positions_backstop", result="RAN")
+            self._record_position_watch("backstop")
         else:
             audit(system_log,
                   "Tick ended before its position check AND the backstop "
                   "SL/TP monitor did not complete — open positions are "
                   "unwatched for this tick",
                   action="positions_backstop", result="INCOMPLETE")
+            self._record_position_watch("incomplete")
+
+    #: Verdicts `_record_position_watch` may store. WATCHED means the SL/TP
+    #: monitor completed on this tick; the other two mean it did not. A value
+    #: outside this set is not assumed to be either — see `position_watch`.
+    _POSITION_WATCH_WATCHED = ("tick", "backstop")
+    _POSITION_WATCH_UNWATCHED = ("incomplete", "error")
+
+    def _record_position_watch(self, outcome: str) -> None:
+        """Remember whether this tick's SL/TP monitor actually ran.
+
+        FOUR outcomes, because the operator question is not yes/no:
+
+          tick        the tick reached its own position check and it finished
+          backstop    the tick died early; the back-stop watched the stops
+          incomplete  the back-stop ran and did NOT finish — stops unwatched
+          error       the back-stop raised — stops unwatched
+
+        `backstop` is deliberately not folded into `tick`. Both mean the stops
+        were watched, but one of them means the tick is failing, and an
+        operator reading /positions during a degraded loop is entitled to know
+        which guarantee is holding their money.
+
+        `unwatched_streak` is the number that separates a blip from the danger
+        `_backstop_position_monitor` names in its own docstring: "a
+        persistently slow analyze phase leaves them unwatched for as long as
+        it keeps failing". One is noise; five in a row is the incident.
+
+        Guarded. This runs on the NORMAL path of every tick, from inside
+        `_tick_guarded`'s finally — an exception raised here would propagate
+        out of the finally and REPLACE whatever real error the tick was
+        already carrying. Instrumentation may not change what happens when
+        things go wrong.
+        """
+        try:
+            prev = getattr(self, "_last_position_watch", None)
+            streak = int((prev or {}).get("unwatched_streak") or 0)
+            if outcome in self._POSITION_WATCH_UNWATCHED:
+                streak += 1
+            elif outcome in self._POSITION_WATCH_WATCHED:
+                streak = 0
+            # An outcome in neither tuple leaves the streak alone rather than
+            # clearing it: a value this method does not recognise is not
+            # evidence that the stops were watched.
+            self._last_position_watch = {
+                "outcome": outcome,
+                "unwatched_streak": streak,
+                "at": time.monotonic(),
+            }
+        except Exception:
+            pass
+
+    def position_watch(self) -> dict | None:
+        """The last recorded SL/TP-monitor verdict, with its age.
+
+        Returns None when nothing has been recorded — the engine has not
+        completed a tick yet. The caller must render that as UNKNOWN and not
+        as healthy: the whole reason this exists is that "could be
+        unmonitored" was the most alarming sentence on the operator's screen
+        and nothing downstream could resolve it.
+
+        `age_s` is None when the timestamp is unreadable rather than 0.0,
+        which would read as "just now" — the most reassuring possible answer
+        manufactured from a failed read.
+        """
+        rec = getattr(self, "_last_position_watch", None)
+        if not isinstance(rec, dict) or not rec.get("outcome"):
+            return None
+        out = dict(rec)
+        at = rec.get("at")
+        out["age_s"] = ((time.monotonic() - float(at))
+                        if isinstance(at, (int, float)) and not isinstance(at, bool)
+                        else None)
+        return out
 
     #: Stages of one analysis, in the order they run. Bound to the module
     #: constant so there is exactly one list.
