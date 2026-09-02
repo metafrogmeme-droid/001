@@ -758,6 +758,86 @@ separate, later, money decision. Collect first, read the curve, then decide.
 > `True`, so a nudge that adjusts **live entry confidence** looked inert.
 > `tests/test_flag_prose_matches_default.py` pins all of it now.
 
+## Serving the local model when the GPU is shared
+
+On 2026-09-02 the engine flapped OFFLINE/online for hours while every layer
+reported itself healthy: the auth proxy logged `POST /v1/chat/completions 200`,
+`/llmstatus` listed four configured tiers, and `curl /api/ps` answered
+`{"models":[]}` — which is what an idle server correctly says.
+
+The fault was two numbers that no surface compared, because they live on
+different machines. Ollama had **one** serving slot; the bot ran
+`SCAN_ANALYSIS_CONCURRENCY=12`. Eleven of every twelve analyses queued (Ollama
+queues up to `OLLAMA_MAX_QUEUE`, default 512, rather than refusing), each burned
+`LLM_TIMEOUT_SEC`, and the all-providers-exhausted path scored the pile-up as
+the provider being dead. Over-subscription and an outage are indistinguishable
+from the client side — that is the whole difficulty.
+
+### The one command
+
+```bash
+python3 scripts/verify_llm_serving.py
+```
+
+It holds both numbers at once and has **four outcomes**, because a server it
+could not reach is not a healthy one:
+
+| exit | meaning |
+|---|---|
+| `0` | every check ran and passed |
+| `1` | a real mismatch — the bot will fail or queue against this server |
+| `2` | usage error: nothing was checked |
+| `3` | at least one check could not be performed — **not** a pass |
+
+It also catches the trap next door: `bot/llm/provider.py` defaults the RUNECLAW
+tier's model to `runeclaw-v6`, and a store without that tag answers 404 — which
+the fallback chain scores as another dead provider rather than as a name that
+does not exist.
+
+### Requested is not granted
+
+`OLLAMA_NUM_PARALLEL=4` is a **ceiling**. The scheduler hands out what fits in
+VRAM, and on a card shared with a training run that can be 1. The config map
+printed at startup shows what was *asked for*; only the model-load line shows
+what was *given*:
+
+```
+findstr /c:"starting llama server" "%LOCALAPPDATA%\Ollama\server.log"   # Windows
+grep    "starting llama server"    ~/.ollama/logs/server.log              # Linux
+```
+
+Read `--parallel N` from the **last** such line and set
+`SCAN_ANALYSIS_CONCURRENCY=N`. Note that llama.cpp's `--ctx-size` is the
+**total across slots** — per-request context is that divided by `--parallel`, so
+a 16K setting shows up as 65536 at four slots.
+
+### Environment must reach the starting process
+
+Two ways to get this wrong, both seen on the same day:
+
+- **`setx` does not reach a running server.** It writes the registry; a process
+  already up keeps the environment it inherited. Restart it, then re-read the
+  config line and **check the timestamp is new** — a stale line showing old
+  values looks identical to a change that did not take.
+- **The launcher wins over the shell.** If a script starts Ollama, the values in
+  force are the ones that script sets. Everywhere else you set them is
+  decoration. Same rule as the bot launcher in "There are TWO processes".
+
+### While a fine-tune has the card
+
+Do not tune around a shared GPU — take the valve `bot/config.py` already
+provides for it:
+
+```
+LLM_BACKGROUND_SCANS=off
+```
+
+Background sweeps then run on the rule engine (milliseconds per symbol) and
+every user-invoked analysis keeps the LLM to itself. It reads `on`/`off` via
+`_env_switch`, **not** `_env_bool` — whose false-vocabulary omits `"off"`, so
+`_env_bool` would read `off` as true and the valve would be silently inert.
+Turn it back on when training finishes.
+
 ## Standing hazards
 
 **An ephemeral Cloudflare quick tunnel is a single point of failure.** The
