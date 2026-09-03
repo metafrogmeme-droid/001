@@ -1756,9 +1756,21 @@ class MemoryDB {
     // -- TRADES --
     if (cmd.includes('DELETE FROM TRADES') && cmd.includes('USER_ID')) {
       if (cmd.includes('LIMIT 1')) {
-        // Delete one open trade by symbol
-        const idx = this.trades.findIndex(t => t.user_id === params[0] && t.symbol === params[1] && t.status === 'OPEN');
+        // Delete ONE open trade. Honour the tighter key when the statement
+        // carries it -- sync.js's close event matches direction + entry_price
+        // so it closes THIS position and not an arbitrary same-symbol one --
+        // and report the real affectedRows. The previous branch matched on
+        // symbol alone and always answered 0, which would have made the
+        // caller's "nothing matched, fall back to symbol-only" path delete a
+        // SECOND row on this backend. MySQL reports the true count; this
+        // shim has to as well or the fallback is a bug here and not there.
+        const tight = cmd.includes('DIRECTION') && cmd.includes('ENTRY_PRICE');
+        const idx = this.trades.findIndex(t =>
+          t.user_id === params[0] && t.symbol === params[1] && t.status === 'OPEN'
+          && (!tight || (String(t.direction) === String(params[2])
+                         && Number(t.entry_price) === Number(params[3]))));
         if (idx >= 0) this.trades.splice(idx, 1);
+        return [{ affectedRows: idx >= 0 ? 1 : 0 }, []];
       } else if (cmd.includes("STATUS = 'OPEN'")) {
         // Delete only the user's OPEN rows (portfolio write-through refresh)
         this.trades = this.trades.filter(t => !(t.user_id === params[0] && t.status === 'OPEN'));
@@ -1769,23 +1781,41 @@ class MemoryDB {
     }
 
     if (cmd.includes('INSERT INTO TRADES')) {
-      const trade = { id: this._nextTradeId++ };
-      // Parse based on param count. Both real call sites (sync.js's full
-      // POST / and its /trade-event close branch) bind exactly 11 params
-      // for a closed-trade insert -- 'CLOSED' is a literal in the SQL, not
-      // a placeholder -- so this must be 11, not 12 (the previous ===12
-      // check never matched either real call site, silently dropping every
-      // closed trade's user_id/symbol/etc in dev/demo mode without MySQL).
-      if (params.length === 11) {
-        // Closed trade insert
-        Object.assign(trade, { user_id: params[0], symbol: params[1], direction: params[2], entry_price: params[3], exit_price: params[4], size_usd: params[5], pnl: params[6], fees: params[7], status: 'CLOSED', pattern: params[8], opened_at: params[9], closed_at: params[10] });
-      } else if (params.length === 10) {
-        // Open trade insert (positions array from the full sync -- includes opened_at)
-        Object.assign(trade, { user_id: params[0], symbol: params[1], direction: params[2], entry_price: params[3], size_usd: params[4], fees: params[5], status: 'OPEN', pattern: params[6], stop_loss: params[7], take_profit: params[8], opened_at: params[9] });
-      } else if (params.length === 9) {
-        // Open trade insert (trade-event open branch -- no explicit opened_at)
-        Object.assign(trade, { user_id: params[0], symbol: params[1], direction: params[2], entry_price: params[3], size_usd: params[4], fees: params[5], status: 'OPEN', pattern: params[6], stop_loss: params[7], take_profit: params[8], opened_at: new Date() });
+      // Parse the COLUMN LIST, not the parameter count. The previous branch
+      // dispatched on params.length (11 / 10 / 9) beside a comment asserting
+      // that "both real call sites bind exactly 11 params" -- true when it
+      // was written, and untrue once `venue` and `event_id` joined the real
+      // statements: a full-sync OPEN position (11 params) was then stored as
+      // a CLOSED trade with exit_price = its size, and a trade-event close
+      // (12 params) fell through every branch and stored `{ id }` alone. A
+      // column the statement names is bound in order; a quoted literal is
+      // taken as written; anything else is refused, like every other shape
+      // this shim does not understand. Schema defaults fill what the
+      // statement did not say, so the row reads like the MySQL row would.
+      const m = /INSERT INTO trades\s*\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/i.exec(sql);
+      if (!m) throw new Error('MemoryDB: unparseable INSERT INTO trades');
+      const cols = m[1].split(',').map((c) => c.trim().toLowerCase()).filter(Boolean);
+      const vals = m[2].split(',').map((v) => v.trim()).filter(Boolean);
+      if (cols.length !== vals.length) {
+        throw new Error(`MemoryDB: INSERT INTO trades names ${cols.length} columns but supplies ${vals.length} values`);
       }
+      const trade = { id: this._nextTradeId++ };
+      let pi = 0;
+      cols.forEach((c, k) => {
+        const v = vals[k];
+        if (v === '?') trade[c] = params[pi++];
+        else if (/^'.*'$/.test(v)) trade[c] = v.slice(1, -1);
+        else if (/^NULL$/i.test(v)) trade[c] = null;
+        else if (/^-?\d+(\.\d+)?$/.test(v)) trade[c] = Number(v);
+        else throw new Error(`MemoryDB: unsupported value ${v} in INSERT INTO trades`);
+      });
+      if (pi !== params.length) {
+        throw new Error(`MemoryDB: INSERT INTO trades binds ${pi} placeholders but received ${params.length} params`);
+      }
+      if (!('status' in trade)) trade.status = 'OPEN';          // schema DEFAULT 'OPEN'
+      if (!('fees' in trade)) trade.fees = 0;                   // DEFAULT 0
+      if (!('venue' in trade)) trade.venue = 'bitget';          // DEFAULT 'bitget'
+      if (!('opened_at' in trade)) trade.opened_at = new Date(); // DEFAULT CURRENT_TIMESTAMP
       this.trades.push(trade);
       return [{ insertId: trade.id }, []];
     }

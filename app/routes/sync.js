@@ -484,36 +484,52 @@ router.post('/trade-event', async (req, res) => {
            trade.stop_loss || null, trade.take_profit || null, eid]
         );
       } else if (event === 'close') {
-        // INSERT BEFORE DELETE, and the order is the whole safety argument.
+        // ATOMIC. The comment this replaces declined a transaction because the
+        // in-memory pool had none, and "a safety property that only holds on
+        // one of two backends is not one" -- right, and stale once MemoryDB
+        // learned begin/commit/rollback. withTransaction holds on both and
+        // refuses, rather than degrading, on any backend that cannot.
         //
-        // The old order deleted the OPEN row first. Add a unique constraint to
-        // that and a replayed close becomes strictly worse than the duplicate
-        // it prevents: the DELETE has already removed a live position when the
-        // INSERT is rejected, so the position vanishes and no close replaces
-        // it. Insert first and a rejection costs nothing -- the open row is
-        // still there, untouched.
-        //
-        // A transaction would also solve it, but the in-memory pool this app
-        // falls back to without DATABASE_URL has no transaction support, and a
-        // safety property that only holds on one of two backends is not one.
-        // Ordering holds on both.
-        //
-        // If the process dies between the two statements the open row lingers
-        // beside its close; the next full portfolio sync is replace-all and
-        // heals it. A lingering open row is visible and self-correcting. A
-        // deleted position is neither.
-        await pool.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, event_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
-          [user_id, trade.symbol, trade.direction, trade.entry_price, trade.exit_price,
-           trade.size_usd, trade.pnl, trade.fees || 0, trade.pattern || null,
-           trade.opened_at ? new Date(trade.opened_at) : new Date(),
-           trade.closed_at ? new Date(trade.closed_at) : new Date(), eid]
-        );
-        await pool.execute(
-          "DELETE FROM trades WHERE user_id = ? AND symbol = ? AND status = 'OPEN' LIMIT 1",
-          [user_id, trade.symbol]
-        );
+        // INSERT stays before DELETE inside it: a duplicate-key rejection of
+        // the INSERT is answered by the catch below as "already recorded",
+        // and with the INSERT first there is no DELETE to undo on that path.
+        // What the transaction buys is the window where an open row lingered
+        // beside its close until the next replace-all sync -- a phantom
+        // position on /positions, on a money surface.
+        await withTransaction(async (conn) => {
+          await conn.execute(
+            `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, event_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
+            [user_id, trade.symbol, trade.direction, trade.entry_price, trade.exit_price,
+             trade.size_usd, trade.pnl, trade.fees || 0, trade.pattern || null,
+             trade.opened_at ? new Date(trade.opened_at) : new Date(),
+             trade.closed_at ? new Date(trade.closed_at) : new Date(), eid]
+          );
+          // CLOSE THIS POSITION, NOT AN ARBITRARY ONE. Symbol-only LIMIT 1
+          // closed whichever same-symbol row came first, and two opens on one
+          // symbol is a real state (website_sync.py and
+          // dedupe_duplicate_positions both exist because of it). Match on
+          // direction + entry_price; fall back to symbol-only ONLY when the
+          // tight key hit nothing, so a differently-rounded entry_price still
+          // closes something rather than stranding the row.
+          const dir = trade.direction == null ? null : String(trade.direction);
+          const entry = Number(trade.entry_price);
+          let matched = 0;
+          if (dir && Number.isFinite(entry)) {
+            const [r] = await conn.execute(
+              "DELETE FROM trades WHERE user_id = ? AND symbol = ? AND status = 'OPEN' "
+              + "AND direction = ? AND entry_price = ? LIMIT 1",
+              [user_id, trade.symbol, dir, entry]
+            );
+            matched = Number(r && r.affectedRows) || 0;
+          }
+          if (!matched) {
+            await conn.execute(
+              "DELETE FROM trades WHERE user_id = ? AND symbol = ? AND status = 'OPEN' LIMIT 1",
+              [user_id, trade.symbol]
+            );
+          }
+        });
       }
     } catch (err) {
       // The database recognised this delivery. Same answer as the in-process

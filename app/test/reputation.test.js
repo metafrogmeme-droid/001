@@ -105,7 +105,7 @@ test.before(async () => {
   const uid = rows[0].id;
   token = jwt.sign({ user_id: uid, email: rows[0].email }, process.env.JWT_SECRET);
 
-  const ins = 'INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)';
+  const ins = "INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at) VALUES (?,?,?,?,?,?,?,?,'CLOSED',?,?,?)";
   await pool.execute(ins, [uid, 'BTC/USDT:USDT', 'LONG', 100, 112, 100, 12, 0.1, 'x', '2025-01-01T00:00:00Z', '2025-01-05T00:00:00Z']);
   await pool.execute(ins, [uid, 'ETH/USDT:USDT', 'LONG', 100, 94, 100, -6, 0.1, 'x', '2025-02-01T00:00:00Z', '2025-02-03T00:00:00Z']);
 

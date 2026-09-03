@@ -131,7 +131,7 @@ test.before(async () => {
   token = jwt.sign({ user_id: uid, email: rows[0].email }, process.env.JWT_SECRET);
 
   // Seed two closed trades (different years) via the 11-param closed insert.
-  const ins = 'INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)';
+  const ins = "INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at) VALUES (?,?,?,?,?,?,?,?,'CLOSED',?,?,?)";
   await pool.execute(ins, [uid, 'BTC/USDT:USDT', 'LONG', 100, 110, 200, 20, 0.3, 'breakout', '2025-01-01T00:00:00Z', '2025-01-05T00:00:00Z']);
   await pool.execute(ins, [uid, 'ETH/USDT:USDT', 'SHORT', 200, 190, 200, 10, 0.2, 'reversal', '2024-06-01T00:00:00Z', '2024-06-02T00:00:00Z']);
 
