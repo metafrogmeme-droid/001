@@ -58,12 +58,13 @@ function newPicks(catalogueById, signals, followedAgentIds, seenSet) {
  * number of push sends attempted.
  */
 async function sweepCopy(deps = {}, notify) {
+  const health = require('./watch_health').register('copy_watch');
   try {
     const followed = await (deps.loadFollowedAgentIds || dbFollowedAgentIds)();
-    if (!followed || !followed.length) return 0;
+    if (!followed || !followed.length) { health.ok(); return 0; }
     const signals = await (deps.loadSignals || dbSignals)();
     const catalogue = await (deps.loadCatalogue || dbCatalogue)();
-    if (!catalogue || !catalogue.length) return 0;
+    if (!catalogue || !catalogue.length) { health.ok(); return 0; }
     const byId = new Map(catalogue.map(a => [a.id, a]));
 
     if (seen === null) {                       // baseline: record, never notify
@@ -99,8 +100,10 @@ async function sweepCopy(deps = {}, notify) {
         url: '/dashboard#agents',
       }, targets);
     }
+    health.ok();
     return sent;
   } catch (e) {
+    health.failed(e);
     return 0;
   }
 }

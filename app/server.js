@@ -265,6 +265,12 @@ app.get('/diagz', (req, res) => {
     // Categories, codes and counts — the same discipline as every other
     // surface here. No error message is ever recorded, so none can be served.
     events: bootLog.recent(),
+    // Which background sweeps are alive. Each records its own passes
+    // (lib/watch_health.js); the tripwire engine keeps the same accounting
+    // in lib/alerts.js. A sweep that has never completed says `never`, one
+    // disabled by configuration says `skipped` -- neither is silence.
+    watchers: require('./lib/watch_health').snapshot(),
+    alert_engine: require('./lib/alerts').engineStatus(),
   });
 });
 

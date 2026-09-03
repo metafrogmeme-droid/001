@@ -72,14 +72,26 @@ function transitions(hits, interests, seen, now = Date.now()) {
 let seenMap = new Map();
 let timer = null;
 
+const health = require('./watch_health').register('pattern_watch');
+
 async function runOnce() {
-  if (!push.isConfigured()) return;
+  if (!push.isConfigured()) { health.skipped('push not configured'); return; }
   let scan;
   try {
     // Lazy require: routes/sync owns the synced scan cache; requiring at
     // call time avoids any boot-order cycle.
     scan = await require('../routes/sync').getLatestScan();
-  } catch (e) { return; }
+  } catch (e) { health.failed(e); return; }
+  try {
+    await _sweepPatterns(scan);
+    health.ok();
+  } catch (e) {
+    health.failed(e);
+    throw e;
+  }
+}
+
+async function _sweepPatterns(scan) {
   const hits = scan && scan.deepscan && scan.deepscan.hits;
   if (!hits || !hits.length) return;
   const [positions] = await pool.execute(

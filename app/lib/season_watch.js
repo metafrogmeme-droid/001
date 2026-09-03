@@ -61,14 +61,22 @@ async function announce(kind, season) {
   } catch (e) { /* feed insert is best-effort */ }
 }
 
+const health = require('./watch_health').register('season_watch');
+
 async function runOnce(now = new Date()) {
-  const [seasons] = await pool.execute(
-    'SELECT id, name, starts_at, ends_at, announced_live, announced_end FROM arena_seasons');
-  for (const t of transitions(seasons, now)) {
-    // Flip the flag FIRST — a crash mid-announce must not replay the ceremony.
-    const col = t.kind === 'live' ? 'announced_live' : 'announced_end';
-    await pool.execute(`UPDATE arena_seasons SET ${col} = ? WHERE id = ?`, [1, t.season.id]);
-    await announce(t.kind, t.season);
+  try {
+    const [seasons] = await pool.execute(
+      'SELECT id, name, starts_at, ends_at, announced_live, announced_end FROM arena_seasons');
+    for (const t of transitions(seasons, now)) {
+      // Flip the flag FIRST — a crash mid-announce must not replay the ceremony.
+      const col = t.kind === 'live' ? 'announced_live' : 'announced_end';
+      await pool.execute(`UPDATE arena_seasons SET ${col} = ? WHERE id = ?`, [1, t.season.id]);
+      await announce(t.kind, t.season);
+    }
+    health.ok();
+  } catch (e) {
+    health.failed(e);   // recorded, then the same raise the interval already swallowed
+    throw e;
   }
 }
 
