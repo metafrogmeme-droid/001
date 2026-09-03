@@ -22,6 +22,10 @@ module.exports = [
     funding: { rows: [] }, arb: { carries: [], notional_usd: 1000, snapshots: 0 }, has_yield: true, generated_at: new Date().toISOString(),
   } }],
   ['/api/staking/fixed', { available: false, rows: [] }],
+  // The server always sends these (routes/arena.js builds positions and
+  // limits before it answers); an empty body is a shape it never produces.
+  ['/api/arena/account', { start_balance: 10000, balance: 10000, equity: 10000, return_pct: 0,
+    limits: { min_margin: 5, max_leverage: 20, max_open: 5 }, positions: [], trades: [], follow: false }],
   ['/api/market/tickers', { data: tickers, updated_at: new Date().toISOString() }],
   ['/api/reputation', { score: null, grade: null, unrated: true,
     subscores: { performance: null, risk_discipline: null, cost_efficiency: null, consistency: null },
