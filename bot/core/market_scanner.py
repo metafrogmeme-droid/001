@@ -486,6 +486,47 @@ class MarketScanner:
         for s in signals:
             by_cat.setdefault(s.asset_category, []).append(s)
 
+        # 0. Drop classes whose REFERENCE market is closed. A stock perp trades
+        #    around the clock, but its candles only flow while Wall Street
+        #    does; overnight the MTF fetch for NFLX/HOOD/BBSTOCK stalls to the
+        #    90s per-symbol cap and the sweep burns minutes on symbols that
+        #    cannot produce a thesis. 2026-09-03 00:xx UTC: 163 timeouts in 36
+        #    batches, "mtf x96", every named symbol a US-stock perp, 33 analyze
+        #    phases cancelled in a row -- and the reservation below was holding
+        #    slots for them AHEAD of crypto.
+        #
+        #    The clock is order_rules.reference_session_state, the seam M-21
+        #    built; black_swan was its only caller and the scanner never asked.
+        #    Only "closed" drops. "unknown" (no tzdata) keeps the class: a
+        #    sweep that skipped stock perps forever because a container lacked
+        #    a timezone package, logging "session closed" as the reason, would
+        #    be a measurement manufactured from a failed read.
+        #
+        #    Recorded on self so /status can say the universe shrank and why --
+        #    "4 of 60" with no explanation reads as a smaller market, not a
+        #    closed one.
+        self._session_dropped = {}
+        try:
+            from bot.core.order_rules import reference_session_state
+            _now = datetime.now(UTC)
+            for _cat in list(by_cat):
+                if reference_session_state(_cat, _now) == "closed":
+                    self._session_dropped[_cat] = len(by_cat.pop(_cat))
+            if self._session_dropped:
+                system_log.info("Sweep: skipped %s -- reference session closed",
+                                ", ".join(f"{k} x{v}" for k, v in self._session_dropped.items()))
+        except Exception as _exc:
+            # The clock failing must not cost the sweep; it costs only the
+            # optimisation. The universe stays whole and nothing is reported
+            # as dropped, because nothing was.
+            system_log.debug("session gate skipped: %s", _exc)
+        if self._session_dropped:
+            # Steps 2 and 4 walk `signals`, not `by_cat`: dropping a class
+            # from the category map alone let every stock perp back in through
+            # the final fill pass. The first run of the test caught exactly
+            # that -- the log said "skipped Stock x3" and the output had them.
+            signals = [s for s in signals if s.asset_category not in self._session_dropped]
+
         # 1. Reserve slots for each PRESENT non-Crypto category. Crypto is
         #    deliberately excluded — it is already saturated by the priority
         #    list and the fill pass, so it needs no reservation. Full-coverage

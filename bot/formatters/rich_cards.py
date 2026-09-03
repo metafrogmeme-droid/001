@@ -1069,6 +1069,34 @@ def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
         return ""
 
 
+def session_skip_line(dropped: Optional[dict], lang: str = "en") -> str:
+    """What the sweep left out on purpose, and why.
+
+    The scanner drops a session-gated class (stock perps, ETFs) when the
+    market its prices reference is shut, and records the count on itself as
+    `_session_dropped`. Without this line the operator sees a smaller universe
+    -- "4 of 60" -- and nothing saying it shrank by design; a quieter market
+    and a closed one read the same. This says which classes and how many.
+
+    OMITTED when there is nothing to say: no record, an empty one, or counts
+    that are not numbers. It never claims a market is closed on its own -- the
+    scanner's clock decided that, and this only reports what it did.
+    """
+    if not isinstance(dropped, dict) or not dropped:
+        return ""
+    parts = []
+    for cls, n in dropped.items():
+        try:
+            count = int(n)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            parts.append(f"{cls} \u00d7{count}")
+    if not parts:
+        return ""
+    return t("fmt_session_skipped", lang).format(classes=", ".join(parts))
+
+
 def position_watch_line(watch: Optional[dict], lang: str = "en",
                         verbose: bool = False) -> str:
     """Say whether the SL/TP monitor actually ran on the last tick.

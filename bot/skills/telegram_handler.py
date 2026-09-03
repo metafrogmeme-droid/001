@@ -689,6 +689,7 @@ from bot.marketing.channel_forwarder import ChannelForwarder
 from bot.marketing.public_text import public_close_line
 from bot.formatters.rich_cards import (
     analyze_budget_line,
+    session_skip_line,
     display_symbol,
     fetch_analysis_data,
     position_watch_line,
@@ -10726,6 +10727,14 @@ class TelegramHandler:
             getattr(self.engine, "_analyze_capacity", None), self._lang(update))
         if _budget:
             msg += f"\n{_budget}"
+        # Which classes the sweep left out on purpose. Read off the scanner,
+        # where the drop is recorded; None when no sweep has run yet, and the
+        # renderer says nothing for None.
+        _skipped = session_skip_line(
+            getattr(getattr(self.engine, "scanner", None), "_session_dropped", None),
+            self._lang(update))
+        if _skipped:
+            msg += f"\n{_skipped}"
         # Venue visibility: which exchange live orders route to right now
         # (admins switch with /venue; non-default venues matter to see).
         # Keyed on the ACCOUNT, not the armed state — an idle real account
