@@ -36,6 +36,8 @@ router.get('/', readLimit, async (req, res) => {
         triggered_at: a.triggered_at,
       })),
       max_active: alerts.MAX_ACTIVE_PER_USER,
+      // Whether the thing that fires these is alive -- see lib/alerts.js.
+      engine: alerts.engineStatus(),
     });
   } catch (err) {
     console.error('Alerts list error:', err.stack || err.message);

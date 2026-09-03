@@ -303,9 +303,10 @@ async function runOnce(notify) {
     const { notifySubscribers } = require('./push');
     send = notifySubscribers;
   }
+  engineState.last_run_at = Date.now();
   try {
     const [rows] = await pool.execute('SELECT * FROM user_alerts WHERE active = 1');
-    if (!rows.length) return 0;
+    if (!rows.length) { _passOk(); return 0; }
     const map = await fetchTickers();
     let tripped = 0;
     const doOnchain = Date.now() - lastOnchainSweep >= ONCHAIN_INTERVAL_MS;
@@ -378,8 +379,10 @@ async function runOnce(notify) {
         }, [a.user_id]);
       } catch (e) { /* push is best-effort; the row is already stamped */ }
     }
+    _passOk();
     return tripped;
   } catch (e) {
+    _passFailed(e);
     return 0;
   }
 }
@@ -389,6 +392,51 @@ function startAlertEngine(intervalMs = 60_000) {
   if (engineTimer) return;
   engineTimer = setInterval(() => { runOnce().catch(() => {}); }, intervalMs);
   if (engineTimer.unref) engineTimer.unref();
+}
+
+// ── Engine liveness: the accounting behind "armed" ───────────────────────────
+// "armed" is a claim about the FUTURE -- this will fire -- and it is only true
+// while runOnce keeps evaluating every minute. runOnce failed SILENTLY: a
+// whole-pass catch returning 0, an interval `.catch(() => {})`, and not one
+// log line in this file. A dead ticker feed or a lost DB meant every user's
+// tripwires stopped firing with the panel still showing green "armed" badges,
+// for as long as it stayed broken. This records what the engine actually did,
+// warns once and then every ENGINE_RELOG_MS (not once per minute forever), and
+// routes/alerts.js reports it so the panel can say when "armed" is not being
+// watched. Same shape, same fix, as the bot's proactive monitor.
+const ENGINE_RELOG_MS = 10 * 60_000;
+const engineState = {
+  last_run_at: null, last_ok_at: null, consecutive_failures: 0, last_error: null, warned_at: 0,
+};
+function _passOk() {
+  engineState.last_ok_at = Date.now();
+  engineState.consecutive_failures = 0;
+  engineState.last_error = null;
+}
+function _passFailed(e) {
+  engineState.consecutive_failures += 1;
+  engineState.last_error = String((e && e.message) || e).slice(0, 200);
+  const now = Date.now();
+  if (engineState.consecutive_failures === 1 || now - engineState.warned_at >= ENGINE_RELOG_MS) {
+    engineState.warned_at = now;
+    console.warn(`Alert engine pass failed (${engineState.consecutive_failures} consecutive): `
+      + `${engineState.last_error} — armed alerts are not being evaluated until it recovers`);
+  }
+}
+/** What the engine has actually done. ISO strings; null = never. */
+function engineStatus() {
+  const iso = (t) => (t ? new Date(t).toISOString() : null);
+  return {
+    running: !!engineTimer,
+    last_run_at: iso(engineState.last_run_at),
+    last_ok_at: iso(engineState.last_ok_at),
+    consecutive_failures: engineState.consecutive_failures,
+    last_error: engineState.last_error,
+  };
+}
+function __testResetEngineState() {
+  engineState.last_run_at = null; engineState.last_ok_at = null;
+  engineState.consecutive_failures = 0; engineState.last_error = null; engineState.warned_at = 0;
 }
 
 // ── Chat handler ─────────────────────────────────────────────────────────────
@@ -479,6 +527,8 @@ module.exports = {
   deleteAlert,
   runOnce,
   startAlertEngine,
+  engineStatus,
+  __testResetEngineState,
   setTickerFetcher,
   maybeHandleAlertChat,
 };
