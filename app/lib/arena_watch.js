@@ -17,6 +17,7 @@ const { pool } = require('../db');
 const { getTickers } = require('./tickers');
 const { liqPrice } = require('./arena');
 const push = require('./push');
+const health = require('./watch_health').register('arena_watch');
 
 const dirSign = (direction) => (direction === 'SHORT' ? -1 : 1);
 
@@ -57,23 +58,38 @@ function evaluate(positions, marks, warned) {
 let warnedSet = new Set();
 let timer = null;
 
-async function runOnce() {
-  if (!push.isConfigured()) return;
-  const [positions] = await pool.execute(
-    'SELECT id, user_id, symbol, direction, entry, margin, leverage FROM arena_positions');
-  if (!positions.length) { warnedSet = new Set(); return; }
-  let marks;
-  try { marks = await getTickers(); } catch (e) { return; }   // no data → no verdicts
-  const { notify, warned } = evaluate(positions, marks, warnedSet);
-  warnedSet = warned;
-  for (const n of notify) {
-    const p = n.position;
-    const pct = Math.max(0, n.prox * 100).toFixed(1);
-    await push.notifySubscribers({
-      title: '⚠️ Paper position near liquidation',
-      body: `${p.symbol} ${p.direction} ${p.leverage}× is ${pct}% from its liquidation price — check the Arena.`,
-      url: '/arena',
-    }, [p.user_id]).catch(() => {});
+// `deps` is for tests: the ticker read and the push are the two things that
+// fail in production, and neither was injectable, so the one path that
+// mattered -- a dead feed -- had never been driven.
+async function runOnce(deps = {}) {
+  const pushMod = deps.push || push;
+  const readTickers = deps.getTickers || getTickers;
+  if (!pushMod.isConfigured()) { health.skipped('push not configured'); return; }
+  try {
+    const [positions] = await pool.execute(
+      'SELECT id, user_id, symbol, direction, entry, margin, leverage FROM arena_positions');
+    if (!positions.length) { warnedSet = new Set(); health.ok(); return; }
+    let marks;
+    try { marks = await readTickers(); } catch (e) {
+      // No data → no verdicts, and SAID: this used to be a bare return, so
+      // a dead feed ended every liquidation warning and looked like calm.
+      health.failed(e); return;
+    }
+    const { notify, warned } = evaluate(positions, marks, warnedSet);
+    warnedSet = warned;
+    for (const n of notify) {
+      const p = n.position;
+      const pct = Math.max(0, n.prox * 100).toFixed(1);
+      await pushMod.notifySubscribers({
+        title: '⚠️ Paper position near liquidation',
+        body: `${p.symbol} ${p.direction} ${p.leverage}× is ${pct}% from its liquidation price — check the Arena.`,
+        url: '/arena',
+      }, [p.user_id]).catch(() => {});
+    }
+    health.ok();
+  } catch (e) {
+    health.failed(e);
+    throw e;
   }
 }
 

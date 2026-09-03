@@ -549,6 +549,22 @@
   }
   // end alertEngineCopy
 
+  // The engine panel's alerting tile. `down` is the scan payload's
+  // `monitor_checks_down`: the names of the bot's monitor checks that raise
+  // every tick, whose alerts are therefore not being raised. Absent (not an
+  // array) means no monitor reported, and nothing is claimed; an empty array
+  // is the monitor's own "all ran". Module-level and pure so a test can
+  // drive it.
+  function monitorChecksCopy(down) {
+    if (!Array.isArray(down)) return null;
+    const names = down.map((x) => String(x)).filter(Boolean).sort();
+    if (!names.length) return { degraded: false, headline: 'all checks running', detail: 'every monitor check ran on its last pass' };
+    return { degraded: true,
+      headline: names.length + ' check' + (names.length === 1 ? '' : 's') + ' down',
+      detail: 'not being raised: ' + names.join(', ') + ' — the operator has been paged' };
+  }
+  // end monitorChecksCopy
+
   function reportAge(rep) {
     const t = rep?.generated_at || rep?.received_at;
     return t ? `updated ${fmtAgo(t)}` : '';
@@ -4291,6 +4307,19 @@
               <div class="d muted small">${esc(copy.detail)}</div>
             </div></div>`
           : tile('Analyze budget', copy.headline, copy.detail));
+      }
+      if (Array.isArray(f.monitor_checks_down)) {
+        // Whether the bot's own alerting is whole. A red "Engine LIVE" tile
+        // beside a monitor with dead checks is a claim the bot just
+        // contradicted; absent when no monitor reported (no claim).
+        const m = monitorChecksCopy(f.monitor_checks_down);
+        tiles.push(m.degraded
+          ? `<div class="panel" style="background:var(--surface-2);border:1px solid var(--down,#c0392b)"><div class="stat">
+              <div class="k">Alerting · DEGRADED</div>
+              <div class="v" style="color:var(--down,#c0392b)">${esc(m.headline)}</div>
+              <div class="d muted small">${esc(m.detail)}</div>
+            </div></div>`
+          : tile('Alerting', m.headline, m.detail));
       }
       if (f.entry_timing) tiles.push(tile('Entry timing', f.entry_timing.enabled ? 'ALL REGIMES' : (f.entry_timing.regimes || []).join(', ').toUpperCase() || 'OFF', 'wave-degree confirmation before entries'));
       if (f.shadow_book?.counts) {

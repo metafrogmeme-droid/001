@@ -691,6 +691,8 @@ from bot.formatters.rich_cards import (
     analyze_budget_line,
     session_skip_line,
     monitor_checks_line,
+    market_context_line,
+    rsi_label,
     display_symbol,
     fetch_analysis_data,
     position_watch_line,
@@ -8587,6 +8589,18 @@ class TelegramHandler:
     async def _cmd_health(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Show system health status."""
         text = self.engine.health.format_telegram()
+        # The same claim /status stopped making: "SYSTEM HEALTH: HEALTHY" over
+        # a monitor whose checks are down is a headline about the plumbing
+        # that leaves out the alerting. Unreadable is said, not omitted.
+        try:
+            _mon = getattr(self, "monitor", None)
+            _down = monitor_checks_line(
+                _mon.check_failures() if _mon is not None else None,
+                self._lang(update))
+            if _down:
+                text += f"\n{_down}"
+        except Exception:
+            text += f"\n{t('fmt_monitor_checks_unread', self._lang(update))}"
         await self._send(update, text)
 
     @guard("scan")
@@ -13908,9 +13922,9 @@ class TelegramHandler:
 
                 # Add market context on one line if available
                 if adata:
-                    rsi_val = adata.get('rsi', 0)
-                    rsi_label = "overbought" if rsi_val > 70 else "oversold" if rsi_val < 30 else "neutral"
-                    lines.append(f"RSI {rsi_val:.0f} ({rsi_label}) | {adata.get('structure', '')}")
+                    # Through the seam: an absent or short-history RSI is
+                    # "unread", not 0 (oversold) or 50 (neutral).
+                    lines.append(market_context_line(adata))
 
                 # Use trade_id for buttons if we have a live position
                 btn_id = pos_match.trade_id if is_live_pos else pair
@@ -13945,13 +13959,10 @@ class TelegramHandler:
                         "tp_status": tp_tag,
                     }
                     if adata:
-                        pos_card_data["rsi"] = adata.get("rsi", 0)
-                        rsi_val = adata.get("rsi", 0)
-                        pos_card_data["rsi_label"] = (
-                            "overbought" if rsi_val > 70
-                            else "oversold" if rsi_val < 30
-                            else "neutral"
-                        )
+                        # None passes through: the card image omits the RSI
+                        # cell rather than drawing a number nobody measured.
+                        pos_card_data["rsi"] = adata.get("rsi")
+                        pos_card_data["rsi_label"] = rsi_label(adata.get("rsi"))
                         pos_card_data["structure"] = adata.get("structure", "")
                     pos_card_png = render_position_card(pos_card_data)
                 except Exception as exc:

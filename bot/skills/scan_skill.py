@@ -772,6 +772,20 @@ def _build_features_block(engine=None) -> dict:
     except Exception:
         pass
 
+    try:
+        # Which of the proactive monitor's checks are DOWN. The monitor
+        # isolates each check and counts the ones that raise; /status and
+        # /health say it, and the website's engine panel has to as well,
+        # or "Engine LIVE" reads as "and its alerting works". Present only
+        # when a monitor is attached: an empty list is its real answer,
+        # an absent key is nobody asked.
+        mon = getattr(engine, "_proactive_monitor", None)
+        if mon is not None:
+            features["monitor_checks_down"] = sorted(
+                str(k) for k in mon.check_failures())
+    except Exception:
+        pass
+
     return features
 
 

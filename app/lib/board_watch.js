@@ -42,17 +42,24 @@ function diffDigest(prevMap, rows) {
  * board-topic subscribers when something moved. Injectable fetch/notify for
  * tests. Returns true when a push was attempted.
  */
+const health = require('./watch_health').register('board_watch');
+
 async function sweepBoard(fetchBoard, notify) {
   try {
     let rows;
     if (fetchBoard) {
       rows = await fetchBoard();
     } else {
-      if (!isConfigured()) return false;
+      if (!isConfigured()) { health.skipped('gateway not configured'); return false; }
       const r = await getGateway('/public/leaderboard', 15000);
-      if (!r || r.status !== 200) return false;
+      if (!r || r.status !== 200) {
+        // A gateway that did not answer 200 is a failed read, not a quiet board.
+        health.failed(new Error(`gateway answered ${r ? r.status : 'nothing'}`));
+        return false;
+      }
       rows = (r.data && r.data.rows) || [];
     }
+    health.ok();
     if (!Array.isArray(rows)) return false;
     const now = new Map(rows.map(x => [String(x.handle), Number(x.rank)]));
     if (prev === null) { prev = now; return false; }   // baseline only
@@ -71,6 +78,7 @@ async function sweepBoard(fetchBoard, notify) {
     });
     return true;
   } catch (e) {
+    health.failed(e);
     return false;
   }
 }

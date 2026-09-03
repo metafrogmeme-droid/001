@@ -673,9 +673,11 @@ async function getLetterByKey(key) {
  * that creates it, announce it with a push to every subscriber. Never throws.
  */
 async function sweepLetters(notify) {
+  const health = require('./watch_health').register('letter_sweep');
   try {
     const week = lastCompletedWeek();
     const r = await getLetter(week);
+    health.ok();
     if (r.created) {
       let send = notify;
       if (!send) {
@@ -693,6 +695,7 @@ async function sweepLetters(notify) {
     }
     return false;
   } catch (e) {
+    health.failed(e);
     return false;
   }
 }
