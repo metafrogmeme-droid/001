@@ -8268,23 +8268,10 @@ class TelegramHandler:
                 if ex_open:
                     SEP = "\u2500" * 16
                     lines = [f"\U0001f4ca <b>LIVE POSITIONS</b> (from exchange)\n{SEP}\n"]
+                    # One pure row per position; absent fields are dashes.
+                    from bot.formatters.orphan_position import exchange_position_lines
                     for p in ex_open:
-                        sym = p.get("symbol", "???")
-                        side = (p.get("side") or "long").upper()
-                        dir_icon = "\U0001f7e2" if side == "LONG" else "\U0001f534"
-                        contracts = float(p.get("contracts") or 0)
-                        entry = float(p.get("entryPrice") or 0)
-                        mark = float(p.get("markPrice") or 0)
-                        upnl = float(p.get("unrealizedPnl") or 0)
-                        lev = int(float(p.get("leverage") or 1))
-                        sym_display = sym.replace("/", "").replace(":USDT", "")
-                        lines.append(
-                            f"{dir_icon} <b>{side} {sym_display}</b> {lev}x\n"
-                            f"- Entry: <code>${entry:,.4f}</code>\n"
-                            f"- Mark: <code>${mark:,.4f}</code>\n"
-                            f"- Qty: <code>{contracts:.6f}</code>\n"
-                            f"- uPnL: <code>${upnl:+,.2f}</code>\n"
-                        )
+                        lines.append(exchange_position_lines(p))
                     lines.append("\n<i>\u26a0\ufe0f Showing exchange data \u2014 local tracking out of sync</i>")
                     await self._send(update, "\n".join(lines))
                     return

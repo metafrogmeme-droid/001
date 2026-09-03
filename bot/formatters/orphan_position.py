@@ -51,6 +51,49 @@ def _f(v: Any) -> Optional[float]:
     return f if f == f and f not in (float("inf"), float("-inf")) else None
 
 
+def _money(v: Optional[float], *, signed: bool = False, places: int = 4) -> str:
+    """A dollar figure, or an em dash. Never a zero standing in for a blank."""
+    if v is None:
+        return "\u2014"
+    if signed:
+        return f"{'+' if v >= 0 else '-'}${abs(v):,.{places}f}"
+    return f"${v:,.{places}f}"
+
+
+def exchange_position_lines(pos: dict) -> str:
+    """The `/portfolio` fallback row: a raw exchange position with no local record.
+
+    Shown only when the bot's own book is empty and the venue's is not --
+    "local tracking out of sync" -- which is the one moment the operator has
+    no other view of the position. The inline version read every field as
+    `float(p.get(...) or 0)`: an absent mark printed `Mark: $0.0000`, an
+    absent unrealizedPnl printed `uPnL: $+0.00` (break-even, asserted), and an
+    absent leverage printed `1x`. The venue omits unrealizedPnl more often
+    than it reports a real 0.00 -- `orphan_position_row` below says so and
+    treats it as unknown; this is the same measurement on the third surface.
+    A genuine 0.0 from the venue still prints as 0.00; only a missing field
+    is a dash.
+    """
+    sym = str(pos.get("symbol") or "???")
+    side = (pos.get("side") or "long").upper()
+    dir_icon = "\U0001f7e2" if side == "LONG" else "\U0001f534"
+    contracts = _f(pos.get("contracts"))
+    entry = _f(pos.get("entryPrice"))
+    if entry is None:
+        entry = _f((pos.get("info") or {}).get("openPriceAvg"))
+    mark = _f(pos.get("markPrice"))
+    upnl = _f(pos.get("unrealizedPnl")) if pos.get("unrealizedPnl") is not None else None
+    lev = _f(pos.get("leverage"))
+    sym_display = sym.replace("/", "").replace(":USDT", "")
+    lev_str = f" {int(lev)}x" if lev is not None and lev > 0 else ""
+    qty = "\u2014" if contracts is None else f"{contracts:.6f}"
+    return (f"{dir_icon} <b>{side} {sym_display}</b>{lev_str}\n"
+            f"- Entry: <code>{_money(entry)}</code>\n"
+            f"- Mark: <code>{_money(mark)}</code>\n"
+            f"- Qty: <code>{qty}</code>\n"
+            f"- uPnL: <code>{_money(upnl, signed=True, places=2)}</code>\n")
+
+
 def orphan_position_row(
     pos: dict,
     *,
