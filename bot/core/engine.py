@@ -4955,7 +4955,7 @@ class RuneClawEngine:
         # a rested symbol never ran at all. "skipped_resting" is counted
         # separately so no reader has to guess which question it is answering.
         self._analyze_progress = {
-            "of": len(signals), "done": 0, "skipped_resting": 0,
+            "of": len(signals), "done": 0, "skipped_resting": 0, "gave_up": 0,
             "started": time.monotonic(), "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
         # Per-symbol duration profiles: reset each batch so a resolved slow
@@ -5028,6 +5028,17 @@ class RuneClawEngine:
                         _stg = ""
                     _timed_out.append(f"{_sym} ({_stg})" if _stg else _sym)
                     _timed_out_pairs.append((_sym, _stg))
+                    # The `finally` below counts this symbol as DONE -- it was
+                    # attempted, and the batch moved on -- so "85/85 done" on a
+                    # batch where four gave up at the cap is true of attempts
+                    # and false of analyses. Count the give-ups beside it so
+                    # the card can say both.
+                    try:
+                        _p = self._analyze_progress
+                        if _p is not None and _p.get("seq") == _seq:
+                            _p["gave_up"] = int(_p.get("gave_up") or 0) + 1
+                    except Exception:
+                        pass
                     # REST IT. Naming a hanging symbol is not the same as
                     # stopping it hanging again: MCD/AMD/HOOD each burned the
                     # full 90s on every sweep, 270s of a 292s analyze phase,

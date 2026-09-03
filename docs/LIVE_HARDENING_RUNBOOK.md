@@ -482,7 +482,7 @@ cancelled it now reports its own progress, in the log and on `/status`:
 Tick phase 'analyze' exceeded its 300s cap … It had finished 41 of 200
 signals (21%) in 300s — 1463s needed at that rate.
 
-  ↳ 41/200 signals analysed before it was cancelled
+  ↳ 41/200 signals attempted before it was cancelled — 3 of them gave up at the per-symbol cap and were not analysed
 ```
 
 That fraction is the first thing to read, because the two ends of it call for

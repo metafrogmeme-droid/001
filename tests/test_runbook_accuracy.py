@@ -221,7 +221,7 @@ def test_the_progress_line_it_documents_is_one_the_code_emits():
     engine = code_only(Path("bot/core/engine.py").read_text(encoding="utf-8"))
     assert "finished {_done} of {_of} signals" in engine
     assert "needed at that rate" in engine
-    assert "signals analysed before it was cancelled" in RUNBOOK or \
+    assert "signals attempted before it was cancelled" in RUNBOOK or \
         "val_signals_done" in Path("bot/utils/i18n.py").read_text(encoding="utf-8")
     assert "How far did the batch get" in RUNBOOK or "how far did the batch get" in RUNBOOK
 
