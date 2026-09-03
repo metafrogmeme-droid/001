@@ -485,6 +485,22 @@
     mustRead(r);
     return (r.data?.reports) || null;
   }
+  // The yield panel's totals line (MODULE level: the panel that calls it
+  // lives in renderAccount, and a first draft declared this inside
+  // renderEngine -- syntax-valid, seam-tested in a VM, and a ReferenceError
+  // the moment the Account view rendered; see dashboard_helpers_are_in_scope).
+  // `incomplete` is non-empty when the bot
+  // could not read its free futures margin: the totals are then a FLOOR
+  // (spot only), and a plain "Total idle $X" beside a silently missing
+  // futures row reads as the whole picture. Pure, so it can be tested.
+  function yieldTotalsCopy(y) {
+    const note = (y && typeof y.incomplete === 'string') ? y.incomplete.trim() : '';
+    return { label: note ? 'Total idle (partial \u2014 futures margin unread)' : 'Total idle',
+             note };
+  }
+  // end yieldTotalsCopy
+
+
   function reportAge(rep) {
     const t = rep?.generated_at || rep?.received_at;
     return t ? `updated ${fmtAgo(t)}` : '';
@@ -4240,17 +4256,6 @@
     // exact wording. Absent means we cannot tell whether the rate is a floor,
     // and "at least" is true either way — so the hedge is kept and only the
     // provenance clause, which we would be inventing, is dropped.
-    // The yield panel's totals line. `incomplete` is non-empty when the bot
-    // could not read its free futures margin: the totals are then a FLOOR
-    // (spot only), and a plain "Total idle $X" beside a silently missing
-    // futures row reads as the whole picture. Pure, so it can be tested.
-    function yieldTotalsCopy(y) {
-      const note = (y && typeof y.incomplete === 'string') ? y.incomplete.trim() : '';
-      return { label: note ? 'Total idle (partial \u2014 futures margin unread)' : 'Total idle',
-               note };
-    }
-    // end yieldTotalsCopy
-
     function analyzeBudgetCopy(a) {
       const num = (x) => (typeof x === 'number' && isFinite(x)) ? x : null;
       const of = num(a.of), fits = num(a.fits), short = num(a.shortfall);
