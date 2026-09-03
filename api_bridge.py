@@ -483,6 +483,11 @@ async def health():
         # number. `shortfall` is how many signals will not be looked at.
         **({"analyze_capacity": _analyze_capacity(engine)}
            if _analyze_capacity(engine) is not None else {}),
+        # Which of the proactive monitor's checks are DOWN -- raising every
+        # tick, their alerts not being raised. Omitted when no monitor is
+        # attached; an empty list is the monitor answering "all ran".
+        **({"monitor_checks_down": _monitor_checks_down(engine)}
+           if _monitor_checks_down(engine) is not None else {}),
         # What the brain has cost since this process started. Tokens are
         # MEASURED (reported by the provider); `cost_usd` appears only when
         # the operator supplied $/1M rates, because a hardcoded price table
@@ -510,6 +515,25 @@ def _analyze_capacity(engine) -> "dict | None":
     try:
         cap = getattr(engine, "_analyze_capacity", None) if engine else None
         return cap if isinstance(cap, dict) else None
+    except Exception:
+        return None
+
+
+def _monitor_checks_down(engine) -> "list | None":
+    """Names of the proactive monitor's checks that are currently down.
+
+    None when there is nothing to ask -- no engine, no monitor attached, or a
+    monitor that could not answer -- and the field is OMITTED, the same rule
+    as every engine-derived field here. An empty list is a real reading:
+    the monitor was asked and every check ran on its last pass. The monitor
+    isolates each check and counts the ones that raise; before that, a check
+    that raised every tick silenced every alert with nothing saying so.
+    """
+    try:
+        mon = getattr(engine, "_proactive_monitor", None) if engine else None
+        if mon is None:
+            return None
+        return sorted(str(k) for k in mon.check_failures())
     except Exception:
         return None
 

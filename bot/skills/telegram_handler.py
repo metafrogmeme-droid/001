@@ -8587,6 +8587,18 @@ class TelegramHandler:
     async def _cmd_health(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Show system health status."""
         text = self.engine.health.format_telegram()
+        # The same claim /status stopped making: "SYSTEM HEALTH: HEALTHY" over
+        # a monitor whose checks are down is a headline about the plumbing
+        # that leaves out the alerting. Unreadable is said, not omitted.
+        try:
+            _mon = getattr(self, "monitor", None)
+            _down = monitor_checks_line(
+                _mon.check_failures() if _mon is not None else None,
+                self._lang(update))
+            if _down:
+                text += f"\n{_down}"
+        except Exception:
+            text += f"\n{t('fmt_monitor_checks_unread', self._lang(update))}"
         await self._send(update, text)
 
     @guard("scan")

@@ -193,7 +193,8 @@ def test_no_engine_derived_field_survives_without_an_engine(bridge, monkeypatch)
     monkeypatch.setattr(bridge, "engine", None, raising=False)
     body = _health(bridge)
     engine_derived = ("circuit_breaker_active", "open_positions",
-                      "engine_universe_size", "analyze_capacity")
+                      "engine_universe_size", "analyze_capacity",
+                      "monitor_checks_down")
     present = [k for k in engine_derived if k in body]
     assert not present, f"engine-derived fields survived with no engine: {present}"
     # ...and the field that does NOT come from the engine still does.
