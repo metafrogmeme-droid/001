@@ -16,7 +16,8 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "comlink": "^4.4.2"
+    "comlink": "^4.4.2",
+    "playwright-core": "1.56.1"
   },
   "overrides": {
     "qs": "^6.16.0"
