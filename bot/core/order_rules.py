@@ -88,43 +88,60 @@ def is_market_open(asset_class: str, now: datetime | None = None) -> tuple[bool,
     return True, ""
 
 
-def is_reference_session_open(asset_class: str, now: datetime | None = None) -> bool:
-    """Is the market this asset's PRICE references currently trading?
+def reference_session_state(asset_class: str, now: datetime | None = None) -> str:
+    """Is the market this asset's PRICE references currently trading? Four answers.
+
+    ``"open"`` and ``"closed"`` are measurements. ``"none"`` is a class with no
+    reference session (crypto: nothing to be shut). ``"unknown"`` is the
+    timezone database being unreadable, and it is its own word because the two
+    callers need OPPOSITE defaults from it: the off-hours spread filter wants
+    to attenuate (treat as not-tight-book; never page over a missing tzdata
+    package), while the sweep wants to run unfiltered (a class that cannot be
+    clocked must still be scanned, or a container without tzdata never looks
+    at a stock perp again and logs "session closed" as the reason). Folding
+    "unknown" into "closed" served the first caller and would have lied to the
+    second -- unreadable is not a measurement, here as everywhere else.
 
     NOT an order gate. `is_market_open()` answers "may I place this order";
-    this answers "should the book be tight right now", which is what an
-    off-hours spread-anomaly filter actually wants. Bitget stock perps trade
-    24/7, but the equities they track do not, and a 47x spread at 05:00 UTC on
-    a Sunday is thin-book noise rather than an event worth paging anyone about.
-
-    Those were one function, and both callers wanted different answers.
+    this answers "is the reference market moving right now". Bitget stock
+    perps trade 24/7, but the equities they track do not: a 47x spread at
+    05:00 UTC on a Sunday is thin-book noise, and an overnight candle fetch
+    for NFLX stalls because nothing is printing.
 
     DST-AWARE, because the US session is defined in local time and a fixed UTC
     window is wrong for roughly four months a year. 09:30-16:00 America/New_York
     is 13:30-20:00 UTC under EDT and 14:30-21:00 under EST.
-
-    Returns False when the class has no reference session (crypto: nothing to
-    be shut) and — deliberately — when the timezone database cannot be read.
-    False here means "do not treat this as a tight-book period", which
-    attenuates a noisy alert. The alternative default would page an operator
-    on thin-book spreads because a tzdata package was missing.
     """
     if asset_class not in _REFERENCE_SESSION:
-        return False
+        return "none"
     if now is None:
         now = datetime.now(UTC)
     try:
         from zoneinfo import ZoneInfo
         local = now.astimezone(ZoneInfo(_US_EQUITY_TZ))
     except Exception:  # noqa: BLE001 — missing tzdata must not raise into a caller
-        logger.warning("US equity timezone unavailable; treating the reference "
-                       "session as closed (attenuates, never pages)")
-        return False
+        logger.warning("US equity timezone unavailable; reference session state is "
+                       "unknown (spread filter attenuates, sweep runs unfiltered)")
+        return "unknown"
     if local.weekday() >= 5:
-        return False
+        return "closed"
     minutes = local.hour * 60 + local.minute
-    return (_US_SESSION_OPEN[0] * 60 + _US_SESSION_OPEN[1]) <= minutes < \
-           (_US_SESSION_CLOSE[0] * 60 + _US_SESSION_CLOSE[1])
+    in_session = (_US_SESSION_OPEN[0] * 60 + _US_SESSION_OPEN[1]) <= minutes < \
+                 (_US_SESSION_CLOSE[0] * 60 + _US_SESSION_CLOSE[1])
+    return "open" if in_session else "closed"
+
+
+def is_reference_session_open(asset_class: str, now: datetime | None = None) -> bool:
+    """`reference_session_state(...) == "open"`, for callers that want a bool.
+
+    Returns False when the class has no reference session and -- deliberately --
+    when the timezone database cannot be read. False here means "do not treat
+    this as a tight-book period", which attenuates a noisy alert; the
+    alternative default would page an operator on thin-book spreads because a
+    tzdata package was missing. A caller that must tell "closed" from "could
+    not read the clock" uses `reference_session_state` directly.
+    """
+    return reference_session_state(asset_class, now) == "open"
 
 
 def is_weekend_queued(asset_class: str, now: datetime | None = None) -> bool:

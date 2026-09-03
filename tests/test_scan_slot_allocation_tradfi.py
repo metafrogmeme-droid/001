@@ -10,10 +10,31 @@ reserved up front.
 """
 from datetime import datetime, timezone
 
+import pytest
+
 import bot.core.market_scanner as ms
 from bot.config import CONFIG
 from bot.core.market_scanner import MarketScanner
 from bot.utils.models import MarketSignal
+
+
+@pytest.fixture(autouse=True)
+def _wall_street_is_open(monkeypatch):
+    """Pin the clock to a Wednesday noon in New York.
+
+    The allocator now asks the reference-session clock first and drops a
+    stock perp whose market is shut before any slot is reserved. This file is
+    about SLOT ARITHMETIC, not the clock: without a pinned time these tests
+    pass during the US session and fail overnight -- which is precisely the
+    time-of-day dependence the session filter exists to act on, and the first
+    run of it did exactly that at 00:40 UTC. The clock has its own tests in
+    test_sweep_skips_closed_reference_sessions.py.
+    """
+    class _Noon:
+        @staticmethod
+        def now(tz=None):
+            return datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc)   # 12:00 EDT
+    monkeypatch.setattr(ms, "datetime", _Noon)
 
 
 def _mk(symbol: str, category: str, momentum: float) -> MarketSignal:

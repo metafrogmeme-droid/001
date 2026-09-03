@@ -892,6 +892,11 @@ _STRINGS: dict[str, dict[str, str]] = {
     # Chinese absorbs into its neighbour, which test_i18n rightly rejects —
     # and a sentence assembled from word-order-dependent scraps is not
     # translatable in the first place.
+    "fmt_session_skipped": {
+        "en": "\u23f8 {classes} skipped this sweep \u2014 US session closed (resumes at the open)",
+        "zh": ("\u23f8 \u672c\u8f2a\u7565\u904e {classes} \u2014 "
+               "\u7f8e\u80a1\u4f11\u5e02\uff08\u958b\u76e4\u5f8c\u6062\u5fa9\uff09"),
+    },
     "fmt_analyze_budget_short": {
         "en": ("\U0001f4c9 Analyze budget short: <b>{of}</b> signals at {per:.1f}s "
                "each needs ~{needed:.0f}s against a {cap:.0f}s cap — about "
