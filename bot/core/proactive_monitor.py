@@ -642,9 +642,15 @@ class ProactiveMonitor:
             if not trades:
                 return []
             s = parity_summary(trades, CONFIG.risk.commission_pct)
-            fee_x = s.get("fee_vs_model", 0.0)
+            # None when some closes carry no fee record: the ratio is
+            # withheld, not zero. Comparing None here raised into the broad
+            # except below and skipped the whole digest -- silently.
+            fee_x = s.get("fee_vs_model")
             drift = " ⚠️ fees running above model — /parity for the breakdown" \
-                if fee_x > 1.5 else ""
+                if (fee_x is not None and fee_x > 1.5) else ""
+            fee_clause = (f"(<code>{fee_x:.1f}×</code> the modeled rate)" if fee_x is not None
+                          else f"(fee record on {int(s.get('fees_read') or 0)} of "
+                               f"{s['trades']} closes — ratio withheld)")
             body = (
                 "📏 <b>Weekly parity — live vs model</b>\n\n"
                 f"Filled trades: <b>{s['trades']}</b> · win rate "
@@ -652,7 +658,7 @@ class ProactiveMonitor:
                 f"<code>{s['pf']:.2f}</code>\n"
                 f"Net <code>${s['net_pnl']:+,.2f}</code> · fees "
                 f"<code>${s['total_fees']:,.2f}</code> "
-                f"(<code>{fee_x:.1f}×</code> the modeled rate)"
+                f"{fee_clause}"
                 f"{drift}\n\n<i>/parity for the full bucketed report.</i>")
             return [Alert(alert_type="PARITY_DIGEST", severity="INFO",
                           title="Weekly parity digest", body=body,

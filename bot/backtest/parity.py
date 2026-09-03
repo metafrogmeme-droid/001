@@ -46,13 +46,20 @@ def load_closed_trades(path: str | Path) -> list[dict]:
     return [t for t in data if isinstance(t, dict)]
 
 
-def _net(t: dict) -> float:
-    """Realized net PnL for a trade, tolerant of field naming."""
+def _net(t: dict) -> float | None:
+    """Realized net PnL for a trade, tolerant of field naming.
+
+    None when no field carries a number. It used to answer 0.0, which made a
+    close with no PnL record a scored, losing, break-even trade: win rate
+    down, PF untouched, nobody told. LivePosition declares pnl_usd Optional
+    and the persisted-record loader restores a null faithfully, so the shape
+    is real. A genuine 0.0 is still 0.0.
+    """
     for k in ("pnl_usd", "net_pnl", "net_pnl_usd"):
         v = t.get(k)
-        if isinstance(v, (int, float)):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
             return float(v)
-    return 0.0
+    return None
 
 
 def _notional(t: dict) -> float:
@@ -66,9 +73,18 @@ def _notional(t: dict) -> float:
     return abs(float(cost) * float(lev or 1))
 
 
-def _fees(t: dict) -> float:
+def _fees(t: dict) -> float | None:
+    """Recorded commission, or None when the close carries no fee record.
+
+    Reading None as 0.0 made every unrecorded fee a free trade and pulled the
+    realized fee rate DOWN, so enough of them turned "WORSE than model" into
+    "better than model" -- a confident positive assembled from absent data,
+    on the line whose purpose is to say whether live fills are as good as
+    the backtest assumes. A genuine 0.0 (a rebate, a fee-free promo) is a
+    fee record and still counts.
+    """
     v = t.get("commission")
-    return abs(float(v)) if isinstance(v, (int, float)) else 0.0
+    return abs(float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
 def _pf(nets: list[float]) -> float:
@@ -97,8 +113,11 @@ def _exit_reason(t: dict) -> str:
 def _group(trades: list[dict], key: str) -> dict[str, dict]:
     groups: dict[str, list[float]] = {}
     for t in trades:
+        n = _net(t)
+        if n is None:
+            continue   # unscored: excluded from every bucket, counted in the header
         k = str(t.get(key) or "(unknown)")
-        groups.setdefault(k, []).append(_net(t))
+        groups.setdefault(k, []).append(n)
     out = {}
     for k, nets in groups.items():
         wins = sum(1 for n in nets if n > 0)
@@ -124,29 +143,47 @@ def parity_summary(trades: list[dict], modeled_commission_pct: float) -> dict:
     trades = [t for t in trades
               if is_filled_close(t.get("close_reason"), _net(t))]
     excluded = total_records - len(trades)
-    nets = [_net(t) for t in trades]
-    fees = sum(_fees(t) for t in trades)
-    notional = sum(_notional(t) for t in trades)
-    gross = sum(t.get("gross_pnl") or _net(t) for t in trades)
+    # A close with no PnL record is EXCLUDED from every stat and counted,
+    # the way never-filled records are. It is not a loss and not a flat.
+    unscored = [t for t in trades if _net(t) is None]
+    trades = [t for t in trades if _net(t) is not None]
+    nets = [float(_net(t) or 0.0) for t in trades]   # _net is not None here
+    # Fees are measured over the closes that CARRY a fee record, and the
+    # notional they are measured against is those closes' notional -- a rate
+    # diluted by notional nobody was charged for is not the rate. The verdict
+    # is withheld unless every close was read.
+    fee_read = [(t, _fees(t)) for t in trades if _fees(t) is not None]
+    fees_read = len(fee_read)
+    fees = sum(float(f or 0.0) for _t, f in fee_read)
+    notional = sum(_notional(t) for t, _f in fee_read)
+    gross = sum(float(t["gross_pnl"]) if isinstance(t.get("gross_pnl"), (int, float))
+                and not isinstance(t.get("gross_pnl"), bool) else float(_net(t) or 0.0)
+                for t in trades)
     wins = sum(1 for n in nets if n > 0)
     n = len(trades)
-    realized_fee_rate = (fees / notional) if notional > 0 else 0.0
+    realized_fee_rate = ((fees / notional) if notional > 0 else 0.0) if fees_read else None
     modeled_fee_rate = 2.0 * (modeled_commission_pct / 100.0)  # round trip
-    # Fraction of gross profit eaten by fees (the churn-drag number).
+    # Fraction of gross profit eaten by fees (the churn-drag number); None
+    # unless every close carried a fee record.
     gross_win = sum(n for n in nets if n > 0)
+    fee_vs_model = ((realized_fee_rate / modeled_fee_rate)
+                    if (realized_fee_rate is not None and fees_read == n and modeled_fee_rate > 0)
+                    else None)
     return {
         "trades": n,
         "excluded_non_fills": excluded,
+        "unscored_pnl": len(unscored),
         "win_rate": (wins / n) if n else 0.0,
         "net_pnl": round(sum(nets), 2),
         "gross_pnl": round(gross, 2),
         "pf": _pf(nets),
+        "fees_read": fees_read,
         "total_fees": round(fees, 2),
         "notional": round(notional, 2),
-        "realized_fee_rate": realized_fee_rate,       # per round trip, of notional
+        "realized_fee_rate": realized_fee_rate,       # per round trip, of the fee-read notional; None when none read
         "modeled_fee_rate": modeled_fee_rate,
-        "fee_vs_model": (realized_fee_rate / modeled_fee_rate) if modeled_fee_rate > 0 else 0.0,
-        "fee_drag_of_gross": (fees / gross_win) if gross_win > 0 else 0.0,
+        "fee_vs_model": fee_vs_model,                 # None unless every close carries a fee record
+        "fee_drag_of_gross": ((fees / gross_win) if gross_win > 0 else 0.0) if fees_read == n else None,
         "inferred_fills": sum(1 for t in trades if t.get("fill_source") == "ticker_fallback"),
         "by_signal_type": _group(trades, "signal_type"),
         "by_setup": _group(trades, "strategy_type"),
@@ -179,17 +216,34 @@ def format_report(s: dict) -> str:
              f"  Live realized: {s['trades']} trades  net ${s['net_pnl']:+,.2f}"
              f"  win {s['win_rate']:.0%}  PF {_pf_str(s['pf'])}"
              + (f"  ({s['excluded_non_fills']} never-filled records excluded)"
-                if s.get("excluded_non_fills") else ""),
+                if s.get("excluded_non_fills") else "")
+             + (f"  ({s['unscored_pnl']} close(s) with no PnL record excluded)"
+                if s.get("unscored_pnl") else ""),
              "  Backtest benchmark (majors_1h, --honest): +0.31% / PF 1.14 — "
              "is live in the same ballpark?"]
     # Fee parity — the concrete fills/fees gap.
-    fvm = s["fee_vs_model"]
-    verdict = ("~ matches model" if 0.8 <= fvm <= 1.25 else
-               "WORSE than model" if fvm > 1.25 else "better than model")
-    lines.append(
-        f"  Fees: realized {s['realized_fee_rate']*100:.3f}%/round-trip vs modeled "
-        f"{s['modeled_fee_rate']*100:.3f}% → {fvm:.2f}× ({verdict}); "
-        f"${s['total_fees']:,.2f} total = {s['fee_drag_of_gross']*100:.0f}% of gross profit")
+    fvm = s.get("fee_vs_model")
+    fees_read = int(s.get("fees_read") or 0)
+    if fvm is not None:
+        verdict = ("~ matches model" if 0.8 <= fvm <= 1.25 else
+                   "WORSE than model" if fvm > 1.25 else "better than model")
+        lines.append(
+            f"  Fees: realized {s['realized_fee_rate']*100:.3f}%/round-trip vs modeled "
+            f"{s['modeled_fee_rate']*100:.3f}% → {fvm:.2f}× ({verdict}); "
+            f"${s['total_fees']:,.2f} total = {s['fee_drag_of_gross']*100:.0f}% of gross profit")
+    elif fees_read:
+        # Some closes carry no fee record: the rate is measured on the ones
+        # that do, and the verdict is withheld -- a ratio over part of the
+        # book is not the ratio.
+        lines.append(
+            f"  Fees: realized {s['realized_fee_rate']*100:.3f}%/round-trip on the "
+            f"{fees_read} of {s['trades']} closes that carry a fee record "
+            f"(vs modeled {s['modeled_fee_rate']*100:.3f}%); verdict withheld — "
+            f"fees recorded on {fees_read} of {s['trades']} closes")
+    else:
+        lines.append(
+            f"  Fees: no fee record on any close — fee parity cannot be measured "
+            f"(modeled {s['modeled_fee_rate']*100:.3f}%/round-trip)")
     if s["inferred_fills"]:
         lines.append(f"  ⚠ {s['inferred_fills']} close(s) inferred (ticker_fallback), "
                      f"not authoritative exchange fills — treat their PnL as approximate")

@@ -6954,19 +6954,15 @@ class TelegramHandler:
                     "🔴 No operator Bitget keys configured — "
                     "<code>/setexchange</code> first.")
                 return
-            # Free futures margin from the engine's venue-aware balance cache.
-            # Age-gated: "refreshed every tick" is only true while venue
-            # fetches succeed — on repeated failures the cache keeps its last
-            # value indefinitely, and this row then sizes yield suggestions
-            # off margin that may no longer exist. Stale/absent → 0.0: the
-            # report omits the row rather than inventing one.
-            free_usdt = 0.0
-            try:
-                cache = self.engine.live_balance_cached() or {}
-                free_usdt = float(cache.get("free", 0) or 0)
-            except Exception:
-                pass
-            report = await asyncio.to_thread(build_report, client, free_usdt)
+            # Through the helper that already tells 0.0 (paper: nothing to
+            # read) from None (live: could not read). This used to coerce the
+            # cache's None to 0.0 itself, so build_report took the "nothing
+            # idle on futures" path and the card presented spot-only idle
+            # capital as the whole picture -- the same defect the web yield
+            # panel had, one surface over.
+            free_usdt = self._engine_free_usdt()
+            report = await asyncio.to_thread(build_report, client,
+                                             futures_free_usdt=free_usdt)
             # Cross-venue info: when Bybit Earn pays more on a coin, say so
             # (info only — /stake still executes where the funds are).
             try:

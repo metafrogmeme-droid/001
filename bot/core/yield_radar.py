@@ -242,6 +242,12 @@ def format_report_html(report: YieldReport) -> str:
     if report.error:
         return f"🟡 <b>Yield Radar</b>\n{report.error}"
     if not report.rows:
+        if report.incomplete:
+            # No SPOT rows and an unread futures margin is not "nothing to
+            # stake" -- it is "nothing we could see". Say which.
+            return (f"🟡 <b>Yield Radar</b>\n⚠ {report.incomplete}\n"
+                    f"No idle spot assets above the ${MIN_IDLE_USD:.0f} dust "
+                    "threshold; the futures side is unknown, not empty.")
         return ("🟡 <b>Yield Radar</b>\nNo idle assets above the $"
                 f"{MIN_IDLE_USD:.0f} dust threshold — nothing to stake.")
     sep = "─" * 16
@@ -260,8 +266,13 @@ def format_report_html(report: YieldReport) -> str:
                if r.alt_note else "")
         )
     lines.append(sep)
+    if report.incomplete:
+        # The totals below are a FLOOR: the futures row is missing because
+        # the margin could not be read, not because it is empty.
+        lines.append(f"⚠ {report.incomplete}")
+    total_label = "Total idle (partial — futures margin unread)" if report.incomplete else "Total idle"
     lines.append(
-        f"Total idle: <code>${report.total_idle_usd:,.2f}</code> · "
+        f"{total_label}: <code>${report.total_idle_usd:,.2f}</code> · "
         f"est. missed yield: <code>${report.total_est_year_usd:,.2f}/yr</code>")
     lines.append(
         "<i>Read-only radar — flexible savings redeem instantly, so staked "

@@ -4138,6 +4138,12 @@
       const notes = [];
       if (p.inferred_fills) notes.push(`${p.inferred_fills} close price(s) inferred from ticker`);
       if (p.excluded_non_fills) notes.push(`${p.excluded_non_fills} never-filled record(s) excluded`);
+      if (p.unscored_pnl) notes.push(`${p.unscored_pnl} close(s) with no PnL record excluded`);
+      // A dashed "Fees vs model" tile needs its reason beside it, or it reads
+      // as "not computed" rather than "withheld because N closes carry no fee".
+      if (p.fees_read != null && p.trades != null && Number(p.fees_read) < Number(p.trades)) {
+        notes.push(`fee record on ${p.fees_read} of ${p.trades} closes — fee ratio withheld`);
+      }
       return `<p class="muted small">Realized live execution vs the modeled backtest assumptions — drift here is the earliest sign the model no longer describes reality. ${esc(reportAge(rep))}</p>
         <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:var(--s2);margin-top:var(--s3)">
           ${tiles.map(([k, v, c]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v num ${c}">${esc(String(v))}</div></div>`).join('')}
@@ -4234,6 +4240,17 @@
     // exact wording. Absent means we cannot tell whether the rate is a floor,
     // and "at least" is true either way — so the hedge is kept and only the
     // provenance clause, which we would be inventing, is dropped.
+    // The yield panel's totals line. `incomplete` is non-empty when the bot
+    // could not read its free futures margin: the totals are then a FLOOR
+    // (spot only), and a plain "Total idle $X" beside a silently missing
+    // futures row reads as the whole picture. Pure, so it can be tested.
+    function yieldTotalsCopy(y) {
+      const note = (y && typeof y.incomplete === 'string') ? y.incomplete.trim() : '';
+      return { label: note ? 'Total idle (partial \u2014 futures margin unread)' : 'Total idle',
+               note };
+    }
+    // end yieldTotalsCopy
+
     function analyzeBudgetCopy(a) {
       const num = (x) => (typeof x === 'number' && isFinite(x)) ? x : null;
       const of = num(a.of), fits = num(a.fits), short = num(a.shortfall);
@@ -4390,7 +4407,8 @@
               <td class="num r">${row.apy_flexible != null ? Number(row.apy_flexible).toFixed(2) + '%' : '—'}</td>
               <td class="num r">$${Number(row.est_year_usd || 0).toFixed(2)}</td></tr>`).join('')}</tbody></table></div>
             ${confirmBlock}
-            <p class="small muted mt-2">Total idle <b class="num">$${Number(y.total_idle_usd || 0).toFixed(2)}</b> · est. <b class="num">$${Number(y.total_est_year_usd || 0).toFixed(2)}/yr</b> at current flexible rates. ${actNote}</p>`;
+            ${yieldTotalsCopy(y).note ? `<p class="small muted mt-2">\u26a0 ${esc(yieldTotalsCopy(y).note)}</p>` : ''}
+            <p class="small muted mt-2">${esc(yieldTotalsCopy(y).label)} <b class="num">$${Number(y.total_idle_usd || 0).toFixed(2)}</b> · est. <b class="num">$${Number(y.total_est_year_usd || 0).toFixed(2)}/yr</b> at current flexible rates. ${actNote}</p>`;
         }, { timeoutMs: 32000, empty: { icon: 'icon-coin', text: 'Yield data arrives with the bot\'s hourly report (needs operator Earn credentials).' } });
 
         const host = C('ayield');

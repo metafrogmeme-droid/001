@@ -66,8 +66,8 @@ def _parity_section(engine) -> Optional[dict]:
     summary = parity_summary(trades, CONFIG.risk.commission_pct)
     # Headline stats only — the bucket breakdowns stay in Telegram /parity
     # (they're long) and the web panel links there for the full report.
-    keep = ("trades", "excluded_non_fills", "win_rate", "net_pnl", "pf",
-            "total_fees", "realized_fee_rate", "modeled_fee_rate",
+    keep = ("trades", "excluded_non_fills", "unscored_pnl", "win_rate", "net_pnl", "pf",
+            "fees_read", "total_fees", "realized_fee_rate", "modeled_fee_rate",
             "fee_vs_model", "inferred_fills")
     return {k: summary.get(k) for k in keep}
 
@@ -79,24 +79,31 @@ def _yield_section(engine) -> Optional[dict]:
     client = BitgetV3Client.from_config()
     if not client.has_credentials:
         return None
-    free_usdt = 0.0
+    # None means "could not read", and build_report has a path for exactly
+    # that: it marks the report INCOMPLETE and leaves the futures row out
+    # because we do not know, not because there is nothing there. This used
+    # to coerce the None that live_balance_cached returns by design into 0.0,
+    # which took the second path and presented a spot-only total as the
+    # whole picture -- honest plumbing on both sides, defeated in between.
+    free_usdt: Optional[float] = None
     try:
-        # Age-gated (engine.live_balance_cached): a stale cache here told the
-        # yield radar there was idle margin that may no longer exist. Stale
-        # or absent reads as 0.0 — the report omits the margin row rather
-        # than sizing suggestions off an old number.
         _fn = getattr(engine, "live_balance_cached", None)
         cache = (_fn() if callable(_fn) else None) or {}
-        free_usdt = float(cache.get("free") or 0.0)
+        _free = cache.get("free")
+        if isinstance(_free, (int, float)) and not isinstance(_free, bool):
+            free_usdt = float(_free)      # a real 0.0 stays 0.0: nothing idle
     except Exception:
         pass
-    report = build_report(client, free_usdt)
+    report = build_report(client, futures_free_usdt=free_usdt)
     if report.error and not report.rows:
         return None
     return {
         "total_idle_usd": report.total_idle_usd,
         "total_est_year_usd": report.total_est_year_usd,
         "rows": [asdict(r) for r in report.rows[:12]],
+        # Non-empty when the futures margin could not be read: the totals
+        # above are then a floor, and the panel must say so beside them.
+        "incomplete": report.incomplete or "",
     }
 
 
