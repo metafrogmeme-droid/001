@@ -897,6 +897,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "zh": ("\u23f8 \u672c\u8f2a\u7565\u904e {classes} \u2014 "
                "\u7f8e\u80a1\u4f11\u5e02\uff08\u958b\u76e4\u5f8c\u6062\u5fa9\uff09"),
     },
+    "fmt_monitor_checks_down": {
+        "en": ("\U0001f6a8 Alerting degraded: <b>{n}</b> monitor check(s) down "
+               "\u2014 <code>{names}</code> (their alerts are not being raised)"),
+        "zh": ("\U0001f6a8 \u8b66\u5831\u529f\u80fd\u964d\u7d1a\uff1a<b>{n}</b> "
+               "\u500b\u76e3\u63a7\u6aa2\u67e5\u6545\u969c \u2014 <code>{names}</code>"
+               "\uff08\u5176\u8b66\u5831\u672a\u80fd\u767c\u51fa\uff09"),
+    },
+    "fmt_monitor_checks_unread": {
+        "en": "\u26aa Alerting state unread \u2014 the monitor did not answer",
+        "zh": "\u26aa \u8b66\u5831\u72c0\u614b\u672a\u8b80\u53d6 \u2014 \u76e3\u63a7\u5668\u7121\u56de\u61c9",
+    },
     "fmt_analyze_budget_short": {
         "en": ("\U0001f4c9 Analyze budget short: <b>{of}</b> signals at {per:.1f}s "
                "each needs ~{needed:.0f}s against a {cap:.0f}s cap — about "
@@ -971,6 +982,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     # three keys exist so the position card can say so instead of printing
     # "+0.0% ($0.00)" over a price it never read.
     "pnl_unknown": {"en": "P&L unknown", "zh": "盈虧未知"},
+    "val_bias_unread": {"en": "unread \u2014 macro calendar unavailable", "zh": "未讀取 \u2014 宏觀日曆不可用"},
     "price_unread": {"en": "price unavailable", "zh": "無法取得價格"},
     "total_partial": {
         "en": "total excludes {n} position(s) with no price",

@@ -514,6 +514,41 @@
   }
   // end hubCounts
 
+  // Whether the engine that fires the tripwires is actually evaluating them.
+  // "armed" is a claim about the FUTURE and it is only true while something
+  // evaluates the alert every minute. `engine` is routes/alerts.js's report
+  // of lib/alerts.js's own accounting. Module-level and pure so a test can
+  // drive every state; null means "say nothing" -- a server that predates the
+  // field, or a shape that cannot be read, gets no claim either way.
+  function alertEngineCopy(engine, nowMs) {
+    if (!engine || typeof engine !== 'object') return null;
+    const fails = Number(engine.consecutive_failures);
+    if (!Number.isFinite(fails)) return null;
+    const tOk = engine.last_ok_at ? Date.parse(engine.last_ok_at) : NaN;
+    const okKnown = Number.isFinite(tOk);
+    const ago = (t) => {
+      const s = Math.max(0, Math.round((nowMs - t) / 1000));
+      return s < 90 ? s + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago' : Math.round(s / 3600) + 'h ago';
+    };
+    if (engine.running === false) {
+      return { tone: 'danger', text: 'The alert engine is not running on this server — armed alerts will not fire.' };
+    }
+    if (fails > 0) {
+      const since = okKnown ? 'since ' + ago(tOk) : 'yet';
+      const err = engine.last_error ? ' (' + String(engine.last_error) + ')' : '';
+      return { tone: 'danger', text: 'The alert engine has not evaluated alerts ' + since + ' — '
+        + fails + ' failed pass' + (fails === 1 ? '' : 'es') + err + '. Armed alerts are not being watched.' };
+    }
+    if (!okKnown) {
+      return { tone: 'muted', text: 'The alert engine has not completed a pass yet — it runs every minute from boot.' };
+    }
+    if (nowMs - tOk > 5 * 60 * 1000) {
+      return { tone: 'warn', text: 'The alert engine last evaluated alerts ' + ago(tOk) + ' — longer than its one-minute cadence.' };
+    }
+    return { tone: 'muted', text: 'Evaluated ' + ago(tOk) + ' · every minute.' };
+  }
+  // end alertEngineCopy
+
   function reportAge(rep) {
     const t = rep?.generated_at || rep?.received_at;
     return t ? `updated ${fmtAgo(t)}` : '';
@@ -579,13 +614,24 @@
       return;
     }
     const rows = (r.data && r.data.alerts) || [];
+    // The engine line comes first: an "armed" badge under a dead engine is
+    // the panel's own colour making a claim the server just contradicted.
+    const eng = alertEngineCopy(r.data && r.data.engine, Date.now());
+    const engineDown = !!(eng && eng.tone === 'danger');
+    const engColor = !eng ? '' : eng.tone === 'danger' ? 'var(--danger, #e5484d)'
+      : eng.tone === 'warn' ? 'var(--warn, #d9a441)' : 'var(--text-2)';
+    const engHtml = eng
+      ? `<p class="alert-engine" data-tone="${eng.tone}" style="color:${engColor};font-size:var(--fs-xs);margin:0 0 var(--s1)">${esc(eng.text)}</p>`
+      : '';
     if (!rows.length) {
-      el.innerHTML = '<p style="color:var(--text-2)">No alerts armed. Set a level above, or ask the chat.</p>';
+      el.innerHTML = engHtml + '<p style="color:var(--text-2)">No alerts armed. Set a level above, or ask the chat.</p>';
       return;
     }
-    el.innerHTML = rows.map((a) => {
+    el.innerHTML = engHtml + rows.map((a) => {
       const state = a.active
-        ? '<span class="badge badge--success">armed</span>'
+        ? (engineDown
+          ? '<span class="badge">armed · not being evaluated</span>'
+          : '<span class="badge badge--success">armed</span>')
         : `<span class="badge">tripped${a.trigger_price != null ? ' @ ' + fmtPrice(a.trigger_price) : ''}</span>`;
       return `<div class="row" style="gap:var(--s2);align-items:center;padding:var(--s1) 0;border-bottom:1px solid var(--border)">
           <b>${esc(a.label)}</b> ${state}

@@ -144,7 +144,11 @@ def test_the_probe_never_raises_and_is_throttled():
 
 
 def test_it_is_wired_into_the_loop_and_the_checks():
-    from pathlib import Path
-    src = Path("bot/core/proactive_monitor.py").read_text(encoding="utf-8")
-    assert "await self._probe_public_gateway()" in src, "the probe must actually run"
-    assert "alerts.extend(self._check_public_gateway())" in src
+    # Scoped to the two functions that must reach them, not the whole file:
+    # a probe named anywhere in the module is not a probe the loop runs.
+    # (_check_all isolates every check now, so the shape is a registration
+    # in its table rather than a bare `alerts.extend(...)` call.)
+    import inspect
+    assert "self._probe_public_gateway" in inspect.getsource(ProactiveMonitor.run), (
+        "the probe must actually run")
+    assert "self._check_public_gateway" in inspect.getsource(ProactiveMonitor._check_all)

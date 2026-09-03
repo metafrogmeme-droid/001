@@ -22,6 +22,19 @@ module.exports = [
     funding: { rows: [] }, arb: { carries: [], notional_usd: 1000, snapshots: 0 }, has_yield: true, generated_at: new Date().toISOString(),
   } }],
   ['/api/staking/fixed', { available: false, rows: [] }],
+  // One armed tripwire and a healthy engine, so the Tripwires panel renders
+  // its populated branch: the engine line plus a green badge that is TRUE.
+  ['/api/alerts', { alerts: [{ id: 1, symbol: 'BTCUSDT', metric: 'price', op: '<', threshold: 50000, label: 'BTC below $50,000',
+    active: true, trigger_price: null, created_at: new Date(Date.now() - 3600e3).toISOString(), triggered_at: null }],
+    max_active: 20,
+    engine: { running: true, last_run_at: new Date(Date.now() - 20e3).toISOString(), last_ok_at: new Date(Date.now() - 20e3).toISOString(),
+      consecutive_failures: 0, last_error: null } }],
+  // The server always sends open_positions (routes/portfolio.js); a body
+  // without it is a shape it never produces, and reads as an empty book.
+  ['/api/portfolio', { mode: 'PAPER', equity: 10000, start_equity: 10000, total_pnl: 12.5, total_pnl_pct: 0.125,
+    daily_pnl: 1.5, daily_pnl_pct: 0.015, win_rate: 0.55, trades: 20, live_unavailable: false,
+    open_positions: [{ symbol: 'BTC/USDT', direction: 'LONG', entry_price: 60000, current_price: 60500, size_usd: 100, pnl: 0.83, pnl_pct: 0.83, stop_loss: 59000, take_profit: 63000, opened_at: '2026-09-02T00:00:00Z' }],
+    closed_trades: [], recent: [] }],
   // The server always sends these (routes/arena.js builds positions and
   // limits before it answers); an empty body is a shape it never produces.
   ['/api/arena/account', { start_balance: 10000, balance: 10000, equity: 10000, return_pct: 0,
