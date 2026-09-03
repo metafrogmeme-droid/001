@@ -105,6 +105,48 @@ def compute_support_resistance(
             _cluster(resistances, current_price, "resistance"))
 
 
+def rsi_or_none(closes: np.ndarray, period: int = 14) -> Optional[float]:
+    """RSI when there is enough history to compute one; None when there is not.
+
+    compute_rsi below answers 50.0 on short history, and the scanner relies
+    on that (its regime arithmetic compares the number). On a DISPLAY that
+    same 50.0 is "RSI 50 (neutral)" for a symbol with a dozen bars -- a
+    reading never taken, printed with the confidence of one. Cards read
+    through this and render a dash; the scanner keeps its own default.
+    """
+    if len(closes) < period + 1:
+        return None
+    return compute_rsi(closes, period)
+
+
+def _fmt_rsi(v: Optional[float]) -> str:
+    return "\u2014" if v is None else f"{float(v):.1f}"
+
+
+def rsi_label(v: Optional[float]) -> str:
+    """overbought / oversold / neutral -- or "unread" when there is no reading.
+    Never "neutral" for None: neutral is a verdict about a number."""
+    if v is None:
+        return "unread"
+    return "overbought" if v > 70 else "oversold" if v < 30 else "neutral"
+
+
+def market_context_line(adata: Optional[dict]) -> str:
+    """The one-line market context on the position-details card.
+
+    Was inline in the callback handler as
+    `rsi_val = adata.get('rsi', 0)` -> "RSI 0 (oversold)" for an absent
+    reading, and "RSI 50 (neutral)" for a short history. A seam, so the
+    None case can be driven: it says "RSI \u2014 (unread)" and keeps the
+    structure, which is still known.
+    """
+    if not isinstance(adata, dict):
+        return ""
+    rsi = adata.get("rsi")
+    structure = str(adata.get("structure", "") or "")
+    return f"RSI {_fmt_rsi(rsi)} ({rsi_label(rsi)}) | {structure}"
+
+
 def compute_rsi(closes: np.ndarray, period: int = 14) -> float:
     """Canonical Wilder RSI (audit fix #20: this card previously displayed a
     simple-mean approximation that could disagree with the bot's real RSI)."""
@@ -238,8 +280,11 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
         low_24h = float(np.min(l[-24:])) if len(l) >= 24 else float(np.min(l))
         vwap = compute_vwap(h, l, c, v)
         vwap_pct = ((price - vwap) / vwap * 100) if vwap > 0 else 0
-        rsi = compute_rsi(c)
-        atr = compute_atr(h, l, c)
+        # None on short history, not 50.0 / 0.0: these feed DISPLAYS, and a
+        # neutral RSI or a zero range for a dozen bars is a reading never
+        # taken. _fmt_price(None) already renders an em dash; _fmt_rsi too.
+        rsi = rsi_or_none(c)
+        atr = compute_atr(h, l, c) if len(c) >= 15 else None
 
         # Volume
         vol_24h = float(np.sum(v[-24:])) if len(v) >= 24 else float(np.sum(v))
@@ -332,7 +377,7 @@ def render_analysis_card(data: Dict[str, Any], idea: Optional[Any] = None) -> st
         f"- Bid/Ask: {_fmt_vol(data['bid_depth'])} bid vs {_fmt_vol(data['ask_depth'])} ask \u2014 "
         + (_bid_ask_read(data["bid_depth"], data["ask_depth"])),
         f"- {data.get('timeframe', '1H')} structure: {data['structure']}",
-        f"- RSI: {data['rsi']:.1f} | ATR: {_fmt_price(data['atr'])} | Vol spike: {data['vol_spike']:.1f}x",
+        f"- RSI: {_fmt_rsi(data['rsi'])} | ATR: {_fmt_price(data['atr'])} | Vol spike: {data['vol_spike']:.1f}x",
     ]
 
     # Key Levels
@@ -411,7 +456,7 @@ def render_comparison_table(assets: List[Dict[str, Any]],
         ("24h Change", [_pct(a["change_pct"]) for a in assets]),
         ("Above VWAP", [f"{_pct(a['vwap_pct'])} ({'extended' if abs(a['vwap_pct']) > 10 else 'moderate' if abs(a['vwap_pct']) > 5 else 'tight'})" for a in assets]),
         ("Bid/Ask", [f"{_fmt_vol(a['bid_depth'])} vs {_fmt_vol(a['ask_depth'])} ({'bullish' if a['bid_depth'] > a['ask_depth'] else 'bearish'})" for a in assets]),
-        ("RSI", [f"{a['rsi']:.1f}" for a in assets]),
+        ("RSI", [_fmt_rsi(a['rsi']) for a in assets]),
         ("Volume", [_fmt_vol(a["volume_24h_usd"]) for a in assets]),
     ]
 
