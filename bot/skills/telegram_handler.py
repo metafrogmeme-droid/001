@@ -12996,10 +12996,26 @@ class TelegramHandler:
             _retrip = risk.pending_retrip_reason() or ""
         except Exception:
             _retrip = ""
-        rendered = wr_resume(retrip_warning=_retrip, scope=scope)
+        # And the gate the reset does NOT clear: the warning-rate breaker and
+        # the loss-streak gate sit outside reset_circuit_breaker(), so "Trading
+        # ENABLED" was printed over entries still being refused (live, 13:59
+        # on 2026-09-03). Read AFTER the reset, through the seam.
+        _gate = self._resume_gate_state(risk)
+        rendered = wr_resume(retrip_warning=_retrip, scope=scope, gate=_gate)
         await self._send(update, rendered["text"])
         audit(system_log, "Bot resumed via /resume", action="resume", result="OK",
-              data={"retrip_warning": _retrip or None, "scope": scope})
+              data={"retrip_warning": _retrip or None, "scope": scope,
+                    "gate_after_reset": _gate})
+
+    @staticmethod
+    def _resume_gate_state(risk) -> Optional[str]:
+        """trading_blocked_by after the reset: "" open, a reason string when
+        entries are still refused, None when it could not be read."""
+        try:
+            return str(getattr(risk, "trading_blocked_by", "") or "")
+        except Exception as exc:
+            system_log.warning("/resume: entry gate unreadable after reset: %s", exc)
+            return None
 
     async def _cmd_close_all(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /closeall — flatten all open positions on EVERY account.
