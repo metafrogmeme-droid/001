@@ -110,6 +110,10 @@ async function loadWeekData(start, end) {
     return t >= start.getTime() && t < end.getTime();
   };
 
+  // Every read starts believed; a catch below turns its flag off. Nothing
+  // downstream may present an unread section as a measured one.
+  const reads = { trades: true, equity: true, signals: true, open: true, reports: true };
+
   let trades = [];
   try {
     const [rows] = await pool.execute(
@@ -118,7 +122,16 @@ async function loadWeekData(start, end) {
         WHERE user_id = ? AND status = 'CLOSED' AND closed_at IS NOT NULL
         ORDER BY closed_at ASC`, [OPERATOR_USER_ID]);
     trades = rows.filter(t => inWindow(t.closed_at));
-  } catch (e) { /* section reports no data */ }
+  } catch (e) {
+    // NOT an empty week. The composer's `!trades.length` branch does not
+    // merely print a zero — it attributes a CAUSE, telling the reader the
+    // risk gate declined to trade. Inventing a reason for a week the database
+    // would not answer, in a letter this module's header promises is never
+    // invented, written once and stored forever.
+    // (Deliberately not quoting that sentence here: a comment carrying the
+    //  string a scan forbids is indistinguishable from the code doing it.)
+    reads.trades = false;
+  }
 
   let equity = { start: null, end: null };
   try {
@@ -137,7 +150,7 @@ async function loadWeekData(start, end) {
       const first = snaps.find(s => inWindow(s.snapshot_at));
       if (first) equity.start = parseFloat(first.equity);
     }
-  } catch (e) { /* no equity section */ }
+  } catch (e) { reads.equity = false; }
 
   let signals = [];
   try {
@@ -145,7 +158,7 @@ async function loadWeekData(start, end) {
       `SELECT symbol, direction, confidence, regime, created_at
          FROM signals ORDER BY created_at DESC LIMIT 500`, []);
     signals = rows.filter(s => inWindow(s.created_at));
-  } catch (e) { /* no signals section */ }
+  } catch (e) { reads.signals = false; }
 
   let openCount = 0;
   try {
@@ -153,15 +166,24 @@ async function loadWeekData(start, end) {
       "SELECT COUNT(*) AS open_count FROM trades WHERE user_id = ? AND status = 'OPEN'",
       [OPERATOR_USER_ID]);
     openCount = parseInt(r[0]?.open_count) || 0;
-  } catch (e) { /* stays 0 */ }
+  } catch (e) {
+    // `/* stays 0 */` rendered as "the desk carries nothing into the new
+    // week" — a flat book claimed from a failed count. null, so the composer
+    // can tell unknown from zero.
+    openCount = null;
+    reads.open = false;
+  }
 
   let reports = null;
   try {
     const [r] = await pool.execute('SELECT reports_json FROM reports_cache WHERE id = 1');
     if (r.length && r[0].reports_json) reports = JSON.parse(r[0].reports_json);
-  } catch (e) { /* no reports section */ }
+  } catch (e) { reads.reports = false; }
 
-  return { trades, equity, signals, openCount, reports };
+  // `reads` is the whole point: equity and reports were already honest (null
+  // omits the section), but trades, signals and the open count all rendered a
+  // failed query as a measured zero.
+  return { trades, equity, signals, openCount, reports, reads };
 }
 
 // ── Composition (pure, deterministic) ────────────────────────────────────────
@@ -200,6 +222,7 @@ function composeAlphaSection(trades) {
 
 function composeLetter({ key, start, end }, data) {
   const { trades, equity, signals, openCount, reports } = data;
+  const reads = data.reads || {};
   const fmtDay = (d) => d.toISOString().slice(0, 10);
   const endInclusive = new Date(end.getTime() - 86_400_000);
 
@@ -212,7 +235,16 @@ function composeLetter({ key, start, end }, data) {
 
   // ── The week ──
   let deskLine, deskPart;
-  if (!trades.length) {
+  if (reads.trades === false) {
+    // The week's central fact is unknown, so no verdict about it may be
+    // written. Emphatically not the branch below, which attributes a cause:
+    // attributing one to a week nobody could read is the invention this
+    // file's header forbids, and it is stored permanently.
+    deskLine = 'The trading record for this week could not be read, so this '
+      + 'letter cannot say what the desk did. That is a failed read, not a '
+      + 'quiet week.';
+    deskPart = { tid: 'week_unread', params: {} };
+  } else if (!trades.length) {
     deskLine = 'The desk closed no positions this week — patience is a position too, '
       + 'and the risk gate saw nothing worth paying fees for.';
     deskPart = { tid: 'week_flat', params: {} };
@@ -329,13 +361,17 @@ function composeLetter({ key, start, end }, data) {
   // ── Looking ahead ──
   sections.push({
     title: 'Looking ahead', title_tid: 'ahead', sep: ' ',
-    html: (openCount
+    html: (openCount === null
+      ? 'The number of open positions carried into the new week could not be read. '
+      : openCount
       ? `The desk carries <b>${openCount}</b> open position${openCount === 1 ? '' : 's'} into the new week, each with a hard stop working. `
       : 'The desk enters the week flat. ')
       + 'Same discipline as always: no trade without a stop, no size without conviction, '
       + 'and the risk gate has the final word.',
     parts: [
-      openCount ? { tid: 'ahead_open', params: { n: openCount } } : { tid: 'ahead_flat', params: {} },
+      openCount === null ? { tid: 'ahead_unread', params: {} }
+        : openCount ? { tid: 'ahead_open', params: { n: openCount } }
+        : { tid: 'ahead_flat', params: {} },
       { tid: 'ahead_discipline', params: {} },
     ],
   });
@@ -396,6 +432,7 @@ function weekRangeFromKey(key) {
  */
 function composePublicLetter({ key, start, end }, data) {
   const { trades, equity, signals, openCount, reports } = data;
+  const reads = data.reads || {};
   const fmtDay = (d) => d.toISOString().slice(0, 10);
   const endInclusive = new Date(end.getTime() - 86_400_000);
 
@@ -410,7 +447,16 @@ function composePublicLetter({ key, start, end }, data) {
   const sections = [];
 
   let deskLine, deskPart;
-  if (!trades.length) {
+  if (reads.trades === false) {
+    // The week's central fact is unknown, so no verdict about it may be
+    // written. Emphatically not the branch below, which attributes a cause:
+    // attributing one to a week nobody could read is the invention this
+    // file's header forbids, and it is stored permanently.
+    deskLine = 'The trading record for this week could not be read, so this '
+      + 'letter cannot say what the desk did. That is a failed read, not a '
+      + 'quiet week.';
+    deskPart = { tid: 'week_unread', params: {} };
+  } else if (!trades.length) {
     deskLine = 'The desk closed no positions this week — patience is a position too, '
       + 'and the risk gate saw nothing worth paying fees for.';
     deskPart = { tid: 'week_flat', params: {} };
@@ -501,13 +547,17 @@ function composePublicLetter({ key, start, end }, data) {
 
   sections.push({
     title: 'Looking ahead', title_tid: 'ahead', sep: ' ',
-    html: (openCount
+    html: (openCount === null
+      ? 'The number of open positions carried into the new week could not be read. '
+      : openCount
       ? `The desk carries <b>${openCount}</b> open position${openCount === 1 ? '' : 's'} into the new week, each with a hard stop working. `
       : 'The desk enters the week flat. ')
       + 'Same discipline as always: no trade without a stop, no size without conviction, '
       + 'and the risk gate has the final word.',
     parts: [
-      openCount ? { tid: 'ahead_open', params: { n: openCount } } : { tid: 'ahead_flat', params: {} },
+      openCount === null ? { tid: 'ahead_unread', params: {} }
+        : openCount ? { tid: 'ahead_open', params: { n: openCount } }
+        : { tid: 'ahead_flat', params: {} },
       { tid: 'ahead_discipline', params: {} },
     ],
   });
@@ -565,7 +615,26 @@ async function getLetter(week) {
     return { generated_at: rows[0].generated_at, created: false,
              letter: JSON.parse(rows[0].letter_json) };
   }
-  const letter = composeLetter(week, await loadWeekData(week.start, week.end));
+  const data = await loadWeekData(week.start, week.end);
+  const letter = composeLetter(week, data);
+
+  // DO NOT PERSIST A LETTER BUILT ON A FAILED READ.
+  //
+  // The insert below is write-once — `ON DUPLICATE KEY UPDATE week_key =
+  // week_key` keeps whichever caller won and never revises it — so a
+  // transient database failure during the load would bake that week's letter
+  // in permanently, and every later reader would be served it from cache.
+  // The comment below reasons that concurrent callers "produced the same
+  // text", which holds only while the load cannot fail.
+  //
+  // Returned, not stored: the reader sees the honest "could not be read"
+  // letter now, and the next call composes the week again once the database
+  // answers. `created: false` because nothing was created.
+  if (data.reads && data.reads.trades === false) {
+    return { generated_at: new Date().toISOString(), created: false,
+             provisional: true, letter };
+  }
+
   // week_key is UNIQUE, and this is a SELECT-then-INSERT: the dashboard's
   // letter panel and /letter can both miss for a newly-complete week and both
   // compose it, and the loser would duplicate-key. The no-op update keeps the
@@ -657,6 +726,10 @@ async function maybeHandleLetterChat(userId, text) {
 }
 
 module.exports = {
+  // Exported for the read-state contract: `reads` is the difference
+  // between a quiet week and an unreadable one, and asserting it through
+  // getLetter alone would couple those tests to persistence.
+  loadWeekData,
   weekKey,
   weekRangeFromKey,
   lastCompletedWeek,
