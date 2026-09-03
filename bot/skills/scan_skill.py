@@ -178,26 +178,42 @@ def _fetch_live_exchange_data() -> Optional[dict]:
             equity = float(bal.get("total", {}).get("USDT", 0) or 0)
 
         # Fetch open positions (try with and without productType)
+        positions_read = True
         try:
             positions = exchange.fetch_positions(params={"productType": "USDT-FUTURES"})
         except Exception:
             try:
                 positions = exchange.fetch_positions()
             except Exception:
+                # NOT an empty book. `positions = []` rendered a failed fetch as
+                # "0 open positions" and let the unrealized total below sum to
+                # a confident $0 over rows nobody read.
                 positions = []
+                positions_read = False
         open_pos = [p for p in positions if abs(float(p.get("contracts", 0) or 0)) > 0]
 
-        unrealized_pnl = 0
+        # `float(p.get("unrealizedPnl", 0) or 0)` summed every position the
+        # venue did not price as break-even, and the total was shipped as
+        # net_pnl -- a partial total, printed as whole, on the payload the
+        # website's summary is built from. orphan_position.py already records
+        # that Bitget omits this field more often than it reports a real 0.00,
+        # and telegram_handler's /portfolio counts `_marked` and prints
+        # "unknown" when nothing carried a mark. Same measurement, same rule.
+        unrealized_pnl = 0.0
+        unrealized_marked = 0
         for p in open_pos:
-            upnl = float(p.get("unrealizedPnl", 0) or 0)
-            unrealized_pnl += upnl
+            raw = p.get("unrealizedPnl")
+            upnl = None if raw is None else float(raw or 0)
+            if upnl is not None:
+                unrealized_pnl += upnl
+                unrealized_marked += 1
             result["open_positions"].append({
                 "symbol": p.get("symbol", "").replace(":USDT", "").replace("/", ""),
                 "direction": (p.get("side", "") or "").upper(),
                 "entry_price": float(p.get("entryPrice", 0) or 0),
                 "contracts": float(p.get("contracts", 0) or 0),
                 "notional": float(p.get("notional", 0) or 0),
-                "unrealized_pnl": round(upnl, 2),
+                "unrealized_pnl": None if upnl is None else round(upnl, 2),
                 "margin": float(p.get("initialMargin", p.get("collateral", 0)) or 0),
                 "leverage": p.get("leverage", ""),
             })
@@ -207,7 +223,14 @@ def _fetch_live_exchange_data() -> Optional[dict]:
         # None realized would print the open book's paper P&L as the account's
         # lifetime result — a smaller number than the truth, or a larger one,
         # and either way not the quantity the label names.
-        result["net_pnl"] = (None if realized_pnl is None
+        # Unknown, never partial. One unmarked position is enough: a sum over
+        # a set with an unreadable member is a bound at best, and the payload's
+        # tri-state has no way to say "at least". The website already renders
+        # None as "--", which is the honest thing for a number nobody has.
+        unrealized_unread = len(open_pos) - unrealized_marked
+        result["open_positions_unread"] = (not positions_read) or unrealized_unread > 0
+        result["net_pnl"] = (None if (realized_pnl is None or not positions_read
+                                      or unrealized_unread > 0)
                              else round(realized_pnl + unrealized_pnl, 2))
         result["win_rate"] = None if win_rate is None else round(win_rate, 1)
         result["total_trades"] = total
@@ -352,7 +375,8 @@ def _build_scan_payload(results: list[dict], engine=None,
                 cb_open_positions = live_data.get("open_positions", [])
                 cb_closed_trades = live_data.get("closed_trades", [])
                 cb_record_unreadable = bool(
-                    live_data.get("closed_record_unreadable"))
+                    live_data.get("closed_record_unreadable")
+                    or live_data.get("open_positions_unread"))
                 live_data_loaded = True
                 log.info("Live exchange data loaded: equity=$%.2f, %d trades, %d open",
                          cb_equity, cb_total_trades, cb_open_count)
