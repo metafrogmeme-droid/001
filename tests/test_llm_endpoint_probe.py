@@ -177,13 +177,17 @@ def test_ollama_counts_as_self_hosted_too(monkeypatch):
 
 def test_the_probe_and_the_check_are_both_reached():
     """A correct probe nothing calls is this repository's signature failure."""
-    from tests.source_scan import code_only
+    # Scoped to the two functions that must reach them, not the whole
+    # module: a probe named anywhere in the file is not a probe the loop
+    # runs. (_check_all isolates every check now, so the check's shape is a
+    # registration in its table rather than a bare `alerts.extend(...)`.)
+    import inspect
 
-    src = code_only((ROOT / "bot" / "core" / "proactive_monitor.py")
-                    .read_text(encoding="utf-8"))
-    assert "await self._probe_llm_endpoint()" in src, (
+    from bot.core.proactive_monitor import ProactiveMonitor
+
+    assert "self._probe_llm_endpoint" in inspect.getsource(ProactiveMonitor.run), (
         "the probe is never run, so it can never report anything")
-    assert "alerts.extend(self._check_llm_endpoint())" in src, (
+    assert "self._check_llm_endpoint" in inspect.getsource(ProactiveMonitor._check_all), (
         "the check is never collected, so the probe's result never pages")
 
 

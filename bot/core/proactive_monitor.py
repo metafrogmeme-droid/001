@@ -186,6 +186,14 @@ class ProactiveMonitor:
 
     # How often to check (seconds)
     CHECK_INTERVAL = 30
+    # A check that has raised on this many CONSECUTIVE ticks pages the admin.
+    # Three, not one: a single transient (a lock held across a restart, one
+    # exchange hiccup) is not an outage. At 30s ticks this is 90 seconds.
+    CHECK_DOWN_ALERT_AFTER = 3
+    # How often a still-failing check is re-logged at WARNING. The first
+    # failure logs at once, with its traceback; the rest would be one line
+    # per tick for as long as it stays broken.
+    CHECK_FAILURE_RELOG_S = 600.0
 
     # Deduplication cooldown (don't re-alert same event within this window)
     DEDUP_COOLDOWN = 300  # 5 minutes
@@ -269,6 +277,11 @@ class ProactiveMonitor:
         # this MOVING, not on the predicate momentarily reading healthy.
         self._tick_stale_alerted_for = None
         self._dedup_cache: dict[str, float] = {}  # dedup_key -> last_alert_time
+        # Per-check failure accounting for _check_all: name -> record. A
+        # check that raised on the last pass is "down" until it returns
+        # normally. Also created on demand by _failure_records(), because
+        # tests build the monitor with __new__ -- a legitimate pattern here.
+        self._check_failures: dict[str, dict] = {}
         # dedup_key -> (last_alert_time, severity_tier) for anomalies only, so
         # a standing condition is not re-announced while it is unchanged.
         self._bs_last: dict[str, tuple[float, int]] = {}
@@ -465,17 +478,37 @@ class ProactiveMonitor:
             try:
                 # Keep the shared news radar fresh so the stand-down PUSH check
                 # (below, in _check_all) sees current headlines. Throttled + never
-                # raises; the only network I/O in the loop.
-                await self._refresh_news_radar()
-                await self._probe_public_gateway()
-                await self._probe_llm_endpoint()
+                # raises; the only network I/O in the loop. Each stage is
+                # isolated anyway: a probe that did raise would otherwise stop
+                # _check_all from running at all, which is the defect
+                # _check_all's docstring describes, one line earlier.
+                for _stage in (self._refresh_news_radar,
+                               self._probe_public_gateway,
+                               self._probe_llm_endpoint):
+                    try:
+                        await _stage()
+                    except Exception as exc:
+                        system_log.warning(
+                            "Monitor stage %s failed: %s",
+                            getattr(_stage, "__name__", _stage), exc)
                 alerts = self._check_all()
                 for alert in alerts:
-                    if self._should_send(alert):
-                        await self._dispatch(alert, send_fn)
-                        self._mark_sent(alert)
+                    # One alert that cannot be dispatched must not skip the
+                    # rest of the pass; it is retried next tick, unmarked.
+                    try:
+                        if self._should_send(alert):
+                            await self._dispatch(alert, send_fn)
+                            self._mark_sent(alert)
+                    except Exception as exc:
+                        system_log.warning(
+                            "Monitor: dispatch of %s failed: %s",
+                            alert.alert_type, exc)
             except Exception as exc:
-                logger.debug("Monitor check error: %s", exc)
+                # With every stage and check isolated above, nothing routine
+                # lands here. WARNING with the traceback, not debug: the debug
+                # line this replaced hid a total alert outage for as long as
+                # one check kept raising.
+                system_log.warning("Monitor loop pass failed: %s", exc, exc_info=True)
 
             await asyncio.sleep(self.CHECK_INTERVAL)
 
@@ -485,39 +518,148 @@ class ProactiveMonitor:
     # ── Alert generation ──────────────────────────────────────────
 
     def _check_all(self) -> list[Alert]:
-        """Run all alert checks and return any triggered alerts."""
+        """Run all alert checks and return any triggered alerts.
+
+        EVERY CHECK IS ISOLATED. This was thirty bare calls in a row, and the
+        loop's caller swallowed the exception at debug level. One check that
+        raised -- every tick, for whatever reason -- ended the pass at that
+        line: the alerts the checks before it had already built went out with
+        the exception, the checks after it never ran, and the loop had stamped
+        its heartbeat first, so the engine's liveness watch read a healthy
+        monitor. A KeyError in one check was total silence from the circuit
+        breaker, the halt notice, SL/TP proximity and the unprotected-position
+        sweep alike, on a channel that looked calm because nothing could reach
+        it. Two tests in tests/test_anomaly_alert_volume.py describe exactly
+        this and fixed it for one check; this is the composite case from
+        CLAUDE.md's table and the strategy is OMIT: a broken check leaves
+        itself out, is counted, is logged at WARNING, and after
+        CHECK_DOWN_ALERT_AFTER consecutive ticks says so through the same
+        channel its own alerts would have used. /status shows the count.
+
+        The method names stay literal in this body on purpose: tests grep this
+        function's source for a check being REGISTERED, and a check that is
+        written but never listed here is the same defect one level up.
+        """
+        checks = (
+            ("circuit_breaker", self._check_circuit_breaker),
+            ("drawdown_tiers", self._check_drawdown_tiers),
+            ("tick_failures", self._check_tick_failures),
+            ("scan_timeouts", self._check_scan_timeouts),
+            ("public_gateway", self._check_public_gateway),
+            ("llm_endpoint", self._check_llm_endpoint),
+            ("engine_tick_stale", self._check_engine_tick_stale),
+            ("warning_rate_breaker", self._check_warning_rate_breaker),
+            ("llm_degraded", self._check_llm_degraded),
+            ("ws_health", self._check_ws_health),
+            ("stale_balance", self._check_stale_balance),
+            ("macro_calendar_stale", self._check_macro_calendar_stale),
+            ("news_standdown", self._check_news_standdown),
+            ("unprotected_positions", self._check_unprotected_positions),
+            ("slippage", self._check_slippage),
+            ("volume_spikes", self._check_volume_spikes),
+            ("black_swan", self._check_black_swan),
+            ("state_changes", self._check_state_changes),
+            ("trade_signals", self._check_trade_signals),
+            ("sl_tp_proximity", self._check_sl_tp_proximity),
+            ("time_stops", self._check_time_stops),
+            ("signal_strangle", self._check_signal_strangle),
+            ("learning_readiness", self._check_learning_readiness),
+            ("new_listings", self._check_new_listings),
+            ("self_audit", self._check_self_audit),
+            ("idle_cash", self._check_idle_cash),
+            ("daily_digest", self._check_daily_digest),
+            ("parity_digest", self._check_parity_digest),
+            ("arb_tracker", self._check_arb_tracker),
+            ("reports_push", self._check_reports_push),
+        )
         alerts: list[Alert] = []
-        alerts.extend(self._check_circuit_breaker())
-        alerts.extend(self._check_drawdown_tiers())
-        alerts.extend(self._check_tick_failures())
-        alerts.extend(self._check_scan_timeouts())
-        alerts.extend(self._check_public_gateway())
-        alerts.extend(self._check_llm_endpoint())
-        alerts.extend(self._check_engine_tick_stale())
-        alerts.extend(self._check_warning_rate_breaker())
-        alerts.extend(self._check_llm_degraded())
-        alerts.extend(self._check_ws_health())
-        alerts.extend(self._check_stale_balance())
-        alerts.extend(self._check_macro_calendar_stale())
-        alerts.extend(self._check_news_standdown())
-        alerts.extend(self._check_unprotected_positions())
-        alerts.extend(self._check_slippage())
-        alerts.extend(self._check_volume_spikes())
-        alerts.extend(self._check_black_swan())
-        alerts.extend(self._check_state_changes())
-        alerts.extend(self._check_trade_signals())
-        alerts.extend(self._check_sl_tp_proximity())
-        alerts.extend(self._check_time_stops())
-        alerts.extend(self._check_signal_strangle())
-        alerts.extend(self._check_learning_readiness())
-        alerts.extend(self._check_new_listings())
-        alerts.extend(self._check_self_audit())
-        alerts.extend(self._check_idle_cash())
-        alerts.extend(self._check_daily_digest())
-        alerts.extend(self._check_parity_digest())
-        alerts.extend(self._check_arb_tracker())
-        self._check_reports_push()
+        for name, fn in checks:
+            alerts.extend(self._run_check(name, fn))
+        alerts.extend(self._failure_alerts())
         return alerts
+
+    # ── Per-check isolation ───────────────────────────────────────
+
+    def _failure_records(self) -> dict:
+        rec = getattr(self, "_check_failures", None)
+        if rec is None:
+            rec = self._check_failures = {}
+        return rec
+
+    def _run_check(self, name: str, fn: Callable) -> list:
+        """One check, isolated: its alerts on success, [] and a record on
+        failure. Recovery after a paged outage rides back on the same return
+        as an INFO alert, so the operator hears both ends of it."""
+        records = self._failure_records()
+        try:
+            out = fn()
+        except Exception as exc:  # noqa: BLE001 -- isolating is the point
+            now = time.monotonic()
+            rec = records.get(name)
+            if rec is None:
+                rec = records[name] = {"count": 0, "since": now, "last_error": "",
+                                       "last_logged": None, "alerted": False}
+            rec["count"] += 1
+            rec["last_error"] = f"{type(exc).__name__}: {exc}"[:200]
+            if (rec["last_logged"] is None
+                    or now - rec["last_logged"] >= self.CHECK_FAILURE_RELOG_S):
+                rec["last_logged"] = now
+                system_log.warning(
+                    "Monitor check %s failed (%d consecutive): %s -- its alerts "
+                    "are DOWN until it recovers; every other check still runs",
+                    name, rec["count"], rec["last_error"],
+                    exc_info=rec["count"] == 1)
+            return []
+        alerts = list(out or [])
+        rec = records.pop(name, None)
+        if rec is not None:
+            system_log.info("Monitor check %s recovered after %d failing tick(s)",
+                            name, rec["count"])
+            if rec.get("alerted"):
+                alerts.append(Alert(
+                    alert_type="MONITOR_CHECK_UP", severity="INFO",
+                    title=f"Monitor check recovered: {name}",
+                    body=(f"\u2705 <b>MONITOR CHECK RECOVERED: {name}</b>\n"
+                          f"Back after <code>{rec['count']}</code> failing "
+                          "tick(s) -- its alerts are live again."),
+                    dedup_key=f"monitor_check_up_{name}", audience="admin"))
+        return alerts
+
+    def _failure_alerts(self) -> list[Alert]:
+        """Page once per outage, when a check has been down long enough."""
+        alerts: list[Alert] = []
+        now = time.monotonic()
+        for name, rec in self._failure_records().items():
+            if rec["count"] < self.CHECK_DOWN_ALERT_AFTER or rec.get("alerted"):
+                continue
+            rec["alerted"] = True
+            alerts.append(Alert(
+                alert_type="MONITOR_CHECK_DOWN", severity="CRITICAL",
+                title=f"Monitor check down: {name}",
+                body=(f"\U0001f6a8 <b>MONITOR CHECK DOWN: {name}</b>\n"
+                      "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+                      "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+                      f"- Failed <code>{rec['count']}</code> ticks in a row "
+                      f"({now - rec['since']:.0f}s)\n"
+                      f"- Last error: <code>{_html.escape(rec['last_error'])}</code>\n\n"
+                      "Every alert this check produces is NOT being raised while "
+                      "trading continues. The other checks still run. This pages "
+                      "once per outage and says when it recovers.\n"
+                      "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+                      "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+                      "\U0001f449 /status \u2014 shows which checks are down\n"
+                      "\U0001f449 /health \u2014 system vitals"),
+                dedup_key=f"monitor_check_down_{name}", audience="admin"))
+        return alerts
+
+    def check_failures(self) -> dict[str, dict]:
+        """name -> {count, since_s, last_error} for every check currently
+        down. Empty when every check ran on the last pass. A snapshot of
+        copies, so a surface cannot mutate the accounting."""
+        now = time.monotonic()
+        return {n: {"count": r["count"], "since_s": round(now - r["since"], 1),
+                    "last_error": r["last_error"]}
+                for n, r in self._failure_records().items()}
 
     # ── Web reports push: hourly Telegram↔web parity payload ──────
 

@@ -690,6 +690,7 @@ from bot.marketing.public_text import public_close_line
 from bot.formatters.rich_cards import (
     analyze_budget_line,
     session_skip_line,
+    monitor_checks_line,
     display_symbol,
     fetch_analysis_data,
     position_watch_line,
@@ -10764,6 +10765,20 @@ class TelegramHandler:
                         f" — new entries gated ({probe}).")
         except Exception:
             pass
+        # Is the alerting that would page about any of the above running? A
+        # check that raised every tick used to silence the whole monitor with
+        # nothing saying so; the monitor counts those now, and this is where
+        # the count has to show. Unreadable is said, not omitted -- an absent
+        # line here reads as "all checks up".
+        try:
+            _mon = getattr(self, "monitor", None)
+            _down = monitor_checks_line(
+                _mon.check_failures() if _mon is not None else None,
+                self._lang(update))
+            if _down:
+                msg += f"\n{_down}"
+        except Exception:
+            msg += f"\n{t('fmt_monitor_checks_unread', self._lang(update))}"
         await self._send(update, msg, reply_markup=_KB_WARROOM)
 
     @guard("rejected")

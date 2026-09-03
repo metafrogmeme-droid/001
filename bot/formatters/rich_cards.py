@@ -1069,6 +1069,22 @@ def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
         return ""
 
 
+def monitor_checks_line(failures: Optional[dict], lang: str = "en") -> str:
+    """Which proactive-monitor checks are down right now, if any.
+
+    The monitor isolates each of its checks and counts the ones that raise
+    (ProactiveMonitor.check_failures()). Without this line the operator reads
+    /status on a bot whose circuit-breaker alert cannot fire and sees nothing
+    unusual -- a silenced alert and a quiet market read the same. OMITTED when
+    nothing is down or the record is not a dict; it reports what the monitor
+    counted and diagnoses nothing.
+    """
+    if not isinstance(failures, dict) or not failures:
+        return ""
+    names = ", ".join(sorted(str(k) for k in failures))
+    return t("fmt_monitor_checks_down", lang).format(n=len(failures), names=names)
+
+
 def session_skip_line(dropped: Optional[dict], lang: str = "en") -> str:
     """What the sweep left out on purpose, and why.
 
