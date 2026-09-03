@@ -1167,6 +1167,28 @@ def position_watch_line(watch: Optional[dict], lang: str = "en",
     return f"\u26aa {t('lbl_sltp_monitor', lang)}: {t('val_sltp_unknown', lang)}"
 
 
+def _gave_up_note(progress: Optional[dict], lang: str = "en") -> str:
+    """" -- 4 of them gave up at the per-symbol cap", or nothing.
+
+    `done` counts ATTEMPTS: the batch's `finally` increments it for a symbol
+    that timed out as readily as for one that finished, so "85/85" on a batch
+    where four hit the 90s cap is true of attempts and false of analyses --
+    and "analysed" is what the label used to say. The label now says
+    "attempted", and this adds the give-ups when the record carries them.
+    Omitted when it does not: an older record has no `gave_up`, and absent is
+    not zero.
+    """
+    if not isinstance(progress, dict):
+        return ""
+    try:
+        n = int(progress.get("gave_up") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    return f" \u2014 {n} {t('val_gave_up', lang)}"
+
+
 def render_status_card(
     mode: str,
     active: bool,
@@ -1276,6 +1298,7 @@ def render_status_card(
             + (f"\n  \u21b3 {int((phase_timeout.get('progress') or {}).get('done') or 0)}"
                f"/{int((phase_timeout['progress'])['of'])} "
                f"{t('val_signals_done', lang)}"
+               + _gave_up_note((phase_timeout or {}).get('progress'), lang)
                if (phase_timeout.get('progress') or {}).get('of') else "")]),
         # WHAT the failing tick raised. A phase timeout is one cause of a tick
         # failure and not the only one, and the warning-rate breaker that
