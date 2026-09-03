@@ -10550,6 +10550,27 @@ class TelegramHandler:
                     "are active' — it means nobody looked successfully.")
         await self._send(update, text)
 
+    def _status_market_bias(self) -> str:
+        """The bias line for /status, or an honest "unread" when the calendar
+        cannot answer.
+
+        `self.engine.macro_calendar.evaluate()` was called bare at the top of
+        /status, before any try. The card is a composite -- equity, positions,
+        drawdown, ticks, budget -- and a calendar read failing killed all of
+        it: the operator typed /status and got "Something broke on my end",
+        on the one card meant for exactly the moment something is broken.
+        Composite views OMIT the source that failed and say so; they do not
+        go dark. A bias that could not be read is labelled as unread rather
+        than printed as a level, because "Normal" beside a failed read is a
+        measurement that was never taken.
+        """
+        try:
+            macro = self.engine.macro_calendar.evaluate()
+            return str(macro.state.value).replace("_", " ").title()
+        except Exception as exc:
+            system_log.warning("/status: macro calendar unreadable: %s", exc)
+            return t("val_bias_unread", "en")
+
     @guard("status")
     async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._get_tg_id(update)
@@ -10566,7 +10587,7 @@ class TelegramHandler:
         _g = entry_gate(self.engine, str(user_id or ""))
         blocked_by = "; ".join(_g["reasons"])
         cb = bool(_g["blocked"])
-        macro = self.engine.macro_calendar.evaluate()
+        _bias = self._status_market_bias()
         # Two different questions, and one expression was answering both.
         #
         # WHICH BOOK TO READ is "is this a real exchange account?" — true
@@ -10656,7 +10677,7 @@ class TelegramHandler:
             daily_pnl=(None if daily_pnl_pct is None else round(daily_pnl_pct, 2)),
             drawdown=drawdown,
             max_drawdown=drawdown_limit,
-            market_bias=macro.state.value.replace("_", " ").title(),
+            market_bias=_bias,
             pending_ideas=len(self.engine.pending_ideas) if hasattr(self.engine, "pending_ideas") else 0,
             lang=self._lang(update),
             # Seconds since the engine last STARTED a tick. None when the

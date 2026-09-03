@@ -971,6 +971,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     # three keys exist so the position card can say so instead of printing
     # "+0.0% ($0.00)" over a price it never read.
     "pnl_unknown": {"en": "P&L unknown", "zh": "盈虧未知"},
+    "val_bias_unread": {"en": "unread \u2014 macro calendar unavailable", "zh": "未讀取 \u2014 宏觀日曆不可用"},
     "price_unread": {"en": "price unavailable", "zh": "無法取得價格"},
     "total_partial": {
         "en": "total excludes {n} position(s) with no price",

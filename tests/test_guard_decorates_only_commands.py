@@ -85,3 +85,31 @@ async def test_news_command_answers_with_the_digest_not_a_type_error(monkeypatch
     await h._cmd_news(update, SimpleNamespace(args=[]))
     assert sent, "/news must answer"
     assert "Something broke" not in sent[-1]
+
+
+# ── the guarded set is a ratchet ─────────────────────────────────────────────
+
+BASELINE = Path(__file__).resolve().parent / "guarded_commands_baseline.txt"
+
+
+def _baseline():
+    return {ln.strip() for ln in BASELINE.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.startswith("#")}
+
+
+def test_no_command_has_lost_its_guard():
+    """The slip this catches: a helper inserted between `@guard(...)` and the
+    `def` it belonged to. The decorator lands on the helper (the test above
+    catches that half) and the COMMAND is left open (this half). Tonight it
+    happened to /status on the way to fixing /news."""
+    guarded = {n for n, _p in _guarded_defs() if n.startswith("_cmd_")}
+    lost = sorted(_baseline() - guarded)
+    assert lost == [], (f"commands that lost their @guard: {lost} -- an auth regression, "
+                        "or edit the baseline in the same commit")
+
+
+def test_a_newly_guarded_command_is_recorded():
+    guarded = {n for n, _p in _guarded_defs() if n.startswith("_cmd_")}
+    new = sorted(guarded - _baseline())
+    assert new == [], (f"newly guarded commands not in tests/guarded_commands_baseline.txt: {new} "
+                       "-- record them in the same commit")
