@@ -501,6 +501,19 @@
   // end yieldTotalsCopy
 
 
+  // Counts for the Hub status strip. MODULE level, like every helper a view
+  // shares (see dashboard_helpers_are_in_scope). null means the source was
+  // not read -- a portfolio that failed to load, an alerts call that did not
+  // answer ok -- and the tile prints a dash for it. A read that answered with
+  // no rows is a real zero and still counts.
+  function hubCounts(pf, alertsR) {
+    const nOpen = pf ? (pf.open_positions || []).length : null;
+    const alerts = (alertsR && alertsR.ok && alertsR.data && Array.isArray(alertsR.data.alerts)) ? alertsR.data.alerts : null;
+    const armed = alerts ? alerts.filter((a) => a && a.active).length : null;
+    return { nOpen, armed };
+  }
+  // end hubCounts
+
   function reportAge(rep) {
     const t = rep?.generated_at || rep?.received_at;
     return t ? `updated ${fmtAgo(t)}` : '';
@@ -7227,8 +7240,11 @@
       const STANCE = { defensive: '🛡 Defensive', balanced: '⚔️ Balanced',
                        aggressive: '🔥 Aggressive', manual: '🧘 Manual' }[stance];
       const live = pf && (pf.mode === 'LIVE' || pf.mode === 'MIXED');
-      const armed = ((alertsR?.data?.alerts) || []).filter(a => a.active).length;
-      const nOpen = (pf?.open_positions || []).length;
+      // A failed read is not an empty book. `getPortfolio` and `/api/alerts`
+      // were caught to null above so one dead source cannot blank the strip;
+      // counting a null as zero then printed "0 positions carried" over a
+      // 503, beside a Mode tile that already said "—" for the same failure.
+      const { nOpen, armed } = hubCounts(pf, alertsR);
       const equity = (pf && pf.live_unavailable) ? 'unavailable'
         : (pf && pf.equity != null ? fmtMoney(pf.equity) : '—');
       const tile = (k, v, d) => `<div class="stat"><div class="k">${k}</div>
@@ -7238,8 +7254,8 @@
                at ? 'last scan ' + at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'no scan data')}
         ${tile('Stance', STANCE || '—', 'how the agent trades right now')}
         ${tile('Mode', pf ? (live ? 'LIVE' : 'PAPER') : '—', 'equity ' + equity)}
-        ${tile('Open', String(nOpen), nOpen === 1 ? 'position carried' : 'positions carried')}
-        ${tile('Tripwires', String(armed), armed === 1 ? 'alert armed' : 'alerts armed')}
+        ${tile('Open', nOpen == null ? '\u2014' : String(nOpen), nOpen == null ? 'positions unread' : nOpen === 1 ? 'position carried' : 'positions carried')}
+        ${tile('Tripwires', armed == null ? '\u2014' : String(armed), armed == null ? 'alerts unread' : armed === 1 ? 'alert armed' : 'alerts armed')}
       </div>`;
     }, { timeoutMs: 10000, empty: { text: 'Status unavailable right now.' } });
 
