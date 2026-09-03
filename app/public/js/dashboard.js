@@ -4240,6 +4240,17 @@
     // exact wording. Absent means we cannot tell whether the rate is a floor,
     // and "at least" is true either way — so the hedge is kept and only the
     // provenance clause, which we would be inventing, is dropped.
+    // The yield panel's totals line. `incomplete` is non-empty when the bot
+    // could not read its free futures margin: the totals are then a FLOOR
+    // (spot only), and a plain "Total idle $X" beside a silently missing
+    // futures row reads as the whole picture. Pure, so it can be tested.
+    function yieldTotalsCopy(y) {
+      const note = (y && typeof y.incomplete === 'string') ? y.incomplete.trim() : '';
+      return { label: note ? 'Total idle (partial \u2014 futures margin unread)' : 'Total idle',
+               note };
+    }
+    // end yieldTotalsCopy
+
     function analyzeBudgetCopy(a) {
       const num = (x) => (typeof x === 'number' && isFinite(x)) ? x : null;
       const of = num(a.of), fits = num(a.fits), short = num(a.shortfall);
@@ -4396,7 +4407,8 @@
               <td class="num r">${row.apy_flexible != null ? Number(row.apy_flexible).toFixed(2) + '%' : '—'}</td>
               <td class="num r">$${Number(row.est_year_usd || 0).toFixed(2)}</td></tr>`).join('')}</tbody></table></div>
             ${confirmBlock}
-            <p class="small muted mt-2">Total idle <b class="num">$${Number(y.total_idle_usd || 0).toFixed(2)}</b> · est. <b class="num">$${Number(y.total_est_year_usd || 0).toFixed(2)}/yr</b> at current flexible rates. ${actNote}</p>`;
+            ${yieldTotalsCopy(y).note ? `<p class="small muted mt-2">\u26a0 ${esc(yieldTotalsCopy(y).note)}</p>` : ''}
+            <p class="small muted mt-2">${esc(yieldTotalsCopy(y).label)} <b class="num">$${Number(y.total_idle_usd || 0).toFixed(2)}</b> · est. <b class="num">$${Number(y.total_est_year_usd || 0).toFixed(2)}/yr</b> at current flexible rates. ${actNote}</p>`;
         }, { timeoutMs: 32000, empty: { icon: 'icon-coin', text: 'Yield data arrives with the bot\'s hourly report (needs operator Earn credentials).' } });
 
         const host = C('ayield');
