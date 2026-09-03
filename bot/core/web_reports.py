@@ -66,8 +66,8 @@ def _parity_section(engine) -> Optional[dict]:
     summary = parity_summary(trades, CONFIG.risk.commission_pct)
     # Headline stats only — the bucket breakdowns stay in Telegram /parity
     # (they're long) and the web panel links there for the full report.
-    keep = ("trades", "excluded_non_fills", "win_rate", "net_pnl", "pf",
-            "total_fees", "realized_fee_rate", "modeled_fee_rate",
+    keep = ("trades", "excluded_non_fills", "unscored_pnl", "win_rate", "net_pnl", "pf",
+            "fees_read", "total_fees", "realized_fee_rate", "modeled_fee_rate",
             "fee_vs_model", "inferred_fills")
     return {k: summary.get(k) for k in keep}
 

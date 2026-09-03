@@ -4138,6 +4138,12 @@
       const notes = [];
       if (p.inferred_fills) notes.push(`${p.inferred_fills} close price(s) inferred from ticker`);
       if (p.excluded_non_fills) notes.push(`${p.excluded_non_fills} never-filled record(s) excluded`);
+      if (p.unscored_pnl) notes.push(`${p.unscored_pnl} close(s) with no PnL record excluded`);
+      // A dashed "Fees vs model" tile needs its reason beside it, or it reads
+      // as "not computed" rather than "withheld because N closes carry no fee".
+      if (p.fees_read != null && p.trades != null && Number(p.fees_read) < Number(p.trades)) {
+        notes.push(`fee record on ${p.fees_read} of ${p.trades} closes — fee ratio withheld`);
+      }
       return `<p class="muted small">Realized live execution vs the modeled backtest assumptions — drift here is the earliest sign the model no longer describes reality. ${esc(reportAge(rep))}</p>
         <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:var(--s2);margin-top:var(--s3)">
           ${tiles.map(([k, v, c]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v num ${c}">${esc(String(v))}</div></div>`).join('')}
