@@ -9604,7 +9604,6 @@ class TelegramHandler:
             pass
         return syms
 
-    @guard("status")
     async def _news_digest_text(self) -> str:
         """Shared news-radar reply used by BOTH the /news command and the
         free-text "news" intercept (web + Telegram): the off-state notice when
@@ -9641,6 +9640,7 @@ class TelegramHandler:
             radar.recent(8), radar.standdown(held, now) if held else [], now,
             refresh_failed=_refresh_failed)
 
+    @guard("status")
     async def _cmd_news(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """NEWS-1b: /news — public-RSS headline radar with high-impact alerts on
         the positions you hold. Advisory only; never moves or blocks a trade."""
