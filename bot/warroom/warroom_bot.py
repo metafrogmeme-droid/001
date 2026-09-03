@@ -649,27 +649,70 @@ def render_pause(scope: str = "shared") -> Dict[str, Any]:
     return {"text": text}
 
 
-def render_resume(retrip_warning: str = "", scope: str = "shared") -> Dict[str, Any]:
+def resume_gate_line(gate: Optional[str]) -> str:
+    """What the entry gate says AFTER the reset, in the operator's words.
+
+    Three states, none of them a default. "" means the gate is open and the
+    card may say ENABLED. A non-empty string is the reason trades are still
+    being refused (risk_engine.trading_blocked_by's vocabulary) and the line
+    names it and what clears it -- the warning-rate breaker clears on its
+    own once the rate drops and /resume does not touch it; the loss-streak
+    gate has its own probe schedule on /status. None means the gate could
+    not be read, which is said rather than rounded to either verdict.
+    """
+    if gate is None:
+        return ("  \u26aa Could not read the entry gate after the reset \u2014 "
+                "check /status before trusting this card.")
+    if not gate:
+        return ""
+    if gate.startswith("warning_rate:"):
+        key = gate.split(":", 1)[1]
+        return (f"  \u26d4 New entries are still <b>refused</b>: warning-rate breaker "
+                f"(<code>{key}</code>). It clears on its own once the warning rate "
+                "drops; /resume does not clear it.")
+    if gate.startswith("loss_streak:"):
+        return ("  \u26d4 New entries are still <b>refused</b>: loss-streak gate \u2014 "
+                "/status says when a probe trade is allowed.")
+    return (f"  \u26d4 New entries are still <b>refused</b>: circuit breaker "
+            f"(<code>{gate}</code>).")
+
+
+def render_resume(retrip_warning: str = "", scope: str = "shared",
+                  gate: Optional[str] = "") -> Dict[str, Any]:
     """Resume card. When the risk engine reports the breaker would RE-TRIP on
     the next evaluation (daily loss / drawdown condition still holds), the card
     says so instead of claiming a clean resume that the very next status check
     contradicts with a 'Paused' label.
+
+    ``gate`` is trading_blocked_by read AFTER the reset (see resume_gate_line).
+    On 2026-09-03 at 13:59 this card printed "Trading ENABLED / Circuit Breaker
+    CLEAR" while the warning-rate breaker was refusing every entry; /start said
+    so one minute later and /status said HALTED. reset_circuit_breaker() clears
+    the circuit breaker and nothing else, and the re-trip warning only knows
+    daily loss and drawdown -- the same "narrow breaker read as the whole
+    answer" the bridge's /health was cured of on 2026-07-29. "Trading" is now
+    ENABLED / REFUSED / UNREAD from the gate, and the CLEAR line stays because
+    that part was true.
 
     ``scope`` — see render_pause. "RUNECLAW is back online" is a claim about the
     engine; a per-user resume clears one account's breaker and brings nothing
     online, so it must not say that.
     """
     own = scope == "own"
+    trading = "UNREAD" if gate is None else ("ENABLED" if not gate else "REFUSED")
     text = (
         f"{_header(chr(0x25B6) + chr(0xFE0F), 'TRADING RESUMED' if own else 'BOT RESUMED')}\n\n"
         + (f"  {_OK} Your account is <b>trading again</b>\n\n" if own
            else f"  {_OK} {ENGINE} is <b>back online</b>\n\n")
         + "<pre>"
         f"{_kv('Scanning', 'ACTIVE')}\n"
-        f"{_kv('Trading', 'ENABLED')}\n"
+        f"{_kv('Trading', trading)}\n"
         f"{_kv('Circuit Breaker', 'CLEAR' if not retrip_warning else 'CLEAR*')}"
         "</pre>\n\n"
     )
+    _gate_line = resume_gate_line(gate)
+    if _gate_line:
+        text += _gate_line + "\n\n"
     if retrip_warning:
         text += (
             f"  {_WARN} <b>Heads up:</b> {retrip_warning}.\n"
