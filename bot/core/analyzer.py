@@ -59,7 +59,7 @@ from bot.core.multi_timeframe import MTFConfluence
 from bot.core.sentiment import SentimentEngine
 from bot.core.smart_money import SmartMoneyEngine
 from bot.core.strategy_modes import StrategySelector
-from bot.llm.provider import BYOK, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, llm_complete, LLMConfig, resolve_tier_config, model_supports_structured_output, model_thinking_always_on
+from bot.llm.provider import BYOK, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, llm_complete, LLMConfig, resolve_tier_config, model_supports_structured_output, model_thinking_always_on, sampling_kwargs as _sampling
 from bot.core.volume_profile import compute_volume_profile, poc_magnet_signal
 from bot.core.liquidity_sweep import detect_sweeps, sweep_to_confluence_votes
 from bot.core.supply_demand import detect_zones, zones_to_confluence
@@ -675,6 +675,7 @@ class Analyzer:
             model=CONFIG.llm.model,
             base_url=CONFIG.llm.base_url,
             temperature=CONFIG.llm.temperature,
+            top_p=CONFIG.llm.top_p,
             max_tokens=CONFIG.llm.max_tokens,
             timeout_seconds=CONFIG.llm.timeout_seconds,
         )
@@ -4177,19 +4178,19 @@ class Analyzer:
                     "max_tokens": max_tokens,
                     "system": system_content,
                     "messages": messages,
-                    # Audit fix: the Anthropic path previously omitted the
-                    # configured temperature, so provider-default sampling
-                    # applied only here. (Ignored when adaptive thinking is
-                    # on — thinking requires default temperature.)
-                    "temperature": CONFIG.llm.temperature,
                 }
+                # Audit fix: the Anthropic path previously omitted the
+                # configured temperature, so provider-default sampling applied
+                # only here. (Dropped again below when adaptive thinking is on
+                # — thinking requires default temperature.)
+                #
                 # LIVE INCIDENT 2026-07-16: the Claude 5 family DEPRECATED the
                 # temperature parameter — sending one returns 400 and took the
                 # whole brain down to the rule engine ("every provider has
-                # failed 20 analyses"). Omit it for those models up front.
-                from bot.llm.provider import model_accepts_temperature
-                if not model_accepts_temperature(model):
-                    create_kwargs.pop("temperature", None)
+                # failed 20 analyses"). `sampling_kwargs` is where that rule
+                # lives now, so the four call sites cannot disagree about it,
+                # and it is also what adds `top_p` when LLM_TOP_P is set.
+                create_kwargs.update(_sampling(model))
 
                 # Enable adaptive thinking for Opus 4.8+ (thesis tier)
                 # Opus 4.8 ONLY supports adaptive thinking; manual budget_tokens
@@ -4199,9 +4200,13 @@ class Analyzer:
                 if (use_full_model and "opus" in model.lower()
                         and not model_thinking_always_on(model)):
                     create_kwargs["thinking"] = {"type": "adaptive"}
-                    # Extended thinking requires default sampling — the API
-                    # rejects an explicit non-default temperature with it.
+                    # Extended thinking requires DEFAULT SAMPLING — the API
+                    # rejects an explicit non-default temperature with it, and
+                    # top_p is the same class of parameter. Dropping only the
+                    # one we already knew about would have turned LLM_TOP_P
+                    # into a 400 on every thesis-tier Opus call.
                     create_kwargs.pop("temperature", None)
+                    create_kwargs.pop("top_p", None)
 
                 # AI-2 structured outputs: enforce the thesis JSON contract on
                 # every model that supports output_config.format (Claude 5
@@ -4234,14 +4239,19 @@ class Analyzer:
                     # output rejection degrades to a free-form call that the
                     # tolerant parser handles — never a dead brain.
                     _msg = str(_temp_exc).lower()
-                    if ("temperature" in create_kwargs and "temperature" in _msg
-                            and ("deprecated" in _msg or "unsupported" in _msg
-                                 or "invalid_request" in _msg)):
+                    _rejected = [
+                        _p for _p in ("temperature", "top_p")
+                        if _p in create_kwargs and _p in _msg
+                        and ("deprecated" in _msg or "unsupported" in _msg
+                             or "invalid_request" in _msg)
+                    ]
+                    if _rejected:
                         audit(trade_log,
-                              f"Anthropic rejected temperature for {model} — "
-                              f"retrying without it",
+                              f"Anthropic rejected {'/'.join(_rejected)} for "
+                              f"{model} — retrying without it",
                               action="llm_temperature_retry", result="RETRY")
-                        create_kwargs.pop("temperature", None)
+                        for _p in _rejected:
+                            create_kwargs.pop(_p, None)
                         response = await active_client.messages.create(**create_kwargs)
                     elif ("format" in create_kwargs.get("output_config", {})
                             and ("output_config" in _msg or "json_schema" in _msg
@@ -4293,9 +4303,9 @@ class Analyzer:
                             {"role": "system", "content": sys_content},
                             {"role": "user", "content": prompt},
                         ],
-                        temperature=CONFIG.llm.temperature,
                         max_tokens=max_tokens,
                         response_format={"type": "json_object"} if use_json_format else None,
+                        **_sampling(model),
                     ),
                     timeout=CONFIG.llm.timeout_seconds,
                 )
@@ -4579,12 +4589,12 @@ class Analyzer:
                                 {"role": "system", "content": sys_content},
                                 {"role": "user", "content": prompt},
                             ],
-                            temperature=CONFIG.llm.temperature,
                             max_tokens=CONFIG.llm.max_tokens if use_full_model else 512,
                             # AI-2: same json_object mode the primary
                             # OpenAI-compatible path has enforced since audit
                             # fix #7 — sys_content mentions "json" as required.
                             response_format={"type": "json_object"},
+                            **_sampling(default_model),
                         ),
                         timeout=CONFIG.llm.timeout_seconds + 5,  # extra grace for fallback
                     )

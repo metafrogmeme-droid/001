@@ -833,6 +833,24 @@ def _env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _env_top_p() -> Optional[float]:
+    """LLM_TOP_P as a float, or None when unset/malformed.
+
+    Read here rather than off CONFIG so building an LLMConfig cannot depend
+    on bot.config being importable (this module is imported from it). Mirrors
+    `bot.config._env_float_opt`; both keep unset distinct from 1.0, because
+    the parameter is OMITTED when unset and a sampling default is the
+    provider's to pick, not ours to assert.
+    """
+    raw = os.getenv("LLM_TOP_P", "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass(frozen=True)
 class LLMConfig:
     """
@@ -850,6 +868,9 @@ class LLMConfig:
     model: str = _env("LLM_MODEL", "")               # Auto-selects default if empty
     base_url: str = _env("LLM_BASE_URL", "")         # Override endpoint (for CUSTOM/Ollama)
     temperature: float = 0.3
+    #: Nucleus sampling, or None to omit the parameter (provider default).
+    #: See CONFIG.llm.top_p — unset is not 1.0, it is "do not send one".
+    top_p: Optional[float] = field(default_factory=_env_top_p)
     max_tokens: int = 1024
     timeout_seconds: float = 15.0
     # Fable/Mythos-family reasoning depth (output_config.effort): "" omits the
@@ -1057,6 +1078,27 @@ def model_accepts_temperature(model: str) -> bool:
     family). Callers must omit the parameter entirely for those models —
     provider-default sampling applies."""
     return not _TEMPERATURE_DEPRECATED_RE.match((model or "").strip().lower())
+
+
+def sampling_kwargs(model: str) -> dict:
+    """The sampling parameters to send for `model`, as a dict to splat.
+
+    One place decides, because the alternative is four call sites each
+    remembering that the Claude 5 family 400s on an explicit `temperature`
+    — and the one that forgets takes the whole brain down to the rule
+    engine, which is exactly how the 2026-07-16 incident went.
+
+    `top_p` is omitted unless CONFIG.llm.top_p is set. Omitted is not 1.0:
+    it means the provider's own default applies, which is what every install
+    that has never heard of LLM_TOP_P must keep getting.
+    """
+    from bot.config import CONFIG
+    out: dict = {}
+    if model_accepts_temperature(model):
+        out["temperature"] = CONFIG.llm.temperature
+    if CONFIG.llm.top_p is not None:
+        out["top_p"] = CONFIG.llm.top_p
+    return out
 
 
 def model_thinking_always_on(model: str) -> bool:
@@ -1304,6 +1346,8 @@ async def llm_complete(
                 messages.extend(history)
             messages.append({"role": "user", "content": user_prompt})
             _oai_kwargs: dict = {}
+            if config.top_p is not None:
+                _oai_kwargs["top_p"] = config.top_p
             if json_schema:
                 # Best available approximation on OpenAI-compatible providers:
                 # json_object mode (the system prompt must mention "json",

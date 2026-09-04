@@ -80,7 +80,14 @@ _CLOSE_REASON_LABELS: dict[str, tuple[str, str]] = {
 }
 
 
-def humanize_close_reason(raw_reason: str, pnl_usd: float = 0.0) -> tuple[str, str]:
+def _num(v):
+    """A real number, or None. Bools and NaN are not readings."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return None if v != v else float(v)
+
+
+def humanize_close_reason(raw_reason, pnl_usd=0.0) -> tuple[str, str]:
     """Map a raw internal close-reason string to (emoji, friendly_label).
 
     LiveExecutor's close-reason inference is deliberately honest: when the
@@ -134,6 +141,10 @@ def humanize_close_reason(raw_reason: str, pnl_usd: float = 0.0) -> tuple[str, s
         return "⏰", "Time Stop"
     if "sl" in tokens or {"stop", "loss"} <= tokens:
         return "\U0001f6d1", "Stop-Loss Hit"
+    if _num(pnl_usd) is None:
+        # No PnL was read, so neither ✅ nor ❌ is available — each asserts an
+        # outcome. The white circle says the trade closed and nothing more.
+        return "\u26aa", "Closed"
     return ("✅", "Closed") if pnl_usd >= 0 else ("❌", "Closed")
 
 
@@ -1141,23 +1152,32 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
 
     symbol = data.get("symbol", "???").replace("/USDT", "").replace(":USDT", "").replace("/", "")
     direction = data.get("direction", "LONG").upper()
-    pnl_usd = data.get("pnl_usd", 0)
+    # TRI-STATE, the same conversion the POSITION card above already carries
+    # and this one never got. Since the executor stopped substituting the entry
+    # price for an unread exit, a close can legitimately carry a null PnL — and
+    # `.get(k, 0)` only defaults a MISSING key, so a present None went straight
+    # into `None >= 0`. Had that not raised, the accent would have been GREEN.
+    pnl_usd = _num(data.get("pnl_usd"))
     _, reason = humanize_close_reason(data.get("reason", "closed"), pnl_usd)
     reason = reason.upper()
-    entry = data.get("entry", 0)
-    exit_px = data.get("exit", 0)
+    entry = _num(data.get("entry"))
+    exit_px = _num(data.get("exit"))
     # Hero %: prefer the LEVERAGED (margin) return so the close card matches
     # the live position card's basis. Live incident (TRIA 10x): the live card
     # showed +22.69% (margin) and the close card +2.66% (raw price move) for
     # the same winning trade — reading like the gain evaporated at close.
-    pnl_pct = data.get("pnl_pct_margin", data.get("pnl_pct", 0))
-    fees = data.get("fees", 0)
+    pnl_pct = _num(data.get("pnl_pct_margin"))
+    if pnl_pct is None:
+        pnl_pct = _num(data.get("pnl_pct"))
+    fees = _num(data.get("fees"))
     size_usd = data.get("size_usd", 0)
     leverage = data.get("leverage", 1)
     hold_time = data.get("hold_time", "")
 
-    is_win = pnl_usd >= 0
-    pnl_color = _GREEN if is_win else _RED
+    # Neutral, not green: colour is a claim, and this one runs the hero row,
+    # the EXIT cell and the NET PnL cell.
+    pnl_color = (_MUTED if pnl_usd is None
+                 else (_GREEN if pnl_usd >= 0 else _RED))
 
     def _fmt(price: float) -> str:
         if price == 0:
@@ -1172,7 +1192,9 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
             return f"{price:.6f}"
 
     y = PAD
-    stripe_color = _GREEN if is_win else _RED
+    # The stripe runs the full width of the card and is read before any digit
+    # on it, so it answers to the same tri-state as the numbers below.
+    stripe_color = pnl_color
     draw.rectangle([0, 0, W, 4], fill=stripe_color)
 
     # ── Header: SYMBOL  [CLOSED]  reason ──
@@ -1192,13 +1214,14 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     y += 34
 
     # ── PnL Hero Row ──
-    pnl_sign = "+" if pnl_pct >= 0 else ""
-    pnl_text = f"{pnl_sign}{pnl_pct:.2f}%"
+    pnl_text = ("unread" if pnl_pct is None
+                else f"{'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%")
     big_font = _font(28, bold=True)
     draw.text((PAD, y), pnl_text, fill=pnl_color, font=big_font)
     pnl_tw = draw.textlength(pnl_text, font=big_font)
-    usd_text = f"  (${pnl_usd:+,.2f})"
-    draw.text((PAD + pnl_tw, y + 8), usd_text, fill=pnl_color, font=f_value)
+    usd_text = "" if pnl_usd is None else f"  (${pnl_usd:+,.2f})"
+    if usd_text:
+        draw.text((PAD + pnl_tw, y + 8), usd_text, fill=pnl_color, font=f_value)
     y += 42
 
     draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
@@ -1216,8 +1239,9 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
         draw.text((x + 10, cy + 6), label, fill=_GRAY, font=f_label)
         draw.text((x + 10, cy + 24), value, fill=color, font=f_value)
 
-    _cell(c1, y, "ENTRY", _fmt(entry))
-    _cell(c2, y, "EXIT", _fmt(exit_px), pnl_color)
+    _cell(c1, y, "ENTRY", _fmt(entry or 0))
+    _cell(c2, y, "EXIT",
+          "unread" if exit_px is None else _fmt(exit_px), pnl_color)
     y += CELL_H + GAP
 
     lev_str = f" | {leverage:.0f}x" if leverage > 1 else ""
@@ -1225,8 +1249,8 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     _cell(c2, y, f"{direction} | HOLD", hold_time)
     y += CELL_H + GAP
 
-    net_text = f"${pnl_usd:+,.2f}"
-    fees_text = f"fees ${fees:.2f}"
+    net_text = "unread" if pnl_usd is None else f"${pnl_usd:+,.2f}"
+    fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", pnl_color, w=full_w)
     y += CELL_H + GAP + 4

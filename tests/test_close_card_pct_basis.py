@@ -12,10 +12,43 @@ import inspect
 from bot.core.live_executor import LiveExecutor
 from bot.formatters import signal_card
 
+_TRIA = {
+    "symbol": "TRIA/USDT:USDT", "direction": "SHORT", "reason": "closed",
+    "entry": 0.009167, "exit": 0.008923, "pnl_usd": 1.89, "fees": 0.09,
+    "size_usd": 7.44, "leverage": 10, "hold_time": "1.5h",
+}
+
 
 def test_close_card_prefers_margin_pct():
-    src = inspect.getsource(signal_card.render_close_card)
-    assert 'data.get("pnl_pct_margin", data.get("pnl_pct", 0))' in src
+    """Driven, not grepped.
+
+    This asserted the literal expression `data.get("pnl_pct_margin",
+    data.get("pnl_pct", 0))` and so failed the moment that read was made
+    tri-state — while the BEHAVIOUR it names was untouched. Rendering the
+    same payload three ways settles which number reached the card, and no
+    rewrite of the read can fake it.
+    """
+    both = signal_card.render_close_card(
+        dict(_TRIA, pnl_pct=2.66, pnl_pct_margin=26.62))
+    margin_only = signal_card.render_close_card(dict(_TRIA, pnl_pct=26.62))
+    raw_only = signal_card.render_close_card(dict(_TRIA, pnl_pct=2.66))
+
+    # Carrying both draws the MARGIN figure: identical to a card given 26.62
+    # as its only percentage.
+    assert both == margin_only
+    # ...and distinguishable from the raw price move, which is the whole
+    # incident: +2.66% shown at close for a trade the live card had at
+    # +26.62%, reading like the gain evaporated.
+    assert both != raw_only
+
+
+def test_close_card_falls_back_to_pnl_pct():
+    """A producer that sends only pnl_pct still renders that number."""
+    only_raw = signal_card.render_close_card(dict(_TRIA, pnl_pct=2.66))
+    explicit = signal_card.render_close_card(
+        dict(_TRIA, pnl_pct=2.66, pnl_pct_margin=None))
+    assert only_raw == explicit
+    assert len(only_raw) > 0
 
 
 def test_all_close_data_producers_send_margin_pct():
