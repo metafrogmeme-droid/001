@@ -79,6 +79,49 @@ def drawdown_tile(dd: object) -> tuple:
     return f"{dd:.1f}%", ("red" if dd > 0 else "green")
 
 
+#: What the daily report prints when the drawdown could not be read.
+UNKNOWN_RISK = "Unknown"
+
+
+def live_risk_status(st: Optional[dict]) -> tuple:
+    """``(drawdown_pct, verdict)`` for the LIVE daily report. Tri-state.
+
+    `/daily_report`'s live branch had no reading at all behind these two:
+
+        dd = 0.0
+        risk_status = "Healthy"
+
+    — hardcoded, under a shield icon, on real money, while the PAPER branch
+    directly beneath it computed both from a snapshot. So the one branch that
+    could not afford to guess was the one that did.
+
+    `st` is `risk.drawdown_status()`'s return, documented "best-effort;
+    returns empty on any error", so `{}`/None is the unreadable case and gets
+    ``(None, "Unknown")`` — never the calmest of the three verdicts.
+
+    The bands come off ``effective_limit_pct``, the limit the breaker is
+    ACTUALLY enforcing, rather than the two bare constants the paper branch
+    carries: a fixed "Critical above 3%" is meaningless against a 7% live cap
+    and would read Critical on a book the gate is happy with.
+    """
+    if not st:
+        return None, UNKNOWN_RISK
+    dd = st.get("drawdown_pct")
+    if not isinstance(dd, (int, float)) or isinstance(dd, bool) or dd != dd:
+        return None, UNKNOWN_RISK
+    limit = st.get("effective_limit_pct")
+    if not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit <= 0:
+        # A drawdown with no limit to judge it against is a number, not a
+        # verdict. Report the number and decline the verdict.
+        return float(dd), UNKNOWN_RISK
+    dd = float(dd)
+    if dd >= limit:
+        return dd, "Critical"
+    if dd >= limit * (2.0 / 3.0):
+        return dd, "Warning"
+    return dd, "Healthy"
+
+
 def render_drawdown_status(st: Optional[dict]) -> list:
     """The backstop block. Never a bare heading.
 
