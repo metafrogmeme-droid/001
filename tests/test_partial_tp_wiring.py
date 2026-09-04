@@ -26,7 +26,14 @@ def _run(coro):
 
 def _ex():
     ex = AsyncMock()
-    ex.create_order = AsyncMock(return_value={"id": "P1", "average": 0, "filled": 0})
+    # The venue REPORTS the fill on a reduceOnly market order, which is what a
+    # real one does. It used to answer `filled: 0` and the ladder still booked
+    # the close, because it subtracted the SUBMITTED quantity — the defect
+    # tests/test_audit_fixes_batch_3.py pins. `filled: 0` now means what it
+    # says (nothing filled), so the fixture has to state the fill for these
+    # tests to be about the ladder rather than about an unread response.
+    ex.create_order = AsyncMock(side_effect=lambda **kw: {
+        "id": "P1", "average": 0, "filled": kw.get("amount", 0)})
     ex.amount_to_precision = MagicMock(side_effect=lambda symbol, amount: float(amount))
     return ex
 

@@ -4912,16 +4912,27 @@ class LiveExecutor:
         use_v3 = (self._is_uta if self._is_uta is not None else False) \
             if self._venue.supports_native_triggers else False
         if self._is_uta is None and self._venue.supports_native_triggers:
-            # First call — haven't detected yet; probe once
+            # First call — haven't detected yet; probe once.
             try:
                 await exchange.privateMixGetV2MixAccountAccount(
                     {"symbol": "BTCUSDT", "productType": "USDT-FUTURES"})
+                self._is_uta = False   # the v2 account call worked -> classic
             except Exception as exc:
                 if "40085" in str(exc):
                     use_v3 = True
                     self._is_uta = True
                 else:
-                    self._is_uta = False
+                    # A timeout / 429 / 5xx / permission error says nothing
+                    # about the account type. Recording False here made a
+                    # transient fault a definite verdict, CACHED FOR THE
+                    # PROCESS -- and on a real UTA account the classic
+                    # triggerPrice path executes IMMEDIATELY as a reduceOnly
+                    # market order, flat-closing the position while execute()
+                    # reports "SL order placed". Leave it unresolved so the
+                    # next call re-probes, and take the loud branch below.
+                    logger.warning("UTA probe inconclusive for %s (%s) — account "
+                                   "type unresolved, using the v3 channel", symbol, exc)
+                    use_v3 = True
 
         if use_v3:
             # UTA mode: place SL/TP via Bitget v3 REST API directly
@@ -5532,28 +5543,64 @@ class LiveExecutor:
 
     # ── Position management ──────────────────────────────────────
 
-    async def _partial_close(self, exchange, pos, qty: float, stage: str) -> float:
-        """Close `qty` of a position with a reduceOnly market order. Returns the
-        quantity actually submitted (0.0 on failure). Used by the partial-TP
-        ladder; reduceOnly means the venue clamps to the live position size, so
-        it can never flip or over-close."""
+    async def _partial_close(self, exchange, pos, qty: float,
+                             stage: str) -> tuple[float, str]:
+        """Close `qty` of a position with a reduceOnly market order.
+
+        Returns ``(filled_qty, source)`` where source is:
+
+            "filled"   the venue CONFIRMED this quantity filled
+            "none"     nothing was submitted (qty rounded to <= 0)
+            "unknown"  the order went out and the fill could not be read
+
+        It used to return the SUBMITTED quantity, and the caller subtracted
+        that from ``pos.quantity`` and re-sized the exchange stop to match.
+        reduceOnly stops an over-close, which is what the old docstring
+        argued -- but it does nothing about an UNDER-fill. A market order for
+        0.5 that fills 0.2 on a thin book left the book claiming 0.5 remained,
+        `_update_exchange_sl` placing a 0.5-sized stop and cancelling the
+        correctly-sized one, and 0.3 contracts live with no stop on either
+        side and invisible to every surface.
+
+        "unknown" is not zero and not filled: the caller must change nothing.
+        """
         try:
             _q = exchange.amount_to_precision(pos.symbol, qty)
             qty = float(_q) if _q is not None else qty
         except Exception:
             pass
         if qty <= 0:
-            return 0.0
+            return 0.0, "none"
         close_side = "sell" if pos.direction == "LONG" else "buy"
         params = self._venue.close_params(getattr(self, "_is_uta", False))
-        await exchange.create_order(
+        order = await exchange.create_order(
             symbol=self._venue.order_symbol(pos.symbol),
             type="market", side=close_side,
             amount=qty,
             price=await self._venue_market_price(exchange, pos.symbol),
             params=params,
         )
-        return qty
+        # A market reduceOnly usually comes back already filled; when the
+        # response does not say so, ask the venue through the same helper the
+        # full-close path uses rather than assuming the submission was the fill.
+        try:
+            filled = float((order or {}).get("filled") or 0)
+        except (TypeError, ValueError):
+            filled = 0.0
+        if filled > 0:
+            return filled, "filled"
+        oid = str((order or {}).get("id") or "")
+        if not oid:
+            return 0.0, "unknown"
+        check = await self._verify_order_fill(
+            exchange, oid, pos.symbol, expected_qty=qty,
+            max_retries=2, delay=1.0)
+        if check["confirmed"] and check["fill_qty"] > 0:
+            return float(check["fill_qty"]), "filled"
+        if check.get("failure_stage") == "order_cancelled":
+            # The venue rejected or cancelled it outright: nothing closed.
+            return 0.0, "none"
+        return 0.0, "unknown"
 
     async def _run_partial_tp(self, exchange, pos, price: float) -> None:
         """Partial take-profit ladder (bot/core/partial_tp.py), applied as an
@@ -5630,18 +5677,37 @@ class LiveExecutor:
         for act in check_partial_tp(st, price):
             if act.action == "close_partial":
                 qty = min(act.qty_to_close, pos.quantity)
+                closed_qty, fill_source = 0.0, "none"
                 if qty > 0:
-                    submitted = await self._partial_close(exchange, pos, qty, act.stage)
-                    if submitted > 0:
-                        pos.quantity = max(0.0, pos.quantity - submitted)
+                    closed_qty, fill_source = await self._partial_close(
+                        exchange, pos, qty, act.stage)
+                    if fill_source == "filled" and closed_qty > 0:
+                        pos.quantity = max(0.0, pos.quantity - closed_qty)
                         changed = True
                         audit(trade_log,
-                              f"Partial TP {act.stage} for {pos.symbol}: closed {submitted} "
+                              f"Partial TP {act.stage} for {pos.symbol}: closed {closed_qty} "
                               f"@ ${price:.4f} ({act.reason})",
                               action="partial_tp", result=act.stage.upper(),
                               data={"trade_id": pos.trade_id, "symbol": pos.symbol,
-                                    "stage": act.stage, "qty_closed": submitted,
+                                    "stage": act.stage, "qty_closed": closed_qty,
                                     "remaining": pos.quantity, "price": price})
+                    elif fill_source == "unknown":
+                        # The order is out and its fill is unread. Leave
+                        # pos.quantity alone AND skip the stop re-size below:
+                        # the existing full-size stop over-protects whatever is
+                        # left, which is the safe direction to be wrong in. The
+                        # next ladder pass re-reads and acts on a real fill.
+                        audit(trade_log,
+                              f"Partial TP {act.stage} for {pos.symbol}: fill UNREAD "
+                              f"— quantity and stop left unchanged, retrying next pass",
+                              action="partial_tp", result="FILL_UNREAD",
+                              level=logging.WARNING,
+                              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                    "stage": act.stage, "qty_submitted": qty,
+                                    "quantity": pos.quantity, "price": price})
+                        self._record_warning("partial_tp_fill_unread")
+                if fill_source == "unknown":
+                    continue
                 if act.new_sl and _would_tighten(act.new_sl):
                     # Advance the local stop ONLY after the exchange confirms the
                     # tighter level — same discipline as the trailing path, so the
@@ -6685,6 +6751,19 @@ class LiveExecutor:
                 # against itself and the guard below could never fire. Same trap
                 # the market path has at its own detection site.
                 _intended_lev = int(getattr(pos, "leverage", 0) or 0)
+                if getattr(pos, "origin", "") == "adopted":
+                    # An ADOPTED order is one this bot did not place, and
+                    # adopt_exchange_limit_orders had no venue leverage to read
+                    # for it -- it wrote CONFIG.exchange.default_leverage in so
+                    # the margin arithmetic had a divisor. Reading that number
+                    # back as the APPROVED leverage let the guard flatten an
+                    # operator's own 20x order for "4.0x the approved leverage"
+                    # against a target that never existed. 0 makes the verdict
+                    # "unknown", which keeps the position and logs the gap --
+                    # the distinction leverage_overshoot_verdict exists for.
+                    # "reclaimed" orders ARE this bot's, so their default is
+                    # genuinely what set_leverage applied; they keep it.
+                    _intended_lev = 0
                 try:
                     await self.sync_positions_from_exchange()
                 except Exception as _sync_exc:
@@ -7317,7 +7396,14 @@ class LiveExecutor:
                     use_v3 = True
                     self._is_uta = True
                 else:
-                    self._is_uta = False
+                    # Same rule as _place_sl_tp: an inconclusive probe leaves
+                    # the account type unresolved rather than recording the
+                    # answer that silently flat-closes a UTA position, and the
+                    # comment six lines above says exactly that.
+                    logger.warning("UTA probe inconclusive for %s (%s) — account "
+                                   "type unresolved, using the v3 channel",
+                                   pos.symbol, exc)
+                    use_v3 = True
 
         # Step 1: Place new SL at tightened level FIRST
         new_sl_id = None
