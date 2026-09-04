@@ -10,6 +10,7 @@ Regression tests for the V7 audit follow-ups:
 """
 
 import asyncio
+import time
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -79,6 +80,11 @@ class TestManualMarginDoubleLeverage:
         # and a payload without it clamps the order to $0.
         engine._live_balance_cache = {"total": engine.portfolio.balance,
                                       "free": engine.portfolio.balance}
+        # ...and STAMP it. Sizing reads the cache through live_balance_cached(),
+        # which treats an unstamped cache as unread — a state no production
+        # writer can produce (every one sets the dict and the timestamp
+        # together), but one a test that seeds the dict by hand can.
+        engine._live_balance_cache_ts = time.monotonic()
         # Operator sets a manual margin of $250.
         engine._manual_margin_override = {idea.id: 250.0}
 

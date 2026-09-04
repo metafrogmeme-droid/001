@@ -695,6 +695,9 @@ class LiveExecutor:
         # settling (SL/TP placement, fill confirmation, etc. all take multiple
         # await points after the position/order is first recorded).
         self._recent_local_opens: dict[str, float] = {}
+        # Consecutive sweeps a symbol's adoption was deferred because its venue
+        # stop legs could not be read (see adopt_exchange_positions).
+        self._adoption_deferrals: dict[str, int] = {}
         # Last SL/TP placement rejection per symbol (Bitget code + msg), so the
         # UNPROTECTED-position operator alert can say WHY the stop couldn't land
         # (precision/min-distance/no-position/etc.) instead of a bare "could not
@@ -2071,9 +2074,18 @@ class LiveExecutor:
         result["fill_qty"] = order_check["fill_qty"]
         result["fees"] = order_check["fees"]
 
-        if not order_check["confirmed"]:
+        # AN UNCONFIRMED FILL USED TO RETURN HERE, and that early return is
+        # what made the caller's residual guard unreachable: it fires on
+        # `(not confirmed) and remaining_qty > 0`, and remaining_qty was 0
+        # because step 2 -- the only thing that measures it -- never ran. So a
+        # close the venue had REJECTED booked as completed, seconds after its
+        # SL and TP were cancelled, leaving a live position untracked and
+        # unprotected. Fall through instead: the BOOK is the more authoritative
+        # signal. If the position is gone the close happened, whatever the
+        # order query managed to say about it.
+        _fill_unconfirmed = not order_check["confirmed"]
+        if _fill_unconfirmed:
             result["failure_stage"] = order_check.get("failure_stage", "close_order_unconfirmed")
-            return result
 
         # Step 2: Verify position is gone/reduced on exchange
         try:
@@ -2092,15 +2104,26 @@ class LiveExecutor:
                     logger.warning("Position still open after close: %s %s remaining=%.6f",
                                    direction, symbol, contracts)
                     return result
-            # Position not found — fully closed
+            # Position not found — fully closed. This is now the ONLY route to
+            # confirmed=True, and it is a real reading either way: the book no
+            # longer holds the position, so the close completed even when the
+            # order query could not tell us so.
             result["confirmed"] = True
+            result["failure_stage"] = ""
             logger.info("Position CLOSE VERIFIED: %s %s — no remaining position on exchange",
                         direction, symbol)
         except Exception as exc:
-            # Close order confirmed but position check failed — trust the order fill
-            logger.warning("Post-close position check failed for %s: %s — trusting order fill",
-                           symbol, exc)
-            result["confirmed"] = True  # Order was confirmed, position check is supplementary
+            # "TRUSTING ORDER FILL" WAS A CLAIM MANUFACTURED FROM AN EXCEPTION.
+            # The close card renders this field as "Verified: CONFIRMED", which
+            # an operator reads as "the exposure is gone" -- and nothing here
+            # read the book. Worse, on the path above where the FILL was also
+            # unconfirmed, there was nothing to trust in the first place.
+            # book_unread is the third outcome: the order may well have filled,
+            # we simply did not see the position go.
+            result["confirmed"] = False
+            result["failure_stage"] = "book_unread"
+            logger.warning("Post-close position check failed for %s: %s — book UNREAD, "
+                           "not treating the close as verified", symbol, exc)
         return result
 
     async def detect_untracked_positions(self) -> dict:
@@ -2431,6 +2454,13 @@ class LiveExecutor:
 
                 # Fallback: if position data didn't have SL/TP, try open orders
                 if lp.stop_loss <= 0 or lp.take_profit <= 0:
+                    # Whether the venue's stop legs were actually READ. A
+                    # failed read used to look like "no stops", and the
+                    # default-placement path below then CANCELLED the real
+                    # stops it never saw. Unread means: leave this position
+                    # untracked this sweep -- its venue stops stay live -- and
+                    # read again next sweep.
+                    plans_read_ok = False
                     try:
                         open_orders = list(await exchange.fetch_open_orders(raw_sym) or [])
                         # Classic SL/TP legs live on the PLAN-order channel,
@@ -2447,9 +2477,11 @@ class LiveExecutor:
                                 params=self._venue.plan_order_query_params())
                             open_orders += [p for p in (_plans or [])
                                             if self._venue.is_plan_order(p)]
+                            plans_read_ok = True
                         except Exception as _plan_exc:
-                            logger.debug("Plan-order read during adoption of %s failed: %s",
-                                         raw_sym, _plan_exc)
+                            logger.warning("Plan-order read during adoption of %s failed: %s "
+                                           "— adoption deferred, venue stops stay live",
+                                           raw_sym, _plan_exc)
                         for o in open_orders:
                             trigger = float(o.get("triggerPrice") or o.get("stopPrice") or 0)
                             if trigger <= 0:
@@ -2470,7 +2502,28 @@ class LiveExecutor:
                                 setattr(lp, "sl_tp_source", "exchange")
                     except Exception as _sltp_adopt_exc:
                         logger.warning("SL/TP extraction failed during adoption of %s: %s",
-                                       raw_sym, _sltp_adopt_exc)  # position adopted without SL/TP
+                                       raw_sym, _sltp_adopt_exc)
+                    _memo = getattr(self, "_adoption_deferrals", None)
+                    if _memo is None:
+                        _memo = self._adoption_deferrals = {}
+                    if not plans_read_ok:
+                        # Audit the first deferral and every 10th after it: the
+                        # sweep runs every tick, and a line per tick per symbol
+                        # would bury the audit log the operator reads.
+                        _n = _memo.get(sym, 0) + 1
+                        _memo[sym] = _n
+                        if _n == 1 or _n % 10 == 0:
+                            audit(trade_log,
+                                  f"Adoption of {sym} {side} DEFERRED: venue stop legs unread "
+                                  "— defaults NOT placed, venue stops stay live; retry next sweep",
+                                  action="adopt_position", result="DEFERRED",
+                                  data={"symbol": sym, "side": side,
+                                        "reason": "plan_orders_unread", "consecutive": _n})
+                        else:
+                            logger.info("Adoption of %s %s deferred again (%d): stop legs unread",
+                                        sym, side, _n)
+                        continue
+                    _memo.pop(sym, None)
 
                 # ── Inherit the INTENDED levels from the local record this
                 # position came from (live incident: an LTC limit filled
@@ -4879,16 +4932,27 @@ class LiveExecutor:
         use_v3 = (self._is_uta if self._is_uta is not None else False) \
             if self._venue.supports_native_triggers else False
         if self._is_uta is None and self._venue.supports_native_triggers:
-            # First call — haven't detected yet; probe once
+            # First call — haven't detected yet; probe once.
             try:
                 await exchange.privateMixGetV2MixAccountAccount(
                     {"symbol": "BTCUSDT", "productType": "USDT-FUTURES"})
+                self._is_uta = False   # the v2 account call worked -> classic
             except Exception as exc:
                 if "40085" in str(exc):
                     use_v3 = True
                     self._is_uta = True
                 else:
-                    self._is_uta = False
+                    # A timeout / 429 / 5xx / permission error says nothing
+                    # about the account type. Recording False here made a
+                    # transient fault a definite verdict, CACHED FOR THE
+                    # PROCESS -- and on a real UTA account the classic
+                    # triggerPrice path executes IMMEDIATELY as a reduceOnly
+                    # market order, flat-closing the position while execute()
+                    # reports "SL order placed". Leave it unresolved so the
+                    # next call re-probes, and take the loud branch below.
+                    logger.warning("UTA probe inconclusive for %s (%s) — account "
+                                   "type unresolved, using the v3 channel", symbol, exc)
+                    use_v3 = True
 
         if use_v3:
             # UTA mode: place SL/TP via Bitget v3 REST API directly
@@ -5499,28 +5563,64 @@ class LiveExecutor:
 
     # ── Position management ──────────────────────────────────────
 
-    async def _partial_close(self, exchange, pos, qty: float, stage: str) -> float:
-        """Close `qty` of a position with a reduceOnly market order. Returns the
-        quantity actually submitted (0.0 on failure). Used by the partial-TP
-        ladder; reduceOnly means the venue clamps to the live position size, so
-        it can never flip or over-close."""
+    async def _partial_close(self, exchange, pos, qty: float,
+                             stage: str) -> tuple[float, str]:
+        """Close `qty` of a position with a reduceOnly market order.
+
+        Returns ``(filled_qty, source)`` where source is:
+
+            "filled"   the venue CONFIRMED this quantity filled
+            "none"     nothing was submitted (qty rounded to <= 0)
+            "unknown"  the order went out and the fill could not be read
+
+        It used to return the SUBMITTED quantity, and the caller subtracted
+        that from ``pos.quantity`` and re-sized the exchange stop to match.
+        reduceOnly stops an over-close, which is what the old docstring
+        argued -- but it does nothing about an UNDER-fill. A market order for
+        0.5 that fills 0.2 on a thin book left the book claiming 0.5 remained,
+        `_update_exchange_sl` placing a 0.5-sized stop and cancelling the
+        correctly-sized one, and 0.3 contracts live with no stop on either
+        side and invisible to every surface.
+
+        "unknown" is not zero and not filled: the caller must change nothing.
+        """
         try:
             _q = exchange.amount_to_precision(pos.symbol, qty)
             qty = float(_q) if _q is not None else qty
         except Exception:
             pass
         if qty <= 0:
-            return 0.0
+            return 0.0, "none"
         close_side = "sell" if pos.direction == "LONG" else "buy"
         params = self._venue.close_params(getattr(self, "_is_uta", False))
-        await exchange.create_order(
+        order = await exchange.create_order(
             symbol=self._venue.order_symbol(pos.symbol),
             type="market", side=close_side,
             amount=qty,
             price=await self._venue_market_price(exchange, pos.symbol),
             params=params,
         )
-        return qty
+        # A market reduceOnly usually comes back already filled; when the
+        # response does not say so, ask the venue through the same helper the
+        # full-close path uses rather than assuming the submission was the fill.
+        try:
+            filled = float((order or {}).get("filled") or 0)
+        except (TypeError, ValueError):
+            filled = 0.0
+        if filled > 0:
+            return filled, "filled"
+        oid = str((order or {}).get("id") or "")
+        if not oid:
+            return 0.0, "unknown"
+        check = await self._verify_order_fill(
+            exchange, oid, pos.symbol, expected_qty=qty,
+            max_retries=2, delay=1.0)
+        if check["confirmed"] and check["fill_qty"] > 0:
+            return float(check["fill_qty"]), "filled"
+        if check.get("failure_stage") == "order_cancelled":
+            # The venue rejected or cancelled it outright: nothing closed.
+            return 0.0, "none"
+        return 0.0, "unknown"
 
     async def _run_partial_tp(self, exchange, pos, price: float) -> None:
         """Partial take-profit ladder (bot/core/partial_tp.py), applied as an
@@ -5597,18 +5697,37 @@ class LiveExecutor:
         for act in check_partial_tp(st, price):
             if act.action == "close_partial":
                 qty = min(act.qty_to_close, pos.quantity)
+                closed_qty, fill_source = 0.0, "none"
                 if qty > 0:
-                    submitted = await self._partial_close(exchange, pos, qty, act.stage)
-                    if submitted > 0:
-                        pos.quantity = max(0.0, pos.quantity - submitted)
+                    closed_qty, fill_source = await self._partial_close(
+                        exchange, pos, qty, act.stage)
+                    if fill_source == "filled" and closed_qty > 0:
+                        pos.quantity = max(0.0, pos.quantity - closed_qty)
                         changed = True
                         audit(trade_log,
-                              f"Partial TP {act.stage} for {pos.symbol}: closed {submitted} "
+                              f"Partial TP {act.stage} for {pos.symbol}: closed {closed_qty} "
                               f"@ ${price:.4f} ({act.reason})",
                               action="partial_tp", result=act.stage.upper(),
                               data={"trade_id": pos.trade_id, "symbol": pos.symbol,
-                                    "stage": act.stage, "qty_closed": submitted,
+                                    "stage": act.stage, "qty_closed": closed_qty,
                                     "remaining": pos.quantity, "price": price})
+                    elif fill_source == "unknown":
+                        # The order is out and its fill is unread. Leave
+                        # pos.quantity alone AND skip the stop re-size below:
+                        # the existing full-size stop over-protects whatever is
+                        # left, which is the safe direction to be wrong in. The
+                        # next ladder pass re-reads and acts on a real fill.
+                        audit(trade_log,
+                              f"Partial TP {act.stage} for {pos.symbol}: fill UNREAD "
+                              f"— quantity and stop left unchanged, retrying next pass",
+                              action="partial_tp", result="FILL_UNREAD",
+                              level=logging.WARNING,
+                              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                    "stage": act.stage, "qty_submitted": qty,
+                                    "quantity": pos.quantity, "price": price})
+                        self._record_warning("partial_tp_fill_unread")
+                if fill_source == "unknown":
+                    continue
                 if act.new_sl and _would_tighten(act.new_sl):
                     # Advance the local stop ONLY after the exchange confirms the
                     # tighter level — same discipline as the trailing path, so the
@@ -6652,6 +6771,19 @@ class LiveExecutor:
                 # against itself and the guard below could never fire. Same trap
                 # the market path has at its own detection site.
                 _intended_lev = int(getattr(pos, "leverage", 0) or 0)
+                if getattr(pos, "origin", "") == "adopted":
+                    # An ADOPTED order is one this bot did not place, and
+                    # adopt_exchange_limit_orders had no venue leverage to read
+                    # for it -- it wrote CONFIG.exchange.default_leverage in so
+                    # the margin arithmetic had a divisor. Reading that number
+                    # back as the APPROVED leverage let the guard flatten an
+                    # operator's own 20x order for "4.0x the approved leverage"
+                    # against a target that never existed. 0 makes the verdict
+                    # "unknown", which keeps the position and logs the gap --
+                    # the distinction leverage_overshoot_verdict exists for.
+                    # "reclaimed" orders ARE this bot's, so their default is
+                    # genuinely what set_leverage applied; they keep it.
+                    _intended_lev = 0
                 try:
                     await self.sync_positions_from_exchange()
                 except Exception as _sync_exc:
@@ -7064,8 +7196,21 @@ class LiveExecutor:
                 pre_filled = float(_final.get("filled", 0) or 0)
                 pre_avg = float(_final.get("average", 0) or 0)
             except Exception as _pf_exc:
+                # An unread fill is NOT zero filled. Marketing the full size on
+                # top of whatever already filled puts on up to 2x the approved
+                # exposure -- the case the comment above names. Refuse: the
+                # limit is already cancelled, so the next sweep reads its final
+                # fill and adopts any partial, and nothing irreversible happens
+                # on a guess.
                 logger.warning("Market fallback: pre-fill read failed for %s: %s "
-                               "— assuming no partial fill", pos.symbol, _pf_exc)
+                               "— REFUSING the market order (fill unread)",
+                               pos.symbol, _pf_exc)
+                audit(trade_log,
+                      f"Market fallback REFUSED for {pos.symbol}: pre-fill unread",
+                      action="market_fallback", result="REFUSED",
+                      data={"symbol": pos.symbol, "reason": "pre_fill_unread",
+                            "error": str(_pf_exc)[:200]})
+                return None
 
             # 2. Place market order for the UNFILLED remainder only
             side = "buy" if pos.direction == "LONG" else "sell"
@@ -7271,7 +7416,14 @@ class LiveExecutor:
                     use_v3 = True
                     self._is_uta = True
                 else:
-                    self._is_uta = False
+                    # Same rule as _place_sl_tp: an inconclusive probe leaves
+                    # the account type unresolved rather than recording the
+                    # answer that silently flat-closes a UTA position, and the
+                    # comment six lines above says exactly that.
+                    logger.warning("UTA probe inconclusive for %s (%s) — account "
+                                   "type unresolved, using the v3 channel",
+                                   pos.symbol, exc)
+                    use_v3 = True
 
         # Step 1: Place new SL at tightened level FIRST
         new_sl_id = None
@@ -7746,31 +7898,73 @@ class LiveExecutor:
             # quantity (so price-based SL/TP monitoring re-protects it and the
             # next adoption/reconcile sweep can finish the job) and warn LOUDLY.
             # No new order is placed here — the close order already sent is
-            # untouched. This guard fires only when BOTH the close is unconfirmed
-            # AND a positive residual is reported; a mere verification hiccup
-            # leaves confirmed=True/remaining_qty=0 (see _verify_position_closed),
-            # so a genuinely-closed position is never spuriously re-opened.
+            # untouched.
+            #
+            # TWO WAYS IN, and the second one is new. The first is a MEASURED
+            # residual: the venue showed us contracts still open. The second is
+            # an UNVERIFIABLE close -- the fill was rejected or unreadable and
+            # the book could not be read either, so remaining_qty is 0 because
+            # nothing measured it, not because nothing is there.
+            #
+            # That second case used to fall straight through and book the trade
+            # closed at $0.00, seconds after this function cancelled the SL and
+            # TP, leaving a live leveraged position untracked and unprotected --
+            # and _is_duplicate_close_booking would then swallow the real close
+            # when it finally arrived. The comment that used to sit here said a
+            # verification hiccup "leaves confirmed=True/remaining_qty=0, so a
+            # genuinely-closed position is never spuriously re-opened". That was
+            # true and it was the bug: confirmed=True was manufactured inside
+            # _verify_position_closed's except. It now reports book_unread and
+            # we keep the position instead.
+            #
+            # Keeping a position that DID close is recoverable: reconcile_positions()
+            # runs every tick, sees no exchange position, and books it from the
+            # venue's own close history. Booking a close that did NOT happen is
+            # not recoverable -- that is the asymmetry this branch is built on,
+            # and the pending-cancel path above already resolves the identical
+            # question the same way ("keep the record: the monitor re-checks it").
             remaining_qty = float(close_verify.get("remaining_qty", 0) or 0)
-            if (not close_confirmed) and remaining_qty > 0:
-                logger.critical(
-                    "RESIDUAL EXPOSURE after close of %s %s: exchange still shows "
-                    "%.8f contracts — keeping position OPEN (tracking the remainder) "
-                    "instead of marking closed. Stop is best-effort / price-monitored; "
-                    "manual review recommended.",
-                    pos.direction, pos.symbol, remaining_qty)
-                audit(trade_log,
-                      f"RESIDUAL after close: {pos.symbol} {pos.direction} remaining="
-                      f"{remaining_qty:.8f} — re-opening tracking for remainder (NOT marked closed)",
-                      action="close_residual", result="RESIDUAL",
-                      data={"trade_id": trade_id, "symbol": pos.symbol,
-                            "direction": pos.direction, "remaining_qty": remaining_qty,
-                            "closed_qty": closed_qty, "close_order_id": close_order_id})
-                self._record_warning("close_residual")
+            _verify_stage = str(close_verify.get("failure_stage") or "")
+            _unverifiable = (not close_confirmed) and remaining_qty <= 0 and bool(_verify_stage)
+            if (not close_confirmed) and (remaining_qty > 0 or _unverifiable):
+                # Unknown size: keep what we had. Never write 0.0 here — that is
+                # the same fabrication one field over.
+                _keep_qty = remaining_qty if remaining_qty > 0 else float(pos.quantity or 0.0)
+                if _unverifiable:
+                    logger.critical(
+                        "CLOSE UNVERIFIED for %s %s (%s): neither the fill nor the "
+                        "book could be read, and the SL/TP were already cancelled — "
+                        "keeping the position OPEN and re-protecting it rather than "
+                        "booking a close nobody confirmed. Review on Bitget.",
+                        pos.direction, pos.symbol, _verify_stage)
+                    audit(trade_log,
+                          f"CLOSE UNVERIFIED: {pos.symbol} {pos.direction} "
+                          f"({_verify_stage}) — position kept OPEN, not booked closed",
+                          action="close_unverified", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "symbol": pos.symbol,
+                                "direction": pos.direction, "stage": _verify_stage,
+                                "kept_qty": _keep_qty, "close_order_id": close_order_id})
+                    self._record_warning("close_unverified")
+                else:
+                    logger.critical(
+                        "RESIDUAL EXPOSURE after close of %s %s: exchange still shows "
+                        "%.8f contracts — keeping position OPEN (tracking the remainder) "
+                        "instead of marking closed. Stop is best-effort / price-monitored; "
+                        "manual review recommended.",
+                        pos.direction, pos.symbol, remaining_qty)
+                    audit(trade_log,
+                          f"RESIDUAL after close: {pos.symbol} {pos.direction} remaining="
+                          f"{remaining_qty:.8f} — re-opening tracking for remainder (NOT marked closed)",
+                          action="close_residual", result="RESIDUAL",
+                          data={"trade_id": trade_id, "symbol": pos.symbol,
+                                "direction": pos.direction, "remaining_qty": remaining_qty,
+                                "closed_qty": closed_qty, "close_order_id": close_order_id})
+                    self._record_warning("close_residual")
                 # Track the real remainder so monitoring/sizing reflect it. The
                 # exchange SL/TP orders were cancelled pre-close, so leave the
                 # order ids cleared — check_positions() closes on price for a
                 # position with sl_order_id=None.
-                pos.quantity = remaining_qty
+                pos.quantity = _keep_qty
                 pos.sl_order_id = None
                 pos.tp_order_id = None
                 pos.status = "open"
@@ -7789,7 +7983,7 @@ class LiveExecutor:
                     _ex = await self._get_exchange()
                     _dir = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
                     re_sl, re_tp = await self._place_sl_tp(
-                        _ex, pos.symbol, _dir, remaining_qty,
+                        _ex, pos.symbol, _dir, _keep_qty,
                         pos.stop_loss, pos.take_profit,
                     )
                 except Exception as _resl_exc:
@@ -7801,26 +7995,38 @@ class LiveExecutor:
                 if re_sl is None:
                     setattr(pos, "unprotected", True)
                     logger.critical(
-                        "RESIDUAL UNPROTECTED (%s %s): could not re-place stop-loss on "
-                        "the %.8f remainder — price-monitoring only. Review on Bitget.",
-                        pos.symbol, pos.direction, remaining_qty)
+                        "%s UNPROTECTED (%s %s): could not re-place stop-loss on "
+                        "%.8f — price-monitoring only. Review on Bitget.",
+                        "UNVERIFIED CLOSE" if _unverifiable else "RESIDUAL",
+                        pos.symbol, pos.direction, _keep_qty)
                     audit(trade_log,
-                          f"RESIDUAL stop-loss re-placement FAILED for {pos.symbol} "
-                          f"remainder={remaining_qty:.8f} — UNPROTECTED (price-monitored)",
-                          action="close_residual", result="UNPROTECTED",
+                          f"stop-loss re-placement FAILED for {pos.symbol} "
+                          f"qty={_keep_qty:.8f} — UNPROTECTED (price-monitored)",
+                          action=("close_unverified" if _unverifiable else "close_residual"),
+                          result="UNPROTECTED",
                           data={"trade_id": trade_id, "symbol": pos.symbol,
-                                "remaining_qty": remaining_qty})
+                                "remaining_qty": _keep_qty})
                     self._record_warning("residual_unprotected")
                 else:
                     audit(trade_log,
-                          f"RESIDUAL re-protected: {pos.symbol} SL re-placed on "
-                          f"remainder={remaining_qty:.8f} (sl={re_sl})",
-                          action="close_residual", result="REPROTECTED",
+                          f"re-protected: {pos.symbol} SL re-placed on "
+                          f"qty={_keep_qty:.8f} (sl={re_sl})",
+                          action=("close_unverified" if _unverifiable else "close_residual"),
+                          result="REPROTECTED",
                           data={"trade_id": trade_id, "symbol": pos.symbol,
-                                "remaining_qty": remaining_qty, "sl_order_id": re_sl})
+                                "remaining_qty": _keep_qty, "sl_order_id": re_sl})
                 self._save_positions()
+                if _unverifiable:
+                    return (
+                        f"\u26a0\ufe0f CLOSE NOT CONFIRMED: {pos.direction} {pos.symbol}\n"
+                        f"The venue did not confirm the close ({_verify_stage}) and its "
+                        f"position book could not be read.\n"
+                        f"The position is kept OPEN and re-protected rather than booked "
+                        f"closed on a reading nobody made. If it did close, the next "
+                        f"reconcile books it from the venue's own history. Review on Bitget."
+                    )
                 return (
-                    f"⚠️ PARTIAL CLOSE — RESIDUAL REMAINS: {pos.direction} {pos.symbol}\n"
+                    f"\u26a0\ufe0f PARTIAL CLOSE — RESIDUAL REMAINS: {pos.direction} {pos.symbol}\n"
                     f"Exchange still shows {remaining_qty:.6f} open after the close order.\n"
                     f"Position kept OPEN (tracking the remainder); it will be "
                     f"re-protected/closed by monitoring. Review on Bitget."

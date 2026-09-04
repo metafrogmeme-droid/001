@@ -393,29 +393,49 @@ class TestResidualCloseReconciliation:
         assert "RESIDUAL" not in result
 
     @pytest.mark.asyncio
-    async def test_unconfirmed_without_residual_does_not_reopen(self):
-        """Guard conservatism: unconfirmed close but remaining_qty == 0 (e.g. a
-        verification hiccup) must NOT trigger the residual re-open path."""
+    async def test_unconfirmed_fill_but_a_READABLE_book_still_closes(self):
+        """Guard conservatism, through the mechanism that now provides it.
+
+        The original of this test drove the caller with
+        ``confirmed=False, remaining_qty=0, failure_stage="close_order_unconfirmed"``
+        and asserted the position was booked closed anyway. Two things changed
+        under it (see tests/test_audit_fixes_batch_5.py):
+
+        * that state is no longer REACHABLE — `_verify_position_closed` copies
+          fill data only on its confirmed branch, and an unconfirmed fill now
+          falls through to the position read rather than returning early, so
+          the stage the caller sees is either "" (book says flat),
+          "position_still_open", or "book_unread";
+        * booking a close on ``remaining_qty == 0`` when nothing MEASURED it was
+          the defect: SL and TP are cancelled before the close, so the record
+          was pruned and a live position left untracked and unprotected.
+
+        The conservatism this test exists for is intact and better founded: a
+        flaky ORDER query no longer matters when the BOOK can be read, because
+        the book is the authoritative answer. Driven through the real verifier
+        rather than a stubbed shape, so it cannot drift from what that function
+        can actually return.
+        """
         executor, mock_ex = _executor_with_mock()
         tid = self._seed_open(executor, qty=0.0001)
         mock_ex.create_order = AsyncMock(return_value={
             "id": "CLOSE-HICCUP", "average": 105_000.0, "filled": 0.0001,
             "cost": 10.5, "status": "filled",
         })
-        executor._verify_position_closed = AsyncMock(return_value={
-            "confirmed": False,
-            "fill_price": 105_000.0,
-            "fill_qty": 0.0001,
-            "fees": 0.0,
-            "remaining_qty": 0.0,
-            "failure_stage": "close_order_unconfirmed",
+        # The order query is flaky (unconfirmed)...
+        executor._verify_order_fill = AsyncMock(return_value={
+            "confirmed": False, "fill_price": 0.0, "fill_qty": 0.0, "fees": 0.0,
+            "status": "open", "failure_stage": "post_check_unconfirmed", "raw": {},
         })
+        # ...but the venue's book answers, and it is empty: the close happened.
+        mock_ex.fetch_positions = AsyncMock(return_value=[])
 
-        result = await executor.close_position(tid, reason="manual")
+        with patch("asyncio.sleep", new=AsyncMock()):
+            result = await executor.close_position(tid, reason="manual")
 
-        # No residual → the normal close finalization runs (position closed).
         assert tid not in executor._positions
         assert "RESIDUAL" not in result
+        assert "NOT CONFIRMED" not in result
 
 
 # ── Adopt safety-stop sized off the RECORDED quantity, not ccxt `contracts` ──

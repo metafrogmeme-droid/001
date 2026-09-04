@@ -52,6 +52,13 @@ def r_denominator(pos) -> float:
         stop = float(getattr(pos, "stop_loss", 0) or 0)
     except (TypeError, ValueError):
         return 0.0
+    if stop <= 0:
+        # NO STOP IS NOT A 1R OF THE WHOLE ENTRY PRICE. An adopted orphan
+        # carries stop_loss=0 until the safety default lands, and abs(entry - 0)
+        # made 1R the entry price itself -- so a 3% move read as 0.03R and every
+        # R-based exit saw a flat trade. 0.0 means unknown, and the caller must
+        # not run R-based rules on it.
+        return 0.0
     return abs(entry - stop)
 
 

@@ -881,9 +881,10 @@ class RuneClawEngine:
         own keys (routed to operator) → the shared operator balance (identical to
         get_live_equity). A regular user under per-user live → THEIR OWN linked
         account's balance, fetched via their executor and cached per-user with the
-        same TTL. Fail-safe: returns the last cached value on error, else None, so
-        the caller falls back to capped paper-equity sizing rather than the WRONG
-        account's equity.
+        same TTL. On a failed fetch it returns None -- NOT the last cached value,
+        which is past the TTL by construction and would size the next entry on a
+        balance the venue stopped confirming. None is "unread", and the live risk
+        gate refuses to size on it.
         """
         if not CONFIG.is_live():
             return None
@@ -908,10 +909,13 @@ class RuneClawEngine:
                 self._user_live_balance_cache_ts[key] = now
                 return bal
         except Exception as exc:
+            # `cached` here is OLDER than the TTL by construction (a fresh one
+            # returned above), so handing it back sized the next entry on a
+            # stale balance. None means unread, and the risk gate refuses.
             system_log.warning(
-                "Per-user live balance fetch failed for %s: %s — using %s",
-                user_id, exc, "cached value" if cached else "paper fallback")
-        return cached if cached else None
+                "Per-user live balance fetch failed for %s: %s — balance unread, "
+                "live sizing refused until a fresh read", user_id, exc)
+        return None
 
     async def _live_recheck_context(self, user_id: str = "") -> tuple:
         """Return ``(live_equity, live_open_count)`` for the account THIS user's
@@ -933,7 +937,7 @@ class RuneClawEngine:
         )
         if not per_user:
             # Operator path — preserves the exact prior behaviour.
-            live_eq = self._live_balance_cache.get("total", 0.0) if self._live_balance_cache else None
+            live_eq = (self.live_balance_cached() or {}).get("total")
             try:
                 exchange_ct = await get_exchange_position_count(self)
                 pending_ct = sum(
@@ -2472,7 +2476,13 @@ class RuneClawEngine:
             except Exception as exc:
                 logger.error("Flatten-all: account %s close failed: %s", label, exc)
                 msgs = [f"close_all_positions failed: {exc}"]
-            results.append({"account": str(label), "messages": list(msgs)})
+            # `msgs` reports per-position failures in its TEXT rather than
+            # raising, so "we called close" and "it closed" were the same value
+            # to every caller. `ok` is the difference, and the emergency card
+            # counts it.
+            from bot.formatters.drift_offer import flatten_account_ok
+            results.append({"account": str(label), "messages": list(msgs),
+                            "ok": flatten_account_ok(list(msgs))})
         return results
 
     async def emergency_halt_all(self, reason: str = "emergency") -> dict:
@@ -2513,7 +2523,10 @@ class RuneClawEngine:
               action="emergency_halt_all", result="OK",
               data={"engines_halted": engines_halted,
                     "pending_cleared": pending_cleared,
-                    "accounts_flattened": len(accounts)})
+                    "accounts_attempted": len(accounts),
+                    "accounts_flattened": sum(1 for a in accounts if a.get("ok")),
+                    "accounts_failed": [a.get("account") for a in accounts
+                                        if not a.get("ok")]})
         return {
             "reason": reason,
             "engines_halted": engines_halted,
@@ -4250,12 +4263,31 @@ class RuneClawEngine:
                     if per_user and ex is self.live_executor and not self._is_operator_user(tg):
                         acks.append({"user_id": uid, "ok": True, "closed": 0})
                         continue
-                    closed = await ex.close_all_positions(reason="web_emergency_stop")
+                    from bot.formatters.drift_offer import flatten_failed_messages
+                    _msgs = list(await ex.close_all_positions(
+                        reason="web_emergency_stop"))
+                    # `ok` used to be the literal True and `closed` the LENGTH
+                    # OF THE MESSAGE LIST -- but close_all_positions reports a
+                    # per-position failure in its TEXT and never raises, so the
+                    # except below cannot see one. The website then deleted the
+                    # pending_flatten row (its ack handler skips !ok rows and
+                    # retries them next poll -- the mechanism was already there)
+                    # and the emergency stop reported success over exposure
+                    # that is still open. Same claim as the Telegram card, one
+                    # surface over.
+                    _failed = flatten_failed_messages(_msgs)
+                    _closed = len(_msgs) - len(_failed)
                     audit(system_log,
-                          f"Web emergency-stop flatten for user {tg}: {len(closed)} closed",
-                          action="web_flatten", result="OK",
-                          data={"user": tg, "closed": len(closed)})
-                    acks.append({"user_id": uid, "ok": True, "closed": len(closed)})
+                          f"Web emergency-stop flatten for user {tg}: {_closed} closed"
+                          + (f", {len(_failed)} FAILED — row left pending for retry"
+                             if _failed else ""),
+                          action="web_flatten",
+                          result="OK" if not _failed else "PARTIAL",
+                          data={"user": tg, "closed": _closed,
+                                "failed": len(_failed),
+                                "failures": _failed[:5]})
+                    acks.append({"user_id": uid, "ok": not _failed,
+                                 "closed": _closed})
                 except Exception as exc:
                     # Leave the row un-acked (retry next poll) on a close failure.
                     audit(system_log, f"Web flatten failed for user {tg}: {exc}",
@@ -5663,7 +5695,10 @@ class RuneClawEngine:
 
         # Risk gate — pass ATR so all risk-engine checks run
         # LIVE FIX: pass actual exchange equity so sizing is based on real capital
-        live_eq = self._live_balance_cache.get("total", 0.0) if (CONFIG.is_live() and self._live_balance_cache) else None
+        # Through live_balance_cached(): a cache whose timestamp stopped
+        # advancing hours ago is not the current equity, and evaluate()
+        # already REFUSES a live entry it cannot size ("LIVE_EQUITY: unreadable").
+        live_eq = (self.live_balance_cached() or {}).get("total") if CONFIG.is_live() else None
         # Pass micro-test cap so risk evaluates the actual execution size
         from bot.core.live_executor import MICRO_MAX_POSITION_USD
         exec_cap = MICRO_MAX_POSITION_USD if CONFIG.is_live() else None
@@ -7095,16 +7130,44 @@ class RuneClawEngine:
                 # the time/hold exits below force-close a real runner.
                 from bot.core.position_telemetry import r_denominator
                 risk = r_denominator(pos)
-                r_mult = pnl_raw / risk if risk > 0 else 0.0
+                # `r_mult = ... if risk > 0 else 0.0` was not a guard: 0.0 is a
+                # MEASURED value to every rule below -- a flat trade -- and
+                # should_time_exit / check_signal_hold_limit /
+                # should_volume_decay_exit all close on a flat trade that has
+                # been held long enough. A position whose 1R we cannot compute
+                # (an adopted orphan with no stop, a record with no trailing
+                # state) was therefore force-closed at market on the strength
+                # of a number nobody measured.
+                r_mult = pnl_raw / risk if risk > 0 else None
 
                 sig = getattr(pos, "signal_type", "momentum_confluence")
                 stype = getattr(pos, "strategy_type", "swing")
 
-                should_exit, reason = should_time_exit(stype, candles_held, r_mult)
-                if not should_exit:
-                    should_exit, reason = check_signal_hold_limit(sig, hold_h, r_mult)
-                if not should_exit:
-                    should_exit, reason = should_volume_decay_exit(sig, candles_held, r_mult)
+                should_exit, reason = False, ""
+                if r_mult is None:
+                    # NOT self.risk.record_warning(): that feeds the
+                    # warning-rate breaker, which trips after five of the same
+                    # key in an hour. A persistent orphan would fire this every
+                    # tick and halt ENTRIES for a condition that is only "the
+                    # R-based exits are inert on this one position" -- a
+                    # heuristic driving a verdict, the thing this batch removes.
+                    # Log once per symbol per process instead.
+                    _seen: set = getattr(self, "_r_unknown_logged", None) or set()
+                    self._r_unknown_logged = _seen
+                    if pos.symbol not in _seen:
+                        _seen.add(pos.symbol)
+                        logger.info(
+                            "Smart exits inert for %s: 1R is unknown (no stop and "
+                            "no trailing initial_risk), so time/hold/volume-decay "
+                            "rules are skipped rather than run against a 0.0R that "
+                            "was never measured. The stop-loss check still applies.",
+                            pos.symbol)
+                else:
+                    should_exit, reason = should_time_exit(stype, candles_held, r_mult)
+                    if not should_exit:
+                        should_exit, reason = check_signal_hold_limit(sig, hold_h, r_mult)
+                    if not should_exit:
+                        should_exit, reason = should_volume_decay_exit(sig, candles_held, r_mult)
                 if not should_exit:
                     vwap = self._last_vwap.get(pos.symbol, 0)
                     if vwap > 0:
@@ -7116,7 +7179,9 @@ class RuneClawEngine:
 
                 audit(trade_log, f"Live smart-exit auto-close: {pos.symbol} — {reason}",
                       action="live_smart_exit", result="CLOSED",
-                      data={"symbol": pos.symbol, "r_multiple": round(r_mult, 2),
+                      data={"symbol": pos.symbol,
+                            "r_multiple": (None if r_mult is None
+                                           else round(r_mult, 2)),
                             "hold_hours": round(hold_h, 1), "signal_type": sig,
                             "strategy_type": stype})
                 try:

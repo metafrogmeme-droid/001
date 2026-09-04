@@ -297,12 +297,12 @@ jobs:
   anchor-workspace:
     name: Anchor workspace (node)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -340,7 +340,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: site/package-lock.json
 
@@ -548,7 +548,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: token/package-lock.json
 
@@ -643,12 +643,14 @@ jobs:
 
       # SCA — deliberately a RATCHET, not `npm audit --audit-level=high`.
       #
-      # This tree carries 0 critical and 9 high advisories today (35 in total),
+      # This tree carries 0 critical and 12 high advisories today (37 in total),
       # nearly all transitive through the Wormhole SDK. Those numbers are the
       # ones recorded in token/.audit-baseline.json and are pinned against it by
       # tests/test_documented_counts_are_real.py — the previous text said "1
       # critical and 15 high", which the gate's own output had contradicted for
-      # some time. A number in prose is the part that rots first.
+      # some time. A number in prose is the part that rots first, and this line
+      # rotted again the moment the toml/stream-json advisories were recorded:
+      # the pin is what caught it, in the same commit.
       # A plain --audit-level=high gate
       # would be red on its first run and stay red on every unrelated PR, which
       # trains people to merge past a red check rather than fixing anything.
@@ -671,7 +673,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: contracts/rune/package-lock.json
 
@@ -703,7 +705,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: app/package-lock.json
 
