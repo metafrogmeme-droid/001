@@ -695,6 +695,9 @@ class LiveExecutor:
         # settling (SL/TP placement, fill confirmation, etc. all take multiple
         # await points after the position/order is first recorded).
         self._recent_local_opens: dict[str, float] = {}
+        # Consecutive sweeps a symbol's adoption was deferred because its venue
+        # stop legs could not be read (see adopt_exchange_positions).
+        self._adoption_deferrals: dict[str, int] = {}
         # Last SL/TP placement rejection per symbol (Bitget code + msg), so the
         # UNPROTECTED-position operator alert can say WHY the stop couldn't land
         # (precision/min-distance/no-position/etc.) instead of a bare "could not
@@ -2431,6 +2434,13 @@ class LiveExecutor:
 
                 # Fallback: if position data didn't have SL/TP, try open orders
                 if lp.stop_loss <= 0 or lp.take_profit <= 0:
+                    # Whether the venue's stop legs were actually READ. A
+                    # failed read used to look like "no stops", and the
+                    # default-placement path below then CANCELLED the real
+                    # stops it never saw. Unread means: leave this position
+                    # untracked this sweep -- its venue stops stay live -- and
+                    # read again next sweep.
+                    plans_read_ok = False
                     try:
                         open_orders = list(await exchange.fetch_open_orders(raw_sym) or [])
                         # Classic SL/TP legs live on the PLAN-order channel,
@@ -2447,9 +2457,11 @@ class LiveExecutor:
                                 params=self._venue.plan_order_query_params())
                             open_orders += [p for p in (_plans or [])
                                             if self._venue.is_plan_order(p)]
+                            plans_read_ok = True
                         except Exception as _plan_exc:
-                            logger.debug("Plan-order read during adoption of %s failed: %s",
-                                         raw_sym, _plan_exc)
+                            logger.warning("Plan-order read during adoption of %s failed: %s "
+                                           "— adoption deferred, venue stops stay live",
+                                           raw_sym, _plan_exc)
                         for o in open_orders:
                             trigger = float(o.get("triggerPrice") or o.get("stopPrice") or 0)
                             if trigger <= 0:
@@ -2470,7 +2482,28 @@ class LiveExecutor:
                                 setattr(lp, "sl_tp_source", "exchange")
                     except Exception as _sltp_adopt_exc:
                         logger.warning("SL/TP extraction failed during adoption of %s: %s",
-                                       raw_sym, _sltp_adopt_exc)  # position adopted without SL/TP
+                                       raw_sym, _sltp_adopt_exc)
+                    _memo = getattr(self, "_adoption_deferrals", None)
+                    if _memo is None:
+                        _memo = self._adoption_deferrals = {}
+                    if not plans_read_ok:
+                        # Audit the first deferral and every 10th after it: the
+                        # sweep runs every tick, and a line per tick per symbol
+                        # would bury the audit log the operator reads.
+                        _n = _memo.get(sym, 0) + 1
+                        _memo[sym] = _n
+                        if _n == 1 or _n % 10 == 0:
+                            audit(trade_log,
+                                  f"Adoption of {sym} {side} DEFERRED: venue stop legs unread "
+                                  "— defaults NOT placed, venue stops stay live; retry next sweep",
+                                  action="adopt_position", result="DEFERRED",
+                                  data={"symbol": sym, "side": side,
+                                        "reason": "plan_orders_unread", "consecutive": _n})
+                        else:
+                            logger.info("Adoption of %s %s deferred again (%d): stop legs unread",
+                                        sym, side, _n)
+                        continue
+                    _memo.pop(sym, None)
 
                 # ── Inherit the INTENDED levels from the local record this
                 # position came from (live incident: an LTC limit filled
@@ -7064,8 +7097,21 @@ class LiveExecutor:
                 pre_filled = float(_final.get("filled", 0) or 0)
                 pre_avg = float(_final.get("average", 0) or 0)
             except Exception as _pf_exc:
+                # An unread fill is NOT zero filled. Marketing the full size on
+                # top of whatever already filled puts on up to 2x the approved
+                # exposure -- the case the comment above names. Refuse: the
+                # limit is already cancelled, so the next sweep reads its final
+                # fill and adopts any partial, and nothing irreversible happens
+                # on a guess.
                 logger.warning("Market fallback: pre-fill read failed for %s: %s "
-                               "— assuming no partial fill", pos.symbol, _pf_exc)
+                               "— REFUSING the market order (fill unread)",
+                               pos.symbol, _pf_exc)
+                audit(trade_log,
+                      f"Market fallback REFUSED for {pos.symbol}: pre-fill unread",
+                      action="market_fallback", result="REFUSED",
+                      data={"symbol": pos.symbol, "reason": "pre_fill_unread",
+                            "error": str(_pf_exc)[:200]})
+                return None
 
             # 2. Place market order for the UNFILLED remainder only
             side = "buy" if pos.direction == "LONG" else "sell"

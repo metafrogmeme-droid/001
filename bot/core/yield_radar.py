@@ -150,15 +150,20 @@ def fetch_savings_catalog(client) -> dict[str, dict]:
     return catalog
 
 
-def fetch_spot_idle(client) -> dict[str, float]:
-    """Available (unfrozen) spot balances per coin. {} on failure."""
+def fetch_spot_idle(client) -> Optional[dict[str, float]]:
+    """Available (unfrozen) spot balances per coin. None on failure.
+
+    None, not {}: an empty dict read as "spot holds nothing", and the stake
+    path then computed the full amount as the shortfall and moved it out of
+    futures margin -- past the reserve -- on a read that never happened.
+    """
     try:
         resp = client.request("GET", "/api/v2/spot/account/assets")
     except Exception as exc:
         log.warning("Yield radar: spot assets fetch failed: %s", exc)
-        return {}
+        return None
     if not isinstance(resp, dict) or str(resp.get("code")) not in ("00000", "0"):
-        return {}
+        return None
     out: dict[str, float] = {}
     for a in resp.get("data") or []:
         coin = str(a.get("coin", "")).upper()
@@ -192,12 +197,23 @@ def build_report(client, futures_free_usdt: Optional[float] = 0.0,
         return report
 
     idle: dict[str, tuple[float, str]] = {}
+    spot = fetch_spot_idle(client)
+    notes: list[str] = []
     if futures_free_usdt is None:
-        report.incomplete = ("Free futures margin could not be read, so it is "
-                             "not counted below. Spot holdings are complete.")
+        notes.append("Free futures margin could not be read, so it is "
+                     "not counted below.")
     elif futures_free_usdt > 0:
         idle["USDT"] = (futures_free_usdt, "futures free")
-    for coin, amount in fetch_spot_idle(client).items():
+    if spot is None:
+        # Same rule as the futures leg: a leg that could not be read is
+        # named, not rendered as "nothing there".
+        notes.append("Spot balances could not be read, so spot holdings are "
+                     "not counted below.")
+    elif futures_free_usdt is None:
+        notes.append("Spot holdings are complete.")
+    if notes:
+        report.incomplete = " ".join(notes)
+    for coin, amount in (spot or {}).items():
         prev = idle.get(coin)
         if prev:
             idle[coin] = (prev[0] + amount, prev[1] + " + spot")
@@ -374,7 +390,11 @@ def execute_stake(client, coin: str, futures_free_usdt: float = 0.0) -> ActionRe
     # Earn subscribes from the SPOT account; top it up from free futures
     # margin only by the shortfall. By construction the shortfall is at most
     # futures_free * (1 - reserve), so the reserve always stays free.
-    spot_avail = fetch_spot_idle(client).get(coin, 0.0)
+    spot = fetch_spot_idle(client)
+    if spot is None:
+        return ActionResult(False, f"Spot balance for {coin} could not be read — "
+                            "nothing was moved and nothing was subscribed. Try again.")
+    spot_avail = spot.get(coin, 0.0)
     shortfall = amount - spot_avail
     if shortfall > 0.01:
         moved = transfer_futures_to_spot(client, shortfall, coin)
@@ -434,7 +454,11 @@ def execute_stake_fixed(client, coin: str, product_id: str, days: int,
     amount = float(int(row.stakeable_usd * 100)) / 100.0  # round DOWN to cents
 
     steps: list[str] = []
-    spot_avail = fetch_spot_idle(client).get(coin, 0.0)
+    spot = fetch_spot_idle(client)
+    if spot is None:
+        return ActionResult(False, f"Spot balance for {coin} could not be read — "
+                            "nothing was moved and nothing was subscribed. Try again.")
+    spot_avail = spot.get(coin, 0.0)
     shortfall = amount - spot_avail
     if shortfall > 0.01:
         moved = transfer_futures_to_spot(client, shortfall, coin)

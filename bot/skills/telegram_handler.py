@@ -26,6 +26,10 @@ from bot.formatters.brain_state import brain_state as _brain_state
 from bot.formatters.brain_state import UNTESTED as _BRAIN_UNTESTED
 from bot.formatters.brain_state import sweep_note as _sweep_note
 from bot.formatters.brain_state import untested_confirmation as _untested_confirm
+from bot.formatters.drift_offer import (atr_from_ohlcv, flatten_headline,
+                                        paper_close_price, reanalyzed_idea,
+                                        render_reanalyzed_offer,
+                                        venue_fill_price)
 
 # Module logger. Several exception/admin paths referenced bare `os`/`logger`
 # without these being in scope — latent NameErrors (flagged by ruff F821).
@@ -10674,9 +10678,11 @@ class TelegramHandler:
         # None travels: dividing an unknown by equity would TypeError, and
         # substituting 0.0 here would put the manufactured zero back one line
         # after removing it.
+        # ...and 0.0 for an unreadable EQUITY put the manufactured zero back
+        # by the other door: "0.0%" beside a daily-loss cap reads as break-even.
         daily_pnl_pct = (None if daily_pnl is None
                          else (daily_pnl / equity * 100.0)
-                         if equity and equity > 0 else 0.0)
+                         if equity and equity > 0 else None)
 
         # Loop liveness for the card. The stall VERDICT comes from the
         # watchdog's own predicate, not from the age — time inside a declared
@@ -13634,7 +13640,7 @@ class TelegramHandler:
                 f"⛔ <b>EMERGENCY STOP</b>\n\n"
                 f"• Circuit breaker: ON ({summary.get('engines_halted', 0)} engine(s))\n"
                 f"• Pending ideas: cleared ({summary.get('pending_cleared', 0)})\n"
-                f"• Accounts flattened: {len(summary.get('accounts', []))}"
+                f"• {flatten_headline(summary.get('accounts', []))}"
                 f"{close_summary}\n\n"
                 f"Say \"resume\" when ready to restart.",
                 edit=True)
@@ -14230,23 +14236,33 @@ class TelegramHandler:
                                     side=close_side, amount=contracts,
                                     params=close_params,
                                 )
-                                # Get fill price — try order response, then fetch ticker
-                                fill_price = float(order.get("average") or order.get("price") or 0)
-                                if fill_price <= 0:
+                                # The venue's fill, then the last price, then
+                                # NOTHING. `fill_price = entry_price` booked a
+                                # round trip whose PnL is exactly the fees --
+                                # a measured-looking number for a close nobody
+                                # read. The reconciler books the real fill from
+                                # Bitget history on its next sweep.
+                                fill_price = venue_fill_price(order)
+                                fill_source = "fill" if fill_price is not None else None
+                                if fill_price is None:
                                     try:
                                         ticker = await exchange.fetch_ticker(ep_sym)
-                                        fill_price = float(ticker.get("last") or 0)
+                                        fill_price = paper_close_price(ticker)
+                                        fill_source = "last" if fill_price is not None else None
                                     except Exception:
-                                        fill_price = entry_price  # last resort
+                                        fill_price = None
 
-                                # Calculate PnL
-                                if side == "LONG":
-                                    gross_pnl = (fill_price - entry_price) * contracts
+                                if fill_price is None:
+                                    gross_pnl = commission = net_pnl = None
                                 else:
-                                    gross_pnl = (entry_price - fill_price) * contracts
-                                comm_pct = CONFIG.risk.commission_pct
-                                commission = (entry_price * contracts + fill_price * contracts) * (comm_pct / 100.0)
-                                net_pnl = gross_pnl - commission
+                                    if side == "LONG":
+                                        gross_pnl = (fill_price - entry_price) * contracts
+                                    else:
+                                        gross_pnl = (entry_price - fill_price) * contracts
+                                    comm_pct = CONFIG.risk.commission_pct
+                                    commission = ((entry_price * contracts + fill_price * contracts)
+                                                  * (comm_pct / 100.0))
+                                    net_pnl = gross_pnl - commission
 
                                 # Record trade in closed_trades.json via executor
                                 # First, check if this position was already closed by reconciliation
@@ -14277,21 +14293,39 @@ class TelegramHandler:
                                         leverage=leverage,
                                         status="closed",
                                         close_price=fill_price,
-                                        gross_pnl=round(gross_pnl, 4),
-                                        commission=round(commission, 4),
-                                        pnl_usd=round(net_pnl, 4),
+                                        gross_pnl=(None if gross_pnl is None
+                                                   else round(gross_pnl, 4)),
+                                        commission=(None if commission is None
+                                                    else round(commission, 4)),
+                                        pnl_usd=(None if net_pnl is None
+                                                 else round(net_pnl, 4)),
                                         opened_at=opened_at,
                                         closed_at=datetime.now(timezone.utc),
                                     )
                                     executor._append_closed_trade(closed_pos)
 
-                                pnl_emoji = "\U0001f7e2" if net_pnl >= 0 else "\U0001f534"
+                                # Colour is a claim: green says "in profit" as
+                                # loudly as the number does, and an unread fill
+                                # is neither.
+                                if net_pnl is None:
+                                    pnl_emoji = "\u26aa"
+                                    _exit_s = "<code>unread</code>"
+                                    _pnl_s = ("Net PnL: unread — the venue returned no fill "
+                                              "price; the reconciler records the real fill "
+                                              "and PnL")
+                                else:
+                                    pnl_emoji = "\U0001f7e2" if net_pnl >= 0 else "\U0001f534"
+                                    _approx = (" (≈ last price — fill not returned)"
+                                               if fill_source == "last" else "")
+                                    _exit_s = f"<code>{fill_price:,.6f}</code>{_approx}"
+                                    _pnl_s = (f"Net PnL: <code>${net_pnl:+,.2f}</code> "
+                                              f"(fees ${commission:.2f})")
                                 lines = [
                                     f"\u2705 <b>{html.escape(ep_clean)} — Position Closed</b>",
                                     "",
-                                    f"Entry <code>{entry_price:,.6f}</code> / Exit <code>{fill_price:,.6f}</code>",
+                                    f"Entry <code>{entry_price:,.6f}</code> / Exit {_exit_s}",
                                     f"Size <code>${margin:,.2f}</code> | {leverage}x",
-                                    f"{pnl_emoji} Net PnL: <code>${net_pnl:+,.2f}</code> (fees ${commission:.2f})",
+                                    f"{pnl_emoji} {_pnl_s}",
                                 ]
                                 await self._send(update, "\n".join(lines), edit=True)
                                 # Remove buttons
@@ -14318,14 +14352,24 @@ class TelegramHandler:
                 # Paper mode close
                 for pos in list(portfolio.open_positions):
                     if pos.asset.replace("/", "").replace(":USDT", "") == pair:
+                        close_price = None
                         try:
                             exchange = await self.engine.get_exchange()
                             ticker = await exchange.fetch_ticker(pos.asset)
-                            close_price = ticker.get("last", pos.entry_price)
-                            closed_trade = portfolio.close_position(pos.trade_id, close_price)
+                            close_price = paper_close_price(ticker)
                         except Exception as e:
                             system_log.warning("Close position error for %s: %s", pair, e)
-                            closed_trade = portfolio.close_position(pos.trade_id, pos.entry_price)
+                        if close_price is None:
+                            # Closing at entry_price books a PnL of exactly zero
+                            # and RETIRES the position -- the trade is gone from
+                            # the book at a price nothing quoted. Leave it open
+                            # and say why.
+                            await self._send(update,
+                                f"\u26aa Could not read a price for <b>{html.escape(pair)}</b> — "
+                                "position <b>NOT</b> closed. Try again in a moment.",
+                                edit=True)
+                            return
+                        closed_trade = portfolio.close_position(pos.trade_id, close_price)
                         break
 
             if closed_trade:
@@ -14537,29 +14581,34 @@ class TelegramHandler:
                         exchange = await self.engine.scanner._get_exchange()
                         ticker = await exchange.fetch_ticker(original_idea.asset)
                         new_price = float(ticker.get("last", 0))
-                        if new_price > 0:
-                            d = original_idea.direction
-                            from bot.utils.models import Direction
-                            is_long = d == Direction.LONG
-                            new_sl = round(new_price * (0.97 if is_long else 1.03), 6)
-                            new_tp = round(new_price * (1.06 if is_long else 0.94), 6)
-                            from bot.utils.models import TradeIdea
-                            new_idea = TradeIdea(
-                                asset=original_idea.asset, direction=d,
-                                entry_price=new_price, stop_loss=new_sl, take_profit=new_tp,
-                                confidence=original_idea.confidence,
-                                reasoning="Auto re-analyzed after price drift",
-                                source="auto_reanalyze")
+                        new_idea = reanalyzed_idea(original_idea, new_price)
+                        if new_idea is not None:
                             ohlcv = await exchange.fetch_ohlcv(original_idea.asset, "4h", limit=30)
-                            h = [c[2] for c in ohlcv]; l = [c[3] for c in ohlcv]; cl = [c[4] for c in ohlcv]
-                            import numpy as _np
-                            h_a, l_a, c_a = _np.array(h, dtype=float), _np.array(l, dtype=float), _np.array(cl, dtype=float)
-                            tr = _np.maximum(h_a[1:] - l_a[1:], _np.maximum(abs(h_a[1:] - c_a[:-1]), abs(l_a[1:] - c_a[:-1])))
-                            atr2 = float(_np.mean(tr[-14:])) if len(tr) >= 14 else float(_np.mean(tr))
-                            retry_id = new_idea.id
-                            self.engine._pending_ideas[retry_id] = new_idea
-                            self.engine._pending_atr[retry_id] = atr2
-                            result = await self.engine.confirm_trade(retry_id, user_id=caller_uid or "")
+                            self.engine._pending_ideas[new_idea.id] = new_idea
+                            self.engine._pending_atr[new_idea.id] = atr_from_ohlcv(ohlcv)
+                            # OFFERED, not executed. The rebuilt idea has a
+                            # different entry, flat placeholder levels and no
+                            # analysis behind it -- executing it spends money on
+                            # a thesis the user never saw, on the strength of a
+                            # button they pressed for a different one.
+                            _uid = update.effective_user.id if update.effective_user else ""
+                            _lang = self._lang(update)
+                            kb = InlineKeyboardMarkup([[
+                                InlineKeyboardButton(t("btn_take_it", _lang),
+                                    callback_data=f"confirm:{new_idea.id}:{_uid}"),
+                                InlineKeyboardButton(t("lbl_limit", _lang),
+                                    callback_data=f"setlimit:{new_idea.id}:{_uid}"),
+                                InlineKeyboardButton(t("btn_skip", _lang),
+                                    callback_data=f"reject:{new_idea.id}:{_uid}"),
+                            ]])
+                            await self._send(update,
+                                render_reanalyzed_offer(original_idea, new_idea),
+                                reply_markup=kb)
+                            audit(system_log,
+                                  f"Drift re-analysis offered for {new_idea.asset} "
+                                  f"@ {new_price} (NOT executed)",
+                                  action="auto_reanalyze", result="OFFERED")
+                            return
                     except Exception as retry_exc:
                         audit(system_log, f"Auto re-analyze failed: {retry_exc}",
                               action="auto_reanalyze", result="ERROR")

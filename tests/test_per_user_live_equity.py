@@ -10,11 +10,11 @@ with the flag off — and for operator/admin/auto callers — the path is
 byte-identical to the operator behaviour.
 """
 
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from bot.core.engine import RuneClawEngine
-
 
 # ── Harness ─────────────────────────────────────────────────────────
 
@@ -38,6 +38,9 @@ def _engine():
     eng = RuneClawEngine.__new__(RuneClawEngine)
     eng.live_executor = _FakeExec(balance={"total": 10_000.0})
     eng._live_balance_cache = {"total": 10_000.0}
+    # Fresh: live_balance_cached() gates on this stamp, and the operator sizing
+    # paths now read through it rather than the raw dict.
+    eng._live_balance_cache_ts = time.monotonic()
     eng._user_live_balance_cache = {}
     eng._user_live_balance_cache_ts = {}
     eng._LIVE_BALANCE_TTL = 30.0
@@ -121,14 +124,18 @@ class TestGetUserLiveEquity:
         finally:
             p.stop()
 
-    async def test_fetch_error_returns_cached(self):
+    async def test_fetch_error_does_not_hand_back_the_stale_cache(self):
+        # `cached` is past the TTL by construction (a fresh one returns
+        # earlier), so handing it back sized the next entry on a balance the
+        # venue stopped confirming. None means unread; the live risk gate then
+        # REFUSES rather than sizing on a stale number.
         p = _cfg(per_user=True)
         eng = _engine()
         eng._user_live_balance_cache["alice"] = {"total": 77.0}
         eng._user_live_balance_cache_ts["alice"] = 0.0  # stale → triggers refetch
         eng._executor_for = lambda uid: _FakeExec(raises=True)
         try:
-            assert (await eng.get_user_live_equity("alice"))["total"] == 77.0
+            assert await eng.get_user_live_equity("alice") is None
         finally:
             p.stop()
 

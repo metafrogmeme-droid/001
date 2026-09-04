@@ -881,9 +881,10 @@ class RuneClawEngine:
         own keys (routed to operator) → the shared operator balance (identical to
         get_live_equity). A regular user under per-user live → THEIR OWN linked
         account's balance, fetched via their executor and cached per-user with the
-        same TTL. Fail-safe: returns the last cached value on error, else None, so
-        the caller falls back to capped paper-equity sizing rather than the WRONG
-        account's equity.
+        same TTL. On a failed fetch it returns None -- NOT the last cached value,
+        which is past the TTL by construction and would size the next entry on a
+        balance the venue stopped confirming. None is "unread", and the live risk
+        gate refuses to size on it.
         """
         if not CONFIG.is_live():
             return None
@@ -908,10 +909,13 @@ class RuneClawEngine:
                 self._user_live_balance_cache_ts[key] = now
                 return bal
         except Exception as exc:
+            # `cached` here is OLDER than the TTL by construction (a fresh one
+            # returned above), so handing it back sized the next entry on a
+            # stale balance. None means unread, and the risk gate refuses.
             system_log.warning(
-                "Per-user live balance fetch failed for %s: %s — using %s",
-                user_id, exc, "cached value" if cached else "paper fallback")
-        return cached if cached else None
+                "Per-user live balance fetch failed for %s: %s — balance unread, "
+                "live sizing refused until a fresh read", user_id, exc)
+        return None
 
     async def _live_recheck_context(self, user_id: str = "") -> tuple:
         """Return ``(live_equity, live_open_count)`` for the account THIS user's
@@ -933,7 +937,7 @@ class RuneClawEngine:
         )
         if not per_user:
             # Operator path — preserves the exact prior behaviour.
-            live_eq = self._live_balance_cache.get("total", 0.0) if self._live_balance_cache else None
+            live_eq = (self.live_balance_cached() or {}).get("total")
             try:
                 exchange_ct = await get_exchange_position_count(self)
                 pending_ct = sum(
@@ -2472,7 +2476,13 @@ class RuneClawEngine:
             except Exception as exc:
                 logger.error("Flatten-all: account %s close failed: %s", label, exc)
                 msgs = [f"close_all_positions failed: {exc}"]
-            results.append({"account": str(label), "messages": list(msgs)})
+            # `msgs` reports per-position failures in its TEXT rather than
+            # raising, so "we called close" and "it closed" were the same value
+            # to every caller. `ok` is the difference, and the emergency card
+            # counts it.
+            from bot.formatters.drift_offer import flatten_account_ok
+            results.append({"account": str(label), "messages": list(msgs),
+                            "ok": flatten_account_ok(list(msgs))})
         return results
 
     async def emergency_halt_all(self, reason: str = "emergency") -> dict:
@@ -2513,7 +2523,10 @@ class RuneClawEngine:
               action="emergency_halt_all", result="OK",
               data={"engines_halted": engines_halted,
                     "pending_cleared": pending_cleared,
-                    "accounts_flattened": len(accounts)})
+                    "accounts_attempted": len(accounts),
+                    "accounts_flattened": sum(1 for a in accounts if a.get("ok")),
+                    "accounts_failed": [a.get("account") for a in accounts
+                                        if not a.get("ok")]})
         return {
             "reason": reason,
             "engines_halted": engines_halted,
@@ -5663,7 +5676,10 @@ class RuneClawEngine:
 
         # Risk gate — pass ATR so all risk-engine checks run
         # LIVE FIX: pass actual exchange equity so sizing is based on real capital
-        live_eq = self._live_balance_cache.get("total", 0.0) if (CONFIG.is_live() and self._live_balance_cache) else None
+        # Through live_balance_cached(): a cache whose timestamp stopped
+        # advancing hours ago is not the current equity, and evaluate()
+        # already REFUSES a live entry it cannot size ("LIVE_EQUITY: unreadable").
+        live_eq = (self.live_balance_cached() or {}).get("total") if CONFIG.is_live() else None
         # Pass micro-test cap so risk evaluates the actual execution size
         from bot.core.live_executor import MICRO_MAX_POSITION_USD
         exec_cap = MICRO_MAX_POSITION_USD if CONFIG.is_live() else None

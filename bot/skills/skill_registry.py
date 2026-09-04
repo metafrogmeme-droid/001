@@ -68,12 +68,44 @@ def normalize_deepscan_scores(hits: list[dict]) -> None:
 _OK = "\U0001f7e2"        # green circle
 _WARN = "\U0001f7e1"      # yellow circle
 _BAD = "\U0001f534"       # red circle
+_UNREAD = "\u26aa"        # white circle — nobody looked
 _NEU = "\u26aa"           # white circle
 _SHIELD = "\U0001f6e1"    # shield (risk dashboard)
 _BOOK = "\U0001f4d6"      # book (explanation)
 _CHART = "\U0001f4ca"     # chart (backtest)
 
 _BLOCKS = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"  # ▁▂▃▄▅▆▇█
+
+def entry_gate(engine) -> "str | None":
+    """Why entries are refused right now, "" if they are not, None if unread.
+
+    `circuit_breaker_active` is the NARROW gate — daily loss / drawdown /
+    streak / manual — and three cards printed it as "Circuit Breaker: CLEAR"
+    while the warning-rate breaker was turning every entry away. That exact
+    contradiction was relayed to an operator twice on 2026-07-29, and it is
+    what `trading_blocked_by` was added for; these cards had never been moved
+    onto it. None (not "") on a raised read: an unreadable gate is not an
+    open one.
+    """
+    try:
+        return str(engine.risk.trading_blocked_by or "")
+    except Exception:
+        return None
+
+
+def gate_words(gate: "str | None") -> str:
+    """The breaker line's icon + words for a gate reading."""
+    if gate is None:
+        return f"{_UNREAD} UNREAD"
+    if not gate:
+        return f"{_OK} CLEAR"
+    if gate.startswith("warning_rate:"):
+        return (f"{_BAD} REFUSING ENTRIES — warning-rate breaker "
+                f"({gate.split(':', 1)[1]})")
+    if gate == "loss_streak":
+        return f"{_BAD} REFUSING ENTRIES — loss-streak gate"
+    return f"{_BAD} TRIPPED ({gate})"
+
 
 def _status(v: float) -> str:
     return _OK if v > 0 else _BAD if v < 0 else _NEU
@@ -599,6 +631,7 @@ class CheckRiskSkill(BaseSkill):
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
         cb = engine.risk.circuit_breaker_active
+        gate = entry_gate(engine)
         streak = engine.risk.consecutive_losses
         cost = engine.cost.snapshot()
 
@@ -637,15 +670,15 @@ class CheckRiskSkill(BaseSkill):
         if mode == "status":
             return self._status(engine, state, cb, streak, cost, exp_pct,
                                 display_equity, display_open, display_total_trades,
-                                display_pnl, display_win_rate)
+                                display_pnl, display_win_rate, gate=gate)
         return self._risk(state, cb, streak, total_exp, exp_pct, groups,
-                          display_equity, display_open, display_pnl)
+                          display_equity, display_open, display_pnl, gate=gate)
 
     def _status(self, engine, state, cb, streak, cost, exp_pct,
                 display_equity, display_open, display_total_trades,
-                display_pnl, display_win_rate):
+                display_pnl, display_win_rate, gate=None):
         mode = "PAPER" if CONFIG.simulation_mode else "\u26a0\ufe0f LIVE"
-        cb_s = f"{_BAD} TRIPPED" if cb else f"{_OK} CLEAR"
+        cb_s = gate_words(gate)
         macro = engine.macro_calendar.evaluate()
         macro_icons = {
             "NORMAL": _OK, "PRE_EVENT_CAUTION": _WARN,
@@ -681,7 +714,7 @@ class CheckRiskSkill(BaseSkill):
             f"- Exposure: <code>{exp_pct:.0f}%</code>\n\n"
             # ── Risk gate ──
             f"\U0001f6e1 <b>Risk Gate</b>\n"
-            f"- Breaker: <code>{'TRIPPED' if cb else 'CLEAR'}</code>\n"
+            f"- Breaker: <code>{gate_words(gate)}</code>\n"
             f"- Streak: <code>{streak} / {CONFIG.risk.max_consecutive_losses}</code>\n"
             # A ROW OF GREEN DOTS IS A CLAIM ABOUT CHECK RESULTS. This drew
             # one dot per check from the BREAKER STATE and the loss streak —
@@ -696,9 +729,9 @@ class CheckRiskSkill(BaseSkill):
         )
 
     def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
-              display_equity, display_open, display_pnl):
-        cb_icon = _BAD if cb else _OK
-        cb_label = "TRIPPED" if cb else "CLEAR"
+              display_equity, display_open, display_pnl, gate=None):
+        _gw = gate_words(gate)
+        cb_icon, cb_label = _gw.split(" ", 1)
         grp = ", ".join(f"{g}={c}" for g, c in groups.items()) if groups else "none"
 
         # Compute an overall risk health score
@@ -2645,7 +2678,7 @@ class PlaybookSkill(BaseSkill):
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
-        cb = engine.risk.circuit_breaker_active
+        gate = entry_gate(engine)
         sim = "PAPER" if CONFIG.simulation_mode else "⚠️ LIVE"
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -2711,7 +2744,7 @@ class PlaybookSkill(BaseSkill):
         lines.append(f"- Max Positions: <code>{CONFIG.risk.max_open_positions}</code>")
         lines.append(f"- Max Exposure: <code>{CONFIG.risk.max_portfolio_exposure_pct:.0f}%</code>")
         lines.append(f"- Cooldown: <code>{CONFIG.risk.cooldown_after_loss_seconds}s</code>")
-        lines.append(f"- Circuit Breaker: {_BAD} TRIPPED" if cb else f"- Circuit Breaker: {_OK} CLEAR")
+        lines.append(f"- Circuit Breaker: {gate_words(gate)}")
         lines.append("")
 
         # ── Section 4: Live Execution ──
