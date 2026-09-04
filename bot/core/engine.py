@@ -6863,6 +6863,31 @@ class RuneClawEngine:
                 entry_vwap = getattr(idea, '_entry_vwap', None) or idea.entry_price
                 self._last_vwap[idea.asset] = entry_vwap
 
+        # EVERYTHING FROM HERE REPORTS WHAT HAPPENED, so it has to be told
+        # which of the two happened. All of it sat at THIS indent — one level
+        # out from the `if not live_failed:` above — so a blocked or failed
+        # live entry produced three false claims at once: a tamper-evident
+        # chain entry reading EXECUTED_LIVE, a learning record reading
+        # TRADE_ACCEPTED_LIVE, and a state transition whose stated reason was
+        # "live trade executed".
+        #
+        # The comment above that `if` describes this same bug being fixed one
+        # layer down: the old prefix list "missed REFUSED: / EXECUTION
+        # BLOCKED:" and "blocked trades were sealed to the audit chain as
+        # phantom live fills". `execution_indicates_failure` cured the
+        # CLASSIFICATION and nothing downstream ever consulted it — the
+        # classifier was right and the seal never asked.
+        #
+        # None of the three is skipped on failure. An approved live entry that
+        # did not fill is precisely what an audit chain exists to hold, and a
+        # missing record is its own false claim. They carry the real outcome.
+        #
+        # `EXECUTION_FAILED`, deliberately not `REJECTED_*`: flight_recorder
+        # files any outcome starting with REJECTED as a risk-gate rejection,
+        # and the risk gate APPROVED this one. Naming the wrong cause is the
+        # defect this is fixing, in a new place.
+        _fail_reason = str(result)[:200] if live_failed else ""
+
         # Seal decision to tamper-evident audit chain (Guardian Flight Recorder:
         # provenance-complete idea/risk — votes, model/prompt version, and the
         # explainability slice — so every executed decision is fully auditable).
@@ -6872,7 +6897,8 @@ class RuneClawEngine:
             risk=_flight_risk(recheck, size_usd=size_usd),
             macro={"risk_state": macro_ctx.risk_state, "multiplier": macro_ctx.size_multiplier},
             compliance={"granted": True, "locks_passed": compliance_decision.locks_passed},
-            outcome="EXECUTED_LIVE", is_paper=False,
+            outcome="EXECUTED_LIVE" if not live_failed else "EXECUTION_FAILED",
+            is_paper=False,
         ))
         self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
         self._sync_flight_records()
@@ -6890,14 +6916,21 @@ class RuneClawEngine:
             take_profit=idea.take_profit,
             risk_reward=idea.risk_reward_ratio,
             position_size_usd=size_usd,
+            # APPROVED stays true on both paths — the risk engine DID approve
+            # this trade; the venue is what refused it. `decision` is the field
+            # that says whether a position exists, and a trade that never
+            # opened must not train the calibrator as one that did.
             risk_engine_result="APPROVED",
             checks_passed=recheck.checks_passed,
             checks_failed=[],
-            decision="TRADE_ACCEPTED_LIVE",
+            decision="TRADE_ACCEPTED_LIVE" if not live_failed else "EXECUTION_FAILED",
+            rejected_reason=_fail_reason,
             paper_trade_id=trade_id,
             confluence_votes=getattr(idea, "_confluence_votes", []),
         )
-        self._transition(AgentState.IDLE, "live trade executed")
+        self._transition(
+            AgentState.IDLE,
+            "live trade executed" if not live_failed else "live execution failed")
         return result
 
     def reject_trade(self, trade_id: str) -> str:

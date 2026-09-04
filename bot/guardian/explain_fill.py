@@ -52,8 +52,15 @@ def explain(record: dict) -> dict:
     rr = _f(idea.get("rr"))
 
     # ── headline: what was decided ──
+    # "evaluated" is the fallback for an outcome this map does not know, and
+    # it reads as a decision nobody acted on. EXECUTION_FAILED is a decision
+    # that WAS acted on and did not land — a materially different story, and
+    # the vaguer word is the one that hides it.
     verb = {"taken": "took", "confirmed": "took", "rejected": "rejected",
-            "skipped": "passed on"}.get(outcome_kind, "evaluated")
+            "skipped": "passed on",
+            "executed_live": "took",
+            "execution_failed": "tried and failed to open",
+            "rejected_on_recheck": "rejected"}.get(outcome_kind, "evaluated")
     mode = "paper" if is_paper else "live"
     conf_txt = f" at {conf*100:.0f}% confidence" if conf is not None else ""
     headline = (f"The agent {verb} a {mode} {direction or 'trade'} on {symbol}"

@@ -509,17 +509,37 @@ def render_positions(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
 # render_daily_report
 # ═════════════════════════════════════════════════════════════════
 
+def _money_or_unread(v: Any) -> str:
+    """A signed dollar figure, or ``unread`` when there is no figure."""
+    return "unread" if v is None else f"${v:+.2f}"
+
+
 def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     trades = data.get("trades", 0)
     wins = data.get("wins", 0)
     losses = data.get("losses", 0)
-    net = data.get("net_pnl", 0.0)
+    # THE DEFAULTS WERE THE DEFECT, on three lines at once.
+    #
+    # `net_pnl` absent rendered `$+0.00` — a measured flat day where the truth
+    # was that nothing could be priced. `risk_status` absent rendered
+    # **Healthy**, the calmest of the verdicts, from no reading whatsoever;
+    # the caller's live branch was hardcoding exactly that value, so the two
+    # agreed about a thing neither had measured. And the icon expression had
+    # no unknown arm, so any non-healthy/warning word — "Unknown" included —
+    # painted the RED one, which is the opposite lie.
+    net = data.get("net_pnl")
     best_t = data.get("best_trade", "N/A")
-    best_p = data.get("best_pnl", 0.0)
+    best_p = data.get("best_pnl")
     worst_t = data.get("worst_trade", "N/A")
-    worst_p = data.get("worst_pnl", 0.0)
-    risk_s = data.get("risk_status", "Healthy")
-    risk_icon = _OK if risk_s.lower() == "healthy" else _WARN if risk_s.lower() == "warning" else _BAD
+    worst_p = data.get("worst_pnl")
+    risk_s = data.get("risk_status") or "Unknown"
+    _rl = str(risk_s).lower()
+    risk_icon = (_OK if _rl == "healthy" else _WARN if _rl == "warning"
+                 else _NEU if _rl == "unknown" else _BAD)
+    net_txt = _money_or_unread(net)
+    dd_pct = data.get("drawdown_pct")
+    risk_detail = ("" if dd_pct is None
+                   else f"  <i>drawdown {dd_pct:.1f}%</i>\n")
 
     # A WIN RATE WHOSE NUMERATOR AND DENOMINATOR CAME FROM DIFFERENT SETS.
     #
@@ -554,14 +574,15 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
 
     text = (
         f"{_header(chr(0x1F4D3), 'DAILY REPORT')}\n"
-        f"   {_pnl_arrow(net)} Net PnL: {_pill(f'${net:+.2f}')}\n\n"
+        f"   {_pnl_arrow(net if net is not None else 0.0)} "
+        f"Net PnL: {_pill(net_txt)}\n\n"
         # ── Trade summary ──
         f"\U0001f4ca <b>Trade Summary</b>\n"
         "<pre>"
         f"{_kv('Total', str(trades))}\n"
         f"{_kv('Wins', str(wins) + ' ' + _OK)}\n"
         f"{_kv('Losses', str(losses) + ' ' + _BAD)}\n"
-        f"{_kv('Net PnL', f'${net:+.2f}')}"
+        f"{_kv('Net PnL', net_txt)}"
         "</pre>\n\n"
         # ── Win Rate ──
         f"\U0001f3af <b>Win Rate</b>\n"
@@ -569,12 +590,17 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         # ── Highlights ──
         f"\U0001f3c6 <b>Highlights</b>\n"
         "<pre>"
-        f"{_kv('Best', f'{best_t} ${best_p:+.2f}')}  {_OK}\n"
-        f"{_kv('Worst', f'{worst_t} ${worst_p:+.2f}')}  {_BAD}"
+        # The name is "N/A" exactly when the figure is None -- both come from
+        # the same scorable-rows check -- so printing "N/A unread" would say
+        # the same absence twice.
+        f"{_kv('Best', best_t if best_p is None else f'{best_t} ${best_p:+.2f}')}"
+        f"  {_OK}\n"
+        f"{_kv('Worst', worst_t if worst_p is None else f'{worst_t} ${worst_p:+.2f}')}"
+        f"  {_BAD}"
         "</pre>\n\n"
         # ── Risk ──
         f"{_SHIELD} <b>Risk Status</b>\n"
-        f"  {risk_icon} <b>{risk_s}</b>\n\n"
+        f"  {risk_icon} <b>{risk_s}</b>\n{risk_detail}\n"
         f"<i>\u23f1 {_timestamp()}</i>"
     )
     return {"text": text}

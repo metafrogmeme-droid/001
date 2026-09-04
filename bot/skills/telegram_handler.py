@@ -759,7 +759,9 @@ from bot.nlp.sanitize import (
 # +10.19 over 50 trades here, -10.74 over 95 there, same account, same day.
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.site_url import site_url
-from bot.utils.win_rate import win_stats as _win_stats
+from bot.utils.win_rate import (win_stats as _win_stats,
+                                pnl_stats as _pnl_stats,
+                                trade_pnl as _trade_pnl)
 from bot.skills.scan_coverage import coverage_note
 
 
@@ -13127,21 +13129,52 @@ class TelegramHandler:
             _ws = _win_stats(closed)
             wins = _ws["wins"]
             losses = _ws["scored"] - wins
-            net_pnl = sum((t.pnl_usd or 0) for t in closed)
+            # `sum((t.pnl_usd or 0) for t in closed)` was a PARTIAL TOTAL
+            # PRINTED AS WHOLE: every close the record could not price added
+            # 0.00 and the result went out as the day's net. Reachable in
+            # production now that an unpriced close persists a null rather
+            # than a fabricated break-even. `pnl_stats` sums only what it
+            # could read and says how much of the set that was.
+            _ps = _pnl_stats(closed)
+            net_pnl = _ps["total"]                       # None when unpriceable
+            unscored = _ps["unscored"]
             best_trade = "N/A"
-            best_pnl = 0.0
+            best_pnl = None
             worst_trade = "N/A"
-            worst_pnl = 0.0
-            if closed:
-                sorted_t = sorted(closed, key=lambda t: (t.pnl_usd or 0))
-                worst_trade = sorted_t[0].symbol.replace("/USDT", "").replace(":USDT", "")
-                worst_pnl = round(sorted_t[0].pnl_usd or 0, 2)
-                best_trade = sorted_t[-1].symbol.replace("/USDT", "").replace(":USDT", "")
-                best_pnl = round(sorted_t[-1].pnl_usd or 0, 2)
+            worst_pnl = None
+            # Rank over the SCORABLE closes only. The old sort key resolved an
+            # unreadable P&L to 0, so an unpriced close could be named the
+            # day's best or worst trade — at $0.00, which is also the value
+            # that would make it neither.
+            # Carry the figure ALONGSIDE the row rather than re-reading it in
+            # the sort key: the filter guarantees it is a float, and pairing
+            # is what lets the reader (and the type checker) see that.
+            _scored = [(p, t) for t in closed
+                       if (p := _trade_pnl(t)) is not None]
+            if _scored:
+                _scored.sort(key=lambda pt: pt[0])
+                worst_pnl = round(_scored[0][0], 2)
+                worst_trade = _scored[0][1].symbol.replace("/USDT", "").replace(":USDT", "")
+                best_pnl = round(_scored[-1][0], 2)
+                best_trade = _scored[-1][1].symbol.replace("/USDT", "").replace(":USDT", "")
 
-            live_eq = await self.engine.get_effective_equity_async(user_id)
-            dd = 0.0
-            risk_status = "Healthy"
+            # `dd = 0.0` and `risk_status = "Healthy"` were HARDCODED here —
+            # not a reading that failed, a verdict with no reading behind it,
+            # on the LIVE branch, printed under a shield icon. The paper
+            # branch below actually computes both.
+            #
+            # `drawdown_status()` is documented "best-effort; returns empty on
+            # any error", so {} is the unreadable case and must not collapse
+            # into the calmest verdict. It reports the drawdown the breaker
+            # ACTUALLY gates on (live high-water mark in live mode) plus the
+            # limit in force, so the bands come off the real gate instead of
+            # the two constants the paper branch carries.
+            from bot.formatters.drawdown_card import live_risk_status
+            try:
+                _dd_st = self.engine.risk.drawdown_status()
+            except Exception:
+                _dd_st = {}
+            dd, risk_status = live_risk_status(_dd_st)
         else:
             portfolio = self.engine.user_portfolios.get(user_id)
             trades = portfolio.trade_history
@@ -13169,13 +13202,19 @@ class TelegramHandler:
             state = portfolio.snapshot()
             dd = state.max_drawdown_pct if state.max_drawdown_pct else 0
             risk_status = "Healthy" if dd < 2.0 else "Warning" if dd < 3.0 else "Critical"
+            # Paper trades are priced atomically on close (see the note in
+            # CLAUDE.md on `Trade.model_copy`), so there is no unscorable row
+            # to disclose here. Set explicitly so the renderer never has to
+            # infer which branch built the dict.
+            unscored = 0
 
         data = {
             "trades": today_trades, "wins": wins, "losses": losses,
-            "net_pnl": round(net_pnl, 2),
+            "net_pnl": None if net_pnl is None else round(net_pnl, 2),
             "best_trade": best_trade, "best_pnl": best_pnl,
             "worst_trade": worst_trade, "worst_pnl": worst_pnl,
-            "risk_status": risk_status,
+            "risk_status": risk_status, "drawdown_pct": dd,
+            "unscored": unscored,
         }
         rendered = wr_daily_report(data)
         await self._send(update, rendered["text"])
