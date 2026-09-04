@@ -227,7 +227,7 @@ def _verdict_header(status_icon: str, status_label: str, bias: str = "",
 
 async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
                               limit: int = 100) -> Optional[Dict[str, Any]]:
-    """Fetch OHLCV + orderbook + ticker for a symbol. Returns None on failure."""
+    """Fetch OHLCV + orderbook for a symbol. Returns None on failure."""
     # Normalize symbol: try original, then variants
     candidates = [symbol]
     if ":USDT" in symbol:
@@ -239,7 +239,7 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
         if base:
             candidates = [f"{base}/USDT", f"{base}/USDT:USDT", symbol]
     try:
-        ohlcv, ticker, orderbook = None, None, None
+        ohlcv, orderbook = None, None
         for sym in candidates:
             try:
                 ohlcv = await exchange.fetch_ohlcv(sym, timeframe, limit=limit)
@@ -254,12 +254,22 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
             log.warning("OHLCV unavailable for %s (tried: %s)", symbol, candidates)
             return None
 
-        try:
-            ticker = await exchange.fetch_ticker(symbol)
-        except Exception as e:
-            log.warning("Ticker fetch failed for %s: %s", symbol, e)
-            ticker = {}
-
+        # NO fetch_ticker HERE, deliberately. It was awaited on every call and
+        # its result read by nothing — the only mentions in this file were the
+        # docstring, a None init, the await, and a `ticker = {}` fallback. An
+        # exchange REST round-trip for nobody, and telegram_handler calls this
+        # in a loop over up to four chart timeframes, so up to four of them per
+        # card, against the same rate-limited ccxt instance the analyze phase
+        # is already starving on.
+        #
+        # Everything the card renders comes from the candles below. Worth
+        # knowing if a future edit wants the venue's own 24h stats back:
+        # `high_24h` / `low_24h` / `change_pct` are computed over 24 BARS
+        # (`h[-24:]`, `c[-25:]`), which equals 24 hours only at the 1h
+        # timeframe. Both callers that read those fields pass "1h"; the one
+        # that passes another timeframe reads only `ohlcv_raw`. Latent, not
+        # live — a ticker fetch is the right fix if that ever changes, and it
+        # would then have a reader.
         try:
             orderbook = await exchange.fetch_order_book(symbol, limit=20)
         except Exception as e:

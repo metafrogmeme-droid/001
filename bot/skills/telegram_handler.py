@@ -6215,16 +6215,36 @@ class TelegramHandler:
                 status = "\u2705 HEALTHY — equity above MA"
                 status_emoji = "\u2705"
 
+            # "equity above MA" ASSERTS A COMPARISON. equity_curve_size_multiplier
+            # returns 1.0 whenever neither breaker flag is set, and those flags
+            # are only ever written inside `if len(self._equity_history) >=
+            # ma_period:` — so with fewer snapshots than the period, which is
+            # the state after every restart, the verdict above is the initial
+            # value of two booleans and no moving average exists to be above.
+            # The card printed it directly over its own "Equity snapshots: 0".
+            _snaps = len(risk._equity_history)
+            _ma_period = int(CONFIG.risk.equity_curve_ma_period or 0)
+            if _snaps < _ma_period:
+                status = ("\u26aa NOT YET MEASURED — "
+                          f"{_snaps} of {_ma_period} snapshots")
+                status_emoji = "\u26aa"
+
             lines = [
                 "\U0001f4c8 <b>Equity Curve Health</b>",
                 "\u2500" * 28,
                 "",
                 f"Status: {status}",
                 f"Size multiplier: <code>{eq_mult:.0%}</code>",
-                f"Equity snapshots: <code>{len(risk._equity_history)}</code>",
-                f"MA period: <code>{CONFIG.risk.equity_curve_ma_period}</code>",
+                f"Equity snapshots: <code>{_snaps}</code>",
+                f"MA period: <code>{_ma_period}</code>",
                 "",
             ]
+            if _snaps < _ma_period:
+                lines.insert(4, "<i>The moving average needs a full window "
+                                "before this gate can say anything. Sizing is "
+                                "at 100% because nothing has told it "
+                                "otherwise — not because the curve was "
+                                "checked and found healthy.</i>\n")
             _dr_str = "<b>ACTIVE</b> ⚠️" if in_recovery else "Inactive ✅"
             lines.append(f"Drawdown recovery: {_dr_str}")
 
@@ -12934,8 +12954,15 @@ class TelegramHandler:
             # no way to know. win_stats returns None for a reason; pass it on.
             win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
             _tot = realized_totals(user_trades)
-            total_pnl = _tot["net"] if _tot["net"] is not None else 0.0
-            _total_known = _tot["net"] is not None
+            # `if ... is not None else 0.0` and then a `_total_known` flag that
+            # NOTHING READ — the one occurrence of that name in this file. The
+            # fold happened first and the flag recorded it happening, so a book
+            # where nothing could be priced published `All-time $+0.00` in
+            # green. `realized_totals` returns None precisely so it cannot, and
+            # `render_performance` already draws None as an em dash with a
+            # neutral arrow: the renderer was waiting and the caller filled the
+            # hole before it got there.
+            total_pnl = _tot["net"]
 
             # ── Date-filtered PnL ──
             from datetime import datetime as _dt, timedelta as _td
@@ -12991,9 +13018,17 @@ class TelegramHandler:
             # gave 0.0, and only the second should borrow the all-time figure.
             if (_today_priced == 0 and _week_priced == 0
                     and _today_unpriced == 0 and _week_unpriced == 0
-                    and total_pnl != 0):
+                    and total_pnl):
                 week_pnl = total_pnl
                 trades_today = total_trades
+            # A window whose closes could not be priced is not a flat window.
+            # These accumulate only PRICED closes, so 0.0 with nothing priced
+            # is the sum of an empty set — `$+0.00 today` in green over a day
+            # of unreadable closes.
+            if _today_priced == 0 and _today_unpriced > 0:
+                today_pnl = None
+            if _week_priced == 0 and _week_unpriced > 0:
+                week_pnl = None
 
             best_pair = "N/A"
             worst_pair = "N/A"
@@ -13009,9 +13044,11 @@ class TelegramHandler:
                 worst_pair = _worst_t.symbol.replace("/USDT", "").replace(":USDT", "")
                 best_pair = _best_t.symbol.replace("/USDT", "").replace(":USDT", "")
             data = {
-                "today_pnl": round(today_pnl, 2),
-                "week_pnl": round(week_pnl, 2),
-                "total_pnl": round(total_pnl, 2),
+                "today_pnl": None if today_pnl is None else round(today_pnl, 2),
+                "week_pnl": None if week_pnl is None else round(week_pnl, 2),
+                "total_pnl": None if total_pnl is None else round(total_pnl, 2),
+                "today_unpriced": _today_unpriced,
+                "week_unpriced": _week_unpriced,
                 "win_rate": win_rate,
                 # How many closes the rate actually covers. The card shows
                 # "Win Rate" and "Trades" as neighbouring tiles, so without

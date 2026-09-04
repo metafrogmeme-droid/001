@@ -169,13 +169,28 @@ def _fetch_live_exchange_data() -> Optional[dict]:
             except Exception:
                 bal = exchange.fetch_balance()
 
-        usdt = bal.get("USDT", {})
-        if isinstance(usdt, dict):
-            equity = float(usdt.get("total", 0) or 0)
-        else:
-            equity = float(usdt or 0)
-        if equity == 0:
-            equity = float(bal.get("total", {}).get("USDT", 0) or 0)
+        # A fetch that SUCCEEDS but carries no parseable USDT total is not an
+        # account with no money in it. Both reads folded to 0.0 and `equity`
+        # was published as the live account balance — $0.00 on a funded
+        # account, which is its own false alarm, and indistinguishable from a
+        # genuinely empty one. `cb_equity = None -> "UNAVAILABLE"` further
+        # down proves the right answer was known; it only fired when the whole
+        # fetch was absent, never when it returned unreadable fields.
+        def _usdt_total(raw):
+            if isinstance(raw, dict):
+                v = raw.get("total")
+            else:
+                v = raw
+            if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+                return None
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        equity = _usdt_total(bal.get("USDT", {}))
+        if equity is None:
+            equity = _usdt_total((bal.get("total") or {}).get("USDT"))
 
         # Fetch open positions (try with and without productType)
         positions_read = True
@@ -218,7 +233,10 @@ def _fetch_live_exchange_data() -> Optional[dict]:
                 "leverage": p.get("leverage", ""),
             })
 
-        result["equity"] = round(equity, 2)
+        # None travels: the payload's `equity` is already a tri-state on the
+        # other branch (`cb_equity = None` -> "UNAVAILABLE"), and the website
+        # renders a null as "--".
+        result["equity"] = None if equity is None else round(equity, 2)
         # Unrealized only joins a REALIZED total that exists. Adding it to a
         # None realized would print the open book's paper P&L as the account's
         # lifetime result — a smaller number than the truth, or a larger one,
@@ -236,9 +254,9 @@ def _fetch_live_exchange_data() -> Optional[dict]:
         result["total_trades"] = total
         result["open_count"] = len(open_pos)
 
-        log.info("Live data: equity=$%.2f, realized=%s, %d trades (%d wins, "
+        log.info("Live data: equity=%s, realized=%s, %d trades (%d wins, "
                  "%d unpriced), %d open",
-                 equity,
+                 "unreadable" if equity is None else f"${equity:.2f}",
                  "unreadable" if realized_pnl is None else f"${realized_pnl:.2f}",
                  total, wins, _ws["unscored"], len(open_pos))
         return result
@@ -347,7 +365,13 @@ def _build_scan_payload(results: list[dict], engine=None,
 
     # ── Circuit breaker from engine + real exchange data ──
     cb_rules = []
-    cb_equity = 0
+    # `cb_equity = 0` was the last non-tri-state value in a payload whose own
+    # comment two lines down reads "None until something measures them", and
+    # whose publication site is annotated "Tri-state, all the way to the
+    # browser". A scan that reached the payload without touching either branch
+    # below published $0.00 as the account's equity. Both falsy, so the
+    # `not cb_equity` check below is unchanged.
+    cb_equity: Optional[float] = None
     # None until something measures them. They start as 0 nowhere, because a
     # scan that reaches the payload without touching either branch below would
     # otherwise publish "$0.00 net, 0% win rate" as the engine's record.
@@ -413,8 +437,21 @@ def _build_scan_payload(results: list[dict], engine=None,
                             "contracts": float(getattr(p, "quantity", 0) or 0),
                             "notional": float(getattr(p, "quantity", 0) or 0)
                                         * float(getattr(p, "entry_price", 0) or 0),
-                            "unrealized_pnl": 0.0,
-                            "margin": 0.0,
+                            # NOT 0.0. These are not failed reads, they were
+                            # CONSTANTS: this fallback builds rows from the
+                            # executor's own book when the venue readout
+                            # failed, so it knows the symbol, side, entry and
+                            # size and knows NOTHING about the live mark or
+                            # the margin posted. Publishing 0.0 told the
+                            # dashboard every open position sat exactly at
+                            # break-even with no margin committed.
+                            #
+                            # The honest shape is 200 lines up in this same
+                            # file, under a comment reading "Unknown, never
+                            # partial... The website already renders None as
+                            # `--`".
+                            "unrealized_pnl": None,
+                            "margin": None,
                             "leverage": "",
                         })
                     cb_open_count = len(cb_open_positions)
