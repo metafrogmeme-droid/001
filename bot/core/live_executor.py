@@ -2074,9 +2074,18 @@ class LiveExecutor:
         result["fill_qty"] = order_check["fill_qty"]
         result["fees"] = order_check["fees"]
 
-        if not order_check["confirmed"]:
+        # AN UNCONFIRMED FILL USED TO RETURN HERE, and that early return is
+        # what made the caller's residual guard unreachable: it fires on
+        # `(not confirmed) and remaining_qty > 0`, and remaining_qty was 0
+        # because step 2 -- the only thing that measures it -- never ran. So a
+        # close the venue had REJECTED booked as completed, seconds after its
+        # SL and TP were cancelled, leaving a live position untracked and
+        # unprotected. Fall through instead: the BOOK is the more authoritative
+        # signal. If the position is gone the close happened, whatever the
+        # order query managed to say about it.
+        _fill_unconfirmed = not order_check["confirmed"]
+        if _fill_unconfirmed:
             result["failure_stage"] = order_check.get("failure_stage", "close_order_unconfirmed")
-            return result
 
         # Step 2: Verify position is gone/reduced on exchange
         try:
@@ -2095,15 +2104,26 @@ class LiveExecutor:
                     logger.warning("Position still open after close: %s %s remaining=%.6f",
                                    direction, symbol, contracts)
                     return result
-            # Position not found — fully closed
+            # Position not found — fully closed. This is now the ONLY route to
+            # confirmed=True, and it is a real reading either way: the book no
+            # longer holds the position, so the close completed even when the
+            # order query could not tell us so.
             result["confirmed"] = True
+            result["failure_stage"] = ""
             logger.info("Position CLOSE VERIFIED: %s %s — no remaining position on exchange",
                         direction, symbol)
         except Exception as exc:
-            # Close order confirmed but position check failed — trust the order fill
-            logger.warning("Post-close position check failed for %s: %s — trusting order fill",
-                           symbol, exc)
-            result["confirmed"] = True  # Order was confirmed, position check is supplementary
+            # "TRUSTING ORDER FILL" WAS A CLAIM MANUFACTURED FROM AN EXCEPTION.
+            # The close card renders this field as "Verified: CONFIRMED", which
+            # an operator reads as "the exposure is gone" -- and nothing here
+            # read the book. Worse, on the path above where the FILL was also
+            # unconfirmed, there was nothing to trust in the first place.
+            # book_unread is the third outcome: the order may well have filled,
+            # we simply did not see the position go.
+            result["confirmed"] = False
+            result["failure_stage"] = "book_unread"
+            logger.warning("Post-close position check failed for %s: %s — book UNREAD, "
+                           "not treating the close as verified", symbol, exc)
         return result
 
     async def detect_untracked_positions(self) -> dict:
@@ -7878,31 +7898,73 @@ class LiveExecutor:
             # quantity (so price-based SL/TP monitoring re-protects it and the
             # next adoption/reconcile sweep can finish the job) and warn LOUDLY.
             # No new order is placed here — the close order already sent is
-            # untouched. This guard fires only when BOTH the close is unconfirmed
-            # AND a positive residual is reported; a mere verification hiccup
-            # leaves confirmed=True/remaining_qty=0 (see _verify_position_closed),
-            # so a genuinely-closed position is never spuriously re-opened.
+            # untouched.
+            #
+            # TWO WAYS IN, and the second one is new. The first is a MEASURED
+            # residual: the venue showed us contracts still open. The second is
+            # an UNVERIFIABLE close -- the fill was rejected or unreadable and
+            # the book could not be read either, so remaining_qty is 0 because
+            # nothing measured it, not because nothing is there.
+            #
+            # That second case used to fall straight through and book the trade
+            # closed at $0.00, seconds after this function cancelled the SL and
+            # TP, leaving a live leveraged position untracked and unprotected --
+            # and _is_duplicate_close_booking would then swallow the real close
+            # when it finally arrived. The comment that used to sit here said a
+            # verification hiccup "leaves confirmed=True/remaining_qty=0, so a
+            # genuinely-closed position is never spuriously re-opened". That was
+            # true and it was the bug: confirmed=True was manufactured inside
+            # _verify_position_closed's except. It now reports book_unread and
+            # we keep the position instead.
+            #
+            # Keeping a position that DID close is recoverable: reconcile_positions()
+            # runs every tick, sees no exchange position, and books it from the
+            # venue's own close history. Booking a close that did NOT happen is
+            # not recoverable -- that is the asymmetry this branch is built on,
+            # and the pending-cancel path above already resolves the identical
+            # question the same way ("keep the record: the monitor re-checks it").
             remaining_qty = float(close_verify.get("remaining_qty", 0) or 0)
-            if (not close_confirmed) and remaining_qty > 0:
-                logger.critical(
-                    "RESIDUAL EXPOSURE after close of %s %s: exchange still shows "
-                    "%.8f contracts — keeping position OPEN (tracking the remainder) "
-                    "instead of marking closed. Stop is best-effort / price-monitored; "
-                    "manual review recommended.",
-                    pos.direction, pos.symbol, remaining_qty)
-                audit(trade_log,
-                      f"RESIDUAL after close: {pos.symbol} {pos.direction} remaining="
-                      f"{remaining_qty:.8f} — re-opening tracking for remainder (NOT marked closed)",
-                      action="close_residual", result="RESIDUAL",
-                      data={"trade_id": trade_id, "symbol": pos.symbol,
-                            "direction": pos.direction, "remaining_qty": remaining_qty,
-                            "closed_qty": closed_qty, "close_order_id": close_order_id})
-                self._record_warning("close_residual")
+            _verify_stage = str(close_verify.get("failure_stage") or "")
+            _unverifiable = (not close_confirmed) and remaining_qty <= 0 and bool(_verify_stage)
+            if (not close_confirmed) and (remaining_qty > 0 or _unverifiable):
+                # Unknown size: keep what we had. Never write 0.0 here — that is
+                # the same fabrication one field over.
+                _keep_qty = remaining_qty if remaining_qty > 0 else float(pos.quantity or 0.0)
+                if _unverifiable:
+                    logger.critical(
+                        "CLOSE UNVERIFIED for %s %s (%s): neither the fill nor the "
+                        "book could be read, and the SL/TP were already cancelled — "
+                        "keeping the position OPEN and re-protecting it rather than "
+                        "booking a close nobody confirmed. Review on Bitget.",
+                        pos.direction, pos.symbol, _verify_stage)
+                    audit(trade_log,
+                          f"CLOSE UNVERIFIED: {pos.symbol} {pos.direction} "
+                          f"({_verify_stage}) — position kept OPEN, not booked closed",
+                          action="close_unverified", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "symbol": pos.symbol,
+                                "direction": pos.direction, "stage": _verify_stage,
+                                "kept_qty": _keep_qty, "close_order_id": close_order_id})
+                    self._record_warning("close_unverified")
+                else:
+                    logger.critical(
+                        "RESIDUAL EXPOSURE after close of %s %s: exchange still shows "
+                        "%.8f contracts — keeping position OPEN (tracking the remainder) "
+                        "instead of marking closed. Stop is best-effort / price-monitored; "
+                        "manual review recommended.",
+                        pos.direction, pos.symbol, remaining_qty)
+                    audit(trade_log,
+                          f"RESIDUAL after close: {pos.symbol} {pos.direction} remaining="
+                          f"{remaining_qty:.8f} — re-opening tracking for remainder (NOT marked closed)",
+                          action="close_residual", result="RESIDUAL",
+                          data={"trade_id": trade_id, "symbol": pos.symbol,
+                                "direction": pos.direction, "remaining_qty": remaining_qty,
+                                "closed_qty": closed_qty, "close_order_id": close_order_id})
+                    self._record_warning("close_residual")
                 # Track the real remainder so monitoring/sizing reflect it. The
                 # exchange SL/TP orders were cancelled pre-close, so leave the
                 # order ids cleared — check_positions() closes on price for a
                 # position with sl_order_id=None.
-                pos.quantity = remaining_qty
+                pos.quantity = _keep_qty
                 pos.sl_order_id = None
                 pos.tp_order_id = None
                 pos.status = "open"
@@ -7921,7 +7983,7 @@ class LiveExecutor:
                     _ex = await self._get_exchange()
                     _dir = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
                     re_sl, re_tp = await self._place_sl_tp(
-                        _ex, pos.symbol, _dir, remaining_qty,
+                        _ex, pos.symbol, _dir, _keep_qty,
                         pos.stop_loss, pos.take_profit,
                     )
                 except Exception as _resl_exc:
@@ -7933,26 +7995,38 @@ class LiveExecutor:
                 if re_sl is None:
                     setattr(pos, "unprotected", True)
                     logger.critical(
-                        "RESIDUAL UNPROTECTED (%s %s): could not re-place stop-loss on "
-                        "the %.8f remainder — price-monitoring only. Review on Bitget.",
-                        pos.symbol, pos.direction, remaining_qty)
+                        "%s UNPROTECTED (%s %s): could not re-place stop-loss on "
+                        "%.8f — price-monitoring only. Review on Bitget.",
+                        "UNVERIFIED CLOSE" if _unverifiable else "RESIDUAL",
+                        pos.symbol, pos.direction, _keep_qty)
                     audit(trade_log,
-                          f"RESIDUAL stop-loss re-placement FAILED for {pos.symbol} "
-                          f"remainder={remaining_qty:.8f} — UNPROTECTED (price-monitored)",
-                          action="close_residual", result="UNPROTECTED",
+                          f"stop-loss re-placement FAILED for {pos.symbol} "
+                          f"qty={_keep_qty:.8f} — UNPROTECTED (price-monitored)",
+                          action=("close_unverified" if _unverifiable else "close_residual"),
+                          result="UNPROTECTED",
                           data={"trade_id": trade_id, "symbol": pos.symbol,
-                                "remaining_qty": remaining_qty})
+                                "remaining_qty": _keep_qty})
                     self._record_warning("residual_unprotected")
                 else:
                     audit(trade_log,
-                          f"RESIDUAL re-protected: {pos.symbol} SL re-placed on "
-                          f"remainder={remaining_qty:.8f} (sl={re_sl})",
-                          action="close_residual", result="REPROTECTED",
+                          f"re-protected: {pos.symbol} SL re-placed on "
+                          f"qty={_keep_qty:.8f} (sl={re_sl})",
+                          action=("close_unverified" if _unverifiable else "close_residual"),
+                          result="REPROTECTED",
                           data={"trade_id": trade_id, "symbol": pos.symbol,
-                                "remaining_qty": remaining_qty, "sl_order_id": re_sl})
+                                "remaining_qty": _keep_qty, "sl_order_id": re_sl})
                 self._save_positions()
+                if _unverifiable:
+                    return (
+                        f"\u26a0\ufe0f CLOSE NOT CONFIRMED: {pos.direction} {pos.symbol}\n"
+                        f"The venue did not confirm the close ({_verify_stage}) and its "
+                        f"position book could not be read.\n"
+                        f"The position is kept OPEN and re-protected rather than booked "
+                        f"closed on a reading nobody made. If it did close, the next "
+                        f"reconcile books it from the venue's own history. Review on Bitget."
+                    )
                 return (
-                    f"⚠️ PARTIAL CLOSE — RESIDUAL REMAINS: {pos.direction} {pos.symbol}\n"
+                    f"\u26a0\ufe0f PARTIAL CLOSE — RESIDUAL REMAINS: {pos.direction} {pos.symbol}\n"
                     f"Exchange still shows {remaining_qty:.6f} open after the close order.\n"
                     f"Position kept OPEN (tracking the remainder); it will be "
                     f"re-protected/closed by monitoring. Review on Bitget."
