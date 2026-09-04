@@ -7398,7 +7398,28 @@ class TelegramHandler:
             except Exception as exc:
                 await self._send(update, f"Couldn't change mode: {_safe_exc_text(exc)}")
                 return
+            # `bound` is WHAT THE RISK GATE WILL ACTUALLY CONSULT, and it was
+            # discarded — the reply below was an unconditional ✅ whatever came
+            # back. write_intent_policy fails OPEN and returns None on a
+            # missing file, an invalid spec, or a COMPILE FAULT, so the shape
+            # this could not report is the one that matters: the operator asks
+            # for enforce, the spec does not compile, the engine ends up with
+            # NO POLICY BOUND, and the bot says enforcement is on.
+            #
+            # The `tail` below covers only the flag-off cause, which is the
+            # benign one. A guard computed correctly and never read is the
+            # same defect as a guard that is absent.
             enabled = bool(getattr(CONFIG.risk, "intent_policy_enabled", False))
+            if bound is None and enabled and m != "off":
+                await self._send(update,
+                    f"⚠️ <b>Policy mode saved as {m} — but NOTHING IS BOUND.</b>\n"
+                    f"The file was written and the engine reloaded it, and the "
+                    f"reload produced no policy: the spec is invalid or failed "
+                    f"to compile.\n"
+                    f"<b>The risk gate is consulting no intent policy right "
+                    f"now.</b> Check it with <code>/policy show</code>, then "
+                    f"re-set it with <code>/policy set …</code>.")
+                return
             tail = ("" if enabled else
                     "\n<i>(Enforcement flag INTENT_POLICY_ENABLED is off, so it's "
                     "saved but dormant until enabled + restart.)</i>")
@@ -7429,25 +7450,49 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
         report = self.engine.run_digital_twin()
-        if not report or not report.get("scenarios"):
+        # THREE OUTCOMES, not two. `None` is now reserved for "the book could
+        # not be read"; a book that WAS read and is empty comes back as a real
+        # report with flat_book set. Both used to be None, and both rendered
+        # as "no open positions to stress-test" — an all-clear on the
+        # foresight screen, assembled from a crash. Byte-for-byte the
+        # `_cmd_escape` defect, which was fixed and left no sibling here.
+        if report is None:
+            await self._send(update,
+                "🔮 <b>Digital Twin</b> — <b>could not read the book.</b>\n\n"
+                "<i>This is not an empty account: the position read failed, so "
+                "nothing was stress-tested. Check /status and the exchange "
+                "connection, then try again.</i>")
+            return
+        if report.get("flat_book") or not report.get("scenarios"):
             await self._send(update,
                 "🔮 <b>Digital Twin</b> — no open positions to stress-test.\n\n"
                 "<i>The twin shocks the live book (flash crash, correlated tail, "
                 "alt capitulation, short squeeze) and shows projected drawdown + "
                 "liquidations. Nothing to simulate while flat.</i>")
             return
-        _RISK_ICON = {"none": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴"}
+        _RISK_ICON = {"none": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴",
+                      "unknown": "⚪"}
         icon = _RISK_ICON.get(report.get("risk", "none"), "⚪")
-        eq = report.get("equity_usd", 0.0)
+        # `f"${eq:,.0f}"` on a None raises, and `.get(k, 0.0)` would have
+        # printed a funded account as $0 equity. The twin reports None when
+        # the live balance cache is empty, which is normal after a restart.
+        eq = report.get("equity_usd")
+        eq_txt = "unavailable" if eq is None else f"${eq:,.0f}"
         lines = [f"🔮 <b>Digital Twin</b> — {icon} worst-case <b>{html.escape(str(report.get('risk','none')).upper())}</b>",
-                 f"<i>{report.get('position_count', 0)} position(s) · equity ${eq:,.0f}</i>", ""]
+                 f"<i>{report.get('position_count', 0)} position(s) · equity {eq_txt}</i>", ""]
+        if eq is None:
+            lines.append("<i>⚪ Equity could not be read, so drawdown "
+                         "percentages are unavailable. Liquidation checks do "
+                         "not need equity and are still shown.</i>\n")
         for s in report.get("scenarios", []):
             s_icon = _RISK_ICON.get(s.get("risk", "none"), "⚪")
             liq = s.get("liquidations", [])
             liq_txt = (" · liquidates " + ", ".join(html.escape(x) for x in liq[:4])) if liq else ""
+            _dd = s.get("drawdown_pct")
+            _dd_txt = "unavailable" if _dd is None else f"{_dd}%"
             lines.append(
                 f"{s_icon} <b>{html.escape(s.get('label', s.get('name','')))}</b>\n"
-                f"   drawdown <b>{s.get('drawdown_pct', 0)}%</b> "
+                f"   drawdown <b>{_dd_txt}</b> "
                 f"(P&L ${s.get('projected_pnl_usd', 0):,.0f}){liq_txt}")
         fragile = report.get("fragile", [])
         if fragile:
@@ -7472,7 +7517,16 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
         report = self.engine.run_risk_sentinel()
-        if not report or not report.get("position_count"):
+        # Three outcomes, same split as /twin above: None now means the book
+        # could not be read, and that is not a flat account.
+        if report is None:
+            await self._send(update,
+                "🛰 <b>Risk Sentinel</b> — <b>could not read the book.</b>\n\n"
+                "<i>This is not an empty account: the position read failed, so "
+                "no crowding assessment was made. Check /status and the "
+                "exchange connection, then try again.</i>")
+            return
+        if not report.get("position_count"):
             await self._send(update,
                 "🛰 <b>Risk Sentinel</b> — no open positions to assess.\n\n"
                 "<i>The sentinel flags intra-book crowding (one sector, one "
@@ -12573,39 +12627,65 @@ class TelegramHandler:
             pnl_pct = pos.get("pnl_pct")
             pnl_usd = pos.get("pnl_usd")
             _pnl_known = pnl_pct is not None and pnl_usd is not None
-            sl = pos.get("sl", 0)
-            tp = pos.get("tp", 0)
-            sl_dist = pos.get("sl_dist_pct", 0)
-            tp_dist = pos.get("tp_dist_pct", 0)
-            size_usd = pos.get("size_usd", 0)
-            leverage = pos.get("leverage", 1)
-            rr_live = pos.get("rr_live", 0)
-            hold_h = pos.get("hold_hours", 0)
+            # NO `, 0` / `, 1` DEFAULTS HERE, and that is not tidying.
+            # `orphan_position_row` returns an explicit None for every field it
+            # could not read — margin, leverage, R:R, age, the stop distances —
+            # and `.get(key, default)` DOES NOT SUBSTITUTE FOR A STORED None.
+            # So each default below was dead, the None flowed on, and
+            # `if hold_h < 1:` raised TypeError on the first orphan with an
+            # unreadable age. This loop has no try/except, so that killed the
+            # WHOLE listing — on the command an operator runs precisely because
+            # they do not know what is out there.
+            #
+            # The pnl_pct/pnl_usd reads directly above were fixed for exactly
+            # this, with a comment saying so. Fixing the two lines left the
+            # surface half-cured; these are the rest of the row.
+            sl = pos.get("sl")
+            tp = pos.get("tp")
+            sl_dist = pos.get("sl_dist_pct")
+            tp_dist = pos.get("tp_dist_pct")
+            size_usd = pos.get("size_usd")
+            leverage = pos.get("leverage")
+            rr_live = pos.get("rr_live")
+            hold_h = pos.get("hold_hours")
             sl_order = pos.get("sl_order", "")
             tp_order = pos.get("tp_order", "")
             comm_pct = pos.get("comm_pct", CONFIG.risk.commission_pct)
 
-            # Hold time display
-            if hold_h < 1:
+            # Hold time display. An age of "0m" reads as JUST OPENED, which is
+            # a specific and wrong claim about a position of unknown age.
+            if hold_h is None:
+                hold_str = "unknown"
+            elif hold_h < 1:
                 hold_str = f"{hold_h * 60:.0f}m"
             elif hold_h < 24:
                 hold_str = f"{hold_h:.1f}h"
             else:
                 hold_str = f"{hold_h / 24:.1f}d"
 
-            # Fee calculations
-            entry_fee = size_usd * (comm_pct / 100.0)
-            exit_notional = pos.get("notional_usd", current * pos.get("quantity", 0))
-            exit_fee = exit_notional * (comm_pct / 100.0)
-            total_fees = entry_fee + exit_fee
-            funding_sessions = hold_h / 8.0
-            funding_paid = size_usd * (0.01 / 100.0) * funding_sessions
+            # Fee calculations. A fee is a fraction of a notional; with no
+            # margin and no age there is no fraction to take, and $0.00 fees
+            # would read as a free position.
+            exit_notional = pos.get("notional_usd")
+            if exit_notional is None:
+                _qty = pos.get("quantity")
+                exit_notional = (current * _qty
+                                 if current is not None and _qty is not None
+                                 else None)
+            if size_usd is None or hold_h is None or exit_notional is None:
+                entry_fee = exit_fee = total_fees = funding_paid = None
+            else:
+                entry_fee = size_usd * (comm_pct / 100.0)
+                exit_fee = exit_notional * (comm_pct / 100.0)
+                total_fees = entry_fee + exit_fee
+                funding_paid = size_usd * (0.01 / 100.0) * (hold_h / 8.0)
             # Net is only knowable if gross is. Subtracting fees from an
             # unreadable gross would print a confident negative — the position
             # shown as down exactly the fee total, which reads as a real
             # measured loss rather than "we could not price this". The card
             # renders None here as "—" via its own net_unknown branch.
-            net_pnl = None if pnl_usd is None else pnl_usd - total_fees - funding_paid
+            net_pnl = (None if (pnl_usd is None or total_fees is None)
+                       else pnl_usd - total_fees - funding_paid)
 
             sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
             tp_tag = "on exchange" if tp_order == "exchange" else "bot-managed"
@@ -12619,7 +12699,8 @@ class TelegramHandler:
                 "pnl_pct": pnl_pct,
                 "pnl_usd": pnl_usd,
                 "net_pnl": net_pnl,
-                "fees": total_fees + funding_paid,
+                "fees": (None if total_fees is None
+                         else total_fees + funding_paid),
                 "size_usd": size_usd,
                 "leverage": leverage,
                 "hold_time": hold_str,

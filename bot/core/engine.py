@@ -230,6 +230,79 @@ def _mtf_state(engine):
 MTF_TTL_FLOOR_S = 180
 
 
+#: Distinct `symbol:timeframe:limit` cache keys ONE symbol produces per sweep:
+#: the primary `1h/100` fetch plus the four MTF legs (`15m/200`, `1h/200`,
+#: `4h/200`, `1d/200`). `1h/100` and `1h/200` are separate keys on purpose —
+#: `_cached_ohlcv`'s docstring records why the limit is in the key.
+_OHLCV_KEYS_PER_SYMBOL = 5
+
+#: Multiplier over one sweep's working set. A symbol that drops out of the
+#: top-N and returns a few ticks later should still find its 4h/1d legs, whose
+#: TTLs are hours; sizing to exactly one sweep would evict it in between.
+_OHLCV_CACHE_HEADROOM = 1.5
+
+
+def _ohlcv_cache_capacity() -> int:
+    """How many OHLCV entries the cache may hold, DERIVED FROM THE UNIVERSE.
+
+    It was the constant 200, and that number was the entire behaviour of this
+    cache. One sweep at `TOP_MOVERS_COUNT=200` asks for 200 x 5 = 1,000
+    distinct keys, so the cap could hold a fifth of a single pass — and
+    because eviction is oldest-first over a CYCLIC access pattern, the entries
+    discarded are exactly the ones the next sweep requests first. Simulated
+    over the real pattern the hit rate is not degraded, it is **0%**, at every
+    level of universe churn. Every candle fetch in every tick has gone to the
+    exchange.
+
+    That silently undid the work above it. `_mtf_ttl` gives a closed 1d candle
+    set a six-hour TTL precisely so it is not re-fetched 480 times a day — and
+    that entry was evicted within the same tick that created it, 800 entries
+    later. A cache smaller than its working set does not degrade gracefully;
+    under LRU/FIFO it returns nothing at all.
+
+    The cap read like a memory guard written when the universe was 80 symbols
+    (`top_movers_count`'s own comment records the 80 -> 200 raise). The
+    universe grew and this did not, which is why it is computed here instead
+    of typed: the two cannot drift apart again.
+
+    Roughly 45 KB per entry (200 bars x 6 floats as Python objects), so the
+    default lands near 65 MB at a 200-symbol universe. `OHLCV_CACHE_MAX_ENTRIES`
+    overrides it for a memory-constrained box; the floor of 200 keeps the old
+    behaviour reachable rather than making a smaller value impossible.
+
+    THE HEADROOM IS A STARTING POINT, NOT A MEASUREMENT. Holding more than one
+    sweep is what turns 0% into a working cache, and that part needs no
+    tuning. How much more is worth holding depends on how fast the top-N
+    actually turns over, which this engine already measures — `_stage_report`
+    prints the fetch/mtf split every batch. Read that on the running bot
+    before moving this number; a simulation of churn will happily produce a
+    confident figure about a distribution it invented.
+
+    Eviction stays oldest-by-INSERTION rather than by last use, and that is
+    deliberate: the stored timestamp is also the TTL clock, so refreshing it
+    on a read would extend the life of a candle set that should expire.
+    """
+    override = os.getenv("OHLCV_CACHE_MAX_ENTRIES", "").strip()
+    if override:
+        try:
+            return max(200, int(float(override)))
+        except (TypeError, ValueError):
+            pass
+    movers = int(getattr(CONFIG, "top_movers_count", 0) or 0)
+    return max(200, int(movers * _OHLCV_KEYS_PER_SYMBOL * _OHLCV_CACHE_HEADROOM))
+
+
+#: What the Digital Twin reports for a book that was READ and is EMPTY.
+#: Distinct from `None`, which now means the book could not be read at all —
+#: `risk: "none"` is a true verdict about a flat account and a false one about
+#: an unanswered question.
+_FLAT_BOOK: dict = {
+    "version": 0, "position_count": 0, "equity_usd": None, "equity_known": False,
+    "scenarios": [], "worst": None, "risk": "none", "fragile": [],
+    "flat_book": True,
+}
+
+
 def _mtf_ttl(timeframe: str) -> int:
     """How long a CLOSED candle set for ``timeframe`` stays valid.
 
@@ -1435,7 +1508,7 @@ class RuneClawEngine:
             logger.debug("Firewall scan skipped (%s): %s", source, exc)
             return None
 
-    def _twin_positions(self, user_id: str = "") -> list:
+    def _twin_positions(self, user_id: str = "") -> Optional[list]:
         """Normalise the live book into the plain dicts the pure Digital Twin
         consumes: symbol, direction, entry, qty, cost/margin, leverage, and the
         correlation group (for correlated shocks). Operator book by default; a
@@ -1444,8 +1517,21 @@ class RuneClawEngine:
         ex = self._user_executors.get(user_id) if user_id else self.live_executor
         if ex is None:
             ex = self.live_executor
+        # None vs []: "nobody could read the book" and "the book is empty" are
+        # different facts, and both callers printed the SECOND one for both.
+        # An absent executor, or one whose open_positions raises, is not a
+        # flat account — it is an unanswered question, and /twin and /sentinel
+        # answered it with "no open positions to stress-test".
+        if ex is None:
+            return None
+        try:
+            _raw = getattr(ex, "open_positions", None)
+        except Exception:
+            return None
+        if _raw is None:
+            return None
         out: list = []
-        for pos in (getattr(ex, "open_positions", None) or []):
+        for pos in _raw:
             try:
                 symbol = getattr(pos, "symbol", "?")
                 try:
@@ -1479,12 +1565,21 @@ class RuneClawEngine:
         try:
             from bot.guardian import digital_twin as _dt
             positions = self._twin_positions(user_id)
+            if positions is None:
+                return None          # book unreadable — the caller must say so
             if not positions:
-                return None
+                # Genuinely flat, and a flat book IS assessable. Returning None
+                # for it too is what let the card print "no open positions"
+                # over a crash.
+                return dict(_FLAT_BOOK)
+            # None, never 0.0. A zero equity makes every stress scenario a
+            # 0% drawdown and the whole run reports risk "none" — the calmest
+            # verdict there is, on the screen that exists to say how bad
+            # things could get, assembled from a balance nobody read.
             try:
                 equity = self.get_effective_equity(user_id)
             except Exception:
-                equity = 0.0
+                equity = None
             report = _dt.run(positions, equity)
             if getattr(CONFIG.risk, "guardian_digital_twin_enabled", False):
                 try:
@@ -1511,7 +1606,10 @@ class RuneClawEngine:
         try:
             from bot.guardian import risk_sentinel as _rs
             positions = self._twin_positions(user_id)
-            if not positions:
+            # Same split the escape agent already makes below: None is "could
+            # not read the book", [] is "read it, nothing in it". Crowding
+            # across an empty book really is no crowding.
+            if positions is None:
                 return None
             report = _rs.analyze(positions)
             if getattr(CONFIG.risk, "guardian_risk_sentinel_enabled", False):
@@ -1548,6 +1646,11 @@ class RuneClawEngine:
             # arm below, i.e. "could not tell", which the card renders as a
             # failure rather than as an empty book.
             positions = self._twin_positions(user_id)
+            if positions is None:
+                # `_twin_positions` can now say "unreadable" as well as
+                # "empty". Falling into plan([]) for it would re-enter the
+                # exact defect the note above records as fixed.
+                return None
             if not positions:
                 return _ea.plan([])
             report = _ea.plan(positions)
@@ -1619,10 +1722,13 @@ class RuneClawEngine:
                 from bot.guardian import digital_twin as _dt
                 from bot.guardian import escape_agent as _ea
                 from bot.guardian import risk_sentinel as _rs
+                # See run_digital_twin: 0.0 here manufactured the "none" that
+                # the comment below congratulates itself for not defaulting to
+                # — one layer lower, in the value rather than in the default.
                 try:
                     equity = self.get_effective_equity(user_id)
                 except Exception:
-                    equity = 0.0
+                    equity = None
                 twin = _dt.run(positions, equity)
                 # `.get(k, "none")` turned an assessor that answered nothing
                 # into one that answered "calm". `.get(k)` leaves absent absent.
@@ -2580,16 +2686,34 @@ class RuneClawEngine:
                   f"Rehydrated {len(self._user_executors)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
 
-    def get_effective_equity(self, user_id: str = "") -> float:
-        """Return the equity figure to display/use for sizing.
+    def get_effective_equity(self, user_id: str = "") -> Optional[float]:
+        """The equity figure to display, or None when it could not be read.
 
-        In LIVE mode: returns cached live exchange equity (USDT balance).
-        In PAPER mode: returns the user's paper portfolio equity.
+        OPTIONAL, AND THAT IS THE FIX. The body was::
+
+            if CONFIG.is_live() and self._live_balance_cache:
+                return self._live_balance_cache.get("total", 0.0)
+            portfolio = ...
+            return portfolio.snapshot().equity_usd
+
+        — so in LIVE mode with an empty balance cache it fell through and
+        returned the PAPER portfolio's equity. That is the documented
+        "$10,000 in live mode" trap, and an empty cache is the ordinary state
+        after a restart. Callers could not detect it: they got a plausible
+        float and had no way to know which account it described.
+
+        `resolve_display_equity_sync` was written to answer this honestly and
+        has sat fifty lines below ever since, unused by the three callers that
+        needed it. Delegating rather than duplicating means one place decides;
+        returning Optional means a caller that forgets is a TYPE error rather
+        than a silent paper number on a live surface.
+
+        The docstring used to say "display/use for sizing". Nothing sizes with
+        it — every sizing path goes through the risk engine — so that half was
+        stale, and dropping it is what makes Optional safe here.
         """
-        if CONFIG.is_live() and self._live_balance_cache:
-            return self._live_balance_cache.get("total", 0.0)
-        portfolio = self.user_portfolios.get(user_id) if user_id else self.portfolio
-        return portfolio.snapshot().equity_usd
+        value, _source = self.resolve_display_equity_sync(user_id)
+        return value
 
     async def get_effective_equity_async(self, user_id: str = "") -> float:
         """Async version that fetches live balance if cache is empty.
@@ -4764,13 +4888,18 @@ class RuneClawEngine:
         self._ohlcv_cache[key] = (now, data)
         # C2-54 FIX: Hard size cap + TTL eviction to prevent unbounded growth.
         # First try TTL-based eviction; if still over limit, evict oldest entries.
-        if len(self._ohlcv_cache) > 200:
+        #
+        # The cap is DERIVED (see _ohlcv_cache_capacity) rather than the
+        # constant 200 it was: 200 could not hold a fifth of one sweep, and
+        # oldest-first eviction over a cyclic sweep meant it returned 0% hits.
+        _cap = _ohlcv_cache_capacity()
+        if len(self._ohlcv_cache) > _cap:
             cutoff = now - ttl * 2
             self._ohlcv_cache = {k: v for k, v in self._ohlcv_cache.items() if v[0] > cutoff}
-        if len(self._ohlcv_cache) > 200:
+        if len(self._ohlcv_cache) > _cap:
             # Still over limit — evict oldest entries
             sorted_keys = sorted(self._ohlcv_cache, key=lambda k: self._ohlcv_cache[k][0])
-            for old_key in sorted_keys[:len(self._ohlcv_cache) - 200]:
+            for old_key in sorted_keys[:len(self._ohlcv_cache) - _cap]:
                 del self._ohlcv_cache[old_key]
         return data
 

@@ -150,12 +150,22 @@ class DashboardPusher:
         # System-level stats
         combined = multi.combined_snapshot() if multi.all_portfolios() else None
 
-        # LIVE FIX: use real exchange equity in LIVE mode
+        # LIVE FIX: use real exchange equity in LIVE mode.
+        #
+        # `if live_eq > 0` was the whole check, and it could not tell a live
+        # balance from the PAPER portfolio's — `get_effective_equity` used to
+        # fall through to paper whenever the live cache was empty, so a
+        # plausible positive number passed the test and got published under
+        # `"mode": "LIVE"` as `system.equity`. It returns None for that case
+        # now, which is why this reads `is not None` rather than `> 0`.
+        #
+        # In LIVE mode an unreadable balance publishes None, not the paper
+        # figure and not 0: the dashboard renders a null as unavailable, and
+        # $0.00 equity on a funded account is its own false alarm.
         system_equity = round(combined.equity_usd, 2) if combined else 0
         if CONFIG.is_live():
             live_eq = self.engine.get_effective_equity()
-            if live_eq > 0:
-                system_equity = round(live_eq, 2)
+            system_equity = None if live_eq is None else round(live_eq, 2)
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
