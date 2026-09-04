@@ -129,18 +129,26 @@ def paper_close_price(ticker: Any) -> Optional[float]:
     return last if last > 0 else None
 
 
-def flatten_account_ok(messages: Any) -> bool:
-    """Did every close on this account actually succeed?
+def flatten_failed_messages(messages: Any) -> list[str]:
+    """The messages from ``close_all_positions`` that report a FAILED close.
 
-    ``close_all_positions`` returns a message per position and reports failures
-    in that text rather than raising, so "we called it" and "it closed" were
-    indistinguishable to the caller — and the emergency card counted the first.
+    It returns one message per position and reports failures in that text
+    rather than raising, so "we called it" and "it closed" are the same value
+    to every caller unless someone reads the text. One predicate, so the
+    Telegram card, the engine's per-account rollup and the website ack cannot
+    drift apart on what counts as flat.
     """
+    out: list[str] = []
     for message in (messages or []):
         text = str(message)
         if text.startswith("Failed to close") or text.startswith("close_all_positions failed"):
-            return False
-    return True
+            out.append(text)
+    return out
+
+
+def flatten_account_ok(messages: Any) -> bool:
+    """Did every close on this account actually succeed?"""
+    return not flatten_failed_messages(messages)
 
 
 def flatten_headline(accounts: Any) -> str:

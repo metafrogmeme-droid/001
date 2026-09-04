@@ -4263,12 +4263,31 @@ class RuneClawEngine:
                     if per_user and ex is self.live_executor and not self._is_operator_user(tg):
                         acks.append({"user_id": uid, "ok": True, "closed": 0})
                         continue
-                    closed = await ex.close_all_positions(reason="web_emergency_stop")
+                    from bot.formatters.drift_offer import flatten_failed_messages
+                    _msgs = list(await ex.close_all_positions(
+                        reason="web_emergency_stop"))
+                    # `ok` used to be the literal True and `closed` the LENGTH
+                    # OF THE MESSAGE LIST -- but close_all_positions reports a
+                    # per-position failure in its TEXT and never raises, so the
+                    # except below cannot see one. The website then deleted the
+                    # pending_flatten row (its ack handler skips !ok rows and
+                    # retries them next poll -- the mechanism was already there)
+                    # and the emergency stop reported success over exposure
+                    # that is still open. Same claim as the Telegram card, one
+                    # surface over.
+                    _failed = flatten_failed_messages(_msgs)
+                    _closed = len(_msgs) - len(_failed)
                     audit(system_log,
-                          f"Web emergency-stop flatten for user {tg}: {len(closed)} closed",
-                          action="web_flatten", result="OK",
-                          data={"user": tg, "closed": len(closed)})
-                    acks.append({"user_id": uid, "ok": True, "closed": len(closed)})
+                          f"Web emergency-stop flatten for user {tg}: {_closed} closed"
+                          + (f", {len(_failed)} FAILED — row left pending for retry"
+                             if _failed else ""),
+                          action="web_flatten",
+                          result="OK" if not _failed else "PARTIAL",
+                          data={"user": tg, "closed": _closed,
+                                "failed": len(_failed),
+                                "failures": _failed[:5]})
+                    acks.append({"user_id": uid, "ok": not _failed,
+                                 "closed": _closed})
                 except Exception as exc:
                     # Leave the row un-acked (retry next poll) on a close failure.
                     audit(system_log, f"Web flatten failed for user {tg}: {exc}",
@@ -7111,16 +7130,44 @@ class RuneClawEngine:
                 # the time/hold exits below force-close a real runner.
                 from bot.core.position_telemetry import r_denominator
                 risk = r_denominator(pos)
-                r_mult = pnl_raw / risk if risk > 0 else 0.0
+                # `r_mult = ... if risk > 0 else 0.0` was not a guard: 0.0 is a
+                # MEASURED value to every rule below -- a flat trade -- and
+                # should_time_exit / check_signal_hold_limit /
+                # should_volume_decay_exit all close on a flat trade that has
+                # been held long enough. A position whose 1R we cannot compute
+                # (an adopted orphan with no stop, a record with no trailing
+                # state) was therefore force-closed at market on the strength
+                # of a number nobody measured.
+                r_mult = pnl_raw / risk if risk > 0 else None
 
                 sig = getattr(pos, "signal_type", "momentum_confluence")
                 stype = getattr(pos, "strategy_type", "swing")
 
-                should_exit, reason = should_time_exit(stype, candles_held, r_mult)
-                if not should_exit:
-                    should_exit, reason = check_signal_hold_limit(sig, hold_h, r_mult)
-                if not should_exit:
-                    should_exit, reason = should_volume_decay_exit(sig, candles_held, r_mult)
+                should_exit, reason = False, ""
+                if r_mult is None:
+                    # NOT self.risk.record_warning(): that feeds the
+                    # warning-rate breaker, which trips after five of the same
+                    # key in an hour. A persistent orphan would fire this every
+                    # tick and halt ENTRIES for a condition that is only "the
+                    # R-based exits are inert on this one position" -- a
+                    # heuristic driving a verdict, the thing this batch removes.
+                    # Log once per symbol per process instead.
+                    _seen: set = getattr(self, "_r_unknown_logged", None) or set()
+                    self._r_unknown_logged = _seen
+                    if pos.symbol not in _seen:
+                        _seen.add(pos.symbol)
+                        logger.info(
+                            "Smart exits inert for %s: 1R is unknown (no stop and "
+                            "no trailing initial_risk), so time/hold/volume-decay "
+                            "rules are skipped rather than run against a 0.0R that "
+                            "was never measured. The stop-loss check still applies.",
+                            pos.symbol)
+                else:
+                    should_exit, reason = should_time_exit(stype, candles_held, r_mult)
+                    if not should_exit:
+                        should_exit, reason = check_signal_hold_limit(sig, hold_h, r_mult)
+                    if not should_exit:
+                        should_exit, reason = should_volume_decay_exit(sig, candles_held, r_mult)
                 if not should_exit:
                     vwap = self._last_vwap.get(pos.symbol, 0)
                     if vwap > 0:
@@ -7132,7 +7179,9 @@ class RuneClawEngine:
 
                 audit(trade_log, f"Live smart-exit auto-close: {pos.symbol} — {reason}",
                       action="live_smart_exit", result="CLOSED",
-                      data={"symbol": pos.symbol, "r_multiple": round(r_mult, 2),
+                      data={"symbol": pos.symbol,
+                            "r_multiple": (None if r_mult is None
+                                           else round(r_mult, 2)),
                             "hold_hours": round(hold_h, 1), "signal_type": sig,
                             "strategy_type": stype})
                 try:
