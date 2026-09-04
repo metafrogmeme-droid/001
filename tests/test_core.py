@@ -1329,6 +1329,11 @@ class TestEngineFSM:
         # and a payload without it clamps the order to $0.
         engine._live_balance_cache = {"total": engine.portfolio.balance,
                                       "free": engine.portfolio.balance}
+        # ...and STAMP it. Sizing reads the cache through live_balance_cached(),
+        # which treats an unstamped cache as unread — a state no production
+        # writer can produce (every one sets the dict and the timestamp
+        # together), but one a test that seeds the dict by hand can.
+        engine._live_balance_cache_ts = time.monotonic()
 
         # Mock exchange so price drift check passes (return price near entry)
         mock_exchange = AsyncMock()
@@ -1402,6 +1407,11 @@ class TestEngineFSM:
         # and a payload without it clamps the order to $0.
         engine._live_balance_cache = {"total": engine.portfolio.balance,
                                       "free": engine.portfolio.balance}
+        # ...and STAMP it. Sizing reads the cache through live_balance_cached(),
+        # which treats an unstamped cache as unread — a state no production
+        # writer can produce (every one sets the dict and the timestamp
+        # together), but one a test that seeds the dict by hand can.
+        engine._live_balance_cache_ts = time.monotonic()
 
         mock_exchange = AsyncMock()
         mock_exchange.fetch_ticker = AsyncMock(return_value={"last": idea.entry_price})
