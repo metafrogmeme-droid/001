@@ -184,7 +184,11 @@ def test_the_block_is_reached_from_the_prompt():
                     .read_text(encoding="utf-8"))
     i = src.index("def _build_chat_system_prompt")
     body = src[i:src.index("async def _llm_chat", i)]
-    assert "_live_positions_block(executor)" in body, (
+    # The call now passes a marks map as a second argument, so this anchors on
+    # the CALL rather than on its exact old arity — the seam being reached is
+    # what this test is about, and pinning the signature made it fail on a
+    # change that kept the separation entirely intact.
+    assert "_live_positions_block(" in body, (
         "the chat prompt no longer builds its positions section from the "
         "seam, so none of the separation above is reached")
 

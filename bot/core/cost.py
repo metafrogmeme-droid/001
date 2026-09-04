@@ -42,6 +42,14 @@ LLM_PRICING: dict[str, dict[str, float]] = {
     "claude-haiku-4-5-20251001":    {"in": 0.80,  "out": 4.00},
     "claude-3-5-sonnet-20241022": {"in": 3.00, "out": 15.00},
     "claude-sonnet-4-20250514":   {"in": 3.00, "out": 15.00},
+    # ULTRA's thesis/learning model. It was in NEITHER this table nor the
+    # family list below, so `resolve_llm_price` answered (None, False) and
+    # every ULTRA thesis call booked $0.00 — disarming the daily dollar guard
+    # on the most expensive model in the product. The figure is the one the
+    # product itself advertises when an operator turns ULTRA on: "Fable 5
+    # bills $10/$50 per MTok" (bot/llm/provider.py, the ultra toggle message).
+    "claude-fable-5":      {"in": 10.00, "out": 50.00},
+    "claude-fable-5-1":    {"in": 10.00, "out": 50.00},
 }
 
 # Family-prefix fallback (checked in order, first prefix match wins) for model
@@ -91,6 +99,20 @@ LLM_PRICING_FAMILIES: list[tuple[str, dict[str, float]]] = [
     ("deepseek",         {"in": 0.14, "out": 0.28}),
     ("mistral",          {"in": 2.00, "out": 6.00}),
     ("llama",            {"in": 0.20, "out": 0.20}),
+    # Anthropic premium families. `claude-fable-`/`claude-mythos-` matched none
+    # of the four Anthropic prefixes above (opus/sonnet/haiku/3-), which is how
+    # the priciest model in the product came to book $0.00.
+    ("claude-fable-",    {"in": 10.00, "out": 50.00}),
+    ("claude-mythos-",   {"in": 10.00, "out": 50.00}),
+    # LAST RESORT, and the reason it exists: every entry above names a family
+    # somebody thought of. A model from a family nobody has thought of yet
+    # books $0.00 and disarms the budget guard, and that has now happened
+    # twice — 2026-07-11 with a dated Sonnet id, and again with Fable, which
+    # was routed and advertised at $10/$50 while costing the accounting
+    # nothing. Priced at the top of Anthropic's range deliberately: an
+    # over-estimate trips the guard early, which is recoverable, and an
+    # under-estimate does not trip it at all.
+    ("claude-",          {"in": 15.00, "out": 75.00}),
 ]
 
 

@@ -442,7 +442,7 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
         return ""
 
 
-def _live_positions_block(executor) -> str:
+def _live_positions_block(executor, marks: dict | None = None) -> str:
     """The ACTIVE POSITIONS section of the chat prompt, from live state.
 
     AN UNFILLED LIMIT ORDER IS NOT A POSITION, and this section counted it
@@ -479,12 +479,44 @@ def _live_positions_block(executor) -> str:
                if getattr(p, "status", "") == "pending_fill"]
 
     if filled:
-        lines = [
-            f"  - {p.direction} {p.symbol}: entry ${p.entry_price:,.4f}, "
-            f"size ${p.cost_usd:,.2f}, lev {p.leverage}x, "
-            f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}"
-            for p in filled
-        ]
+        # MARK AND UNREALIZED P&L, because "am I up or down right now" is the
+        # question this block exists to let the model answer and it could not.
+        # The row was entry/size/lev/SL/TP only, so the model was handed the
+        # price the position OPENED at and nothing about where it is — and it
+        # will happily interpolate the difference. The paper branch of the
+        # same prompt already computes a mark and says CURRENT PRICE
+        # UNAVAILABLE when it cannot; this is that treatment, here.
+        #
+        # `marks` is passed in rather than fetched: this function is pure and
+        # the whole reason its defects were assertable is that it reads
+        # nothing else.
+        marks = marks or {}
+        lines = []
+        for p in filled:
+            row = (f"  - {p.direction} {p.symbol}: entry ${p.entry_price:,.4f}, "
+                   f"size ${p.cost_usd:,.2f}, lev {p.leverage}x, "
+                   f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}")
+            _mk = marks.get(p.symbol)
+            if isinstance(_mk, (int, float)) and not isinstance(_mk, bool) and _mk > 0:
+                _entry = float(getattr(p, "entry_price", 0) or 0)
+                _qty = float(getattr(p, "quantity", 0) or 0)
+                if _entry > 0:
+                    _pct = (_mk - _entry) / _entry * 100.0
+                    if str(getattr(p, "direction", "")).upper().startswith("S"):
+                        _pct = -_pct
+                    _upnl = (_mk - _entry) * _qty
+                    if str(getattr(p, "direction", "")).upper().startswith("S"):
+                        _upnl = -_upnl
+                    row += (f", MARK ${_mk:,.4f}, unrealized {_pct:+.2f}% "
+                            f"(${_upnl:+,.2f})")
+                else:
+                    row += f", MARK ${_mk:,.4f}"
+            else:
+                # Stated, not omitted. An omitted mark is a gap the model
+                # fills from the entry price or from its weights.
+                row += (", MARK UNAVAILABLE — you do NOT know this position's "
+                        "current price or whether it is up or down; say so")
+            lines.append(row)
         out = ("\n\nACTIVE POSITIONS (held on the exchange):\n"
                + "\n".join(lines))
     else:
@@ -2051,7 +2083,9 @@ class TelegramHandler:
             # chat "HYPE (your open short)" -- there was no position at all;
             # the prompt simply never said so either way.
             if is_live and executor:
-                positions_detail = _live_positions_block(executor)
+                _marks_fn = getattr(self, "_chat_marks", None)
+                positions_detail = _live_positions_block(
+                    executor, _marks_fn() if callable(_marks_fn) else None)
             elif user_portfolio.open_positions:
                 pos_lines = []
                 for pos in user_portfolio.open_positions:
@@ -2194,8 +2228,86 @@ class TelegramHandler:
         except Exception:
             ingest_block = ""
 
+        # getattr-guarded for the same reason `_stage_enter_guarded` is:
+        # several suites drive this method bound to a lightweight stub that
+        # has the attributes the prompt reads and none of its helpers. A bare
+        # `self._pending_ideas_block()` turns those into AttributeError and
+        # takes the WHOLE prompt with it.
+        _ideas_fn = getattr(self, "_pending_ideas_block", None)
+        _ideas_block = _ideas_fn() if callable(_ideas_fn) else ""
         return (base + f"\n{time_note}" + self._live_ticker_block()
-                + positions_detail + context_block + ingest_block)
+                + positions_detail + _ideas_block
+                + context_block + ingest_block)
+
+    def _chat_marks(self) -> dict:
+        """symbol -> last price, from the same ws snapshot the ticker block
+        uses. Empty on any fault: a missing mark renders as UNAVAILABLE, which
+        is the honest half, and an exception here must not cost the prompt its
+        positions section."""
+        try:
+            feed = getattr(self.engine, "ws_feed", None)
+            ticks = feed.get_snapshot(
+                max_age_sec=self.CHAT_TICKER_MAX_AGE_SEC) if feed else {}
+        except Exception:
+            return {}
+        out: dict = {}
+        for sym, _tick in (ticks or {}).items():
+            try:
+                px = float(_tick.last)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if px > 0 and str(sym or "").strip():
+                out[sym] = px
+        return out
+
+    def _pending_ideas_block(self) -> str:
+        """What the bot is about to trade.
+
+        THE MOST OBVIOUS QUESTION THE PROMPT COULD NOT ANSWER. `pending_ideas`
+        reached the chat prompt nowhere, and no router rule produces the
+        `proposals` skill, so "what setups are you watching" classified at
+        confidence 0.0 and went to a model that knew nothing about the bot's
+        queue. Two guards downstream — strip_fabricated_tool_results and
+        correct_stated_rr — exist because the model invents into exactly this
+        gap; they clean up after a missing fact rather than supplying it.
+
+        Silence is the wrong empty case here for the same reason it is in the
+        ticker block: an absent section reads as "nothing pending" whether the
+        queue is empty or unreadable.
+        """
+        try:
+            ideas = list(getattr(self.engine, "pending_ideas", None) or [])
+        except Exception:
+            return ("\n\nPENDING TRADE IDEAS: could not be read just now. Do "
+                    "not say the queue is empty — you do not know what is in "
+                    "it.")
+        if not ideas:
+            return ("\n\nPENDING TRADE IDEAS: none queued right now. The bot "
+                    "is not about to place anything.")
+        rows = []
+        for idea in ideas[:8]:
+            try:
+                _d = getattr(getattr(idea, "direction", None), "value",
+                             getattr(idea, "direction", "?"))
+                _conf = getattr(idea, "confidence", None)
+                _conf_txt = (f", confidence {_conf:.0%}"
+                             if isinstance(_conf, (int, float))
+                             and not isinstance(_conf, bool) else "")
+                _entry = getattr(idea, "entry_price", None)
+                _entry_txt = (f", entry ${_entry:,.4f}"
+                              if isinstance(_entry, (int, float)) and _entry
+                              else "")
+                rows.append(f"  - {_d} {getattr(idea, 'asset', '?')}"
+                            f"{_entry_txt}{_conf_txt}")
+            except Exception:
+                continue
+        if not rows:
+            return ("\n\nPENDING TRADE IDEAS: queued, but none could be "
+                    "rendered. Do not describe them.")
+        _more = (f"\n  ...and {len(ideas) - len(rows)} more"
+                 if len(ideas) > len(rows) else "")
+        return ("\n\nPENDING TRADE IDEAS (queued, awaiting confirmation — "
+                "NOT open positions):\n" + "\n".join(rows) + _more)
 
     async def _llm_chat(self, question: str, user_id: str = "",
                         user_name: str = "",
@@ -2293,8 +2405,12 @@ class TelegramHandler:
             # Get conversation history for multi-turn context
             history = []
             if user_id:
+                # `drop_trailing_user=True`: both transports append the
+                # user's turn to the store BEFORE calling here, so the last
+                # history entry IS this question — and `llm_complete` appends
+                # `user_prompt` again. The model was receiving it twice.
                 history = self.conversations.get_recent_as_llm_messages(
-                    user_id, limit=8)
+                    user_id, limit=9, drop_trailing_user=True)
                 # RC-AUD-014: sanitize replayed user turns. The stored history
                 # holds raw user text (stored unsanitized), so without this the
                 # conversation-memory replay path bypasses the call-site

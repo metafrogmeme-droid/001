@@ -40,8 +40,8 @@
     "v": 1
   },
   "js/chat.js": {
-    "sha": "117ece7399c950ac",
-    "v": 28
+    "v": 29,
+    "sha": "ebdc333f574730fc"
   },
   "js/dashboard.js": {
     "v": 165,

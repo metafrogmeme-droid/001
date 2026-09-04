@@ -1611,6 +1611,13 @@ class RuneClawEngine:
             # across an empty book really is no crowding.
             if positions is None:
                 return None
+            if not positions:
+                # Assessed and returned, but NOT sealed — mirroring the twin
+                # above. Crowding across an empty book really is none, so the
+                # caller gets a real report; there is nothing to attest to the
+                # tamper-evident chain, and sealing an empty verdict on every
+                # call is noise in the one log that must stay readable.
+                return _rs.analyze([])
             report = _rs.analyze(positions)
             if getattr(CONFIG.risk, "guardian_risk_sentinel_enabled", False):
                 try:

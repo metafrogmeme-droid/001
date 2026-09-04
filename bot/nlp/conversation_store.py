@@ -188,9 +188,35 @@ class ConversationStore:
             return list(msgs[-limit:])
 
     def get_recent_as_llm_messages(self, user_id: str,
-                                    limit: Optional[int] = None) -> list[dict]:
-        """Get recent messages formatted for LLM API (list of {role, content})."""
-        return [m.to_llm_message() for m in self.get_recent(user_id, limit)]
+                                    limit: Optional[int] = None,
+                                    *, drop_trailing_user: bool = False
+                                    ) -> list[dict]:
+        """Recent turns as LLM `messages`, starting on a USER turn.
+
+        Two shapes the raw slice gets wrong, both invisible at the call site:
+
+        DUPLICATED QUESTION. Both transports append the user's turn to this
+        store BEFORE calling the chat path, which then reads history back and
+        hands `user_prompt` to `llm_complete` separately — and `llm_complete`
+        appends that too. The API received the question as two consecutive
+        user turns. `drop_trailing_user` removes the echo at the source rather
+        than asking every caller to slice.
+
+        ASSISTANT-FIRST HISTORY. With an even limit over an alternating log,
+        the window starts on an assistant turn from the fifth exchange onward
+        (9 stored, `[-8:]` drops index 0). Anthropic requires the first entry
+        in `messages` to be a user turn, so on any established conversation
+        the Anthropic candidate 400s and the chain falls through to the next
+        provider — a silent downgrade to a worse model, visible only as
+        `chat_fallback` audit lines. Dropping the leading assistant turn costs
+        one message of context and keeps the good provider.
+        """
+        msgs = [m.to_llm_message() for m in self.get_recent(user_id, limit)]
+        if drop_trailing_user and msgs and msgs[-1].get("role") == "user":
+            msgs = msgs[:-1]
+        while msgs and msgs[0].get("role") != "user":
+            msgs = msgs[1:]
+        return msgs
 
     def get_context(self, user_id: str) -> Optional[UserContext]:
         """Get accumulated user context."""

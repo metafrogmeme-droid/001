@@ -121,15 +121,56 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def _slack_for(trigger_words: int) -> int:
+    """How many extra words a message may carry and still BE this question.
+
+    Scaled to the trigger, not flat. The trigger list runs from 2 words
+    ("leverage work", "stop hunt") to 5 ("how does it manage risk"), and a
+    2-word trigger sitting inside a 5-word message is far weaker evidence
+    than a 5-word one inside an 8-word message. A flat allowance was tried
+    first and let "who are you bullish on" through on the 3-word trigger
+    "who are you" — the exact class of miss this is fixing.
+    """
+    return max(1, trigger_words // 2)
+
+
 def faq_answer(question: str) -> Optional[str]:
-    """The canned §4-safe answer for a landing-page starter question, or None if
-    the message isn't a close match (so free-form questions reach the LLM)."""
+    """The canned §4-safe answer for a landing-page starter question, or None.
+
+    SUBSTRING-ANYWHERE WAS THE BUG. This read `if _norm(trig) in q`, and the
+    trigger list holds bare phrases like "who are you" and "leverage work", so
+    a signed-in user asking a real question about their own account got a
+    marketing blurb instead of an answer. Measured against the live triggers,
+    five of six realistic questions matched:
+
+        "what are you seeing on BTC right now"      -> the about-page
+        "who are you bullish on"                    -> the about-page
+        "what are you doing with my money"          -> the about-page
+        "is my leverage working against me right now" -> a leverage explainer
+
+    The docstring above this function claimed the opposite ("only CLOSE
+    matches answer here; free-form questions fall through"), and the module
+    docstring says triggers are "distinctive multi-word phrases so free-form
+    questions do NOT match". The intent was right and the operator `in` did
+    not implement it.
+
+    A match now requires the message to BE the question rather than to
+    contain it: the trigger's words, in order, with at most
+    `_FAQ_SLACK_WORDS` of other words in the whole message. That keeps every
+    landing-page starter ("what is runeclaw", "how does it work?") and drops
+    the account questions, which are longer and about something else.
+    """
     q = _norm(question)
     if not q:
         return None
+    q_words = len(q.split())
     for item in _FAQ:
         for trig in item["triggers"]:
-            if _norm(trig) in q:
+            t = _norm(trig)
+            if not t or t not in q:
+                continue
+            _tw = len(t.split())
+            if q_words - _tw <= _slack_for(_tw):
                 return item["answer"]
     return None
 
