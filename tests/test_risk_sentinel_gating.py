@@ -44,9 +44,29 @@ def _set_flag(monkeypatch, on):
     monkeypatch.setattr(engine_mod, "CONFIG", fake)
 
 
-def test_no_positions_is_a_noop(monkeypatch):
+def test_a_flat_book_is_assessed_and_records_nothing(monkeypatch):
+    """CONTRACT CHANGED, deliberately — the twin's sibling.
+
+    This asserted `run_risk_sentinel() is None` for an empty book, the same
+    value returned when the position read FAILED, and `/sentinel` printed "no
+    open positions to assess" for both. `_twin_positions` is three-valued now:
+    [] is a reading (crowding across an empty book really is none), None is
+    "could not read the book", and the card says which.
+
+    The no-op half of the old name still holds: a flat book seals nothing.
+    """
     _set_flag(monkeypatch, True)
     eng = _FakeEngine([])
+    report = eng.run_risk_sentinel()
+    assert report is not None
+    assert report.get("position_count") == 0
+    assert eng.audit_chain.events == []
+
+
+def test_an_unreadable_book_is_not_a_flat_one(monkeypatch):
+    _set_flag(monkeypatch, True)
+    eng = _FakeEngine([])
+    eng._positions = None                # what _twin_positions now returns
     assert eng.run_risk_sentinel() is None
     assert eng.audit_chain.events == []
 

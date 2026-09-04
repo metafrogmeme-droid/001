@@ -10,20 +10,84 @@ future catalog bump can't silently break live LLM calls or cost accounting:
   2. The admin routing uses the current Sonnet id (not a stale one).
 """
 
+import bot.llm.provider as _provider
 from bot.core.cost import resolve_llm_price
 from bot.llm.provider import (
     ADMIN_TIER_ROUTING,
     DEFAULT_TIER_ROUTING,
-    ELITE_TIER_ROUTING,
-    PRO_TIER_ROUTING,
+    ULTRA_TIER_ROUTING,
 )
 
 
+def _routing_tables():
+    """Every `*_TIER_ROUTING` table in the provider module, DISCOVERED.
+
+    The four-name tuple this replaces omitted ULTRA_TIER_ROUTING — the table
+    holding `claude-fable-5`, the priciest model in the product, which was
+    unpriced and therefore booking $0.00 against the daily budget guard this
+    very test exists to keep armed. A hand-written list of what to check is a
+    claim about coverage, and it was wrong about the one table that mattered.
+
+    Discovered from the module so a table added later is covered without
+    anybody remembering — the same reason preflight parses ci.yml instead of
+    restating it.
+    """
+    for name in dir(_provider):
+        if name.endswith("_TIER_ROUTING"):
+            table = getattr(_provider, name)
+            if isinstance(table, dict):
+                yield name, table
+
+
+def _models_in(table):
+    """Yield every model id in a routing table, whatever its shape.
+
+    Two shapes exist and the discovery found the second one immediately:
+    the `*_TIER_ROUTING` tables map tier -> config, while USER_TIER_ROUTING
+    maps ROLE -> (tier -> config). A flat `cfg["model"]` KeyErrors on the
+    nested one — which is what a hand-written table list had been hiding.
+    """
+    for value in table.values():
+        if isinstance(value, dict) and "model" in value:
+            yield value["model"]
+        elif isinstance(value, dict):
+            yield from _models_in(value)
+
+
 def _all_routing_models():
-    for table in (DEFAULT_TIER_ROUTING, ADMIN_TIER_ROUTING,
-                  ELITE_TIER_ROUTING, PRO_TIER_ROUTING):
-        for cfg in table.values():
-            yield cfg["model"]
+    for _name, table in _routing_tables():
+        yield from _models_in(table)
+
+
+def test_the_discovery_finds_every_known_table():
+    """Pins the discovery itself: if it silently found nothing, every
+    assertion below would pass vacuously."""
+    found = {n for n, _ in _routing_tables()}
+    for expected in ("DEFAULT_TIER_ROUTING", "ADMIN_TIER_ROUTING",
+                     "ELITE_TIER_ROUTING", "PRO_TIER_ROUTING",
+                     "ULTRA_TIER_ROUTING"):
+        assert expected in found, f"{expected} not discovered"
+    assert len(list(_all_routing_models())) >= 5
+
+
+def test_ultra_thesis_model_is_priced():
+    """The specific regression. ULTRA routes thesis at a model the product
+    advertises as $10/$50 per MTok; it resolved to no price at all, so the
+    budget guard could never trip on it."""
+    model = next(cfg["model"] for tier, cfg in ULTRA_TIER_ROUTING.items()
+                 if getattr(tier, "name", "") == "THESIS")
+    price, _exact = resolve_llm_price(model)
+    assert price, f"ULTRA thesis model {model} has no resolvable price"
+    assert price["in"] > 0 and price["out"] > 0
+
+
+def test_an_unknown_anthropic_model_still_gets_a_price():
+    """The class fix, not the instance. Twice now a routed Anthropic model has
+    matched no family and booked $0.00. An unknown one prices high, because an
+    over-estimate trips the guard early and an under-estimate never trips."""
+    price, exact = resolve_llm_price("claude-somethingnew-9")
+    assert price and not exact
+    assert price["in"] >= 10.0
 
 
 def test_every_routing_model_is_priced():

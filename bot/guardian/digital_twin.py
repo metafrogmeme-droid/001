@@ -120,8 +120,24 @@ def _shock_for(shocks: dict, group: str) -> float:
     return v if v is not None else 0.0
 
 
-def _scenario_risk(drawdown_pct: float, liquidations: int) -> str:
-    if liquidations > 0 or drawdown_pct >= _DD_HIGH:
+def _scenario_risk(drawdown_pct: Optional[float], liquidations: int) -> str:
+    """The scenario's verdict, or ``unknown`` when equity could not be read.
+
+    LIQUIDATION IS CHECKED FIRST AND SEPARATELY, because it is the one input
+    here that does not need equity: a position liquidates at a price derived
+    from its own entry and leverage. So a book that blows up under the shock
+    still reports "high" even when nobody could read the account balance.
+
+    Drawdown does need equity, and without it there is no percentage — which
+    is not 0%. `none` is the calmest of four verdicts and it was what an
+    unreadable balance produced, on the screen whose entire job is to say how
+    bad things could get.
+    """
+    if liquidations > 0:
+        return "high"
+    if drawdown_pct is None:
+        return "unknown"
+    if drawdown_pct >= _DD_HIGH:
         return "high"
     if drawdown_pct >= _DD_MEDIUM:
         return "medium"
@@ -138,7 +154,11 @@ def simulate_scenario(positions: list[dict], equity: Any, scenario: dict,
     projected equity and drawdown %, the list of positions that would be
     liquidated, and a per-position breakdown. A position missing usable inputs is
     skipped (fail-open) rather than aborting the whole simulation."""
-    eq = _num(equity) or 0.0
+    # `_num(equity) or 0.0` folded BOTH an unreadable balance and a genuine
+    # zero into 0.0, and `if eq > 0 else 0.0` below then made every scenario a
+    # 0% drawdown. The caller reaches here with None whenever the live balance
+    # cache is empty, which is the ordinary state after a restart.
+    eq = _num(equity)
     shocks = scenario.get("shocks", {})
     total_pnl = 0.0
     liquidations: list[str] = []
@@ -168,13 +188,19 @@ def simulate_scenario(positions: list[dict], equity: Any, scenario: dict,
             "shock_pct": round(shock * 100, 2),
             "pnl_usd": round(pnl, 2), "liquidated": liquidated,
         })
-    projected_equity = eq + total_pnl
-    drawdown_pct = round(max(0.0, -total_pnl) / eq * 100, 2) if eq > 0 else 0.0
+    # The book's P&L under the shock is knowable from the positions alone.
+    # The equity AFTER it, and the drawdown as a percentage OF it, are not.
+    if eq is not None and eq > 0:
+        projected_equity = round(eq + total_pnl, 2)
+        drawdown_pct = round(max(0.0, -total_pnl) / eq * 100, 2)
+    else:
+        projected_equity = None
+        drawdown_pct = None
     return {
         "name": scenario.get("name", "scenario"),
         "label": scenario.get("label", ""),
         "projected_pnl_usd": round(total_pnl, 2),
-        "projected_equity_usd": round(projected_equity, 2),
+        "projected_equity_usd": projected_equity,
         "drawdown_pct": drawdown_pct,
         "liquidations": liquidations,
         "liquidation_count": len(liquidations),
@@ -200,7 +226,7 @@ def run(positions: list[dict], equity: Any, scenario_list: Optional[list[dict]] 
         }
     """
     try:
-        eq = _num(equity) or 0.0
+        eq = _num(equity)
         scen = scenario_list if scenario_list is not None else scenarios()
         results = [simulate_scenario(positions, eq, s, maintenance) for s in scen]
         # Per-position fragility, independent of any scenario: how far (adverse
@@ -214,12 +240,19 @@ def run(positions: list[dict], equity: Any, scenario_list: Optional[list[dict]] 
         fragile.sort(key=lambda r: float(r["liq_move_pct"]))
         worst = None
         if results:
-            worst = max(results, key=lambda r: (r["liquidation_count"], r["drawdown_pct"]))
+            # -1.0 sorts an unknown drawdown BELOW every real one, so a
+            # scenario that could be measured always wins the "worst" slot
+            # over one that could not. Liquidation count still leads.
+            worst = max(results, key=lambda r: (r["liquidation_count"],
+                                                r["drawdown_pct"]
+                                                if r["drawdown_pct"] is not None
+                                                else -1.0))
         return {
             "version": TWIN_VERSION,
             "position_count": len([p for p in (positions or [])
                                    if _num(p.get("entry")) and _num(p.get("qty")) is not None]),
-            "equity_usd": round(eq, 2),
+            "equity_usd": None if eq is None else round(eq, 2),
+            "equity_known": eq is not None,
             "scenarios": results,
             "worst": worst,
             "risk": worst["risk"] if worst else "none",
@@ -227,8 +260,11 @@ def run(positions: list[dict], equity: Any, scenario_list: Optional[list[dict]] 
         }
     except Exception:
         # Foresight must never break a caller — degrade to an empty report.
-        return {"version": TWIN_VERSION, "position_count": 0, "equity_usd": 0.0,
-                "scenarios": [], "worst": None, "risk": "none", "fragile": []}
+        # An exception is not a calm book. `risk: "none"` here was a verdict
+        # assembled from a crash, on the foresight screen.
+        return {"version": TWIN_VERSION, "position_count": 0, "equity_usd": None,
+                "equity_known": False, "scenarios": [], "worst": None,
+                "risk": "unknown", "fragile": []}
 
 
 def twin_payload(positions: list[dict], equity: Any,
@@ -244,8 +280,12 @@ def twin_payload(positions: list[dict], equity: Any,
         "risk": report["risk"],
         "position_count": report["position_count"],
         "equity_usd": report["equity_usd"],
+        "equity_known": report.get("equity_known", False),
         "worst_scenario": worst.get("name", ""),
-        "worst_drawdown_pct": worst.get("drawdown_pct", 0.0),
+        # `.get(k, 0.0)` sealed a measured-looking 0.00% to the TAMPER-EVIDENT
+        # chain for a run that computed no drawdown at all — the one record
+        # whose whole value is that it cannot be argued with later.
+        "worst_drawdown_pct": worst.get("drawdown_pct"),
         "worst_liquidations": worst.get("liquidations", [])[:12],
         "scenarios": [
             {"name": s["name"], "drawdown_pct": s["drawdown_pct"],

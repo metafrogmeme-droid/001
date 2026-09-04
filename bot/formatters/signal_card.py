@@ -236,8 +236,12 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     dir_color = _GREEN if is_long else _RED
 
     # ── Price formatter ──
-    def _fmt(price: float) -> str:
-        if price == 0:
+    def _fmt(price) -> str:
+        # `not price` rather than `price == 0`: an unread price is None,
+        # and `None == 0` is False, so it fell through to `None >= 100`
+        # and raised. Guarded at the boundary so no call site has to
+        # remember — the rule CLAUDE.md records for _fmt_price.
+        if not price:
             return "—"
         if price >= 100:
             return f"${price:,.2f}"
@@ -530,8 +534,12 @@ def render_scan_results_card(
     f_small = _font(10)
     f_gate_sub = _font(11)
 
-    def _fmt(price: float) -> str:
-        if price == 0:
+    def _fmt(price) -> str:
+        # `not price` rather than `price == 0`: an unread price is None,
+        # and `None == 0` is False, so it fell through to `None >= 100`
+        # and raised. Guarded at the boundary so no call site has to
+        # remember — the rule CLAUDE.md records for _fmt_price.
+        if not price:
             return "\u2014"
         if price >= 1000:
             return f"${price:,.2f}"
@@ -740,7 +748,11 @@ def render_patterns_card(
     f_pat = _font(11)
     f_small = _font(10)
 
-    def _fmt(price: float) -> str:
+    def _fmt(price) -> str:
+        # This copy had NO zero guard at all, so an unread price reached the
+        # comparison directly. Same fix as its seven siblings.
+        if not price:
+            return "—"
         if price >= 1000:
             return f"${price:,.2f}"
         elif price >= 1:
@@ -946,15 +958,21 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     pnl_pct = data.get("pnl_pct")
     pnl_usd = data.get("pnl_usd")
     net_pnl = data.get("net_pnl")
-    fees = data.get("fees", 0)
-    size_usd = data.get("size_usd", 0)
-    leverage = data.get("leverage", 1)
+    # `_num`, not `.get(k, default)`: the producer for an ORPHAN row
+    # (bot/formatters/orphan_position.py) returns an explicit None for every
+    # field the venue did not report, and a default never fires against a
+    # stored None. `f"${size_usd:,.2f}"` and `leverage > 1` then raised — the
+    # caller catches it, so the card silently vanished and the text fell
+    # through instead, which is why this went unseen.
+    fees = _num(data.get("fees"))
+    size_usd = _num(data.get("size_usd"))
+    leverage = _num(data.get("leverage"))
     hold_time = data.get("hold_time", "")
-    rr = data.get("rr", 0)
-    sl = data.get("sl", 0)
-    tp = data.get("tp", 0)
-    sl_pct = data.get("sl_pct", 0)
-    tp_pct = data.get("tp_pct", 0)
+    rr = _num(data.get("rr"))
+    sl = _num(data.get("sl"))
+    tp = _num(data.get("tp"))
+    sl_pct = _num(data.get("sl_pct"))
+    tp_pct = _num(data.get("tp_pct"))
     sl_status = data.get("sl_status", "")
     tp_status = data.get("tp_status", "")
     rsi = data.get("rsi", 0)
@@ -995,8 +1013,12 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     net_positive = net_pnl >= 0
     net_color = _MUTED if net_unknown else (_GREEN if net_positive else _RED)
 
-    def _fmt(price: float) -> str:
-        if price == 0:
+    def _fmt(price) -> str:
+        # `not price` rather than `price == 0`: an unread price is None,
+        # and `None == 0` is False, so it fell through to `None >= 100`
+        # and raised. Guarded at the boundary so no call site has to
+        # remember — the rule CLAUDE.md records for _fmt_price.
+        if not price:
             return "—"
         if price >= 100:
             return f"{price:,.2f}"
@@ -1066,22 +1088,31 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     y += CELL_H + GAP
 
     # ── SL / TP row ──
-    sl_text = f"{_fmt(sl)}  ({sl_pct:.1f}%)" if sl else "—"
-    tp_text = f"{_fmt(tp)}  ({tp_pct:.1f}%)" if tp else "—"
+    # A stop with no distance is still a stop: print the price and omit the
+    # percentage rather than dropping the whole cell to an em dash.
+    def _lvl(px, pct):
+        if not px:
+            return "—"
+        return f"{_fmt(px)}  ({pct:.1f}%)" if pct is not None else _fmt(px)
+    sl_text = _lvl(sl, sl_pct)
+    tp_text = _lvl(tp, tp_pct)
     _cell(c1, y, f"STOP LOSS  {sl_status}", sl_text, _RED)
     _cell(c2, y, f"TAKE PROFIT  {tp_status}", tp_text, _GREEN)
     y += CELL_H + GAP
 
     # ── Size / Hold / R:R / Fees row ──
-    lev_str = f" | {leverage:.0f}x" if leverage > 1 else ""
-    _cell(c1, y, "SIZE", f"${size_usd:,.2f}{lev_str}")
+    lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
+    size_text = "unread" if size_usd is None else f"${size_usd:,.2f}{lev_str}"
+    _cell(c1, y, "SIZE", size_text)
+    # An orphan has no thesis, so it has no reward to measure a risk against.
+    # "0.0x" is a measured claim that it cannot win.
     rr_str = f"{rr:.1f}x" if rr else "—"
-    _cell(c2, y, "R:R | HOLD", f"{rr_str} | {hold_time}")
+    _cell(c2, y, "R:R | HOLD", f"{rr_str} | {hold_time or '—'}")
     y += CELL_H + GAP
 
     # ── Net PnL + Fees row ──
     net_text = "—" if net_unknown else f"${net_pnl:+,.2f}"
-    fees_text = f"fees ${fees:.2f}"
+    fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", net_color, w=full_w)
     y += CELL_H + GAP + 4
@@ -1179,8 +1210,12 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     pnl_color = (_MUTED if pnl_usd is None
                  else (_GREEN if pnl_usd >= 0 else _RED))
 
-    def _fmt(price: float) -> str:
-        if price == 0:
+    def _fmt(price) -> str:
+        # `not price` rather than `price == 0`: an unread price is None,
+        # and `None == 0` is False, so it fell through to `None >= 100`
+        # and raised. Guarded at the boundary so no call site has to
+        # remember — the rule CLAUDE.md records for _fmt_price.
+        if not price:
             return "\u2014"
         if price >= 100:
             return f"{price:,.2f}"
@@ -1332,8 +1367,12 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
     f_badge = _font(11, bold=True)
     f_small = _font(10)
 
-    def _fmt(price: float) -> str:
-        if price == 0:
+    def _fmt(price) -> str:
+        # `not price` rather than `price == 0`: an unread price is None,
+        # and `None == 0` is False, so it fell through to `None >= 100`
+        # and raised. Guarded at the boundary so no call site has to
+        # remember — the rule CLAUDE.md records for _fmt_price.
+        if not price:
             return "\u2014"
         if price >= 1000:
             return f"${price:,.4f}"
@@ -1541,7 +1580,10 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
     f_label = _font(9)
     f_small = _font(10)
 
-    def _fmt(price: float) -> str:
+    def _fmt(price) -> str:
+        # Annotation dropped with its siblings: this one already guarded, but
+        # `price: float` was a lie for a function whose whole job is to render
+        # the case where there is no price.
         if not price:
             return "—"
         if price >= 1000:
@@ -1863,8 +1905,12 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     f_small = _font(10)
     f_hero = _font(26, bold=True)
 
-    def _fmt(price: float) -> str:
-        if price == 0:
+    def _fmt(price) -> str:
+        # `not price` rather than `price == 0`: an unread price is None,
+        # and `None == 0` is False, so it fell through to `None >= 100`
+        # and raised. Guarded at the boundary so no call site has to
+        # remember — the rule CLAUDE.md records for _fmt_price.
+        if not price:
             return "—"
         if price >= 1000:
             return f"{price:,.2f}"

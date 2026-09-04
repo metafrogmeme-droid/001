@@ -442,7 +442,7 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
         return ""
 
 
-def _live_positions_block(executor) -> str:
+def _live_positions_block(executor, marks: dict | None = None) -> str:
     """The ACTIVE POSITIONS section of the chat prompt, from live state.
 
     AN UNFILLED LIMIT ORDER IS NOT A POSITION, and this section counted it
@@ -479,12 +479,44 @@ def _live_positions_block(executor) -> str:
                if getattr(p, "status", "") == "pending_fill"]
 
     if filled:
-        lines = [
-            f"  - {p.direction} {p.symbol}: entry ${p.entry_price:,.4f}, "
-            f"size ${p.cost_usd:,.2f}, lev {p.leverage}x, "
-            f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}"
-            for p in filled
-        ]
+        # MARK AND UNREALIZED P&L, because "am I up or down right now" is the
+        # question this block exists to let the model answer and it could not.
+        # The row was entry/size/lev/SL/TP only, so the model was handed the
+        # price the position OPENED at and nothing about where it is — and it
+        # will happily interpolate the difference. The paper branch of the
+        # same prompt already computes a mark and says CURRENT PRICE
+        # UNAVAILABLE when it cannot; this is that treatment, here.
+        #
+        # `marks` is passed in rather than fetched: this function is pure and
+        # the whole reason its defects were assertable is that it reads
+        # nothing else.
+        marks = marks or {}
+        lines = []
+        for p in filled:
+            row = (f"  - {p.direction} {p.symbol}: entry ${p.entry_price:,.4f}, "
+                   f"size ${p.cost_usd:,.2f}, lev {p.leverage}x, "
+                   f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}")
+            _mk = marks.get(p.symbol)
+            if isinstance(_mk, (int, float)) and not isinstance(_mk, bool) and _mk > 0:
+                _entry = float(getattr(p, "entry_price", 0) or 0)
+                _qty = float(getattr(p, "quantity", 0) or 0)
+                if _entry > 0:
+                    _pct = (_mk - _entry) / _entry * 100.0
+                    if str(getattr(p, "direction", "")).upper().startswith("S"):
+                        _pct = -_pct
+                    _upnl = (_mk - _entry) * _qty
+                    if str(getattr(p, "direction", "")).upper().startswith("S"):
+                        _upnl = -_upnl
+                    row += (f", MARK ${_mk:,.4f}, unrealized {_pct:+.2f}% "
+                            f"(${_upnl:+,.2f})")
+                else:
+                    row += f", MARK ${_mk:,.4f}"
+            else:
+                # Stated, not omitted. An omitted mark is a gap the model
+                # fills from the entry price or from its weights.
+                row += (", MARK UNAVAILABLE — you do NOT know this position's "
+                        "current price or whether it is up or down; say so")
+            lines.append(row)
         out = ("\n\nACTIVE POSITIONS (held on the exchange):\n"
                + "\n".join(lines))
     else:
@@ -2051,7 +2083,9 @@ class TelegramHandler:
             # chat "HYPE (your open short)" -- there was no position at all;
             # the prompt simply never said so either way.
             if is_live and executor:
-                positions_detail = _live_positions_block(executor)
+                _marks_fn = getattr(self, "_chat_marks", None)
+                positions_detail = _live_positions_block(
+                    executor, _marks_fn() if callable(_marks_fn) else None)
             elif user_portfolio.open_positions:
                 pos_lines = []
                 for pos in user_portfolio.open_positions:
@@ -2194,8 +2228,86 @@ class TelegramHandler:
         except Exception:
             ingest_block = ""
 
+        # getattr-guarded for the same reason `_stage_enter_guarded` is:
+        # several suites drive this method bound to a lightweight stub that
+        # has the attributes the prompt reads and none of its helpers. A bare
+        # `self._pending_ideas_block()` turns those into AttributeError and
+        # takes the WHOLE prompt with it.
+        _ideas_fn = getattr(self, "_pending_ideas_block", None)
+        _ideas_block = _ideas_fn() if callable(_ideas_fn) else ""
         return (base + f"\n{time_note}" + self._live_ticker_block()
-                + positions_detail + context_block + ingest_block)
+                + positions_detail + _ideas_block
+                + context_block + ingest_block)
+
+    def _chat_marks(self) -> dict:
+        """symbol -> last price, from the same ws snapshot the ticker block
+        uses. Empty on any fault: a missing mark renders as UNAVAILABLE, which
+        is the honest half, and an exception here must not cost the prompt its
+        positions section."""
+        try:
+            feed = getattr(self.engine, "ws_feed", None)
+            ticks = feed.get_snapshot(
+                max_age_sec=self.CHAT_TICKER_MAX_AGE_SEC) if feed else {}
+        except Exception:
+            return {}
+        out: dict = {}
+        for sym, _tick in (ticks or {}).items():
+            try:
+                px = float(_tick.last)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if px > 0 and str(sym or "").strip():
+                out[sym] = px
+        return out
+
+    def _pending_ideas_block(self) -> str:
+        """What the bot is about to trade.
+
+        THE MOST OBVIOUS QUESTION THE PROMPT COULD NOT ANSWER. `pending_ideas`
+        reached the chat prompt nowhere, and no router rule produces the
+        `proposals` skill, so "what setups are you watching" classified at
+        confidence 0.0 and went to a model that knew nothing about the bot's
+        queue. Two guards downstream — strip_fabricated_tool_results and
+        correct_stated_rr — exist because the model invents into exactly this
+        gap; they clean up after a missing fact rather than supplying it.
+
+        Silence is the wrong empty case here for the same reason it is in the
+        ticker block: an absent section reads as "nothing pending" whether the
+        queue is empty or unreadable.
+        """
+        try:
+            ideas = list(getattr(self.engine, "pending_ideas", None) or [])
+        except Exception:
+            return ("\n\nPENDING TRADE IDEAS: could not be read just now. Do "
+                    "not say the queue is empty — you do not know what is in "
+                    "it.")
+        if not ideas:
+            return ("\n\nPENDING TRADE IDEAS: none queued right now. The bot "
+                    "is not about to place anything.")
+        rows = []
+        for idea in ideas[:8]:
+            try:
+                _d = getattr(getattr(idea, "direction", None), "value",
+                             getattr(idea, "direction", "?"))
+                _conf = getattr(idea, "confidence", None)
+                _conf_txt = (f", confidence {_conf:.0%}"
+                             if isinstance(_conf, (int, float))
+                             and not isinstance(_conf, bool) else "")
+                _entry = getattr(idea, "entry_price", None)
+                _entry_txt = (f", entry ${_entry:,.4f}"
+                              if isinstance(_entry, (int, float)) and _entry
+                              else "")
+                rows.append(f"  - {_d} {getattr(idea, 'asset', '?')}"
+                            f"{_entry_txt}{_conf_txt}")
+            except Exception:
+                continue
+        if not rows:
+            return ("\n\nPENDING TRADE IDEAS: queued, but none could be "
+                    "rendered. Do not describe them.")
+        _more = (f"\n  ...and {len(ideas) - len(rows)} more"
+                 if len(ideas) > len(rows) else "")
+        return ("\n\nPENDING TRADE IDEAS (queued, awaiting confirmation — "
+                "NOT open positions):\n" + "\n".join(rows) + _more)
 
     async def _llm_chat(self, question: str, user_id: str = "",
                         user_name: str = "",
@@ -2293,8 +2405,12 @@ class TelegramHandler:
             # Get conversation history for multi-turn context
             history = []
             if user_id:
+                # `drop_trailing_user=True`: both transports append the
+                # user's turn to the store BEFORE calling here, so the last
+                # history entry IS this question — and `llm_complete` appends
+                # `user_prompt` again. The model was receiving it twice.
                 history = self.conversations.get_recent_as_llm_messages(
-                    user_id, limit=8)
+                    user_id, limit=9, drop_trailing_user=True)
                 # RC-AUD-014: sanitize replayed user turns. The stored history
                 # holds raw user text (stored unsanitized), so without this the
                 # conversation-memory replay path bypasses the call-site
@@ -6215,16 +6331,36 @@ class TelegramHandler:
                 status = "\u2705 HEALTHY — equity above MA"
                 status_emoji = "\u2705"
 
+            # "equity above MA" ASSERTS A COMPARISON. equity_curve_size_multiplier
+            # returns 1.0 whenever neither breaker flag is set, and those flags
+            # are only ever written inside `if len(self._equity_history) >=
+            # ma_period:` — so with fewer snapshots than the period, which is
+            # the state after every restart, the verdict above is the initial
+            # value of two booleans and no moving average exists to be above.
+            # The card printed it directly over its own "Equity snapshots: 0".
+            _snaps = len(risk._equity_history)
+            _ma_period = int(CONFIG.risk.equity_curve_ma_period or 0)
+            if _snaps < _ma_period:
+                status = ("\u26aa NOT YET MEASURED — "
+                          f"{_snaps} of {_ma_period} snapshots")
+                status_emoji = "\u26aa"
+
             lines = [
                 "\U0001f4c8 <b>Equity Curve Health</b>",
                 "\u2500" * 28,
                 "",
                 f"Status: {status}",
                 f"Size multiplier: <code>{eq_mult:.0%}</code>",
-                f"Equity snapshots: <code>{len(risk._equity_history)}</code>",
-                f"MA period: <code>{CONFIG.risk.equity_curve_ma_period}</code>",
+                f"Equity snapshots: <code>{_snaps}</code>",
+                f"MA period: <code>{_ma_period}</code>",
                 "",
             ]
+            if _snaps < _ma_period:
+                lines.insert(4, "<i>The moving average needs a full window "
+                                "before this gate can say anything. Sizing is "
+                                "at 100% because nothing has told it "
+                                "otherwise — not because the curve was "
+                                "checked and found healthy.</i>\n")
             _dr_str = "<b>ACTIVE</b> ⚠️" if in_recovery else "Inactive ✅"
             lines.append(f"Drawdown recovery: {_dr_str}")
 
@@ -7398,7 +7534,28 @@ class TelegramHandler:
             except Exception as exc:
                 await self._send(update, f"Couldn't change mode: {_safe_exc_text(exc)}")
                 return
+            # `bound` is WHAT THE RISK GATE WILL ACTUALLY CONSULT, and it was
+            # discarded — the reply below was an unconditional ✅ whatever came
+            # back. write_intent_policy fails OPEN and returns None on a
+            # missing file, an invalid spec, or a COMPILE FAULT, so the shape
+            # this could not report is the one that matters: the operator asks
+            # for enforce, the spec does not compile, the engine ends up with
+            # NO POLICY BOUND, and the bot says enforcement is on.
+            #
+            # The `tail` below covers only the flag-off cause, which is the
+            # benign one. A guard computed correctly and never read is the
+            # same defect as a guard that is absent.
             enabled = bool(getattr(CONFIG.risk, "intent_policy_enabled", False))
+            if bound is None and enabled and m != "off":
+                await self._send(update,
+                    f"⚠️ <b>Policy mode saved as {m} — but NOTHING IS BOUND.</b>\n"
+                    f"The file was written and the engine reloaded it, and the "
+                    f"reload produced no policy: the spec is invalid or failed "
+                    f"to compile.\n"
+                    f"<b>The risk gate is consulting no intent policy right "
+                    f"now.</b> Check it with <code>/policy show</code>, then "
+                    f"re-set it with <code>/policy set …</code>.")
+                return
             tail = ("" if enabled else
                     "\n<i>(Enforcement flag INTENT_POLICY_ENABLED is off, so it's "
                     "saved but dormant until enabled + restart.)</i>")
@@ -7429,25 +7586,49 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
         report = self.engine.run_digital_twin()
-        if not report or not report.get("scenarios"):
+        # THREE OUTCOMES, not two. `None` is now reserved for "the book could
+        # not be read"; a book that WAS read and is empty comes back as a real
+        # report with flat_book set. Both used to be None, and both rendered
+        # as "no open positions to stress-test" — an all-clear on the
+        # foresight screen, assembled from a crash. Byte-for-byte the
+        # `_cmd_escape` defect, which was fixed and left no sibling here.
+        if report is None:
+            await self._send(update,
+                "🔮 <b>Digital Twin</b> — <b>could not read the book.</b>\n\n"
+                "<i>This is not an empty account: the position read failed, so "
+                "nothing was stress-tested. Check /status and the exchange "
+                "connection, then try again.</i>")
+            return
+        if report.get("flat_book") or not report.get("scenarios"):
             await self._send(update,
                 "🔮 <b>Digital Twin</b> — no open positions to stress-test.\n\n"
                 "<i>The twin shocks the live book (flash crash, correlated tail, "
                 "alt capitulation, short squeeze) and shows projected drawdown + "
                 "liquidations. Nothing to simulate while flat.</i>")
             return
-        _RISK_ICON = {"none": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴"}
+        _RISK_ICON = {"none": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴",
+                      "unknown": "⚪"}
         icon = _RISK_ICON.get(report.get("risk", "none"), "⚪")
-        eq = report.get("equity_usd", 0.0)
+        # `f"${eq:,.0f}"` on a None raises, and `.get(k, 0.0)` would have
+        # printed a funded account as $0 equity. The twin reports None when
+        # the live balance cache is empty, which is normal after a restart.
+        eq = report.get("equity_usd")
+        eq_txt = "unavailable" if eq is None else f"${eq:,.0f}"
         lines = [f"🔮 <b>Digital Twin</b> — {icon} worst-case <b>{html.escape(str(report.get('risk','none')).upper())}</b>",
-                 f"<i>{report.get('position_count', 0)} position(s) · equity ${eq:,.0f}</i>", ""]
+                 f"<i>{report.get('position_count', 0)} position(s) · equity {eq_txt}</i>", ""]
+        if eq is None:
+            lines.append("<i>⚪ Equity could not be read, so drawdown "
+                         "percentages are unavailable. Liquidation checks do "
+                         "not need equity and are still shown.</i>\n")
         for s in report.get("scenarios", []):
             s_icon = _RISK_ICON.get(s.get("risk", "none"), "⚪")
             liq = s.get("liquidations", [])
             liq_txt = (" · liquidates " + ", ".join(html.escape(x) for x in liq[:4])) if liq else ""
+            _dd = s.get("drawdown_pct")
+            _dd_txt = "unavailable" if _dd is None else f"{_dd}%"
             lines.append(
                 f"{s_icon} <b>{html.escape(s.get('label', s.get('name','')))}</b>\n"
-                f"   drawdown <b>{s.get('drawdown_pct', 0)}%</b> "
+                f"   drawdown <b>{_dd_txt}</b> "
                 f"(P&L ${s.get('projected_pnl_usd', 0):,.0f}){liq_txt}")
         fragile = report.get("fragile", [])
         if fragile:
@@ -7472,7 +7653,16 @@ class TelegramHandler:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
         report = self.engine.run_risk_sentinel()
-        if not report or not report.get("position_count"):
+        # Three outcomes, same split as /twin above: None now means the book
+        # could not be read, and that is not a flat account.
+        if report is None:
+            await self._send(update,
+                "🛰 <b>Risk Sentinel</b> — <b>could not read the book.</b>\n\n"
+                "<i>This is not an empty account: the position read failed, so "
+                "no crowding assessment was made. Check /status and the "
+                "exchange connection, then try again.</i>")
+            return
+        if not report.get("position_count"):
             await self._send(update,
                 "🛰 <b>Risk Sentinel</b> — no open positions to assess.\n\n"
                 "<i>The sentinel flags intra-book crowding (one sector, one "
@@ -12573,39 +12763,65 @@ class TelegramHandler:
             pnl_pct = pos.get("pnl_pct")
             pnl_usd = pos.get("pnl_usd")
             _pnl_known = pnl_pct is not None and pnl_usd is not None
-            sl = pos.get("sl", 0)
-            tp = pos.get("tp", 0)
-            sl_dist = pos.get("sl_dist_pct", 0)
-            tp_dist = pos.get("tp_dist_pct", 0)
-            size_usd = pos.get("size_usd", 0)
-            leverage = pos.get("leverage", 1)
-            rr_live = pos.get("rr_live", 0)
-            hold_h = pos.get("hold_hours", 0)
+            # NO `, 0` / `, 1` DEFAULTS HERE, and that is not tidying.
+            # `orphan_position_row` returns an explicit None for every field it
+            # could not read — margin, leverage, R:R, age, the stop distances —
+            # and `.get(key, default)` DOES NOT SUBSTITUTE FOR A STORED None.
+            # So each default below was dead, the None flowed on, and
+            # `if hold_h < 1:` raised TypeError on the first orphan with an
+            # unreadable age. This loop has no try/except, so that killed the
+            # WHOLE listing — on the command an operator runs precisely because
+            # they do not know what is out there.
+            #
+            # The pnl_pct/pnl_usd reads directly above were fixed for exactly
+            # this, with a comment saying so. Fixing the two lines left the
+            # surface half-cured; these are the rest of the row.
+            sl = pos.get("sl")
+            tp = pos.get("tp")
+            sl_dist = pos.get("sl_dist_pct")
+            tp_dist = pos.get("tp_dist_pct")
+            size_usd = pos.get("size_usd")
+            leverage = pos.get("leverage")
+            rr_live = pos.get("rr_live")
+            hold_h = pos.get("hold_hours")
             sl_order = pos.get("sl_order", "")
             tp_order = pos.get("tp_order", "")
             comm_pct = pos.get("comm_pct", CONFIG.risk.commission_pct)
 
-            # Hold time display
-            if hold_h < 1:
+            # Hold time display. An age of "0m" reads as JUST OPENED, which is
+            # a specific and wrong claim about a position of unknown age.
+            if hold_h is None:
+                hold_str = "unknown"
+            elif hold_h < 1:
                 hold_str = f"{hold_h * 60:.0f}m"
             elif hold_h < 24:
                 hold_str = f"{hold_h:.1f}h"
             else:
                 hold_str = f"{hold_h / 24:.1f}d"
 
-            # Fee calculations
-            entry_fee = size_usd * (comm_pct / 100.0)
-            exit_notional = pos.get("notional_usd", current * pos.get("quantity", 0))
-            exit_fee = exit_notional * (comm_pct / 100.0)
-            total_fees = entry_fee + exit_fee
-            funding_sessions = hold_h / 8.0
-            funding_paid = size_usd * (0.01 / 100.0) * funding_sessions
+            # Fee calculations. A fee is a fraction of a notional; with no
+            # margin and no age there is no fraction to take, and $0.00 fees
+            # would read as a free position.
+            exit_notional = pos.get("notional_usd")
+            if exit_notional is None:
+                _qty = pos.get("quantity")
+                exit_notional = (current * _qty
+                                 if current is not None and _qty is not None
+                                 else None)
+            if size_usd is None or hold_h is None or exit_notional is None:
+                entry_fee = exit_fee = total_fees = funding_paid = None
+            else:
+                entry_fee = size_usd * (comm_pct / 100.0)
+                exit_fee = exit_notional * (comm_pct / 100.0)
+                total_fees = entry_fee + exit_fee
+                funding_paid = size_usd * (0.01 / 100.0) * (hold_h / 8.0)
             # Net is only knowable if gross is. Subtracting fees from an
             # unreadable gross would print a confident negative — the position
             # shown as down exactly the fee total, which reads as a real
             # measured loss rather than "we could not price this". The card
             # renders None here as "—" via its own net_unknown branch.
-            net_pnl = None if pnl_usd is None else pnl_usd - total_fees - funding_paid
+            net_pnl = (None if (pnl_usd is None or total_fees is None)
+                       else pnl_usd - total_fees - funding_paid)
 
             sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
             tp_tag = "on exchange" if tp_order == "exchange" else "bot-managed"
@@ -12619,7 +12835,8 @@ class TelegramHandler:
                 "pnl_pct": pnl_pct,
                 "pnl_usd": pnl_usd,
                 "net_pnl": net_pnl,
-                "fees": total_fees + funding_paid,
+                "fees": (None if total_fees is None
+                         else total_fees + funding_paid),
                 "size_usd": size_usd,
                 "leverage": leverage,
                 "hold_time": hold_str,
@@ -12853,8 +13070,15 @@ class TelegramHandler:
             # no way to know. win_stats returns None for a reason; pass it on.
             win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
             _tot = realized_totals(user_trades)
-            total_pnl = _tot["net"] if _tot["net"] is not None else 0.0
-            _total_known = _tot["net"] is not None
+            # `if ... is not None else 0.0` and then a `_total_known` flag that
+            # NOTHING READ — the one occurrence of that name in this file. The
+            # fold happened first and the flag recorded it happening, so a book
+            # where nothing could be priced published `All-time $+0.00` in
+            # green. `realized_totals` returns None precisely so it cannot, and
+            # `render_performance` already draws None as an em dash with a
+            # neutral arrow: the renderer was waiting and the caller filled the
+            # hole before it got there.
+            total_pnl = _tot["net"]
 
             # ── Date-filtered PnL ──
             from datetime import datetime as _dt, timedelta as _td
@@ -12910,9 +13134,17 @@ class TelegramHandler:
             # gave 0.0, and only the second should borrow the all-time figure.
             if (_today_priced == 0 and _week_priced == 0
                     and _today_unpriced == 0 and _week_unpriced == 0
-                    and total_pnl != 0):
+                    and total_pnl):
                 week_pnl = total_pnl
                 trades_today = total_trades
+            # A window whose closes could not be priced is not a flat window.
+            # These accumulate only PRICED closes, so 0.0 with nothing priced
+            # is the sum of an empty set — `$+0.00 today` in green over a day
+            # of unreadable closes.
+            if _today_priced == 0 and _today_unpriced > 0:
+                today_pnl = None
+            if _week_priced == 0 and _week_unpriced > 0:
+                week_pnl = None
 
             best_pair = "N/A"
             worst_pair = "N/A"
@@ -12928,9 +13160,11 @@ class TelegramHandler:
                 worst_pair = _worst_t.symbol.replace("/USDT", "").replace(":USDT", "")
                 best_pair = _best_t.symbol.replace("/USDT", "").replace(":USDT", "")
             data = {
-                "today_pnl": round(today_pnl, 2),
-                "week_pnl": round(week_pnl, 2),
-                "total_pnl": round(total_pnl, 2),
+                "today_pnl": None if today_pnl is None else round(today_pnl, 2),
+                "week_pnl": None if week_pnl is None else round(week_pnl, 2),
+                "total_pnl": None if total_pnl is None else round(total_pnl, 2),
+                "today_unpriced": _today_unpriced,
+                "week_unpriced": _week_unpriced,
                 "win_rate": win_rate,
                 # How many closes the rate actually covers. The card shows
                 # "Win Rate" and "Trades" as neighbouring tiles, so without

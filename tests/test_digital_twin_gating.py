@@ -52,10 +52,33 @@ def _set_flag(monkeypatch, on):
     monkeypatch.setattr(engine_mod, "CONFIG", fake)
 
 
-def test_no_positions_is_a_noop(monkeypatch):
+def test_a_flat_book_is_assessed_and_records_nothing(monkeypatch):
+    """CONTRACT CHANGED, deliberately: `[]` is a reading, `None` is not.
+
+    This asserted `run_digital_twin() is None` for an empty book — the same
+    value the method returns when the position read FAILED. Both then rendered
+    as "no open positions to stress-test", so a crash on the foresight screen
+    produced an all-clear. `_twin_positions` is three-valued now, so a flat
+    book comes back as a real report saying so, and None is reserved for
+    "could not read the book".
+
+    The no-op half of the old name still holds: a flat book seals nothing.
+    """
     _set_flag(monkeypatch, True)
     eng = _FakeEngine([])
-    assert eng.run_digital_twin() is None
+    report = eng.run_digital_twin()
+    assert report is not None
+    assert report["flat_book"] is True
+    assert report["risk"] == "none"          # a flat book really is calm
+    assert report["position_count"] == 0
+    assert eng.audit_chain.events == []
+
+
+def test_an_unreadable_book_is_not_a_flat_one(monkeypatch):
+    _set_flag(monkeypatch, True)
+    eng = _FakeEngine([])
+    eng._positions = None                    # what _twin_positions now says
+    assert eng.run_digital_twin() is None    # the caller must render a failure
     assert eng.audit_chain.events == []
 
 

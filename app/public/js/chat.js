@@ -269,14 +269,25 @@
     const d = r.data;
     const eq = (d.equity == null) ? '—'
       : (fmtMoney ? fmtMoney(d.equity) : '$' + fmt(d.equity, 2));
-    const dp = Number(d.daily_pnl || 0);
-    const dpTxt = signed ? signed(dp) : (dp >= 0 ? '+' + fmt(dp, 2) : fmt(dp, 2));
+    // `Number(d.daily_pnl || 0)` mapped a null onto 0 and then `dp >= 0`
+    // painted it the PROFIT colour — and /api/portfolio hardcodes
+    // `daily_pnl: null, // not tracked on the sync path` on the LIVE-linked
+    // branch, so this was not an edge case but the ordinary response.
+    // `equity` three lines up is already tri-stated; dashboard.js gates both
+    // its renderings on `daily != null`. This was the third rendering and the
+    // one that was missed.
+    const dpKnown = d.daily_pnl != null && Number.isFinite(Number(d.daily_pnl));
+    const dp = dpKnown ? Number(d.daily_pnl) : null;
+    const dpTxt = !dpKnown ? '—'
+      : (signed ? signed(dp) : (dp >= 0 ? '+' + fmt(dp, 2) : fmt(dp, 2)));
+    // Colour is a claim: neither up nor down for a figure nobody measured.
+    const dpCls = !dpKnown ? '' : (dp >= 0 ? 'up' : 'down');
     const openN = (d.open_positions || []).length;
     const modeCls = d.mode === 'LIVE' ? 'mode-badge--live' : 'mode-badge--paper';
     metaEl.innerHTML =
       `<span class="mode-badge ${modeCls}">${esc(d.mode || 'PAPER')}</span>` +
       `<span class="chat-meta-item"><span class="k">Equity</span><b>${eq}</b></span>` +
-      `<span class="chat-meta-item"><span class="k">Today</span><b class="${dp >= 0 ? 'up' : 'down'}">${dpTxt}</b></span>` +
+      `<span class="chat-meta-item"><span class="k">Today</span><b class="${dpCls}">${dpTxt}</b></span>` +
       `<span class="chat-meta-item"><span class="k">Open</span><b>${openN}</b></span>`;
     metaEl.hidden = false;
   }
