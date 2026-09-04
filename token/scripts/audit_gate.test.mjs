@@ -36,7 +36,11 @@ function run(stdout, root) {
   const res = spawnSync('node', [GATE, root], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-    timeout: 120_000,
+    // Longer than the gate's own TOTAL_BUDGET_MS. A stub that fails INSTANTLY
+    // fits many attempts inside that budget, so the unreadable case runs for
+    // most of it — killing the child here would report the gate as broken when
+    // it is doing exactly what it should.
+    timeout: 400_000,
   });
   return { code: res.status, out: (res.stdout || '') + (res.stderr || '') };
 }
@@ -52,7 +56,8 @@ test('a real npm error is a VERDICT: exit 1, and not retried', () => {
   }), tree());
   assert.equal(r.code, 1);
   assert.match(r.out, /Unauthorized/);
-  assert.doesNotMatch(r.out, /attempt 1\/3/, 'a specific answer must not be retried');
+  assert.doesNotMatch(r.out, /could not read the advisory data/,
+    'a specific answer must not be retried');
 });
 
 test('a clean tree against an empty baseline passes: exit 0', () => {
@@ -76,6 +81,23 @@ test('every baselined advisory vanishing at once is not an all-clear: exit 3', (
   assert.match(r.out, /--update/, 'a genuine remediation needs a stated way through');
 });
 
+test('an audit that is SLOW but succeeds is not killed by the cap', () => {
+  // Measured against the live registry: three consecutive audits of one tree
+  // took 1s, 2s and 127s, and all three SUCCEEDED. The first version of this
+  // gate capped an attempt at 90s and would have reported "could not read"
+  // about a registry that was answering.
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'slow-npm-'));
+  fs.writeFileSync(path.join(bin, 'npm'),
+    `#!/bin/sh\nsleep 100\ncat <<'JSON'\n${CLEAN}\nJSON\nexit 0\n`);
+  fs.chmodSync(path.join(bin, 'npm'), 0o755);
+  const res = spawnSync('node', [GATE, tree()], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    timeout: 200_000,
+  });
+  assert.equal(res.status, 0, (res.stdout || '') + (res.stderr || ''));
+});
+
 test('an EMPTY error envelope is could-not-check, retried, exit 3 — never an advisory report', () => {
   const r = run(JSON.stringify({
     error: { summary: '', detail: '' },
@@ -85,8 +107,8 @@ test('an EMPTY error envelope is could-not-check, retried, exit 3 — never an a
   assert.equal(r.code, 3, 'the registry being unreachable is not a verdict');
   assert.match(r.out, /COULD NOT CHECK/);
   assert.doesNotMatch(r.out, /NEW SUPPLY-CHAIN/, 'it must not read as a finding');
-  assert.match(r.out, /attempt 1\/3/, 'a blip deserves a second look');
-  assert.match(r.out, /attempt 2\/3/);
+  assert.match(r.out, /attempt 1 could not read/, 'a blip deserves a second look');
+  assert.match(r.out, /of budget left/, 'the budget it is spending must be visible');
   // npm DOES send a diagnosis; the old code sliced the one field that is
   // always empty on this path and threw the rest away.
   assert.match(r.out, /socket hang up/);

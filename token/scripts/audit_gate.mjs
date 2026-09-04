@@ -75,17 +75,32 @@ const TREE = path.basename(ROOT);
 /** Raised when the advisory data could not be READ. Exits 3, never 1. */
 class Unreadable extends Error {}
 
-// A hard cap per attempt. npm does its own retrying underneath (fetch-retries
-// defaults to 2, with a 10s..60s backoff, against TWO advisory endpoints, each
-// request patient to fetch-timeout = 5 minutes), so one invocation can run for
-// well over half an hour. Every job that runs this gate has a timeout-minutes
-// between 10 and 20 — and a job killed by ITS OWN timeout prints no message at
-// all, which is strictly worse than a red step. In the web app's job the SCA
+// BOUND THE TOTAL, NOT THE ATTEMPT COUNT.
+//
+// npm does its own retrying underneath (fetch-retries 2, a 10s..60s backoff,
+// two advisory endpoints, each request patient to fetch-timeout = 5 minutes),
+// so one unbounded invocation can run for well over half an hour. Every job
+// that runs this gate has a timeout-minutes between 10 and 20 — anchor-workspace
+// has the least at 10 — and a job killed by ITS OWN timeout prints no message
+// at all, which is strictly worse than a red step. In the web app's job the SCA
 // step runs BEFORE the suite, so an unbounded audit takes the whole test run
-// down with it. 3 x 90s + 10s + 20s = 300s, bounded, inside every budget.
-const ATTEMPT_TIMEOUT_MS = 90_000;
-const ATTEMPTS = 3;
-const BACKOFF_MS = [10_000, 20_000];
+// down with it.
+//
+// A FIRST ATTEMPT AT THIS CAPPED EACH TRY AT 90s AND ALLOWED THREE, AND THE CAP
+// WAS ITSELF THE BUG. Measured against the live registry: three consecutive
+// audits of the same tree took 1s, 2s and 127s — and all three SUCCEEDED. A 90s
+// cap kills that third one and reports "could not read" about a registry that
+// was answering, which is the same failure this gate exists to prevent, one
+// level up. 150s sits above the slow-but-working case with margin.
+//
+// The attempt COUNT then has to float, because a fixed one multiplied by a
+// generous cap does not fit in 10 minutes. Bounding the total instead is both
+// safer and more useful: a registry refusing fast gives many tries inside the
+// budget, a slow one gives fewer, and the worst case is stated once here rather
+// than being an emergent product of three constants.
+const ATTEMPT_TIMEOUT_MS = 150_000;
+const TOTAL_BUDGET_MS = 330_000;     // 5.5 min, inside anchor-workspace's 10
+const BACKOFF_MS = [10_000, 20_000, 20_000];
 
 function sleepSync(ms) {
   // No await at module scope in the middle of a sync gate; this is the
@@ -134,7 +149,12 @@ function isEmptyErrorEnvelope(err) {
 }
 
 function auditOnce() {
-  const res = spawnSync('npm', ['audit', '--json'], {
+  // --fetch-retries=0 hands the retrying to the loop below, which can SAY what
+  // it is doing. npm's own retries burn the same wall-clock invisibly, inside
+  // an attempt we then have to cap; moving that budget out here buys more real
+  // attempts and an honest log line for each. It does not make the gate more
+  // fragile: every retry npm would have done, runAudit() does, with backoff.
+  const res = spawnSync('npm', ['audit', '--json', '--fetch-retries=0'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -180,26 +200,31 @@ function runAudit() {
   // This does not make the gate lenient: exhausting the attempts still fails
   // the build. It converts a single blip into a pass and a real outage into an
   // honest "could not check" instead of a fabricated advisory report.
-  let last;
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+  const started = Date.now();
+  const spent = () => Date.now() - started;
+  let last, attempt = 0;
+  for (;;) {
+    attempt++;
     try {
       return auditOnce();
     } catch (e) {
       if (!(e instanceof Unreadable)) throw e;
       last = e;
-      if (attempt < ATTEMPTS) {
-        const wait = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
-        console.error(
-          `npm audit attempt ${attempt}/${ATTEMPTS} could not read the advisory data ` +
-          `(${e.message}); retrying in ${wait / 1000}s`
-        );
-        sleepSync(wait);
-      }
+      const wait = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
+      // Only start another attempt if a WHOLE one still fits. Starting one we
+      // would have to abandon spends the budget and answers nothing.
+      if (spent() + wait + ATTEMPT_TIMEOUT_MS > TOTAL_BUDGET_MS) break;
+      console.error(
+        `npm audit attempt ${attempt} could not read the advisory data ` +
+        `(${e.message}); retrying in ${wait / 1000}s ` +
+        `(${Math.round((TOTAL_BUDGET_MS - spent()) / 1000)}s of budget left)`
+      );
+      sleepSync(wait);
     }
   }
   throw new Unreadable(
-    `the advisory data for ${TREE}/ could not be read after ${ATTEMPTS} attempts. ` +
-    `Last: ${last ? last.message : 'unknown'}`
+    `the advisory data for ${TREE}/ could not be read in ${Math.round(spent() / 1000)}s ` +
+    `across ${attempt} attempt(s). Last: ${last ? last.message : 'unknown'}`
   );
 }
 
