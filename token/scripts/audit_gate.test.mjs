@@ -40,7 +40,7 @@ function run(stdout, root) {
     // fits many attempts inside that budget, so the unreadable case runs for
     // most of it — killing the child here would report the gate as broken when
     // it is doing exactly what it should.
-    timeout: 400_000,
+    timeout: 700_000,
   });
   return { code: res.status, out: (res.stdout || '') + (res.stderr || '') };
 }
@@ -93,7 +93,7 @@ test('an audit that is SLOW but succeeds is not killed by the cap', () => {
   const res = spawnSync('node', [GATE, tree()], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-    timeout: 200_000,
+    timeout: 400_000,
   });
   assert.equal(res.status, 0, (res.stdout || '') + (res.stderr || ''));
 });

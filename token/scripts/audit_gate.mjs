@@ -86,21 +86,31 @@ class Unreadable extends Error {}
 // step runs BEFORE the suite, so an unbounded audit takes the whole test run
 // down with it.
 //
-// A FIRST ATTEMPT AT THIS CAPPED EACH TRY AT 90s AND ALLOWED THREE, AND THE CAP
-// WAS ITSELF THE BUG. Measured against the live registry: three consecutive
-// audits of the same tree took 1s, 2s and 127s — and all three SUCCEEDED. A 90s
-// cap kills that third one and reports "could not read" about a registry that
-// was answering, which is the same failure this gate exists to prevent, one
-// level up. 150s sits above the slow-but-working case with margin.
+// THE CAP HAS BEEN THE BUG TWICE, SO IT IS SIZED FROM MEASUREMENTS, NOT TASTE.
 //
-// The attempt COUNT then has to float, because a fixed one multiplied by a
-// generous cap does not fit in 10 minutes. Bounding the total instead is both
-// safer and more useful: a registry refusing fast gives many tries inside the
-// budget, a slow one gives fewer, and the worst case is stated once here rather
-// than being an emergent product of three constants.
-const ATTEMPT_TIMEOUT_MS = 150_000;
-const TOTAL_BUDGET_MS = 330_000;     // 5.5 min, inside anchor-workspace's 10
-const BACKOFF_MS = [10_000, 20_000, 20_000];
+// 90s first: three consecutive audits of site/ took 1s, 2s and 127s and ALL
+// SUCCEEDED, so the cap killed a working audit and reported "could not read"
+// about a registry that was answering — this gate's own failure mode, one level
+// up. Raised to 150s, which was still short: four audits of the ROOT tree (the
+// biggest, five workspaces) took 190s, 55s, >400s and 181s, three of them
+// succeeding. 150s caught one in four.
+//
+// 240s covers that distribution with margin. A tree whose audit genuinely takes
+// longer than the whole budget will still report could-not-check, and that is
+// the correct answer rather than a number to keep chasing.
+//
+// The attempt COUNT floats because a fixed one times a generous cap does not
+// fit any job. Bounding the total is safer and more useful: a registry refusing
+// fast gives many tries, a slow one gives fewer, and the worst case is stated
+// once here instead of emerging from three constants multiplied together.
+// anchor-workspace's timeout-minutes went 10 -> 15 alongside this, matching its
+// four sibling node jobs; the budget below must fit inside the smallest of them
+// with room for npm ci on a cold cache.
+const ATTEMPT_TIMEOUT_MS = 240_000;
+const TOTAL_BUDGET_MS = 520_000;     // 8.7 min, inside the 15-minute jobs
+// Longer tail than the head: a registry failing INSTANTLY would otherwise spin
+// through the whole budget in tiny attempts, which is neither useful nor cheap.
+const BACKOFF_MS = [10_000, 20_000, 30_000, 60_000];
 
 function sleepSync(ms) {
   // No await at module scope in the middle of a sync gate; this is the
