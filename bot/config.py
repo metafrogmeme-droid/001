@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from typing import Optional
+
 from dotenv import load_dotenv
 
 # ── Env precedence (RC-AUD-019, flipped 2026-07-11) ─────────────────────────
@@ -291,6 +293,24 @@ def _env_float(key: str, default: float = 0.0) -> float:
         )
         return default
     return val
+
+
+def _env_float_opt(key: str) -> Optional[float]:
+    """A float from the environment, or None when the var is unset or junk.
+
+    Distinct from `_env_float(key, default)`: that one cannot tell "nobody
+    set this" from "somebody set it to the default", which matters wherever
+    the absent case must OMIT a parameter rather than send a value. A
+    malformed value reads as unset — the alternative is a crash at import on
+    a typo in a sampling knob.
+    """
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _env_float_bounded(key: str, default: float, min_val: float, max_val: float) -> float:
@@ -1103,6 +1123,16 @@ class LLMConfig:
     base_url: str = _env("LLM_BASE_URL")  # auto-resolved from provider if empty
     model: str = _env("LLM_MODEL", "")     # auto-resolved from provider if empty
     temperature: float = _env_float("LLM_TEMPERATURE", 0.3)
+    # Nucleus sampling. UNSET BY DEFAULT, and the default is the whole design:
+    # `None` omits the parameter entirely, so an install that never sets
+    # LLM_TOP_P sends exactly what it sent before this existed. A numeric
+    # default would silently change sampling on every deployment at once, on
+    # the component that writes trade theses.
+    #
+    # Read as a nullable float rather than through _env_float, because 0.0 is
+    # a MEANING here (greedy, top token only) and _env_float's default cannot
+    # tell an unset var from a deliberate zero.
+    top_p: Optional[float] = _env_float_opt("LLM_TOP_P")
     max_tokens: int = int(_env_float("LLM_MAX_TOKENS", 1024))
     timeout_seconds: float = _env_float("LLM_TIMEOUT_SEC", 15.0)
     # Wall-clock cap on the WHOLE chat fallback chain (telegram_handler's

@@ -358,6 +358,57 @@ def closed_trade_row(pos) -> dict:
         "strategy_type": pos.strategy_type,
         "signal_type": pos.signal_type,
     }
+#: What a close card prints where a number would go when nothing could be read.
+UNREAD = "unread"
+
+
+def money(v) -> str:
+    """A dollar figure, or ``unread`` when there is no figure to print."""
+    return UNREAD if v is None else f"${v:.4f}"
+
+
+def close_pnl_line(net_pnl, pnl_pct, pnl_pct_margin, leverage, commission):
+    """The money line of a close card, tri-state on every field.
+
+    Pure, so the rendering can be driven straight at the unreadable case
+    instead of grepped for. The three readings fail INDEPENDENTLY: the venue
+    can report a realized PnL for a close whose exit price no source would
+    give up (money known, percentages not), and it can report neither.
+
+    ``unread`` wherever a number cannot be had -- never 0, and never a
+    percentage taken against a price of zero, which is not break-even but
+    -100%, the largest loss the arithmetic can express, printed as if
+    somebody had measured it.
+    """
+    lev = int(leverage or 1)
+    if net_pnl is None:
+        pnl_str = UNREAD
+    else:
+        pnl_str = f"+${net_pnl:.4f}" if net_pnl >= 0 else f"-${abs(net_pnl):.4f}"
+    if pnl_pct is None:
+        pct_str = f"{UNREAD}, {lev}×" if lev > 1 else UNREAD
+    elif lev > 1:
+        pct_str = (f"{pnl_pct_margin:+.2f}% margin / {pnl_pct:+.2f}% notional, "
+                   f"{lev}×")
+    else:
+        pct_str = f"{pnl_pct:+.2f}%"
+    fee_str = UNREAD if commission is None else f"${commission:.2f}"
+    return pnl_str, pct_str, fee_str
+
+
+def close_pct(exit_price, entry_price, direction, leverage):
+    """(notional %, margin %) for a close, or (None, None) when unpriceable.
+
+    An unread exit and a zero entry are both absences; neither is a return.
+    """
+    if not exit_price or not entry_price:
+        return None, None
+    pct = (exit_price - entry_price) / entry_price * 100.0
+    if direction == "SHORT":
+        pct = -pct
+    return pct, pct * int(leverage or 1)
+
+
 # F-13 FIX: Maximum order history retained in memory
 _MAX_ORDER_HISTORY = 200
 # Orphan-adoption false-positive guard (see _recent_local_opens): grace period
@@ -7873,12 +7924,19 @@ class LiveExecutor:
             )
             close_confirmed = close_verify["confirmed"]
 
-            # Use verified fill data when available
+            # Use verified fill data when available. `_fill_src` records WHICH
+            # read produced the exit price, so the persisted record can say
+            # whether it is exchange truth or an inference -- and, at the end
+            # of the chain, that nobody read it at all.
+            _fill_src = "unread"
             if close_verify["fill_price"] > 0:
                 fill_price = close_verify["fill_price"]
+                _fill_src = "exchange_fill"
             else:
                 # Fallback: extract from create_order response
                 fill_price = float(order.get("average", 0) or order.get("price", 0) or 0)
+                if fill_price > 0:
+                    _fill_src = "close_order"
 
             if close_verify["fill_qty"] > 0:
                 closed_qty = close_verify["fill_qty"]
@@ -8038,17 +8096,26 @@ class LiveExecutor:
                 filled_val = float(order.get("filled", 0) or 0)
                 if cost_val > 0 and filled_val > 0:
                     fill_price = cost_val / filled_val
+                    _fill_src = "close_order_cost"
             if fill_price == 0:
                 # Last resort: fetch ticker for current price
                 try:
                     main_exchange = await self._get_exchange()
                     ticker = await main_exchange.fetch_ticker(pos.symbol)
                     fill_price = float(ticker.get("last", 0) or 0)
+                    if fill_price > 0:
+                        _fill_src = "ticker_fallback"
                 except Exception as _tick_exc:
                     logger.warning("Close price ticker fallback failed for %s: %s",
                                    pos.symbol, _tick_exc)
-            if fill_price == 0:
-                fill_price = pos.entry_price  # absolute fallback — no phantom PnL
+            # No absolute fallback to pos.entry_price here, deliberately.
+            # Booking the exit AT the entry is an exact break-even that nobody
+            # measured -- the calmest record there is, assembled from three
+            # failed reads, on the close of a real position. `fill_price` stays
+            # 0.0 meaning UNREAD; the venue's own PnL below may still price the
+            # close, and if it does not the record carries None, which every
+            # reader already scores as unscorable rather than as a flat trade
+            # (bot/utils/win_rate.py, bot/backtest/parity.py both say so).
 
             # Calculate PnL — try exchange-reported profit first (source of truth)
             # Priority: 1) Bitget position history (netProfit, most accurate)
@@ -8075,6 +8142,7 @@ class LiveExecutor:
                     _pnl_is_net = pos_hist_data.get("pnl_is_net", False)
                     if pos_hist_data.get("close_price", 0) > 0:
                         fill_price = pos_hist_data["close_price"]
+                        _fill_src = "bitget_position_history"
                     logger.info("Using Bitget position history PnL for %s: $%.4f (fees $%.4f)",
                                 pos.symbol, exchange_pnl, exchange_close_fees)
             except Exception as _hist_exc:
@@ -8118,6 +8186,14 @@ class LiveExecutor:
                                 "pessimistic_fee": round(exchange_close_fees, 6)})
                     self._record_warning("fee_fetch")
 
+            # Recomputed HERE, not at the ticker fallback: the position-history
+            # lookup above overwrites fill_price when its record carries a
+            # close price, so this is the first point where "did anything give
+            # us an exit price" is finally answerable.
+            exit_price_known = fill_price > 0
+            gross_pnl: Optional[float]
+            net_pnl: Optional[float]
+            commission: Optional[float]
             if exchange_pnl is not None:
                 is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
                 entry_fee_pct = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
@@ -8126,12 +8202,30 @@ class LiveExecutor:
                     entry_notional=pos.entry_price * pos.quantity,
                     entry_fee_pct=entry_fee_pct,
                 )
+            elif not exit_price_known:
+                # The venue confirmed the close and priced nothing. Book it --
+                # the position IS gone, and leaving it open would be a second
+                # lie -- but price none of it.
+                gross_pnl = net_pnl = commission = None
+                logger.warning(
+                    "Close of %s booked UNPRICED: no venue PnL and no exit "
+                    "price from any source (order, cost/filled, ticker).",
+                    pos.symbol)
+                audit(trade_log,
+                      f"{pos.symbol} closed but no exit price could be read — "
+                      f"booked UNPRICED (excluded from win rate and realized PnL)",
+                      action="live_close", result="UNPRICED",
+                      data={"trade_id": trade_id, "symbol": pos.symbol,
+                            "reason": reason, "close_order_id": close_order_id})
+                self._record_warning("close_price_unread")
             else:
-                # Fallback: calculate from entry/exit prices
+                # Fallback: calculate from entry/exit prices. Held in plain
+                # floats so the arithmetic stays float-to-float; the Optionals
+                # above are the PUBLISHED type, not the working one.
                 if pos.direction == "LONG":
-                    gross_pnl = (fill_price - pos.entry_price) * pos.quantity
+                    _gross = (fill_price - pos.entry_price) * pos.quantity
                 else:
-                    gross_pnl = (pos.entry_price - fill_price) * pos.quantity
+                    _gross = (pos.entry_price - fill_price) * pos.quantity
 
                 # Exchange commission: entry + exit notional x fee rate
                 entry_notional = pos.entry_price * pos.quantity
@@ -8140,16 +8234,20 @@ class LiveExecutor:
                 is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
                 entry_fee_pct = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
                 exit_fee_pct = CONFIG.risk.taker_fee_pct  # exits are usually market
-                commission = (entry_notional * entry_fee_pct / 100.0) + (exit_notional * exit_fee_pct / 100.0)
-                net_pnl = gross_pnl - commission
+                _comm = (entry_notional * entry_fee_pct / 100.0) + (exit_notional * exit_fee_pct / 100.0)
+                gross_pnl, commission = _gross, _comm
+                net_pnl = _gross - _comm
 
             pos.close_reason = reason
             pos.status = "closed"
-            pos.close_price = fill_price
-            pos.gross_pnl = round(gross_pnl, 4)
-            pos.commission = round(commission, 4)
-            pos.pnl_usd = round(net_pnl, 4)
+            pos.close_price = fill_price if exit_price_known else None
+            pos.gross_pnl = None if gross_pnl is None else round(gross_pnl, 4)
+            pos.commission = None if commission is None else round(commission, 4)
+            pos.pnl_usd = None if net_pnl is None else round(net_pnl, 4)
             pos.closed_at = datetime.now(UTC)
+            # Provenance, same field _record_exchange_close fills: a forensic
+            # pass must be able to tell an unpriced record from a real fill.
+            pos.fill_source = _fill_src if exit_price_known else "unread"
 
             # AUDIT-FIX: Append to closed trades BEFORE save_positions, because
             # save_positions prunes closed entries from _positions dict. If a crash
@@ -8181,27 +8279,31 @@ class LiveExecutor:
             # Notify engine to invalidate balance cache
             self._fire_position_closed(pos)
 
-            audit(trade_log, f"Live position closed: {pos.symbol} net=${net_pnl:.4f} (gross=${gross_pnl:.4f}, fee=${commission:.4f})",
-                  action="live_close", result="CLOSED",
+            audit(trade_log,
+                  f"Live position closed: {pos.symbol} net={money(net_pnl)} "
+                  f"(gross={money(gross_pnl)}, fee={money(commission)})",
+                  action="live_close",
+                  result="CLOSED" if exit_price_known else "CLOSED_UNPRICED",
                   data={
                       "trade_id": trade_id, "reason": reason,
-                      "entry": pos.entry_price, "exit": fill_price,
-                      "pnl_usd": round(net_pnl, 4),
-                      "gross_pnl": round(gross_pnl, 4),
-                      "commission": round(commission, 4),
+                      "entry": pos.entry_price,
+                      "exit": fill_price if exit_price_known else None,
+                      "exit_price_known": exit_price_known,
+                      "fill_source": pos.fill_source,
+                      "pnl_usd": None if net_pnl is None else round(net_pnl, 4),
+                      "gross_pnl": None if gross_pnl is None else round(gross_pnl, 4),
+                      "commission": None if commission is None else round(commission, 4),
                       "confirmed": close_confirmed,
                       "exchange_fees": exchange_close_fees,
                       "close_order_id": close_order_id,
                       "close_failure_stage": close_verify.get("failure_stage", ""),
                   })
 
-            pnl_str = f"+${net_pnl:.4f}" if net_pnl >= 0 else f"-${abs(net_pnl):.4f}"
-            # C2-58 FIX: Show both leveraged (margin) and unleveraged (notional) PnL%
-            pnl_pct = ((fill_price - pos.entry_price) / pos.entry_price * 100)
-            if pos.direction == "SHORT":
-                pnl_pct = -pnl_pct
             lev = pos.leverage or 1
-            pnl_pct_margin = pnl_pct * lev  # leveraged return — what hits the account
+            # C2-58 FIX: Show both leveraged (margin) and unleveraged (notional) PnL%
+            pnl_pct, pnl_pct_margin = close_pct(
+                fill_price if exit_price_known else None,
+                pos.entry_price, pos.direction, lev)
             hold_secs = (pos.closed_at - pos.opened_at).total_seconds() if pos.closed_at and pos.opened_at else 0
             if hold_secs < 3600:
                 hold_str = f"{hold_secs / 60:.0f}m"
@@ -8209,12 +8311,8 @@ class LiveExecutor:
                 hold_str = f"{hold_secs / 3600:.1f}h"
             else:
                 hold_str = f"{hold_secs / 86400:.1f}d"
-            fee_str = f"${commission:.2f}"
-            # C2-58: Show leveraged return when leverage > 1
-            if lev > 1:
-                pnl_pct_str = f"{pnl_pct_margin:+.2f}% margin / {pnl_pct:+.2f}% notional, {lev}×"
-            else:
-                pnl_pct_str = f"{pnl_pct:+.2f}%"
+            pnl_str, pnl_pct_str, fee_str = close_pnl_line(
+                net_pnl, pnl_pct, pnl_pct_margin, lev, commission)
 
             # Close verification status
             if close_confirmed:
@@ -8223,12 +8321,21 @@ class LiveExecutor:
                 stage = close_verify.get("failure_stage", "unconfirmed")
                 verify_str = f"⚠️ {stage}"
 
+            _exit_str = f"${fill_price:,.4f}" if exit_price_known else UNREAD
             close_msg = (
                 f"CLOSED {pos.direction} {pos.symbol} ({reason})\n"
-                f"Entry: ${pos.entry_price:,.4f} → Exit: ${fill_price:,.4f}\n"
+                f"Entry: ${pos.entry_price:,.4f} → Exit: {_exit_str}\n"
                 f"PnL: {pnl_str} ({pnl_pct_str}) | Fees: {fee_str} | Hold: {hold_str}\n"
                 f"Verified: {verify_str}"
             )
+            if not exit_price_known:
+                close_msg += (
+                    "\nNo source would give up an exit price, so this close is "
+                    "recorded UNPRICED — left out of win rate and realized PnL "
+                    "rather than booked at the entry price, which would read as "
+                    "a measured break-even. The venue's own history is the "
+                    "place to price it."
+                )
 
             # Store structured close data for rich rendering
             self._last_close_data = {
@@ -8236,12 +8343,14 @@ class LiveExecutor:
                 "direction": pos.direction,
                 "reason": reason,
                 "entry": pos.entry_price,
-                "exit": fill_price,
+                "exit": fill_price if exit_price_known else None,
+                "exit_price_known": exit_price_known,
+                "fill_source": pos.fill_source,
                 "pnl_pct": pnl_pct,
                 "pnl_pct_margin": pnl_pct_margin,  # C2-58: leveraged return
-                "pnl_usd": round(net_pnl, 4),
-                "gross_pnl": round(gross_pnl, 4),
-                "fees": round(commission, 4),
+                "pnl_usd": None if net_pnl is None else round(net_pnl, 4),
+                "gross_pnl": None if gross_pnl is None else round(gross_pnl, 4),
+                "fees": None if commission is None else round(commission, 4),
                 "exchange_fees": round(exchange_close_fees, 4),
                 "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0 else round(pos.entry_price * pos.quantity, 2),
                 "leverage": pos.leverage or 1,
@@ -9844,15 +9953,27 @@ class LiveExecutor:
                                 except Exception:
                                     est_exit = 0
                                 if est_exit <= 0:
-                                    est_exit = pos.entry_price  # absolute fallback
-                                reason = self._infer_close_reason(pos, est_exit)
-                                fill_source = f"ticker_fallback_after_{_retries}_retries"
+                                    # UNREAD, not the entry price. Ten retries
+                                    # and a dead ticker is an absence; booking
+                                    # the exit at the entry turns it into an
+                                    # exact break-even nobody measured. The
+                                    # position IS gone from the venue, so book
+                                    # the close and price none of it.
+                                    est_exit = None
+                                    reason = "CLOSED (unknown)"
+                                    fill_source = f"unpriced_after_{_retries}_retries"
+                                else:
+                                    reason = self._infer_close_reason(pos, est_exit)
+                                    fill_source = f"ticker_fallback_after_{_retries}_retries"
                                 exchange_reported_pnl = None
 
                             # Compute PnL — prefer exchange-reported profit (source of truth)
+                            pnl: Optional[float]
                             if exchange_reported_pnl is not None:
                                 pnl = exchange_reported_pnl
                                 fill_source = fill_source + "+exchange_pnl"
+                            elif est_exit is None:
+                                pnl = None
                             elif pos.direction == "LONG":
                                 pnl = (est_exit - pos.entry_price) * pos.quantity
                             else:
@@ -9863,6 +9984,9 @@ class LiveExecutor:
                             pos.close_price = est_exit
 
                             # ── Use exchange-reported PnL when available (most accurate) ──
+                            gross_pnl: Optional[float]
+                            net_pnl: Optional[float]
+                            commission: Optional[float]
                             if exchange_reported_pnl is not None:
                                 # Honor pnl_is_net (gross vs net) instead of
                                 # assuming net — otherwise fees are dropped and
@@ -9880,6 +10004,16 @@ class LiveExecutor:
                                 pnl = gross_pnl
                                 logger.info("Using exchange-reported PnL for %s: $%.4f",
                                             pos.symbol, net_pnl)
+                            elif est_exit is None or pnl is None:
+                                # Nothing priced this close. A fee is a fraction
+                                # of an exit notional there is no exit price for,
+                                # so it is unknown too -- and an unknown fee
+                                # printed as $0.00 is a free trade.
+                                gross_pnl = net_pnl = commission = None
+                                logger.warning(
+                                    "Reconciled close of %s booked UNPRICED — "
+                                    "exchange history and ticker both unreadable",
+                                    pos.symbol)
                             else:
                                 # Deduct commission on reconciled close (same as manual close)
                                 entry_notional = pos.entry_price * pos.quantity
@@ -9888,12 +10022,13 @@ class LiveExecutor:
                                 is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
                                 entry_fee = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
                                 exit_fee = CONFIG.risk.taker_fee_pct  # SL/TP triggers = market = taker
-                                commission = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
-                                gross_pnl = pnl
-                                net_pnl = gross_pnl - commission
-                            pos.gross_pnl = round(gross_pnl, 4)
-                            pos.commission = round(commission, 4)
-                            pos.pnl_usd = round(net_pnl, 4)
+                                _comm = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
+                                gross_pnl, commission = pnl, _comm
+                                net_pnl = pnl - _comm
+                            pos.gross_pnl = None if gross_pnl is None else round(gross_pnl, 4)
+                            pos.commission = None if commission is None else round(commission, 4)
+                            pos.pnl_usd = None if net_pnl is None else round(net_pnl, 4)
+                            pos.fill_source = fill_source
                             pos.closed_at = datetime.now(UTC)
 
                             self._save_positions()
@@ -9901,10 +10036,12 @@ class LiveExecutor:
                             # Invalidate balance cache on reconciled close
                             self._fire_position_closed(pos)
 
-                            pnl_str = f"+${net_pnl:.4f}" if net_pnl >= 0 else f"-${abs(net_pnl):.4f}"
-                            pnl_pct = ((est_exit - pos.entry_price) / pos.entry_price * 100) if pos.entry_price else 0
-                            if pos.direction == "SHORT":
-                                pnl_pct = -pnl_pct
+                            pnl_pct, pnl_pct_margin = close_pct(
+                                est_exit, pos.entry_price, pos.direction,
+                                pos.leverage or 1)
+                            pnl_str, _pct_str, _fee_str = close_pnl_line(
+                                net_pnl, pnl_pct, pnl_pct_margin,
+                                pos.leverage or 1, commission)
                             hold_secs = (pos.closed_at - pos.opened_at).total_seconds() if pos.closed_at and pos.opened_at else 0
                             if hold_secs < 3600:
                                 hold_str = f"{hold_secs / 60:.0f}m"
@@ -9912,11 +10049,20 @@ class LiveExecutor:
                                 hold_str = f"{hold_secs / 3600:.1f}h"
                             else:
                                 hold_str = f"{hold_secs / 86400:.1f}d"
+                            _exit_txt = (UNREAD if est_exit is None
+                                         else f"~${est_exit:,.4f}")
                             msg = (
                                 f"RECONCILED {pos.direction} {pos.symbol} ({reason})\n"
-                                f"Entry: ${pos.entry_price:,.4f} -> Exit: ~${est_exit:,.4f}\n"
-                                f"PnL: {pnl_str} ({pnl_pct:+.2f}%) | Hold: {hold_str}"
+                                f"Entry: ${pos.entry_price:,.4f} -> Exit: {_exit_txt}\n"
+                                f"PnL: {pnl_str} ({_pct_str}) | Hold: {hold_str}"
                             )
+                            if est_exit is None:
+                                msg += (
+                                    "\nRecorded UNPRICED after "
+                                    f"{_retries} attempts — left out of win rate "
+                                    "and realized PnL rather than booked at the "
+                                    "entry price as a break-even nobody measured."
+                                )
                             self._last_close_data = {
                                 "symbol": pos.symbol,
                                 "direction": pos.direction,
@@ -9924,10 +10070,12 @@ class LiveExecutor:
                                 "entry": pos.entry_price,
                                 "exit": est_exit,
                                 "pnl_pct": pnl_pct,
-                                "pnl_pct_margin": pnl_pct * (pos.leverage or 1),
-                                "pnl_usd": round(net_pnl, 4),
-                                "gross_pnl": round(gross_pnl, 4),
-                                "fees": round(commission, 4),
+                                "pnl_pct_margin": pnl_pct_margin,
+                                "exit_price_known": est_exit is not None,
+                                "fill_source": fill_source,
+                                "pnl_usd": None if net_pnl is None else round(net_pnl, 4),
+                                "gross_pnl": None if gross_pnl is None else round(gross_pnl, 4),
+                                "fees": None if commission is None else round(commission, 4),
                                 "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0 else round(pos.entry_price * pos.quantity, 2),
                                 "leverage": pos.leverage or 1,
                                 "hold_time": hold_str,
@@ -9950,12 +10098,15 @@ class LiveExecutor:
                                 messages.append(msg)
 
                             audit(trade_log,
-                                  f"Position reconciled (closed on exchange): {pos.symbol} PnL=${pnl:.4f}",
-                                  action="reconcile_close", result="CLOSED",
+                                  f"Position reconciled (closed on exchange): "
+                                  f"{pos.symbol} PnL={money(pnl)}",
+                                  action="reconcile_close",
+                                  result="CLOSED" if est_exit is not None else "CLOSED_UNPRICED",
                                   data={
                                       "trade_id": pos.trade_id, "reason": reason,
                                       "entry": pos.entry_price, "exit": est_exit,
-                                      "pnl_usd": round(pnl, 4),
+                                      "fill_source": fill_source,
+                                      "pnl_usd": None if pnl is None else round(pnl, 4),
                                       "notification_suppressed": was_recovered,
                                   })
 

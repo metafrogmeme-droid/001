@@ -8853,11 +8853,17 @@ class TelegramHandler:
                     from bot.formatters.signal_card import humanize_close_reason
                     sym = close_data.get("symbol", "").replace("/", "").replace(":USDT", "")
                     direction = close_data.get("direction", "")
-                    pnl_usd = close_data.get("pnl_usd", 0)
+                    # `.get(k, 0)` defaults a MISSING key only; a close booked
+                    # UNPRICED carries a present None, which formats as a
+                    # TypeError and, before that, would have read as $0.00 —
+                    # a break-even nobody measured, in the caption under a
+                    # card that says "unread".
+                    pnl_usd = close_data.get("pnl_usd")
                     reason = close_data.get("reason", "closed")
                     pnl_emoji, reason_short = humanize_close_reason(reason, pnl_usd)
+                    _pnl_txt = "unread" if pnl_usd is None else f"${pnl_usd:+,.2f}"
                     cap = (f"{pnl_emoji} <b>{html.escape(sym)}</b> {direction} CLOSED\n"
-                           f"PnL: ${pnl_usd:+,.2f} | {html.escape(reason_short)}")
+                           f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
                     # The share button re-renders in PERCENT; it never forwards
                     # this caption, which carries dollars and is private by
                     # design. close_share_button returns None when the close
@@ -8889,7 +8895,10 @@ class TelegramHandler:
                     # off; fall back to a text heuristic on msg in that case.
                     from bot.formatters.signal_card import humanize_close_reason
                     reason = close_data.get("reason", "") if close_data else ""
-                    pnl_for_sign = (close_data.get("pnl_usd", 0) if close_data
+                    # No `, 0` default: an unpriced close must reach
+                    # humanize_close_reason as None so it answers ⚪ rather
+                    # than the ✅ that `0 >= 0` buys.
+                    pnl_for_sign = (close_data.get("pnl_usd") if close_data
                                     else (1.0 if "+$" in msg else -1.0))
                     emoji, heading = humanize_close_reason(reason, pnl_for_sign)
                     sym = close_data.get("symbol", "") if close_data else ""
@@ -11840,9 +11849,27 @@ class TelegramHandler:
 
         uid = update.effective_user.id if update.effective_user else ""
 
-        # Show ALL pending ideas, not just the last one
+        # Show ALL pending ideas, not just the last one.
+        #
+        # And SAY when some were filtered out. `pending` is the >= display-line
+        # subset; `/status` counts `engine._pending_ideas` unfiltered, so the
+        # two headline numbers disagree by exactly the ideas below the line —
+        # "1 Trade Setup Found" beside "Pending Ideas: 2", with nothing on
+        # either card explaining the gap. `below_note` already covers the case
+        # where NOTHING clears the bar; the mixed case had no words at all,
+        # which reads as "the engine found one idea" when it found two.
+        #
+        # Re-read the engine here rather than trusting the `all_pending` taken
+        # at entry: the re-scan branches above refresh `pending` and not it.
+        _all_now = list(self.engine.pending_ideas)
+        _hidden = max(0, len(_all_now) - len(pending))
         _header = (f"\U0001f4a1 <b>{len(pending)} Trade Setup"
-                   f"{'s' if len(pending) > 1 else ''} Found</b>\n{'━' * 28}")
+                   f"{'s' if len(pending) > 1 else ''} Found</b>")
+        if _hidden and not below_note:
+            _header += (f"\n<i>{_hidden} more below the {_display_min:.0%} "
+                        f"confidence line, not shown — /status counts all "
+                        f"{len(_all_now)}.</i>")
+        _header += f"\n{'━' * 28}"
         if below_note:
             _header = f"{below_note}\n{_header}"
         await self._send(update, _header)
@@ -14163,11 +14190,14 @@ class TelegramHandler:
 
                             if close_png:
                                 from bot.formatters.signal_card import humanize_close_reason
-                                pnl_val = close_data.get("pnl_usd", 0)
+                                # Tri-state — see the /close caption above.
+                                pnl_val = close_data.get("pnl_usd")
                                 pnl_emoji, reason_short = humanize_close_reason(
                                     close_data.get("reason", "manual"), pnl_val)
+                                _pnl_txt = ("unread" if pnl_val is None
+                                            else f"${pnl_val:+,.2f}")
                                 cap = (f"{pnl_emoji} <b>{html.escape(pair)}</b> CLOSED\n"
-                                       f"PnL: ${pnl_val:+,.2f} | {html.escape(reason_short)}")
+                                       f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
                                 await self._send_photo(update, close_png, cap)
                             else:
                                 # Fallback to text
