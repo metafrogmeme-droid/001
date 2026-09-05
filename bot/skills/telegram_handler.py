@@ -709,8 +709,8 @@ from bot.nlp.skill_memory import (skill_failure_memory, skill_result_memory,
                                   skill_unavailable_memory)
 from bot.formatters.thesis_text import thesis_prose
 from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG,
-                              create_llm_client, llm_complete, llm_complete_with_tools,
-                              resolve_tier_config)
+                              create_llm_client, fallback_chain, llm_complete,
+                              llm_complete_with_tools, resolve_tier_config)
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_confirm_reject as _scan_callback
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
@@ -2528,9 +2528,10 @@ class TelegramHandler:
         the returned text is the one that went through `_chat_ret`'s checks,
         and a surface must replace what it streamed with what is returned.
 
-        Uses CHAT tier routing with automatic fallback chain:
-        Groq → Gemini → Anthropic → primary .env provider.
-        If all fail, returns a helpful error with the actual reason.
+        Uses CHAT tier routing with an automatic fallback chain: the caller's
+        own key → the chat tier → ``FALLBACK_CHAINS["chat"]`` in
+        bot/llm/provider.py → the primary .env provider. If all fail, the
+        reply says so, in the user's language.
 
         ``public=True`` serves an anonymous website visitor: a STATIC
         market-only system prompt with NO portfolio/position context and NO
@@ -2704,20 +2705,17 @@ class TelegramHandler:
             configs_to_try.append(("chat_tier", chat_cfg))
 
         # 2. Fallback providers from env (Gemini, Alibaba, and — admin only —
-        # Anthropic). The operator's Claude key is reserved for admin use;
-        # resolve_tier_config() above already enforces this for the primary
-        # chat-tier config, but this hardcoded fallback chain is a SEPARATE
-        # mechanism that doesn't go through resolve_tier_config, so it needs
-        # its own is_admin gate to keep non-admin chat from silently falling
-        # back to Anthropic when the primary/chat-tier call fails.
-        _FALLBACK_PROVIDERS = [
-            (LLMProvider.GEMINI, "GEMINI_API_KEY", "gemini-2.0-flash"),
-            (LLMProvider.ALIBABA, "ALIBABA_API_KEY", "qwen3.6-plus"),
-        ]
-        if is_admin:
-            _FALLBACK_PROVIDERS.insert(
-                1, (LLMProvider.ANTHROPIC, "ANTHROPIC_API_KEY", "claude-haiku-4-5-20251001"))
-        for provider, key_env, model in _FALLBACK_PROVIDERS:
+        # Anthropic). The chain itself lives beside the model catalogue in
+        # bot/llm/provider.py (`FALLBACK_CHAINS`): it used to be a literal
+        # list here and a second one in the analyzer, and each carried an id
+        # the catalogue had already retired. The operator's Claude key is
+        # reserved for admin use; resolve_tier_config() above already
+        # enforces this for the primary chat-tier config, but this fallback
+        # chain is a SEPARATE mechanism that doesn't go through
+        # resolve_tier_config, so `is_admin` rides into the lookup to keep
+        # non-admin chat from silently falling back to Anthropic when the
+        # primary/chat-tier call fails.
+        for provider, key_env, model in fallback_chain("chat", is_admin=is_admin):
             api_key = os.getenv(key_env, "")
             if api_key and not any(
                 c.provider == provider for _, c in configs_to_try

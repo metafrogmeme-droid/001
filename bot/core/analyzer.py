@@ -59,7 +59,7 @@ from bot.core.multi_timeframe import MTFConfluence
 from bot.core.sentiment import SentimentEngine
 from bot.core.smart_money import SmartMoneyEngine
 from bot.core.strategy_modes import StrategySelector
-from bot.llm.provider import BYOK, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, llm_complete, LLMConfig, resolve_tier_config, model_supports_structured_output, model_thinking_always_on, sampling_kwargs as _sampling
+from bot.llm.provider import BYOK, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, fallback_chain, llm_complete, LLMConfig, resolve_tier_config, model_supports_structured_output, model_thinking_always_on, sampling_kwargs as _sampling
 from bot.core.volume_profile import compute_volume_profile, poc_magnet_signal
 from bot.core.liquidity_sweep import detect_sweeps, sweep_to_confluence_votes
 from bot.core.supply_demand import detect_zones, zones_to_confluence
@@ -4509,13 +4509,12 @@ class Analyzer:
     ) -> Optional[dict]:
         """Try alternate LLM providers when the primary fails (rate limit, error).
 
-        Cascading order:
-          1. Gemini (free tier, high quota)
-          2. Groq (free tier, fast)
-          3. Anthropic (paid, high quality) — admin callers only; the
-             operator's Claude key is reserved for admin use, matching
-             resolve_tier_config()'s hard non-admin guard for the primary path
-          4. DeepSeek (cheap, good quality)
+        Cascading order is ``FALLBACK_CHAINS["analysis"]`` in
+        bot/llm/provider.py, beside the catalogue whose retirements it must
+        follow: Alibaba Qwen, Gemini, Groq, Anthropic — admin callers only;
+        the operator's Claude key is reserved for admin use, matching
+        resolve_tier_config()'s hard non-admin guard for the primary path —
+        then DeepSeek.
 
         Skips the provider that actually failed (which may differ from the global
         primary when tier routing is active — e.g. SCAN tier uses Gemini while
@@ -4534,18 +4533,13 @@ class Analyzer:
                 else str(self._llm_config.provider)
             )
 
-        # Build fallback chain — skip the provider that actually failed
-        fallback_chain = [
-            (LLMProvider.ALIBABA, "ALIBABA_API_KEY", "qwen3.6-flash"),
-            (LLMProvider.GEMINI, "GEMINI_API_KEY", "gemini-2.0-flash"),
-            (LLMProvider.GROQ, "GROQ_API_KEY", "llama-3.3-70b-versatile"),
-            (LLMProvider.DEEPSEEK, "DEEPSEEK_API_KEY", "deepseek-chat"),
-        ]
-        if is_admin:
-            fallback_chain.insert(
-                3, (LLMProvider.ANTHROPIC, "ANTHROPIC_API_KEY", "claude-sonnet-5"))
-
-        for provider, key_env, default_model in fallback_chain:
+        # The chain lives beside the model catalogue in bot/llm/provider.py
+        # (`FALLBACK_CHAINS`), where a retired id is fixed once: the literal
+        # list that used to sit here named a Groq model the catalogue had
+        # already recorded as retired. `is_admin` decides whether the
+        # operator's reserved Anthropic key is in it. Skip the provider that
+        # actually failed.
+        for provider, key_env, default_model in fallback_chain("analysis", is_admin=is_admin):
             if provider.value == skip_provider:
                 continue  # Skip the one that just failed
 

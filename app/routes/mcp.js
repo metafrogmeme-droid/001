@@ -32,6 +32,10 @@ const { classifyPnls, outcomeOf } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
 const { publicSignal } = require('../lib/public_signal');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
+// The module itself as well as the two names above: ask_runeclaw reads
+// `gateway.postGateway` at call time, so a test can stand in a gateway
+// without a live bot behind it.
+const gateway = require('../lib/gateway');
 // The Guardian safety models. Pure functions of caller-supplied input — they
 // touch no account, read no database, move nothing, and are the same code the
 // browser pages run, so a tool answer and the website always agree.
@@ -49,7 +53,7 @@ const SERVER_INFO = { name: 'runeclaw', version: '2.0.0' };
 // idle-bucket pruning) — the earlier hand-rolled map never expired entries
 // and, once full, evicted the OLDEST-INSERTED key, which could reset an
 // actively-limited IP's counter under bucket churn.
-const { rateLimit, ipKey } = require('../lib/rate_limit');
+const { rateLimit, ipKey, slidingWindow } = require('../lib/rate_limit');
 router.use(rateLimit({ windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' }));
 
 // The global express.json() (1 MB) has already parsed the body by the time
@@ -63,6 +67,31 @@ router.use((req, res, next) => {
   }
   next();
 });
+
+// ── ask_runeclaw: the public website chat, as a tool ─────────────────────────
+// The same bounds routes/public_chat.js applies to the website's anonymous
+// chat, because it IS that chat: the gateway's /chat/public, account-free by
+// construction. The website allows six messages a minute per IP; a tool that
+// reached the same model at this router's sixty would be a tenfold widening
+// of the operator's LLM spend through the back door, so the tool keeps its
+// own window at the website's rate.
+const ASK_MAX_CHARS = 2000;
+const ASK_TIMEOUT_MS = 45000;
+const askWindow = slidingWindow({ windowMs: 60_000, max: 6 });
+
+/** Telegram-flavoured reply HTML as plain text, for an agent that cannot render it. */
+function htmlToText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|pre|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')                 // last, so "&amp;lt;" decodes once
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 // ── Tool registry ────────────────────────────────────────────────────────────
 // Each tool: { description, inputSchema, handler(args) -> JSON-serializable }.
@@ -771,6 +800,62 @@ const TOOLS = {
     },
   },
 
+  ask_runeclaw: {
+    description: 'Ask RUNECLAW a question in plain language and get the '
+      + 'answer the public website chat gives an anonymous visitor: how the '
+      + 'agent trades, how it manages risk, what a liquidity sweep is, which '
+      + 'venues it supports, and general market reasoning. Account-free by '
+      + 'construction — the bot answers from a static market-only prompt with '
+      + 'no portfolio, position or order data, keeps no conversation between '
+      + 'calls, and cannot propose or place a trade from here. It has no live '
+      + 'price feed on this path: a question that needs one comes back with '
+      + 'intent "public_scan_gate" and says so rather than inventing a number. '
+      + 'When no model is reachable the text says the assistant is '
+      + 'unavailable — read the answer; it is not always an answer. Optional '
+      + '`lang` (a BCP-47 tag such as "es") asks for the reply in that '
+      + 'language. Rate-limited per caller at the website\'s public-chat rate. '
+      + 'Not financial advice.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', maxLength: ASK_MAX_CHARS,
+          description: 'The question, in any language.' },
+        lang: { type: 'string', maxLength: 12,
+          description: 'Reply language as a BCP-47 tag, optional.' },
+      },
+      required: ['question'],
+      additionalProperties: false,
+    },
+    handler: async (args, ctx) => {
+      const question = String((args && args.question) || '').trim();
+      if (!question) return { error: 'question is required' };
+      if (question.length > ASK_MAX_CHARS) return { error: `question too long (${ASK_MAX_CHARS} max)` };
+      const rawLang = String((args && args.lang) || '').trim();
+      const lang = /^[a-zA-Z-]{2,12}$/.test(rawLang) ? rawLang : '';
+      if (!gatewayConfigured()) return { available: false, error: 'not_configured' };
+      if (!askWindow.allow((ctx && ctx.ip) || 'unknown')) {
+        return { available: false, error: 'rate_limited',
+          retry_after_seconds: askWindow.retryAfterSeconds };
+      }
+      const r = await gateway.postGateway('/chat/public',
+        lang ? { text: question, lang } : { text: question }, ASK_TIMEOUT_MS);
+      // Unavailable is said, never rendered as an empty answer: a caller
+      // that gets "" back reads it as "RUNECLAW had nothing to say".
+      if (r.status < 200 || r.status >= 300) return { available: false, error: 'unavailable' };
+      const html = String((r.data && r.data.reply_html) || '');
+      if (!html.trim()) return { available: false, error: 'empty' };
+      return {
+        available: true,
+        answer: htmlToText(html),
+        reply_html: html,
+        intent: String((r.data && r.data.intent) || 'chat'),
+        ...(lang ? { lang } : {}),
+        note: 'Account-free public chat: no portfolio data, no memory between '
+          + 'calls, no live price feed, nothing traded. Not financial advice.',
+      };
+    },
+  },
+
   get_leaderboard: {
     description: 'The public verifiable leaderboard: anonymous handles ranked '
       + 'by re-verified sealed statements (win rate, profit factor, round '
@@ -1193,7 +1278,10 @@ function validateArgs(schema, args) {
     }
     if (spec.type === 'string') {
       if (typeof v !== 'string') return `${k} must be a string`;
-      if (v.length > 200) return `${k} too long (200 max)`;
+      // A declared `maxLength` is the cap; 200 otherwise — the bound every
+      // string argument carried before any tool declared its own.
+      const cap = Number.isInteger(spec.maxLength) ? spec.maxLength : 200;
+      if (v.length > cap) return `${k} too long (${cap} max)`;
     } else if (spec.type === 'number' || spec.type === 'integer') {
       if (typeof v !== 'number' || !isFinite(v)) return `${k} must be a number`;
       if (spec.type === 'integer' && !Number.isInteger(v)) return `${k} must be an integer`;
@@ -1221,6 +1309,10 @@ router.post('/', express.json({ limit: '64kb' }), async (req, res) => {
     const out = await handleRpc(req.body, {
       userId: ident ? ident.userId : null,
       agentSlug: ident ? ident.agentSlug : null,
+      // The caller's address, for a limit a tool applies on top of the
+      // router's (ask_runeclaw). Resolved here so no handler reads the
+      // request itself.
+      ip: ipKey(req),
     });
     if (out === null) return res.status(202).end();  // notification accepted
     res.json(out);

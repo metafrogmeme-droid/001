@@ -22,7 +22,7 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Depends, Security, Request
@@ -305,6 +305,10 @@ class ConfirmRequest(BaseModel):
     take_profit: float
     confidence: float = 0.7
     reasoning: str = "Manual confirmation via API"
+
+class ChatRequest(BaseModel):
+    question: str
+    lang: str = ""   # reply language, a BCP-47 tag; "" keeps the default
 
 
 # ── Lifespan ─────────────────────────────────────────────────────
@@ -1126,6 +1130,60 @@ async def risk_halt(_token: str = Depends(require_dashboard_token), _rl: None = 
 # This must be LAST so API routes take priority over the static catchall.
 
 _WEBSITE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "website")
+
+
+# ── Chat ─────────────────────────────────────────────────────────
+
+# The headless chat handler, built on first use around the engine this
+# process owns — see bot/nlp/chat_facade.py for what it is and is not.
+_chat_handler: Optional[Any] = None
+_LANG_TAG_RE = re.compile(r"^[A-Za-z-]{2,12}$")
+
+
+def _chat_facade():
+    global _chat_handler
+    if _chat_handler is None:
+        from bot.nlp.chat_facade import headless_handler
+        _chat_handler = headless_handler(engine)
+    return _chat_handler
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest,
+               _token: str = Depends(require_dashboard_token),
+               _rl: None = Depends(_require_rate_limit)):
+    """Ask the chat brain a question, as the operator.
+
+    The bearer token is the operator's — it is the same one that reaches
+    /confirm and /risk/halt — so the turn runs with the operator's identity:
+    their portfolio context in the system prompt, their tier routing, their
+    keys. The model is offered NO tools on this surface (bot/nlp/chat_facade.py
+    says why), and the reply is Telegram-flavoured HTML, exactly what the web
+    gateway returns. `answered_by` is "none" when no model produced the text.
+    """
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+    from bot.nlp.chat_facade import ask, check_question
+    try:
+        question = check_question(req.question)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    lang = req.lang.strip()
+    if not _LANG_TAG_RE.match(lang):
+        lang = ""
+    # The operator's Telegram id keys their portfolio and their memory; a
+    # bridge with no seeded operator still needs ONE stable identity so the
+    # conversation has somewhere to live.
+    user_id = str(CONFIG.telegram.chat_id or "").strip() or "operator"
+    try:
+        return await ask(_chat_facade(), question, user_id=user_id,
+                         is_admin=True, reply_lang=lang, surface="api")
+    except Exception as exc:
+        # Logged server-side, generic to the client: a provider error can
+        # carry a credential-bearing URL (RC-AUD-013, same rule as /analyze).
+        import logging
+        logging.getLogger("api_bridge").error("Chat error: %s", exc)
+        raise HTTPException(status_code=500, detail="Chat error (logged server-side)")
 
 
 @app.get("/platform-url")

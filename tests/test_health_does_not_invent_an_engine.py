@@ -52,8 +52,13 @@ def bridge(monkeypatch):
 
 
 def _health(mod):
+    """A fresh loop per call. `get_event_loop().run_until_complete` depended
+    on whichever module ran before this one having left a loop set: any
+    earlier `asyncio.run` (which unsets it on exit) made every test here
+    raise "no current event loop" — a failure about test ORDER, reported as
+    a failure of the health endpoint."""
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(mod.health())
+    return asyncio.run(mod.health())
 
 
 class _Risk:

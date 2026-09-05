@@ -22,15 +22,21 @@ claude mcp add --transport http runeclaw https://<your-deployment>/mcp
 
 ## Scope — read-only by design
 
-Every tool serves data the public website already publishes. **No tool can
-access a user account, and no tool can place, modify, or cancel a trade.**
-Trade-capable MCP tools are a separate, operator-gated decision that has not
-been taken.
+Every tool either serves data the public website already publishes or
+evaluates input the caller supplies (the Guardian safety tools, which store
+nothing they are sent). **No tool can access a user account, and no tool can
+place, modify, or cancel a real trade.** The `arena_*` tools open and close
+PAPER positions and need an Arena key; trade-capable MCP tools are a separate,
+operator-gated decision that has not been taken.
 
 ## Tools
 
+The live list is `tools/list` on the endpoint; the rows below are the ones
+worth knowing before you connect.
+
 | Tool | What it returns |
 |------|-----------------|
+| `ask_runeclaw` | A plain-language answer from the same account-free chat the public website serves: no portfolio data, no memory between calls, no live price feed (`intent: public_scan_gate` says a question needed one), nothing traded. Rate-limited per caller at the website's rate |
 | `get_track_record` | Public verifiable performance: win rate, profit factor, net PnL, recent closed trades — from recorded history |
 | `get_signals` | Recent engine-generated signals (taken or not) with confidence, levels, and resolved outcomes |
 | `get_agent_feed` | The agent's live mind-stream: scans, theses, opens/closes, stop moves |
