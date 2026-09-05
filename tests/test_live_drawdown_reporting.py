@@ -109,12 +109,35 @@ def test_evaluate_records_the_live_equity_it_gated_on():
 
 
 def test_status_card_renders_the_enforced_number_in_live_mode():
-    from pathlib import Path
-    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
-    assert 'drawdown_status()' in src
-    assert '_dd.get("drawdown_source") == "live"' in src, \
-        "the card must switch to the live figure only when there IS one"
-    # fail-safe: the paper value is assigned first and kept on error
-    i = src.index("drawdown = round(state.max_drawdown_pct, 2)")
-    j = src.index('_dd.get("drawdown_source") == "live"')
-    assert i < j, "the paper value must be the fallback, not the override"
+    """DRIVEN, not grepped.
+
+    This asserted the literal `_dd.get("drawdown_source") == "live"` and the
+    byte offset of the line above it, so it failed the moment the read moved
+    into a shared helper — while every behaviour it names was untouched, and
+    one it could not name (whether the reader is TOLD which number it got) was
+    the actual defect. `resolve_display_drawdown` is the seam; driving it
+    settles the contract and no rewrite of the call site can fake it.
+    """
+    from bot.formatters.drawdown_card import resolve_display_drawdown as _r
+
+    live = {"drawdown_pct": 9.0, "drawdown_source": "live",
+            "effective_limit_pct": 7.0}
+
+    # The live figure overrides the paper one, and brings its own limit.
+    assert _r(3.1, live, 5.0) == (9.0, "live", 7.0)
+
+    # Fail-safe: an unreadable gate KEEPS the paper number rather than
+    # blanking the line — but says which one it is.
+    assert _r(3.1, None, 7.0) == (3.1, "paper", 7.0)
+    assert _r(3.1, {}, 7.0) == (3.1, "paper", 7.0)
+
+    # A paper reading from the gate is the claim we already hold; it must not
+    # be promoted to "live".
+    assert _r(3.1, dict(live, drawdown_source="paper"), 5.0)[1] == "paper"
+
+    # `if state.max_drawdown_pct else 0.0` was falsy: an unreadable paper
+    # figure became a measured 0.0%, the calmest possible reading, on the
+    # control that halts real-money losses.
+    assert _r(None, None, 7.0) == (None, None, 7.0)
+    # ...while a MEASURED zero survives, because a flat book is a reading.
+    assert _r(0.0, None, 7.0) == (0.0, "paper", 7.0)

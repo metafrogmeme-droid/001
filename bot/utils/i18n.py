@@ -572,6 +572,13 @@ _STRINGS: dict[str, dict[str, str]] = {
     "lbl_cash": {"en": "Cash", "zh": "現金"},
     "lbl_daily_pnl": {"en": "Daily PnL", "zh": "當日損益"},
     "lbl_drawdown": {"en": "Drawdown", "zh": "回撤"},
+    # Not "0.0%". An unread drawdown is not a flat equity curve, and on the
+    # control that halts real-money losses the calmest reading is the one
+    # that must never be manufactured.
+    "dd_not_read": {"en": "not read", "zh": "未讀取"},
+    "dd_unreadable_note": {
+        "en": "drawdown could not be read — this is a failed read, not a flat curve",
+        "zh": "無法讀取回撤 — 這是讀取失敗，不是平坦的權益曲線"},
     "lbl_size": {"en": "Size", "zh": "金額"},
     "lbl_pnl": {"en": "PNL", "zh": "損益"},
     "lbl_current": {"en": "Current", "zh": "現價"},

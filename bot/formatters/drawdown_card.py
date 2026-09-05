@@ -168,3 +168,103 @@ def render_drawdown_status(st: Optional[dict]) -> list:
     if "live_hardening" in st and not st.get("live_hardening"):
         lines.append("• ⚠️ Live hardening OFF — override only bites on live.")
     return lines
+
+
+def enforced_drawdown(st: Optional[dict]) -> tuple:
+    """``(pct, source, limit_pct)`` — the drawdown the BREAKER is enforcing.
+
+    A seam, because four surfaces asked this question and three answered it
+    differently. `/status` folded an unreadable paper figure to 0.0, then
+    replaced it only when `drawdown_source == "live"` — so a failed read left
+    the PAPER number standing while the limit beside it stayed the LIVE cap.
+    `CheckRiskSkill._status` and `._risk` never called `drawdown_status()` at
+    all and scored Health straight off the paper snapshot, which in pure-live
+    operation never moves. CLAUDE.md records the consequence in an operator's
+    own words: reading "~0% from a gate that was refusing trades at 9%".
+
+    `source` is the load-bearing return value and the reason this is a triple.
+    Falling back to the paper number is a defensible fail-safe — blanking the
+    line on a transient read failure is worse — but it is only defensible if
+    the card SAYS SO. An unattributable percentage is not a measurement of
+    anything the reader can name.
+
+    Every field is validated independently: a payload can carry a good limit
+    and an unreadable drawdown, and folding the pair together would discard
+    the half that arrived. `st` is `risk.drawdown_status()`'s return,
+    documented "best-effort; returns empty on any error", so `{}`/None is the
+    unreadable case — ``(None, None, None)``, never a zero.
+    """
+    if not st:
+        return None, None, None
+
+    dd = st.get("drawdown_pct")
+    # `dd != dd` is the NaN test: NaN is a float and passes isinstance, and
+    # every comparison against it is False, so it would slip through a band
+    # check as "below the limit" — the calmest answer, from a broken read.
+    if (not isinstance(dd, (int, float)) or isinstance(dd, bool)
+            or dd != dd):
+        dd = None
+    else:
+        dd = float(dd)
+
+    limit = st.get("effective_limit_pct")
+    if (not isinstance(limit, (int, float)) or isinstance(limit, bool)
+            or limit != limit or limit <= 0):
+        limit = None
+    else:
+        limit = float(limit)
+
+    # An unrecognised source is not "live". Only the two vocabulary words
+    # licence a claim about where the number came from.
+    src = st.get("drawdown_source")
+    if src not in _SOURCE_TEXT:
+        src = None
+    return dd, src, limit
+
+
+def drawdown_source_note(source: Optional[str]) -> str:
+    """The parenthetical that makes a drawdown figure attributable.
+
+    Deliberately non-empty for the unknown case. An omitted note reads as
+    "the usual source", which is the assumption that made the number
+    unattributable in the first place.
+    """
+    if source is None:
+        return " (source unknown)"
+    txt = _SOURCE_TEXT.get(source)
+    return f" ({txt})" if txt else " (source unknown)"
+
+
+def resolve_display_drawdown(paper_pct: object, status: Optional[dict],
+                             default_limit: float) -> tuple:
+    """``(pct, source, limit)`` for a card, from the paper figure AND the gate.
+
+    The seam three surfaces needed and none had. `/status` open-coded this;
+    `CheckRiskSkill._status` and `._risk` skipped the gate entirely and scored
+    off the paper snapshot alone. Open-coded logic in three places is three
+    chances to disagree, and they did.
+
+    THE ORDER IS THE CONTRACT, and it is a fail-safe rather than a preference:
+    the paper figure is seeded first and kept when the gate cannot be read,
+    because blanking the line on a transient fault is worse than showing a
+    stale-but-real number. The live figure OVERRIDES it only when the gate
+    actually reports one. What was missing is the third return value — with no
+    source the reader cannot tell which of those two happened, and the paper
+    number does not move in pure-live operation.
+
+    `paper_pct` is validated rather than trusted: `if state.max_drawdown_pct
+    else 0.0` was falsy, so an unreadable paper drawdown became a measured
+    0.0% — the calmest possible reading, manufactured, on the control that
+    decides how much real money is lost before the bot halts.
+    """
+    if (isinstance(paper_pct, (int, float)) and not isinstance(paper_pct, bool)
+            and paper_pct == paper_pct):
+        pct: Optional[float] = round(float(paper_pct), 2)
+        src: Optional[str] = "paper"
+    else:
+        pct, src = None, None
+
+    live_pct, live_src, limit = enforced_drawdown(status)
+    if live_src == "live" and live_pct is not None:
+        pct, src = round(live_pct, 2), "live"
+    return pct, src, (limit if limit is not None else default_limit)

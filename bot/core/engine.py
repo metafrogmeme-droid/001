@@ -2722,25 +2722,24 @@ class RuneClawEngine:
         value, _source = self.resolve_display_equity_sync(user_id)
         return value
 
-    async def get_effective_equity_async(self, user_id: str = "") -> float:
-        """Async version that fetches live balance if cache is empty.
+    async def get_effective_equity_async(self, user_id: str = "") -> Optional[float]:
+        """The equity to display, or None when it could not be read. Async.
 
-        Use this in Telegram command handlers to ensure fresh data.
+        OPTIONAL, AND THAT IS THE FIX — the same fix its sync sibling above
+        already carries, and this is the half that was missed. The body was
+        the documented "$10,000 in live mode" trap: on a failed live read it
+        fell through to `portfolio.snapshot().equity_usd`, the PAPER book, and
+        handed back a plausible float with nothing to tell a caller which
+        account it described. An empty balance cache is the ordinary state
+        after a restart, so this was not an edge case.
+
+        Delegating to resolve_display_equity keeps the balance-mismatch fix
+        intact: on the operator path get_user_live_equity routes through
+        get_live_equity(), which honours the TTL and refreshes an EXPIRED
+        cache — the behaviour the old body's comment was defending.
         """
-        if CONFIG.is_live():
-            # Balance-mismatch fix: always route through get_live_equity(),
-            # which honors the TTL and refreshes an EXPIRED cache. The old
-            # `if not cache: refresh` short-circuit served a populated-but-
-            # stale cache forever, so the status card could show an equity
-            # tens of dollars away from the fresh /portfolio fetch. Fail-open:
-            # on fetch failure get_live_equity() returns the cached value.
-            bal = await self.get_live_equity()
-            if bal:
-                return bal.get("total", 0.0)
-            if self._live_balance_cache:
-                return self._live_balance_cache.get("total", 0.0)
-        portfolio = self.user_portfolios.get(user_id) if user_id else self.portfolio
-        return portfolio.snapshot().equity_usd
+        value, _source = await self.resolve_display_equity(user_id)
+        return value
 
     async def resolve_display_equity(
         self, user_id: str = ""

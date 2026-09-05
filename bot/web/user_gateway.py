@@ -1903,21 +1903,30 @@ async def handle_sentry(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    positions: list[dict] = []
+    # None until the book is actually read. `[]` is a FLAT book and produces
+    # "nothing flagged"; a failed read must not borrow that answer.
+    positions: list[dict] | None = None
     equity = None
     try:
+        _read: list[dict] = []
         pf = engine.user_portfolios.get(tg_id)
         for t in pf.open_positions:
             price = float(getattr(t, "entry_price", 0) or 0)
             qty = float(getattr(t, "quantity", 0) or 0)
             side = getattr(getattr(t, "direction", None), "value", None) or str(getattr(t, "direction", ""))
-            positions.append({"symbol": getattr(t, "asset", ""), "side": side,
-                              "notional_usd": price * qty})
+            _read.append({"symbol": getattr(t, "asset", ""), "side": side,
+                          "notional_usd": price * qty})
         equity = float(pf.snapshot().equity_usd)
+        # Assigned only once every row is built: a partial list is not the
+        # book either.
+        positions = _read
     except Exception:
-        positions, equity = [], None
+        positions, equity = None, None
     envelope = None
-    spent = 0.0
+    # None, not 0.0: an unread ledger folded to zero can never reach
+    # `spent >= 0.8 * cap`, so the daily-cap warning was unreachable on any
+    # ledger fault — the guard silently absent rather than clear.
+    spent: float | None = None
     try:
         from bot.guardian.user_authority_store import get_user_authority_store
         envelope = get_user_authority_store().get(tg_id)
@@ -1926,7 +1935,7 @@ async def handle_sentry(request: web.Request) -> web.Response:
     try:
         spent = _web_live_ledger().spent(tg_id, _time.time())
     except Exception:
-        spent = 0.0
+        spent = None
     try:
         from bot.guardian.risk_sentry import assess
         report = assess(positions, envelope=envelope, equity_usd=equity,

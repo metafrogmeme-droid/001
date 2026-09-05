@@ -10206,6 +10206,25 @@ class TelegramHandler:
 
         # LIVE FIX: in LIVE mode, show real exchange balance prominently
         mode_str = "LIVE" if CONFIG.is_live() else "PAPER"
+        # ── Values for the PNG stats card, set by BOTH branches ──────────
+        # `state` is the PAPER tracker. The card below rendered six tiles
+        # straight off it under a hero that was the real exchange equity, so a
+        # live-only account read "$+0.00" IN GREEN, "0%" win rate, 0 trades and
+        # "0.0%" drawdown in gray — every one of them a paper fact wearing a
+        # live label, and `_pnl >= 0` is the table's "unreadable won" shape.
+        # The text lines under it had already been rewritten around
+        # realized_totals()/win_stats(); the PNG returns before they are ever
+        # sent, so the honest half only ran when Pillow failed.
+        #
+        # None means NOT MEASURED and renders as an em dash in gray. It is
+        # never the same value as a measured zero.
+        _card_pnl: Optional[float] = None
+        _card_wr: Optional[float] = None
+        _card_open = 0
+        _card_trades = 0
+        _card_exposure: Optional[float] = None
+        _card_dd: Optional[float] = None
+        _card_dd_src: Optional[str] = None
         sep = "─" * 16
 
         if mode_str == "LIVE":
@@ -10452,6 +10471,22 @@ class TelegramHandler:
             else:
                 lines.extend(["", f"<i>{t('portfolio_no_live_trades', lang)}</i>"])
 
+            # Card values from the readers this branch already built. `_rt`
+            # and `_lws` are the same objects the text lines print, so the
+            # picture and the text cannot disagree about the same book.
+            _lws = _win_stats(live_closed)
+            _card_pnl = _rt["net"]
+            _card_wr = _lws["rate"]
+            _card_open = len(live_open)
+            _card_trades = len(live_closed)
+            _card_exposure = ((live_exposure / display_equity * 100.0)
+                              if display_equity else None)
+            from bot.formatters.drawdown_card import enforced_drawdown as _ed
+            try:
+                _card_dd, _card_dd_src, _ = _ed(self.engine.risk.drawdown_status())
+            except Exception:
+                _card_dd, _card_dd_src = None, None
+
         else:
             # ── PAPER MODE: show paper portfolio data ──
             display_equity = state.equity_usd
@@ -10530,10 +10565,30 @@ class TelegramHandler:
             else:
                 lines.extend(["", f"<i>{t('portfolio_no_trades', lang)}</i>"])
 
+            # On the paper book the snapshot IS the measurement, so these are
+            # real — except the win rate, which PortfolioState computes as
+            # `... if total > 0 else 0.0`. A fresh account has no rate, and
+            # "0%" on a card reads as a measured record of total failure.
+            _pws = _win_stats(history)
+            _card_pnl = state.total_pnl
+            _card_wr = _pws["rate"]
+            _card_open = state.open_positions
+            _card_trades = state.total_trades
+            _card_exposure = state.portfolio_exposure_pct
+            _card_dd = state.max_drawdown_pct
+            _card_dd_src = "paper" if _card_dd is not None else None
+
         # Visual stats card (guarded — any error falls back to the text above).
         try:
+            from bot.formatters.drawdown_card import drawdown_tile as _dd_tile
             from bot.formatters.signal_card import render_stats_card
-            _pnl = state.total_pnl
+            # Tri-state tiles. `drawdown_tile` is the seam the /risk PNG
+            # already uses — an unread drawdown is "--" in gray, and a MEASURED
+            # 0.0 keeps its green, because a flat book is a real reading and
+            # the commonest state the bot is ever in.
+            _dd_val, _dd_col = _dd_tile(_card_dd)
+            _dd_lbl = t("lbl_max_drawdown", lang) + (
+                f" ({_card_dd_src})" if _card_dd_src else "")
             _png = render_stats_card({
                 "title": t("portfolio_card_title", lang),
                 "subtitle": f"{mode_str} · {datetime.now(UTC).strftime('%H:%M')} UTC",
@@ -10542,14 +10597,23 @@ class TelegramHandler:
                                    else "unavailable"),
                          "color": "white"},
                 "tiles": [
-                    {"label": t("lbl_realized_pnl", lang), "value": f"${_pnl:+,.2f}",
-                     "color": "green" if _pnl >= 0 else "red"},
-                    {"label": t("lbl_win_rate", lang), "value": f"{state.win_rate:.0%}", "color": "cyan"},
-                    {"label": t("lbl_open_positions", lang), "value": str(state.open_positions), "color": "white"},
-                    {"label": t("lbl_total_trades", lang), "value": str(state.total_trades), "color": "white"},
-                    {"label": t("lbl_exposure", lang), "value": f"{state.portfolio_exposure_pct:.0f}%", "color": "yellow"},
-                    {"label": t("lbl_max_drawdown", lang), "value": f"{state.max_drawdown_pct:.1f}%",
-                     "color": "red" if state.max_drawdown_pct > 0 else "gray"},
+                    {"label": t("lbl_realized_pnl", lang),
+                     "value": ("--" if _card_pnl is None
+                               else f"${_card_pnl:+,.2f}"),
+                     "color": ("gray" if _card_pnl is None
+                               else "green" if _card_pnl >= 0 else "red")},
+                    {"label": t("lbl_win_rate", lang),
+                     "value": "--" if _card_wr is None else f"{_card_wr:.0%}",
+                     "color": "gray" if _card_wr is None else "cyan"},
+                    {"label": t("lbl_open_positions", lang),
+                     "value": str(_card_open), "color": "white"},
+                    {"label": t("lbl_total_trades", lang),
+                     "value": str(_card_trades), "color": "white"},
+                    {"label": t("lbl_exposure", lang),
+                     "value": ("--" if _card_exposure is None
+                               else f"{_card_exposure:.0f}%"),
+                     "color": "gray" if _card_exposure is None else "yellow"},
+                    {"label": _dd_lbl, "value": _dd_val, "color": _dd_col},
                 ],
             })
             if _png and await self._send_photo(update, _png, f"\U0001f4ca <b>{t('portfolio_card_title', lang)}</b>"):
@@ -10852,25 +10916,33 @@ class TelegramHandler:
         # "0.0%" from a gate that was refusing trades at 9%. Fail-safe: any
         # error falls back to the previous paper number rather than blanking
         # the line.
-        drawdown = round(state.max_drawdown_pct, 2) if state.max_drawdown_pct else 0.0
+        #
+        # ...and the fallback was the remaining half of the same defect. The
+        # paper figure is a reasonable thing to show when the live read fails
+        # — blanking the line on a transient fault is worse — but the card
+        # printed it with NO STATEMENT of which one it was, beside the LIVE
+        # limit. `drawdown_source` travels to the card now, so the fail-safe
+        # is labelled rather than disguised.
+        #
+        # `if state.max_drawdown_pct else 0.0` was the other door: falsy, so
+        # an unreadable paper drawdown became a measured 0.0% — the calmest
+        # possible reading, manufactured, on the control that decides how much
+        # real money is lost before the bot halts.
         # The LIMIT beside it must be the drawdown cap the breaker enforces.
         # It was CONFIG.risk.max_daily_loss_pct — the DAILY-LOSS cap, a
         # different control entirely — so the card read "0.0% / +5.0% limit"
         # while the drawdown breaker was set at 7%. That advertises a tighter
         # cap than exists, and the gauge bar divides by it too, so the bar was
         # wrong as well. #959 fixed the numerator and missed the denominator.
-        drawdown_limit = CONFIG.risk.max_drawdown_pct
+        # (`effective_limit_pct` accounts for live-vs-paper and any runtime
+        # operator override, so the seam prefers it over this default.)
+        from bot.formatters.drawdown_card import resolve_display_drawdown
         try:
-            _dd = self.engine.risk.drawdown_status() or {}
-            if _dd.get("drawdown_source") == "live":
-                drawdown = round(float(_dd.get("drawdown_pct") or 0.0), 2)
-            _lim = _dd.get("effective_limit_pct")
-            if _lim:
-                # effective_limit_pct already accounts for live-vs-paper and
-                # any runtime operator override.
-                drawdown_limit = float(_lim)
+            _st = self.engine.risk.drawdown_status()
         except Exception:
-            pass
+            _st = None
+        drawdown, drawdown_source, drawdown_limit = resolve_display_drawdown(
+            state.max_drawdown_pct, _st, CONFIG.risk.max_drawdown_pct)
 
         # BUGFIX: the status card renders daily_pnl through a percent formatter
         # (appends "%"), and the adjacent "/ +X% limit" is a percent-of-equity
@@ -10898,6 +10970,7 @@ class TelegramHandler:
             open_positions=open_count,
             daily_pnl=(None if daily_pnl_pct is None else round(daily_pnl_pct, 2)),
             drawdown=drawdown,
+            drawdown_source=drawdown_source,
             max_drawdown=drawdown_limit,
             market_bias=_bias,
             pending_ideas=len(self.engine.pending_ideas) if hasattr(self.engine, "pending_ideas") else 0,
