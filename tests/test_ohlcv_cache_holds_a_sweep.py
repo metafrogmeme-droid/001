@@ -113,21 +113,45 @@ class TestTheOldCapReturnedNothing:
             assert _hit_rate(cap, 200, churn) > _hit_rate(200, 200, churn)
 
     def test_the_old_cap_was_adequate_at_the_OLD_universe_size(self):
-        # 80 symbols x 5 = 400 keys against 200 — still short, and still 0%.
-        # The cap was never right; the raise to 200 movers made it worse.
+        # 80 symbols against 200 — still short, and still 0%. The cap was
+        # never right; the raise to 200 movers made it worse.
         assert _hit_rate(200, n_symbols=80, churn=0.0) == 0.0
-        assert _hit_rate(200, n_symbols=40, churn=0.0) == 1.0   # 200 keys, fits
+        # The size that DOES fit is derived, not typed: this asserted 40,
+        # which fit only while the key count was believed to be 5. It is 6 —
+        # `_refine_entry_mtf`'s `15m/48` was never counted — so 40 symbols
+        # needed 240 keys and the old cap failed there too. A hard-coded
+        # number here restates the constant instead of checking it.
+        _fits = 200 // _OHLCV_KEYS_PER_SYMBOL
+        assert _hit_rate(200, n_symbols=_fits, churn=0.0) == 1.0
+        assert _hit_rate(200, n_symbols=_fits + 1, churn=0.0) == 0.0
 
 
 def test_the_key_count_matches_what_the_engine_actually_requests():
-    """5 keys/symbol: `1h/100` + `15m/200` + `1h/200` + `4h/200` + `1d/200`."""
+    """6 keys/symbol: `1h/100` + the four MTF legs + refine's `15m/48`.
+
+    This said 5 and asserted the primary call as a LITERAL, which pinned the
+    miscount and broke the moment that call gained a ttl argument. The refine
+    leg was missing the whole time — so the derived cap was 5/6 of the working
+    set and the stated 1.5x headroom was really 1.25x. Counted from the call
+    sites now, so ADDING a fetch fails this instead of silently shrinking the
+    effective headroom.
+    """
     import io
+    import re
 
     from tests.source_scan import code_only
     code = code_only(io.open("bot/core/engine.py", encoding="utf-8").read())
     assert '_tf_specs = (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200))' in code
-    assert "_cached_ohlcv(exchange, signal.symbol, timeframe, limit=100)" in code
-    assert _OHLCV_KEYS_PER_SYMBOL == 5
+
+    # The primary fetch, however it is spelled and wrapped.
+    assert re.search(r"_cached_ohlcv\(\s*exchange,\s*signal\.symbol,\s*timeframe,",
+                     code), "the primary 1h/100 fetch is gone or renamed"
+    # Refine's own leg — the one the count forgot.
+    assert re.search(r'_cached_ohlcv\(\s*exchange,\s*symbol,\s*"15m",\s*limit=48',
+                     code), "the refine leg is a sixth distinct cache key"
+
+    _mtf_legs = code.count('("15m", 200)')      # the gather, one call, four keys
+    assert _OHLCV_KEYS_PER_SYMBOL == 1 + 4 * _mtf_legs + 1
 
 
 def test_the_constant_200_is_gone_from_the_eviction():
@@ -135,8 +159,23 @@ def test_the_constant_200_is_gone_from_the_eviction():
 
     from tests.source_scan import code_only
     code = code_only(io.open("bot/core/engine.py", encoding="utf-8").read())
+    # Sliced def-to-next-def, not by a fixed character window: a 2200-char
+    # window stopped short of the lines under test the moment the function
+    # grew, and failed in the direction that looks like a code bug. CLAUDE.md
+    # records the same mistake in test_daily_report_risk_is_measured.
     i = code.index("async def _cached_ohlcv")
-    block = code[i:i + 2200]
+    j = code.index("\n    def ", i)
+    _k = code.find("\n    async def ", i + 20)
+    if _k != -1:
+        j = min(j, _k)
+    block = code[i:j]
     assert "> 200" not in block
     assert "_cap = _ohlcv_cache_capacity()" in block
-    assert block.count("_cap") >= 4
+    # Both eviction passes must judge against the DERIVED cap. Counting
+    # occurrences pinned one spelling of the body — the TTL pass was rewritten
+    # to expire on each entry's own terms and dropped one mention while doing
+    # strictly more work.
+    assert block.count("len(self._ohlcv_cache) > _cap") == 2
+    # ...and the TTL pass must use the ENTRY's ttl, not the caller's.
+    assert "now - ttl * 2" not in block
+    assert "v[2]" in block, "each entry carries the ttl it was stored with"

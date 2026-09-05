@@ -231,10 +231,16 @@ MTF_TTL_FLOOR_S = 180
 
 
 #: Distinct `symbol:timeframe:limit` cache keys ONE symbol produces per sweep:
-#: the primary `1h/100` fetch plus the four MTF legs (`15m/200`, `1h/200`,
-#: `4h/200`, `1d/200`). `1h/100` and `1h/200` are separate keys on purpose —
+#: the primary `1h/100` fetch, the four MTF legs (`15m/200`, `1h/200`,
+#: `4h/200`, `1d/200`), and `_refine_entry_mtf`'s `15m/48`. `1h/100` and
+#: `1h/200` are separate keys on purpose, as are `15m/200` and `15m/48` —
 #: `_cached_ohlcv`'s docstring records why the limit is in the key.
-_OHLCV_KEYS_PER_SYMBOL = 5
+#:
+#: This said 5 and omitted the refine leg, so the derived cap was 5/6 of the
+#: working set and the stated 1.5x headroom was really 1.25x. Counting the
+#: keys is the whole job of this constant; a miscount here is the same defect
+#: as the constant 200 it replaced, one order of magnitude smaller.
+_OHLCV_KEYS_PER_SYMBOL = 6
 
 #: Multiplier over one sweep's working set. A symbol that drops out of the
 #: top-N and returns a few ticks later should still find its 4h/1d legs, whose
@@ -660,7 +666,7 @@ class RuneClawEngine:
         # /whynot: store last RiskCheck per symbol when risk rejects a trade
         self._last_rejections: dict[str, dict] = {}
         self._last_scan_signals: list = []
-        self._ohlcv_cache: dict[str, tuple[float, list]] = {}
+        self._ohlcv_cache: dict[str, tuple[float, list, float]] = {}
         # M-13 FIX: live balance cache as instance attributes (not class-level mutables)
         self._live_balance_cache: dict = {}
         self._live_balance_cache_ts: float = 0.0
@@ -4881,7 +4887,7 @@ class RuneClawEngine:
         key = f"{symbol}:{timeframe}:{limit}"
         now = time.monotonic()
         if key in self._ohlcv_cache:
-            cached_time, cached_data = self._ohlcv_cache[key]
+            cached_time, cached_data, _entry_ttl = self._ohlcv_cache[key]
             if now - cached_time < ttl:
                 return cached_data
         _t0 = time.monotonic()
@@ -4891,7 +4897,14 @@ class RuneClawEngine:
             self._record_exchange_read(_t0, exc, symbol, timeframe)
             raise
         self._record_exchange_read(_t0, None, symbol, timeframe)
-        self._ohlcv_cache[key] = (now, data)
+        # The entry carries ITS OWN ttl. Eviction below used to read `ttl` —
+        # the parameter of whichever call happened to trip the cap — so a
+        # primary 1h/100 fetch (ttl=120) computed a 240s cutoff and deleted
+        # every 4h entry over 4 minutes old and every 1d entry over 4 minutes
+        # old, against their own TTLs of 3600s and 21600s. Those are exactly
+        # the long-TTL legs `_mtf_ttl` exists to preserve, and discarding them
+        # is the defect the cap was raised to cure, re-entered one line down.
+        self._ohlcv_cache[key] = (now, data, float(ttl))
         # C2-54 FIX: Hard size cap + TTL eviction to prevent unbounded growth.
         # First try TTL-based eviction; if still over limit, evict oldest entries.
         #
@@ -4900,8 +4913,10 @@ class RuneClawEngine:
         # oldest-first eviction over a cyclic sweep meant it returned 0% hits.
         _cap = _ohlcv_cache_capacity()
         if len(self._ohlcv_cache) > _cap:
-            cutoff = now - ttl * 2
-            self._ohlcv_cache = {k: v for k, v in self._ohlcv_cache.items() if v[0] > cutoff}
+            # Expire each entry against the TTL IT was stored with.
+            self._ohlcv_cache = {
+                k: v for k, v in self._ohlcv_cache.items()
+                if now - v[0] < v[2] * 2}
         if len(self._ohlcv_cache) > _cap:
             # Still over limit — evict oldest entries
             sorted_keys = sorted(self._ohlcv_cache, key=lambda k: self._ohlcv_cache[k][0])
@@ -5476,7 +5491,16 @@ class RuneClawEngine:
             if (category == "Crypto" and ":" not in signal.symbol
                     and signal.symbol.endswith("/USDT")):
                 of_deriv = f"{signal.symbol}:USDT"
-            ohlcv_task = self._cached_ohlcv(exchange, signal.symbol, timeframe, limit=100)
+            # SAME TTL RULE AS ITS OWN MTF TWIN. This defaulted to ttl=120
+            # while `1h/200` — the identical timeframe, four lines down — got
+            # `_mtf_ttl("1h")` = 900s. With the analyze phase at ~220s the
+            # sweep re-reaches a symbol roughly every 280s, so 120s missed
+            # EVERY pass on the highest-volume key in the cache: 200 fetches a
+            # sweep that the cache was sized to hold and never got to serve.
+            # The closed-bar argument is identical — this series is passed
+            # through `_drop_forming_candle` below, exactly like the MTF legs.
+            ohlcv_task = self._cached_ohlcv(exchange, signal.symbol, timeframe,
+                                            limit=100, ttl=_mtf_ttl(timeframe))
             if lightweight:
                 # Interactive fast path: only the primary OHLCV; skip the 4
                 # order-flow fetches (funding/OI/book/trades) — and the two
