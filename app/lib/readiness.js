@@ -146,6 +146,28 @@ function snapshot() {
   };
 }
 
+/** The stores /readyz may name. Anything else is reported as unknown, never guessed. */
+const BACKENDS = Object.freeze(['mysql', 'memory']);
+
+/**
+ * The body /readyz serves: the snapshot plus WHICH store is behind "ready".
+ *
+ * `memory` is a deliberate mode — no DATABASE_URL — that answers `ready: true`
+ * with nothing persisted, and an operator reading only that field could not
+ * tell it from the database. lib/db.js refuses to FALL BACK to memory when a
+ * database was configured, so this names a choice, never an accident; and a
+ * backend outside the vocabulary is `unknown` with `persistent: null`, not a
+ * guess in either direction.
+ */
+function readyzBody(snap, backendName) {
+  const backend = BACKENDS.includes(backendName) ? backendName : 'unknown';
+  return {
+    ...snap,
+    backend,
+    persistent: backend === 'unknown' ? null : backend === 'mysql',
+  };
+}
+
 /** Test seam — restores the module to its just-required state. */
 function _reset() {
   _ready = false;
@@ -155,6 +177,6 @@ function _reset() {
 }
 
 module.exports = {
-  REASONS, TIMEOUT_CODE, classify, markReady, markAttemptFailed, isReady,
-  snapshot, _reset,
+  REASONS, BACKENDS, TIMEOUT_CODE, classify, markReady, markAttemptFailed, isReady,
+  snapshot, readyzBody, _reset,
 };

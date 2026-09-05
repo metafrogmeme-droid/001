@@ -124,7 +124,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n.js?v=135"></script>
+<script src="/js/i18n-core.js?v=137"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -225,6 +225,10 @@
             '{n}-day journaling streak · {t} entries kept'), { n: list.data.streak, t: list.data.total }));
         }
         renderHist(list.data.entries);
+      } else {
+        // A refused or failed read is SAID, not shown as a diary with no
+        // history: an empty shelf and an unreadable one must not look alike.
+        note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');
       }
       var d = await api('/diary/' + today);
       if (d.ok && d.data) {
@@ -234,6 +238,8 @@
           if (d.data.entry.edited) note('✎ ' + T('ln.edited', 'edited'));
         }
         renderTrades(d.data.trades || [], d.data.nudges || []);
+      } else {
+        note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');
       }
     } catch (e) {
       note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');

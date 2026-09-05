@@ -152,7 +152,7 @@ test('the page: private framing, ✎ marker, live-derived trades — through T()
   assert.match(page, /ln\.no_trades/, 'a no-trade day gets an honest prompt, not silence');
   assert.match(page, /ln\.signed_out/, 'signed-out is stated, never a blank room');
   const i18nSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'learn.html'), 'utf8');
-  assert.ok(i18nSrc.indexOf('/js/i18n.js') < i18nSrc.indexOf('function renderTrades'),
+  assert.ok(i18nSrc.indexOf('/js/i18n-core.js') < i18nSrc.indexOf('function renderTrades'),
     'i18n loads before the page script');
   const i18n = require('../public/js/i18n.js');
   for (const k of ['nav.learn', 'nav.arena', 'ln.h', 'ln.lede', 'ln.today_h', 'ln.ph', 'ln.save',

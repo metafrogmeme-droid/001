@@ -89,7 +89,7 @@ const { auditConfig } = require('./lib/config_audit');
 auditConfig();
 
 const express = require('express');
-const { migrate, lastStatement } = require('./db');
+const { migrate, lastStatement, backend } = require('./db');
 const readiness = require('./lib/readiness');
 const bootLog = require('./lib/boot_log');
 const { router: authRouter } = require('./auth');
@@ -229,7 +229,10 @@ app.get('/healthz', (req, res) => {
 // driver message, hostname or credential.
 app.get('/readyz', (req, res) => {
   const snap = readiness.snapshot();
-  res.status(snap.ready ? 200 : 503).json(snap);
+  // Plus WHICH store is behind "ready": the deliberate no-DATABASE_URL mode
+  // answers 200 with nothing persisted, and `ready: true` alone could not
+  // tell an operator that (lib/readiness.js, readyzBody).
+  res.status(snap.ready ? 200 : 503).json(readiness.readyzBody(snap, backend()));
 });
 
 // Diagnosis, reachable over HTTP because on this host nothing else is.

@@ -30,5 +30,5 @@ test('the band copy is translated + cache-buster bumped', () => {
   assert.match(i18n, /'sec\.why_h'/);
   const line = i18n.split('\n').find(l => l.includes("'sec.why_p'"));
   for (const loc of ['en:', 'es:', 'zh:', 'pt:', 'fr:', 'ar:']) assert.ok(line.includes(loc), `why_p has ${loc}`);
-  assert.match(index, /i18n\.js\?v=\d+/);
+  assert.match(index, /i18n(?:-core)?\.js\?v=\d+/);
 });

@@ -10,6 +10,13 @@
  *
  * `key(req)` derives the bucket (defaults to client IP). Use userKey to bucket by
  * authenticated user (place AFTER the auth middleware).
+ *
+ * `slidingWindow()` is the same window without the Express wrapper, for a
+ * limit that has to be applied somewhere a request object is not at hand — an
+ * MCP tool handler, which receives the caller's address in its context. One
+ * window, two callers, so the MCP copy cannot quietly diverge from the
+ * middleware's (the earlier hand-rolled map in routes/mcp.js never expired
+ * entries — see the note above its rateLimit call).
  */
 
 function ipKey(req) {
@@ -20,7 +27,7 @@ function userKey(req) {
   return (req.user && req.user.user_id != null) ? `u:${req.user.user_id}` : ipKey(req);
 }
 
-function rateLimit({ windowMs = 60000, max = 20, key = ipKey, message = 'Too many requests, slow down.' } = {}) {
+function slidingWindow({ windowMs = 60000, max = 20 } = {}) {
   const hits = new Map(); // key -> number[] (timestamps in window)
 
   const prune = () => {
@@ -38,20 +45,34 @@ function rateLimit({ windowMs = 60000, max = 20, key = ipKey, message = 'Too man
   const timer = setInterval(prune, windowMs);
   if (timer.unref) timer.unref();
 
-  return function (req, res, next) {
-    const k = key(req);
-    const now = Date.now();
-    const cutoff = now - windowMs;
-    const arr = (hits.get(k) || []).filter(ts => ts > cutoff);
-    if (arr.length >= max) {
+  return {
+    /** Record a hit for `k` and say whether it fell within the allowance. */
+    allow(k) {
+      const now = Date.now();
+      const cutoff = now - windowMs;
+      const arr = (hits.get(k) || []).filter(ts => ts > cutoff);
+      if (arr.length >= max) {
+        hits.set(k, arr);
+        return false;
+      }
+      arr.push(now);
       hits.set(k, arr);
-      res.setHeader('Retry-After', Math.ceil(windowMs / 1000));
+      return true;
+    },
+    retryAfterSeconds: Math.ceil(windowMs / 1000),
+  };
+}
+
+function rateLimit({ windowMs = 60000, max = 20, key = ipKey, message = 'Too many requests, slow down.' } = {}) {
+  const window = slidingWindow({ windowMs, max });
+
+  return function (req, res, next) {
+    if (!window.allow(key(req))) {
+      res.setHeader('Retry-After', window.retryAfterSeconds);
       return res.status(429).json({ error: message });
     }
-    arr.push(now);
-    hits.set(k, arr);
     next();
   };
 }
 
-module.exports = { rateLimit, ipKey, userKey };
+module.exports = { rateLimit, slidingWindow, ipKey, userKey };

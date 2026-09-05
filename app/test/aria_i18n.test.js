@@ -76,14 +76,14 @@ test('only wirings that actually reach the engine are shipped', () => {
   // agents.html now loads the engine AND re-applies after its catalogue
   // renders, so its wiring is reachable and was restored.
   const agents = fs.readFileSync(path.join(PUB, 'agents.html'), 'utf8');
-  assert.match(agents, /i18n\.js/, 'agents.html loads the engine');
+  assert.match(agents, /i18n(?:-core)?\.js/, 'agents.html loads the engine');
   assert.match(agents, /RCI18N\.apply\(root\)/,
     'agents.html re-applies after building its controls — without this the '
       + 'data-i18n-attr on them never runs');
 
   for (const f of ['escape.html', 'stress.html']) {
     const src = fs.readFileSync(path.join(PUB, f), 'utf8');
-    assert.match(src, /i18n\.js/, `${f} loads the engine`);
+    assert.match(src, /i18n(?:-core)?\.js/, `${f} loads the engine`);
     assert.match(src, /aria-label:a11y\.remove/, `${f} keeps its verified wiring`);
   }
 });

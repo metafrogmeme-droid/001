@@ -57,8 +57,16 @@ def test_non_admin_still_never_reaches_anthropic(monkeypatch):
 def test_admin_fallback_chain_includes_anthropic():
     """The all-provider fallback chain must include Anthropic for admin
     callers, so a transient cheap-provider outage falls THROUGH to the paid
-    key instead of the rule engine."""
+    key instead of the rule engine.
+
+    The chain is the shared table in bot/llm/provider.py now, so the property
+    is asserted on the table, and the analyzer is checked to read that table
+    with its caller's role rather than a copy of its own."""
     from bot.core.analyzer import Analyzer
+    from bot.llm.provider import fallback_chain
+    admin = [p for p, _, _ in fallback_chain("analysis", is_admin=True)]
+    assert LLMProvider.ANTHROPIC in admin
+    assert LLMProvider.ANTHROPIC not in [
+        p for p, _, _ in fallback_chain("analysis", is_admin=False)]
     src = inspect.getsource(Analyzer._try_llm_fallback)
-    assert "if is_admin" in src
-    assert "LLMProvider.ANTHROPIC" in src
+    assert 'fallback_chain("analysis", is_admin=is_admin)' in src

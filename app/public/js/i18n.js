@@ -2016,6 +2016,20 @@
     'vh.feed.sub': { en: 'The agent’s mind-stream — every scan, thesis, trade and alert, as it happens', hi: 'एजेंट की विचार-धारा — हर स्कैन, थीसिस, ट्रेड और अलर्ट, जैसे ही वे घटित होते हैं', it: 'Il flusso di pensiero dell’agente — ogni scansione, tesi, operazione e avviso, mentre accade', es: 'El flujo mental del agente: cada análisis, tesis, operación y alerta, en tiempo real', zh: '智能體的思緒流——每次掃描、論點、交易與警報，實時呈現', pt: 'O fluxo de pensamento do agente — cada varredura, tese, operação e alerta, em tempo real', fr: 'Le flux de pensée de l’agent — chaque analyse, thèse, trade et alerte, en direct', ar: 'تدفّق تفكير الوكيل — كل مسح وأطروحة وصفقة وتنبيه، لحظيًا', de: 'Der Gedankenstrom des Agenten — jeder Scan, jede These, jeder Trade und Alarm, in Echtzeit', nl: 'De gedachtestroom van de agent — elke scan, these, trade en waarschuwing, live', ja: 'エージェントの思考ストリーム — スキャン、根拠、取引、通知をリアルタイムで', ko: '에이전트의 사고 스트림 — 스캔, 근거, 거래, 알림을 실시간으로', ru: 'Поток мыслей агента — каждое сканирование, тезис, сделка и оповещение в момент события', tr: 'Ajanın düşünce akışı — her tarama, tez, işlem ve uyarı, gerçekleştiği anda' },
   };
 
+  // ── Split build ───────────────────────────────────────────────────────────
+  // This file carries every language and is what the Node tests boot. The
+  // browser loads `i18n-core.js` instead: this same file with STRINGS reduced
+  // to English and SPLIT set true, plus ONE chunk from /js/i18n/<lang>.js for
+  // a non-English reader. `app/scripts/build_i18n.js` writes both, and
+  // test/i18n_split.test.js fails unless the committed output is what the
+  // source builds. Under SPLIT=false the chunk loader is never reached, so
+  // the tests boot exactly the monolith they always did.
+  var SPLIT = false;
+  var CHUNKS = {};
+  // The loaded chunks, keyed by language. The chunk assigns into the same
+  // object on `window`, so a chunk that lands after this script ran is seen.
+  var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
+
   function normalize(code) {
     if (!code) return '';
     return String(code).trim().toLowerCase().replace(/_/g, '-').split('-')[0];
@@ -2030,10 +2044,12 @@
   }
 
   function translate(key, lang) {
+    var d = DICTS[lang];                       // a loaded chunk (split build)
+    if (d && d[key] != null) return d[key];
     var e = STRINGS[key];
     if (!e) return null;
     if (e[lang] != null) return e[lang];
-    return e.en != null ? e.en : null;
+    return e.en != null ? e.en : null;         // a chunk that never came: English, never blank
   }
 
   // ── Browser-only from here ────────────────────────────────────────────────
@@ -2065,6 +2081,40 @@
     doc.querySelectorAll('[data-i18n-attr]').forEach(function (el) {
       setAttrs(el, lang);
     });
+  }
+
+  function chunkUrl(lang) {
+    return '/js/i18n/' + lang + '.js?v=' + CHUNKS[lang];
+  }
+
+  /**
+   * A non-English reader's strings, in the split build.
+   *
+   * At PARSE time the tag is written into the document, so the browser fetches
+   * and runs the chunk before the next script — the guarantee
+   * test/i18n_boot_order.test.js pins for this file holds for the chunk too,
+   * and a synchronous renderer never paints English for a Japanese reader.
+   * After parsing (the switcher) it is an ordinary async script and the page
+   * re-applies when it lands; writing into a finished document would replace
+   * the page. A chunk that fails to load leaves English in place, because
+   * `translate` falls through to STRINGS. Nothing here runs when SPLIT is
+   * false, when the language is English, or when the chunk is already here.
+   */
+  function loadChunk(lang, onLoaded) {
+    if (!SPLIT || lang === 'en' || !CHUNKS[lang] || DICTS[lang]) {
+      if (onLoaded) onLoaded();
+      return;
+    }
+    if (document.readyState === 'loading' && typeof document.write === 'function') {
+      document.write('<script src="' + chunkUrl(lang) + '"><\/script>');
+      return;
+    }
+    var done = onLoaded || function () { apply(document, current); };
+    var s = document.createElement('script');
+    s.src = chunkUrl(lang);
+    s.onload = done;
+    s.onerror = done;
+    (document.head || document.documentElement).appendChild(s);
   }
 
   function persistServer(lang) {
@@ -2100,7 +2150,9 @@
       el.setAttribute('lang', current);
       el.setAttribute('dir', RTL[current] ? 'rtl' : 'ltr');
     }
-    apply(document, current);
+    // Synchronous in the monolith and for a chunk already here; otherwise the
+    // page re-applies when the chunk lands.
+    loadChunk(current, function () { apply(document, current); });
     var sel = document.getElementById('rc-lang-select');
     if (sel && sel.value !== current) sel.value = current;
     if (opts.persistServer !== false) persistServer(current);
@@ -2192,6 +2244,8 @@
       document.documentElement.setAttribute('lang', current);
       document.documentElement.setAttribute('dir', RTL[current] ? 'rtl' : 'ltr');
     }
+    // The reader's chunk, in place before the next script runs (split build).
+    loadChunk(current);
     if (document.readyState !== 'loading') init();
     else document.addEventListener('DOMContentLoaded', init);
   }

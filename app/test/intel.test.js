@@ -80,6 +80,36 @@ test('empty history yields nulls, never fabricated zeros-with-meaning', () => {
   assert.equal(r.alpha, null);
 });
 
+test('attribution: by symbol, direction and hold time — counts, net and win rate per bucket', () => {
+  const r = computeIntel([
+    closed({ symbol: 'BTC/USDT:USDT', direction: 'LONG', pnl: 10, opened_at: '2026-07-13T01:00:00Z', closed_at: '2026-07-13T01:30:00Z' }),
+    closed({ symbol: 'BTC/USDT:USDT', direction: 'SHORT', pnl: -4, opened_at: '2026-07-13T01:00:00Z', closed_at: '2026-07-13T03:00:00Z' }),
+    closed({ symbol: 'ETH/USDT:USDT', direction: 'LONG', pnl: 6, opened_at: '2026-07-10T01:00:00Z', closed_at: '2026-07-13T02:00:00Z' }),
+    closed({ symbol: 'SOL/USDT:USDT', direction: 'LONG', pnl: 0, opened_at: 'garbage', closed_at: '2026-07-13T02:00:00Z' }),
+  ]);
+  const a = r.attribution;
+  assert.deepEqual(a.by_symbol.BTC, { trades: 2, wins: 1, losses: 1, net_pnl_usd: 6, win_rate_pct: 50 });
+  assert.deepEqual(a.by_symbol.ETH, { trades: 1, wins: 1, losses: 0, net_pnl_usd: 6, win_rate_pct: 100 });
+  assert.deepEqual(a.by_symbol.SOL, { trades: 1, wins: 0, losses: 0, net_pnl_usd: 0, win_rate_pct: 0 });
+  assert.equal(a.by_direction.LONG.trades, 3);
+  assert.equal(a.by_direction.SHORT.net_pnl_usd, -4);
+  assert.equal(a.by_hold['<1h'].trades, 1);
+  assert.equal(a.by_hold['1-4h'].trades, 1);
+  assert.equal(a.by_hold['1-7d'].trades, 1);
+  assert.equal(a.by_hold.unknown.trades, 1, 'an unparseable timestamp is counted as unknown, never binned');
+  assert.ok(!('4-24h' in a.by_hold), 'an empty bucket is absent, not a zero row');
+});
+
+test('attribution is null on an empty history, skips unusable rows, and is dollar-free in public', () => {
+  const { publicIntel } = require('../lib/intel');
+  assert.equal(computeIntel([]).attribution, null);
+  assert.equal(computeIntel([closed({ pnl: 'nope' })]).attribution, null, 'a skipped row attributes nothing');
+  const pub = publicIntel(computeIntel([closed({ pnl: 10 })]));
+  assert.ok(pub.attribution.by_symbol.BTC);
+  assert.ok(!('net_pnl_usd' in pub.attribution.by_symbol.BTC), 'the public projection carries no dollars, at any depth');
+  assert.equal(pub.attribution.by_symbol.BTC.win_rate_pct, 100);
+});
+
 // ── Letter integration (percent-only on the public side) ─────────────────────
 
 test('both letters carry the alpha section; the public one stays dollar-free', () => {

@@ -442,6 +442,64 @@ _PROVIDER_KEY_ENV = {
 
 _KEYLESS_PROVIDERS = (LLMProvider.OLLAMA, LLMProvider.RUNECLAW)
 
+# ── Env-keyed fallback chains ────────────────────────────────────────
+#: The providers a call falls through to when its routed one fails, in
+#: order. Each step is ``(provider, model, admin_only)``; ``model=None`` means
+#: the catalogue's `default_model` for that provider, so the chain follows the
+#: catalogue instead of drifting from it. The key env comes from
+#: `_PROVIDER_KEY_ENV`.
+#:
+#: These were two literal lists — one in `TelegramHandler._llm_chat`, one in
+#: `Analyzer._try_llm_fallback` — and each carried model ids this file's own
+#: catalogue had retired: `gemini-2.0-flash`, two generations behind the
+#: Gemini default, and `llama-3.3-70b-versatile`, which the Groq entry above
+#: records as RETIRED (June 2026). A fallback runs on the day the routed
+#: provider is down, so a dead id in it is a failure nothing observes until
+#: that day. `tests/test_llm_fallback_chains.py` pins every id here to one the
+#: catalogue still recommends and one `bot/core/cost.py` can price.
+#:
+#: `admin_only` marks the operator's reserved Anthropic key: a non-admin
+#: caller never falls through to it, matching `resolve_tier_config`.
+FALLBACK_CHAINS: dict[str, tuple[tuple[LLMProvider, Optional[str], bool], ...]] = {
+    # Chat: the free/cheap tiers first; Claude Haiku for the operator only.
+    "chat": (
+        (LLMProvider.GEMINI, None, False),
+        (LLMProvider.ANTHROPIC, "claude-haiku-4-5-20251001", True),
+        (LLMProvider.ALIBABA, None, False),
+    ),
+    # Analysis (the trade thesis): the cheap chain, the paid key for the
+    # operator's own engine, then DeepSeek as the last inexpensive reasoner.
+    "analysis": (
+        (LLMProvider.ALIBABA, "qwen3.6-flash", False),
+        (LLMProvider.GEMINI, None, False),
+        (LLMProvider.GROQ, None, False),
+        (LLMProvider.ANTHROPIC, None, True),
+        (LLMProvider.DEEPSEEK, None, False),
+    ),
+}
+
+
+def fallback_chain(kind: str, *, is_admin: bool = False
+                   ) -> list[tuple[LLMProvider, str, str]]:
+    """``[(provider, key_env, model)]`` for one chain, with the admin-only
+    steps only when ``is_admin``.
+
+    An unknown ``kind`` answers ``[]``: a caller naming a chain this table
+    lacks falls through to nothing, not to a chain built for a different
+    job. A provider with no key env or no resolvable model is left out for
+    the same reason.
+    """
+    out: list[tuple[LLMProvider, str, str]] = []
+    for provider, model, admin_only in FALLBACK_CHAINS.get(kind, ()):
+        if admin_only and not is_admin:
+            continue
+        key_env = _PROVIDER_KEY_ENV.get(provider, "")
+        resolved = model or str(PROVIDER_CATALOG.get(provider, {}).get("default_model") or "")
+        if not key_env or not resolved:
+            continue
+        out.append((provider, key_env, resolved))
+    return out
+
 #: The only tier names an `LLM_TIER_{N}_PROVIDER` variable can name. Anything
 #: else is read by nobody — see `unbound_tier_env`.
 _TIER_NAMES = frozenset(t.value.upper() for t in LLMTier)

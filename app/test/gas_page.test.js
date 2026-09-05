@@ -55,7 +55,7 @@ test('every gs key ships all 14 locales', () => {
       assert.ok(line.includes(loc), `${key} has ${loc}`);
     }
   }
-  const m = page.match(/i18n\.js\?v=(\d+)/);
+  const m = page.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 82, 'i18n cache-buster >= 82');
 });
 

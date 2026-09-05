@@ -44,8 +44,8 @@
     "sha": "5601758e69d569e2"
   },
   "js/dashboard.js": {
-    "v": 165,
-    "sha": "c6e1182ca62290f5"
+    "v": 166,
+    "sha": "8ff790f0d543ee89"
   },
   "js/duel.js": {
     "v": 1,
@@ -99,9 +99,9 @@
     "v": 1,
     "sha": "c2dffd9f3305eabf"
   },
-  "js/i18n.js": {
-    "v": 135,
-    "sha": "3477dda79aac5f8c"
+  "js/i18n-core.js": {
+    "v": 137,
+    "sha": "02c082fcc50332a5"
   },
   "js/icons.js": {
     "v": 5,

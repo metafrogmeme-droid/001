@@ -54,5 +54,5 @@ test('the new landing copy is translated (all six locales) + cache-buster bumped
   // sec.guardian_p carries all six locale codes
   const line = i18n.split('\n').find(l => l.includes("'sec.guardian_p'"));
   for (const loc of ['en:', 'es:', 'zh:', 'pt:', 'fr:', 'ar:']) assert.ok(line.includes(loc), `guardian_p has ${loc}`);
-  assert.match(index, /i18n\.js\?v=\d+/);
+  assert.match(index, /i18n(?:-core)?\.js\?v=\d+/);
 });

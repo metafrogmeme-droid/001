@@ -128,6 +128,20 @@ def test_the_default_really_is_auto_confirm_so_this_guard_is_not_stale():
         "instead of assumed")
 
 
+def test_the_tool_map_is_the_catalogue_row_for_row():
+    """The table listed `runeclaw_execute`, which the catalogue deliberately
+    EXCLUDES — the one tool whose absence is a security decision, advertised
+    as present — and omitted two tools the catalogue carries. Names are
+    matched exactly, both ways, and no count is involved."""
+    from bot.mcp.server import TOOL_CATALOGUE
+    in_table = re.findall(r"^\|\s*`(runeclaw_\w+)`\s*\|", _doc(), re.MULTILINE)
+    assert in_table, "the tool map table is gone from mcp-integration.md"
+    assert sorted(in_table) == sorted(t.mcp_name for t in TOOL_CATALOGUE), (
+        "docs/gitbook/mcp-integration.md and TOOL_CATALOGUE disagree about "
+        "which tools exist — fix whichever is wrong, not the test")
+    assert "runeclaw_execute" not in in_table
+
+
 @pytest.mark.parametrize("must_say", [
     "fail-closed",
     "risk gate",

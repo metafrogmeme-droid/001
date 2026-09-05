@@ -38,6 +38,6 @@ test('all three new keys ship all 14 locales', () => {
       assert.ok(line.includes(loc), `${key} has ${loc}`);
     }
   }
-  const m = read('guardian.html').match(/i18n\.js\?v=(\d+)/);
+  const m = read('guardian.html').match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 87, 'buster >= 87');
 });

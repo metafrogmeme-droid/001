@@ -26,7 +26,7 @@ test('both receipt pages ship the button and its builder together', () => {
       `${page} builds the intent from the same translated text + receipt URL`);
     // same script block as the other networks — after i18n by construction
     const builder = html.indexOf("getElementById('shBs')");
-    const i18nTag = html.indexOf('/js/i18n.js?v=');
+    const i18nTag = html.indexOf('/js/i18n-core.js?v=');
     assert.ok(i18nTag > 0 && builder > i18nTag, `${page}: builder runs after i18n loads`);
   }
 });

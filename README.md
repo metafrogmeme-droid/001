@@ -459,93 +459,214 @@ python -m bot.main --mode scan
 
 ## Telegram Commands
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Main menu with War Room navigation |
-| `/status` | Engine status, health score, capital, risk gauge |
-| `/scan` | Scan market for top movers and volume spikes |
-| `/scalp` | Rich scalp scan (5m candles, top 3 by volume) |
-| `/intraday` | Rich intraday scan (15m candles, top 5 movers) |
-| `/swing` | Rich swing scan (4h candles, trend-based) |
-| `/analyze BTC` | Run AI analysis on a specific asset |
-| `/run` | Strategy presets (dip sniper, momentum, scalper) |
-| `/portfolio` | View paper portfolio with PnL waterfall |
-| `/trade` | View and confirm/reject pending trades |
-| `/journal` | Trade history with win/loss breakdown |
-| `/risk` | Risk dashboard with visual gauges |
-| `/rejected` | Recent risk-rejected trades with failure reasons |
-| `/whynot [SYM]` | Explain why a trade was rejected |
-| `/dashboard` | Command center (status/risk/positions tabs) |
-| `/backtest` | Run backtest with synthetic data (rule-based only, LLM off) |
-| `/walkforward` | Walk-forward validation (overfitting detection) |
-| `/macro` | Macro event calendar (FOMC, CPI, NFP) |
-| `/learn` | AI learning system dashboard (8 modules) |
-| `/patterns` | View detected market patterns |
-| `/proposals` | View pending improvement proposals |
-| `/optimize` | LLM token optimization stats |
-| `/costs` | Agent economics (LLM + infra breakdown) |
-| `/watch on\|off` | Toggle proactive alerts |
-| `/halt` | Emergency kill-switch (trip breaker on ALL accounts, cancel all) |
-| `/closeall` | Admin: flatten open positions on every account (operator + per-user) |
-| `/pause` / `/resume` | Pause/resume trading |
-| `/mode <universe>` | Switch asset universe — `solana`, `metals`, `commodities`, `stocks`, `etfs`, `pre_ipo`, `tradfi`, `hybrid`, `all_markets` (no restart) |
-| `/setllm` | Switch LLM provider at runtime (BYOK) |
-| `/llmstatus` | Current LLM provider and model info |
-| `/lang` | Switch interface language — English / 繁體中文 (per-user) |
-| `/paper on\|off` | Toggle paper vs live execution for your trades |
-| `/help` | List all available commands |
+<!-- BEGIN generated: telegram commands (scripts/render_readme_commands.py) -->
 
-### Scanning, analysis & strategy commands
+Every registered command, grouped the way `/help` groups them. Generated from `bot/skills/command_catalog.py`, which a test pins to the handler's registration list — edit the catalogue, not this section. Groups marked *operator only* are hidden from `/help` for everyone else, who could not run them anyway.
+
+### 🚀 Start here
 
 | Command | Description |
-|---------|-------------|
-| `/deepscan` / `/fullscan` | Multi-timeframe deep scan / full-universe scan |
-| `/stockscan` | Scan the US stock-perp universe |
-| `/forcescan` | Force an immediate scan cycle |
-| `/momentum` `/dip` `/squeeze` `/sweep` `/zones` | Strategy preset shortcuts (aliases for `/run <preset>`) |
-| `/buy <SYM>` / `/sell <SYM>` | Stage a manual long/short trade idea (still risk-gated + confirmed) |
-| `/strategy` | Active strategy + regime routing |
-| `/session` | Current trading-session sizing context |
-| `/performance` | Performance summary (win rate, PnL, R) |
-| `/daily_report` | End-of-day trading report (trades, wins/losses, best/worst, PnL) |
-| `/equitycurve` | Equity-curve view |
-| `/holdtime` | Hold-time distribution analytics |
-| `/attribution` | Per-factor PnL attribution |
-| `/crossasset` | Cross-asset correlation view |
-| `/montecarlo` | Monte-Carlo robustness simulation |
-| `/signals` / `/latest_signal` | Signal stats / most recent signal |
-| `/orders` / `/open_positions` | Open orders / open positions |
-| `/autoconfirm` | Toggle admin auto-confirm (0.85 gate) |
-| `/playbook` | GetAgent playbook controls |
-| `/llmtiers` / `/llmreset` | LLM tier routing config / reset |
-| `/set_tier` `/revoke` | Admin: set a user's tier / revoke access |
-| `/channel` `/broadcast` | Admin: marketing channel forwarder |
+|---|---|
+| `/start` | register and see where things stand |
+| `/help` | this reference |
+| `/duel` | call the market before the agent does — free, no stake |
+| `/leaderboard` | the verified board — ratios and counts, re-derivable |
+| `/arena` | paper arena — season standings and the live tape |
+| `/dashboard` | open the web dashboard |
+| `/link` | link this Telegram to your website account — /link <token> |
+| `/unlink` | disconnect this Telegram from your website account |
+| `/me` | your account: plan, portfolio and settings |
+| `/sync` | push your portfolio to the website dashboard now |
+| `/connect` | link your own exchange account |
+| `/exchange` | your linked-account status (never shows keys) |
+| `/livebalance` | your real exchange balance (your own account, read-only) |
+| `/disconnect` | remove your linked credentials |
+| `/linkwallet` | link a Solana wallet (read-only) for $RCLAW tier access |
+| `/lang` | switch language |
+| `/version` | bot version and mode |
+| `/health` | system health |
+| `/status` | engine status right now |
 
-### Live & multi-user commands
+### 📈 Trading
 
-| Command | Who | Description |
-|---------|-----|-------------|
-| `/connect <key> <secret> <pass>` | user | Link your own Bitget account (DM only; validated, encrypted at rest) |
-| `/disconnect` | user | Remove your linked Bitget keys |
-| `/exchange` | user | Check your linked-account status |
-| `/livebalance` | user | Your live Bitget balance |
-| `/livepositions` | user | Your open live positions with SL/TP |
-| `/liveclose <id>` | user | Close one of your live positions |
-| `/golive CONFIRM` | admin | Arm live trading (when not env-armed) |
-| `/approve <id> [role]` | admin | Approve a pending user (trader/viewer/admin) |
-| `/grant_live <id>` / `/revoke_live <id>` | admin | Grant/revoke a user's live-trade permission |
-| `/setcap <id> <usd\|off>` | admin | Cap a user's per-trade margin (tighten-only) |
-| `/accounts` | admin | Per-account live risk: equity, exposure, breaker, governor, caps |
-| `/users` | admin | Registered-user roster (role, tier, mode) |
-| `/health` | admin | Engine vitals (WS, balance, tick health) |
-| `/slippage` | admin | Execution-quality / slippage drift |
-| `/calibration` | admin | Confidence-calibration learner readiness |
+| Command | Description |
+|---|---|
+| `/trade` | place a trade — /trade buy SOL 71.42 sl 70.05 tp 76.42 |
+| `/paper` | practise risk-free with virtual funds |
+| `/mystrategy` | choose which strategy preset YOUR confirms run through |
+| `/venues` | choose which of your connected venues actually trade |
+| `/open_positions` | your open positions |
+| `/positions` | your open positions — same as /open_positions |
+| `/livepositions` | live exchange positions and pending orders |
+| `/orders` | your open/pending orders |
+| `/latest_signal` | pending signals with action buttons |
+| `/emergency_stop` | stop everything (asks to confirm) |
+| `/pause` | pause trading (circuit breaker on) |
+| `/resume` | resume trading |
+| `/halt` | halt the engine |
+| `/reset` | reset the circuit breaker |
+| `/buy` | legacy — use /trade buy |
+| `/sell` | legacy — use /trade sell |
 
-> Multi-user live trading is OFF by default (`PER_USER_LIVE_ENABLED`). See `docs/MULTI_USER_LIVE_SETUP.md` for onboarding.
+### 🔎 Scan & analyse
 
-Trade confirmation uses Telegram inline keyboards -- tap **Confirm** or **Reject** directly in the chat.
+| Command | Description |
+|---|---|
+| `/scan` | scan the market for setups |
+| `/fullscan` | full scan of the whole universe |
+| `/deepscan` | deep scan with chart + candle patterns |
+| `/analyze` | deep-dive one coin — /analyze SOL |
+| `/alpha` | daily alpha insight card |
+| `/research` | cited research dossier for a symbol |
+| `/token` | contract detective — /token 0x… [chain] |
+| `/memeplan` | meme-buy preflight (never trades) — /memeplan <mint> [usd] |
+| `/whynot` | why a trade was rejected |
+| `/patterns` | chart patterns the engine sees |
+| `/squeeze` | volatility squeeze status |
+| `/sweep` | liquidity sweep detection |
+| `/zones` | supply/demand zones |
+| `/momentum` | momentum scan |
+| `/dip` | dip scan |
+| `/scalp` | 5m scalp scan |
+| `/intraday` | 15m intraday scan |
+| `/swing` | 4h swing scan |
+| `/stockscan` | tokenized US stock perps |
+| `/mode` | switch universe — solana / all / stocks |
+| `/session` | current trading session and its risk settings |
 
----
+### 🌍 Market context
+
+| Command | Description |
+|---|---|
+| `/macro` | macro backdrop and the next big event |
+| `/eventrisk` | macro-event risk for one symbol — /eventrisk BTC |
+| `/news` | headline radar + alerts on your positions |
+| `/funding` | live funding rates across venues |
+| `/fundingscan` | annualized funding, multi-venue |
+| `/arb` | funding-arb paper tracker |
+| `/rwa` | tokenized real-world-asset radar |
+
+### 💼 Portfolio & record
+
+| Command | Description |
+|---|---|
+| `/portfolio` | equity, positions and win rate |
+| `/performance` | your PnL and trade stats |
+| `/networth` | cross-venue net worth snapshot |
+| `/exposure` | net per-asset exposure |
+| `/risk` | risk status and circuit breaker |
+| `/enforcing` | which controls would refuse a trade right now |
+| `/signals` | per-pair signal stats |
+| `/rejected` | signals risk turned down |
+| `/daily_report` | daily trading report |
+| `/classpf` | performance by asset class |
+| `/holdtime` | hold-time analytics |
+| `/costs` | trading costs breakdown |
+
+### 🔔 Alerts & notes
+
+| Command | Description |
+|---|---|
+| `/watch` | proactive alerts for this chat |
+| `/share` | save a note your agent can use |
+| `/mynotes` | the notes you've shared |
+| `/agent` | your agent's posture, in plain language |
+
+### 🧪 Research & tuning
+
+| Command | Description |
+|---|---|
+| `/backtest` | run a backtest |
+| `/walkforward` | walk-forward validation |
+| `/learn` | what the engine has learned |
+| `/optimize` | parameter optimization |
+| `/proposals` | pending tuning proposals |
+| `/playbook` | full system playbook briefing |
+| `/run` | run a named strategy preset |
+
+### 🧪 Research & tuning (operator) — *operator only*
+
+| Command | Description |
+|---|---|
+| `/montecarlo` | Monte Carlo risk simulation (operator book) |
+| `/calibration` | learning overlays and calibration — refit mutates them |
+
+### 🛡 Guardian (operator) — *operator only*
+
+| Command | Description |
+|---|---|
+| `/guardian` | the Guardian console |
+| `/twin` | portfolio digital twin — stress tests |
+| `/sentinel` | systemic risk sentinel |
+| `/escape` | emergency exit PLAN (read-only) |
+| `/approvals` | allowance X-ray — what can spend your tokens |
+| `/xray` | decode calldata before signing (read-only) |
+| `/policy` | intent compiler — authority envelope |
+| `/anchor` | ERC-8004 identity anchoring |
+| `/vault` | secret-protection status (names only) |
+| `/compliance` | restricted jurisdictions and the global consent ledger |
+| `/backup` | verifiable backups of critical state |
+| `/readiness` | is the learning loop validated enough to apply |
+
+### 🚦 Engine ops (operator) — *operator only*
+
+| Command | Description |
+|---|---|
+| `/golive` | enable live trading (double confirmation) |
+| `/liveclose` | close one live position — /liveclose <id> |
+| `/autoconfirm` | view or set the auto-confirm threshold |
+| `/forcescan` | scan now, bypassing cooldown |
+| `/equitycurve` | equity-curve breaker status |
+| `/journal` | weekly trade journal (operator account) |
+| `/strategy` | active strategy and regime routing |
+| `/crossasset` | cross-asset correlation context |
+| `/gates` | per-gate pass/fail telemetry |
+| `/flags` | deep-audit opt-in flags |
+| `/shadow` | counterfactual shadow book |
+| `/audit` | nightly self-audit report |
+| `/parity` | live ↔ backtest parity |
+| `/attribution` | which indicators drive wins |
+| `/slippage` | slippage statistics |
+| `/accounts` | risk snapshot per account |
+| `/closeall` | flatten every open position |
+| `/drawdownlimit` | override the drawdown limit |
+| `/leverage` | the standard leverage |
+| `/venue` | show or switch the trading venue |
+
+### 👥 Users & access (operator) — *operator only*
+
+| Command | Description |
+|---|---|
+| `/users` | list registered users |
+| `/approve` | approve a user |
+| `/revoke` | revoke a user |
+| `/grant_live` | allow a user to trade live |
+| `/revoke_live` | restrict a user to paper |
+| `/set_tier` | change a user's tier |
+| `/setcap` | cap a user's margin |
+| `/weblive` | web live-trading readiness |
+| `/broadcast` | message all marketing channels |
+| `/channel` | manage channel auto-posting |
+
+### 🧠 LLM & yield (operator) — *operator only*
+
+| Command | Description |
+|---|---|
+| `/llmstatus` | current LLM provider and key fingerprint |
+| `/llmtiers` | multi-tier routing configuration |
+| `/llmab` | LLM shadow A/B report |
+| `/llmreset` | revert to .env LLM settings |
+| `/setllm` | switch LLM provider at runtime |
+| `/settier` | per-tier LLM routing |
+| `/ultra` | ULTRA admin routing |
+| `/setexchange` | repair exchange credentials |
+| `/setgateway` | repair the web gateway secret |
+| `/yield` | idle-asset yield radar (read-only) |
+| `/idleyield` | cross-source best-rate scan |
+| `/stake` | put idle stables into flexible Earn |
+| `/unstake` | redeem Earn back to trading margin |
+
+<!-- END generated: telegram commands -->
 
 ## Project Structure
 

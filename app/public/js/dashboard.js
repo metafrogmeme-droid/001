@@ -3519,6 +3519,23 @@
       }
       rows.push(`<div class="kv-row"><span>Max realized drawdown</span><b class="num">$${Math.abs(d.max_drawdown_usd).toFixed(2)}</b></div>`);
       rows.push(`<div class="kv-row"><span>Longest streaks</span><b class="num">${d.longest_win_streak}W / ${d.longest_loss_streak}L</b></div>`);
+      // Attribution — WHERE the net came from. Private surface, so the
+      // dollar figures are allowed; an absent bucket is simply not drawn and
+      // an unparseable hold time sits in its own "unknown" row rather than
+      // in whichever bucket a default would have chosen.
+      if (d.attribution) {
+        const at = d.attribution;
+        const money = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
+        const line = (name, b) => `<div class="kv-row"><span>${esc(name)} <span class="muted small">${b.trades} close${b.trades === 1 ? '' : 's'}${b.win_rate_pct == null ? '' : ` · ${b.win_rate_pct}% won`}</span></span><b class="num ${pnlClass(b.net_pnl_usd)}">${money(b.net_pnl_usd)}</b></div>`;
+        const head = (t) => `<p class="small muted" style="margin-top:var(--s2)">${t}</p>`;
+        const top = Object.entries(at.by_symbol || {})
+          .sort((x, y) => Math.abs(y[1].net_pnl_usd) - Math.abs(x[1].net_pnl_usd)).slice(0, 5);
+        if (top.length) rows.push(head('Where the net came from — by symbol') + top.map(([s, b]) => line(s, b)).join(''));
+        const dirs = Object.entries(at.by_direction || {});
+        if (dirs.length) rows.push(head('By direction') + dirs.map(([s, b]) => line(s, b)).join(''));
+        const holds = ['<1h', '1-4h', '4-24h', '1-7d', '>7d', 'unknown'].filter((k) => at.by_hold && at.by_hold[k]);
+        if (holds.length) rows.push(head('By hold time') + holds.map((k) => line(k === 'unknown' ? 'unknown hold' : k, at.by_hold[k])).join(''));
+      }
       return rows.join('')
         + `<p class="small muted" style="margin-top:var(--s2)">Over ${d.trades} recorded closes${d.skipped ? ` (${d.skipped} skipped — unusable rows are never guessed at)` : ''}.</p>`;
     }, { timeoutMs: 17000, empty: { icon: 'icon-sparkle', text: 'Intelligence appears after your first few closed trades.' } });

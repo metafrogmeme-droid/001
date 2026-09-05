@@ -122,7 +122,7 @@ test('the /flight page + route + nav are wired', () => {
   assert.match(server, /\/api\/public\/flight.*require\('\.\/routes\/public_flight'\)/);
   const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(index, /href="\/flight"/);
-  assert.match(index, /i18n\.js\?v=\d+/);
+  assert.match(index, /i18n(?:-core)?\.js\?v=\d+/);
 });
 
 test('guardian.js still shares the same inspectWindow (single source of truth)', () => {

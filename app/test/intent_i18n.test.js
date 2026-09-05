@@ -134,12 +134,12 @@ test('the page renders by id, with the model’s English as fallback', () => {
 test('i18n.js loads BEFORE the page script that renders at parse time', () => {
   // intent.html calls render() synchronously at the end of its IIFE — the
   // exact boot-order bug the escape page shipped with. Pin the ordering.
-  const i18nAt = page.indexOf('/js/i18n.js');
+  const i18nAt = page.indexOf('/js/i18n-core.js');
   const modelAt = page.indexOf('/js/intent-model.js');
   assert.ok(i18nAt > -1 && modelAt > -1);
   assert.ok(i18nAt < modelAt,
     'i18n.js is loaded after the page script — the only render paints English');
-  assert.equal((page.match(/\/js\/i18n\.js\?v=/g) || []).length, 1,
+  assert.equal((page.match(/\/js\/i18n(?:-core)?\.js\?v=/g) || []).length, 1,
     'the old trailing i18n tag is back alongside the new one');
 });
 

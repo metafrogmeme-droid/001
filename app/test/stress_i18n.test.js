@@ -83,12 +83,12 @@ test('the verdict emphasis survives translation-driven word order', () => {
 });
 
 test('i18n.js loads BEFORE the page script that renders at parse time', () => {
-  const i18nAt = page.indexOf('/js/i18n.js');
+  const i18nAt = page.indexOf('/js/i18n-core.js');
   const modelAt = page.indexOf('/js/stress-model.js');
   assert.ok(i18nAt > -1 && modelAt > -1);
   assert.ok(i18nAt < modelAt,
     'i18n.js is loaded after the page script — the only render paints English');
-  assert.equal((page.match(/\/js\/i18n\.js\?v=/g) || []).length, 1);
+  assert.equal((page.match(/\/js\/i18n(?:-core)?\.js\?v=/g) || []).length, 1);
 });
 
 test('the model stays English — it is also the MCP payload', () => {

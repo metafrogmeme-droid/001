@@ -53,7 +53,7 @@ test('both keys ship all 14 locales with their slots', () => {
       assert.ok((line.split(s).length - 1) >= 14, `${key}: ${s} in every locale`);
     }
   }
-  const m = index.match(/i18n\.js\?v=(\d+)/);
+  const m = index.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 84, 'buster >= 84');
 });
 

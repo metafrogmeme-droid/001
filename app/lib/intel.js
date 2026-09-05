@@ -22,6 +22,47 @@ const { pool } = require('../db');
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
+// ── Attribution ──────────────────────────────────────────────────────────────
+// WHERE the net came from: per symbol, per direction, per hold-time bucket.
+// Each bucket is counts plus its own net and win rate, keyed by NAME rather
+// than held in an array — publicIntel strips `_usd` fields through objects
+// and deliberately leaves arrays alone, so an array of buckets would have
+// walked the dollar figure onto the public wire.
+const HOLD_BUCKETS = ['<1h', '1-4h', '4-24h', '1-7d', '>7d', 'unknown'];
+
+function holdBucket(t) {
+  const a = Date.parse(t.opened_at);
+  const z = Date.parse(t.closed_at);
+  // An unparseable or inverted timestamp is COUNTED as unknown, never binned
+  // into whichever bucket a default would fall in.
+  if (!isFinite(a) || !isFinite(z) || z < a) return 'unknown';
+  const h = (z - a) / 3600000;
+  if (h < 1) return '<1h';
+  if (h < 4) return '1-4h';
+  if (h < 24) return '4-24h';
+  if (h < 168) return '1-7d';
+  return '>7d';
+}
+
+function bump(map, key, pnl) {
+  const b = map[key] || (map[key] = { trades: 0, wins: 0, losses: 0, net: 0 });
+  b.trades++;
+  if (pnl > 0) b.wins++; else if (pnl < 0) b.losses++;
+  b.net += pnl;
+}
+
+function finishBuckets(map) {
+  const out = {};
+  for (const [k, b] of Object.entries(map)) {
+    out[k] = {
+      trades: b.trades, wins: b.wins, losses: b.losses,
+      net_pnl_usd: round2(b.net),
+      win_rate_pct: b.trades ? round2(b.wins / b.trades * 100) : null,
+    };
+  }
+  return out;
+}
+
 /**
  * Pure. `trades`: closed-trade rows in chronological (closed_at ASC) order,
  * each with pnl, size_usd and optionally entry_price/exit_price/symbol.
@@ -36,11 +77,17 @@ function computeIntel(trades) {
   let priced = 0, alphaSum = 0, beat = 0;
   let bestAlpha = null, worstAlpha = null;
 
+  const bySymbol = {}, byDirection = {}, byHold = {};
+
   for (const t of trades || []) {
     const pnl = parseFloat(t.pnl);
     const size = parseFloat(t.size_usd);
     if (!isFinite(pnl) || !isFinite(size) || size <= 0) { skipped++; continue; }
     counted++;
+
+    bump(bySymbol, String(t.symbol || '').split('/')[0] || 'unknown', pnl);
+    bump(byDirection, String(t.direction || '').toUpperCase() || 'unknown', pnl);
+    bump(byHold, holdBucket(t), pnl);
 
     if (pnl > 0) {
       wins++; grossWin += pnl;
@@ -103,6 +150,13 @@ function computeIntel(trades) {
       best: bestAlpha,
       worst: worstAlpha,
     } : null,
+    // null on an empty history, like `alpha` — an empty attribution table is
+    // not a measurement of anything.
+    attribution: counted ? {
+      by_symbol: finishBuckets(bySymbol),
+      by_direction: finishBuckets(byDirection),
+      by_hold: finishBuckets(byHold),
+    } : null,
   };
 }
 
@@ -148,4 +202,4 @@ function publicIntel(intel) {
   return out;
 }
 
-module.exports = { computeIntel, loadIntelTrades, getUserIntel, publicIntel };
+module.exports = { computeIntel, loadIntelTrades, getUserIntel, publicIntel, HOLD_BUCKETS, holdBucket };

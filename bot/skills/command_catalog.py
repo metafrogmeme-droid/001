@@ -29,6 +29,13 @@ GROUPS: List[Group] = [
         ("leaderboard", "the verified board — ratios and counts, re-derivable"),
         ("arena", "paper arena — season standings and the live tape"),
         ("dashboard", "open the web dashboard"),
+        # Registered as module-level functions from user_middleware, which the
+        # catalogue check could not see for as long as it required `self.` —
+        # four working commands, undocumented and outside "exact, forever".
+        ("link", "link this Telegram to your website account — /link <token>"),
+        ("unlink", "disconnect this Telegram from your website account"),
+        ("me", "your account: plan, portfolio and settings"),
+        ("sync", "push your portfolio to the website dashboard now"),
         ("connect", "link your own exchange account"),
         ("exchange", "your linked-account status (never shows keys)"),
         ("livebalance", "your real exchange balance (your own account, read-only)"),
@@ -59,7 +66,7 @@ GROUPS: List[Group] = [
     ]),
     ("🔎 Scan & analyse", "user", [
         ("scan", "scan the market for setups"),
-        ("fullscan", "full 67-symbol scan"),
+        ("fullscan", "full scan of the whole universe"),
         ("deepscan", "deep scan with chart + candle patterns"),
         ("analyze", "deep-dive one coin — /analyze SOL"),
         ("alpha", "daily alpha insight card"),
@@ -330,6 +337,10 @@ GROUP_TITLES_ZH: Dict[str, str] = {
 
 DESC_ZH: Dict[str, str] = {
     "start": "註冊並查看目前狀態", "help": "本指令總覽", "dashboard": "開啟網頁儀表板",
+    "link": "將此 Telegram 連結到你的網站帳戶 — /link <token>",
+    "unlink": "解除此 Telegram 與網站帳戶的連結",
+    "me": "你的帳戶：方案、投資組合與設定",
+    "sync": "立即將投資組合推送到網站儀表板",
     "duel": "搶在代理之前判斷行情 — 免費、無賭注",
     "leaderboard": "已驗證排行榜 — 僅比率與次數，可重新驗算",
     "arena": "模擬競技場 — 賽季排名與即時成交紀錄",
@@ -346,7 +357,7 @@ DESC_ZH: Dict[str, str] = {
     "autoconfirm": "查看或設定自動確認門檻", "emergency_stop": "緊急停止（會先確認）",
     "pause": "暫停交易（啟動熔斷）", "resume": "恢復交易", "halt": "停止引擎",
     "reset": "重設熔斷器", "buy": "舊指令 — 請用 /trade buy", "sell": "舊指令 — 請用 /trade sell",
-    "scan": "掃描市場尋找機會", "fullscan": "完整 67 檔掃描", "deepscan": "含形態的深度掃描",
+    "scan": "掃描市場尋找機會", "fullscan": "完整掃描整個交易宇宙", "deepscan": "含形態的深度掃描",
     "forcescan": "立即掃描，略過冷卻", "analyze": "深入分析單一幣種 — /analyze SOL",
     "alpha": "每日 alpha 洞察卡", "research": "附出處的研究報告", "whynot": "為何某筆交易被拒",
     "token": "合約偵查 — /token 0x… [鏈]",

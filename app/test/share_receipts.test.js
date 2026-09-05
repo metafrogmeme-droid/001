@@ -28,7 +28,7 @@ test('the receipt page shares itself: TG, X and Warpcast, text without a single 
   const txt = page.match(/'A cryptographically sealed AI trading call[^']*'/)[0];
   assert.doesNotMatch(txt, /\d/, 'no numbers ride in the share text');
   // The script must run AFTER i18n so the text translates.
-  assert.ok(page.indexOf('/js/i18n.js') < page.indexOf("RCI18N.translate('cp.share_txt'"),
+  assert.ok(page.indexOf('/js/i18n-core.js') < page.indexOf("RCI18N.translate('cp.share_txt'"),
     'share links build after the dictionary loads');
 });
 

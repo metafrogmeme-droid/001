@@ -531,7 +531,11 @@ test('every swept page actually loads the localizer', () => {
   // cannot see the difference, so this is asserted separately.
   for (const page of Object.keys(SWEPT_PAGES)) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'public', page), 'utf8');
-    assert.match(src, /<script src="\/js\/i18n\.js\?v=\d+"><\/script>/, `${page} does not load i18n.js`);
+    // The core, not the source: pages load `i18n-core.js` (English + runtime)
+    // and one language chunk — see scripts/build_i18n.js. The source file is
+    // what THIS test requires; a page that loaded it would ship 1.9 MB.
+    assert.match(src, /<script src="\/js\/i18n-core\.js\?v=\d+"><\/script>/, `${page} does not load i18n-core.js`);
+    assert.doesNotMatch(src, /\/js\/i18n\.js(\?|")/, `${page} loads the whole dictionary`);
   }
 });
 

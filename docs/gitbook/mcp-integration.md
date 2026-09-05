@@ -22,14 +22,23 @@ RUNECLAW's internal skill registry maps directly to MCP tools. Each skill is a s
 
 | MCP Tool | Internal Skill | Description |
 |----------|---------------|-------------|
-| `runeclaw_scan` | `scan_market` | Scan Bitget markets for volume spikes and momentum signals |
-| `runeclaw_analyze` | `analyze_asset` | Run AI + technical analysis on a specific asset, generate trade idea |
-| `runeclaw_risk` | `check_risk` | Evaluate current risk status, circuit breaker, exposure limits |
-| `runeclaw_execute` | `execute_paper_trade` | Execute a confirmed paper trade |
-| `runeclaw_portfolio` | `get_portfolio` | Return current portfolio state (balance, equity, positions, PnL) |
-| `runeclaw_explain` | `explain_trade` | Return full decision chain for a specific trade idea |
-| `runeclaw_macro` | `macro_calendar` | Return macro event calendar and current risk state |
-| `runeclaw_backtest` | `run_backtest` | Run backtest with synthetic data and return metrics |
+| `runeclaw_scan` | `scan_market` | Scan the exchange for top movers and volume anomalies |
+| `runeclaw_analyze` | `analyze_asset` | Run AI + technical analysis on a specific asset, generate a trade idea |
+| `runeclaw_risk` | `check_risk` | Current risk metrics, drawdown and circuit-breaker status |
+| `runeclaw_portfolio` | `get_portfolio` | Paper-portfolio summary: balance, equity, win rate, PnL |
+| `runeclaw_explain` | `explain_trade` | Explain a pending or historical trade idea |
+| `runeclaw_macro` | `macro_calendar` | Macro-event calendar: current risk state and upcoming events |
+| `runeclaw_shield` | built in (`_shield_evaluate`) | Fail-closed risk checks on a caller-supplied trade proposal; the checks that ran are named in the reply |
+| `runeclaw_fullscan` | built in (`_fullscan`) | Ranked signals across the scan universe (`quick`, `deep`, `swing`, `scalp`) |
+| `runeclaw_backtest` | `run_backtest` | Backtest on synthetic data (`bars`, capped at 5000, and `seed`) |
+
+`runeclaw_execute` is deliberately absent, and this table used to list it. The
+catalogue's own comment says why: an execution tool reachable by any agent
+holding the MCP token turns `runeclaw_analyze` → execute into a fully
+autonomous loop. Re-enabling it is an operator decision, gated behind
+`MCP_ALLOW_EXECUTE=true` and caller auth. `tests/test_mcp_doc_matches_the_code.py`
+checks this table against `TOOL_CATALOGUE` row by row, so a tool added to one
+and not the other fails the build.
 
 ---
 

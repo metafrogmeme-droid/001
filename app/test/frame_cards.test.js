@@ -178,7 +178,7 @@ test('the trader page shares the record: share row after i18n, brand labels, hon
   const page = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '..', 'public', 'trader.html'), 'utf8');
   assert.match(page, /id="shWc"/);
-  assert.ok(page.indexOf('/js/i18n.js') < page.indexOf("RCI18N.translate('tp.share_txt'"),
+  assert.ok(page.indexOf('/js/i18n-core.js') < page.indexOf("RCI18N.translate('tp.share_txt'"),
     'share links build after the dictionary loads');
   const i18n = require('../public/js/i18n.js');
   for (const l of i18n.LANGS) {

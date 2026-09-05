@@ -57,6 +57,6 @@ test('both floor keys ship all 14 locales with both slots', () => {
       assert.ok(count >= 14, `${key}: slot ${s} in every locale (found ${count})`);
     }
   }
-  const m = escape.match(/i18n\.js\?v=(\d+)/);
+  const m = escape.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 80, 'i18n cache-buster >= 80');
 });
